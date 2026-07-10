@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、native window／message／pixel oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、fixed W2 loader ingress contract、Windows trace summary contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、native window／message／pixel oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、fixed W2 loader／module ingress contract、Windows trace summary contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -116,9 +116,9 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 
 合格条件は、valid fixture が expected module trace を返し、invalid fixture が host crash、panic、unbounded allocation を起こさず stable error class を返すことである。
 
-現在のW2 loader ingress representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。budget `3`でentryを実行し、最初の`kernel32.dll!GetModuleHandleA`をguest call site RVA `0x1004`付きの`unsupported-host-service`として停止した場合だけ成功する。source hash、IAT terminator、thunk ownership、executable call encoding、engine stop、cycle上限も同時に検証する。
+現在のW2 loader／module ingress representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。budget `3`でentryを実行し、`kernel32.dll!GetModuleHandleA(NULL)`へmain image baseを返し、1 DWORD argumentのstdcall cleanup後にresumeする。次の`user32.dll!RegisterClassExA`をguest call site RVA `0x103C`付きの`unsupported-host-service`として停止した場合だけ成功する。source hash、IAT terminator、thunk ownership、executable call encoding、engine stop、cycle上限も同時に検証する。
 
-これはpreferred-base固定のNode.js harnessであり、relocation、ordinal／export／forwarder、final protection、module graph、source provider差替え、guest stack trace、host API実装を検証しない。`P1-ABI-01`／`P1-DIAG-01`／`P2-PE-01`／`P2-PE-02`／`P2-PE-04`／`P2-PE-10`／`P2-DIAG-01`への限定したpartial evidenceであって、各task、`AC-P2-06`、`AC-P2`全体の完了ではない。
+これはpreferred-base固定のNode.js harnessであり、relocation、ordinal／export／forwarder、final protection、module graph、source provider差替え、guest stack trace、named-module lookup、LastError、general stdcall、`RegisterClassExA`実装を検証しない。`P1-ABI-01`／`P1-DIAG-01`／`P1-SCH-01`／`P2-PE-01`／`P2-PE-02`／`P2-PE-04`／`P2-PE-10`／`P2-WIN-02`／`P2-DIAG-01`への限定したpartial evidenceであって、各task、`AC-P1-03`、`AC-P2-03`、`AC-P2-04`、`AC-P2`全体の完了ではない。
 
 ### 5.4 CPU と ABI tests
 
@@ -136,6 +136,8 @@ CPU test vector は instruction encoding、initial register／flags／memory、e
 ABI fixture は stack に sentinel を置き、call 前後の ESP、callee／caller-saved register、return value、FPU state を比較する。cdecl、stdcall、thiscall、採用した fastcall、varargs、small／large structure、callback、nested callback、exception を別 case にする。
 
 現在の W1 representative contract は固定 `abi-smoke.exe` の cdecl host call、1段 callback、callback／entry sentinel、callee-saved register、stack balanceだけを検証する。result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5回をWindows native oracleと対応付けたが、他 calling convention、nested callback、exception、FPU ABI の代用にはしない。
+
+現在のW2 module ingressは`GetModuleHandleA(NULL)`の1 DWORD argument／32-bit returnだけをstdcallでresumeし、trap ESP `0x006FFFEC`からreturn addressとargumentの8 bytesをpopして`0x006FFFF4`とする。host boundaryではcallee-saved registerを保持し、その後guest自身がESIへmodule baseを書き込むことと、entry prologueが保存した元ESI／EDIをstack上に維持することを検証する。これは他signature、invalid stack、thiscall／fastcall、full entry returnの代用にはしない。
 
 最適化 engine は reference path と instruction boundary または basic block boundary の state hash を比較できるようにする。
 

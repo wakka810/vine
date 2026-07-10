@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／native ABI oracle／W1 fixed runtime slice／W2 native window fixture／W2 loader ingressはVerified。visual／method-level coverageはIn discovery
+- ステータス: W0／native ABI oracle／W1 fixed runtime slice／W2 native window fixture／W2 loader／module ingressはVerified。visual／method-level coverageはIn discovery
 - 取得日: 2026-07-10
-- 完了 checkpoint: `W0`、`W1`、`W2 native fixture`、`W2 loader ingress`、`P0-COR-04` の最初のnative sample
-- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-04`、`P2-PE-10`、`P2-DIAG-01`、`P6D-COR-01`、`P6D-COR-02`
+- 完了 checkpoint: `W0`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`P0-COR-04` の最初のnative sample
+- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
 raw JSONL、local summary、game file、absolute trace pathはGitに追加しない。summaryはabsolute title／system pathとPIDを保持するlocal-sensitive artifactであり、共有用に正規化されたmanifestではない。本書は同じraw traceから再生成できる小さなredacted resultだけを記録する。
@@ -292,7 +292,7 @@ WM_CREATE
 
 このoracleはWindows上のstdcall WndProc、queued message、GDI pixel call、cleanup順を固定する。Vine内のstdcall gateway、logical HWND／DC、message scheduler、host surface、browser presentation、物理的に見えるpixelはまだ検証していない。W2 runtime、W3 first frame、`P4-*`、`AC-P4`の完了とは扱わない。
 
-## 8. W2 loader ingress result
+## 8. W2 loader／module ingress result
 
 `tools/run-runtime-window-loader-slice.mjs`は`window-pixel.exe`を一度だけimmutable bufferへ読み、size `4,096`とSHA-256 `ad8f4a0bddd759ac52b18119e60838c3ad13d29994449f38b0393fdedde454e9`をadapter初期化前に固定する。DOS／COFF／PE32 header、4 section、3 import descriptor、13 named import、IAT directoryをchecked rangeでparseし、map後にもsource hashが不変であることを検証する。adapter WasmはW1と同じsize、hash、import／export countへ固定する。
 
@@ -302,30 +302,42 @@ WM_CREATE
 
 ```text
 npm run check:runtime:window-loader
-runtime window loader slice passed: imports=13,
-stop=unsupported-host-service, service=kernel32.dll!GetModuleHandleA,
-call=0x401004, budget stops=1, instructions=5
+runtime window module ingress passed: imports=13,
+implemented-variant=kernel32.dll!GetModuleHandleA(NULL),
+stop=user32.dll!RegisterClassExA, call=0x40103c,
+budget stops=4, instructions=15
 ```
 
-entry `0x00401000`からinstruction budget `3`で実行すると、`push edi`、`push esi`、`push 0`の後、call直前`0x00401004`／ESP `0x006FFFF0`で1回budget stopする。次のsliceはIAT `0x004020C0`経由でthunk `0x00500000`へ入り、faulting `UD2` attemptを含む累積5命令でstop reason `0x106`、error code `-1`となった。thunk時のESPは`0x006FFFEC`、return addressは`0x0040100A`、最初のraw stack argumentは`NULL`である。host serviceは成功値を返さず、guestをresumeしない。
+entry `0x00401000`からinstruction budget `3`で実行すると、`push edi`、`push esi`、`push 0`の後、call直前`0x00401004`／ESP `0x006FFFF0`で1回budget stopする。次のsliceはIAT `0x004020C0`経由でthunk `0x00500000`へ入り、stop reason `0x106`、error code `-1`、ESP `0x006FFFEC`、return `0x0040100A`、argument `NULL`を得る。
 
-call siteはreturn addressから無条件に逆算しない。直前6 bytesが`FF 15 C0 20 40 00`であり、absolute operandが到達thunkを指すIAT slotと一致し、requester imageのexecutable section内にあることを検証してから次の診断を構築する。
+fixed main module identityはname、preferred-base address、image size、source hashを持ち、partial variant `GetModuleHandleA(NULL)`はそのbase `0x00400000`をEAXへ返す。1 DWORD argumentのstdcallとしてreturn addressとargumentの8 bytesをpopし、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x0040100A`へstateをrestoreする。restore直後のstateを再saveしてEBX／EBP／ESI／EDI不変と更新したEAX／ESP／EIPを検証し、その後guest自身がESIへmodule baseを書き込む。
+
+resume後はbudget stop `0x00401014`、`0x0040102D`、owned thunk `0x005000A0`を経て、累積15命令で`RegisterClassExA`の`UD2`を停止する。owned thunk上のbudget stopはdispatchせず、次sliceでstop reasonとowned EIPが一致した時だけserviceとして分類する。guestが到達時までに書いたraw witnessは`WNDCLASSEXA.cbSize=48`、WndProc `0x00401260`、hInstance `0x00400000`、class-name pointer `0x00402000`である。これはstructure marshallingまたはclass登録の実装ではない。
+
+各call siteはreturn addressから無条件に逆算しない。直前6 bytesが`FF 15 <absolute IAT>`であり、operandが到達thunkを指すIAT slotと一致し、requester imageのexecutable section内にあることを検証する。最初のservice eventと次のdiagnosticは次である。
 
 ```text
-kind:                unsupported-host-service
-requester:           window-pixel.exe
-module:              kernel32.dll
-symbol:              GetModuleHandleA
-guest call VA / RVA: 0x00401004 / 0x1004
-return VA / RVA:     0x0040100A / 0x100A
-IAT VA / RVA:        0x004020C0 / 0x20C0
-thunk VA:            0x00500000
-engine stop / error: 0x106 / -1
+kind:                  host-service-return
+module / symbol:       kernel32.dll / GetModuleHandleA
+variant / status:      module-name-null / partial
+call / return VA:      0x00401004 / 0x0040100A
+argument / result:     NULL / 0x00400000
+calling convention:    stdcall, argument bytes 4
+stack before / after:  0x006FFFEC / 0x006FFFF4
+
+kind:                  unsupported-host-service
+module / symbol:       user32.dll / RegisterClassExA
+guest call VA / RVA:   0x0040103C / 0x103C
+return VA / RVA:       0x00401042 / 0x1042
+IAT VA / RVA:          0x004020EC / 0x20EC
+thunk VA:              0x005000A0
+stack / argument:      0x006FFFEC / 0x00403004
+engine stop / error:   0x106 / -1
 ```
 
-これはimport解決後の最初のhost dispatch attemptを分類する`W2 loader ingress`であり、unresolved import testではない。`P1-ABI-01`／`P1-DIAG-01`／`P2-PE-01`／`P2-PE-02`／`P2-PE-04`／`P2-PE-10`／`P2-DIAG-01`への限定したpartial evidenceである。relocation、ordinal／export／forwarder、final protection、module graph、mutable backing replacement、guest stack trace、`GetModuleHandleA`実装、stdcall cleanup、logical HWND、message、paint、browser presentationは未検証であり、各task、`AC-P2-06`、`AC-P2`、W2 runtimeの完了とは扱わない。
+これは13 import解決後の`GetModuleHandleA(NULL)` 1 variantと、successful serviceから次failureまでを分類するW2 loader／module ingressである。`P1-ABI-01`／`P1-DIAG-01`／`P1-SCH-01`／`P2-PE-01`／`P2-PE-02`／`P2-PE-04`／`P2-PE-10`／`P2-WIN-02`／`P2-DIAG-01`への限定したpartial evidenceである。relocation、ordinal／export／forwarder、final protection、module graph、mutable backing replacement、guest stack trace、named-module lookup、failure／LastError、general stdcall、`RegisterClassExA`、logical HWND、message、paint、browser presentationは未検証であり、各task、`AC-P1-03`、`AC-P2-03`、`AC-P2-04`、`AC-P2`、W2 runtimeの完了とは扱わない。
 
-次のprimary actionは`GetModuleHandleA(NULL)`をlogical main module handleへ解決してstdcall規則でguestをresumeし、同じfixed imageの`RegisterClassExA` call siteまで進めることである。
+次のprimary actionは`RegisterClassExA`の48-byte structureとbounded class nameをchecked readし、logical class／nonzero ATOMを登録してstdcall resume後の`CreateWindowExA` call siteまで進めることである。
 
 ## 9. Remaining trace work
 

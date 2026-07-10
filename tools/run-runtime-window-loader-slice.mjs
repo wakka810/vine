@@ -531,6 +531,12 @@ const resolvedImports = pe.imports.map((imported, index) => {
 });
 assert.equal(resolvedImports.length, 13);
 assert.equal(ownedServices.size, 13);
+const mainModule = Object.freeze({
+  name: expectedExe.fileName,
+  baseAddress: pe.imageBase,
+  imageSize: pe.sizeOfImage,
+  sha256: sourceHash,
+});
 for (const service of resolvedImports) {
   assert.equal(
     readGuestU32(service.iatAddress, `${service.symbol} patched IAT`),
@@ -621,43 +627,46 @@ const saveState = (reason) => {
       true,
     ),
     words,
+    eax: words[savedStateWord.eax],
     esp: words[savedStateWord.esp],
     eip: words[savedStateWord.instructionPointer],
     previousEip: words[savedStateWord.previousInstructionPointer],
   };
 };
-const assertCalleeSaved = (words) => {
+const resume = (state, { eax = state.eax, esp, eip }) => {
+  const preserved = new Map(
+    [
+      savedStateWord.ebx,
+      savedStateWord.ebp,
+      savedStateWord.esi,
+      savedStateWord.edi,
+    ].map((index) => [index, state.words[index]]),
+  );
+  state.words[savedStateWord.eax] = eax >>> 0;
+  state.words[savedStateWord.esp] = esp >>> 0;
+  state.words[savedStateWord.instructionPointer] = eip >>> 0;
+  state.words[savedStateWord.previousInstructionPointer] = eip >>> 0;
+  assert.equal(wasm.vine_cpu_state_restore(), 0);
+  wasm.vine_cpu_state_save();
+  const restoredWords = new Uint32Array(
+    wasm.memory.buffer,
+    wasm.vine_cpu_state_ptr(),
+    wasm.vine_cpu_state_size() / 4,
+  );
+  assert.equal(restoredWords[savedStateWord.eax], eax >>> 0);
+  assert.equal(restoredWords[savedStateWord.esp], esp >>> 0);
+  assert.equal(restoredWords[savedStateWord.instructionPointer], eip >>> 0);
+  assert.equal(restoredWords[savedStateWord.previousInstructionPointer], eip >>> 0);
+  for (const [index, value] of preserved) {
+    assert.equal(restoredWords[index], value);
+  }
+};
+const assertInvariantRegisters = (words) => {
   assert.equal(words[savedStateWord.ebx], calleeSaved.ebx);
   assert.equal(words[savedStateWord.ebp], calleeSaved.ebp);
-  assert.equal(words[savedStateWord.esi], calleeSaved.esi);
   assert.equal(words[savedStateWord.edi], calleeSaved.edi);
 };
-
-const budgetEvents = [];
-let diagnostic = null;
-let finalState = null;
-for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
-  const reason = wasm.vine_execute_budget(guest.instructionBudget);
-  const state = saveState(reason);
-  assertCalleeSaved(state.words);
-
-  if (reason === stopReason.budget) {
-    budgetEvents.push({ eip: state.eip, esp: state.esp });
-    continue;
-  }
-
-  assert.equal(
-    reason,
-    stopReason.invalidOpcode,
-    `unexpected stop reason 0x${reason.toString(16)} at 0x${state.eip.toString(16)}`,
-  );
-  assert.equal(state.errorCode, -1);
-  assert.notEqual(state.eip, guest.entryReturn, "fixture returned before host dispatch");
-  const service = ownedServices.get(state.eip);
-  assert(service, `#UD at unowned guest address 0x${state.eip.toString(16)}`);
-  assert.equal(state.previousEip, state.eip);
-  assert.equal(state.esp, 0x006fffec);
-
+const decodeImportCall = (state, service) => {
   const returnAddress = readGuestU32(state.esp, "host service return address");
   const callInstructionSize = 6;
   const callSite = returnAddress - callInstructionSize;
@@ -682,7 +691,85 @@ for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
     readGuestU32(service.iatAddress, "guest import call resolved IAT"),
     service.thunkAddress,
   );
-  assert.equal(readGuestU32(state.esp + 4, "GetModuleHandleA argument"), 0);
+  return { callSite, returnAddress };
+};
+
+const budgetEvents = [];
+const implementedServiceEvents = [];
+let diagnostic = null;
+let finalState = null;
+for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
+  const reason = wasm.vine_execute_budget(guest.instructionBudget);
+  const state = saveState(reason);
+  assertInvariantRegisters(state.words);
+
+  if (reason === stopReason.budget) {
+    budgetEvents.push({
+      eip: state.eip,
+      esp: state.esp,
+      esi: state.words[savedStateWord.esi],
+    });
+    continue;
+  }
+
+  assert.equal(
+    reason,
+    stopReason.invalidOpcode,
+    `unexpected stop reason 0x${reason.toString(16)} at 0x${state.eip.toString(16)}`,
+  );
+  assert.equal(state.errorCode, -1);
+  assert.notEqual(state.eip, guest.entryReturn, "fixture returned before host dispatch");
+  const service = ownedServices.get(state.eip);
+  assert(service, `#UD at unowned guest address 0x${state.eip.toString(16)}`);
+  assert.equal(state.previousEip, state.eip);
+  assert.equal(state.esp, 0x006fffec);
+
+  const { callSite, returnAddress } = decodeImportCall(state, service);
+
+  const isGetModuleHandleA =
+    service.module === "kernel32.dll" && service.symbol === "GetModuleHandleA";
+  const moduleName = isGetModuleHandleA
+    ? readGuestU32(state.esp + 4, "GetModuleHandleA module name")
+    : null;
+  if (isGetModuleHandleA && moduleName === 0) {
+    assert.equal(implementedServiceEvents.length, 0, "GetModuleHandleA repeated");
+    assert.equal(state.words[savedStateWord.esi], calleeSaved.esi);
+    const argumentBytes = 4;
+    const resumeEsp = state.esp + 4 + argumentBytes;
+    assert.equal(readGuestU32(resumeEsp, "saved entry ESI"), calleeSaved.esi);
+    implementedServiceEvents.push({
+      kind: "host-service-return",
+      requester: service.requester,
+      module: service.module,
+      symbol: service.symbol,
+      variant: "module-name-null",
+      implementationStatus: "partial",
+      guestCallSite: callSite,
+      guestCallSiteRva: callSite - pe.imageBase,
+      guestReturnAddress: returnAddress,
+      guestReturnRva: returnAddress - pe.imageBase,
+      iatAddress: service.iatAddress,
+      iatRva: service.iatRva,
+      thunkAddress: service.thunkAddress,
+      callingConvention: "stdcall",
+      argumentBytes,
+      arguments: [moduleName],
+      result: mainModule.baseAddress,
+      stackPointerBefore: state.esp,
+      stackPointerAfter: resumeEsp,
+    });
+    resume(state, {
+      eax: mainModule.baseAddress,
+      esp: resumeEsp,
+      eip: returnAddress,
+    });
+    continue;
+  }
+
+  if (implementedServiceEvents.length === 1) {
+    assert.equal(state.eax, mainModule.baseAddress);
+    assert.equal(state.words[savedStateWord.esi], mainModule.baseAddress);
+  }
 
   diagnostic = {
     kind: "unsupported-host-service",
@@ -705,31 +792,67 @@ for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
 
 assert(diagnostic, "runtime loader slice did not reach an owned host service thunk");
 assert(finalState);
-assert.deepEqual(budgetEvents, [{ eip: 0x00401004, esp: 0x006ffff0 }]);
-assert.equal(finalState.instructionCount, 5);
+assert.deepEqual(budgetEvents, [
+  { eip: 0x00401004, esp: 0x006ffff0, esi: calleeSaved.esi },
+  { eip: 0x00401014, esp: 0x006ffff4, esi: mainModule.baseAddress },
+  { eip: 0x0040102d, esp: 0x006ffff4, esi: mainModule.baseAddress },
+  { eip: 0x005000a0, esp: 0x006fffec, esi: mainModule.baseAddress },
+]);
+assert.equal(finalState.instructionCount, 15);
+assert.deepEqual(implementedServiceEvents, [
+  {
+    kind: "host-service-return",
+    requester: "window-pixel.exe",
+    module: "kernel32.dll",
+    symbol: "GetModuleHandleA",
+    variant: "module-name-null",
+    implementationStatus: "partial",
+    guestCallSite: 0x00401004,
+    guestCallSiteRva: 0x1004,
+    guestReturnAddress: 0x0040100a,
+    guestReturnRva: 0x100a,
+    iatAddress: 0x004020c0,
+    iatRva: 0x20c0,
+    thunkAddress: 0x00500000,
+    callingConvention: "stdcall",
+    argumentBytes: 4,
+    arguments: [0],
+    result: 0x00400000,
+    stackPointerBefore: 0x006fffec,
+    stackPointerAfter: 0x006ffff4,
+  },
+]);
 assert.deepEqual(diagnostic, {
   kind: "unsupported-host-service",
   requester: "window-pixel.exe",
-  module: "kernel32.dll",
-  symbol: "GetModuleHandleA",
-  guestCallSite: 0x00401004,
-  guestCallSiteRva: 0x1004,
-  guestReturnAddress: 0x0040100a,
-  guestReturnRva: 0x100a,
-  iatAddress: 0x004020c0,
-  iatRva: 0x20c0,
-  thunkAddress: 0x00500000,
+  module: "user32.dll",
+  symbol: "RegisterClassExA",
+  guestCallSite: 0x0040103c,
+  guestCallSiteRva: 0x103c,
+  guestReturnAddress: 0x00401042,
+  guestReturnRva: 0x1042,
+  iatAddress: 0x004020ec,
+  iatRva: 0x20ec,
+  thunkAddress: 0x005000a0,
   engineStopReason: stopReason.invalidOpcode,
   engineErrorCode: -1,
   stackPointer: 0x006fffec,
 });
-assert.equal(readGuestU32(0x00403004, "unreached window class size"), 0);
+assert.equal(readGuestU32(finalState.esp + 4, "RegisterClassExA argument"), 0x00403004);
+assert.equal(readGuestU32(0x00403004, "window class size"), 48);
+assert.equal(readGuestU32(0x0040300c, "window procedure"), 0x00401260);
+assert.equal(readGuestU32(0x00403018, "window class instance"), mainModule.baseAddress);
+assert.equal(readGuestU32(0x0040302c, "window class name"), 0x00402000);
+assert.equal(readGuestU32(0x006ffff4, "saved entry ESI"), calleeSaved.esi);
+assert.equal(readGuestU32(0x006ffff8, "saved entry EDI"), calleeSaved.edi);
+assert.equal(readGuestU32(0x006ffffc, "entry return sentinel"), guest.entryReturn);
 assert.deepEqual(Object.keys(hostImportCalls), ["microtick"]);
 assert(hostImportCalls.microtick > 0);
 
 console.log(
-  `runtime window loader slice passed: imports=${resolvedImports.length}, ` +
-    `stop=${diagnostic.kind}, service=${diagnostic.module}!${diagnostic.symbol}, ` +
+  `runtime window module ingress passed: imports=${resolvedImports.length}, ` +
+    `implemented-variant=${implementedServiceEvents[0].module}!${implementedServiceEvents[0].symbol}(NULL), ` +
+    `stop=${diagnostic.module}!${diagnostic.symbol}, ` +
     `call=0x${diagnostic.guestCallSite.toString(16)}, ` +
     `budget stops=${budgetEvents.length}, instructions=${finalState.instructionCount}`,
 );

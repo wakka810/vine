@@ -193,12 +193,12 @@ Verified behavior:
 - CPL0 halt reason
 - GPR、flags、segment／control state、x87、XMM／MXCSR の save／reset／restore／resume 1 sequence
 - fixed T1 image の PE32 section map、IAT thunk、cdecl host call、1 段 guest callback、return sentinel
-- fixed W2 image の3 DLL／13 IAT thunk、bounded entry execution、first unsupported host service診断
+- fixed W2 image の3 DLL／13 IAT thunk、`GetModuleHandleA(NULL)`、1引数stdcall resume、次host service診断
 
 未検証または未実装:
 
 - sparse guest memory と page ownership
-- stdcall／thiscall／fastcall、nested callback、SEH と production ABI gateway
+- general stdcall／thiscall／fastcall、nested callback、SEH と production ABI gateway
 - Chromium Worker integration
 - broad ISA correctness と target workload performance
 - optimized execution path
@@ -223,8 +223,9 @@ Verified behavior:
 12. fixed `abi-smoke.exe` を 8 MiB identity memory へ map し、runtime-owned thunk、cdecl host service、guest callback、budget yield、return sentinel を通す W1 contract。
 13. SDK 非依存で再現生成する PE32 Win32 window／message／pixel fixture と native self-oracle。
 14. fixed `window-pixel.exe`をmapし、全13 importをowned thunkへ解決して最初のhost serviceを構造化するW2 loader ingress contract。
+15. `GetModuleHandleA(NULL)`をlogical main moduleへ解決し、1引数stdcallでguestをresumeして`RegisterClassExA`を構造化するW2 module ingress contract。
 
-2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。同じfixed imageを使うW2 loader ingressは3 DLL／13 importをowned thunkへ解決し、guest call site `0x00401004`の`kernel32.dll!GetModuleHandleA`を最初のunsupported host serviceとして停止した。詳細は `docs/windows-native-evidence.md` を参照する。W1／W2 loader ingressはNode.js上の固定harness、W2 fixtureはnative Windows oracleであり、Chrome execution smokeは未実施である。
+2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。同じfixed imageを使うW2 loader／module ingressは3 DLL／13 importをowned thunkへ解決し、`kernel32.dll!GetModuleHandleA(NULL)`へmain image baseを返してguestをstdcall resumeした後、guest call site `0x0040103C`の`user32.dll!RegisterClassExA`を次のunsupported host serviceとして停止した。詳細は `docs/windows-native-evidence.md` を参照する。W1／W2 ingressはNode.js上の固定harness、W2 fixtureはnative Windows oracleであり、Chrome execution smokeは未実施である。
 
 まだ存在しないもの:
 
@@ -232,12 +233,12 @@ Verified behavior:
 - production guest memory と PE／DLL loader
 - broad calling convention、nested callback、SEH を扱う production ABI gateway
 - scheduler／Runtime Worker
-- Win32 API compatibility implementation
+- production／general Win32 API compatibility implementation
 - browser application
 - graphics、audio、storage backend
 - BGI.exe を Vine 内で load／executeした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle、fixed W2 loader ingressである。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle、fixed W2 loader／module ingressである。
 
 ## 8. Corpus
 
@@ -301,22 +302,22 @@ npm run check:runtime:abi
 npm run check:runtime:window-loader
 ```
 
-`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`と`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI contractとW2 loader ingress contractを実行する。source adapterを使うこれらのcheckpointは通常の`npm run check`には含めない。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`と`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI contractとW2 loader／module ingress contractを実行する。source adapterを使うこれらのcheckpointは通常の`npm run check`には含めない。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixture、W2 loader ingressは 2026-07-10 に完了した。8 MiB low-address contiguous mapping は測定値であり、sparse 4 GiB memory や page ownership の決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixture、W2 loader／module ingressは 2026-07-10 に完了した。8 MiB low-address contiguous mapping は測定値であり、sparse 4 GiB memory や page ownership の決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. `GetModuleHandleA(NULL)`をlogical main module handleへ解決し、stdcall return／cleanupでguestをresumeして最初の`RegisterClassExA` call siteまで進める。
-2. `WNDCLASSEXA`をchecked readしてguest WndProcを登録し、logical HWND、show／invalidate、message queueをsingle-thread bounded modelで通す。
-3. stdcall WndProc callback、`BeginPaint`／`EndPaint`、test-only pixel command、destroy／quitをnative event oracleと比較する。
+1. `RegisterClassExA`の48-byte `WNDCLASSEXA`とbounded class nameをchecked readし、logical class／nonzero ATOMを登録してstdcall resume後の`CreateWindowExA`まで進める。
+2. `CreateWindowExA`の12 argumentsとclass lookupを検査し、logical HWNDとguest WndProcの`WM_CREATE` callback round-tripを通す。
+3. show／invalidate、message queue／dispatch、paint、destroy／quitをnative event oracleと比較する。
 4. 次の subsystem-focused native trace 前に caller module＋RVA、call ID／parent call ID、last error、duration を追加し、選んだ vtable だけを観測する。
 5. high-address mapping と page fault／protectionを別 fixtureで測り、v86 paging と独自 sparse memory案を比較する。
 6. BGI.exe を production loader 候補へ投入し、first unsupported import／bootstrap pointまで進める。
 
-項目1が次の primary implementation checkpointである。W2 loader ingressの成功をstdcall gateway、Win32 runtime、logical windowの完成と扱わず、graphics／audio subsystemを同時に開始しない。
+項目1が次の primary implementation checkpointである。W2 module ingressの成功をgeneral stdcall gateway、class registration、Win32 runtime、logical windowの完成と扱わず、graphics／audio subsystemを同時に開始しない。
 
 ## 11. Major Open Questions
 
@@ -376,7 +377,7 @@ Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE
 | `docs/x86-engine-scorecard.md` | engine comparison、v86 evidence、remaining gates |
 | `docs/toolchain-spike.md` | LLVM PE／Wasm fixture baseline |
 | `docs/windows-development.md` | Windows bring-up、trace、checkpoint commands |
-| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、W1 runtime、W2 native fixture／loader ingress |
+| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、W1 runtime、W2 native fixture／loader／module ingress |
 | `spikes/x86-engine/README.md` | v86 source adapter reproduction |
 
 文書内の長い test／task listは将来coverageの地図であり、今すぐ全件実装する指示ではない。本書のactive queueと「広く浅く、代表test 1本」を優先する。
