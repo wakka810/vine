@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、Windows trace summary contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、native window／message／pixel oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、Windows trace summary contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -165,6 +165,8 @@ API count だけを coverage としない。status ごとに implementation vari
 crash consistency test は commit の各 injection point で process／Worker kill を模擬し、再起動後に旧状態または新状態のどちらか一方が完全に読めることを確認する。
 
 ### 5.7 Window、message、input tests
+
+現在のW2 native oracleは関連eventだけを`WM_CREATE -> WM_PAINT -> WM_DESTROY`としてexactに記録し、queued `WM_PAINT`の`GetMessageA`／`DispatchMessageA`経由、BeginPaint／SetPixel／EndPaint、destroy／quit、exit code `0`を自己検証する。可変な補助messageは順序contractに含めない。これはWindows oracleであり、Vineのlogical HWND、host surface、browser presentation、`AC-P4`の証明ではない。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch

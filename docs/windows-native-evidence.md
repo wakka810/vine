@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／最初のnative oracle／W1 fixed runtime sliceはVerified。visual／method-level coverageはIn discovery
+- ステータス: W0／native ABI oracle／W1 fixed runtime slice／W2 native window fixtureはVerified。visual／method-level coverageはIn discovery
 - 取得日: 2026-07-10
-- 完了 checkpoint: `W0`、`W1`、`P0-COR-04` の最初のnative sample
-- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-03`、`P1-SCH-01`、`P1-QA-01`、`P6D-COR-01`、`P6D-COR-02`
+- 完了 checkpoint: `W0`、`W1`、`W2 native fixture`、`P0-COR-04` の最初のnative sample
+- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-03`、`P1-SCH-01`、`P1-QA-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
 raw JSONL、local summary、game file、absolute trace pathはGitに追加しない。summaryはabsolute title／system pathとPIDを保持するlocal-sensitive artifactであり、共有用に正規化されたmanifestではない。本書は同じraw traceから再生成できる小さなredacted resultだけを記録する。
@@ -252,7 +252,46 @@ memory measurement は、image `[0x00400000, 0x00405000)`、trap page `[0x005000
 
 W1 は Node.js 24 の WebAssembly runtime 上の fixed harness である。production Rust／TypeScript workspace、DLL lifecycle、stdcall／thiscall、nested callback、SEH、wait／wake、async scheduler、Runtime Worker、Chrome main-thread responsivenessを証明しない。
 
-## 7. Remaining trace work
+## 7. W2 native window／message／pixel oracle
+
+`fixtures/pe32/window-pixel/` はWindows SDK header／libraryを使わないfreestanding i386 fixtureである。tracked DEFから`llvm-dlltool -m i386 -k`でimport libraryを生成し、Clang／LLDだけでGUI EXEへlinkする。使用した`llvm-dlltool.exe`のSHA-256は`80934e8f208a0cc2a87a6057f871d0f492461952b8672464749a6c3dff34109c`で、LLVM suiteは22.1.8である。
+
+| Property | Fixed result |
+|---|---|
+| Artifact | `window-pixel.exe`、4,096 bytes |
+| SHA-256 | `ad8f4a0bddd759ac52b18119e60838c3ad13d29994449f38b0393fdedde454e9` |
+| Format | PE32／i386、GUI subsystem、preferred base `0x00400000` |
+| Image | entry `0x00401000`、WndProc `0x00401260`、size `0x5000`、headers `0x400` |
+| Import／IAT | directory RVA `0x2030`、IAT RVA `0x20C0`、size `0x40` |
+| Sections | `.text` RVA `0x1000`／VS `0x409`、`.rdata` `0x2000`／`0x1F8`、`.data` `0x3000`／`0xCC`、`.reloc` `0x4000`／`0xB8` |
+
+exact import manifest:
+
+```text
+kernel32.dll: GetModuleHandleA
+user32.dll: BeginPaint, CreateWindowExA, DefWindowProcA, DestroyWindow,
+            DispatchMessageA, EndPaint, GetMessageA, InvalidateRect,
+            PostQuitMessage, RegisterClassExA, ShowWindow
+gdi32.dll:   SetPixel
+```
+
+このうち`SetPixel`以外の12 symbolはprimary fingerprintのBGI.exeにもstatic importとして存在する。`SetPixel`はfirst pixel commandを明確にするtest-only APIであり、このfixtureからBGIのGDI requirementへ昇格しない。
+
+fixtureはx86 scalar、pointer、`WNDCLASSEXA`、`MSG`、`PAINTSTRUCT`のsize／field offsetをcompile-timeに検査する。160x120 windowを作り、補助messageを無視して関連eventだけを次の順で記録する。
+
+```text
+WM_CREATE
+  -> queued WM_PAINT via GetMessageA / DispatchMessageA
+  -> BeginPaint -> SetPixel(1, 1, red) -> EndPaint
+  -> DestroyWindow -> WM_DESTROY -> PostQuitMessage(0)
+  -> GetMessageA returns 0 with WM_QUIT
+```
+
+各event／API count、pixel return、event順、quit codeが一致した場合だけentryが`0`を返す。runnerはnative processを10秒で停止し、paintを抑止する`windowsHide`を使わない。`npm run check:toolchain`はnative exit code `0`をreportへ記録し、追加の5回連続実行もすべてexit code `0`、初回約100ms、以降約41～43msだった。
+
+このoracleはWindows上のstdcall WndProc、queued message、GDI pixel call、cleanup順を固定する。Vine内のstdcall gateway、logical HWND／DC、message scheduler、host surface、browser presentation、物理的に見えるpixelはまだ検証していない。W2 runtime、W3 first frame、`P4-*`、`AC-P4`の完了とは扱わない。
+
+## 8. Remaining trace work
 
 次の subsystem-focused native trace 前に、caller module＋RVA、call ID／parent call ID、leave の last error／durationをschemaへ加える。trace runnerは今回のcapture後にtarget hash／tool version／options／stop reasonの記録と既存outputの上書き拒否を追加済みであり、次回captureから適用される。
 

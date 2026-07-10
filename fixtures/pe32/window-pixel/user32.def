@@ -1,0 +1,13 @@
+LIBRARY user32.dll
+EXPORTS
+  BeginPaint@8
+  CreateWindowExA@48
+  DefWindowProcA@16
+  DestroyWindow@4
+  DispatchMessageA@4
+  EndPaint@8
+  GetMessageA@16
+  InvalidateRect@12
+  PostQuitMessage@4
+  RegisterClassExA@4
+  ShowWindow@8

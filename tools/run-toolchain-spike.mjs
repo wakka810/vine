@@ -8,14 +8,21 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = path.join(root, ".work", "toolchain-spike");
 
-const run = (command, args) => {
+const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: options.timeoutMs,
+    windowsHide: options.windowsHide ?? false,
   });
 
   if (result.error) {
+    if (result.error.code === "ETIMEDOUT") {
+      throw new Error(
+        `${command} ${args.join(" ")} timed out after ${options.timeoutMs} ms`,
+      );
+    }
     throw new Error(`${command} could not start: ${result.error.message}`);
   }
   if (result.status !== 0) {
@@ -43,6 +50,35 @@ const artifact = (file) => ({
   bytes: fs.statSync(file).size,
   sha256: sha256(file),
 });
+const parseCoffImports = (inspection) => {
+  const imports = [];
+  let current = null;
+  for (const rawLine of inspection.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === "Import {") {
+      if (current !== null) {
+        throw new Error("nested COFF import block");
+      }
+      current = { module: null, symbols: [] };
+    } else if (current !== null && line.startsWith("Name: ")) {
+      current.module = line.slice("Name: ".length);
+    } else if (current !== null && line.startsWith("Symbol: ")) {
+      current.symbols.push(
+        line.slice("Symbol: ".length).replace(/ \(\d+\)$/, ""),
+      );
+    } else if (current !== null && line === "}") {
+      if (current.module === null) {
+        throw new Error("COFF import block has no module name");
+      }
+      imports.push(current);
+      current = null;
+    }
+  }
+  if (current !== null) {
+    throw new Error("unterminated COFF import block");
+  }
+  return imports;
+};
 
 fs.rmSync(outputDirectory, { recursive: true, force: true });
 fs.mkdirSync(outputDirectory, { recursive: true });
@@ -83,6 +119,20 @@ const exeObject = path.join(outputDirectory, "fixture-exe.obj");
 const dllFile = path.join(outputDirectory, "vine_fixture.dll");
 const importLibrary = path.join(outputDirectory, "vine_fixture.lib");
 const exeFile = path.join(outputDirectory, "abi-smoke.exe");
+const windowFixtureDirectory = path.join(
+  root,
+  "fixtures",
+  "pe32",
+  "window-pixel",
+);
+const windowObject = path.join(outputDirectory, "fixture-window.obj");
+const windowExe = path.join(outputDirectory, "window-pixel.exe");
+const windowImportLibraries = ["kernel32", "user32", "gdi32"].map(
+  (name) => ({
+    definition: path.join(windowFixtureDirectory, `${name}.def`),
+    library: path.join(outputDirectory, `window-${name}.lib`),
+  }),
+);
 
 const compilePeObject = (source, output) => {
   run("clang", [
@@ -103,6 +153,22 @@ const compilePeObject = (source, output) => {
 
 compilePeObject(path.join(fixtureDirectory, "fixture-dll.c"), dllObject);
 compilePeObject(path.join(fixtureDirectory, "fixture-exe.c"), exeObject);
+compilePeObject(
+  path.join(windowFixtureDirectory, "fixture-window.c"),
+  windowObject,
+);
+
+for (const { definition, library } of windowImportLibraries) {
+  run("llvm-dlltool", [
+    "-m",
+    "i386",
+    "-k",
+    "-d",
+    definition,
+    "-l",
+    library,
+  ]);
+}
 
 run("lld-link", [
   "/dll",
@@ -128,10 +194,26 @@ run("lld-link", [
   importLibrary,
 ]);
 
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${windowExe}`,
+  windowObject,
+  ...windowImportLibraries.map(({ library }) => library),
+]);
+
 let nativeAbiExitCode = null;
+let windowPixelNativeExitCode = null;
 if (process.platform === "win32") {
-  run(exeFile, []);
+  run(exeFile, [], { timeoutMs: 10_000 });
   nativeAbiExitCode = 0;
+  run(windowExe, [], { timeoutMs: 10_000, windowsHide: false });
+  windowPixelNativeExitCode = 0;
 }
 
 const exeInspection = run("llvm-readobj", [
@@ -140,6 +222,11 @@ const exeInspection = run("llvm-readobj", [
   exeFile,
 ]);
 const dllInspection = run("llvm-readobj", ["--coff-exports", dllFile]);
+const windowInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  windowExe,
+]);
 
 const requiredExeEvidence = [
   "Format: COFF-i386",
@@ -160,6 +247,42 @@ for (const expected of ["Name: fixture_add", "Name: fixture_call_callback"]) {
   }
 }
 
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+]) {
+  if (!windowInspection.includes(expected)) {
+    throw new Error(`window pixel inspection is missing: ${expected}`);
+  }
+}
+
+const windowPixelImports = [
+  { module: "kernel32.dll", symbols: ["GetModuleHandleA"] },
+  {
+    module: "user32.dll",
+    symbols: [
+      "BeginPaint",
+      "CreateWindowExA",
+      "DefWindowProcA",
+      "DestroyWindow",
+      "DispatchMessageA",
+      "EndPaint",
+      "GetMessageA",
+      "InvalidateRect",
+      "PostQuitMessage",
+      "RegisterClassExA",
+      "ShowWindow",
+    ],
+  },
+  { module: "gdi32.dll", symbols: ["SetPixel"] },
+];
+const inspectedWindowImports = parseCoffImports(windowInspection);
+if (JSON.stringify(inspectedWindowImports) !== JSON.stringify(windowPixelImports)) {
+  throw new Error(
+    `unexpected window pixel imports: ${JSON.stringify(inspectedWindowImports)}`,
+  );
+}
+
 const report = {
   schemaVersion: 1,
   tools,
@@ -169,8 +292,18 @@ const report = {
     peImports: ["fixture_add", "fixture_call_callback"],
     dllExports: ["fixture_add", "fixture_call_callback"],
     nativeAbiExitCode,
+    windowPixelFormat: "PE32/i386",
+    windowPixelImports,
+    windowPixelExpectedEvents: ["WM_CREATE", "WM_PAINT", "WM_DESTROY"],
+    windowPixelNativeExitCode,
   },
-  artifacts: [wasmModule, exeFile, dllFile, importLibrary].map(artifact),
+  artifacts: [
+    wasmModule,
+    exeFile,
+    dllFile,
+    importLibrary,
+    windowExe,
+  ].map(artifact),
 };
 
 const reportFile = path.join(outputDirectory, "report.json");

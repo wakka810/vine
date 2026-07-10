@@ -26,6 +26,7 @@ production workspace を決める前に、現在の LLVM toolchain だけで次�
 | npm | 11.16.0 |
 | LLVM／Clang | 22.1.8、x86／wasm32 target あり |
 | LLD | 22.1.8、`lld-link`／`wasm-ld` あり |
+| PE import library | `llvm-dlltool` 22.1.8 suite、SHA-256 `80934e8f208a0cc2a87a6057f871d0f492461952b8672464749a6c3dff34109c` |
 | PE inspection | `llvm-readobj` 22.1.8 |
 | Rust | 1.97.0、workspace-local、`wasm32-unknown-unknown` target あり |
 | Emscripten | 未導入 |
@@ -46,6 +47,16 @@ abi-smoke.exe
 
 fixture は CRT と Windows SDK header を使わず、Clang と LLD だけで生成する。Windows では生成直後の EXE も実行し、DLL import、cdecl、DLL から EXE への callback が entry code `0` まで通ることを native oracle とする。
 
+`fixtures/pe32/window-pixel/` はtracked DEFから`llvm-dlltool -m i386 -k`でsystem import libraryを生成し、次のnative sequenceを自己検証する。Windows SDK header／libraryは使わない。
+
+```text
+CreateWindowExA -> queued GetMessageA / DispatchMessageA
+  -> __stdcall WndProc
+  -> WM_CREATE -> WM_PAINT -> WM_DESTROY
+  -> BeginPaint -> SetPixel(red) -> EndPaint
+  -> DestroyWindow -> PostQuitMessage -> WM_QUIT -> entry returns 0
+```
+
 ## 5. Generated evidence
 
 `npm run check:toolchain` は `.work/toolchain-spike/` を作り直し、次を検証する。
@@ -55,7 +66,9 @@ fixture は CRT と Windows SDK header を使わず、Clang と LLD だけで生
 - EXE が `vine_fixture.dll` の 2 symbol を named import する
 - DLL が同じ 2 symbol を export する
 - Windows では `abi-smoke.exe` を直接実行し、exit code が `0` である
-- Wasm、EXE、DLL、import library の size と SHA-256 を `report.json` に記録する
+- window fixtureのPE32形式、3 DLL／13 symbol、関連message順、native exit code `0`を検証する
+- native processを10秒で打ち切り、paintに必要な通常のwindow表示を抑止しない
+- Wasm、EXE、DLL、import library、window fixture の size と SHA-256 を `report.json` に記録する
 
 `.work/` は生成物なので Git 管理しない。
 
@@ -67,6 +80,7 @@ fixture は CRT と Windows SDK header を使わず、Clang と LLD だけで生
 | `abi-smoke.exe` | 2,560 bytes | `60f882a22d7d44e0ebe734f284dc8676e29035207ff004ed0cdf6e97c629b9c7` |
 | `vine_fixture.dll` | 2,048 bytes | `a9c2530df2a89317048ae9380e4202c8bd41994d1ff0e14b43fa578bb32c4878` |
 | `vine_fixture.lib` | 1,708 bytes | `ebb025e3a0c82f6726331aa8799b7a5fdafd4b2dfa3b3dcdce19d0630075c031` |
+| `window-pixel.exe` | 4,096 bytes | `ad8f4a0bddd759ac52b18119e60838c3ad13d29994449f38b0393fdedde454e9` |
 
 旧文書のWasm値は319 bytes／`6e5218...`だったが、そのraw artifactは保持されておらず差の原因を再検証できない。現在のWindows canonical commandを複数回実行した結果は399 bytes／`d8e2fe...`で安定しているため、本表で旧観測を置き換える。source変化やcompiler regressionが確認できたという意味にはしない。
 
@@ -74,9 +88,10 @@ fixture は CRT と Windows SDK header を使わず、Clang と LLD だけで生
 
 今回の実行により、次を Phase 0 の事実として扱える。
 
-- T0／T1 PE32 fixture を source から再現生成できる
+- T0／T1 PE32 fixture とSDK非依存のi386 system import libraryをsource／DEFから再現生成できる
 - Windows native で EXE -> DLL -> EXE callback の cdecl oracle が exit code `0` になる
+- Windows native でstdcall WndProc、queued message dispatch、paint、pixel、destroy／quit oracleがexit code `0`になる
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC boot を迂回した integer／x87／SSE 実行に加え、Rust 1.97.0 から source を buildし、release fallback の exact instruction budget、CPL3 structured fault stop、version 1 CPU state round trip まで成立した。Windows startup trace、native callback oracle、同じ fixture を runtime-owned thunk／callback sentinelへ接続したW1 resultは [windows-native-evidence.md](windows-native-evidence.md) に記録した。次は最小Win32 window／message／pixel fixtureを固定し、memory ownershipとWorker gateは別の測定で閉じる。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC boot を迂回した integer／x87／SSE 実行に加え、Rust 1.97.0 から source を buildし、release fallback の exact instruction budget、CPL3 structured fault stop、version 1 CPU state round trip まで成立した。Windows startup trace、native callback oracle、同じ fixture を runtime-owned thunk／callback sentinelへ接続したW1 result、W2 native window fixtureは [windows-native-evidence.md](windows-native-evidence.md) に記録した。次はW2 fixtureをloader-liteへ投入し、memory ownershipとWorker gateは別の測定で閉じる。

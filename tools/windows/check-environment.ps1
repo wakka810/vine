@@ -21,7 +21,16 @@ function Invoke-CheckedNative {
     return $output
 }
 
-$required = @("git", "node", "npm", "clang", "lld-link", "wasm-ld", "llvm-readobj")
+$required = @(
+    "git",
+    "node",
+    "npm",
+    "clang",
+    "lld-link",
+    "wasm-ld",
+    "llvm-readobj",
+    "llvm-dlltool"
+)
 if ($SourceAdapter) {
     $required += "make", "sh"
 }
@@ -54,6 +63,9 @@ Invoke-CheckedNative -Command "wasm-ld" -Arguments @("--version")
 Invoke-CheckedNative -Command "llvm-readobj" -Arguments @("--version") |
     Select-String "LLVM version" |
     Select-Object -First 1
+$llvmDlltool = (Get-Command "llvm-dlltool").Source
+$llvmDlltoolHash = (Get-FileHash -LiteralPath $llvmDlltool -Algorithm SHA256).Hash
+Write-Host ("llvm-dlltool SHA-256: {0}" -f $llvmDlltoolHash.ToLowerInvariant())
 Invoke-CheckedNative -Command $python.Source -Arguments @(
     "-c", "import frida; print('frida:', frida.__version__)"
 )

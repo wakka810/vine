@@ -220,8 +220,9 @@ Verified behavior:
 10. raw trace の sequence、thread-local API pairing、module、API、A/W file wrapper を検証する deterministic summarizer と contract test。
 11. Windows W0、60 秒 BGI startup trace、native EXE -> DLL -> EXE callback oracle の tracked evidence。
 12. fixed `abi-smoke.exe` を 8 MiB identity memory へ map し、runtime-owned thunk、cdecl host service、guest callback、budget yield、return sentinel を通す W1 contract。
+13. SDK 非依存で再現生成する PE32 Win32 window／message／pixel fixture と native self-oracle。
 
-2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。詳細は `docs/windows-native-evidence.md` を参照する。W1 は Node.js 上の固定 harness であり、Chrome execution smoke は未実施である。
+2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。詳細は `docs/windows-native-evidence.md` を参照する。W1 は Node.js 上の固定 harness、W2 fixture は native Windows oracleであり、Chrome execution smoke は未実施である。
 
 まだ存在しないもの:
 
@@ -234,7 +235,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGI.exe を Vine 内で load／executeした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint である。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracleである。
 
 ## 8. Corpus
 
@@ -262,7 +263,7 @@ npm ci
 npm run check
 ```
 
-`npm run check` は documentation、LLVM PE／Wasm fixture、Windows 上の native callback oracle、pin 済み v86 prebuilt smoke、trace summarizer contract を実行する。
+`npm run check` は documentation、LLVM PE／Wasm fixture、Windows 上の native callback oracleとwindow／message／pixel oracle、pin 済み v86 prebuilt smoke、trace summarizer contract を実行する。PE32 system import libraryはtracked DEFから`llvm-dlltool -m i386 -k`で生成し、Windows SDK `.lib`には依存しない。
 
 Environment と BGI fingerprint:
 
@@ -303,16 +304,16 @@ Generated output は `.work/` に置く。raw artifact は commit せず、重�
 
 ## 10. Active Queue
 
-Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice は 2026-07-10 に完了した。8 MiB low-address contiguous mapping は測定値であり、sparse 4 GiB memory や page ownership の決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10 に完了した。8 MiB low-address contiguous mapping は測定値であり、sparse 4 GiB memory や page ownership の決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. 最小 PE32 Win32 fixture の source と native oracle を追加し、logical window、message callback、1 pixel command、clean exit の expected sequence を固定する。
-2. fixed loader-lite をその fixture に必要な範囲だけ広げ、最初の unsupported import を構造化して止める。
-3. trace で到達済みの Kernel32／User32／GDI entry から、logical window、message dispatch、first pixel を一つの bounded contract で通す。
+1. SHA-256固定の`window-pixel.exe`をloader-liteへmapし、3 DLL／13 importをruntime-owned thunkへ解決して、最初のunsupported host serviceをmodule、symbol、guest call site付きで停止する。
+2. traceで到達済みのKernel32／User32 entryから、logical module、window class、HWND、show／invalidate、message queueをsingle-thread bounded modelで通す。
+3. stdcall WndProc callback、`BeginPaint`／`EndPaint`、test-only pixel command、destroy／quitをnative event oracleと比較する。
 4. 次の subsystem-focused native trace 前に caller module＋RVA、call ID／parent call ID、last error、duration を追加し、選んだ vtable だけを観測する。
 5. high-address mapping と page fault／protectionを別 fixtureで測り、v86 paging と独自 sparse memory案を比較する。
 6. BGI.exe を production loader 候補へ投入し、first unsupported import／bootstrap pointまで進める。
 
-項目1が次の primary implementation checkpointである。W1 harnessをproduction PE loaderへ一般化する作業と、graphics／audio subsystemを同時に開始しない。
+項目1が次の primary implementation checkpointである。W2 fixtureのnative成功をWin32 runtime完成と扱わず、graphics／audio subsystemを同時に開始しない。
 
 ## 11. Major Open Questions
 
@@ -372,7 +373,7 @@ Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE
 | `docs/x86-engine-scorecard.md` | engine comparison、v86 evidence、remaining gates |
 | `docs/toolchain-spike.md` | LLVM PE／Wasm fixture baseline |
 | `docs/windows-development.md` | Windows bring-up、trace、checkpoint commands |
-| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、W1 fixed runtime result |
+| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、W1 runtime、W2 native window fixture |
 | `spikes/x86-engine/README.md` | v86 source adapter reproduction |
 
 文書内の長い test／task listは将来coverageの地図であり、今すぐ全件実装する指示ではない。本書のactive queueと「広く浅く、代表test 1本」を優先する。
