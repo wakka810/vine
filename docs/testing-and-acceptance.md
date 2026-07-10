@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、native window／message／pixel oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、fixed W2 loader／module／class ingress contract、Windows trace summary contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、native window／message／pixel oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、fixed W2 loader／module／class／window-create ingress contract、Windows trace summary contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -116,9 +116,13 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 
 合格条件は、valid fixture が expected module trace を返し、invalid fixture が host crash、panic、unbounded allocation を起こさず stable error class を返すことである。
 
-現在のW2 loader／module／class ingress representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理する。host-owned copied semantic stateとlogical ATOM `0xC000`を登録して1 DWORD stdcall cleanup後にresumeし、次の`CreateWindowExA`をguest call site RVA `0x1095`付きの`unsupported-host-service`として停止した場合だけ成功する。source hash、IAT terminator、thunk ownership、call encoding、8回のbudget stop、累積30命令、12 raw argumentsも同時に検証する。
+現在のW2 loader／module／class／window-create ingress representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
-これはpreferred-base固定のNode.js harnessである。従来のpartial evidenceに加え、class checkpointは`P1-ABI-02`／`P4-UI-01`への限定したpartial evidenceである。general `RegisterClassExA`、CP932／Unicode、duplicate、failure／LastError、generated marshaller、`CreateWindowExA`、HWND、callback、browser integrationを検証せず、各task、`AC-P1-03`、`AC-P2`、`AC-P4`全体の完了ではない。
+runtime-owned scratch `0x00501000`へ48-byte `CREATESTRUCTA`を書き、ESP `0x006FFFAC`へreturn sentinel `0x00500E00`と`[HWND, WM_CREATE, 0, CREATESTRUCTA*]`を積んでWndProc `0x00401260`を呼ぶ。callbackはEAX `0`、ESP `0x006FFFC0`でsentinelへ戻り、outer stdcallはEAX `HWND`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x0040109B`でresumeする。logical windowは`creating`から`created`へ移り、hiddenのまま保持される。次の`ShowWindow`をcall site `0x004010A8`、ESP `0x006FFFE8`、arguments `[HWND, 5]`付きの`unsupported-host-service`として停止し、16回のbudget stopと累積57命令を含めて一致した場合だけ成功する。
+
+これはpreferred-base固定のNode.js harnessである。window-create checkpointは`P1-ABI-01`／`P1-ABI-02`／`P1-ABI-03`／`P1-DIAG-01`／`P1-SCH-01`／`P3-WIN-01`／`P4-UI-01`への限定したpartial evidenceであり、`P3-WIN-01`についてはtyped lookup／object identityだけを示す。HWNDのtag／generation／slotはharness-localで、production encoding、reuse／stale detection／lifetime／wait contractではない。general `RegisterClassExA`／`CreateWindowExA`、CP932／Unicode、`WM_NCCREATE`／補助message、callback failure／LastError／reentrancy、`ShowWindow`／visibility、message queue、paint、browser integrationを検証せず、各task、`AC-P1-03`、`AC-P2`、`AC-P3`、`AC-P4`全体の完了ではない。
+
+`P1-SCH-01`について示すのは、instruction budget下でpending synchronous API frameを保持し、1回のguest callback後に同じguest threadをresumeできる範囲だけである。run queue、virtual clock、wait／wakeは未実装である。
 
 ### 5.4 CPU と ABI tests
 
@@ -137,7 +141,7 @@ ABI fixture は stack に sentinel を置き、call 前後の ESP、callee／cal
 
 現在の W1 representative contract は固定 `abi-smoke.exe` の cdecl host call、1段 callback、callback／entry sentinel、callee-saved register、stack balanceだけを検証する。result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5回をWindows native oracleと対応付けたが、他 calling convention、nested callback、exception、FPU ABI の代用にはしない。
 
-現在のW2 ingressは`GetModuleHandleA(NULL)`とfixed `RegisterClassExA`の各1 DWORD argument／32-bit returnだけをstdcallでresumeする。後者はtrap ESP `0x006FFFEC`からreturn addressとargumentの8 bytesをpopし、EAX `0x0000C000`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x00401042`とする。host boundaryのcallee-saved registerとentry prologueのsaved ESI／EDIを保持する。これは他signature、invalid stack、thiscall／fastcall、full entry returnの代用にはしない。
+現在のW2 ingressは`GetModuleHandleA(NULL)`とfixed `RegisterClassExA`をstdcall resumeし、fixed `CreateWindowExA`では48-byte argument bandを保持したまま1段のWndProc stdcall callbackを往復する。callback frameはreturn sentinelを含む20 bytesで、WndProcの`ret 16`後にouter ESP `0x006FFFC0`へ戻る。outer service完了時はreturn addressと12 argumentsの52 bytesをpopし、EAX `0x57010001`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x0040109B`とする。host boundaryのcallee-saved registerとentry prologueのsaved ESI／EDIを保持する。これはgeneral stdcall、invalid stack、thiscall／fastcall、nested callback、reentrant host service、callback fault／failure、full entry returnの代用にはしない。
 
 最適化 engine は reference path と instruction boundary または basic block boundary の state hash を比較できるようにする。
 
@@ -174,7 +178,7 @@ crash consistency test は commit の各 injection point で process／Worker ki
 
 現在のW2 native oracleは関連eventだけを`WM_CREATE -> WM_PAINT -> WM_DESTROY`としてexactに記録し、queued `WM_PAINT`の`GetMessageA`／`DispatchMessageA`経由、BeginPaint／SetPixel／EndPaint、destroy／quit、exit code `0`を自己検証する。可変な補助messageは順序contractに含めない。これはWindows oracleであり、Vineのlogical HWND、host surface、browser presentation、`AC-P4`の証明ではない。
 
-現在のW2 class ingressはwindow classのfixed valid caseだけを持つ。48-byte `WNDCLASSEXA`、executable guest WndProc、main-module HINSTANCE、ASCII nameをhost-owned stateへcopyし、local class keyとATOM `0xC000`の双方向lookupを検証する。native oracleとの比較は`RegisterClassExA`がnonzeroを返して続くwindow createが成功するsemanticまでとし、ATOM数値、duplicate、failure／LastErrorを比較しない。
+現在のW2 class／window-create ingressはfixed valid caseだけを持つ。48-byte `WNDCLASSEXA`、executable guest WndProc、main-module HINSTANCE、ASCII nameをhost-owned class stateへcopyし、local class keyとATOM `0xC000`の双方向lookupを検証する。`CreateWindowExA`ではmodule identity、class key／ATOM／copied name、copied title、styles、semantic `CW_USEDEFAULT` position、requested outer size、null parent／menu、`creating -> created` lifecycle、`visible=false`をhost-owned logical windowへ保持する。native oracleとの比較はclass registration／window createがnonzeroで成功し、関連eventの先頭が1回の`WM_CREATE`でcallbackが0を返すsemanticまでとする。ATOM／HWND数値、raw補助message、`CREATESTRUCTA` bytes、callback stack／sentinelはnative goldenではない。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch

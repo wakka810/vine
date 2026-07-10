@@ -186,11 +186,11 @@ host-directed resumeはversion 1 state bufferのEIPとPREVIOUS_EIPを同時に�
 
 これはcdecl、1 callback depth、single threadのbaselineである。stdcall／thiscall／fastcall、nested callback、exception／SEH、wait／wake、async host responseの証明ではない。
 
-### B7. Fixed W2 loader／module／class ingress: Verified baseline
+### B7. Fixed W2 loader／module／class／window-create ingress: Verified baseline
 
-`npm run check:runtime:window-loader`はSHA-256固定の`window-pixel.exe`を同じ8 MiB contiguous memoryへpreferred-base mapし、3 DLL／13 named importを一意なowned `UD2` thunkへ解決する。`GetModuleHandleA(NULL)`に続き、fixed `RegisterClassExA` variantの48-byte structureとbounded ASCII nameをchecked readし、host-owned logical class stateとATOM `0xC000`を登録してstdcall resumeする。次の`CreateWindowExA` thunkをcall site `0x00401095`／RVA `0x1095`へ帰属し、12 raw arguments付きの`unsupported-host-service`として停止する。budget stopは8回、faulting `UD2` attemptを含む累積命令counterは30である。
+`npm run check:runtime:window-loader`はSHA-256固定の`window-pixel.exe`を同じ8 MiB contiguous memoryへpreferred-base mapし、3 DLL／13 named importを一意なowned `UD2` thunkへ解決する。`GetModuleHandleA(NULL)`に続き、fixed `RegisterClassExA` variantの48-byte structureとbounded ASCII nameをchecked readし、host-owned logical class stateとATOM `0xC000`を登録してstdcall resumeする。fixed `CreateWindowExA` variantは12 argumentsとmodule-scoped class lookupを検査し、harness-local typed HWND `0x57010001`と48-byte `CREATESTRUCTA`を作り、WndProc `0x00401260`の`WM_CREATE` callback／return sentinelを往復する。outer stdcallをresumeした後、次の`ShowWindow` thunkをcall site `0x004010A8`へ帰属し、arguments `[HWND, 5]`付きの`unsupported-host-service`として停止する。budget stopは16回、faulting `UD2` attemptを含む累積命令counterは57である。
 
-これはmultiple thunk resolution、2 fixed partial variants、checked structure／ASCII string、copied class semantic state、successful serviceから次failureへのclassificationのbaselineである。general `RegisterClassExA`／CP932、duplicate／failure／LastError、`CreateWindowExA`、HWND、callback、relocation、protection、sparse memory、browser Workerは未検証であり、production loader／ABI gatewayを示さない。
+これはmultiple thunk resolution、3 fixed partial variants、checked structure／ASCII string、copied class／window semantic state、1段のstdcall callback／sentinel、successful serviceから次failureへのclassificationのbaselineである。HWNDのtag／generation／slot、runtime scratch、host call frameはfixed harnessの選択であり、production handle encoding／lifetime、general callback allocator／reentrancy modelを固定しない。general `RegisterClassExA`／`CreateWindowExA`／CP932／Unicode、duplicate／failure／LastError、`WM_NCCREATE`／補助message、callback failure／fault、`ShowWindow`／visibility、relocation、protection、sparse memory、browser Workerは未検証であり、production loader／ABI gatewayを示さない。
 
 ### B8. Browser Worker
 
@@ -198,11 +198,11 @@ host-directed resumeはversion 1 state bufferのEIPとPREVIOUS_EIPを同時に�
 
 ### B9. Correctness と performance
 
-21 命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
+W1の21命令とW2の57命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class ingressは13 thunk、2 fixed partial variants、次failure診断を実証した。次はprivate bootstrap offsetをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class／window-create ingressは13 thunk、3 fixed partial variants、WndProc callback、次failure診断を実証した。次はprivate bootstrap offsetやharness-local handle layoutをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -212,10 +212,10 @@ invalidate code range
 
 adapter fixture は次の順に増やす。
 
-1. 最小Win32 fixtureで複数のgenerated thunk IDとguest window callbackを通す。
+1. [Fixed baseline verified] 最小Win32 fixtureで複数のowned thunk IDとguest window callbackを通した。次はgenerated API metadata／callback schemaを使うgeneral dispatcherへ移す。
 2. unmapped、read-only、non-executable page accessを区別する。
 3. v86 pagingとbounded physical page allocator、またはchecked sparse memoryを接続する。
-4. stdcall／thiscallとnested callbackを実到達fixtureから追加する。
+4. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
 5. 同じfixtureをNodeとChromium Workerで実行する。
 6. adopted ISA fixtureとnormalized workloadを測定する。
 

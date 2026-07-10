@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／native ABI oracle／W1 fixed runtime slice／W2 native window fixture／W2 loader／module／class ingressはVerified。visual／method-level coverageはIn discovery
+- ステータス: W0／native ABI oracle／W1 fixed runtime slice／W2 native window fixture／W2 loader／module／class／window-create ingressはVerified。visual／method-level coverageはIn discovery
 - 取得日: 2026-07-10
-- 完了 checkpoint: `W0`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`P0-COR-04` の最初のnative sample
-- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-02`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P4-UI-01`、`P6D-COR-01`、`P6D-COR-02`
+- 完了 checkpoint: `W0`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`P0-COR-04` の最初のnative sample
+- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-02`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P3-WIN-01`、`P4-UI-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
 raw JSONL、local summary、game file、absolute trace pathはGitに追加しない。summaryはabsolute title／system pathとPIDを保持するlocal-sensitive artifactであり、共有用に正規化されたmanifestではない。本書は同じraw traceから再生成できる小さなredacted resultだけを記録する。
@@ -290,9 +290,9 @@ WM_CREATE
 
 各event／API count、pixel return、event順、quit codeが一致した場合だけentryが`0`を返す。runnerはnative processを10秒で停止し、paintを抑止する`windowsHide`を使わない。`npm run check:toolchain`はnative exit code `0`をreportへ記録し、追加の5回連続実行もすべてexit code `0`、初回約100ms、以降約41～43msだった。
 
-このoracleはWindows上のstdcall WndProc、queued message、GDI pixel call、cleanup順を固定する。Vine内のstdcall gateway、logical HWND／DC、message scheduler、host surface、browser presentation、物理的に見えるpixelはまだ検証していない。W2 runtime、W3 first frame、`P4-*`、`AC-P4`の完了とは扱わない。
+このoracleはWindows上のstdcall WndProc、queued message、GDI pixel call、cleanup順を固定する。このoracle単独ではVine内のstdcall gateway、logical HWND／DC、message scheduler、host surface、browser presentation、物理的に見えるpixelを検証しない。後続のfixed W2 harnessがlogical HWNDと1回の`WM_CREATE` callbackだけを別途検証するが、W2 runtime、W3 first frame、`P4-*`、`AC-P4`の完了とは扱わない。
 
-## 8. W2 loader／module／class ingress result
+## 8. W2 loader／module／class／window-create ingress result
 
 `tools/run-runtime-window-loader-slice.mjs`は`window-pixel.exe`を一度だけimmutable bufferへ読み、size `4,096`とSHA-256 `ad8f4a0bddd759ac52b18119e60838c3ad13d29994449f38b0393fdedde454e9`をadapter初期化前に固定する。DOS／COFF／PE32 header、4 section、3 import descriptor、13 named import、IAT directoryをchecked rangeでparseし、map後にもsource hashが不変であることを検証する。adapter WasmはW1と同じsize、hash、import／export countへ固定する。
 
@@ -302,10 +302,10 @@ WM_CREATE
 
 ```text
 npm run check:runtime:window-loader
-runtime window class ingress passed: imports=13,
-implemented-variants=2, atom=0xc000,
-stop=user32.dll!CreateWindowExA, call=0x401095,
-budget stops=8, instructions=30
+runtime window create ingress passed: imports=13,
+implemented-variants=3, hwnd=0x57010001,
+callback=WM_CREATE, stop=user32.dll!ShowWindow,
+call=0x4010a8, budget stops=16, instructions=57
 ```
 
 entry `0x00401000`からinstruction budget `3`で実行すると、`push edi`、`push esi`、`push 0`の後、call直前`0x00401004`／ESP `0x006FFFF0`で1回budget stopする。次のsliceはIAT `0x004020C0`経由でthunk `0x00500000`へ入り、stop reason `0x106`、error code `-1`、ESP `0x006FFFEC`、return `0x0040100A`、argument `NULL`を得る。
@@ -314,7 +314,7 @@ fixed main module identityはname、preferred-base address、image size、source
 
 resume後はbudget stop `0x00401014`、`0x0040102D`、owned thunk `0x005000A0`を経て`RegisterClassExA`へ到達する。fixed partial variant `wndclassexa-v48-local-ascii`はargument `0x00403004`の48 bytesをguest range検査後に読み、`cbSize=48`、WndProc `0x00401260`がexecutable image section内、hInstance `0x00400000`がmain module、その他のfixture fieldがzeroであることを検証する。class-name pointer `0x00402000`はinteger atom formを拒否し、64-byte上限でnonempty NUL-terminated ASCII `VineWindowPixelFixture`を読む。
 
-logical class keyはmodule hash／base、local scope、A encoding、copied class nameから作る。guestの`WNDCLASSEXA` addressとclass-name pointerをrecordに保持せず、decoded name、instance value、guest WndProc address、style、class／window extra byte countをhost-owned frozen objectへcopyし、key lookupとATOM lookupの両方へ同一objectを登録する。最初のdeterministic local class ATOMは`0xC000`であり、native ATOM値との数値一致ではなくnonzero／一意性をcontractとする。`RegisterClassExA`はEAX `0x0000C000`を返し、1 DWORD stdcallとしてESP `0x006FFFEC`から`0x006FFFF4`、EIP／PREVIOUS_EIP `0x00401042`へresumeする。
+logical class keyはmodule hash／base、local scope、A encoding、copied class nameから作る。guestの`WNDCLASSEXA` addressとclass-name pointerをrecordに保持せず、decoded name、module identity、WndProc callback descriptorのentry RVA／calling convention／argument bytes、style、class／window extra byte countをhost-owned frozen objectへcopyし、key lookupとATOM lookupの両方へ同一objectを登録する。最初のdeterministic local class ATOMは`0xC000`であり、native ATOM値との数値一致ではなくnonzero／一意性をcontractとする。`RegisterClassExA`はEAX `0x0000C000`を返し、1 DWORD stdcallとしてESP `0x006FFFEC`から`0x006FFFF4`、EIP／PREVIOUS_EIP `0x00401042`へresumeする。
 
 その後budget stop `0x0040104E`、`0x0040105E`、`0x00401076`、`0x0040108E`を経て、累積30命令で`CreateWindowExA`のowned thunk `0x00500020`へ到達する。stop reason `0x106`とowned EIPの両方が一致した時だけserviceとして分類し、call site `0x00401095`、return `0x0040109B`、ESP `0x006FFFC0`を得る。12 raw argumentsは次である。
 
@@ -328,7 +328,35 @@ parent / menu:  0 / 0
 instance / arg: 0x00400000 / 0
 ```
 
-各call siteはreturn addressから無条件に逆算しない。直前6 bytesが`FF 15 <absolute IAT>`であり、operandが到達thunkを指すIAT slotと一致し、requester imageのexecutable section内にあることを検証する。2つのservice eventと次のdiagnosticは次である。
+fixed partial variant `createwindowexa-v12-local-ascii-wm-create`は上の12 wordsをすべてchecked readし、class／title pointer `0x00402000`をそれぞれ64-byte上限のnonempty NUL-terminated ASCIIとして読み、`VineWindowPixelFixture`へcopyする。module identityを含むlocal class keyで登録済みclassを引き、ATOM mapのobject identityとWndProc callback target `0x00401260`を再検証する。
+
+最初のlogical HWNDは`0x57010001`である。host-owned sealed window recordはmodule identity、class key／ATOM／copied name、copied title、extended／normal style、semantic `CW_USEDEFAULT` position、requested outer size `160 x 120`、null parent／menu、lifecycle、visibilityを保持する。作成開始時は`creating`／hiddenで、callback成功後に`created`／hiddenとなる。上位byteのtype tag、generation `1`、slot `1`を含む数値layoutはこのharnessでtyped lookup／object identityを検証するためのdeterministic choiceであり、native HWNDとの数値一致やproduction handle encoding、reuse／stale detection／lifetimeを決定しない。
+
+trap pageとは別のruntime-owned scratch `0x00501000`へ、次の48-byte x86 `CREATESTRUCTA`を書き込む。これは一つの同期callback用固定rangeであり、general scratch allocatorやnested lifetime modelではない。
+
+```text
+lpCreateParams / hInstance: 0 / 0x00400000
+hMenu / hwndParent:         0 / 0
+cy / cx:                    120 / 160
+y / x:                      0x80000000 / 0x80000000
+style:                      0x00CF0000
+lpszName / lpszClass:       0x00402000 / 0x00402000
+dwExStyle:                  0
+```
+
+outer `CreateWindowExA` trapのESPは`0x006FFFC0`である。そこから20 bytes下のESP `0x006FFFAC`へcallback frameを作り、次をguest memoryからread backして検証する。
+
+```text
+[ESP +  0]  callback return sentinel 0x00500E00
+[ESP +  4]  HWND                     0x57010001
+[ESP +  8]  WM_CREATE                1
+[ESP + 12]  wParam                   0
+[ESP + 16]  CREATESTRUCTA pointer    0x00501000
+```
+
+WndProc `0x00401260`をresumeするとguest自身が`create_count=1`、`event_count=1`、最初のevent `WM_CREATE`、`failure_code=0`を記録してEAX `0`で`ret 16`する。callback return sentinelはESP `0x006FFFC0`で到達し、outer frameと12 argumentsが保持されていることを再検証する。host call ID／parent call IDを対応付け、logical windowを`created`へ遷移させた後、outer stdcallをEAX `0x57010001`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x0040109B`でresumeする。
+
+guestはHWNDをnonzeroとして受理し、次の`ShowWindow` owned thunkへ到達する。各call siteはreturn addressから無条件に逆算せず、直前6 bytesが`FF 15 <absolute IAT>`であり、operandが到達thunkを指すIAT slotと一致し、requester imageのexecutable section内にあることを検証する。3つ目のservice eventと次のdiagnosticは次である。
 
 ```text
 kind:                  host-service-return
@@ -347,21 +375,34 @@ argument / result:     0x00403004 / 0x0000C000
 class name / WndProc:  VineWindowPixelFixture / 0x00401260
 stack before / after:  0x006FFFEC / 0x006FFFF4
 
-kind:                  unsupported-host-service
+kind:                  host-service-return
 module / symbol:       user32.dll / CreateWindowExA
-guest call VA / RVA:   0x00401095 / 0x1095
-return VA / RVA:       0x0040109B / 0x109B
-IAT VA / RVA:          0x004020CC / 0x20CC
-thunk VA:              0x00500020
-stack:                 0x006FFFC0
+variant / status:      createwindowexa-v12-local-ascii-wm-create / partial
+call / return VA:      0x00401095 / 0x0040109B
+argument bytes:        48
+result:                0x57010001
+callback target:       0x00401260, WM_CREATE, result 0
+stack before / after:  0x006FFFC0 / 0x006FFFF4
+
+kind:                  unsupported-host-service
+module / symbol:       user32.dll / ShowWindow
+guest call VA / RVA:   0x004010A8 / 0x10A8
+return VA / RVA:       0x004010AE / 0x10AE
+IAT VA / RVA:          0x004020F0 / 0x20F0
+thunk VA:              0x005000B0
+stack / arguments:     0x006FFFE8 / [0x57010001, 5]
 engine stop / error:   0x106 / -1
 ```
 
-native fixtureは`RegisterClassExA`がnonzeroを返し、そのclass nameによる`CreateWindowExA`が成功するsemanticを自己検証する。logical ATOM `0xC000`はharness内のdeterministic identityであり、process固有のWindows class tableが返すnative数値をgoldenにしない。
+instruction budget `3`のまま、従来の8回にWndProc内6回とouter resume後2回を加え、budget stopは16回となった。累積counterは`CreateWindowExA` trapで30、19 guest命令後のcallback sentinel attemptで50、6 guest命令後の`ShowWindow` thunk attemptで57である。execute stop全体は16 budgetと5 owned `#UD`の21回で、64-cycle harness上限内に収まる。
 
-これは従来のW2 partial evidenceに、`P1-ABI-02`のchecked structure／stringと`P4-UI-01`のwindow class stateだけを加える。general `RegisterClassExA`／CP932／Unicode、duplicate、failure／LastError、generated marshaller、`CreateWindowExA`、logical HWND、WndProc callback、message、paint、browser presentationは未検証であり、各task、`AC-P1-03`、`AC-P2`、`AC-P4`、W2 runtimeの完了とは扱わない。
+native fixtureは`RegisterClassExA`と`CreateWindowExA`がnonzeroで成功し、関連eventの`WM_CREATE -> WM_PAINT -> WM_DESTROY`と`WM_CREATE` return `0`を自己検証する。native oracleはlogical ATOM／HWND数値、Vineの`CREATESTRUCTA` bytes、callback stack／sentinel、補助message順をgoldenにしない。Windowsは通常`WM_NCCREATE`等も送るが、fixed Vine variantは今回`WM_CREATE`だけを同期送信する。
 
-次のprimary actionは`CreateWindowExA`の12 argumentsとclass lookupを検査し、logical HWNDを作ってguest WndProcの`WM_CREATE` stdcall callback／return sentinelを通し、`ShowWindow` call siteまで進めることである。
+これは`P1-ABI-01`／`P1-ABI-02`／`P1-ABI-03`／`P1-DIAG-01`／`P1-SCH-01`／`P3-WIN-01`／`P4-UI-01`への限定したpartial evidenceである。`P3-WIN-01`について証明するのはtyped lookup／object identityだけである。general `RegisterClassExA`／`CreateWindowExA`、CP932／Unicode、duplicate、failure／LastError、production handle encoding／reuse／stale detection／lifetime／wait、`WM_NCCREATE`／補助message、callback `-1`／fault／reentrancy、`ShowWindow`／visibility、message queue、paint、browser presentationは未検証であり、各task、`AC-P1-03`、`AC-P2`、`AC-P3`、`AC-P4`、W2 runtimeの完了とは扱わない。
+
+`P1-SCH-01`について証明するのは、instruction budget下でpending synchronous `CreateWindowExA` frameを保持し、1回のWndProc callback後に同じguest threadをresumeする範囲だけである。run queue、virtual clock、wait／wakeは未実装である。
+
+次のprimary actionはfixed `ShowWindow(HWND, SW_SHOW)`を検査し、logical windowをhiddenからvisibleへ遷移させてstdcall resumeした後、`InvalidateRect` call siteを構造化することである。その次にinvalidationをmessage queue／dispatchへ接続して`WM_PAINT` callbackまで進める。
 
 ## 9. Remaining trace work
 

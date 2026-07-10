@@ -73,10 +73,14 @@ const expectedWindowClass = {
   ],
 };
 const expectedCreateWindow = {
+  variant: "createwindowexa-v12-local-ascii-wm-create",
   callSite: 0x00401095,
   returnAddress: 0x0040109b,
   iatAddress: 0x004020cc,
   thunkAddress: 0x00500020,
+  className: "VineWindowPixelFixture",
+  windowName: "VineWindowPixelFixture",
+  logicalHandle: 0x57010001,
   arguments: [
     0,
     0x00402000,
@@ -91,6 +95,31 @@ const expectedCreateWindow = {
     0x00400000,
     0,
   ],
+  createStructWords: [
+    0,
+    0x00400000,
+    0,
+    0,
+    120,
+    160,
+    0x80000000,
+    0x80000000,
+    0x00cf0000,
+    0x00402000,
+    0x00402000,
+    0,
+  ],
+  createStructAddress: 0x00501000,
+  callbackStackPointer: 0x006fffac,
+  callbackReturnStackPointer: 0x006fffc0,
+};
+const expectedShowWindow = {
+  callSite: 0x004010a8,
+  returnAddress: 0x004010ae,
+  iatAddress: 0x004020f0,
+  thunkAddress: 0x005000b0,
+  stackPointer: 0x006fffe8,
+  arguments: [0x57010001, 5],
 };
 const expectedSections = [
   {
@@ -130,7 +159,10 @@ const guest = {
   memorySize: 0x00800000,
   trapPage: 0x00500000,
   thunkStride: 0x10,
+  callbackReturn: 0x00500e00,
   entryReturn: 0x00500f00,
+  callbackScratch: 0x00501000,
+  callbackScratchSize: 0x1000,
   stackBase: 0x00600000,
   stackTop: 0x00700000,
   instructionBudget: 3,
@@ -503,13 +535,25 @@ wasm.reset_cpu();
 assertGuestRange(pe.imageBase, pe.sizeOfImage, "PE image");
 assertGuestRange(guest.trapPage, 0x1000, "runtime trap page");
 assertGuestRange(
+  guest.callbackScratch,
+  guest.callbackScratchSize,
+  "runtime callback scratch",
+);
+assertGuestRange(
   guest.stackBase,
   guest.stackTop - guest.stackBase,
   "guest stack",
 );
 assert.equal(guest.stackTop - guest.stackBase, 0x100000);
 assert(pe.imageBase + pe.sizeOfImage <= guest.trapPage, "PE image overlaps trap page");
-assert(guest.trapPage + 0x1000 <= guest.stackBase, "trap page overlaps guest stack");
+assert(
+  guest.trapPage + 0x1000 <= guest.callbackScratch,
+  "trap page overlaps callback scratch",
+);
+assert(
+  guest.callbackScratch + guest.callbackScratchSize <= guest.stackBase,
+  "callback scratch overlaps guest stack",
+);
 assert(pe.sizeOfHeaders <= pe.sizeOfImage, "PE headers exceed image size");
 assert(pe.sizeOfHeaders <= exeBytes.byteLength, "PE headers exceed fixture file");
 memory.set(exeBytes.subarray(0, pe.sizeOfHeaders), pe.imageBase);
@@ -577,11 +621,54 @@ const mainModule = Object.freeze({
   imageSize: pe.sizeOfImage,
   sha256: sourceHash,
 });
+const moduleIdentity = (module) =>
+  `${module.sha256}@${module.baseAddress.toString(16)}`;
 const logicalClassesByKey = new Map();
 const logicalClassesByAtom = new Map();
 let nextClassAtom = 0xc000;
 const localClassKey = (module, className) =>
-  `${module.sha256}@${module.baseAddress.toString(16)}:local:A:${className}`;
+  `${moduleIdentity(module)}:local:A:${className}`;
+const logicalWindowsByHandle = new Map();
+const windowHandleTag = 0x57;
+let nextWindowSlot = 1;
+const encodeWindowHandle = (generation, slot) =>
+  ((windowHandleTag << 24) | (generation << 16) | slot) >>> 0;
+const allocateLogicalWindow = (fields) => {
+  assert(nextWindowSlot > 0 && nextWindowSlot <= 0xffff, "window slot space exhausted");
+  const slot = nextWindowSlot;
+  const generation = 1;
+  const handle = encodeWindowHandle(generation, slot);
+  assert.notEqual(handle, 0);
+  assert(!logicalWindowsByHandle.has(handle), "duplicate logical HWND");
+  const window = Object.seal({
+    ...fields,
+    handle,
+    type: "window",
+    typeTag: windowHandleTag,
+    generation,
+    slot,
+    lifecycle: "creating",
+    visible: false,
+  });
+  logicalWindowsByHandle.set(handle, window);
+  nextWindowSlot += 1;
+  return window;
+};
+const lookupLogicalWindow = (handle) => {
+  assert(Number.isInteger(handle) && handle > 0, "logical HWND is invalid");
+  const normalizedHandle = handle >>> 0;
+  const window = logicalWindowsByHandle.get(normalizedHandle);
+  assert(window, `unknown logical HWND 0x${normalizedHandle.toString(16)}`);
+  assert.equal(window.type, "window");
+  assert(
+    window.lifecycle === "creating" || window.lifecycle === "created",
+    "logical HWND is not live",
+  );
+  assert.equal(normalizedHandle >>> 24, windowHandleTag);
+  assert.equal((normalizedHandle >>> 16) & 0xff, window.generation);
+  assert.equal(normalizedHandle & 0xffff, window.slot);
+  return window;
+};
 for (const service of resolvedImports) {
   assert.equal(
     readGuestU32(service.iatAddress, `${service.symbol} patched IAT`),
@@ -601,6 +688,10 @@ for (const { terminatorRva } of pe.descriptors) {
 assertTrapPageRange(guest.entryReturn, 2, "entry return sentinel");
 assert(!ownedServices.has(guest.entryReturn), "entry return overlaps an import thunk");
 memory.set(Uint8Array.from([0x0f, 0x0b]), guest.entryReturn);
+assertTrapPageRange(guest.callbackReturn, 2, "callback return sentinel");
+assert(!ownedServices.has(guest.callbackReturn), "callback return overlaps an import thunk");
+assert.notEqual(guest.callbackReturn, guest.entryReturn);
+memory.set(Uint8Array.from([0x0f, 0x0b]), guest.callbackReturn);
 
 const cpl = 3;
 for (let index = 0; index < 8; index += 1) {
@@ -737,6 +828,22 @@ const readGuestAsciiZ = (address, maxBytes, label) => {
   }
   assert.fail(`${label} is not NUL-terminated within ${maxBytes} bytes`);
 };
+const writeGuestWords = (address, words, label) => {
+  assertGuestRange(address, words.length * 4, label);
+  for (const [index, value] of words.entries()) {
+    writeGuestU32(address + index * 4, value, `${label} word ${index}`);
+  }
+};
+const resolveGuestCallback = (callback) => {
+  assert.equal(callback.moduleIdentity, moduleIdentity(mainModule));
+  assert.equal(callback.kind, "window-procedure-a");
+  assert.equal(callback.callingConvention, "stdcall");
+  assert.equal(callback.argumentBytes, 16);
+  const address = mainModule.baseAddress + callback.entryRva;
+  assert(Number.isSafeInteger(address) && address <= 0xffffffff);
+  assert(executableImageSectionForRange(address, 1), "guest callback is no longer executable");
+  return address >>> 0;
+};
 const decodeImportCall = (state, service) => {
   const returnAddress = readGuestU32(state.esp, "host service return address");
   const callInstructionSize = 6;
@@ -762,9 +869,27 @@ const decodeImportCall = (state, service) => {
 
 const budgetEvents = [];
 const implementedServiceEvents = [];
+const callbackEvents = [];
+const hostCallFrames = [];
+const maxHostCallDepth = 2;
+let nextHostCallId = 1;
+const pushHostCallFrame = (frame) => {
+  assert(hostCallFrames.length < maxHostCallDepth, "host call depth exceeded");
+  const stored = Object.seal({ ...frame, id: nextHostCallId });
+  nextHostCallId += 1;
+  hostCallFrames.push(stored);
+  return stored;
+};
+const peekHostCallFrame = () => hostCallFrames.at(-1) ?? null;
+const popHostCallFrame = (kind) => {
+  const frame = hostCallFrames.pop();
+  assert(frame, "host call stack underflow");
+  assert.equal(frame.kind, kind);
+  return frame;
+};
 let diagnostic = null;
 let finalState = null;
-for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
+for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
   const reason = wasm.vine_execute_budget(guest.instructionBudget);
   const state = saveState(reason);
   assertInvariantRegisters(state.words);
@@ -784,12 +909,141 @@ for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
     `unexpected stop reason 0x${reason.toString(16)} at 0x${state.eip.toString(16)}`,
   );
   assert.equal(state.errorCode, -1);
+  assert.equal(state.previousEip, state.eip);
+
+  if (state.eip === guest.callbackReturn) {
+    const callbackFrame = peekHostCallFrame();
+    assert(callbackFrame);
+    assert.equal(callbackFrame.kind, "guest-callback");
+    assert.equal(callbackFrame.returnSentinel, guest.callbackReturn);
+    assert.equal(state.esp, callbackFrame.expectedReturnEsp);
+    assert.equal(state.eax, 0, "fixed WM_CREATE callback rejected window creation");
+    assert.equal(state.words[savedStateWord.esi], mainModule.baseAddress);
+    const apiFrame = hostCallFrames.at(-2);
+    assert(apiFrame);
+    assert.equal(apiFrame.kind, "api");
+    assert.equal(apiFrame.id, callbackFrame.parentId);
+    assert.equal(callbackFrame.expectedReturnEsp, apiFrame.outerEsp);
+    assert.equal(apiFrame.phase, "callback");
+    assert.equal(apiFrame.service.symbol, "CreateWindowExA");
+    assert.equal(
+      readGuestU32(callbackFrame.entryEsp, "WndProc callback return sentinel"),
+      callbackFrame.returnSentinel,
+    );
+    assert.deepEqual(
+      Array.from({ length: callbackFrame.argumentBytes / 4 }, (_, index) =>
+        readGuestU32(
+          callbackFrame.entryEsp + 4 + index * 4,
+          `WndProc callback argument ${index}`,
+        ),
+      ),
+      callbackFrame.arguments,
+    );
+    assert.equal(
+      readGuestU32(apiFrame.outerEsp, "pending CreateWindowExA return address"),
+      apiFrame.returnAddress,
+    );
+    assert.deepEqual(
+      Array.from({ length: apiFrame.argumentBytes / 4 }, (_, index) =>
+        readGuestU32(
+          apiFrame.outerEsp + 4 + index * 4,
+          `pending CreateWindowExA argument ${index}`,
+        ),
+      ),
+      apiFrame.arguments,
+    );
+    assert.equal(lookupLogicalWindow(apiFrame.window.handle), apiFrame.window);
+    assert.equal(apiFrame.window.lifecycle, "creating");
+    assert.equal(readGuestU32(0x0040305c, "WM_CREATE count"), 1);
+    assert.equal(readGuestU32(0x00403068, "window event count"), 1);
+    assert.equal(readGuestU32(0x0040306c, "first window event"), 1);
+    assert.equal(readGuestU32(0x00403058, "window failure code"), 0);
+    assert.deepEqual(
+      Array.from({ length: 12 }, (_, index) =>
+        readGuestU32(
+          apiFrame.createStructAddress + index * 4,
+          `CREATESTRUCTA word ${index}`,
+        ),
+      ),
+      expectedCreateWindow.createStructWords,
+    );
+    assert.equal(popHostCallFrame("guest-callback"), callbackFrame);
+    apiFrame.window.lifecycle = "created";
+    apiFrame.phase = "returning";
+    callbackEvents.push({
+      kind: "guest-callback-return",
+      callId: callbackFrame.id,
+      parentCallId: apiFrame.id,
+      role: callbackFrame.role,
+      target: callbackFrame.target,
+      result: state.eax,
+      stackPointer: state.esp,
+      instructionCount: state.instructionCount,
+    });
+    const completedApiFrame = popHostCallFrame("api");
+    assert.equal(completedApiFrame, apiFrame);
+    implementedServiceEvents.push({
+      kind: "host-service-return",
+      callId: apiFrame.id,
+      requester: apiFrame.service.requester,
+      module: apiFrame.service.module,
+      symbol: apiFrame.service.symbol,
+      variant: expectedCreateWindow.variant,
+      implementationStatus: "partial",
+      guestCallSite: apiFrame.callSite,
+      guestCallSiteRva: apiFrame.callSite - pe.imageBase,
+      guestReturnAddress: apiFrame.returnAddress,
+      guestReturnRva: apiFrame.returnAddress - pe.imageBase,
+      iatAddress: apiFrame.service.iatAddress,
+      iatRva: apiFrame.service.iatRva,
+      thunkAddress: apiFrame.service.thunkAddress,
+      callingConvention: "stdcall",
+      argumentBytes: apiFrame.argumentBytes,
+      arguments: [...apiFrame.arguments],
+      result: apiFrame.window.handle,
+      className: apiFrame.className,
+      windowName: apiFrame.windowName,
+      callbackCallId: callbackFrame.id,
+      callbackMessage: 1,
+      callbackResult: state.eax,
+      stackPointerBefore: apiFrame.outerEsp,
+      stackPointerAfter: apiFrame.resumeEsp,
+    });
+    resume(state, {
+      eax: apiFrame.window.handle,
+      esp: apiFrame.resumeEsp,
+      eip: apiFrame.returnAddress,
+    });
+    continue;
+  }
+
   assert.notEqual(state.eip, guest.entryReturn, "fixture returned before host dispatch");
   const service = ownedServices.get(state.eip);
   assert(service, `#UD at unowned guest address 0x${state.eip.toString(16)}`);
-  assert.equal(state.previousEip, state.eip);
 
   const { callSite, returnAddress } = decodeImportCall(state, service);
+
+  if (hostCallFrames.length !== 0) {
+    const callbackFrame = peekHostCallFrame();
+    const apiFrame = hostCallFrames.find(({ kind }) => kind === "api");
+    if (apiFrame?.window) {
+      apiFrame.window.lifecycle = "create-failed";
+      logicalWindowsByHandle.delete(apiFrame.window.handle);
+    }
+    hostCallFrames.length = 0;
+    diagnostic = {
+      kind: "unsupported-reentrant-host-service",
+      parentCallId: callbackFrame?.parentId ?? null,
+      requester: service.requester,
+      module: service.module,
+      symbol: service.symbol,
+      guestCallSite: callSite,
+      guestReturnAddress: returnAddress,
+      stackPointer: state.esp,
+    };
+    finalState = state;
+    continue;
+  }
 
   const isGetModuleHandleA =
     service.module === "kernel32.dll" && service.symbol === "GetModuleHandleA";
@@ -869,6 +1123,14 @@ for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
     assert.equal(classNameAddress, expectedWindowClass.nameAddress);
     const className = readGuestAsciiZ(classNameAddress, 64, "window class name");
     assert.equal(className, expectedWindowClass.name);
+    const wndProcCallback = Object.freeze({
+      kind: "window-procedure-a",
+      moduleIdentity: moduleIdentity(mainModule),
+      entryRva: wndProc - mainModule.baseAddress,
+      callingConvention: "stdcall",
+      argumentBytes: 16,
+    });
+    assert.equal(resolveGuestCallback(wndProcCallback), wndProc);
     const key = localClassKey(mainModule, className);
     assert(!logicalClassesByKey.has(key), "duplicate local window class");
     assert(nextClassAtom >= 0xc000 && nextClassAtom <= 0xffff);
@@ -881,8 +1143,8 @@ for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
       scope: "local",
       encoding: "A-ascii",
       name: className,
-      instance,
-      wndProc,
+      moduleIdentity: moduleIdentity(mainModule),
+      wndProcCallback,
       style,
       classExtraBytes,
       windowExtraBytes,
@@ -919,9 +1181,149 @@ for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
     continue;
   }
 
-  if (implementedServiceEvents.length === 2) {
+  const isCreateWindowExA =
+    service.module === "user32.dll" && service.symbol === "CreateWindowExA";
+  if (isCreateWindowExA && implementedServiceEvents.length === 2) {
+    assert.equal(state.esp, 0x006fffc0);
     assert.equal(state.eax, logicalClassesByKey.values().next().value.atom);
     assert.equal(state.words[savedStateWord.esi], mainModule.baseAddress);
+    const createArguments = Array.from({ length: 12 }, (_, index) =>
+      readGuestU32(state.esp + 4 + index * 4, `CreateWindowExA argument ${index}`),
+    );
+    assert.deepEqual(createArguments, expectedCreateWindow.arguments);
+    const [
+      extendedStyle,
+      classNameAddress,
+      windowNameAddress,
+      style,
+      x,
+      y,
+      width,
+      height,
+      parent,
+      menu,
+      instance,
+      createParameter,
+    ] = createArguments;
+    assert.deepEqual(
+      [extendedStyle, style, x, y, width, height, parent, menu, instance, createParameter],
+      [
+        0,
+        0x00cf0000,
+        0x80000000,
+        0x80000000,
+        160,
+        120,
+        0,
+        0,
+        mainModule.baseAddress,
+        0,
+      ],
+    );
+    assert(width > 0 && height > 0, "window dimensions must be positive");
+    const className = readGuestAsciiZ(classNameAddress, 64, "CreateWindowExA class name");
+    const windowName = readGuestAsciiZ(windowNameAddress, 64, "CreateWindowExA window name");
+    assert.equal(className, expectedCreateWindow.className);
+    assert.equal(windowName, expectedCreateWindow.windowName);
+    const classKey = localClassKey(mainModule, className);
+    const logicalClass = logicalClassesByKey.get(classKey);
+    assert(logicalClass, "CreateWindowExA class is not registered");
+    assert.equal(logicalClass.moduleIdentity, moduleIdentity(mainModule));
+    assert.equal(logicalClassesByAtom.get(logicalClass.atom), logicalClass);
+    const callbackTarget = resolveGuestCallback(logicalClass.wndProcCallback);
+    const window = allocateLogicalWindow({
+      moduleIdentity: moduleIdentity(mainModule),
+      classKey,
+      classAtom: logicalClass.atom,
+      className,
+      title: windowName,
+      extendedStyle,
+      style,
+      requestedPosition: Object.freeze({ x: "use-default", y: "use-default" }),
+      requestedOuterSize: Object.freeze({ width, height }),
+      parent: null,
+      menu: null,
+    });
+    assert.equal(window.handle, expectedCreateWindow.logicalHandle);
+    const createStructAddress = guest.callbackScratch;
+    // CREATESTRUCTA stores the CreateWindow arguments in Win32 structure order.
+    const createStructWords = [
+      createParameter,
+      instance,
+      menu,
+      parent,
+      height,
+      width,
+      y,
+      x,
+      style,
+      windowNameAddress,
+      classNameAddress,
+      extendedStyle,
+    ];
+    assert.deepEqual(createStructWords, expectedCreateWindow.createStructWords);
+    assert(
+      createStructAddress >= guest.callbackScratch &&
+        createStructAddress + createStructWords.length * 4 <=
+          guest.callbackScratch + guest.callbackScratchSize,
+      "CREATESTRUCTA exceeds callback scratch",
+    );
+    writeGuestWords(createStructAddress, createStructWords, "CREATESTRUCTA");
+    const callbackArguments = [window.handle, 1, 0, createStructAddress];
+    const callbackFrameBytes = 4 + logicalClass.wndProcCallback.argumentBytes;
+    const callbackStackPointer = state.esp - callbackFrameBytes;
+    assert.equal(callbackStackPointer, expectedCreateWindow.callbackStackPointer);
+    assertGuestRange(callbackStackPointer, callbackFrameBytes, "WndProc callback frame");
+    writeGuestU32(callbackStackPointer, guest.callbackReturn, "WndProc return sentinel");
+    writeGuestWords(callbackStackPointer + 4, callbackArguments, "WndProc arguments");
+    const argumentBytes = createArguments.length * 4;
+    const apiFrame = pushHostCallFrame({
+      kind: "api",
+      service,
+      phase: "callback",
+      callSite,
+      returnAddress,
+      outerEsp: state.esp,
+      argumentBytes,
+      resumeEsp: state.esp + 4 + argumentBytes,
+      arguments: Object.freeze([...createArguments]),
+      className,
+      windowName,
+      createStructAddress,
+      window,
+    });
+    const callbackFrame = pushHostCallFrame({
+      parentId: apiFrame.id,
+      kind: "guest-callback",
+      role: "window-procedure-wm-create",
+      target: callbackTarget,
+      returnSentinel: guest.callbackReturn,
+      entryEsp: callbackStackPointer,
+      expectedReturnEsp: callbackStackPointer + callbackFrameBytes,
+      argumentBytes: logicalClass.wndProcCallback.argumentBytes,
+      arguments: Object.freeze([...callbackArguments]),
+    });
+    assert.equal(callbackFrame.expectedReturnEsp, expectedCreateWindow.callbackReturnStackPointer);
+    callbackEvents.push({
+      kind: "guest-callback-enter",
+      callId: callbackFrame.id,
+      parentCallId: apiFrame.id,
+      role: callbackFrame.role,
+      target: callbackTarget,
+      returnSentinel: guest.callbackReturn,
+      arguments: [...callbackArguments],
+      stackPointer: callbackStackPointer,
+    });
+    resume(state, { esp: callbackStackPointer, eip: callbackTarget });
+    continue;
+  }
+
+  if (implementedServiceEvents.length === 3) {
+    const window = lookupLogicalWindow(expectedCreateWindow.logicalHandle);
+    assert.equal(state.eax, window.handle);
+    assert.equal(state.words[savedStateWord.esi], window.handle);
+    assert.equal(window.lifecycle, "created");
+    assert.equal(window.visible, false);
   }
 
   diagnostic = {
@@ -954,8 +1356,24 @@ assert.deepEqual(budgetEvents, [
   { eip: 0x0040105e, esp: 0x006fffc4, esi: mainModule.baseAddress },
   { eip: 0x00401076, esp: 0x006fffc4, esi: mainModule.baseAddress },
   { eip: 0x0040108e, esp: 0x006fffc4, esi: mainModule.baseAddress },
+  { eip: 0x00401268, esp: 0x006fffa8, esi: mainModule.baseAddress },
+  { eip: 0x0040126f, esp: 0x006fffa8, esi: mainModule.baseAddress },
+  { eip: 0x0040127a, esp: 0x006fffa8, esi: mainModule.baseAddress },
+  { eip: 0x00401288, esp: 0x006fffa8, esi: mainModule.baseAddress },
+  { eip: 0x0040129e, esp: 0x006fffa8, esi: mainModule.baseAddress },
+  { eip: 0x00401406, esp: 0x006fffac, esi: mainModule.baseAddress },
+  {
+    eip: 0x004010a5,
+    esp: 0x006ffff4,
+    esi: expectedCreateWindow.logicalHandle,
+  },
+  {
+    eip: expectedShowWindow.thunkAddress,
+    esp: expectedShowWindow.stackPointer,
+    esi: expectedCreateWindow.logicalHandle,
+  },
 ]);
-assert.equal(finalState.instructionCount, 30);
+assert.equal(finalState.instructionCount, 57);
 assert.deepEqual(implementedServiceEvents, [
   {
     kind: "host-service-return",
@@ -1001,57 +1419,156 @@ assert.deepEqual(implementedServiceEvents, [
     stackPointerBefore: 0x006fffec,
     stackPointerAfter: 0x006ffff4,
   },
+  {
+    kind: "host-service-return",
+    callId: 1,
+    requester: "window-pixel.exe",
+    module: "user32.dll",
+    symbol: "CreateWindowExA",
+    variant: expectedCreateWindow.variant,
+    implementationStatus: "partial",
+    guestCallSite: expectedCreateWindow.callSite,
+    guestCallSiteRva: expectedCreateWindow.callSite - pe.imageBase,
+    guestReturnAddress: expectedCreateWindow.returnAddress,
+    guestReturnRva: expectedCreateWindow.returnAddress - pe.imageBase,
+    iatAddress: expectedCreateWindow.iatAddress,
+    iatRva: expectedCreateWindow.iatAddress - pe.imageBase,
+    thunkAddress: expectedCreateWindow.thunkAddress,
+    callingConvention: "stdcall",
+    argumentBytes: 48,
+    arguments: expectedCreateWindow.arguments,
+    result: expectedCreateWindow.logicalHandle,
+    className: expectedCreateWindow.className,
+    windowName: expectedCreateWindow.windowName,
+    callbackCallId: 2,
+    callbackMessage: 1,
+    callbackResult: 0,
+    stackPointerBefore: 0x006fffc0,
+    stackPointerAfter: 0x006ffff4,
+  },
 ]);
 assert.deepEqual(diagnostic, {
   kind: "unsupported-host-service",
   requester: "window-pixel.exe",
   module: "user32.dll",
-  symbol: "CreateWindowExA",
-  guestCallSite: expectedCreateWindow.callSite,
-  guestCallSiteRva: expectedCreateWindow.callSite - pe.imageBase,
-  guestReturnAddress: expectedCreateWindow.returnAddress,
-  guestReturnRva: expectedCreateWindow.returnAddress - pe.imageBase,
-  iatAddress: expectedCreateWindow.iatAddress,
-  iatRva: expectedCreateWindow.iatAddress - pe.imageBase,
-  thunkAddress: expectedCreateWindow.thunkAddress,
+  symbol: "ShowWindow",
+  guestCallSite: expectedShowWindow.callSite,
+  guestCallSiteRva: expectedShowWindow.callSite - pe.imageBase,
+  guestReturnAddress: expectedShowWindow.returnAddress,
+  guestReturnRva: expectedShowWindow.returnAddress - pe.imageBase,
+  iatAddress: expectedShowWindow.iatAddress,
+  iatRva: expectedShowWindow.iatAddress - pe.imageBase,
+  thunkAddress: expectedShowWindow.thunkAddress,
   engineStopReason: stopReason.invalidOpcode,
   engineErrorCode: -1,
-  stackPointer: 0x006fffc0,
+  stackPointer: expectedShowWindow.stackPointer,
 });
 assert.deepEqual(
-  Array.from({ length: 12 }, (_, index) =>
-    readGuestU32(finalState.esp + 4 + index * 4, `CreateWindowExA argument ${index}`),
+  Array.from({ length: 2 }, (_, index) =>
+    readGuestU32(finalState.esp + 4 + index * 4, `ShowWindow argument ${index}`),
   ),
-  expectedCreateWindow.arguments,
+  expectedShowWindow.arguments,
 );
 assert.equal(logicalClassesByKey.size, 1);
 assert.equal(logicalClassesByAtom.size, 1);
 const logicalClass = logicalClassesByAtom.get(0xc000);
 assert(logicalClass);
 assert.equal(logicalClassesByKey.get(logicalClass.key), logicalClass);
+assert(Object.isFrozen(logicalClass));
+assert(Object.isFrozen(logicalClass.wndProcCallback));
 assert.deepEqual(logicalClass, {
   key: localClassKey(mainModule, expectedWindowClass.name),
   atom: 0xc000,
   scope: "local",
   encoding: "A-ascii",
   name: expectedWindowClass.name,
-  instance: mainModule.baseAddress,
-  wndProc: expectedWindowClass.wndProc,
+  moduleIdentity: moduleIdentity(mainModule),
+  wndProcCallback: {
+    kind: "window-procedure-a",
+    moduleIdentity: moduleIdentity(mainModule),
+    entryRva: expectedWindowClass.wndProc - mainModule.baseAddress,
+    callingConvention: "stdcall",
+    argumentBytes: 16,
+  },
   style: 0,
   classExtraBytes: 0,
   windowExtraBytes: 0,
 });
-assert.equal(finalState.eax, logicalClass.atom);
-assert.equal(finalState.esp, 0x006fffc0);
+assert.deepEqual(callbackEvents, [
+  {
+    kind: "guest-callback-enter",
+    callId: 2,
+    parentCallId: 1,
+    role: "window-procedure-wm-create",
+    target: expectedWindowClass.wndProc,
+    returnSentinel: guest.callbackReturn,
+    arguments: [
+      expectedCreateWindow.logicalHandle,
+      1,
+      0,
+      expectedCreateWindow.createStructAddress,
+    ],
+    stackPointer: expectedCreateWindow.callbackStackPointer,
+  },
+  {
+    kind: "guest-callback-return",
+    callId: 2,
+    parentCallId: 1,
+    role: "window-procedure-wm-create",
+    target: expectedWindowClass.wndProc,
+    result: 0,
+    stackPointer: expectedCreateWindow.callbackReturnStackPointer,
+    instructionCount: 50,
+  },
+]);
+assert.equal(hostCallFrames.length, 0);
+assert.equal(logicalWindowsByHandle.size, 1);
+assert.equal(nextWindowSlot, 2);
+assert.equal(nextHostCallId, 3);
+const logicalWindow = lookupLogicalWindow(expectedCreateWindow.logicalHandle);
+assert(Object.isSealed(logicalWindow));
+assert(Object.isFrozen(logicalWindow.requestedPosition));
+assert(Object.isFrozen(logicalWindow.requestedOuterSize));
+assert.deepEqual(logicalWindow, {
+  handle: expectedCreateWindow.logicalHandle,
+  type: "window",
+  typeTag: windowHandleTag,
+  generation: 1,
+  slot: 1,
+  lifecycle: "created",
+  visible: false,
+  moduleIdentity: moduleIdentity(mainModule),
+  classKey: logicalClass.key,
+  classAtom: logicalClass.atom,
+  className: expectedCreateWindow.className,
+  title: expectedCreateWindow.windowName,
+  extendedStyle: 0,
+  style: 0x00cf0000,
+  requestedPosition: { x: "use-default", y: "use-default" },
+  requestedOuterSize: { width: 160, height: 120 },
+  parent: null,
+  menu: null,
+});
+assert.equal(readGuestU32(0x0040305c, "final WM_CREATE count"), 1);
+assert.equal(readGuestU32(0x00403068, "final window event count"), 1);
+assert.equal(readGuestU32(0x0040306c, "final first window event"), 1);
+assert.equal(finalState.eax, logicalWindow.handle);
+assert.equal(finalState.words[savedStateWord.esi], logicalWindow.handle);
+assert.equal(finalState.esp, expectedShowWindow.stackPointer);
 assert.equal(readGuestU32(0x006ffff4, "saved entry ESI"), calleeSaved.esi);
 assert.equal(readGuestU32(0x006ffff8, "saved entry EDI"), calleeSaved.edi);
 assert.equal(readGuestU32(0x006ffffc, "entry return sentinel"), guest.entryReturn);
+assert.deepEqual(
+  memory.slice(guest.callbackReturn, guest.callbackReturn + 2),
+  Uint8Array.from([0x0f, 0x0b]),
+);
 assert.deepEqual(Object.keys(hostImportCalls), ["microtick"]);
 assert(hostImportCalls.microtick > 0);
 
 console.log(
-  `runtime window class ingress passed: imports=${resolvedImports.length}, ` +
-    `implemented-variants=${implementedServiceEvents.length}, atom=0x${logicalClass.atom.toString(16)}, ` +
+  `runtime window create ingress passed: imports=${resolvedImports.length}, ` +
+    `implemented-variants=${implementedServiceEvents.length}, hwnd=0x${logicalWindow.handle.toString(16)}, ` +
+    `callback=WM_CREATE, ` +
     `stop=${diagnostic.module}!${diagnostic.symbol}, ` +
     `call=0x${diagnostic.guestCallSite.toString(16)}, ` +
     `budget stops=${budgetEvents.length}, instructions=${finalState.instructionCount}`,
