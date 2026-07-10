@@ -210,7 +210,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowは13 thunk、13 completed partial returns、6 callback events、typed paint session、nested destroy／quit、entry returnを実証した。次はprivate bootstrap offsetやharness-local object／surface／queue／frame layoutをproduction APIとして拡散させず、fixed resultを最小browser-facing first-pixel boundaryへ接続する。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowは13 thunk、13 completed partial returns、6 callback events、typed paint session、nested destroy／quit、entry returnを実証した。fixed resultからversioned eventを経由するW3 browser first pixelも完了した。次はprivate bootstrap offsetや8 MiB low-address mappingをproduction APIとして拡散させず、high-address／protection fixtureでmemory候補を比較する。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -220,7 +220,7 @@ invalidate code range
 
 adapter fixture は次の順に増やす。
 
-1. [Fixed baseline verified] 最小Win32 fixtureで複数のowned thunk IDとguest window callbackを通した。次はgenerated API metadata／callback schemaを使うgeneral dispatcherへ移す。
+1. [Fixed baseline verified] 最小Win32 fixtureで複数のowned thunk IDとguest window callbackを通した。後続のproduction sliceでgenerated API metadata／callback schemaを使うgeneral dispatcherへ移す。
 2. unmapped、read-only、non-executable page accessを区別する。
 3. v86 pagingとbounded physical page allocator、またはchecked sparse memoryを接続する。
 4. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。

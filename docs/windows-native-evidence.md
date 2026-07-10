@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／native ABI oracle／W1 fixed runtime slice／W2 native window fixture／W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow／W3 browser first-pixel boundaryはVerified。visual title／method-level coverageはIn discovery
-- 取得日: 2026-07-10
+- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／native ABI oracle／W1 fixed runtime slice／W2 native window fixture／W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow／W3 browser first-pixel boundaryはVerified。visual title／device-level method coverageはIn discovery
+- 取得日: 2026-07-10／2026-07-11
 - runtime checkpoint更新日: 2026-07-11
-- 完了 checkpoint: `W0`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`P0-COR-04` の最初のnative sample
+- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`P0-COR-04` の最初のnative sample
 - partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-02`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P3-WIN-01`、`P3-WIN-03`、`P4-UI-01`、`P4-UI-02`、`P4-GDI-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
@@ -512,10 +512,54 @@ runnerはこのeventをstdout transportからexactly 1件だけ受け取り、�
 
 これは`P4-UI-02`のpresentation boundaryへの限定したpartial evidenceである。Chrome内でguest CPU、PE loader、Win32 lifecycle、Runtime Workerを実行せず、main-thread protocol、frame queue、common surface、pitch／orientation／dirty region、renderer backend、cadence、resize／DPR／context lossを決定または検証しない。sparse eventはW3 checkpoint-localであり、`P4-GFX-01`／`P4-GFX-02`、`AC-P4-01`／`AC-P4-02`を完了しない。
 
-次のprimary actionは、次回のsubsystem-focused native trace前にcaller module＋RVA、call ID／parent call ID、leaveのLastError／durationをschemaへ追加することである。vtable hookは選んだinterfaceだけに限定する。
+## 10. Trace v2 attribution and selected IDirect3D9 root
 
-## 10. Remaining trace work
+commit `e4548ec41e28f354c49d9a1433adf877c120b905`のclean worktreeから、primary fingerprintを対象に次を実行した。vtable optionを省略したtraceは従来のfocused export bandだけをhookし、このcaptureだけ`IDirect3D9` rootを明示選択する。
 
-次の subsystem-focused native trace 前に、caller module＋RVA、call ID／parent call ID、leave の last error／durationをschemaへ加える。trace runnerは今回のcapture後にtarget hash／tool version／options／stop reasonの記録と既存outputの上書き拒否を追加済みであり、次回captureから適用される。
+```powershell
+$trace = ".work\windows-traces\sakura-idirect3d9-v2-clean-20260711-035657.jsonl"
+py tools/windows/trace.py `
+  --exe "V:\softs\サクラノ詩\BGI.exe" `
+  --output $trace `
+  --seconds 15 `
+  --kill-after `
+  --vtable idirect3d9
 
-caller attribution がない現在の process-wide `GetProcAddress`、`CreateFile`、`CreateThread` を、そのまま BGI の guest requirement に昇格しない。D3D9／DirectInput／DirectSound の vtable hook は該当 vertical slice を開始するときだけ追加する。
+node tools/summarize-windows-trace.mjs `
+  --input $trace `
+  --output "$trace.summary.json"
+```
+
+| Field | Result |
+|---|---|
+| Trace／summary schema | `vine.win32-trace.v2`／`vine.win32-trace-summary.v2` |
+| Capture | 2026-07-11 `03:56:57.484 +09:00`～`03:57:13.544 +09:00`、`16.060` seconds、`timeout-kill` |
+| Target | `1,193,472` bytes、SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1` |
+| Raw | `2,267,972` bytes、`7,133` JSONL records、SHA-256 `cfefd83bc32f2de6e8b7feda96a09240b2ac7aedb3bc76ded41064a0d224c898` |
+| Local summary | `58,021` bytes、SHA-256 `3e8f8b52e23131b8efea737e3dfa94bdb10d9f14526fe2bf44bdb56715959aa9` |
+| Agent sequence | `0`～`7,130`、contiguous |
+| API pairing | enter／leave／pair各`3,529`、max depth `3`、call ID contract balanced |
+| Selected vtable | `IDirect3D9` 1 table、17 named slots。`IDirect3DDevice9`その他は未選択 |
+| Diagnostics | hook／vtable／call-stack／agent／cleanup errorすべて`0` |
+
+trace v2では各`api-enter`／`api-leave`が同じglobal call ID、thread-local parent call ID、caller absolute address／module／RVAを持つ。leaveはreturn直後のunsigned LastErrorとinteger millisecond durationを持つ。summarizerはcall IDのcontiguity、thread stack上のparent、enter／leaveのcaller／module／API／interface／slot／object identity、LastError／duration rangeを検査する。historical trace v1はlegacy thread-stack pairingとして引き続き入力できる。
+
+| Slot | IDirect3D9 method | Calls | BGI direct caller RVA |
+|---:|---|---:|---|
+| 1 | `AddRef` | 3 | なし。3 callsとも`d3d9.dll`内部 |
+| 2 | `Release` | 5 | `0x5BB0E`で3 calls |
+| 4 | `GetAdapterCount` | 6 | `0x59D36`で6 calls |
+| 5 | `GetAdapterIdentifier` | 1 | `0x5B91C`で1 call |
+| 8 | `GetAdapterDisplayMode` | 4 | `0x59DA5`で3 calls、`0x5B8D6`で1 call |
+| 9 | `CheckDeviceType` | 5 | `0x5B9D6`／`0x5BA1D`で各1 call。残り3 callsは内部 |
+| 10 | `CheckDeviceFormat` | 13 | `0x5BA69`で1 call。残り12 callsは内部 |
+| 11 | `CheckDeviceMultiSampleType` | 3 | なし。3 callsとも`CreateDevice`内部 |
+| 14 | `GetDeviceCaps` | 1 | `0x5B949`で1 call |
+| 15 | `GetAdapterMonitor` | 9 | `0x59D5E`で6 calls。残り3 callsは内部 |
+| 16 | `CreateDevice` | 3 | `0x5ACA5`で3 calls |
+
+factory `Direct3DCreate9`は4 callsで、BGI callerは`0x5AB8C`が3回、`0x5B892`が1回である。root methodは11 unique／53 total calls、そのうちBGI directは27 callsである。3回の`CreateDevice`はAdapter `0`、DeviceType `1`、BehaviorFlags `0x44`、HRESULT `0`で、各内部root callはCreateDeviceのparent call IDへ帰属した。focus HWND、structure／output pointerの数値はnondeterministicでgoldenにしない。slot `0`、`3`、`6`、`7`、`12`、`13`はこのcaptureで未到達である。
+
+LastErrorはAPIが成功時にclearする保証を意味せず、例えば内部`AddRef` leaveは値`122`を保持した。これをHRESULT／return valueの代わりに成功判定へ使わない。今回のcaptureは`P6D-COR-01`のroot-interface prerequisiteへのpartial evidenceであり、presentation parametersの内容、`IDirect3DDevice9`／resource vtable、format／state／draw／Present／Reset／loss、DirectInput／DirectSound methodを観測または確定しない。
+
+次のprimary actionはhigh-address mappingとpage fault／protectionを別fixtureで測り、v86 pagingと独自sparse memory案を比較することである。

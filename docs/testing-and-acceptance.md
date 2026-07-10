@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、native window／message／pixel oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、fixed W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow contract、Windows trace summary contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、native window／message／pixel oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、fixed W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow contract、Windows trace v1／v2 summary／selected-vtable contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -75,6 +75,8 @@ error code、callback 順、stack cleanup、LastError preservation、file conten
 ## 5. Test layer
 
 以下は project 全体の coverage 候補であり、着手時に一括して test case 化する checklist ではない。各 checkpoint では到達した範囲から代表 case を一つ選ぶ。
+
+現在のrepresentative Windows trace contractは、v2 eventのglobal call ID、thread-local parent call ID、caller module＋RVA、enter／leave target identity、LastError、duration、explicit selected vtableを一つのdeterministic nested A／W wrapper fixtureで検査する。`IDirect3D9`は17 named slotsとslot 16 `CreateDevice` pairを含む。call ID gap／mismatch、wrong parent、missing caller、invalid LastError／durationを拒否し、historical v1 inputはlegacy thread-stack pairingで読み込む。別vtableやmethodごとのtestは実capture failureが要求するまで追加しない。
 
 ### 5.1 Static と repository checks
 

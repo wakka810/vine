@@ -232,8 +232,11 @@ Verified behavior:
 20. `GetMessageA`のfixed `getmessagea-unfiltered-generated-paint-zero-metadata` variantでcandidate 1件を28-byte `MSG`へmaterialize／dequeueし、paint stateを`queued`から`in-flight`へ遷移してBOOL `1`をstdcall returnする。続くfixed `dispatchmessagea-generated-wm-paint-callback`で`CALL ESI`をIAT thunkへ帰属し、guest WndProcの`WM_PAINT` callbackへ入ってreentrant `BeginPaint`を構造化するW2 message dispatch ingress contract。
 21. harness-only 2x2 logical clientへfixed `BeginPaint`／`SetPixel`／`EndPaint`を通し、typed HDC `0x48010001`のsession lifetimeとpixel `(1,1) = 0x000000FF`を検証する。`DestroyWindow`からnested `WM_DESTROY` callback／`PostQuitMessage(0)`へ入り、strict reverse callback／API unwind、2回目の`GetMessageA`による`WM_QUIT`、entry return sentinelまで完了するW2 paint／quit flow contract。
 22. W2 harnessの最終logical pixelを`vine.browser-present` schema version `1`のsparse `rgba8` eventへ変換し、clean temporary profileのChrome `150.0.7871.115`でone-shot Canvas 2D sinkへ1回presentする。Canvas readbackは`(1,1) = [255,0,0,255]`、present countは`1`となるW3 browser first-pixel contract。
+23. native trace／summary schema version `2`で全hooked callへcaller module＋RVA、global call ID、thread-local parent call ID、leave直後のLastError、durationを追加する。明示的`--vtable idirect3d9`だけが`IDirect3D9` root 17 slotsをhookし、15秒のclean-source BGI captureで11 methods／53 calls、3回の`CreateDevice`、3,529 balanced call pairs、max depth `3`、diagnostics `0`を観測するtrace attribution contract。
 
 2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
+
+同日、commit `e4548ec`のclean worktreeからBGI fingerprintを再検証してtrace v2を15秒取得した。`IDirect3D9` rootだけを選択し、factory 4 callsとroot 11 methods／53 callsをcaller RVA付きで分離した。slot `16`の`CreateDevice`は3回とも`BGI.exe + 0x5ACA5`、return `0`であり、内部root callsはparent call IDで各CreateDeviceへ帰属する。これは`P6D-COR-01`のroot-interface部分へのpartial evidenceであり、device／resource vtable、presentation parameters内容、format／state／draw／Present／Reset、DirectInput／DirectSound methodを確定しない。LastErrorは各leave直後の観測値であり、APIが値を定義しない場合の成功判定には使わない。
 
 まだ存在しないもの:
 
@@ -246,7 +249,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGI.exe を Vine 内で load／executeした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle、fixed W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first-pixel boundaryである。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、trace v2 attribution／selected IDirect3D9 root evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle、fixed W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first-pixel boundaryである。
 
 ## 8. Corpus
 
@@ -299,7 +302,7 @@ node tools/summarize-windows-trace.mjs `
   --output "$trace.summary.json"
 ```
 
-利用者がタイトル画面まで操作したら `Ctrl+C` で収集を終了する。process を終了したい場合は `--kill-after` を加えるか、収集後にエージェントが終了してよい。
+利用者がタイトル画面まで操作したら `Ctrl+C` で収集を終了する。process を終了したい場合は `--kill-after` を加えるか、収集後にエージェントが終了してよい。`--vtable idirect3d9`はこのroot interfaceを選んだcaptureだけに加え、通常のexport traceまたは別subsystem traceでは省略する。
 
 v86 source adapter を再現 build するときだけ、`make` と `sh` が `PATH` にある PowerShell で実行する。
 
@@ -317,19 +320,18 @@ Generated output は `.work/` に置く。raw artifact は commit せず、重�
 
 ## 10. Active Queue
 
-Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowとW3 browser first-pixel boundaryは 2026-07-11 までに完了した。8 MiB low-address contiguous mapping、harness-local HWND／HDC／2x2 client／surface／queue／frame encoding、sparse `rgba8` eventは測定／fixture上の選択であり、sparse 4 GiB memory、page ownership、production object／surface／queue layoutの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first-pixel boundary、trace v2 attribution／selected IDirect3D9 root captureは 2026-07-11 までに完了した。8 MiB low-address contiguous mapping、harness-local HWND／HDC／2x2 client／surface／queue／frame encoding、sparse `rgba8` eventは測定／fixture上の選択であり、sparse 4 GiB memory、page ownership、production object／surface／queue layoutの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. 次の subsystem-focused native trace 前に caller module＋RVA、call ID／parent call ID、last error、duration を追加し、選んだ vtable だけを観測する。
-2. high-address mapping と page fault／protectionを別 fixtureで測り、v86 paging と独自 sparse memory案を比較する。
-3. BGI.exe を production loader 候補へ投入し、first unsupported import／bootstrap pointまで進める。
+1. high-address mapping と page fault／protectionを別 fixtureで測り、v86 paging と独自 sparse memory案を比較する。
+2. BGI.exe を production loader 候補へ投入し、first unsupported import／bootstrap pointまで進める。
 
-項目1が次の primary implementation checkpointである。W3の成功をnative client geometry、general BeginPaint／EndPaint／DC／SetPixel、common surface／format／pitch／orientation／dirty region、renderer backend、Runtime Worker protocol、Win32 runtime、browser applicationの完成と扱わない。次checkpointでは既存trace全体を広げず、後続のsubsystem-focused captureに必要なattributionとcall ownershipをschemaへ追加し、vtable観測は選んだinterfaceだけに限定する。
+項目1が次の primary implementation checkpointである。trace v2の成功を`P6D-COR-01`／`P6D-COR-02`、D3D9 support band、COM ABI、renderer、Win32 runtimeの完成と扱わない。次checkpointではW1／W2の8 MiB low-address contiguous mappingをproduction memory決定へ昇格せず、別fixtureでhigh address、page presence、read／write／execute protection、fault orderingを測る。
 
 ## 11. Major Open Questions
 
 優先順:
 
-1. サクラノ詩の title resource bandで到達した factory以降のD3D9／DirectInput／DirectSound method、format、stateは何か。
+1. IDirect3D9 rootでは11 methodsへ到達したが、device／resource vtable、presentation parameters内容、format／state／draw／Present／Reset、DirectInput／DirectSound methodは何か。
 2. v86 paging と bounded physical allocatorを使うか、CPU memory accessを独自 sparse memoryへ接続するか。
 3. runtime-owned thunk／callback sentinelとWin32 exception deliveryをどう統合するか。
 4. cooperative guest threads、wait／message、async host responseをどうsuspend／resumeするか。
@@ -383,7 +385,7 @@ Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE
 | `docs/x86-engine-scorecard.md` | engine comparison、v86 evidence、remaining gates |
 | `docs/toolchain-spike.md` | LLVM PE／Wasm fixture baseline |
 | `docs/windows-development.md` | Windows bring-up、trace、checkpoint commands |
-| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、W1 runtime、W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow |
+| `docs/windows-native-evidence.md` | Windows W0、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first pixel |
 | `spikes/x86-engine/README.md` | v86 source adapter reproduction |
 
 文書内の長い test／task listは将来coverageの地図であり、今すぐ全件実装する指示ではない。本書のactive queueと「広く浅く、代表test 1本」を優先する。

@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow／W3 browser first-pixel boundary。static corpus inventory、LLVM toolchain baseline、v86 bounded adapter、version 1 CPU state round trip、Windows W0、最初の BGI startup trace／summary、native callback oracle、fixed PE／cdecl callback contract、native window／message／pixel oracle、13-import ingress、13 completed partial service variants、6 callback events、fixed paint／nested destroy／quit／entry return、version 1 event／Chrome Canvas readbackは完了。visual critical scenario、COM method trace、memory adapter、engine 最終選定は未完了
+- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow／W3 browser first-pixel boundary。static corpus inventory、LLVM toolchain baseline、v86 bounded adapter、version 1 CPU state round trip、Windows W0、BGI trace v1／v2 summary、caller attribution／call ownership、selected IDirect3D9 root 11-method trace、native callback oracle、fixed PE／cdecl callback contract、native window／message／pixel oracle、13-import ingress、13 completed partial service variants、6 callback events、fixed paint／nested destroy／quit／entry return、version 1 event／Chrome Canvas readbackは完了。visual critical scenario、device-level COM method trace、memory adapter、engine 最終選定は未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1 fixed loader-lite、W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first-pixel spikeがあり、production PE／Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -18,7 +18,7 @@
 - [x86-engine-scorecard.md](x86-engine-scorecard.md): engine 候補、実行 evidence、adapter 採用 gate
 - [risks-and-open-questions.md](risks-and-open-questions.md): `Q-*`、`R-*`、go / no-go 条件
 - [testing-and-acceptance.md](testing-and-acceptance.md): test 資産、証跡、`AC-*`
-- [windows-native-evidence.md](windows-native-evidence.md): Windows W0、BGI startup trace、native ABI oracle、W1 runtime、W2 native window fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow
+- [windows-native-evidence.md](windows-native-evidence.md): Windows W0、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native window fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first pixel
 
 ## 2. 計画上の前提
 
@@ -142,7 +142,7 @@ Phase 6 は Phase 3 の scheduler、clock、handle、browser topology が確定�
 
 技術選択を暗黙に固定せず、corpus、test oracle、resource control、build／CI、主要 ADR を揃える。最初の code は product feature ではなく、execution、storage、graphics、audio 候補を比較する disposable spike とする。
 
-現在 `P0-COR-01` は In discovery であり、7 entry executable の PE32/i386 判定、SHA-256、static import inventory は [corpus-inventory.md](corpus-inventory.md) に記録済みである。primary の最初の Windows trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+、title resource bandまで取得し、[windows-native-evidence.md](windows-native-evidence.md) に正規化した。factory以降のCOM methodとvisual checkpointは未確定である。`P0-COR-03` の EXE／DLL／callback fixture と `P0-ARCH-01` の LLVM baseline は [toolchain-spike.md](toolchain-spike.md) で再現可能であり、Windows native callback oracleも通った。`P0-ARCH-02` は v86／Unicorn／Bochs／libx86emu の比較、v86 prebuilt Wasm の integer／x87／SSE smoke、固定 source adapter の exact budget／CPL3 fault stop／version 1 CPU state round trip、W1 fixed cdecl／1段callbackまで進んだ。[x86-engine-scorecard.md](x86-engine-scorecard.md) に残る memory／broad ABI／browser gateを記録した。production toolchainとengine最終選定は未確定である。
+現在 `P0-COR-01` は In discovery であり、7 entry executable の PE32/i386 判定、SHA-256、static import inventory は [corpus-inventory.md](corpus-inventory.md) に記録済みである。primary trace v1はmain window、D3D9／DirectInput 8／DirectSound factory、GDI+、title resource band、trace v2はcaller attributionとselected `IDirect3D9` root 11 methodsまで取得し、[windows-native-evidence.md](windows-native-evidence.md) に正規化した。device／resource COM methodとvisual title checkpointは未確定である。`P0-COR-03` の EXE／DLL／callback fixture と `P0-ARCH-01` の LLVM baseline は [toolchain-spike.md](toolchain-spike.md) で再現可能であり、Windows native callback oracleも通った。`P0-ARCH-02` は v86／Unicorn／Bochs／libx86emu の比較、v86 prebuilt Wasm の integer／x87／SSE smoke、固定 source adapter の exact budget／CPL3 fault stop／version 1 CPU state round trip、W1／W2 fixed flow、W3 browser first pixelまで進んだ。[x86-engine-scorecard.md](x86-engine-scorecard.md) に残る memory／broad ABI／Worker gateを記録した。production toolchainとengine最終選定は未確定である。
 
 ### 6.2 Entry criteria
 
@@ -896,12 +896,10 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、最初の startup trace／summary、native callback oracle、W1 fixed PE／ABI slice、W2 native fixture、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first-pixel boundaryは完了した。W1は`P1-ABI-01`／`P1-ABI-03`／`P1-SCH-01`／`P1-QA-01`へのpartial evidenceであり、task全体または`AC-P1`の完了ではない。W2 native成功も`P4-*`または`AC-P4`の完了ではない。従来checkpointのevidenceを保持した上で、paint／quit checkpointのdeltaは`P1-ABI-01`／`P1-ABI-02`／`P1-ABI-03`／`P1-DIAG-01`／`P1-SCH-01`／`P3-WIN-01`／`P3-WIN-03`／`P4-UI-01`／`P4-UI-02`／`P4-GDI-01`に限る。W3は`P4-UI-02`のpresentation boundaryへ限定したpartial evidenceを追加するが、Runtime Worker protocol、production surface、renderer backendを実装しない。`P4-GFX-01`、`P4-GFX-02`、`P4-GDI-04`はclaimせず、`AC-P1-03`、`AC-P3-02`、`AC-P4-01`、`AC-P4-02`を含むacceptance criterionは一つも完了しない。以後は [windows-development.md](windows-development.md) と [windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、startup trace v1／v2 summary、trace v2 attribution／selected IDirect3D9 root、native callback oracle、W1 fixed PE／ABI slice、W2 native fixture、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first-pixel boundaryは完了した。W1は`P1-ABI-01`／`P1-ABI-03`／`P1-SCH-01`／`P1-QA-01`へのpartial evidenceであり、task全体または`AC-P1`の完了ではない。W2のpaint／quit deltaは`P1-ABI-01`／`P1-ABI-02`／`P1-ABI-03`／`P1-DIAG-01`／`P1-SCH-01`／`P3-WIN-01`／`P3-WIN-03`／`P4-UI-01`／`P4-UI-02`／`P4-GDI-01`に限り、W3は`P4-UI-02`のpresentation boundaryへのpartial evidenceだけを追加する。`P4-GFX-01`／`P4-GFX-02`／`P4-GDI-04`と`AC-P1`／`AC-P3`／`AC-P4`は完了しない。trace v2は`P6D-COR-01`のroot-interface prerequisiteへのpartial evidenceだけを追加し、device／resource method、format／state／draw／Present／Resetを取得せず、`P6D-COR-01`／`P6D-COR-02`または`AC-P6D`を完了しない。以後は [windows-development.md](windows-development.md) と [windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. `P6D-COR-01`／`P6D-COR-02` trace schema ingress: 次のsubsystem-focused native trace前にcaller module＋RVA、call ID／parent call ID、leaveのLastError／durationを追加し、選んだvtable methodだけを観測する。
-2. `P0-ARCH-03`: W1／W2の8 MiB low-address contiguous mappingをpartial measurementとして使い、high-address／protection fixtureでsparse 4 GiBとpage ownership候補を比較する。
-3. `P0-COR-02`: manual markerを持つfocused traceでvisual title checkpointを閉じる。
-4. `W7`: BGI.exeをproduction loader候補へ投入し、first unsupported import／bootstrap pointまで進める。
+1. `P0-ARCH-03`: W1／W2の8 MiB low-address contiguous mappingをpartial measurementとして使い、high-address／protection fixtureでsparse 4 GiBとpage ownership候補を比較する。
+2. `W7`: BGI.exeをproduction loader候補へ投入し、first unsupported import／bootstrap pointまで進める。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 

@@ -16,9 +16,10 @@
 - native `window-pixel.exe` のstdcall WndProc、queued message、paint、pixel、destroy／quit oracle
 - source-built v86 上の`window-pixel.exe` preferred-base map、13 owned thunk、`GetModuleHandleA(NULL)`、fixed class semantic state／ATOM、harness-local logical HWND／HDC／2x2 client、`WM_CREATE`／nested `WM_PAINT`／`WM_DESTROY` callback、paint／destroy／quit、entry return sentinel
 - fixed W2 resultのversion 1 browser present eventと、Chrome Canvas 2Dのone-shot present／pixel readback
+- trace v2のcaller module＋RVA、call ID／parent call ID、leave LastError／durationと、explicit selected `IDirect3D9` root 11-method evidence
 
 production guest memory、PE／DLL loader、Win32 API、graphics／audio は未実装である。W1 は Node.js 上の fixed loader-lite であり、サクラノ詩の native trace を引き続き実装順の根拠にする。
-取得値と W1／W2 fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow result は [windows-native-evidence.md](windows-native-evidence.md) を正とする。
+trace v1／v2、selected IDirect3D9 root、W1／W2 fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 resultは [windows-native-evidence.md](windows-native-evidence.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -87,13 +88,14 @@ node tools/summarize-windows-trace.mjs `
   --output "$trace.summary.json"
 ```
 
-利用者がタイトル画面まで手動操作した後、`Ctrl+C` で detach する。時間で区切る場合は `--seconds 60` 等を指定する。trace 終了時に game も停止する必要がある場合だけ `--kill-after` を加える。runnerとsummarizerは既存outputを拒否する。意図的に置き換える調査だけ`--force`を使う。
+利用者がタイトル画面まで手動操作した後、`Ctrl+C` で detach する。時間で区切る場合は `--seconds 60` 等を指定する。trace 終了時に game も停止する必要がある場合だけ `--kill-after` を加える。runnerとsummarizerは既存outputを拒否する。意図的に置き換える調査だけ`--force`を使う。`--vtable idirect3d9`はroot interfaceを選んだcaptureだけに加える。省略時は既存のfocused export bandからvtableへ広がらない。
 
 最初の trace から次だけを確定する。
 
 - 実際に load された DLL
 - タイトル画面までに到達した file、window、D3D9、DirectInput、DirectSound／WinMM、COM entry
 - process start から first window／first graphics entry までの順序
+- BGI direct callerとOS／driver内部caller、nested wrapper／COM callのownership
 - Frida で観測できず WinDbg breakpoint が必要な箇所
 
 広い API hook は追加しない。未観測の API を先回りして実装対象にしない。
@@ -123,6 +125,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。`abi-smoke.exe` の import thunk／guest callback／return sentinel は W1 contractで完了し、最小Win32 fixtureのnative event／pixel oracleも固定した。同じfixed fixtureの3 DLL／13 importをowned thunkへ解決し、13 fixed partial service variantsをreturnした。harness-only 2x2 clientへ`BeginPaint -> SetPixel(1,1,0xFF) -> EndPaint`を通し、nested `DestroyWindow -> WM_DESTROY -> PostQuitMessage(0)`、`WM_PAINT`／Dispatch return、2回目の`GetMessageA`による`WM_QUIT`、entry sentinelまで完了した。そのfinal stateをversion 1 sparse `rgba8` eventへ変換し、Chrome `150.0.7871.115`のone-shot Canvas sinkで1回presentして`(1,1) = [255,0,0,255]`をreadbackした。次はsubsystem-focused traceに必要なcaller attribution、call ownership、LastError、durationをschemaへ追加する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。後続trace v2はcaller attribution、call ownership、LastError、durationを固定し、明示選択した`IDirect3D9` rootの11 methods／53 callsを観測したが、device／resource methodsは未観測である。W1／W2／W3はheadless ABI、window／paint／quit、browser first-pixelまで完了した。次はhigh-address／protection fixtureでguest memory候補を比較する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。
