@@ -1,8 +1,15 @@
 #![forbid(unsafe_code)]
 
+mod memory;
 mod pe32;
 mod snapshot;
 
+pub use memory::{
+    GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
+    GuestRange, GuestWriteResult, ImageMemoryLayout, MemoryAccess, MemoryFault, MemoryFaultReason,
+    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
+    MemoryStats, PageProtection,
+};
 pub use pe32::{
     DataDirectoryAddressKind, DataDirectoryPlan, FeatureInventory, HeaderMappingPlan, ImageKind,
     ImagePlan, ImportModulePlan, ImportSymbolPlan, ImportTarget, LoaderError, LoaderErrorClass,

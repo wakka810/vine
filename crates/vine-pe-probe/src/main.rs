@@ -7,13 +7,18 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use serde::Serialize;
-use vine_core::{LoaderError, LoaderErrorClass, ModuleSnapshot, Pe32Limits, build_pe32_load_plan};
+use vine_core::{
+    GuestMemory, GuestMemoryError, GuestMemoryErrorClass, ImageMemoryLayout, LoaderError,
+    LoaderErrorClass, MemoryLimits, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    UnsupportedPoint, build_pe32_load_plan,
+};
 
 #[derive(Debug)]
 struct Arguments {
     input: PathBuf,
     output: Option<PathBuf>,
     expected_sha256: Option<String>,
+    prepare_memory_pages: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -22,6 +27,30 @@ struct FailureReport {
     schema: &'static str,
     schema_version: u32,
     error: LoaderError,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryIngressReport {
+    schema: &'static str,
+    schema_version: u32,
+    source: ModuleIdentity,
+    loader_schema: &'static str,
+    loader_schema_version: u32,
+    memory_limits: MemoryLimits,
+    image: MemoryImageSummary,
+    layout: ImageMemoryLayout,
+    stats: MemoryStats,
+    stop: UnsupportedPoint,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryImageSummary {
+    preferred_image_base: u32,
+    size_of_image: u32,
+    entry_point_address: u32,
+    section_count: usize,
 }
 
 fn main() -> ExitCode {
@@ -50,62 +79,52 @@ fn run() -> Result<(), LoaderError> {
     if let Some(expected) = &arguments.expected_sha256 {
         snapshot.verify_expected_sha256(expected)?;
     }
-    let report = build_pe32_load_plan(&snapshot, limits)?;
-    let mut json = serde_json::to_vec_pretty(&report).map_err(|error| {
-        LoaderError::runtime_defect(
-            "probe-output",
-            "report-serialization-failed",
-            format!("could not serialize the deterministic load plan: {error}"),
-        )
-    })?;
+    let loader_report = build_pe32_load_plan(&snapshot, limits)?;
+    let mut json = if let Some(max_physical_pages) = arguments.prepare_memory_pages {
+        let memory_limits = MemoryLimits {
+            max_physical_pages,
+            ..MemoryLimits::default()
+        };
+        let mut memory = GuestMemory::new(memory_limits).map_err(memory_error)?;
+        let layout = memory
+            .prepare_image_layout(&loader_report.source, &loader_report.load_plan)
+            .map_err(memory_error)?;
+        let report = MemoryIngressReport {
+            schema: "vine.guest-memory-ingress",
+            schema_version: 1,
+            source: loader_report.source.clone(),
+            loader_schema: loader_report.schema,
+            loader_schema_version: loader_report.schema_version,
+            memory_limits,
+            image: MemoryImageSummary {
+                preferred_image_base: loader_report.load_plan.image.preferred_image_base,
+                size_of_image: loader_report.load_plan.image.size_of_image,
+                entry_point_address: loader_report.load_plan.image.entry_point_address,
+                section_count: loader_report.load_plan.sections.len(),
+            },
+            layout,
+            stats: memory.stats(),
+            stop: UnsupportedPoint {
+                stage: "image-materialization",
+                code: "image-bytes-relocations-import-binding-unimplemented",
+                message: "the sparse image region and zeroed physical pages are owned; source copy, zero-fill verification, relocations, IAT binding, owner sealing, and guest execution were not attempted",
+            },
+        };
+        serialize_report(&report)?
+    } else {
+        serialize_report(&loader_report)?
+    };
     json.push(b'\n');
 
     if let Some(output) = arguments.output {
-        if let Some(parent) = output.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            fs::create_dir_all(parent).map_err(|error| {
-                io_error(
-                    "probe-output",
-                    "output-directory-create-failed",
-                    "could not create the report output directory",
-                    error,
-                )
-            })?;
-        }
-        let mut output_file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&output)
-            .map_err(|error| {
-                let (code, context) = if error.kind() == io::ErrorKind::AlreadyExists {
-                    (
-                        "report-output-already-exists",
-                        "refusing to replace an existing report or source file",
-                    )
-                } else {
-                    (
-                        "report-create-failed",
-                        "could not create the load-plan report",
-                    )
-                };
-                io_error("probe-output", code, context, error)
-            })?;
-        output_file.write_all(&json).map_err(|error| {
-            io_error(
-                "probe-output",
-                "report-write-failed",
-                "could not write the load-plan report",
-                error,
-            )
-        })?;
-        println!("wrote PE32 loader ingress report to {}", output.display());
+        write_report(&output, &json)?;
+        println!("wrote runtime ingress report to {}", output.display());
     } else {
         io::stdout().write_all(&json).map_err(|error| {
             io_error(
                 "probe-output",
                 "stdout-write-failed",
-                "could not write the load-plan report to stdout",
+                "could not write the runtime ingress report to stdout",
                 error,
             )
         })?;
@@ -113,10 +132,62 @@ fn run() -> Result<(), LoaderError> {
     Ok(())
 }
 
+fn serialize_report(report: &impl Serialize) -> Result<Vec<u8>, LoaderError> {
+    serde_json::to_vec_pretty(report).map_err(|error| {
+        LoaderError::runtime_defect(
+            "probe-output",
+            "report-serialization-failed",
+            format!("could not serialize the deterministic ingress report: {error}"),
+        )
+    })
+}
+
+fn write_report(output: &Path, json: &[u8]) -> Result<(), LoaderError> {
+    if let Some(parent) = output.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).map_err(|error| {
+            io_error(
+                "probe-output",
+                "output-directory-create-failed",
+                "could not create the report output directory",
+                error,
+            )
+        })?;
+    }
+    let mut output_file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output)
+        .map_err(|error| {
+            let (code, context) = if error.kind() == io::ErrorKind::AlreadyExists {
+                (
+                    "report-output-already-exists",
+                    "refusing to replace an existing report or source file",
+                )
+            } else {
+                (
+                    "report-create-failed",
+                    "could not create the ingress report",
+                )
+            };
+            io_error("probe-output", code, context, error)
+        })?;
+    output_file.write_all(json).map_err(|error| {
+        io_error(
+            "probe-output",
+            "report-write-failed",
+            "could not write the ingress report",
+            error,
+        )
+    })
+}
+
 fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut input = None;
     let mut output = None;
     let mut expected_sha256 = None;
+    let mut prepare_memory_pages = None;
     let mut arguments = env::args_os().skip(1);
 
     while let Some(argument) = arguments.next() {
@@ -131,6 +202,13 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
             if expected_sha256.replace(value).is_some() {
                 return Err(usage_error());
             }
+        } else if argument == "--prepare-memory-pages" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            let value = value.into_string().map_err(|_| usage_error())?;
+            let value = value.parse::<usize>().map_err(|_| usage_error())?;
+            if value == 0 || prepare_memory_pages.replace(value).is_some() {
+                return Err(usage_error());
+            }
         } else if argument.to_string_lossy().starts_with('-') || input.is_some() {
             return Err(usage_error());
         } else {
@@ -142,6 +220,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         input: input.ok_or_else(usage_error)?,
         output,
         expected_sha256,
+        prepare_memory_pages,
     })
 }
 
@@ -206,7 +285,24 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT] [--output FILE] INPUT".to_owned(),
+    }
+}
+
+fn memory_error(error: GuestMemoryError) -> LoaderError {
+    let class = match error.class {
+        GuestMemoryErrorClass::ResourceLimit => LoaderErrorClass::ResourceLimit,
+        GuestMemoryErrorClass::RuntimeDefect => LoaderErrorClass::RuntimeDefect,
+        GuestMemoryErrorClass::InvalidRequest
+        | GuestMemoryErrorClass::Conflict
+        | GuestMemoryErrorClass::SynchronizationRequired
+        | GuestMemoryErrorClass::Fault => LoaderErrorClass::InvalidInput,
+    };
+    LoaderError {
+        class,
+        stage: error.stage,
+        code: error.code,
+        message: error.message,
     }
 }
 

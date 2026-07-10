@@ -2,11 +2,11 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／native ABI oracle／W1／W2／W3／W7 PE32 load-plan ingressはVerified。visual title／device-level method coverageはIn discovery
+- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／native ABI oracle／W1／W2／W3／W7 PE32 load-plan ingress／production guest-memory ingressはVerified。visual title／device-level method coverageはIn discovery
 - 取得日: 2026-07-10／2026-07-11
 - runtime checkpoint更新日: 2026-07-11
-- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`W7 PE32 load-plan ingress`、`P0-COR-04` の最初のnative sample
-- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-02`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-03`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P2-COR-01`、`P3-WIN-01`、`P3-WIN-03`、`P4-UI-01`、`P4-UI-02`、`P4-GDI-01`、`P6D-COR-01`、`P6D-COR-02`
+- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`W7 PE32 load-plan ingress`、`production guest-memory ingress`、`P0-COR-04` の最初のnative sample
+- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-MEM-01`、`P1-MEM-02`、`P1-MEM-03`、`P1-ABI-01`、`P1-ABI-02`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-03`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P2-COR-01`、`P3-WIN-01`、`P3-WIN-03`、`P4-UI-01`、`P4-UI-02`、`P4-GDI-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
 raw JSONL、local summary、game file、absolute trace pathはGitに追加しない。summaryはabsolute title／system pathとPIDを保持するlocal-sensitive artifactであり、共有用に正規化されたmanifestではない。本書は同じraw traceから再生成できる小さなredacted resultだけを記録する。
@@ -579,4 +579,31 @@ BGI planは5 sections、14 modules／330 imports、237 relocation blocks／18,30
 
 first stopは`process-bootstrap`／`peb-teb-process-parameters-unimplemented`である。guest memory materialization、IAT binding、PEB／TEB／process parameters、initial stack、entry executionはnot attemptedであり、silent import successを返さない。詳細なlimits、fixture、section plan、non-claimsは[pe-loader-ingress.md](pe-loader-ingress.md)を正とする。
 
-次のprimary actionは、このowned planをADR-003のregion／page owner、bounded allocator、execute gateへ接続することである。
+このowned planをADR-003のregion／page owner、bounded allocator、execute gateへ接続する次checkpointは完了した。W7 report自体のstopとnon-claimsは変更しない。
+
+## 12. Production guest-memory ingress
+
+Rust `vine-core`は、4 GiB guest VAを4 KiB owner／region／page metadataとしてsparseに所有し、committed pageだけをbounded zeroed frameへ割り当てる。representative contractは次で再現する。
+
+```powershell
+npm run check:toolchain
+npm run check:runtime:memory-core
+```
+
+fixed `high-memory.exe`はbase `0xF1000000`の6 image pagesを準備する。single sequenceはpending invalidation中のaccess拒否、unsealed execute PFEC `21`、seal後のRX fetch、NX execute PFEC `21`、R write PFEC `7`、RW data、second-page unmapped write PFEC `6`／no partial write、protect、7-page exact quota、decommit／frame reuse、release／owner teardownを検査する。final stateは1 sealed image owner／6 physical pages、generation `7`、pending invalidationなしである。
+
+fingerprint済みBGI.exeには次を適用した。
+
+```powershell
+npm run probe:runtime:pe -- `
+  --expect-sha256 f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1 `
+  --prepare-memory-pages 380 `
+  --output .work\guest-memory\bgi-layout.json `
+  "V:\softs\サクラノ詩\BGI.exe"
+```
+
+BGI image rangeは`0x00400000`～`0x0057C000`、380 reserved／committed／physical pagesで、380 readable、100 writable、208 executable pagesとなった。ownerは未seal、generation `1`のdata TLB／fetch／generated-code invalidationがpendingである。version 1 reportは1,796 bytes、SHA-256 `355b514d657bc7639bfd5f2b9eb2043dc94166a7944710c865b30c86c437947c`で一致した。379-page quotaはexit `1`でoutputを作らず、default W7 reportは1,976,261 bytes／SHA-256 `692852dc3bdbb13e39202138e725a8c6a58a20ea1d3d9e5c20c5e21b33f658be`のまま変わらない。元BGI.exeも1,193,472 bytes／primary SHA-256を保持した。
+
+structured stopは`image-materialization`／`image-bytes-relocations-import-binding-unimplemented`である。pagesはallocator初期化のzeroだけを持ち、header／section source copy、PE zero-fill verification、`HIGHLOW`、IAT binding、BGI owner seal、v86 page table／TLB／generated-code invalidation、guest executionを行わない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
+
+次のprimary actionは、同じowned source／planからheader／section bytesをcopyし、zero-fillを検証して`HIGHLOW` relocationをguest memory内だけへ適用することである。IAT bindingまたはprocess bootstrapのfirst unsupported pointで停止し、guest executionへはまだ進まない。

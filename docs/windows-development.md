@@ -19,9 +19,10 @@
 - trace v2のcaller module＋RVA、call ID／parent call ID、leave LastError／durationと、explicit selected `IDirect3D9` root 11-method evidence
 - high-memory PE32の`0xF1000000` map、present／R／W／cross-page fault、TLB invalidationとv86 execute-protection gap
 - Rust `vine-core`のimmutable snapshot／bounded PE32 section・import・relocation planと、BGIのW7 process-bootstrap stop
+- Rust `vine-core`のsparse owner／region／page table、bounded zeroed frame allocator、logical execute seal／invalidation protocolと、BGIの380-page memory-ingress stop
 
-production guest memory、PE mapping／DLL lifecycle／bootstrap、Win32 API、graphics／audio は未実装である。W7はproduction-oriented parse／plan ingressであり、guest memoryへmapしない。サクラノ詩のnative traceを引き続き実装順の根拠にする。
-trace v1／v2、selected IDirect3D9 root、W1／W2／W3／W7 resultは [windows-native-evidence.md](windows-native-evidence.md) を正とし、W7の詳細は[pe-loader-ingress.md](pe-loader-ingress.md)を参照する。
+PE byte materialization、v86 memory接続、DLL lifecycle／bootstrap、Win32 API、graphics／audio は未実装である。W7はproduction-oriented parse／plan ingressであり、memory ingressはzeroed page ownershipまでで停止する。サクラノ詩のnative traceを引き続き実装順の根拠にする。
+trace v1／v2、selected IDirect3D9 root、W1／W2／W3／W7 resultは [windows-native-evidence.md](windows-native-evidence.md) を正とし、W7の詳細は[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)を参照する。
 
 ## 2. Windows toolchain
 
@@ -71,6 +72,7 @@ npm run check:runtime:memory
 npm run check:runtime:window-loader
 npm run check:runtime:window-browser
 npm run check:runtime:pe
+npm run check:runtime:memory-core
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -115,7 +117,7 @@ node tools/summarize-windows-trace.mjs `
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
-8. `W7 Sakura startup` [PE32 load-plan ingress verified]: immutable BGI.exeからsection／import／relocation planを作り、process bootstrapの最初のunsupported contractで停止する。guest mapping／executionは未検証である。
+8. `W7 Sakura startup` [PE32 load-plan and guest-memory ingress verified]: immutable BGI.exeからsection／import／relocation planを作り、1 sparse image region／380 zeroed pagesを所有してimage materializationの最初のunsupported contractで停止する。source copy／relocation／IAT／executionは未検証である。
 
 各 checkpoint の automated test は原則 1 本にする。追加 test は、実際の regression、calling convention／fault ordering の曖昧さ、または title failure を最小化した場合だけ作る。
 
@@ -129,6 +131,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。後続trace v2はcaller attributionとselected `IDirect3D9` root 11 methodsを観測したがdevice／resource methodsは未観測である。W1／W2／W3とhigh-address memory spikeに続き、W7はBGIのowned PE32 planを作りprocess bootstrapで停止した。次はこのplanをADR-003のregion／page owner、bounded allocator、execute gateへ接続する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。後続trace v2はcaller attributionとselected `IDirect3D9` root 11 methodsを観測したがdevice／resource methodsは未観測である。W1／W2／W3とhigh-address memory spikeに続き、W7はBGIのowned PE32 planを作り、production memory ingressはexact quota 380 pagesを所有してimage materializationで停止した。次はowned header／section bytesのcopy、zero-fill verification、`HIGHLOW`適用を同じownerへ接続する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

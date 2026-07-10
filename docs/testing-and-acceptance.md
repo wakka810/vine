@@ -78,7 +78,9 @@ error code、callback 順、stack cleanup、LastError preservation、file conten
 
 現在のrepresentative Windows trace contractは、v2 eventのglobal call ID、thread-local parent call ID、caller module＋RVA、enter／leave target identity、LastError、duration、explicit selected vtableを一つのdeterministic nested A／W wrapper fixtureで検査する。`IDirect3D9`は17 named slotsとslot 16 `CreateDevice` pairを含む。call ID gap／mismatch、wrong parent、missing caller、invalid LastError／durationを拒否し、historical v1 inputはlegacy thread-stack pairingで読み込む。別vtableやmethodごとのtestは実capture failureが要求するまで追加しない。
 
-現在のrepresentative memory contractは、fixed PE32／LAA imageを`0xF1000000`へnon-identity mapし、high EIP／stack、R page write、unmapped read／write、cross-page write、protect／remap前後を一つのsource-built v86 runnerで検査する。PFEC `7`／`4`／`6`、second-page fault前のno partial write、explicit TLB invalidationをassertする。同じmetadataをchecked sparse referenceへ与え、execute-denied／unmapped fetchをPFEC相当`21`／`20`として検査する。v86がnon-executable sectionを実行する結果もgapとしてassertし、成功に読み替えない。guard、all-width access、snapshot、generated code、Worker testはproduction failureまたは次gateまで増やさない。
+representative adapter memory measurementは、fixed PE32／LAA imageを`0xF1000000`へnon-identity mapし、high EIP／stack、R page write、unmapped read／write、cross-page write、protect／remap前後を一つのsource-built v86 runnerで検査する。PFEC `7`／`4`／`6`、second-page fault前のno partial write、explicit TLB invalidationをassertする。同じmetadataをchecked sparse referenceへ与え、execute-denied／unmapped fetchをPFEC相当`21`／`20`として検査する。v86がnon-executable sectionを実行する結果もgapとしてassertし、成功に読み替えない。
+
+representative production memory contractは同じhigh-memory planをRust-owned sparse regionへ準備し、6 image pagesと1 anonymous probe pageでpending invalidation、unsealed／NX fetch PFEC `21`、read-only write PFEC `7`、cross-page unmapped write PFEC `6`／no partial write、protect、exact quota failure、decommit／reuse、release／owner teardownを一つのsequenceで検査する。BGIの380-page layoutはversion 1 probe evidenceとして別に記録し、同じautomated testを複製しない。guard、all-width access、snapshot、actual generated-code invalidation、Worker testは具体的なfailureまたは次gateまで増やさない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
 
 ### 5.1 Static と repository checks
 
@@ -121,6 +123,8 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 合格条件は、valid fixture が expected module trace を返し、invalid fixture が host crash、panic、unbounded allocation を起こさず stable error class を返すことである。
 
 現在のW7 representative contractは、SHA-256固定の2,560-byte `abi-smoke.exe`をRustのowned immutable snapshotへ取り込み、strict PE32／i386 header、4 section、1 module／2 named import、1 relocation block／6 wordsをversion 1 load planへ変換する。1 `ABSOLUTE`／5 `HIGHLOW`、entry RVA `0x1000`、source hash、deterministic JSONを検査し、`process-bootstrap`／`peb-teb-process-parameters-unimplemented`で停止する。同じplannerはfingerprint済みBGI.exeについて5 section、14 modules／330 imports、237 relocation blocks／18,308 wordsを返した。guest memoryへのmap、IAT binding、DLL graph、PEB／TEB、entry実行はcontract外である。詳細は[pe-loader-ingress.md](pe-loader-ingress.md)を正とする。
+
+続くguest-memory ingress contractはW7 planのheader／section mapped rangesを1 image ownerへcommitし、final R／W／X metadataとbounded physical quotaを検査する。allocator-zeroed pagesを所有するだけでsource copy、PE zero-fill、relocation、IAT、owner seal、CPU実行はcontract外であり、stopは`image-materialization`／`image-bytes-relocations-import-binding-unimplemented`である。
 
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
@@ -402,6 +406,8 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-08`: no-go 条件を review し、次 phase へ進む判断を ADR／milestone record に残す
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
+
+現在のproduction memory ingressは`AC-P1-01`へのpartial evidenceである。high fixtureとlow BGI layout、reserve／commit／protect、cross-page faultは存在するが、CPUが同じboundaryを使わず、guard／stack／heap／snapshotも未実装のためcriterionは未完了である。`AC-P1`全体も未完了である。
 
 ### AC-P2: Headless PE runtime complete
 

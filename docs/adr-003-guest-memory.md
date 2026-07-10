@@ -6,9 +6,10 @@
 - Measurement date: 2026-07-11
 - Scope: `P0-ARCH-03` partial evidence for 4 GiB guest VA、page protection、page ownership
 - Working candidate: Vine region table + bounded physical page allocator reflected into v86 paging
-- Not decided: production API、execute gate、guard、snapshot、generated-code invalidation、Worker memory ceiling
+- Implemented ingress: Rust-owned sparse region／page API、bounded zeroed frames、logical execute gate、invalidation acknowledgement protocol
+- Not decided: v86 page-table reflection、guard、snapshot、actual generated-code invalidation、Worker memory ceiling
 
-この文書はmemory architectureのaccepted decisionではない。fixed high-address fixtureで2候補を比較し、次のproduction sliceで使うworking directionと、acceptance前に閉じるgateを固定する。
+この文書はmemory architectureのaccepted decisionではない。fixed high-address fixtureで2候補を比較し、production Rust ingressでownership contractを実装した。CPU integrationとacceptance前に閉じるgateが残るため、working directionは引き続きprovisionalである。
 
 ## 2. Required Contract
 
@@ -34,6 +35,7 @@ Vine guest memoryは、次を同時に満たす必要がある。
 npm run check:toolchain
 npm run prepare:engine
 npm run check:runtime:memory
+npm run check:runtime:memory-core
 ```
 
 | Artifact | Observed |
@@ -43,6 +45,7 @@ npm run check:runtime:memory
 | Sections | `.text` RX、`.rdata` R、`.data` RW、`.nxprobe` R、`.rprobe` R |
 | Adapter | source revision `2f1346b0e7d88d4cbbbcc05fe15b4e369c3de23f`、Wasm SHA-256 `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
 | Report | `.work/v86-memory-spike/report.json`、schema version `1` |
+| Production ingress | `vine-core` guest memory、`vine.guest-memory-ingress` version `1` |
 
 runnerは同じpage mapをsource-built v86 adapterとchecked sparse referenceへ与える。referenceはCPUへ接続せず、Windows-visible R／W／Xとfault orderingのexpected contractだけを表す。
 
@@ -81,31 +84,41 @@ RW PTEをread-onlyへ変更した直後はcached TLBによりwriteが通り、`f
 
 | Property | v86 paging + Vine ownership | Checked sparse replacement |
 |---|---|---|
-| CPU integration | Existing interpreter pathでverified | Reference only。CPU未接続 |
-| High VA | Verified | Reference verified |
-| Present／R／W | Verified | Reference verified |
-| Execute | Vine execute gateが必要 | Reference verified |
+| CPU integration | Existing interpreter pathでverified | Production Rust boundaryはCPU未接続 |
+| High VA | Verified | Production contractでverified |
+| Present／R／W | Verified | Production contractでverified |
+| Execute | Vine execute gateが必要 | Logical gateをproduction contractでverified |
 | Physical memory | bounded poolは可能だがv86 RAMはcontiguous | committed page単位にできる |
 | TLB／code cache | v86 invalidation semanticsを使う | 全fetch／decode pathを再接続する必要がある |
 | Change surface | region／allocator／fetch gate中心 | virtual access、physical access、JIT assumptionsの広い変更 |
 
 現時点では、CPU-integrated high-address executionとR／W fault orderingを保持できる前者をworking candidateとする。checked sparse案は境界が明快だが、現在はCPUに接続されておらず、hot pathとgenerated-code pathを変更する根拠が不足する。v86 paging案がexecute gate、quota、snapshot、Worker ceilingのいずれかで成立しない場合に再評価する。
 
-## 6. Required Production Boundary
+## 6. Production Ingress Result
 
-次のproduction memory sliceは、少なくとも次をRust-owned APIとして持つ。
+`vine-core`は次をproduction-oriented Rust APIとして実装した。
 
-- checked guest address／rangeと4 KiB region／page state
-- reserve／commit／protect／unmapとbounded physical allocation
-- region stateから生成するpage directory／PTE ownership
-- instruction fetch前のexecute permission checkとstructured fault address／PFEC
-- protect／remap時のdata TLB、fetch mapping、generated-code invalidation
+- checked guest address／rangeと4 KiB owner／region／page state
+- fixed reserve、commit、protect、decommit、releaseとbounded zeroed physical allocation
+- image planから1 regionをreserveし、header／section pageをfinal R／W／X metadataでcommitするingress
+- instruction fetch前のlogical execute permission／owner sealとstructured fault address／PFEC
+- 全page preflightによるcross-page no-partial-write
+- mapping／protection／seal／write-to-codeに対するgeneration-tagged data TLB、fetch、generated-code invalidation requirement
+- 最新invalidationがacknowledgeされるまでguest accessを停止するprotocol
+
+high-memory contractは6 image pagesと1 anonymous probe pageをexact quota内で扱い、BGI planは380 image pagesをexact quotaで所有した。詳細なfault sequence、report hash、structured stopは[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
+
+次は未実装であり、このADRをAcceptedへ進める前に閉じる。
+
+- region stateから生成するv86 page directory／PTE ownershipとbounded physical backingの接続
+- Rust acknowledgementを実際のv86 TLB／fetch／generated-code invalidation完了へ結び付けるadapter contract
 - region／page／CPU generationを揃えるsnapshot contract
+- guard、mapped file、copy-on-write、sharing、memory pressure、Worker ceiling
 
 host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 facadeからsemantic map requestを渡す。page tableのraw bytes、physical page number、v86 private offsetをWindows API層へ公開しない。
 
 ## 7. Non-Claims And Next Gate
 
-このspikeは`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width cross-page access、self-modifying code、PAE／NX、generated JIT、snapshot、memory pressure、Chrome Workerは未検証である。checked sparse implementationもproduction codeではない。
+production ingress checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、CPU-connected self-modifying code、PAE／NX、generated JIT、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはproduction coreに入ったが、v86のmemory／fetch pathには未接続である。
 
-次のvertical checkpointはBGI.exeをproduction loader候補へ入力し、parse／map計画のfirst unsupported importまたはbootstrap pointを構造化することである。guest codeを実行する前に、このADRのregion／page ownerとexecute gateをproduction Rust boundaryへ接続する。
+次のvertical checkpointは、owned W7 planからheader／section bytesをこのmemory ownerへcopyし、zero-fillを検証して`HIGHLOW` relocationを適用する。IAT bindingまたはprocess bootstrapの次のfirst unsupported pointで構造化停止し、guest codeはまだ実行しない。

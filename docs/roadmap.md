@@ -5,7 +5,7 @@
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／runtime flow／W3 browser first-pixel boundary／W7 PE32 load-plan ingress。static corpus inventory、LLVM baseline、v86 bounded adapter、Windows trace v1／v2、selected IDirect3D9 root、high-address memory measurement、Chrome Canvas readback、Rust immutable BGI planは完了。visual critical scenario、device-level COM trace、production memory materialization／DLL／bootstrap、engine最終選定は未完了
-- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1／W2／W3、high-address memory spike、Rust W7 loader ingressがあり、production guest memory、DLL lifecycle／bootstrap／Win32 runtime、browser app、CIは未実装
+- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1／W2／W3、high-address memory spike、Rust W7 loader ingress、production Rust guest-memory ingressがあり、PE byte materialization、v86 memory接続、DLL lifecycle／bootstrap／Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
 このロードマップは、広範な Windows 互換を一度に実装する計画ではない。Windows native trace を根拠に、headless 実行、startup、first frame、input、audio、persistence の短い vertical checkpoint を広く浅く通す。各 subsystem の全面実装は後回しにし、各 phase は日付ではなく受け入れ条件を満たした時点で完了する。
@@ -897,10 +897,10 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、selected IDirect3D9 root、native callback oracle、W1 fixed PE／ABI、W2 native fixture／runtime flow、W3 browser first pixel、high-address／protection measurement、W7 Rust PE32 load-plan ingressは完了した。W7はimmutable BGI bytesから5 section、14 modules／330 imports、237 relocation blocks／18,308 wordsをbounded planへ変換し、`process-bootstrap`で構造化停止した。guest memory、IAT binding、PEB／TEB、entry実行はnot attemptedであり、`AC-P1`／`AC-P2`／`AC-P3`／`AC-P4`／`AC-P6D`を完了しない。memory spikeは`P0-ARCH-03`へのpartial evidenceとして4 GiB VA、present／R／W、cross-page fault、TLB invalidationを測り、v86 native execute protectionの欠落を固定した。production region／allocator／execute gateを持たないため、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`は未完了である。以後は [pe-loader-ingress.md](pe-loader-ingress.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、selected IDirect3D9 root、native callback oracle、W1 fixed PE／ABI、W2 native fixture／runtime flow、W3 browser first pixel、high-address／protection measurement、W7 Rust PE32 load-plan ingress、`P0-ARCH-03` production guest-memory ingress checkpointは完了した。W7はimmutable BGI bytesから5 section、14 modules／330 imports、237 relocation blocks／18,308 wordsをbounded planへ変換した。memory ingressはBGI imageを1 region／380 zeroed physical pagesへexact quotaで所有し、380 R／100 W／208 X page metadata、unsealed execute gate、generation 1 invalidationを保持して`image-materialization`で構造化停止した。source copy、zero-fill verification、`HIGHLOW`適用、IAT binding、PEB／TEB、entry実行はnot attemptedであり、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`／`AC-P2`／`AC-P3`／`AC-P4`／`AC-P6D`を完了しない。以後は [guest-memory-ingress.md](guest-memory-ingress.md)、[pe-loader-ingress.md](pe-loader-ingress.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. `P0-ARCH-03` production ingress: guest code実行前にprovisional region／page owner、bounded allocator、execute gateをRust boundaryへ接続する。
-2. `W7` materialization continuation: item 1のmemory boundaryへBGI planのheaders／section copy／zero-fill／`HIGHLOW`を接続し、IAT bindingまたはbootstrapの次のfirst unsupported pointで停止する。
+1. `W7` materialization continuation: production memory ownerへowned header／section source bytesをcopyし、zero-fillを検証して`HIGHLOW` relocationを適用する。
+2. materialized imageを最初のIAT bindingまたはprocess bootstrap unsupported pointまで進め、guest execution前に構造化停止する。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 

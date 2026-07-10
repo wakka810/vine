@@ -8,14 +8,16 @@ The repository is in Phase 0 discovery. Current evidence includes reproducible
 PE32 fixtures, a bounded v86 adapter, native Windows trace attribution, fixed
 W1/W2 execution slices, a one-pixel Chrome presentation boundary, a
 high-address memory measurement, and a Rust PE32 load-plan ingress for the
-fingerprinted BGI image. Guest-memory materialization, DLL lifecycle, process
-bootstrap, the Win32 runtime, and the browser application do not exist yet.
+fingerprinted BGI image. A production Rust boundary now owns the BGI image
+range and its 380 zeroed pages, but PE byte materialization, CPU memory
+integration, DLL lifecycle, process bootstrap, the Win32 runtime, and the
+browser application do not exist yet.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
-edition label. The next task is to connect the owned BGI load plan to the
-provisional region/page owner, bounded allocator, and execute gate; see
-[docs/pe-loader-ingress.md](docs/pe-loader-ingress.md).
+edition label. The next task is to copy the owned BGI headers and sections into
+that memory boundary, verify zero-fill, and apply `HIGHLOW` relocations; see
+[docs/guest-memory-ingress.md](docs/guest-memory-ingress.md).
 
 ## Requirements
 
@@ -35,9 +37,9 @@ npm run check
 
 The canonical check validates documentation, rebuilds the LLVM PE/Wasm
 fixtures, runs the native Windows fixture oracles, tests the Rust PE32 loader
-ingress, verifies the pinned v86 artifacts and instruction smokes, and checks
-the Windows trace summarizer contract. Generated reports are written under
-`.work/` and are not tracked by Git.
+and sparse guest-memory ingresses, verifies the pinned v86 artifacts and
+instruction smokes, and checks the Windows trace summarizer contract.
+Generated reports are written under `.work/` and are not tracked by Git.
 
 `npm run prepare:engine` reproduces the source adapter and its single CPU state
 round-trip contract check when the pinned v86 source build is needed.

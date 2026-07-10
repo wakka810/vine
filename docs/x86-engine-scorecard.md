@@ -174,6 +174,8 @@ v86 の通常 RAM は contiguous guest physical memory である。一方、Vine
 
 一方、fixed v86はinstruction fetchをread translationとして扱い、PEのnon-executable `.nxprobe`を実行した。unmapped fetchもPFEC `4`でinstruction-fetch bitを持たない。checked sparse referenceは同じpage metadataからnon-executable／unmapped fetchを`21`／`20`として拒否したがCPU未接続である。この結果から、Vine region table＋bounded physical allocatorをv86 pagingへ反映し、adapter-owned execute gateを追加する案をprovisional candidateとする。snapshot、guard、generated-code invalidation、Worker ceilingを閉じるまで`ADR-003`はAcceptedではない。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)を正とする。
 
+続くproduction Rust ingressはsparse owner／region／page state、bounded zeroed frames、logical execute seal、cross-page preflight、generation-tagged invalidation requirementを実装した。high fixtureの6 image pagesとBGI planの380 pagesを所有するが、v86 page tables／physical RAM／fetch pathへは未接続である。ownership resultは[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
+
 ### B5. Stable state ABI: Verified baseline
 
 adapter は `vine_cpu_state_version`、`size`、`ptr`、`save`、`restore` を export し、host-directed register／thread save／restore fieldsをversioned 640-byte bufferへ置いた。buffer は magic、version、word count、GPR、EIP／flags、segment、control／debug register、descriptor state、x87、XMM／MXCSR を持つ。RAM setupとdiagnostic instruction counterはまだprivate linear-memory offsetに依存する。
@@ -212,7 +214,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。次はprivate offset、fixture page table、2 MiB poolをproduction APIとして拡散させず、BGI loaderのparse／map planをfirst unsupported pointまで進める。guest execution前にprovisional ADR-003 boundaryをRust-owned region／page APIへ接続する。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。BGI load planとproduction Rust region／page ownershipも成立した。active loader checkpointでsource copy／zero-fill／`HIGHLOW`を閉じた後、adapter sliceはprivate offset、fixture page table、2 MiB poolをruntime全体へ拡散させず、Rust memory generationをv86 mapping／invalidation／fetch gateへ接続する。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -224,7 +226,7 @@ adapter fixture は次の順に増やす。
 
 1. [Fixed baseline verified] 最小Win32 fixtureで複数のowned thunk IDとguest window callbackを通した。後続のproduction sliceでgenerated API metadata／callback schemaを使うgeneral dispatcherへ移す。
 2. [Measured] unmapped／read-only accessとcross-page faultを区別した。non-executableはcurrent v86 gapとして固定した。
-3. provisional v86 paging案へbounded physical allocator、region table、execute gateを接続する。
+3. [Production ownership verified／adapter pending] Rust region／page generationをprovisional v86 paging、physical backing、execute gateへ接続する。
 4. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
 5. 同じfixtureをNodeとChromium Workerで実行する。
 6. adopted ISA fixtureとnormalized workloadを測定する。
@@ -242,7 +244,7 @@ adapter fixture は次の順に増やす。
 
 `ADR-002` の採用前に残る gate:
 
-- `ADR-003` provisional案へexecute gate、bounded allocator、snapshot、generated-code invalidationを接続する
+- production Rust ownershipをv86 paging／fetchへ反映し、snapshotとactual generated-code invalidationを接続する
 - Chromium Worker で correctness smoke と provisional benchmark が通る
 - target workloadに必要なISA／ABI／exception bandを説明できる
 - fork の変更範囲と upstream追従手順を説明できる
