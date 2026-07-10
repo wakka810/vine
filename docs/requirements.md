@@ -6,7 +6,7 @@
 - 基準日: 2026-07-10
 - 対象: PE32 / i386 のサクラノ詩 full-play runtime
 - 開発形態: 1 人、完全個人用
-- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、fixed W1／W2／W3 contract、high-address memory measurement、Rust immutable snapshot／bounded PE32 load plan／guest-memory／image-materializationによるW7 BGI ingressは完了済みである。IAT binding、v86 memory接続、DLL graph、bootstrap、executionは未実装である
+- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、fixed W1／W2／W3 contract、high-address memory measurement、Rust immutable snapshot／bounded PE32 load plan／guest-memory／image-materialization／runtime-owned import bindingによるW7 BGI ingressは完了済みである。v86 memory接続、general DLL／export graph、bootstrap、executionは未実装である
 
 ## 2. 目的
 
@@ -136,7 +136,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 
 現在のproduction guest-memory ingressは、sparse 4 GiB range、owner-scoped reserve／commit／protect／decommit／release、bounded physical quota、cross-page preflight、logical execute seal、write-to-code invalidation requirementを実装する。stack／heap／guard／snapshot semanticsとCPU接続は未実装であり、`REQ-MEM-01`～`REQ-MEM-03`はいずれもpartialである。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
 
-続くPE32 materializationはowned planだけからheader／section copy、explicit zero-fill／readback、nonpreferred `HIGHLOW`、original IAT verificationを行う。BGIを`0x10000000`へmaterializeしたがIAT／DLL／bootstrapを処理しないため、`REQ-PE-02`／`REQ-PE-03`／`REQ-PE-06`はいずれもpartialである。詳細は[pe-materialization.md](pe-materialization.md)を正とする。
+続くPE32 materializationはowned planだけからheader／section copy、explicit zero-fill／readback、nonpreferred `HIGHLOW`、original IAT verificationを行う。さらにversion 1 import binderは明示catalogが支えるprefixをruntime-owned `UD2` thunkへ結び、controlled fixtureの全IATと両owner sealを検証した。BGIはnative-reachable `Direct3DCreate9`だけをbindし、module／symbol／IATを保持して`DirectInput8Create`で停止する。general DLL／export／forwarder resolution、CPU dispatch、bootstrapは未実装であり、`REQ-PE-02`／`REQ-PE-03`／`REQ-PE-06`はいずれもpartialである。詳細は[pe-materialization.md](pe-materialization.md)と[pe-import-binding.md](pe-import-binding.md)を正とする。
 
 ### 7.3 Process bootstrap、x86 execution、ABI
 

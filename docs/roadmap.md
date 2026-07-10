@@ -4,8 +4,8 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／runtime flow／W3 browser first-pixel boundary／W7 PE32 load-plan／guest-memory／image-materialization ingress。static corpus inventory、LLVM baseline、v86 bounded adapter、Windows trace v1／v2、selected IDirect3D9 root、high-address memory measurement、Chrome Canvas readback、Rust BGI plan／mapped bytesは完了。visual critical scenario、device-level COM trace、IAT／DLL／bootstrap、engine最終選定は未完了
-- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1／W2／W3、high-address memory spike、Rust W7 load-plan／guest-memory／image-materialization ingressがあり、IAT binding、v86 memory接続、DLL lifecycle／bootstrap／Win32 runtime、browser app、CIは未実装
+- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／runtime flow／W3 browser first-pixel boundary／W7 PE32 load-plan／guest-memory／image-materialization／import-binding ingress。static corpus inventory、LLVM baseline、v86 bounded adapter、Windows trace v1／v2、selected IDirect3D9 root、high-address memory measurement、Chrome Canvas readback、Rust BGI plan／mapped bytes／supported import prefixは完了。visual critical scenario、device-level COM trace、v86-connected memory、general DLL／bootstrap、engine最終選定は未完了
+- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1／W2／W3、high-address memory spike、Rust W7 load-plan／guest-memory／image-materialization／import-binding ingressがあり、v86 memory接続、general DLL lifecycle／bootstrap／Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
 このロードマップは、広範な Windows 互換を一度に実装する計画ではない。Windows native trace を根拠に、headless 実行、startup、first frame、input、audio、persistence の短い vertical checkpoint を広く浅く通す。各 subsystem の全面実装は後回しにし、各 phase は日付ではなく受け入れ条件を満たした時点で完了する。
@@ -20,6 +20,7 @@
 - [testing-and-acceptance.md](testing-and-acceptance.md): test 資産、証跡、`AC-*`
 - [windows-native-evidence.md](windows-native-evidence.md): Windows W0、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native window fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first pixel
 - [adr-003-guest-memory.md](adr-003-guest-memory.md): high-address／protection測定、memory候補比較、provisional ownership boundary
+- [pe-import-binding.md](pe-import-binding.md): production thunk arena／ID、IAT prefix binding、owner seal、controlled fixture／BGI stop
 
 ## 2. 計画上の前提
 
@@ -897,10 +898,10 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、selected IDirect3D9 root、native callback oracle、W1 fixed PE／ABI、W2 native fixture／runtime flow、W3 browser first pixel、high-address／protection measurement、W7 Rust PE32 load-plan／guest-memory／image-materialization ingressは完了した。BGIをnonpreferred `0x10000000`の380 pagesへmaterializeし、6 source ranges／1,193,472 bytes、5 zero ranges／363,008 bytes、18,199 `HIGHLOW`、330 original IAT slotsを検証した。mapped-content SHA-256は`d9dc33d121ea2da6ba5e459a9da13b70bf8bfc1c668593a80c6b3689d841199b`で、first stopは`d3d9.dll!Direct3DCreate9`の`import-binding`／`iat-binding-unimplemented`である。IAT write、DLL／export resolution、owner seal、PEB／TEB、entry実行はnot attemptedであり、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`／`AC-P2`／`AC-P3`／`AC-P4`／`AC-P6D`を完了しない。以後は [pe-materialization.md](pe-materialization.md)、[guest-memory-ingress.md](guest-memory-ingress.md)、[pe-loader-ingress.md](pe-loader-ingress.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、selected IDirect3D9 root、native callback oracle、W1 fixed PE／ABI、W2 native fixture／runtime flow、W3 browser first pixel、high-address／protection measurement、W7 Rust PE32 load-plan／guest-memory／image-materialization／import-binding ingressは完了した。controlled `abi-smoke.exe`はnonpreferred `0x10000000`へmaterialize後、`[0x7F000000, 0x7F010000)`のproduction arenaから2 owned thunkをIATへbindしてimage／runtime ownerをsealした。BGIは380 image pagesと1 thunk pageでnative-reachable `d3d9.dll!Direct3DCreate9`をbindし、329 importsを残して`DINPUT8.dll!DirectInput8Create`／IAT `0x100D1050`で停止した。general DLL／export／forwarder resolution、v86 mapping／actual invalidation、PEB／TEB、entry実行はnot attemptedであり、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`／`AC-P2`／`AC-P3`／`AC-P4`／`AC-P6D`を完了しない。以後は [pe-import-binding.md](pe-import-binding.md)、[pe-materialization.md](pe-materialization.md)、[guest-memory-ingress.md](guest-memory-ingress.md)、[pe-loader-ingress.md](pe-loader-ingress.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. production runtime-owned thunk range／ID ownershipを定義し、materialized `abi-smoke.exe`の2 named importsをIATへbindしてownerをsealする。
-2. native-reachable `d3d9.dll!Direct3DCreate9`を同じresolverへ追加し、BGIを次のunsupported importまたはbootstrap pointまで進める。
+1. sealed controlled image、production thunk arena、bounded stackをprovisional v86 pagingへ反映し、実際のTLB／fetch／generated-code invalidation後にgeneration `4`をacknowledgeしてentryからowned thunk ID `1`へ到達する。
+2. exact thunk ID `1`からfixed cdecl host serviceをdispatchし、guest returnと次のcallback ingressまで進める。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 

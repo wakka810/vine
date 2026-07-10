@@ -16,6 +16,7 @@
     "check:runtime:pe": "cargo test -p vine-core --test pe32_load_plan --locked",
     "check:runtime:memory-core": "cargo test -p vine-core --test guest_memory_ingress --locked",
     "check:runtime:materialization": "cargo test -p vine-core --test pe32_materialization --locked",
+    "check:runtime:imports": "cargo test -p vine-core --test pe32_import_binding --locked",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",

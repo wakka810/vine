@@ -7,18 +7,22 @@ PE32/i386 in Chrome.
 The repository is in Phase 0 discovery. Current evidence includes reproducible
 PE32 fixtures, a bounded v86 adapter, native Windows trace attribution, fixed
 W1/W2 execution slices, a one-pixel Chrome presentation boundary, a
-high-address memory measurement, and a Rust PE32 load-plan ingress for the
-fingerprinted BGI image. A production Rust boundary now owns the BGI image
-range, copies and zero-fills all mapped bytes, and applies 18,199 `HIGHLOW`
-relocations at a nonpreferred base. CPU memory integration, IAT binding, DLL
-lifecycle, process bootstrap, the Win32 runtime, and the browser application
-do not exist yet.
+high-address memory measurement, and Rust PE32 load-plan, sparse-memory,
+materialization, and import-binding ingress for the fingerprinted BGI image.
+A production Rust boundary now owns the BGI image range, applies 18,199
+`HIGHLOW` relocations at a nonpreferred base, and can bind a supported import
+prefix to deterministic runtime-owned `UD2` thunks. CPU memory integration,
+general DLL/export resolution, process bootstrap, the Win32 runtime, and the
+browser application do not exist yet.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
-edition label. The next task is to allocate production runtime-owned import
-thunks and bind the controlled fixture IAT before advancing the first BGI
-import; see [docs/pe-materialization.md](docs/pe-materialization.md).
+edition label. The controlled fixture now binds both imports and seals its
+image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
+at `DINPUT8.dll!DirectInput8Create`. The next task reflects the sealed fixture,
+thunk arena, and a bounded stack into provisional v86 paging and executes to
+the first exact owned thunk; see
+[docs/pe-import-binding.md](docs/pe-import-binding.md).
 
 ## Requirements
 
@@ -38,8 +42,9 @@ npm run check
 
 The canonical check validates documentation, rebuilds the LLVM PE/Wasm
 fixtures, runs the native Windows fixture oracles, tests the Rust PE32 loader,
-sparse guest-memory, and image-materialization boundaries, verifies the pinned
-v86 artifacts and instruction smokes, and checks the Windows trace summarizer contract.
+sparse guest-memory, image-materialization, and import-binding boundaries,
+verifies the pinned v86 artifacts and instruction smokes, and checks the
+Windows trace summarizer contract.
 Generated reports are written under `.work/` and are not tracked by Git.
 
 `npm run prepare:engine` reproduces the source adapter and its single CPU state

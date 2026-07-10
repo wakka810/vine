@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／native ABI oracle／W1／W2／W3／W7 PE32 load-plan／guest-memory／image-materialization ingressはVerified。visual title／device-level method coverageはIn discovery
+- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／native ABI oracle／W1／W2／W3／W7 PE32 load-plan／guest-memory／image-materialization／import-binding ingressはVerified。visual title／device-level method coverageはIn discovery
 - 取得日: 2026-07-10／2026-07-11
 - runtime checkpoint更新日: 2026-07-11
-- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`W7 PE32 load-plan ingress`、`production guest-memory ingress`、`production PE32 materialization`、`P0-COR-04` の最初のnative sample
+- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`W7 PE32 load-plan ingress`、`production guest-memory ingress`、`production PE32 materialization`、`production PE32 import binding`、`P0-COR-04` の最初のnative sample
 - partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-MEM-01`、`P1-MEM-02`、`P1-MEM-03`、`P1-ABI-01`、`P1-ABI-02`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-03`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P2-COR-01`、`P3-WIN-01`、`P3-WIN-03`、`P4-UI-01`、`P4-UI-02`、`P4-GDI-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
@@ -627,4 +627,26 @@ BGI imageは`[0x10000000, 0x1017C000)`、entry `0x100A383E`となった。6 rang
 
 fixture／BGI reportを各2回生成し、それぞれ2,403 bytes／SHA-256 `f66b1dcf4d6a008c672b807c1e6acaf35348eaf1d37e3ad22d8c62011774407c`、2,448 bytes／SHA-256 `e6ce8d5599922c7ea11470475313907e6732c1c9e4a2ca0ecd4457cd0d502019`で一致した。元BGI.exeは1,193,472 bytes／primary SHA-256を保持した。
 
-ownerは未seal、generation `1` invalidationはpendingである。IAT write、runtime-owned thunk、DLL／export resolution、discardable unmap、v86 page table／invalidation、PEB／TEB／stack、guest executionはnot attemptedである。詳細は[pe-materialization.md](pe-materialization.md)を正とする。次のprimary actionはcontrolled fixtureの2 importをproduction thunkへbindし、owner sealまで進めることである。
+ownerは未seal、generation `1` invalidationはpendingである。IAT write、runtime-owned thunk、DLL／export resolution、discardable unmap、v86 page table／invalidation、PEB／TEB／stack、guest executionはnot attemptedである。詳細は[pe-materialization.md](pe-materialization.md)を正とする。controlled fixtureの2 importをproduction thunkへbindする後続checkpointは次節で完了したが、このmaterialization report自体のstopとnon-claimsは変更しない。
+
+## 14. Production PE32 import binding
+
+`npm run check:runtime:imports`はmaterialized `abi-smoke.exe`の2 named importsを明示的runtime export catalogへ照合し、`[0x7F000000, 0x7F010000)`の64 KiB arenaから16-byte strideのowned thunksを割り当てる。ID `1`／`2`は`0x7F000000`／`0x7F000010`、IATは`0x10002034`／`0x10002038`である。physical quotaは5 image pages＋1 thunk page、committed arenaは先に`HLT`で埋め、owned slot先頭だけを`UD2`へ変える。runtime／image ownerをsealし、actual adapter acknowledgement前のgeneration `4` invalidationを保持する。
+
+acknowledgement後は両IAT pointerと`UD2`／`HLT` bytesをnormal guest accessでread／fetchし、未所有slotがall `HLT`、sealed IATへのwriteがPFEC `7`になることを検証した。arena SHA-256は`bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc`である。probe reportを2回生成し、4,421 bytes／SHA-256 `04d6f001e157c0e0fc3f1878516fb913a131e5cfe187162cf265b375e949472d`で一致した。stopは`process-bootstrap`／`peb-teb-process-parameters-unimplemented`である。
+
+fingerprint済みBGI.exeにはnative traceで到達済みのfactoryだけを宣言した。
+
+```powershell
+npm run probe:runtime:pe -- `
+  --expect-sha256 f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1 `
+  --prepare-memory-pages 381 `
+  --materialize-image-base 0x10000000 `
+  --bind-name d3d9.dll Direct3DCreate9 `
+  --output .work\import-binding\bgi.json `
+  "V:\softs\サクラノ詩\BGI.exe"
+```
+
+IAT `0x100D14F4`をthunk ID `1`／`0x7F000000`へbindし、arena SHA-256 `4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059`を得た。329 importsは未bindで、first unresolvedは`DINPUT8.dll!DirectInput8Create`／IAT `0x100D1050`である。runtime ownerはsealしたがBGI image ownerは未seal、pending invalidationはgeneration `3`、stopは`import-resolution`／`import-symbol-unimplemented`である。2 reportは4,258 bytes／SHA-256 `64217ed90cd86098396d27652ed41828ffeb6354f29f96bb7cc981daaab34fc0`で一致し、元BGI.exeは1,193,472 bytes／primary SHA-256を保持した。
+
+このcheckpointはtrap address ownershipとIAT mutationを検証するだけで、`Direct3DCreate9`のservice behavior、general DLL／export／forwarder resolution、v86 page reflection／actual invalidation、PEB／TEB／stack、entry executionを実装しない。詳細は[pe-import-binding.md](pe-import-binding.md)を正とする。次はsealed controlled image、thunk arena、bounded stackをprovisional v86 pagingへ反映し、actual invalidation後にentryからexact thunk ID `1`へ到達する。

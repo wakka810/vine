@@ -161,7 +161,7 @@ upstream `main_loop` は内部 `LOOP_COUNTER = 100003` を使い、fallback inte
 
 ### B3. Release structured fault stop: Verified baseline
 
-upstream release／fallback artifact では `cpu_exception_hook` が compile out される。adapter patch は JS hook を追加せず、adapter 実行中の divide error、invalid opcode、general protection、page fault を `0x100 + vector` と error codeへ変換する。W1はfixed trap pageの4 owned addressだけを`#UD`とEIPで分類した。一般thunk table、SEH delivery、breakpointはまだ実装していない。
+upstream release／fallback artifact では `cpu_exception_hook` が compile out される。adapter patch は JS hook を追加せず、adapter 実行中の divide error、invalid opcode、general protection、page fault を `0x100 + vector` と error codeへ変換する。W1はfixed trap pageの4 owned addressだけを`#UD`とEIPで分類した。production Rust側にはstable ID／symbolを持つthunk tableが追加されたがCPU未接続であり、production trap classification、SEH delivery、breakpointはまだ実装していない。
 
 ### B4. Guest memory model
 
@@ -174,7 +174,7 @@ v86 の通常 RAM は contiguous guest physical memory である。一方、Vine
 
 一方、fixed v86はinstruction fetchをread translationとして扱い、PEのnon-executable `.nxprobe`を実行した。unmapped fetchもPFEC `4`でinstruction-fetch bitを持たない。checked sparse referenceは同じpage metadataからnon-executable／unmapped fetchを`21`／`20`として拒否したがCPU未接続である。この結果から、Vine region table＋bounded physical allocatorをv86 pagingへ反映し、adapter-owned execute gateを追加する案をprovisional candidateとする。snapshot、guard、generated-code invalidation、Worker ceilingを閉じるまで`ADR-003`はAcceptedではない。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)を正とする。
 
-続くproduction Rust ingressはsparse owner／region／page state、bounded zeroed frames、logical execute seal、cross-page preflight、generation-tagged invalidation requirementを実装した。high fixtureの6 image pagesとBGI planの380 pagesを所有するが、v86 page tables／physical RAM／fetch pathへは未接続である。ownership resultは[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
+続くproduction Rust ingressはsparse owner／region／page state、bounded zeroed frames、logical execute seal、cross-page preflight、generation-tagged invalidation requirementを実装した。high fixtureの6 image pagesとBGI planの380 pagesを所有するが、v86 page tables／physical RAM／fetch pathへは未接続である。ownership resultは[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。さらにcontrolled imageの2 IATを`0x7F000000` arenaのowned `UD2` thunksへbindしてimage／runtime ownerをsealした。generation `4`はactual adapter invalidation前のpending requirementであり、CPU execution evidenceではない。詳細は[pe-import-binding.md](pe-import-binding.md)を正とする。
 
 ### B5. Stable state ABI: Verified baseline
 
@@ -214,7 +214,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。BGI load plan、production Rust region／page ownership、source copy／zero-fill／`HIGHLOW` materializationも成立した。active loaderはIAT bindingへ進み、その後のadapter sliceでprivate offset、fixture page table、2 MiB poolをruntime全体へ拡散させず、Rust memory generationをv86 mapping／invalidation／fetch gateへ接続する。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。BGI load plan、production Rust region／page ownership、source copy／zero-fill／`HIGHLOW` materialization、supported-prefix IAT bindingも成立した。次のadapter sliceはprivate offset、fixture page table、2 MiB poolをruntime全体へ拡散させず、sealed controlled image、thunk arena、bounded stackとRust memory generationをv86 mapping／invalidation／fetch gateへ接続する。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -226,7 +226,7 @@ adapter fixture は次の順に増やす。
 
 1. [Fixed baseline verified] 最小Win32 fixtureで複数のowned thunk IDとguest window callbackを通した。後続のproduction sliceでgenerated API metadata／callback schemaを使うgeneral dispatcherへ移す。
 2. [Measured] unmapped／read-only accessとcross-page faultを区別した。non-executableはcurrent v86 gapとして固定した。
-3. [Production ownership verified／adapter pending] Rust region／page generationをprovisional v86 paging、physical backing、execute gateへ接続する。
+3. [Production image／thunk ownership verified／adapter pending] Rust region／page generationをprovisional v86 paging、physical backing、execute gateへ接続し、actual invalidation後にentryからowned thunk ID `1`へ到達する。
 4. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
 5. 同じfixtureをNodeとChromium Workerで実行する。
 6. adopted ISA fixtureとnormalized workloadを測定する。

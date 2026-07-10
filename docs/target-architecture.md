@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはimmutable snapshot、bounded PE32 load plan、CPU未接続のsparse guest memory、PE32 source copy／zero-fill／`HIGHLOW` materializationがある。IAT binding、DLL lifecycle、bootstrap、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはimmutable snapshot、bounded PE32 load plan、CPU未接続のsparse guest memory、PE32 source copy／zero-fill／`HIGHLOW` materialization、runtime-owned import thunk bindingがある。v86 memory接続、general DLL／export lifecycle、bootstrap、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -219,7 +219,7 @@ Interpreter、threaded interpreter、IR interpreter、DBT、generated Wasm modul
 
 Loader は file parse、image mapping、module lifecycle、symbol resolution を分離する。
 
-version 1 loader ingressは、owned source bytesをmap-timeに再hashし、PE32 section／import／`HIGHLOW` relocationのchecked planを作る。memory ingressは`SizeOfImage`を1 sparse regionへreserveし、planned pagesをfinal R／W／X metadataでcommitする。materialization layerは同じplanからsource copy、explicit zero-fill／readback、wrapping `HIGHLOW`、original IAT verification、mapped-range digestを行い、first unbound IATで停止する。BGIは`0x10000000`へrelocate済みだが、IAT、module graph、PEB／TEB／entry executionはnot attemptedである。parse detailsは[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、mapped-byte resultは[pe-materialization.md](pe-materialization.md)を正とする。
+version 1 loader ingressは、owned source bytesをmap-timeに再hashし、PE32 section／import／`HIGHLOW` relocationのchecked planを作る。memory ingressは`SizeOfImage`を1 sparse regionへreserveし、planned pagesをfinal R／W／X metadataでcommitする。materialization layerは同じplanからsource copy、explicit zero-fill／readback、wrapping `HIGHLOW`、original IAT verification、mapped-range digestを行う。import-binding layerは明示的runtime export catalogが支えるplan-order prefixへ`[0x7F000000, 0x7F010000)`の16-byte owned `UD2` slotsを割り当て、IATを書き換えてruntime ownerをsealし、全importがbindした場合だけimage ownerもsealする。BGIは`0x10000000`へrelocateして`Direct3DCreate9` 1件をbind済みだが、次の`DirectInput8Create`、module graph、PEB／TEB／entry executionはnot attemptedである。parse detailsは[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、mapped-byte resultは[pe-materialization.md](pe-materialization.md)、thunk ownershipは[pe-import-binding.md](pe-import-binding.md)を正とする。
 
 ### 8.1 Parse layer
 

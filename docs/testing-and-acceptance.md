@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、fixed W1／W2 runtime、W3 browser pixel、high-address／protection memory、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、fixed W1／W2 runtime、W3 browser pixel、high-address／protection memory、Rust PE32 loader／memory／materialization／import-binding、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -127,6 +127,8 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 続くguest-memory ingress contractはW7 planのheader／section mapped rangesを1 image ownerへcommitし、final R／W／X metadataとbounded physical quotaを検査する。allocator-zeroed pagesを所有するだけでsource copy、PE zero-fill、relocation、IAT、owner seal、CPU実行はcontract外であり、stopは`image-materialization`／`image-bytes-relocations-import-binding-unimplemented`である。
 
 現在のPE32 materialization contractは同じ`abi-smoke.exe`を`0x10000000`へrelocateする。4 source ranges／2,560 bytes、5 zero ranges／17,920 bytes、5 `HIGHLOW` target、2 original IAT slots、20,480 mapped bytesのSHA-256を1 sequenceで検査する。source-derived expected sectionへdeltaを独立適用し、全copy／zero／relocated DWORD／IAT／pending invalidation／source immutabilityをassertして`import-binding`／`iat-binding-unimplemented`で停止する。BGI replayは18,199 relocationsと330 IAT slotsを同じboundaryで通したがautomated testを複製しない。詳細は[pe-materialization.md](pe-materialization.md)を正とする。
+
+現在のimport-binding contractは同じmaterialized fixtureの2 named importsをcase-insensitive DLL／case-sensitive symbol catalogからresolveし、16-byte strideのowned thunk ID `1`／`2`をIATへ書いてruntime／image ownerをsealする。6-page exact quota、`UD2`／`HLT` bytes、arena digest、generation `4` acknowledgement前のaccess block、acknowledgement後のIAT／fetch、sealed IAT write PFEC `7`、deterministic JSONを1 sequenceで検査する。BGI replayはnative-reachable `Direct3DCreate9`だけをbindし、329 importsを残して`DirectInput8Create`のmodule／symbol／IAT diagnosticで停止するがautomated testを複製しない。詳細は[pe-import-binding.md](pe-import-binding.md)を正とする。
 
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
@@ -424,6 +426,8 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-09`: adopted compiler／CRT fixture が flat segment／FS、initial stack、PEB／TEB、process parameters、TLS を使って entry point から user code、exit まで進む
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
+
+現在のimport-binding ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。controlled named importsとBGIの最初のunsupported symbolは処理するが、ordinal fixture、export／forwarder／DLL graph、requesting guest call chain、bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 
 ### AC-P3: Win32 substrate and persistence complete
 
