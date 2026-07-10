@@ -10,8 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultWasmPath = path.join(
   root,
   ".work",
-  "engine-candidates",
-  "v86",
+  "v86-adapter-source",
   "build",
   "v86-fallback.wasm",
 );

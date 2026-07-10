@@ -37,7 +37,7 @@ The adapter disables and clears generated-code JIT state before its first interp
 
 ## Reproduction
 
-One command clones the fixed source revision, installs the workspace-local Rust toolchain when needed, applies both overlays, builds fallback Wasm, and runs the contract check:
+One command clones the fixed source revision, installs the workspace-local Rust toolchain when needed, applies both overlays, builds fallback Wasm, and runs the contract check. On Windows, `make` and `sh` from MSYS2 must be on `PATH`; the preparation script uses the workspace-local `rust-lld.exe` directly because the upstream Python linker wrapper is not a Windows executable.
 
 ```sh
 npm run prepare:engine
@@ -57,11 +57,11 @@ The 2026-07-10 local build produced the following evidence. Compiler output hash
 
 | Property | Value |
 |---|---|
-| Size | 2,139,981 bytes |
-| SHA-256 | `9e7f361fd437b36e8fdeb489d34467f8f7fe75358a98417f2fd7871ca3497dca` |
+| Size | 1,882,836 bytes |
+| SHA-256 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
 | Imports | 22 |
 | Exports | 809 |
-| Source build time | approximately 9 seconds after dependencies were built |
+| Source build time | approximately 24 seconds total (Rust compile: 21 seconds) |
 
 ## Remaining work
 

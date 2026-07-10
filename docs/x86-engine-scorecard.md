@@ -126,10 +126,10 @@ debug artifact では state を CPL3 に構成し、`mov eax, 42` と `UD2` を�
 | Rust | 1.97.0、`wasm32-unknown-unknown` |
 | LLVM／Clang | 22.1.8 |
 | Source overlay | 2 patches + 1 tracked Rust state module |
-| Adapter Wasm size | 2,139,981 bytes |
-| Adapter Wasm SHA-256 | `9e7f361fd437b36e8fdeb489d34467f8f7fe75358a98417f2fd7871ca3497dca` |
+| Adapter Wasm size | 1,882,836 bytes |
+| Adapter Wasm SHA-256 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
 | Imports／exports | 22／809 |
-| Incremental source build | approximately 9 seconds |
+| Source build | approximately 24 seconds (Rust compile: 21 seconds) |
 
 `npm run check:engine:adapter` は次を機械検証する。
 

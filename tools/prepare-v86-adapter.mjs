@@ -5,6 +5,8 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+const executableName = (name) =>
+  process.platform === "win32" ? `${name}.exe` : name;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workDirectory = path.join(root, ".work");
 const sourceDirectory = path.join(workDirectory, "v86-adapter-source");
@@ -12,7 +14,8 @@ const toolchainDirectory = path.join(workDirectory, "toolchains");
 const rustupHome = path.join(toolchainDirectory, "rustup");
 const cargoHome = path.join(toolchainDirectory, "cargo");
 const cargoBin = path.join(cargoHome, "bin");
-const rustup = path.join(cargoBin, "rustup");
+const rustup = path.join(cargoBin, executableName("rustup"));
+const rustc = path.join(cargoBin, executableName("rustc"));
 const boundedPatchPath = path.join(
   root,
   "spikes",
@@ -119,6 +122,30 @@ async function installRustup() {
   );
 }
 
+function windowsFallbackBuildArguments(environment) {
+  const rustcDetails = capture(rustc, ["-vV"], { env: environment });
+  const host = /^host: (.+)$/m.exec(rustcDetails)?.[1];
+  assert(host, "rustc did not report a host triple");
+
+  const sysroot = capture(rustc, ["--print", "sysroot"], {
+    env: environment,
+  });
+  const rustLld = path.join(sysroot, "lib", "rustlib", host, "bin", "rust-lld.exe");
+  assert(fs.existsSync(rustLld), `rust-lld not found: ${rustLld}`);
+
+  const cargoFlags = [
+    "--target wasm32-unknown-unknown",
+    "--",
+    `-C linker=${rustLld.replaceAll("\\", "/")}`,
+    '-C link-args="--import-table --global-base=4096 --no-stack-first"',
+    '-C link-args="build/softfloat.o"',
+    '-C link-args="build/zstddeclib.o"',
+    "--verbose",
+  ].join(" ");
+
+  return [`CARGO_FLAGS_SAFE=${cargoFlags}`, "build/v86-fallback.wasm"];
+}
+
 function prepareSource() {
   if (!fs.existsSync(sourceDirectory)) {
     fs.mkdirSync(sourceDirectory, { recursive: true });
@@ -171,7 +198,7 @@ const rustEnvironment = {
   RUSTUP_HOME: rustupHome,
   CARGO_HOME: cargoHome,
   RUSTUP_TOOLCHAIN: rustVersion,
-  PATH: `${cargoBin}:${process.env.PATH}`,
+  PATH: `${cargoBin}${path.delimiter}${process.env.PATH ?? ""}`,
 };
 
 run(
@@ -184,13 +211,17 @@ run(
   ["target", "add", "wasm32-unknown-unknown", "--toolchain", rustVersion],
   { env: rustEnvironment },
 );
-run("make", ["build/v86-fallback.wasm"], {
+const buildArguments =
+  process.platform === "win32"
+    ? windowsFallbackBuildArguments(rustEnvironment)
+    : ["build/v86-fallback.wasm"];
+run("make", buildArguments, {
   cwd: sourceDirectory,
   env: rustEnvironment,
 });
 run(process.execPath, [adapterCheck, wasmPath]);
 
-const rustcVersion = capture(path.join(cargoBin, "rustc"), ["--version"], {
+const rustcVersion = capture(rustc, ["--version"], {
   env: rustEnvironment,
 });
 const clangVersion = capture("clang", ["--version"]).split("\n", 1)[0];

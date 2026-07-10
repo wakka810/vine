@@ -7,7 +7,7 @@
 - 対象: current `main` worktree
 - 実装成熟度: Phase 0 discovery。repository check、PE32 fixture、LLVM／Wasm baseline、v86 bounded adapter と version 1 CPU state ABI、Windows startup trace tooling は存在するが PE／Win32 runtime、browser app、CI はまだない
 - 開発形態: 1 人、完全個人用
-- primary 開発環境: Windows 11 Pro 25H2、Chrome、`C:\Users\wakka\Desktop\vine`
+- primary 開発環境: Windows 11 Pro 25H2、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
 
 このディレクトリは、Vine を「Windows 向け VN/ADV 実行ファイルを、元の配布ファイルを原則として変更せずブラウザ上で再ホストする Windows userspace 互換ランタイム」として開発するための基準文書である。

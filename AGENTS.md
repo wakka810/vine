@@ -30,7 +30,7 @@ Browser Web API backends
 ### Primary target
 
 - Title: サクラノ詩
-- Entry: `D:\softs\サクラノ詩\BGI.exe`
+- Entry: `V:\softs\サクラノ詩\BGI.exe`
 - Format: PE32 / i386
 - Size: `1,193,472` bytes
 - SHA-256: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
@@ -74,10 +74,10 @@ Browser Web API backends
 - 利用者、開発者、maintainer は同一の 1 人である。
 - 完全個人用プロジェクトである。team process や public release process を active work に持ち込まない。
 - OS: Windows 11 Pro 25H2
-- Repository: `C:\Users\wakka\Desktop\vine`
+- Repository: `V:\src\vine`
 - Primary browser: current stable Chrome。evidence には実際の version を記録する。
 - Primary shell: PowerShell
-- MSYS2 shell: v86 source adapter の再 build で `make`／`sh` が必要な場合だけ使う。
+- MSYS2: v86 source adapter の再 buildに必要な `make`／`sh` を提供する。`C:\msys64\usr\bin` を user `PATH` に置く。
 - Production language direction: Rust + TypeScript
 
 ### Language ownership
@@ -180,8 +180,8 @@ v86 を現在の working baseline とする。具体的な blocker が出ない�
 - npm package: `v86@0.5.424`
 - source revision: `2f1346b0e7d88d4cbbbcc05fe15b4e369c3de23f`
 - source build Rust: `1.97.0`
-- adapter artifact size: `2,139,981` bytes
-- adapter SHA-256: `9e7f361fd437b36e8fdeb489d34467f8f7fe75358a98417f2fd7871ca3497dca`
+- adapter artifact size: `1,882,836` bytes
+- adapter SHA-256: `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26`
 - Wasm imports／exports: `22`／`809`
 - CPU state ABI: version `1`, size `640` bytes
 
@@ -239,13 +239,13 @@ Windows scripts は static syntax check まで完了しているが、対象 Win
 
 | Priority | Title | Windows path | Role |
 |---:|---|---|---|
-| 1 | サクラノ詩 | `D:\softs\サクラノ詩\BGI.exe` | Primary full-play target |
-| 2 | Nursery Rhyme | `D:\softs\Lump of Sugar\Nursery Rhyme\NurseryRhyme.exe` | Same-family DirectDraw comparison |
-| 3 | PURIPA | `D:\softs\PURIPA\PURIPA.EXE` | Deferred DirectDraw comparison |
-| 4 | School Days HQ | `D:\softs\overflow\SCHOOLDAYS HQ\SCHOOLDAYS HQ.exe` | Deferred D3D9／video comparison |
-| 5 | Shiny Days | `D:\softs\overflow\SHINYDAYS\SHINYDAYS.exe` | Deferred D3D9／video comparison |
-| 6 | しゅがてん！ | `D:\softs\suger\しゅがてん！\syugaten.exe` | Deferred dynamic-resolution comparison |
-| 7 | ふぃぎゅ@メイト | `D:\softs\ふぃぎゅ@メイト\figuat.exe` | Deferred GDI／MCI comparison |
+| 1 | サクラノ詩 | `V:\softs\サクラノ詩\BGI.exe` | Primary full-play target |
+| 2 | Nursery Rhyme | `V:\softs\Lump of Sugar\Nursery Rhyme\NurseryRhyme.exe` | Same-family DirectDraw comparison |
+| 3 | PURIPA | `V:\softs\PURIPA\PURIPA.EXE` | Deferred DirectDraw comparison |
+| 4 | School Days HQ | `V:\softs\overflow\SCHOOLDAYS HQ\SCHOOLDAYS HQ.exe` | Deferred D3D9／video comparison |
+| 5 | Shiny Days | `V:\softs\overflow\SHINYDAYS\SHINYDAYS.exe` | Deferred D3D9／video comparison |
+| 6 | しゅがてん！ | `V:\softs\suger\しゅがてん！\syugaten.exe` | Deferred dynamic-resolution comparison |
+| 7 | ふぃぎゅ@メイト | `V:\softs\ふぃぎゅ@メイト\figuat.exe` | Deferred GDI／MCI comparison |
 
 全 size、SHA-256、static dependency は `docs/corpus-inventory.md` を正とする。サクラノ詩以外を active path に入れるのは、現在の blocker を小さく比較できる場合だけである。
 
@@ -254,7 +254,7 @@ Windows scripts は static syntax check まで完了しているが、対象 Win
 PowerShell で実行する。
 
 ```powershell
-Set-Location C:\Users\wakka\Desktop\vine
+Set-Location V:\src\vine
 npm ci
 npm run check
 ```
@@ -266,23 +266,23 @@ Environment と BGI fingerprint:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File tools/windows/check-environment.ps1 `
-  -BgiExe "D:\softs\サクラノ詩\BGI.exe"
+  -BgiExe "V:\softs\サクラノ詩\BGI.exe"
 ```
 
 最初の native trace:
 
 ```powershell
 py tools/windows/trace.py `
-  --exe "D:\softs\サクラノ詩\BGI.exe" `
+  --exe "V:\softs\サクラノ詩\BGI.exe" `
   --output ".work\windows-traces\sakura-startup.jsonl" `
   --seconds 0
 ```
 
 利用者がタイトル画面まで操作したら `Ctrl+C` で収集を終了する。process を終了したい場合は `--kill-after` を加えるか、収集後にエージェントが終了してよい。
 
-v86 source adapter を再現 build するときだけ、MSYS2 shell で実行する。
+v86 source adapter を再現 build するときだけ、`make` と `sh` が `PATH` にある PowerShell で実行する。
 
-```sh
+```powershell
 npm run prepare:engine
 ```
 

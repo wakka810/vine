@@ -1,9 +1,13 @@
 param(
-    [string]$BgiExe = ""
+    [string]$BgiExe = "",
+    [switch]$SourceAdapter
 )
 
 $ErrorActionPreference = "Stop"
 $required = @("git", "node", "npm", "clang", "lld-link", "wasm-ld", "llvm-readobj")
+if ($SourceAdapter) {
+    $required += "make", "sh"
+}
 
 foreach ($command in $required) {
     $resolved = Get-Command $command -ErrorAction SilentlyContinue

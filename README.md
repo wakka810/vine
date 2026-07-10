@@ -18,6 +18,7 @@ native startup trace from the target `BGI.exe`; see
 - Node.js 22 or newer
 - LLVM/Clang with `wasm32` and `i686-pc-windows-msvc` targets
 - `lld-link`, `wasm-ld`, and `llvm-readobj`
+- MSYS2 `make` and `sh` on `PATH` for `npm run prepare:engine`
 - npm dependencies from the committed lockfile
 
 ## Checks

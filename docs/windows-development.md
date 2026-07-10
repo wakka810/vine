@@ -29,7 +29,7 @@ PowerShell から使える状態にする最小構成:
 | Rust 1.97.0 | v86 adapter Wasm build。`prepare:engine` が workspace-local に導入 |
 | WinDbg | crash／exception の native oracle。必要時だけ使用 |
 
-repository は `C:\Users\wakka\Desktop\vine`、primary executable は `D:\softs\サクラノ詩\BGI.exe` に置く。Rust は CPU／memory／PE／ABI core、TypeScript は Windows API facade／browser backend／UI／toolingを担当する。
+repository は `V:\src\vine`、primary executable は `V:\softs\サクラノ詩\BGI.exe` に置く。Rust は CPU／memory／PE／ABI core、TypeScript は Windows API facade／browser backend／UI／toolingを担当する。
 
 Frida の導入:
 
@@ -37,7 +37,7 @@ Frida の導入:
 py -m pip install --upgrade frida-tools
 ```
 
-MSYS2 では `make` と Clang を導入し、該当 `bin` を開発 shell の `PATH` に置く。Visual Studio 全体は最初の trace には不要である。
+MSYS2 では `make` と `sh` を導入し、`C:\msys64\usr\bin` を user `PATH` に置く。Visual Studio 全体は最初の trace には不要である。
 
 ## 3. Repository bring-up
 
@@ -46,12 +46,13 @@ PowerShell で repository root から実行する。
 ```powershell
 npm ci
 npm run check
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/check-environment.ps1 -BgiExe "D:\softs\サクラノ詩\BGI.exe"
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/check-environment.ps1 -BgiExe "V:\softs\サクラノ詩\BGI.exe"
 ```
 
-v86 adapter を Windows 上でも再 build する場合は、`make`、`clang`、`sh` が見える MSYS2 shell から次を実行する。
+v86 adapter を Windows 上でも再 build する場合は、source adapter 用の toolchain を確認してから PowerShell で実行する。Windows build は Rust 同梱の `rust-lld.exe` を直接使用する。
 
-```sh
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/check-environment.ps1 -SourceAdapter
 npm run prepare:engine
 ```
 
@@ -63,7 +64,7 @@ focused Frida runner は module load と起動経路の高信号 API だけを J
 
 ```powershell
 py tools/windows/trace.py `
-  --exe "D:\softs\サクラノ詩\BGI.exe" `
+  --exe "V:\softs\サクラノ詩\BGI.exe" `
   --output ".work\windows-traces\sakura-startup.jsonl" `
   --seconds 0
 ```

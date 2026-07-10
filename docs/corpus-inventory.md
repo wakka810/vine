@@ -5,8 +5,8 @@
 - ステータス: In discovery
 - 基準日: 2026-07-10
 - 開発形態: 1 人、完全個人用
-- corpus root: `D:\softs`
-- 主目標: `D:\softs\サクラノ詩\BGI.exe`
+- corpus root: `V:\softs`
+- 主目標: `V:\softs\サクラノ詩\BGI.exe`
 - 調査方法: `file`、`llvm-readobj --file-headers --coff-imports`、`strings`、`sha256sum` による read-only static inventory
 
 この文書は、実装順と互換性 gap を決めるための T3 corpus 台帳である。ゲーム本体、実行ファイル、同梱 DLL、asset、既存の解析生成物は repository に格納しない。静的 import は実行時に通る API を保証せず、`LoadLibrary`／`GetProcAddress`、COM vtable、条件分岐後の call は dynamic trace で補う。
