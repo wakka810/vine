@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／最初のnative oracleはVerified。visual／method-level coverageはIn discovery
+- ステータス: W0／最初のnative oracle／W1 fixed runtime sliceはVerified。visual／method-level coverageはIn discovery
 - 取得日: 2026-07-10
-- 完了 checkpoint: `W0`、`P0-COR-04` の最初のnative sample
-- partial evidence: `P0-COR-01`、`P0-COR-02`、`P6D-COR-01`、`P6D-COR-02`
+- 完了 checkpoint: `W0`、`W1`、`P0-COR-04` の最初のnative sample
+- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-03`、`P1-SCH-01`、`P1-QA-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
 raw JSONL、local summary、game file、absolute trace pathはGitに追加しない。summaryはabsolute title／system pathとPIDを保持するlocal-sensitive artifactであり、共有用に正規化されたmanifestではない。本書は同じraw traceから再生成できる小さなredacted resultだけを記録する。
@@ -161,7 +161,7 @@ Windows で deterministic PE32 fixture を直接実行した。
 
 ## 5. Selected W1 slice
 
-次の primary implementation checkpoint は、同じ `abi-smoke.exe` を固定 T1 image として使う。
+W1 primary implementation checkpoint は、同じ `abi-smoke.exe` を固定 T1 image として使った。
 
 | Item | Fixed value／behavior |
 |---|---|
@@ -212,14 +212,47 @@ fixture_call_callback:
 
 callback thunkではouter ESPを保存し、`[outerESP-8] = 0x00500100`、`[outerESP-4] = 42`、ESP `outerESP-8`、EIP／PREVIOUS_EIP `0x00401030` とする。callback return trapはESP `outerESP-4`、EAX `43` で到達する。outer callを完了するときは保存したreturn addressへ戻り、ESPを`outerESP+4`へ進める。entry return sentinelではESP `0x00700000`、EAX `0` を要求する。budget `3` を固定し、少なくとも1回のbudget stopをcontractに含める。
 
-loader-liteは実行前にEXE hashを検証し、`.data` のvirtual size 4 bytes／raw size 0をzero-fillし、IATをpatchしてから実行する。section permissionをmetadataとして保持し、CPU enforcementを加える場合はIAT patch後に適用する。このsliceだけのためにfull page protectionを実装しない。W1はsource-built adapter artifactを使うため、実装開始時のprerequisiteは次とする。
+loader-liteは実行前にEXE hashを検証し、`.data` のvirtual size 4 bytes／raw size 0をzero-fillし、IATをpatchしてから実行する。section permissionをmetadataとして保持し、CPU enforcementを加える場合はIAT patch後に適用する。このsliceだけのためにfull page protectionを実装しない。W1はsource-built adapter artifactを使うため、再現prerequisiteは次とする。
 
 ```powershell
+npm run check:toolchain
 npm run prepare:engine
 npm run check:engine:adapter
+npm run check:runtime:abi
 ```
 
-## 6. Remaining trace work
+## 6. W1 runtime result
+
+`tools/run-runtime-abi-slice.mjs` は EXE を一度だけ immutable buffer へ読み、size と SHA-256 を検証してから DOS／COFF／PE32 optional header、section table、import descriptor、name、IAT を parse する。preferred base 以外の relocation、ordinal import、追加 DLL、追加 import はこの fixed loader-lite の範囲外であり、hash または manifest が異なる image は実行しない。private v86 setup／instruction-counter offsetへ触る前に、adapter Wasmもsize `1,882,836`、SHA-256 `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26`、imports／exports `22`／`809`へ固定する。
+
+mapper は 8 MiB の contiguous v86 physical memory を identity guest address として使い、header と 4 section を `0x00400000` へ配置した。raw size `0` の `.data` 4 bytes は zero-fill され、IAT 2 slot は mapping 後に owned thunk へ置換された。trap page は `HLT` で初期化し、owned 4 address の先頭だけを `UD2` にした。section protection は metadata として parse するだけで、CPU enforcement はまだない。
+
+実行 command と結果:
+
+```text
+npm run check:runtime:abi
+runtime ABI slice passed: result=43, EAX=0, ESP=0x700000,
+budget stops=5, instructions=21
+```
+
+contract は次を同時に検証した。
+
+- stop reason `0x106` と exact owned EIP の両方による 2 import thunk と 2 return sentinel の分類
+- `fixture_add` と `fixture_call_callback` 到達時の return address、argument、ESP
+- callback frame、callback result `43`、outer cdecl return、guest caller による argument cleanup
+- EBX、EBP、ESI、EDI の sentinel preservation
+- entry result storage `43`、final EAX `0`、final ESP `0x00700000`
+- instruction budget `3` による 5 回の budget stop と、64 stop cycle の harness 上限
+- host-directed resume ごとの version 1 state EIP／PREVIOUS_EIP 同時更新
+- `microtick` 以外の v86 host function import は default failure。MMIO、port I/O、halt、random、generated-code callback は 0 回
+
+Windows native oracle の process exit `0` と W1 guest entry return EAX `0` は一致し、guest memory の result `43` が内部の callback 経路も通ったことを補強する。これは `P1-ABI-01`／`P1-ABI-03`／`P1-SCH-01`／`P1-QA-01` の限定した partial evidenceであり、各 task または `AC-P1` 全体の完了ではない。
+
+memory measurement は、image `[0x00400000, 0x00405000)`、trap page `[0x00500000, 0x00501000)`、stack `[0x00600000, 0x00700000)` が 8 MiB contiguous allocationへ収まったことだけを示す。high-address PE、reserve／commit、protection、guard、page ownership、sparse 4 GiB、browser memory ceilingは未検証であり、`P0-ARCH-03` は未完了である。
+
+W1 は Node.js 24 の WebAssembly runtime 上の fixed harness である。production Rust／TypeScript workspace、DLL lifecycle、stdcall／thiscall、nested callback、SEH、wait／wake、async scheduler、Runtime Worker、Chrome main-thread responsivenessを証明しない。
+
+## 7. Remaining trace work
 
 次の subsystem-focused native trace 前に、caller module＋RVA、call ID／parent call ID、leave の last error／durationをschemaへ加える。trace runnerは今回のcapture後にtarget hash／tool version／options／stop reasonの記録と既存outputの上書き拒否を追加済みであり、次回captureから適用される。
 

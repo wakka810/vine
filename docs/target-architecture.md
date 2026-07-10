@@ -186,7 +186,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。これは engine の採用決定ではない。通常 RAM は engine 内部の contiguous physical buffer のままで、thunk callback と browser Worker も未検証である。`ADR-002` は callback／browser gate、`ADR-003` は v86 paging と Vine sparse memory のどちらを ownership boundary にするかを Windows trace 後の source-level spike で決める。
+固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。fixed T1 imageではexact owned `UD2` thunk、cdecl host service、1段guest callback、callback／entry return sentinelをbudget `3`で通した。これは engine の採用決定ではない。通常 RAM は engine 内部の contiguous physical buffer のままで、広いcalling convention、nested callback、SEH、browser Workerは未検証である。`ADR-002` はbrowser／correctness／performance gate、`ADR-003` はv86 pagingとVine sparse memoryのどちらをownership boundaryにするかを後続spikeで決める。
 
 ### 7.2 段階的な命令範囲
 

@@ -192,11 +192,12 @@ Verified behavior:
 - structured CPL3 `#DE`、`#UD`、`#GP`、`#PF`
 - CPL0 halt reason
 - GPR、flags、segment／control state、x87、XMM／MXCSR の save／reset／restore／resume 1 sequence
+- fixed T1 image の PE32 section map、IAT thunk、cdecl host call、1 段 guest callback、return sentinel
 
 未検証または未実装:
 
 - sparse guest memory と page ownership
-- API thunk classification と callback return
+- stdcall／thiscall／fastcall、nested callback、SEH と production ABI gateway
 - Chromium Worker integration
 - broad ISA correctness と target workload performance
 - optimized execution path
@@ -218,22 +219,22 @@ Verified behavior:
 9. Frida による focused startup tracer。module load、dynamic symbol lookup、file、window、GDI／GDI+、D3D9、DirectInput、DirectSound、WinMM、COM entry を JSONL に出す。
 10. raw trace の sequence、thread-local API pairing、module、API、A/W file wrapper を検証する deterministic summarizer と contract test。
 11. Windows W0、60 秒 BGI startup trace、native EXE -> DLL -> EXE callback oracle の tracked evidence。
+12. fixed `abi-smoke.exe` を 8 MiB identity memory へ map し、runtime-owned thunk、cdecl host service、guest callback、budget yield、return sentinel を通す W1 contract。
 
-2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。詳細は `docs/windows-native-evidence.md` を参照する。Chrome 上で実行する runtime はまだ存在しないため、Chrome execution smoke は未実施である。
+2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。詳細は `docs/windows-native-evidence.md` を参照する。W1 は Node.js 上の固定 harness であり、Chrome execution smoke は未実施である。
 
 まだ存在しないもの:
 
 - production Rust／TypeScript workspace
-- guest memory implementation
-- PE parser／loader implementation
-- ABI thunk／callback gateway
+- production guest memory と PE／DLL loader
+- broad calling convention、nested callback、SEH を扱う production ABI gateway
 - scheduler／Runtime Worker
 - Win32 API compatibility implementation
 - browser application
 - graphics、audio、storage backend
 - BGI.exe を Vine 内で load／executeした evidence
 
-現状を「runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence の checkpoint である。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint である。
 
 ## 8. Corpus
 
@@ -291,27 +292,27 @@ node tools/summarize-windows-trace.mjs `
 v86 source adapter を再現 build するときだけ、`make` と `sh` が `PATH` にある PowerShell で実行する。
 
 ```powershell
+npm run check:toolchain
 npm run prepare:engine
+npm run check:runtime:abi
 ```
 
-この command は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。通常の変更ごとに再実行する必要はない。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi` は先に `npm run check:toolchain` で生成した fixed fixture も必要とし、W1 の PE／ABI contract を実行する。どちらも source adapter を使う checkpoint だけ再実行し、通常の `npm run check` には含めない。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、最初の focused trace／summary、native ABI oracle、次の slice 選択は 2026-07-10 に完了した。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice は 2026-07-10 に完了した。8 MiB low-address contiguous mapping は測定値であり、sparse 4 GiB memory や page ownership の決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. source adapterを準備し、`abi-smoke.exe`をfixed T1 imageとして8 MiB identity memoryへmapするloader-liteを作る。
-2. IAT 2 slotを runtime-owned `UD2` thunkへ解決し、所有 addressだけを host callに分類する。
-3. cdecl host service、guest `add_one` callback、callback／entry return sentinelを single-thread bounded loopで通す。
-4. instruction budget `3`でcallback result `43`、final EAX `0`、stack balance、最低1 budget yieldを一つのrepresentative contract testで検証する。
-5. この slice の測定から guest memory案を更新する。8 MiB前後の低位 identity mappingを sparse 4 GiB案の決定として扱わない。
-6. checkpoint後、最小 Win32 window／message／pixel fixtureへ広げる。
-7. 次の subsystem-focused native trace前に caller module＋RVA、call ID、last errorを追加し、選んだvtableだけを観測する。
-8. BGI.exe を loaderへ投入し、first unsupported import／bootstrap pointまで進める。
+1. 最小 PE32 Win32 fixture の source と native oracle を追加し、logical window、message callback、1 pixel command、clean exit の expected sequence を固定する。
+2. fixed loader-lite をその fixture に必要な範囲だけ広げ、最初の unsupported import を構造化して止める。
+3. trace で到達済みの Kernel32／User32／GDI entry から、logical window、message dispatch、first pixel を一つの bounded contract で通す。
+4. 次の subsystem-focused native trace 前に caller module＋RVA、call ID／parent call ID、last error、duration を追加し、選んだ vtable だけを観測する。
+5. high-address mapping と page fault／protectionを別 fixtureで測り、v86 paging と独自 sparse memory案を比較する。
+6. BGI.exe を production loader 候補へ投入し、first unsupported import／bootstrap pointまで進める。
 
-項目1～4は一つの W1 checkpoint であり、primary implementation taskを別 subsystemへ分岐させない。
+項目1が次の primary implementation checkpointである。W1 harnessをproduction PE loaderへ一般化する作業と、graphics／audio subsystemを同時に開始しない。
 
 ## 11. Major Open Questions
 
@@ -371,7 +372,7 @@ Windows W0、最初の focused trace／summary、native ABI oracle、次の slic
 | `docs/x86-engine-scorecard.md` | engine comparison、v86 evidence、remaining gates |
 | `docs/toolchain-spike.md` | LLVM PE／Wasm fixture baseline |
 | `docs/windows-development.md` | Windows bring-up、trace、checkpoint commands |
-| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、選択した W1 slice |
+| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、W1 fixed runtime result |
 | `spikes/x86-engine/README.md` | v86 source adapter reproduction |
 
 文書内の長い test／task listは将来coverageの地図であり、今すぐ全件実装する指示ではない。本書のactive queueと「広く浅く、代表test 1本」を優先する。

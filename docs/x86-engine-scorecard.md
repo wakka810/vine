@@ -19,7 +19,7 @@
 
 固定 source revisionへ bounded-execution patch と state-module overlay を適用し、Rust 1.97.0 から release fallback を再 build した。追加 import なしの `vine_execute_budget` により同一 page の無限 loop を 0、7、5 命令で正確に分割でき、CPL3 の `#DE`、`#UD`、`#GP`、`#PF` と CPL0 halt を structured stop reason として取得できた。さらに version 1、640 bytes の CPU state ABI で GPR、flags、segment／control state、x87、XMM／MXCSR を save／reset／restore／resume できた。
 
-これにより bounded execution、release fault stop、thread state round trip の実装可能性は確認できた。それでも `ADR-002` は Accepted にしない。4 GiB virtual address／physical memory ownership、guest callback、Chromium Worker、ISA correctness／性能が未解決だからである。
+これにより bounded execution、release fault stop、thread state round trip の実装可能性は確認できた。続く fixed T1 slice では、release adapter上でruntime-owned `UD2` thunk、cdecl host service、1段guest callback、return sentinelも通った。それでも `ADR-002` は Accepted にしない。4 GiB virtual address／physical memory ownership、広いABI／exception、Chromium Worker、ISA correctness／性能が未解決だからである。
 
 ## 3. 評価条件
 
@@ -62,10 +62,10 @@ revision は 2026-07-10 に shallow clone して読んだ source snapshot であ
 | x87／SSE | x87 と SSE smoke 成功。広い正確性 test は未実施 | QEMU backend は広いが Wasm path が未成立 | 広い x87／SSE family を構成可能 | upstream README が FPU／MMX／instruction extension 未対応と明記 |
 | Bounded execution | Source adapter で exact budget を実証。upstream artifact の公開 `main_loop` には未搭載 | Strong。`uc_emu_start` に count／timeout がある | Partial。CPU loop へ adapter が必要 | Strong。max instruction、timeout、stop API がある |
 | Memory adapter | Gap。通常 RAM は内部 contiguous buffer、MMIO のみ JS hook | Strong API。map／protection／invalid access hook がある | Partial。CPU と physical memory／device 層の分離作業が必要 | Strong API。permission、page mapping、全 memory access hook がある |
-| API／exception trap | Source adapter の release build で structured fault stop を実証。thunk／callback 分類は未実装 | Strong。code／block／memory／invalid access hook がある | Partial。instrumentation はあるが adapter 化が必要 | Strong。per-instruction、interrupt、I/O hook がある |
+| API／exception trap | Source adapter の release buildでstructured fault stopを実証。fixed T1のexact owned thunk／1段callbackはVerified、SEH／broad ABIは未実装 | Strong。code／block／memory／invalid access hook がある | Partial。instrumentation はあるが adapter 化が必要 | Strong。per-instruction、interrupt、I/O hook がある |
 | Thread state／snapshot | Verified adapter baseline。version 1、640-byte CPU-only state の round trip が通る | Strong。context save／restore API がある | Strong full-PC state、CPU-only schema は要抽出 | Partial。clone と公開 state があるが必要 ISA state が不足 |
 | Browser integration cost | Lowest observed。ただし PC coupling の除去が必要 | Very high until Wasm execution backend is proven | High。C++ full-PC coupling と build size が課題 | Low codebase cost、high ISA implementation cost |
-| Current disposition | Bounded adapter candidate。memory／callback／browser gate 待ち | Parked | Fallback comparison | Not viable as primary engine |
+| Current disposition | Bounded adapter candidate。memory／broad ABI／browser gate 待ち | Parked | Fallback comparison | Not viable as primary engine |
 
 Unicorn の API 形状は Vine の adapter contract に最も近い。しかし native で使いやすいことと browser Wasm で成立することは別であり、調査 revision からは TCG 実行経路を browser 向けに再現できていない。libx86emu は制御 API が良い一方、サクラノ詩に必要になり得る x87／SSE baseline を満たさない。Bochs は correctness の比較候補だが、最初の integration cost が v86 より大きい。
 
@@ -141,7 +141,7 @@ debug artifact では state を CPL3 に構成し、`mov eax, 42` と `UD2` を�
 - GPR、x87、XMM state の save／reset／restore／resume 1 sequence
 - MMIO、port I/O、generated-code callback が 0 回
 
-`UD2` thunk は exception EIP を runtime-owned thunk table で分類すればよく、release artifact が JS exception hookを importする必要はない。次の T1 slice で thunk ID、calling convention、return sentinel を加える。
+`UD2` thunk は exception EIP を runtime-owned thunk table で分類すればよく、release artifact が JS exception hookを importする必要はない。W1 fixed T1 sliceはstop reason `0x106`とexact owned EIPの両方を要求し、cdecl host call、callback／entry return sentinelまで通した。
 
 ### 6.5 生成 evidence
 
@@ -161,7 +161,7 @@ upstream `main_loop` は内部 `LOOP_COUNTER = 100003` を使い、fallback inte
 
 ### B3. Release structured fault stop: Verified baseline
 
-upstream release／fallback artifact では `cpu_exception_hook` が compile out される。adapter patch は JS hook を追加せず、adapter 実行中の divide error、invalid opcode、general protection、page fault を `0x100 + vector` と error codeへ変換する。thunk address classification、SEH delivery、breakpoint はまだ実装していない。
+upstream release／fallback artifact では `cpu_exception_hook` が compile out される。adapter patch は JS hook を追加せず、adapter 実行中の divide error、invalid opcode、general protection、page fault を `0x100 + vector` と error codeへ変換する。W1はfixed trap pageの4 owned addressだけを`#UD`とEIPで分類した。一般thunk table、SEH delivery、breakpointはまだ実装していない。
 
 ### B4. Guest memory model
 
@@ -174,36 +174,44 @@ v86 の通常 RAM は contiguous guest physical memory である。一方、Vine
 
 ### B5. Stable state ABI: Verified baseline
 
-adapter は `vine_cpu_state_version`、`size`、`ptr`、`save`、`restore` を export し、private linear-memory offset を versioned 640-byte buffer の背後へ閉じ込めた。buffer は magic、version、word count、GPR、EIP／flags、segment、control／debug register、descriptor state、x87、XMM／MXCSR を持つ。
+adapter は `vine_cpu_state_version`、`size`、`ptr`、`save`、`restore` を export し、host-directed register／thread save／restore fieldsをversioned 640-byte bufferへ置いた。buffer は magic、version、word count、GPR、EIP／flags、segment、control／debug register、descriptor state、x87、XMM／MXCSR を持つ。RAM setupとdiagnostic instruction counterはまだprivate linear-memory offsetに依存する。
 
 contract check は 5 命令実行後に state を保存し、CPU reset 後に復元して残り 7 命令を実行する一つの sequence を使う。EAX は `10` から `15`、x87 result は `2`、XMM result は `4.0f` となり、halt へ到達した。これは thread state round trip の baseline であり、全 state combination の correctness 証明ではない。
 
-### B6. Browser Worker
+### B6. Fixed T1 thunk／callback: Verified baseline
+
+`npm run check:runtime:abi` は SHA-256 固定の `abi-smoke.exe` を8 MiB contiguous memoryへmapし、IAT 2 slotをruntime-owned `UD2` thunkへ解決する。private v86 offsetを使うためadapter Wasmもsize／SHA-256／imports／exportsで固定し、`microtick`以外のhost function importは呼ばれた時点で失敗する。instruction budget `3`のloopでcdecl `fixture_add`、guest `add_one` callback、callback return、entry returnを通し、result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5回、累積21命令を確認した。
+
+host-directed resumeはversion 1 state bufferのEIPとPREVIOUS_EIPを同時に更新する。EBX、EBP、ESI、EDIのsentinel、各trapのreturn address／argument／ESPも検証する。private v86 global offsetはfixed harnessのinitial CPU／RAM setupとinstruction counter観測に限定し、host-directed register stateにはstate v1 bufferを使う。
+
+これはcdecl、1 callback depth、single threadのbaselineである。stdcall／thiscall／fastcall、nested callback、exception／SEH、wait／wake、async host responseの証明ではない。
+
+### B7. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B7. Correctness と performance
+### B8. Correctness と performance
 
 21 命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供する。まず Windows でサクラノ詩の startup trace と critical checkpoint を固定する。その evidence 後の最初の T1 slice では次の interface まで拡張する。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callbackを実証した。次はprivate bootstrap offsetをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
 
 ```text
-classify STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
+classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
+map/protect/fault guest pages through the selected memory boundary
 invalidate code range
 ```
 
-実行 fixture は次の順に増やす。
+adapter fixture は次の順に増やす。
 
-1. Windows native trace から最初の runtime-reachable dependency band を確定する。
-2. runtime-owned `UD2` thunk を `STOP_THUNK` と EIP に変換する。
-3. cdecl／stdcall guest function を呼び、return sentinel で host へ戻る。
-4. host が guest callback frame を作り、callback return sentinel まで再実行する。
-5. unmapped、read-only、non-executable page access を区別する。
-6. v86 paging と bounded physical page allocator を接続する。
-7. 同じ fixture を Node と Chromium Worker で実行する。
+1. 最小Win32 fixtureで複数のgenerated thunk IDとguest window callbackを通す。
+2. unmapped、read-only、non-executable page accessを区別する。
+3. v86 pagingとbounded physical page allocator、またはchecked sparse memoryを接続する。
+4. stdcall／thiscallとnested callbackを実到達fixtureから追加する。
+5. 同じfixtureをNodeとChromium Workerで実行する。
+6. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 
@@ -213,12 +221,13 @@ invalidate code range
 - caller-defined budget と structured stop reason が test で保証される
 - release-size build で CPL3 fault stop が動く
 - versioned CPU state が save／reset／restore／resume を通る
+- fixed T1 fixture の exact owned API trap と cdecl guest callback が通る
 
 `ADR-002` の採用前に残る gate:
 
 - `ADR-003` の guest memory 案と page fault／code invalidation が両立する
-- T1 fixture の API trap と guest callback が通る
 - Chromium Worker で correctness smoke と provisional benchmark が通る
+- target workloadに必要なISA／ABI／exception bandを説明できる
 - fork の変更範囲と upstream追従手順を説明できる
 
 一つでも根本的に満たせない場合は、Bochs CPU-only extraction を同じ adapter fixture で測る。Unicorn は browser／Wasm execution backend を再現できた時点で再評価する。libx86emu は integer-only reference fixture には利用できるが primary engine にはしない。

@@ -4,8 +4,8 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery。static corpus inventory、LLVM toolchain baseline、v86 bounded adapter、version 1 CPU state round trip、Windows W0、最初の BGI startup trace／summary、native callback oracle は完了。visual critical scenario、COM method trace、memory adapter、engine 最終選定は未完了
-- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks があり、PE／Win32 runtime、browser app、CI は未実装
+- 現在地: Phase 0 In discovery／W1 fixed headless slice。static corpus inventory、LLVM toolchain baseline、v86 bounded adapter、version 1 CPU state round trip、Windows W0、最初の BGI startup trace／summary、native callback oracle、fixed PE／cdecl callback contractは完了。visual critical scenario、COM method trace、memory adapter、engine 最終選定は未完了
+- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1 fixed loader-liteがあり、production PE／Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
 このロードマップは、広範な Windows 互換を一度に実装する計画ではない。Windows native trace を根拠に、headless 実行、startup、first frame、input、audio、persistence の短い vertical checkpoint を広く浅く通す。各 subsystem の全面実装は後回しにし、各 phase は日付ではなく受け入れ条件を満たした時点で完了する。
@@ -18,7 +18,7 @@
 - [x86-engine-scorecard.md](x86-engine-scorecard.md): engine 候補、実行 evidence、adapter 採用 gate
 - [risks-and-open-questions.md](risks-and-open-questions.md): `Q-*`、`R-*`、go / no-go 条件
 - [testing-and-acceptance.md](testing-and-acceptance.md): test 資産、証跡、`AC-*`
-- [windows-native-evidence.md](windows-native-evidence.md): Windows W0、BGI startup trace、native ABI oracle、次の W1 slice
+- [windows-native-evidence.md](windows-native-evidence.md): Windows W0、BGI startup trace、native ABI oracle、W1 fixed runtime result
 
 ## 2. 計画上の前提
 
@@ -142,7 +142,7 @@ Phase 6 は Phase 3 の scheduler、clock、handle、browser topology が確定�
 
 技術選択を暗黙に固定せず、corpus、test oracle、resource control、build／CI、主要 ADR を揃える。最初の code は product feature ではなく、execution、storage、graphics、audio 候補を比較する disposable spike とする。
 
-現在 `P0-COR-01` は In discovery であり、7 entry executable の PE32/i386 判定、SHA-256、static import inventory は [corpus-inventory.md](corpus-inventory.md) に記録済みである。primary の最初の Windows trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+、title resource bandまで取得し、[windows-native-evidence.md](windows-native-evidence.md) に正規化した。factory以降のCOM methodとvisual checkpointは未確定である。`P0-COR-03` の EXE／DLL／callback fixture と `P0-ARCH-01` の LLVM baseline は [toolchain-spike.md](toolchain-spike.md) で再現可能であり、Windows native callback oracleも通った。`P0-ARCH-02` は v86／Unicorn／Bochs／libx86emu の比較、v86 prebuilt Wasm の integer／x87／SSE smoke、固定 source adapter の exact budget／CPL3 fault stop／version 1 CPU state round tripまで進んだ。[x86-engine-scorecard.md](x86-engine-scorecard.md) に残る memory／callback／browser gateを記録した。production toolchainとengine最終選定は未確定である。
+現在 `P0-COR-01` は In discovery であり、7 entry executable の PE32/i386 判定、SHA-256、static import inventory は [corpus-inventory.md](corpus-inventory.md) に記録済みである。primary の最初の Windows trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+、title resource bandまで取得し、[windows-native-evidence.md](windows-native-evidence.md) に正規化した。factory以降のCOM methodとvisual checkpointは未確定である。`P0-COR-03` の EXE／DLL／callback fixture と `P0-ARCH-01` の LLVM baseline は [toolchain-spike.md](toolchain-spike.md) で再現可能であり、Windows native callback oracleも通った。`P0-ARCH-02` は v86／Unicorn／Bochs／libx86emu の比較、v86 prebuilt Wasm の integer／x87／SSE smoke、固定 source adapter の exact budget／CPL3 fault stop／version 1 CPU state round trip、W1 fixed cdecl／1段callbackまで進んだ。[x86-engine-scorecard.md](x86-engine-scorecard.md) に残る memory／broad ABI／browser gateを記録した。production toolchainとengine最終選定は未確定である。
 
 ### 6.2 Entry criteria
 
@@ -896,16 +896,15 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、最初の startup trace／summary、native callback oracleは完了した。以後は [windows-development.md](windows-development.md) と [windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、最初の startup trace／summary、native callback oracle、W1 fixed PE／ABI sliceは完了した。W1は`P1-ABI-01`／`P1-ABI-03`／`P1-SCH-01`／`P1-QA-01`へのpartial evidenceであり、task全体または`AC-P1`の完了ではない。以後は [windows-development.md](windows-development.md) と [windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. `W1 ABI slice`（`P1-ABI-01`／`P1-ABI-03`へのpartial evidence）: fixed `abi-smoke.exe` のIATをruntime-owned thunkへ解決し、cdecl host service、1段guest callback、return sentinelを通す。
-2. `W1 scheduler slice`（`P1-SCH-01`へのpartial evidence）: single-thread bounded loopとminimum 1 budget yieldだけを実装する。wait／wake、async、Workerは入れない。
-3. `W1 contract`（`P1-QA-01`へのpartial evidence）: result `43`、final EAX `0`、stack balanceを一つのcontract testでnative oracleと比較する。CI／replay／state hash全体の完了とは扱わない。
-4. `P0-ARCH-03`へのmeasurement: low-address mapped imageの実測を記録し、sparse 4 GiBとpage ownershipの候補を更新する。task完了とは扱わない。
+1. `W2 fixture`: 最小PE32 Win32 fixtureを追加し、logical window、message callback、1 pixel command、clean exitのWindows native sequenceを固定する。
+2. `W2 startup substrate`: fixed loader-liteを必要範囲だけ広げ、trace先頭で到達済みのKernel32／User32 entryからlogical windowとmessage dispatchを通す。
+3. `W3 first pixel`: 同じfixtureのpaint callbackから一つのlogical pixel commandをhost surfaceへ渡す。
+4. `P0-ARCH-03`: W1の8 MiB low-address contiguous mappingをpartial measurementとして使い、high-address／protection fixtureでsparse 4 GiBとpage ownership候補を比較する。
 5. `P0-COR-02`: manual markerを持つfocused traceでvisual title checkpointを閉じる。
 6. `P6D-COR-01`／`P6D-COR-02`: graphics／input slice開始時にcaller attributionと選択したCOM vtable methodだけを追加取得する。
-7. `W2`～`W3`: 最小Win32 window／message／pixel fixtureへ広げる。
-8. `W7`: BGI.exeをloaderへ投入し、first unsupported import／bootstrap pointまで進める。
+7. `W7`: BGI.exeをproduction loader候補へ投入し、first unsupported import／bootstrap pointまで進める。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 

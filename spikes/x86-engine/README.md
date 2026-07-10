@@ -65,4 +65,4 @@ The 2026-07-10 local build produced the following evidence. Compiler output hash
 
 ## Remaining work
 
-The state layout is now explicit, but guest physical memory remains contiguous and thunk／callback behavior is not implemented. Further work moves to Windows-native observation before these areas are expanded.
+The state layout is explicit, but guest physical memory remains contiguous and initial CPU/RAM setup still uses private offsets pinned to this artifact. The external W1 harness now verifies exact owned `UD2` thunks, one cdecl guest callback, and callback/entry return sentinels for the fixed `abi-smoke.exe`. General thunk metadata, broader calling conventions, nested callbacks, sparse memory, and Chromium Worker integration remain unimplemented.

@@ -10,6 +10,7 @@
     "check:engine": "node tools/run-x86-engine-spike.mjs",
     "check:windows-trace": "node tools/test-windows-trace-summary.mjs",
     "check:engine:adapter": "node tools/run-v86-adapter-spike.mjs",
+    "check:runtime:abi": "node tools/run-runtime-abi-slice.mjs",
     "prepare:engine": "node tools/prepare-v86-adapter.mjs"
   },
   "engines": {

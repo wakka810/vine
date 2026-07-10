@@ -12,9 +12,10 @@
 - Windows W0 environment、BGI fingerprint、canonical check
 - Frida 17.15.4 による60秒startup traceとvalidated local summary
 - native `abi-smoke.exe` の DLL callback oracle
+- source-built v86 上の fixed PE32 map、IAT thunk、cdecl host service、1段 guest callback、budget yield、return sentinel
 
-guest memory、PE loader、Win32 API、graphics／audio は未実装である。サクラノ詩の native trace を実装順の根拠にする。
-取得値と次の fixed T1 slice は [windows-native-evidence.md](windows-native-evidence.md) を正とする。
+production guest memory、PE／DLL loader、Win32 API、graphics／audio は未実装である。W1 は Node.js 上の fixed loader-lite であり、サクラノ詩の native trace を引き続き実装順の根拠にする。
+取得値と W1 result は [windows-native-evidence.md](windows-native-evidence.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -57,7 +58,9 @@ v86 adapter を Windows 上でも再 build する場合は、source adapter 用�
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/check-environment.ps1 -SourceAdapter
+npm run check:toolchain
 npm run prepare:engine
+npm run check:runtime:abi
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -95,8 +98,8 @@ node tools/summarize-windows-trace.mjs `
 一つの subsystem を完成させてから次へ進まず、次の縦断 checkpoint を順に通す。
 
 1. `W0 Native evidence`: tool version／fingerprintと、W1選択に十分なstartup resource-band traceを固定する。manual marker付きvisual titleは`P0-COR-02`で継続する。
-2. `W1 Headless execution`: controlled synthetic PE32をmapし、entry pointからreturn sentinelまで走らせる。system Notepadは初期fixtureにしない。
-3. `W2 Startup substrate`: trace 先頭に必要な Kernel32／User32 の最小経路で logical window を作る。
+2. `W1 Headless execution` [Verified]: controlled synthetic PE32をmapし、runtime-owned import thunk、guest callback、entry return sentinelまで走らせる。
+3. `W2 Startup substrate` [Next]: trace 先頭に必要な Kernel32／User32 の最小経路で logical window を作る。
 4. `W3 First frame`: 観測した GDI／GDI+／D3D9 create／present 経路の一つを canvas command まで通す。
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
@@ -113,8 +116,8 @@ node tools/summarize-windows-trace.mjs `
 - BGI.exe の fingerprint が corpus inventory と一致する
 - startup JSONL が再取得できる
 - startup／title resource bandのruntime-reachable module／API一覧がある
-- 最初の未対応 vertical slice が W1～W3 の具体的な一項に落ちている
+- 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。最初の slice は `abi-smoke.exe` の import thunk／guest callback／return sentinel に固定した。視覚的な title checkpoint は旧 schema に manual marker がないため `P0-COR-02` の未 acceptance のままだが、W1 headless slice の開始条件にはしない。
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。`abi-smoke.exe` の import thunk／guest callback／return sentinel は W1 contract で完了した。次は最小 Win32 fixture の native sequenceを固定し、W2 logical windowへ進む。視覚的な title checkpoint は旧 schema に manual marker がないため `P0-COR-02` の未 acceptance のままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。
