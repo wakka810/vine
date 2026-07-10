@@ -14,17 +14,18 @@ A production Rust boundary now owns the BGI image range, applies 18,199
 prefix to deterministic runtime-owned `UD2` thunks. General CPU memory/process
 integration, DLL/export resolution, process bootstrap, the Win32 runtime, and the
 browser application do not exist yet. The sealed controlled image now crosses
-a versioned Rust-to-v86 reflection boundary and executes to its first exact
-owned thunk after real cache invalidation.
+a versioned Rust-to-v86 reflection boundary, dispatches fixed cdecl
+`fixture_add(19, 23)`, resumes guest cleanup, and reaches the exact
+callback-service thunk after real cache invalidation.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. The controlled fixture now binds both imports and seals its
 image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
-at `DINPUT8.dll!DirectInput8Create`. The next task dispatches fixed cdecl
-`fixture_add` from production thunk ID `1`, resumes the guest, and stops at
-the callback-service ingress; see
-[docs/v86-entry-ingress.md](docs/v86-entry-ingress.md).
+at `DINPUT8.dll!DirectInput8Create`. The next task allocates a production-owned
+callback return sentinel and frame, enters callback target `0x10001030`, and
+stops at that exact sentinel with result `43`; see
+[docs/v86-cdecl-ingress.md](docs/v86-cdecl-ingress.md).
 
 ## Requirements
 
@@ -52,7 +53,9 @@ Generated reports are written under `.work/` and are not tracked by Git.
 `npm run prepare:engine` reproduces the source adapter and its single CPU state
 round-trip contract check when the pinned v86 source build is needed.
 `npm run check:runtime:entry` then verifies the production-memory reflection
-and controlled entry-to-thunk boundary.
+and controlled entry-to-thunk boundary. `npm run check:runtime:cdecl` verifies
+the fixed cdecl return and callback-service ingress without invoking the
+callback.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

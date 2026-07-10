@@ -8,14 +8,25 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const commandArguments = process.argv.slice(2);
+const dispatchAdd = commandArguments.includes("--dispatch-add");
+const positionalArguments = commandArguments.filter((value) => value !== "--dispatch-add");
+assert(
+  positionalArguments.length <= 2,
+  "usage: run-runtime-v86-entry-slice.mjs [--dispatch-add] [WASM] [EXE]",
+);
 const wasmPath = path.resolve(
-  process.argv[2] ??
+  positionalArguments[0] ??
     path.join(root, ".work", "v86-adapter-source", "build", "v86-fallback.wasm"),
 );
 const fixturePath = path.resolve(
-  process.argv[3] ?? path.join(root, ".work", "toolchain-spike", "abi-smoke.exe"),
+  positionalArguments[1] ?? path.join(root, ".work", "toolchain-spike", "abi-smoke.exe"),
 );
-const outputDirectory = path.join(root, ".work", "v86-entry-ingress");
+const outputDirectory = path.join(
+  root,
+  ".work",
+  dispatchAdd ? "v86-cdecl-ingress" : "v86-entry-ingress",
+);
 const reportPath = path.join(outputDirectory, "report.json");
 
 const expected = {
@@ -38,11 +49,23 @@ const expected = {
     returnAddress: 0x1000100a,
     arguments: [19, 23],
   },
+  secondThunk: {
+    id: 2,
+    address: 0x7f000010,
+    iatAddress: 0x10002038,
+    returnAddress: 0x10001019,
+    callbackTarget: 0x10001030,
+    value: 42,
+  },
   reflectionContentSha256:
     "3a3510468616980e99ccf36ccba29083acd8edffb01f1bbfdfd60e3b4a1d297e",
-  report: {
+  entryReport: {
     bytes: 4_831,
     sha256: "9b32ed50a4fa53d60a2743267230d43acf754bb6bc490851dd754955e70cbcb8",
+  },
+  cdeclReport: {
+    bytes: 5_501,
+    sha256: "5ee8871673b667a097c2b25be4ca2f810555785ad4e4a563b9c43681c968d953",
   },
 };
 
@@ -240,9 +263,9 @@ async function run() {
     assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
     sessionCompleted = true;
 
-    const execution = executeToFirstThunk(offer, wasmContext);
+    const execution = executeControlled(offer, wasmContext);
     const report = {
-      schema: "vine.v86-entry-ingress",
+      schema: dispatchAdd ? "vine.v86-cdecl-service-ingress" : "vine.v86-entry-ingress",
       schemaVersion: 1,
       source: offer.source,
       adapter: {
@@ -285,23 +308,44 @@ async function run() {
         entryPoint: offer.entryPointAddress,
       },
       execution,
-      stop: {
-        stage: "thunk-dispatch",
-        code: "owned-import-service-unimplemented",
-        message:
-          "the controlled entry reached exact runtime-owned thunk ID 1; host service dispatch and guest resume were not attempted",
-      },
+      stop: dispatchAdd
+        ? {
+            stage: "callback-dispatch",
+            code: "guest-callback-frame-unimplemented",
+            message:
+              "fixed cdecl thunk ID 1 returned to guest execution and reached thunk ID 2; callback frame construction and invocation were not attempted",
+          }
+        : {
+            stage: "thunk-dispatch",
+            code: "owned-import-service-unimplemented",
+            message:
+              "the controlled entry reached exact runtime-owned thunk ID 1; host service dispatch and guest resume were not attempted",
+          },
     };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    assert.equal(reportBytes.byteLength, expected.report.bytes);
-    assert.equal(sha256(reportBytes), expected.report.sha256);
+    if (dispatchAdd) {
+      assert.equal(reportBytes.byteLength, expected.cdeclReport.bytes);
+      assert.equal(sha256(reportBytes), expected.cdeclReport.sha256);
+    } else {
+      assert.equal(reportBytes.byteLength, expected.entryReport.bytes);
+      assert.equal(sha256(reportBytes), expected.entryReport.sha256);
+    }
     fs.writeFileSync(reportPath, reportBytes);
-    console.log(
-      `v86 entry ingress passed: generation ${receipt.acknowledgedGeneration}, ` +
-        `${execution.budgetStops} budget stops, thunk ID ${execution.thunkId} at ` +
-        `0x${execution.instructionPointer.toString(16)}`,
-    );
+    if (dispatchAdd) {
+      console.log(
+        `v86 cdecl ingress passed: result=${execution.services[0].result}, ` +
+          `${execution.budgetStops} budget stops, callback thunk ID ` +
+          `${execution.callbackIngress.thunkId} at ` +
+          `0x${execution.callbackIngress.instructionPointer.toString(16)}`,
+      );
+    } else {
+      console.log(
+        `v86 entry ingress passed: generation ${receipt.acknowledgedGeneration}, ` +
+          `${execution.budgetStops} budget stops, thunk ID ${execution.thunkId} at ` +
+          `0x${execution.instructionPointer.toString(16)}`,
+      );
+    }
     console.log(
       `report: ${path.relative(root, reportPath)}, ${reportBytes.byteLength} bytes, ` +
         `sha256 ${sha256(reportBytes)}`,
@@ -328,6 +372,14 @@ function validateOffer(offer) {
   assert.equal(offer.firstThunk.module, "vine_fixture.dll");
   assert.equal(offer.firstThunk.kind, "name");
   assert.equal(offer.firstThunk.name, "fixture_add");
+  assert.equal(offer.thunks.length, 2);
+  assert.deepEqual(offer.thunks[0], offer.firstThunk);
+  assert.equal(offer.thunks[1].id, expected.secondThunk.id);
+  assert.equal(offer.thunks[1].address, expected.secondThunk.address);
+  assert.equal(offer.thunks[1].iatAddress, expected.secondThunk.iatAddress);
+  assert.equal(offer.thunks[1].module, "vine_fixture.dll");
+  assert.equal(offer.thunks[1].kind, "name");
+  assert.equal(offer.thunks[1].name, "fixture_call_callback");
   assert.deepEqual(offer.reflection.invalidation, {
     generation: 4,
     dataTlb: true,
@@ -615,10 +667,9 @@ function validateReceipt(receipt, offer, context) {
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
 }
 
-function executeToFirstThunk(offer, context) {
+function executeControlled(offer, context) {
   let budgetStops = 0;
   let executeStops = 0;
-  let finalState = null;
   const executablePages = new Set(
     offer.reflection.pages
       .filter(({ ownerSealed, protection }) => ownerSealed && protection.execute)
@@ -643,57 +694,158 @@ function executeToFirstThunk(offer, context) {
       previousInstructionPointer: words[stateWord.previousInstructionPointer],
     };
   };
-
-  for (let index = 0; index < 16 && finalState === null; index += 1) {
-    const before = saveState(0);
-    const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
-    assert(
-      executablePages.has(currentPage),
-      `execute gate rejected EIP 0x${before.instructionPointer.toString(16)}`,
-    );
-    const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
-    executeStops += 1;
-    const state = saveState(reason);
-    assert.equal(state.words[stateWord.ebx], calleeSaved.ebx);
-    assert.equal(state.words[stateWord.ebp], calleeSaved.ebp);
-    assert.equal(state.words[stateWord.esi], calleeSaved.esi);
-    assert.equal(state.words[stateWord.edi], calleeSaved.edi);
-    if (reason === stopReason.budget) {
-      budgetStops += 1;
-      continue;
+  const ownedThunks = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
+  assert.equal(ownedThunks.size, offer.thunks.length, "owned thunk addresses must be unique");
+  const runUntilOwnedThunk = (expectedThunk, label) => {
+    for (let index = 0; index < 16; index += 1) {
+      const before = saveState(0);
+      const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
+      assert(
+        executablePages.has(currentPage),
+        `execute gate rejected EIP 0x${before.instructionPointer.toString(16)}`,
+      );
+      const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
+      executeStops += 1;
+      const state = saveState(reason);
+      assert.equal(state.words[stateWord.ebx], calleeSaved.ebx);
+      assert.equal(state.words[stateWord.ebp], calleeSaved.ebp);
+      assert.equal(state.words[stateWord.esi], calleeSaved.esi);
+      assert.equal(state.words[stateWord.edi], calleeSaved.edi);
+      if (reason === stopReason.budget) {
+        budgetStops += 1;
+        continue;
+      }
+      assert.equal(reason, stopReason.invalidOpcode);
+      assert.equal(state.errorCode, -1);
+      const thunk = ownedThunks.get(state.instructionPointer);
+      assert(thunk, `#UD at unowned address 0x${state.instructionPointer.toString(16)}`);
+      assert.equal(thunk.id, expectedThunk.id, `${label} reached the wrong thunk`);
+      assert.equal(state.instructionPointer, expectedThunk.address);
+      assert.equal(state.previousInstructionPointer, expectedThunk.address);
+      return state;
     }
-    assert.equal(reason, stopReason.invalidOpcode);
-    assert.equal(state.errorCode, -1);
-    assert.equal(state.instructionPointer, offer.firstThunk.address);
-    assert.equal(state.previousInstructionPointer, offer.firstThunk.address);
-    finalState = state;
-  }
-  assert(finalState, "controlled entry did not reach an owned thunk within 16 slices");
-  assert.equal(finalState.esp, guest.stackTop - 16);
-  const returnAddress = context.readVirtualU32(finalState.esp, "fixture_add return address");
-  const left = context.readVirtualU32(finalState.esp + 4, "fixture_add left argument");
-  const right = context.readVirtualU32(finalState.esp + 8, "fixture_add right argument");
+    assert.fail(`${label} did not reach an owned thunk within 16 slices`);
+  };
+  const resume = (state, { eax, esp, instructionPointer }) => {
+    context.wasm.vine_cpu_state_save();
+    const words = new Uint32Array(
+      context.wasm.memory.buffer,
+      context.wasm.vine_cpu_state_ptr(),
+      context.wasm.vine_cpu_state_size() / 4,
+    );
+    assert.equal(words[stateWord.instructionPointer], state.instructionPointer);
+    assert.equal(words[stateWord.esp], state.esp);
+    words[stateWord.eax] = eax >>> 0;
+    words[stateWord.esp] = esp >>> 0;
+    words[stateWord.instructionPointer] = instructionPointer >>> 0;
+    words[stateWord.previousInstructionPointer] = instructionPointer >>> 0;
+    assert.equal(context.wasm.vine_cpu_state_restore(), 0);
+  };
+
+  const firstState = runUntilOwnedThunk(offer.thunks[0], "fixture_add");
+  assert.equal(firstState.esp, guest.stackTop - 16);
+  const returnAddress = context.readVirtualU32(firstState.esp, "fixture_add return address");
+  const left = context.readVirtualU32(firstState.esp + 4, "fixture_add left argument");
+  const right = context.readVirtualU32(firstState.esp + 8, "fixture_add right argument");
   assert.equal(returnAddress, expected.firstThunk.returnAddress);
   assert.deepEqual([left, right], expected.firstThunk.arguments);
   assert.equal(
     context.readVirtualU32(expected.firstThunk.iatAddress, "bound fixture_add IAT"),
     expected.firstThunk.address,
   );
+  const entryResult = {
+    instructionBudget: guest.instructionBudget,
+    executeStops,
+    budgetStops,
+    stopReason: firstState.reason,
+    stopErrorCode: firstState.errorCode,
+    thunkId: offer.firstThunk.id,
+    instructionPointer: firstState.instructionPointer,
+    previousInstructionPointer: firstState.previousInstructionPointer,
+    esp: firstState.esp,
+    returnAddress,
+    arguments: [left, right],
+    service: "vine_fixture.dll!fixture_add",
+  };
+  if (!dispatchAdd) {
+    assert.deepEqual(context.hostImportCalls, { microtick: 1 });
+    return entryResult;
+  }
+
+  const result = (left + right) >>> 0;
+  const resumedEsp = firstState.esp + 4;
+  resume(firstState, {
+    eax: result,
+    esp: resumedEsp,
+    instructionPointer: returnAddress,
+  });
+  const secondState = runUntilOwnedThunk(offer.thunks[1], "fixture_call_callback");
+  assert.equal(secondState.eax, result);
+  assert.equal(secondState.esp, guest.stackTop - 16);
+  const callbackReturn = context.readVirtualU32(
+    secondState.esp,
+    "fixture_call_callback return address",
+  );
+  const callbackTarget = context.readVirtualU32(
+    secondState.esp + 4,
+    "fixture_call_callback target",
+  );
+  const callbackValue = context.readVirtualU32(
+    secondState.esp + 8,
+    "fixture_call_callback value",
+  );
+  assert.equal(callbackReturn, expected.secondThunk.returnAddress);
+  assert.equal(callbackTarget, expected.secondThunk.callbackTarget);
+  assert.equal(callbackValue, expected.secondThunk.value);
+  const callbackPage = (callbackTarget & ~(page.size - 1)) >>> 0;
+  assert(
+    executablePages.has(callbackPage),
+    `callback target 0x${callbackTarget.toString(16)} is not on a sealed executable page`,
+  );
+  assert.equal(
+    context.readVirtualU32(expected.secondThunk.iatAddress, "bound callback IAT"),
+    expected.secondThunk.address,
+  );
+  assert.equal(executeStops, 4);
+  assert.equal(budgetStops, 2);
   assert.deepEqual(context.hostImportCalls, { microtick: 1 });
 
   return {
     instructionBudget: guest.instructionBudget,
     executeStops,
     budgetStops,
-    stopReason: finalState.reason,
-    stopErrorCode: finalState.errorCode,
-    thunkId: offer.firstThunk.id,
-    instructionPointer: finalState.instructionPointer,
-    previousInstructionPointer: finalState.previousInstructionPointer,
-    esp: finalState.esp,
-    returnAddress,
-    arguments: [left, right],
-    service: "vine_fixture.dll!fixture_add",
+    services: [
+      {
+        thunkId: offer.thunks[0].id,
+        thunkAddress: offer.thunks[0].address,
+        service: "vine_fixture.dll!fixture_add",
+        esp: firstState.esp,
+        returnAddress,
+        arguments: [left, right],
+        result,
+        resume: {
+          eax: result,
+          esp: resumedEsp,
+          instructionPointer: returnAddress,
+          previousInstructionPointer: returnAddress,
+        },
+      },
+    ],
+    callbackIngress: {
+      stopReason: secondState.reason,
+      stopErrorCode: secondState.errorCode,
+      thunkId: offer.thunks[1].id,
+      thunkAddress: offer.thunks[1].address,
+      service: "vine_fixture.dll!fixture_call_callback",
+      instructionPointer: secondState.instructionPointer,
+      previousInstructionPointer: secondState.previousInstructionPointer,
+      eax: secondState.eax,
+      esp: secondState.esp,
+      returnAddress: callbackReturn,
+      callbackTarget,
+      callbackValue,
+    },
+    hostImportCalls: { ...context.hostImportCalls },
   };
 }
 

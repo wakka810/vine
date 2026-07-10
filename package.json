@@ -18,6 +18,7 @@
     "check:runtime:materialization": "cargo test -p vine-core --test pe32_materialization --locked",
     "check:runtime:imports": "cargo test -p vine-core --test pe32_import_binding --locked",
     "check:runtime:entry": "node tools/run-runtime-v86-entry-slice.mjs",
+    "check:runtime:cdecl": "node tools/run-runtime-v86-entry-slice.mjs --dispatch-add",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",

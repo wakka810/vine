@@ -161,7 +161,7 @@ upstream `main_loop` は内部 `LOOP_COUNTER = 100003` を使い、fallback inte
 
 ### B3. Release structured fault stop: Verified baseline
 
-upstream release／fallback artifact では `cpu_exception_hook` が compile out される。adapter patch は JS hook を追加せず、adapter 実行中の divide error、invalid opcode、general protection、page fault を `0x100 + vector` と error codeへ変換する。W1はfixed trap pageの4 owned addressだけを`#UD`とEIPで分類した。production Rust側のstable ID／symbol tableはcontrolled v86 entryでthunk ID `1`のexact EIPを分類したがservice未dispatchであり、general trap dispatch、SEH delivery、breakpointはまだ実装していない。
+upstream release／fallback artifact では `cpu_exception_hook` が compile out される。adapter patch は JS hook を追加せず、adapter 実行中の divide error、invalid opcode、general protection、page fault を `0x100 + vector` と error codeへ変換する。W1はfixed trap pageの4 owned addressだけを`#UD`とEIPで分類した。production Rust側のstable ID／symbol tableはcontrolled v86 entryでthunk ID `1`、fixed cdecl continuationでthunk ID `2`のexact EIPを分類した。one fixed serviceだけをdispatch済みだが、general trap dispatch、SEH delivery、breakpointはまだ実装していない。
 
 ### B4. Guest memory model
 
@@ -174,7 +174,7 @@ v86 の通常 RAM は contiguous guest physical memory である。一方、Vine
 
 一方、fixed v86はinstruction fetchをread translationとして扱い、PEのnon-executable `.nxprobe`を実行した。unmapped fetchもPFEC `4`でinstruction-fetch bitを持たない。checked sparse referenceは同じpage metadataからnon-executable／unmapped fetchを`21`／`20`として拒否したがCPU未接続である。この結果から、Vine region table＋bounded physical allocatorをv86 pagingへ反映し、adapter-owned execute gateを追加する案をprovisional candidateとする。snapshot、guard、generated-code invalidation、Worker ceilingを閉じるまで`ADR-003`はAcceptedではない。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)を正とする。
 
-続くproduction Rust ingressはsparse owner／region／page state、bounded zeroed frames、logical execute seal、cross-page preflight、generation-tagged invalidation requirementを実装した。high fixtureの6 image pagesとBGI planの380 pagesを所有し、controlled imageの2 IATを`0x7F000000` arenaへbindして両ownerをsealした。さらに6 controlled pagesをsemantic reflectionでv86へ渡し、actual TLB／fetch／generated-code invalidation後にgeneration `4`をacknowledgeしてentryからfirst thunkまで実行した。general process mapping／mutation／snapshotは未接続である。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[pe-import-binding.md](pe-import-binding.md)、[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
+続くproduction Rust ingressはsparse owner／region／page state、bounded zeroed frames、logical execute seal、cross-page preflight、generation-tagged invalidation requirementを実装した。high fixtureの6 image pagesとBGI planの380 pagesを所有し、controlled imageの2 IATを`0x7F000000` arenaへbindして両ownerをsealした。さらに6 controlled pagesをsemantic reflectionでv86へ渡し、actual TLB／fetch／generated-code invalidation後にgeneration `4`をacknowledgeしてentryからfirst thunkまで実行した。fixed cdecl serviceをreturnしてguest cleanup後のsecond thunkまで進めたが、general process mapping／mutation／snapshotは未接続である。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[pe-import-binding.md](pe-import-binding.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)を正とする。
 
 ### B5. Stable state ABI: Verified baseline
 
@@ -208,19 +208,25 @@ fixed `destroywindow-synchronous-wm-destroy`はDispatch API `3` -> `WM_PAINT` ca
 
 `npm run check:runtime:entry`は同じlive Rust `GuestMemory`をprobe sessionに保持し、guest VA／owner／seal／R／W／X／4 KiB bytesだけをNode adapterへ渡す。Rust physical frame、v86 physical placement、private offsetはprotocolに含めない。Nodeは2 MiB poolの11 pagesへpage directory、3 tables、6 reflected pages、1 harness stackを配置し、state ABI restore、explicit TLB／generated-code clear後にgeneration `4`をacknowledgeする。
 
-instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 budget stopでproduction thunk ID `1`／`0x7F000000`のstructured `#UD`へ到達した。ESP `0x006FFFF0`、return `0x1000100A`、arguments `[19,23]`、bound IATを検証した。service dispatch／resumeは未実装である。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
+instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 budget stopでproduction thunk ID `1`／`0x7F000000`のstructured `#UD`へ到達した。ESP `0x006FFFF0`、return `0x1000100A`、arguments `[19,23]`、bound IATを検証した。このentry-only reportではservice dispatch／resumeを行わない。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
 
-### B9. Browser Worker
+### B9. Production cdecl service: Verified ingress
+
+`npm run check:runtime:cdecl`はordered production thunk metadataからexact thunk ID `1`を分類し、fixed frame `[return,19,23]`をchecked readする。version 1 CPU state ABIでEAX `42`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x1000100A`へresumeし、guest自身が2 argumentsをcleanupする。4 execute stop／2 budget stop後、exact thunk ID `2`／`0x7F000010`でreturn `0x10001019`、callback target `0x10001030`、value `42`を構造化した。targetはsealed executable pageに属し、callee-saved sentinelは保持された。
+
+これはone fixed two-argument cdecl development serviceのevidenceである。general signature metadata、other calling conventions、LastError、callback frame／return sentinel、callback execution、outer service return、SEHは未実装である。詳細は[v86-cdecl-ingress.md](v86-cdecl-ingress.md)を正とする。
+
+### B10. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B10. Correctness と performance
+### B11. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。production load-plan／memory／materialization／IAT bindingに続き、controlled semantic reflectionはactual invalidationとentry-to-thunk ID `1`を通した。次のadapter sliceはproduction thunk metadataとstate ABIだけでfixed cdecl service returnを行い、guestをthunk ID `2`まで進める。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。production load-plan／memory／materialization／IAT bindingに続き、controlled semantic reflectionはactual invalidation、entry-to-thunk ID `1`、fixed cdecl return、thunk ID `2` callback-service ingressを通した。次のadapter sliceはproduction-owned callback return sentinel／frame identityを作り、callback targetからexact sentinelへresult `43`で戻す。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -233,10 +239,11 @@ adapter fixture は次の順に増やす。
 1. [Fixed baseline verified] 最小Win32 fixtureで複数のowned thunk IDとguest window callbackを通した。後続のproduction sliceでgenerated API metadata／callback schemaを使うgeneral dispatcherへ移す。
 2. [Measured] unmapped／read-only accessとcross-page faultを区別した。non-executableはcurrent v86 gapとして固定した。
 3. [Controlled production reflection verified] Rust region／page generationをprovisional v86 paging、physical backing、execute gateへ接続し、actual invalidation後にentryからowned thunk ID `1`へ到達する。
-4. fixed cdecl thunk ID `1`をdispatch／resumeし、thunk ID `2`のcallback ingressを構造化する。
-5. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-6. 同じfixtureをNodeとChromium Workerで実行する。
-7. adopted ISA fixtureとnormalized workloadを測定する。
+4. [Verified] fixed cdecl thunk ID `1`をdispatch／resumeし、thunk ID `2`のcallback ingressを構造化する。
+5. production-owned callback sentinel／frameで1段callbackを実行し、exact return stopを構造化する。
+6. outer service returnを完了し、broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+7. 同じfixtureをNodeとChromium Workerで実行する。
+8. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 
@@ -249,6 +256,7 @@ adapter fixture は次の順に増やす。
 - fixed T1 fixture の exact owned API trap と cdecl guest callback が通る
 - high-address mapping、R／W fault ordering、protect／remap invalidationのmeasurementがあり、native execute gapが明示される
 - controlled production ownershipがsemantic reflection／actual invalidationを経てv86 entryからfirst thunkまで通る
+- fixed production cdecl serviceがexact thunk metadataとstate ABIでguestへreturnし、second thunk ingressまで通る
 
 `ADR-002` の採用前に残る gate:
 

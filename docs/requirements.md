@@ -6,7 +6,7 @@
 - 基準日: 2026-07-10
 - 対象: PE32 / i386 のサクラノ詩 full-play runtime
 - 開発形態: 1 人、完全個人用
-- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、fixed W1／W2／W3 contract、high-address memory measurement、Rust immutable snapshot／bounded PE32 load plan／guest-memory／image-materialization／runtime-owned import binding、controlled entry-to-thunk ingressは完了済みである。general v86 memory／process integration、DLL／export graph、bootstrap、service dispatchは未実装である
+- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、fixed W1／W2／W3 contract、high-address memory measurement、Rust immutable snapshot／bounded PE32 load plan／guest-memory／image-materialization／runtime-owned import binding、controlled entry／fixed cdecl service ingressは完了済みである。general v86 memory／process integration、DLL／export graph、bootstrap、general service dispatchは未実装である
 
 ## 2. 目的
 
@@ -158,7 +158,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | REQ-ABI-04 | SEH / unwind / vectored exception の必要範囲を corpus で決定し、未対応経路を明示停止する | Must |
 | REQ-ABI-05 | varargs は API ごとに format／argument contract と上限を定義して検証し、schema のない汎用 variadic bridge を暗黙に許可しない | Must |
 
-controlled v86 entry ingressはproduction-owned page、versioned CPU state、instruction budget、structured `#UD`、exact thunk ID、cdecl frame contextをfirst trapまで接続した。service return／callback／stack cleanupはまだ実行しないため、`REQ-CPU-01`／`REQ-CPU-03`／`REQ-CPU-04`／`REQ-ABI-01`／`REQ-ABI-02`はいずれもpartialである。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
+controlled v86 entry／cdecl ingressはproduction-owned page、versioned CPU state、instruction budget、structured `#UD`、ordered exact thunk metadataを接続した。fixed two-DWORD cdecl frameをchecked readし、calleeのreturn addressだけをpopしてEAX `42`を返し、guest側のargument cleanup後にcallback-service thunk ID `2`まで進めた。callback frame／return sentinel、callback execution、outer service return、general signature metadataは未実装なので、`REQ-CPU-01`／`REQ-CPU-03`／`REQ-CPU-04`／`REQ-ABI-01`／`REQ-ABI-02`はいずれもpartialである。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)と[v86-cdecl-ingress.md](v86-cdecl-ingress.md)を正とする。
 
 ### 7.4 Windows userspace compatibility
 

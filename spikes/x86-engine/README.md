@@ -55,6 +55,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:entry` holds a production Rust `GuestMemory` in a bounded probe session, reflects six sealed semantic pages without exposing Rust physical-frame indices, and acknowledges generation `4` only after v86 state restore、`full_clear_tlb`、and `jit_clear_cache_js`. It then executes the relocated controlled entry on one harness stack page and stops at production thunk ID `1`. The versioned result and non-claims are recorded in [v86-entry-ingress.md](../../docs/v86-entry-ingress.md).
 
+`npm run check:runtime:cdecl` uses the same session and ordered production thunk metadata to return fixed `fixture_add(19, 23) = 42` through the versioned CPU state ABI. Guest code performs cdecl argument cleanup and reaches exact thunk ID `2` with callback target `0x10001030`／value `42`. It does not construct or invoke the callback; the result is recorded in [v86-cdecl-ingress.md](../../docs/v86-cdecl-ingress.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.
@@ -69,4 +71,4 @@ The 2026-07-10 local build produced the following evidence. Compiler output hash
 
 ## Remaining work
 
-The state layout is explicit, but adapter physical memory remains contiguous and memory-size setup still uses one private offset pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior, and the production reflection harness reaches its first owned thunk. General region mutation／dirty-page synchronization、production stack／bootstrap、snapshot、general ABI、Chromium Worker remain unimplemented.
+The state layout is explicit, but adapter physical memory remains contiguous and memory-size setup still uses one private offset pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior, and the production reflection harness returns one fixed cdecl service and reaches callback-service ingress. Callback frame／sentinel ownership、general region mutation／dirty-page synchronization、production stack／bootstrap、snapshot、general ABI、Chromium Worker remain unimplemented.

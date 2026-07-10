@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはimmutable snapshot、bounded PE32 load plan、sparse guest memory、PE32 source copy／zero-fill／`HIGHLOW` materialization、runtime-owned import thunk bindingとcontrolled v86 entry reflectionがある。general memory／process integration、DLL／export lifecycle、bootstrap、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはimmutable snapshot、bounded PE32 load plan、sparse guest memory、PE32 source copy／zero-fill／`HIGHLOW` materialization、runtime-owned import thunk binding、controlled v86 entry reflection、fixed cdecl service ingressがある。general memory／process integration、DLL／export lifecycle、bootstrap、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -87,6 +87,8 @@ guest CALL / JMP import thunk
 
 API implementation は `Promise` を guest へ見せない。deferred operation の途中でも、別 guest thread、message、cancel、timeout を scheduler が扱える設計にする。
 
+現在のcontrolled sliceはordered `ImportThunk` metadataでexact trapを分類し、fixed two-DWORD cdecl serviceだけをversion 1 CPU state ABI経由でreturnする。calleeはreturn addressだけをconsumeし、guest callerがargumentsをcleanupした後、次のcallback-service thunkへ到達した。general ABI schema、LastError、deferred service、callback frame／sentinelは未実装である。詳細は[v86-cdecl-ingress.md](v86-cdecl-ingress.md)を正とする。
+
 ### 4.3 Host から guest callback
 
 Window procedure、timer procedure、enumeration callback 等は host event から guest code へ戻る。DirectSound notification は callback ではなく、runtime の event handle を signal して wait 中の guest thread を wake する。
@@ -151,7 +153,7 @@ background tab、debugger pause、audio suspend 後に catch-up するか freeze
 
 Wasm32 linear memory の offset と guest virtual address を同一と仮定しない。推奨案は sparse page table または region table を介し、CPU と marshaller が共通の checked memory interface を使う方式である。hot path の TLB/cache は profile 後に追加する。
 
-現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装し、low BGI imageとhigh fixtureを同じchecked rangeで所有する。controlled sealed image／thunk pagesはguest VA／owner／R／W／X／bytesだけのsemantic reflectionとしてv86 page table／physical RAMへ反映し、first thunkまで実行した。これはgeneral mutation／dirty-page synchronizationではない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)と[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
+現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装し、low BGI imageとhigh fixtureを同じchecked rangeで所有する。controlled sealed image／thunk pagesはguest VA／owner／R／W／X／bytesだけのsemantic reflectionとしてv86 page table／physical RAMへ反映し、first thunk到達後のfixed cdecl returnとsecond-thunk ingressまで実行した。これはgeneral mutation／dirty-page synchronizationではない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)を正とする。
 
 ### 6.2 Page state
 
@@ -190,7 +192,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。fixed T1／W2 flowとhigh-address memory measurementに続き、controlled production pagesをphysical-frame IDなしのsemantic reflectionでv86 page tablesへcopyし、state restore／TLB／generated-code invalidation後にRust generation `4`をacknowledgeしてentryからowned thunk ID `1`まで実行した。v86はinstruction fetchをreadと区別しないため、Vine metadataを使うslice-boundary execute gateを保持する。これは`ADR-003` provisional candidateの限定したCPU接続であり、general mutation、bidirectional dirty pages、guard、snapshot、broad ABI、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)と[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
+固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。fixed T1／W2 flowとhigh-address memory measurementに続き、controlled production pagesをphysical-frame IDなしのsemantic reflectionでv86 page tablesへcopyし、state restore／TLB／generated-code invalidation後にRust generation `4`をacknowledgeしてentryからowned thunk ID `1`まで実行した。ordered thunk metadataとstate ABIだけでfixed cdecl result `42`を返し、guest cleanup後にthunk ID `2`のcallback-service ingressまで進んだ。v86はinstruction fetchをreadと区別しないため、Vine metadataを使うslice-boundary execute gateを保持する。これは`ADR-003` provisional candidateの限定したCPU接続であり、general mutation、bidirectional dirty pages、guard、snapshot、broad ABI、callback、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 

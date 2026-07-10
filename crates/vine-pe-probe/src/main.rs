@@ -94,6 +94,7 @@ struct V86ReflectionOffer {
     entry_point_address: GuestAddress,
     image_owner: vine_core::MemoryOwnerId,
     first_thunk: ImportThunk,
+    thunks: Vec<ImportThunk>,
     reflection: MemoryReflection,
 }
 
@@ -312,6 +313,7 @@ fn run_v86_reflection_session(
         entry_point_address: materialization.entry_point_address,
         image_owner: binding.image_owner,
         first_thunk: first_thunk.clone(),
+        thunks: binding.thunks.clone(),
         reflection,
     };
     write_protocol_message(&offer)?;
