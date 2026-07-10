@@ -63,6 +63,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:entry-return` adds process-entry sentinel ID `2` at control slot `0x7F010010`, places that exact address on the initial stack, and classifies the final `#UD` as successful entry completion with EAX `0`, ESP `0x00700000`, and fixture result `43`. The outer-only unmapped fault remains a separate regression contract. The result is recorded in [v86-entry-return-ingress.md](../../docs/v86-entry-return-ingress.md).
 
+`npm run check:runtime:stack-bootstrap` moves the one-page controlled stack into Rust owner `4`, reflects generation `8`, and verifies the same completion without an adapter-local stack allocation or setup write. The result is recorded in [v86-stack-bootstrap-ingress.md](../../docs/v86-stack-bootstrap-ingress.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.

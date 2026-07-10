@@ -20,7 +20,8 @@ exact return sentinel after real cache invalidation. The host now retires that
 callback frame, returns result `43` through the outer cdecl thunk, and runs the
 guest entry continuation through result `43`, entry result `0`, and balanced
 stack state. A second typed runtime-control slot now classifies that entry
-return at an exact production-owned sentinel.
+return at an exact production-owned sentinel. The controlled initial stack is
+also Rust-owned and reflected instead of being allocated by the adapter.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
@@ -28,9 +29,9 @@ edition label. The controlled fixture now binds both imports and seals its
 image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
 at `DINPUT8.dll!DirectInput8Create`. The controlled entry now returns result `0`
 to exact process-entry sentinel ID `2` with ESP `0x00700000`; arbitrary unmapped
-returns still fault. The next task moves the adapter-local initial stack into
-Rust-owned guest memory; see
-[docs/v86-entry-return-ingress.md](docs/v86-entry-return-ingress.md).
+returns still fault. The next task fixes a separate i386 FS-based TEB／PEB
+bootstrap fixture and native oracle; see
+[docs/v86-stack-bootstrap-ingress.md](docs/v86-stack-bootstrap-ingress.md).
 
 ## Requirements
 
@@ -68,6 +69,8 @@ balance, and structured unmapped-return fault.
 `npm run check:runtime:entry-return` replaces that harness return value with a
 second production-owned control sentinel and verifies exact successful entry
 completion without accepting unrelated faults.
+`npm run check:runtime:stack-bootstrap` reflects a Rust-owned initialized stack
+page and verifies the same completion with no adapter-local stack allocation.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

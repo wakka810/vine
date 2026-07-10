@@ -22,6 +22,7 @@
     "check:runtime:callback": "node tools/run-runtime-v86-entry-slice.mjs --dispatch-callback",
     "check:runtime:outer-return": "node tools/run-runtime-v86-entry-slice.mjs --dispatch-outer-return",
     "check:runtime:entry-return": "node tools/run-runtime-v86-entry-slice.mjs --dispatch-entry-return",
+    "check:runtime:stack-bootstrap": "node tools/run-runtime-v86-entry-slice.mjs --dispatch-stack-bootstrap",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod bootstrap;
 mod callbacks;
 mod imports;
 mod materialize;
@@ -7,6 +8,10 @@ mod memory;
 mod pe32;
 mod snapshot;
 
+pub use bootstrap::{
+    CONTROLLED_INITIAL_STACK_BASE, CONTROLLED_INITIAL_STACK_SIZE, CONTROLLED_INITIAL_STACK_TOP,
+    InitialThreadStack, install_controlled_initial_stack,
+};
 pub use callbacks::{
     CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE, CALLBACK_RETURN_SLOT_SIZE,
     CallbackReturnSentinel, CallbackReturnSentinelId, PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS,

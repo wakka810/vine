@@ -12,15 +12,18 @@ const commandArguments = process.argv.slice(2);
 const dispatchAddRequested = commandArguments.includes("--dispatch-add");
 const dispatchCallbackRequested = commandArguments.includes("--dispatch-callback");
 const dispatchOuterReturnRequested = commandArguments.includes("--dispatch-outer-return");
-const dispatchEntryReturn = commandArguments.includes("--dispatch-entry-return");
+const dispatchEntryReturnRequested = commandArguments.includes("--dispatch-entry-return");
+const dispatchStackBootstrap = commandArguments.includes("--dispatch-stack-bootstrap");
 assert(
   Number(dispatchAddRequested) +
     Number(dispatchCallbackRequested) +
     Number(dispatchOuterReturnRequested) +
-    Number(dispatchEntryReturn) <=
+    Number(dispatchEntryReturnRequested) +
+    Number(dispatchStackBootstrap) <=
     1,
   "choose only one dispatch mode",
 );
+const dispatchEntryReturn = dispatchEntryReturnRequested || dispatchStackBootstrap;
 const dispatchOuterReturn = dispatchOuterReturnRequested || dispatchEntryReturn;
 const dispatchCallback = dispatchCallbackRequested || dispatchOuterReturn;
 const dispatchAdd = dispatchAddRequested || dispatchCallback;
@@ -29,11 +32,12 @@ const positionalArguments = commandArguments.filter(
     value !== "--dispatch-add" &&
     value !== "--dispatch-callback" &&
     value !== "--dispatch-outer-return" &&
-    value !== "--dispatch-entry-return",
+    value !== "--dispatch-entry-return" &&
+    value !== "--dispatch-stack-bootstrap",
 );
 assert(
   positionalArguments.length <= 2,
-  "usage: run-runtime-v86-entry-slice.mjs [--dispatch-add | --dispatch-callback | --dispatch-outer-return | --dispatch-entry-return] [WASM] [EXE]",
+  "usage: run-runtime-v86-entry-slice.mjs [--dispatch-add | --dispatch-callback | --dispatch-outer-return | --dispatch-entry-return | --dispatch-stack-bootstrap] [WASM] [EXE]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -45,7 +49,9 @@ const fixturePath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchEntryReturn
+  dispatchStackBootstrap
+    ? "v86-stack-bootstrap-ingress"
+    : dispatchEntryReturn
     ? "v86-entry-return-ingress"
     : dispatchOuterReturn
       ? "v86-outer-return-ingress"
@@ -108,6 +114,18 @@ const expected = {
     contentSha256: "bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc",
     generation: 6,
   },
+  initialThreadStack: {
+    owner: 4,
+    base: 0x006ff000,
+    bytes: 0x1000,
+    committedPages: 1,
+    top: 0x00700000,
+    initialEsp: 0x006ffffc,
+    entryReturnSentinelId: 2,
+    entryReturnAddress: 0x7f010010,
+    contentSha256: "3e944a15f97096aba42964f3628826766b970bbaeb98d85962f679fd725de079",
+    generation: 8,
+  },
   reflectionContentSha256:
     "3a3510468616980e99ccf36ccba29083acd8edffb01f1bbfdfd60e3b4a1d297e",
   entryReport: {
@@ -133,6 +151,12 @@ const expected = {
   entryReturnReport: {
     bytes: 8_674,
     sha256: "2619711263b918c419b61483499da1bcdc7d02ab9fe261ba57546a356b39756c",
+  },
+  stackBootstrapReflectionContentSha256:
+    "d7471bcc744e2f769861e1a40cc5520f5c0d452f2ea8539233a8573315b6f1cd",
+  stackBootstrapReport: {
+    bytes: 9_427,
+    sha256: "a1a66c7d98835289da2604217b72edfdbdd576eaad29dd442faea4097507b7de",
   },
 };
 
@@ -221,6 +245,9 @@ function expectedReflectedPages() {
     [0x10004000, 1, { read: true, write: false, execute: false }],
     [0x7f000000, 2, { read: true, write: false, execute: true }],
   ];
+  if (dispatchStackBootstrap) {
+    pages.unshift([0x006ff000, 4, { read: true, write: true, execute: false }]);
+  }
   if (dispatchCallback) {
     pages.push([0x7f010000, 3, { read: true, write: false, execute: true }]);
   }
@@ -264,7 +291,7 @@ async function run() {
     "--expect-sha256",
     expected.source.sha256,
     "--prepare-memory-pages",
-    dispatchCallback ? "7" : "6",
+    dispatchStackBootstrap ? "8" : dispatchCallback ? "7" : "6",
     "--materialize-image-base",
     "0x10000000",
     "--bind-name",
@@ -279,6 +306,9 @@ async function run() {
   }
   if (dispatchEntryReturn) {
     probeArguments.push("--install-process-entry-return-sentinel");
+  }
+  if (dispatchStackBootstrap) {
+    probeArguments.push("--install-controlled-initial-stack");
   }
   probeArguments.push(fixturePath);
   const child = spawn(
@@ -344,8 +374,10 @@ async function run() {
 
     const execution = executeControlled(offer, wasmContext);
     const report = {
-      schema: dispatchEntryReturn
-        ? "vine.v86-entry-return-ingress"
+      schema: dispatchStackBootstrap
+        ? "vine.v86-stack-bootstrap-ingress"
+        : dispatchEntryReturn
+          ? "vine.v86-entry-return-ingress"
         : dispatchOuterReturn
           ? "vine.v86-outer-return-ingress"
           : dispatchCallback
@@ -396,19 +428,32 @@ async function run() {
           pendingAfterAck: receipt.stats.pendingInvalidation ?? null,
         },
       },
-      bootstrap: {
-        kind: "harness-only-one-page-flat-cpl3",
-        stackBase: guest.stackBase,
-        stackTop: guest.stackTop,
-        initialEsp: guest.stackTop - 4,
-        entryReturn: dispatchEntryReturn
-          ? offer.processEntryReturnSentinel.address
-          : guest.entryReturn,
-        entryPoint: offer.entryPointAddress,
-      },
-      execution,
-      stop: dispatchEntryReturn
+      bootstrap: dispatchStackBootstrap
         ? {
+            kind: "rust-owned-one-page-flat-cpl3",
+            initialThreadStack: offer.initialThreadStack,
+            entryPoint: offer.entryPointAddress,
+          }
+        : {
+            kind: "harness-only-one-page-flat-cpl3",
+            stackBase: guest.stackBase,
+            stackTop: guest.stackTop,
+            initialEsp: guest.stackTop - 4,
+            entryReturn: dispatchEntryReturn
+              ? offer.processEntryReturnSentinel.address
+              : guest.entryReturn,
+            entryPoint: offer.entryPointAddress,
+          },
+      execution,
+      stop: dispatchStackBootstrap
+        ? {
+            stage: "process-bootstrap",
+            code: "peb-teb-process-parameters-unimplemented",
+            message:
+              "the Rust-owned initial stack and exact entry completion are verified; PEB, TEB, process parameters, and general stack lifecycle were not attempted",
+          }
+        : dispatchEntryReturn
+          ? {
             stage: "process-lifecycle",
             code: "entry-completion-lifecycle-unimplemented",
             message:
@@ -444,7 +489,10 @@ async function run() {
     };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    if (dispatchEntryReturn) {
+    if (dispatchStackBootstrap) {
+      assert.equal(reportBytes.byteLength, expected.stackBootstrapReport.bytes);
+      assert.equal(sha256(reportBytes), expected.stackBootstrapReport.sha256);
+    } else if (dispatchEntryReturn) {
       assert.equal(reportBytes.byteLength, expected.entryReturnReport.bytes);
       assert.equal(sha256(reportBytes), expected.entryReturnReport.sha256);
     } else if (dispatchOuterReturn) {
@@ -461,7 +509,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expected.entryReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchEntryReturn) {
+    if (dispatchStackBootstrap) {
+      console.log(
+        `v86 stack bootstrap ingress passed: owner ` +
+          `${offer.initialThreadStack.owner}, initial ESP ` +
+          `0x${offer.initialThreadStack.initialEsp.toString(16)}, entry result=` +
+          `${execution.entryCompletion.entryResult}, ${execution.budgetStops} budget stops`,
+      );
+    } else if (dispatchEntryReturn) {
       console.log(
         `v86 entry return ingress passed: sentinel ID ` +
           `${execution.entryCompletion.sentinelId}, entry result=` +
@@ -584,8 +639,37 @@ function validateOffer(offer) {
   } else {
     assert.equal(offer.processEntryReturnSentinel, undefined);
   }
+  if (dispatchStackBootstrap) {
+    const stack = offer.initialThreadStack;
+    assert(stack, "stack-bootstrap mode requires production stack metadata");
+    assert.equal(stack.owner, expected.initialThreadStack.owner);
+    assert.equal(stack.stackRange.start, expected.initialThreadStack.base);
+    assert.equal(stack.stackRange.byteLength, expected.initialThreadStack.bytes);
+    assert.equal(stack.committedPages, expected.initialThreadStack.committedPages);
+    assert.equal(stack.stackTop, expected.initialThreadStack.top);
+    assert.equal(stack.initialEsp, expected.initialThreadStack.initialEsp);
+    assert.equal(
+      stack.entryReturnSentinelId,
+      expected.initialThreadStack.entryReturnSentinelId,
+    );
+    assert.equal(stack.entryReturnAddress, expected.initialThreadStack.entryReturnAddress);
+    assert.equal(stack.contentSha256, expected.initialThreadStack.contentSha256);
+    assert.equal(stack.ownerSealed, true);
+    assert.deepEqual(stack.invalidation, {
+      generation: expected.initialThreadStack.generation,
+      dataTlb: true,
+      instructionFetch: true,
+      generatedCode: true,
+    });
+  } else {
+    assert.equal(offer.initialThreadStack, undefined);
+  }
   assert.deepEqual(offer.reflection.invalidation, {
-    generation: dispatchCallback ? expected.callbackReturnSentinel.generation : 4,
+    generation: dispatchStackBootstrap
+      ? expected.initialThreadStack.generation
+      : dispatchCallback
+        ? expected.callbackReturnSentinel.generation
+        : 4,
     dataTlb: true,
     instructionFetch: true,
     generatedCode: true,
@@ -614,8 +698,10 @@ function validateOffer(offer) {
   );
   assert.equal(
     offer.reflection.contentSha256,
-    dispatchEntryReturn
-      ? expected.entryReturnReflectionContentSha256
+    dispatchStackBootstrap
+      ? expected.stackBootstrapReflectionContentSha256
+      : dispatchEntryReturn
+        ? expected.entryReturnReflectionContentSha256
       : dispatchCallback
       ? expected.callbackReflectionContentSha256
       : expected.reflectionContentSha256,
@@ -756,12 +842,14 @@ async function prepareV86(offer) {
       `reflected-owner-${reflected.owner}`,
     );
   }
-  mapPage(
-    guest.stackBase,
-    { read: true, write: true, execute: false },
-    new Uint8Array(page.size),
-    "harness-stack",
-  );
+  if (!dispatchStackBootstrap) {
+    mapPage(
+      guest.stackBase,
+      { read: true, write: true, execute: false },
+      new Uint8Array(page.size),
+      "harness-stack",
+    );
+  }
 
   const mappingFor = (address, label) => {
     checkedGuestEnd(address, 1, label);
@@ -800,11 +888,28 @@ async function prepareV86(offer) {
     ) >>> 0;
   };
 
-  const initialEsp = guest.stackTop - 4;
+  const initialEsp = dispatchStackBootstrap
+    ? offer.initialThreadStack.initialEsp
+    : guest.stackTop - 4;
   const entryReturnAddress = dispatchEntryReturn
     ? offer.processEntryReturnSentinel.address
     : guest.entryReturn;
-  writeVirtualU32(initialEsp, entryReturnAddress, "entry return sentinel");
+  if (dispatchStackBootstrap) {
+    assert.equal(initialEsp, expected.initialThreadStack.initialEsp);
+    assert.equal(
+      readVirtualU32(initialEsp, "production initial entry return sentinel"),
+      entryReturnAddress,
+    );
+    const stackMapping = mappingFor(initialEsp, "production initial stack mapping");
+    assert.equal(stackMapping.role, `reflected-owner-${expected.initialThreadStack.owner}`);
+    assert.deepEqual(stackMapping.protection, {
+      read: true,
+      write: true,
+      execute: false,
+    });
+  } else {
+    writeVirtualU32(initialEsp, entryReturnAddress, "entry return sentinel");
+  }
   wasm.reset_cpu();
   assert.equal(wasm.vine_cpu_state_version(), 1);
   assert.equal(wasm.vine_cpu_state_size(), 640);
@@ -842,6 +947,18 @@ async function prepareV86(offer) {
   words[stateWord.controlRegisterBase + 3] = pageDirectory;
   words[stateWord.controlRegisterBase + 4] |= 0x200;
   assert.equal(wasm.vine_cpu_state_restore(), 0);
+  assert.equal(
+    allocations.filter(({ role }) => role === "harness-stack").length,
+    dispatchStackBootstrap ? 0 : 1,
+  );
+  if (dispatchStackBootstrap) {
+    assert.equal(
+      allocations.filter(
+        ({ role }) => role === `reflected-owner-${expected.initialThreadStack.owner}`,
+      ).length,
+      1,
+    );
+  }
 
   return {
     allocations,
@@ -866,10 +983,22 @@ function validateReceipt(receipt, offer, context) {
   );
   assert.equal(
     receipt.stats.generation,
-    dispatchCallback ? expected.callbackReturnSentinel.generation : 4,
+    dispatchStackBootstrap
+      ? expected.initialThreadStack.generation
+      : dispatchCallback
+        ? expected.callbackReturnSentinel.generation
+        : 4,
   );
   assert.equal(receipt.stats.pendingInvalidation, undefined);
-  if (dispatchCallback) {
+  if (dispatchStackBootstrap) {
+    assert.equal(receipt.stats.owners, 4);
+    assert.equal(receipt.stats.sealedOwners, 4);
+    assert.equal(receipt.stats.regions, 4);
+    assert.equal(receipt.stats.reservedPages, 38);
+    assert.equal(receipt.stats.committedPages, 8);
+    assert.equal(receipt.stats.physicalPages, 8);
+    assert.equal(receipt.stats.dirtyPages, 8);
+  } else if (dispatchCallback) {
     assert.equal(receipt.stats.owners, 3);
     assert.equal(receipt.stats.sealedOwners, 3);
     assert.equal(receipt.stats.regions, 3);
@@ -926,6 +1055,23 @@ function validateReceipt(receipt, offer, context) {
     ]);
   } else {
     assert.equal(receipt.processEntryReturnBytes, undefined);
+  }
+  if (dispatchStackBootstrap) {
+    assert.deepEqual(
+      receipt.initialStackTopBytes,
+      [
+        ...context.readVirtualBytes(
+          expected.initialThreadStack.top - 16,
+          16,
+          "reflected initial stack top bytes",
+        ),
+      ],
+    );
+    assert.deepEqual(receipt.initialStackTopBytes, [
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x00, 0x01, 0x7f,
+    ]);
+  } else {
+    assert.equal(receipt.initialStackTopBytes, undefined);
   }
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");

@@ -234,17 +234,23 @@ instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 bud
 
 これはtyped process-entry returnとbalanced fixed stackのevidenceである。initial stackはadapter-localで、Windows process／thread exit lifecycle、PEB／TEB、process parameters、general stack growth／guardは未実装である。詳細は[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を正とする。
 
-### B13. Browser Worker
+### B13. Production stack bootstrap: Verified ingress
+
+`npm run check:runtime:stack-bootstrap`はanonymous owner `4`の`[0x006FF000,0x00700000)`をstack regionとしてRW commitし、initial ESPへentry sentinelをchecked writeしてgeneration `8`でsealする。8 reflected pagesのcontent SHA-256は`d7471bcc744e2f769861e1a40cc5520f5c0d452f2ea8539233a8573315b6f1cd`である。adapterは`harness-stack`をallocate／writeせず、page directory／3 tables／8 reflected pagesの12 pages／48 KiBで同じ9 execute stop／5 budget stop、EAX `0`、ESP `0x00700000`を通した。
+
+これはcontrolled stack ownership handoffのevidenceである。fixed one-page stackはPE stack reserve／commit、guard／growth、multi-thread、teardown、mutation sync、PEB／TEBの代用ではない。詳細は[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)を正とする。
+
+### B14. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B14. Correctness と performance
+### B15. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。production load-plan／memory／materialization／IAT bindingに続き、controlled semantic reflectionはentry、fixed cdecl return、typed callback／process-entry sentinel、outer cdecl return、exact entry completionを通した。次のadapter sliceはcontrolled initial stackをRust-owned guest memory reflectionへ移し、adapter-local stack pageを除く。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。controlled semantic reflectionはimage／import／controlにRust-owned stackを加え、fixed cdecl／callback／entry completionをadapter-local stackなしで通した。次のadapter sliceは別fixtureでi386 FS-based TEB self／PEB pointer contractを固定する。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -261,10 +267,11 @@ adapter fixture は次の順に増やす。
 5. [Verified] production-owned callback sentinel／frameで1段callbackを実行し、exact return stopを構造化する。
 6. [Verified] frameをretireしてouter service returnを完了し、guest entry continuationを測定する。
 7. [Verified] production-owned process-entry return sentinelでexact successful completionを分類する。
-8. controlled initial stackとbootstrap recordをRust-owned reflectionへ移す。
-9. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-10. 同じfixtureをNodeとChromium Workerで実行する。
-11. adopted ISA fixtureとnormalized workloadを測定する。
+8. [Verified] controlled initial stackとbootstrap recordをRust-owned reflectionへ移す。
+9. separate fixtureでFS-based TEB self／PEB pointer contractを固定する。
+10. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+11. 同じfixtureをNodeとChromium Workerで実行する。
+12. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 

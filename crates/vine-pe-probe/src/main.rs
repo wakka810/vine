@@ -9,11 +9,12 @@ use std::process::ExitCode;
 use serde::{Deserialize, Serialize};
 use vine_core::{
     CallbackReturnSentinel, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportThunk, LoaderError,
-    LoaderErrorClass, LoaderIngressReport, MemoryInvalidation, MemoryLimits, MemoryReflection,
-    MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits, ProcessEntryReturnSentinel,
-    RuntimeExport, RuntimeExportCatalog, UnsupportedPoint, bind_pe32_imports, build_pe32_load_plan,
-    install_callback_return_sentinel, install_runtime_return_sentinels, materialize_pe32_image,
+    ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportThunk, InitialThreadStack,
+    LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryInvalidation, MemoryLimits,
+    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog, UnsupportedPoint,
+    bind_pe32_imports, build_pe32_load_plan, install_callback_return_sentinel,
+    install_controlled_initial_stack, install_runtime_return_sentinels, materialize_pe32_image,
 };
 
 #[derive(Debug)]
@@ -27,6 +28,7 @@ struct Arguments {
     v86_reflection_session: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
+    install_controlled_initial_stack: bool,
 }
 
 #[derive(Serialize)]
@@ -102,6 +104,8 @@ struct V86ReflectionOffer {
     callback_return_sentinel: Option<CallbackReturnSentinel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     process_entry_return_sentinel: Option<ProcessEntryReturnSentinel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_thread_stack: Option<InitialThreadStack>,
     reflection: MemoryReflection,
 }
 
@@ -130,6 +134,8 @@ struct V86ReflectionReceipt {
     callback_return_bytes: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     process_entry_return_bytes: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_stack_top_bytes: Option<Vec<u8>>,
     stop: UnsupportedPoint,
 }
 
@@ -324,9 +330,26 @@ fn run_v86_reflection_session(
                 None,
             )
         };
-    let expected_invalidation = process_entry_return_sentinel
+    let initial_thread_stack = if arguments.install_controlled_initial_stack {
+        let entry_return = process_entry_return_sentinel.as_ref().ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "process-bootstrap",
+                "process-entry-return-sentinel-missing",
+                "controlled initial stack requires process-entry return metadata",
+            )
+        })?;
+        Some(install_controlled_initial_stack(&mut memory, entry_return).map_err(memory_error)?)
+    } else {
+        None
+    };
+    let expected_invalidation = initial_thread_stack
         .as_ref()
-        .map(|sentinel| sentinel.invalidation)
+        .map(|stack| stack.invalidation)
+        .or_else(|| {
+            process_entry_return_sentinel
+                .as_ref()
+                .map(|sentinel| sentinel.invalidation)
+        })
         .or_else(|| {
             callback_return_sentinel
                 .as_ref()
@@ -352,6 +375,7 @@ fn run_v86_reflection_session(
         thunks: binding.thunks.clone(),
         callback_return_sentinel: callback_return_sentinel.clone(),
         process_entry_return_sentinel: process_entry_return_sentinel.clone(),
+        initial_thread_stack: initial_thread_stack.clone(),
         reflection,
     };
     write_protocol_message(&offer)?;
@@ -392,6 +416,24 @@ fn run_v86_reflection_session(
         .as_ref()
         .map(|sentinel| memory.fetch(sentinel.address, 16).map_err(memory_error))
         .transpose()?;
+    let initial_stack_top_bytes = initial_thread_stack
+        .as_ref()
+        .map(|stack| {
+            let address = GuestAddress(stack.stack_top.0.checked_sub(16).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "process-bootstrap",
+                    "initial-stack-top-underflow",
+                    "controlled initial stack cannot expose its top bytes",
+                )
+            })?);
+            memory.read(address, 16).map_err(memory_error)
+        })
+        .transpose()?;
+    let reflection_stop_message = if initial_thread_stack.is_some() {
+        "the production-owned image, thunk, control, and initial stack pages are synchronized for adapter execution; guest entry execution has not yet been attempted"
+    } else {
+        "the production-owned image and thunk pages are synchronized for adapter execution; initial stack setup and guest entry execution have not yet been attempted"
+    };
     let receipt = V86ReflectionReceipt {
         schema: "vine.v86-memory-reflection-receipt",
         schema_version: 1,
@@ -402,10 +444,11 @@ fn run_v86_reflection_session(
         thunk_bytes,
         callback_return_bytes,
         process_entry_return_bytes,
+        initial_stack_top_bytes,
         stop: UnsupportedPoint {
             stage: "adapter-execution",
             code: "entry-to-first-owned-thunk-pending",
-            message: "the production-owned image and thunk pages are synchronized for adapter execution; initial stack setup and guest entry execution have not yet been attempted",
+            message: reflection_stop_message,
         },
     };
     write_protocol_message(&receipt)
@@ -560,6 +603,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut v86_reflection_session = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
+    let mut install_controlled_initial_stack = false;
     let mut arguments = env::args_os().skip(1);
 
     while let Some(argument) = arguments.next() {
@@ -616,6 +660,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             install_process_entry_return_sentinel = true;
+        } else if argument == "--install-controlled-initial-stack" {
+            if install_controlled_initial_stack {
+                return Err(usage_error());
+            }
+            install_controlled_initial_stack = true;
         } else if argument.to_string_lossy().starts_with('-') || input.is_some() {
             return Err(usage_error());
         } else {
@@ -645,6 +694,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     {
         return Err(usage_error());
     }
+    if install_controlled_initial_stack
+        && (!v86_reflection_session || !install_process_entry_return_sentinel)
+    {
+        return Err(usage_error());
+    }
 
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
@@ -656,6 +710,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         v86_reflection_session,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
+        install_controlled_initial_stack,
     })
 }
 
@@ -731,7 +786,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack]]] | --output FILE] INPUT".to_owned(),
     }
 }
 
