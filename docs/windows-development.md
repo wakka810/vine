@@ -14,10 +14,10 @@
 - native `abi-smoke.exe` の DLL callback oracle
 - source-built v86 上の fixed PE32 map、IAT thunk、cdecl host service、1段 guest callback、budget yield、return sentinel
 - native `window-pixel.exe` のstdcall WndProc、queued message、paint、pixel、destroy／quit oracle
-- source-built v86 上の`window-pixel.exe` preferred-base map、13 owned thunk、`GetModuleHandleA(NULL)` stdcall resume、次host service診断
+- source-built v86 上の`window-pixel.exe` preferred-base map、13 owned thunk、`GetModuleHandleA(NULL)`、fixed class semantic state／ATOM、次host service診断
 
 production guest memory、PE／DLL loader、Win32 API、graphics／audio は未実装である。W1 は Node.js 上の fixed loader-lite であり、サクラノ詩の native trace を引き続き実装順の根拠にする。
-取得値と W1／W2 fixture／loader／module ingress result は [windows-native-evidence.md](windows-native-evidence.md) を正とする。
+取得値と W1／W2 fixture／loader／module／class ingress result は [windows-native-evidence.md](windows-native-evidence.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -102,7 +102,7 @@ node tools/summarize-windows-trace.mjs `
 
 1. `W0 Native evidence`: tool version／fingerprintと、W1選択に十分なstartup resource-band traceを固定する。manual marker付きvisual titleは`P0-COR-02`で継続する。
 2. `W1 Headless execution` [Verified]: controlled synthetic PE32をmapし、runtime-owned import thunk、guest callback、entry return sentinelまで走らせる。
-3. `W2 Startup substrate` [Native fixture／loader／module ingress verified、class service next]: trace 先頭に必要な Kernel32／User32 の最小経路で logical window を作る。
+3. `W2 Startup substrate` [Native fixture／loader／module／class ingress verified、window create next]: trace 先頭に必要な Kernel32／User32 の最小経路で logical window を作る。
 4. `W3 First frame`: 観測した GDI／GDI+／D3D9 create／present 経路の一つを canvas command まで通す。
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
@@ -121,6 +121,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。`abi-smoke.exe` の import thunk／guest callback／return sentinel は W1 contractで完了し、最小Win32 fixtureのnative event／pixel oracleも固定した。同じfixed fixtureの3 DLL／13 importをowned thunkへ解決し、`GetModuleHandleA(NULL)`をlogical main moduleへ接続して1引数stdcallでresumeした後、最初のUser32 call `RegisterClassExA`まで進んだ。次は48-byte class structureとnameをchecked readし、logical class登録後の`CreateWindowExA`まで進める。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。`abi-smoke.exe` の import thunk／guest callback／return sentinel は W1 contractで完了し、最小Win32 fixtureのnative event／pixel oracleも固定した。同じfixed fixtureの3 DLL／13 importをowned thunkへ解決し、`GetModuleHandleA(NULL)`とfixed `RegisterClassExA` variantをstdcall resumeした後、`CreateWindowExA`まで進んだ。次は12 argumentsとclass lookupを検査し、logical HWNDと`WM_CREATE` callback round-trip後の`ShowWindow`まで進める。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

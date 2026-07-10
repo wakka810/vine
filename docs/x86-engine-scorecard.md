@@ -186,11 +186,11 @@ host-directed resumeはversion 1 state bufferのEIPとPREVIOUS_EIPを同時に�
 
 これはcdecl、1 callback depth、single threadのbaselineである。stdcall／thiscall／fastcall、nested callback、exception／SEH、wait／wake、async host responseの証明ではない。
 
-### B7. Fixed W2 loader／module ingress: Verified baseline
+### B7. Fixed W2 loader／module／class ingress: Verified baseline
 
-`npm run check:runtime:window-loader`はSHA-256固定の`window-pixel.exe`を同じ8 MiB contiguous memoryへpreferred-base mapし、3 DLL／13 named importをstride `0x10`の一意なowned `UD2` thunkへ解決する。entryからbudget `3`で実行し、`kernel32.dll!GetModuleHandleA(NULL)` thunkへ到達するとEAXへmain image base `0x00400000`を返し、return addressと4-byte argumentをpopしてguestをresumeする。次の`user32.dll!RegisterClassExA` thunkをcall site `0x0040103C`／RVA `0x103C`へ帰属し、`unsupported-host-service`として停止する。budget stopは4回、faulting `UD2` attemptを含む累積命令counterは15である。
+`npm run check:runtime:window-loader`はSHA-256固定の`window-pixel.exe`を同じ8 MiB contiguous memoryへpreferred-base mapし、3 DLL／13 named importを一意なowned `UD2` thunkへ解決する。`GetModuleHandleA(NULL)`に続き、fixed `RegisterClassExA` variantの48-byte structureとbounded ASCII nameをchecked readし、host-owned logical class stateとATOM `0xC000`を登録してstdcall resumeする。次の`CreateWindowExA` thunkをcall site `0x00401095`／RVA `0x1095`へ帰属し、12 raw arguments付きの`unsupported-host-service`として停止する。budget stopは8回、faulting `UD2` attemptを含む累積命令counterは30である。
 
-これはmultiple thunk resolution、`GetModuleHandleA(NULL)` 1 variant、1引数stdcall cleanup、successful serviceから次failureへのclassificationのbaselineである。named-module lookup、failure／LastError、general stdcall、`RegisterClassExA`、relocation、protection、sparse memory、logical window、browser Workerは未検証であり、production loader／ABI gatewayを示さない。
+これはmultiple thunk resolution、2 fixed partial variants、checked structure／ASCII string、copied class semantic state、successful serviceから次failureへのclassificationのbaselineである。general `RegisterClassExA`／CP932、duplicate／failure／LastError、`CreateWindowExA`、HWND、callback、relocation、protection、sparse memory、browser Workerは未検証であり、production loader／ABI gatewayを示さない。
 
 ### B8. Browser Worker
 
@@ -202,7 +202,7 @@ host-directed resumeはversion 1 state bufferのEIPとPREVIOUS_EIPを同時に�
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module ingressは13 thunk、1引数stdcall resume、次failure診断を実証した。次はprivate bootstrap offsetをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class ingressは13 thunk、2 fixed partial variants、次failure診断を実証した。次はprivate bootstrap offsetをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT

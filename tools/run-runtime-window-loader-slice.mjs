@@ -52,6 +52,46 @@ const expectedImports = [
   { module: "user32.dll", symbol: "ShowWindow", iatRva: 0x20f0 },
   { module: "gdi32.dll", symbol: "SetPixel", iatRva: 0x20f8 },
 ];
+const expectedWindowClass = {
+  address: 0x00403004,
+  nameAddress: 0x00402000,
+  name: "VineWindowPixelFixture",
+  wndProc: 0x00401260,
+  words: [
+    48,
+    0,
+    0x00401260,
+    0,
+    0,
+    0x00400000,
+    0,
+    0,
+    0,
+    0,
+    0x00402000,
+    0,
+  ],
+};
+const expectedCreateWindow = {
+  callSite: 0x00401095,
+  returnAddress: 0x0040109b,
+  iatAddress: 0x004020cc,
+  thunkAddress: 0x00500020,
+  arguments: [
+    0,
+    0x00402000,
+    0x00402000,
+    0x00cf0000,
+    0x80000000,
+    0x80000000,
+    160,
+    120,
+    0,
+    0,
+    0x00400000,
+    0,
+  ],
+};
 const expectedSections = [
   {
     name: ".text",
@@ -537,6 +577,11 @@ const mainModule = Object.freeze({
   imageSize: pe.sizeOfImage,
   sha256: sourceHash,
 });
+const logicalClassesByKey = new Map();
+const logicalClassesByAtom = new Map();
+let nextClassAtom = 0xc000;
+const localClassKey = (module, className) =>
+  `${module.sha256}@${module.baseAddress.toString(16)}:local:A:${className}`;
 for (const service of resolvedImports) {
   assert.equal(
     readGuestU32(service.iatAddress, `${service.symbol} patched IAT`),
@@ -666,17 +711,38 @@ const assertInvariantRegisters = (words) => {
   assert.equal(words[savedStateWord.ebp], calleeSaved.ebp);
   assert.equal(words[savedStateWord.edi], calleeSaved.edi);
 };
+const executableImageSectionForRange = (address, size) => {
+  assertGuestRange(address, size, "executable image range");
+  const end = address + size;
+  return pe.sections.find(
+    ({ virtualAddress, virtualSize, characteristics }) =>
+      (characteristics & 0x20000000) !== 0 &&
+      address >= pe.imageBase + virtualAddress &&
+      end <= pe.imageBase + virtualAddress + virtualSize,
+  );
+};
+const readGuestAsciiZ = (address, maxBytes, label) => {
+  assert(address > 0xffff, `${label} integer-atom form is unsupported`);
+  assert(Number.isInteger(maxBytes) && maxBytes > 0, `${label} bound is invalid`);
+  const bytes = [];
+  for (let index = 0; index < maxBytes; index += 1) {
+    assertGuestRange(address + index, 1, label);
+    const value = memory[address + index];
+    if (value === 0) {
+      assert(bytes.length > 0, `${label} is empty`);
+      return Buffer.from(bytes).toString("ascii");
+    }
+    assert(value <= 0x7f, `${label} contains non-ASCII data`);
+    bytes.push(value);
+  }
+  assert.fail(`${label} is not NUL-terminated within ${maxBytes} bytes`);
+};
 const decodeImportCall = (state, service) => {
   const returnAddress = readGuestU32(state.esp, "host service return address");
   const callInstructionSize = 6;
   const callSite = returnAddress - callInstructionSize;
   assertGuestRange(callSite, callInstructionSize, "guest import call");
-  const callSection = pe.sections.find(
-    ({ virtualAddress, virtualSize, characteristics }) =>
-      (characteristics & 0x20000000) !== 0 &&
-      callSite >= pe.imageBase + virtualAddress &&
-      returnAddress <= pe.imageBase + virtualAddress + virtualSize,
-  );
+  const callSection = executableImageSectionForRange(callSite, callInstructionSize);
   assert(callSection, "guest import call is outside an executable image section");
   assert.deepEqual(
     memory.slice(callSite, callSite + 2),
@@ -722,7 +788,6 @@ for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
   const service = ownedServices.get(state.eip);
   assert(service, `#UD at unowned guest address 0x${state.eip.toString(16)}`);
   assert.equal(state.previousEip, state.eip);
-  assert.equal(state.esp, 0x006fffec);
 
   const { callSite, returnAddress } = decodeImportCall(state, service);
 
@@ -732,6 +797,7 @@ for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
     ? readGuestU32(state.esp + 4, "GetModuleHandleA module name")
     : null;
   if (isGetModuleHandleA && moduleName === 0) {
+    assert.equal(state.esp, 0x006fffec);
     assert.equal(implementedServiceEvents.length, 0, "GetModuleHandleA repeated");
     assert.equal(state.words[savedStateWord.esi], calleeSaved.esi);
     const argumentBytes = 4;
@@ -766,8 +832,95 @@ for (let stopCount = 0; stopCount < 16 && diagnostic === null; stopCount += 1) {
     continue;
   }
 
-  if (implementedServiceEvents.length === 1) {
+  const isRegisterClassExA =
+    service.module === "user32.dll" && service.symbol === "RegisterClassExA";
+  if (isRegisterClassExA && implementedServiceEvents.length === 1) {
+    assert.equal(state.esp, 0x006fffec);
     assert.equal(state.eax, mainModule.baseAddress);
+    assert.equal(state.words[savedStateWord.esi], mainModule.baseAddress);
+    const classAddress = readGuestU32(state.esp + 4, "RegisterClassExA class pointer");
+    assert.equal(classAddress, expectedWindowClass.address);
+    assertGuestRange(classAddress, 48, "WNDCLASSEXA");
+    const classWords = Array.from({ length: 12 }, (_, index) =>
+      readGuestU32(classAddress + index * 4, `WNDCLASSEXA word ${index}`),
+    );
+    assert.deepEqual(classWords, expectedWindowClass.words);
+    const [
+      cbSize,
+      style,
+      wndProc,
+      classExtraBytes,
+      windowExtraBytes,
+      instance,
+      icon,
+      cursor,
+      background,
+      menuName,
+      classNameAddress,
+      smallIcon,
+    ] = classWords;
+    assert.equal(cbSize, 48);
+    assert(executableImageSectionForRange(wndProc, 1), "WndProc is not executable");
+    assert.equal(instance, mainModule.baseAddress);
+    assert.deepEqual(
+      [style, classExtraBytes, windowExtraBytes, icon, cursor, background, menuName, smallIcon],
+      [0, 0, 0, 0, 0, 0, 0, 0],
+    );
+    assert.equal(classNameAddress, expectedWindowClass.nameAddress);
+    const className = readGuestAsciiZ(classNameAddress, 64, "window class name");
+    assert.equal(className, expectedWindowClass.name);
+    const key = localClassKey(mainModule, className);
+    assert(!logicalClassesByKey.has(key), "duplicate local window class");
+    assert(nextClassAtom >= 0xc000 && nextClassAtom <= 0xffff);
+    const atom = nextClassAtom;
+    assert((atom & 0xffff) !== 0);
+    assert(!logicalClassesByAtom.has(atom), "duplicate logical class atom");
+    const logicalClass = Object.freeze({
+      key,
+      atom,
+      scope: "local",
+      encoding: "A-ascii",
+      name: className,
+      instance,
+      wndProc,
+      style,
+      classExtraBytes,
+      windowExtraBytes,
+    });
+    logicalClassesByKey.set(key, logicalClass);
+    logicalClassesByAtom.set(atom, logicalClass);
+    nextClassAtom += 1;
+    const argumentBytes = 4;
+    const resumeEsp = state.esp + 4 + argumentBytes;
+    implementedServiceEvents.push({
+      kind: "host-service-return",
+      requester: service.requester,
+      module: service.module,
+      symbol: service.symbol,
+      variant: "wndclassexa-v48-local-ascii",
+      implementationStatus: "partial",
+      guestCallSite: callSite,
+      guestCallSiteRva: callSite - pe.imageBase,
+      guestReturnAddress: returnAddress,
+      guestReturnRva: returnAddress - pe.imageBase,
+      iatAddress: service.iatAddress,
+      iatRva: service.iatRva,
+      thunkAddress: service.thunkAddress,
+      callingConvention: "stdcall",
+      argumentBytes,
+      arguments: [classAddress],
+      result: atom,
+      className,
+      wndProc,
+      stackPointerBefore: state.esp,
+      stackPointerAfter: resumeEsp,
+    });
+    resume(state, { eax: atom, esp: resumeEsp, eip: returnAddress });
+    continue;
+  }
+
+  if (implementedServiceEvents.length === 2) {
+    assert.equal(state.eax, logicalClassesByKey.values().next().value.atom);
     assert.equal(state.words[savedStateWord.esi], mainModule.baseAddress);
   }
 
@@ -797,8 +950,12 @@ assert.deepEqual(budgetEvents, [
   { eip: 0x00401014, esp: 0x006ffff4, esi: mainModule.baseAddress },
   { eip: 0x0040102d, esp: 0x006ffff4, esi: mainModule.baseAddress },
   { eip: 0x005000a0, esp: 0x006fffec, esi: mainModule.baseAddress },
+  { eip: 0x0040104e, esp: 0x006fffc4, esi: mainModule.baseAddress },
+  { eip: 0x0040105e, esp: 0x006fffc4, esi: mainModule.baseAddress },
+  { eip: 0x00401076, esp: 0x006fffc4, esi: mainModule.baseAddress },
+  { eip: 0x0040108e, esp: 0x006fffc4, esi: mainModule.baseAddress },
 ]);
-assert.equal(finalState.instructionCount, 15);
+assert.equal(finalState.instructionCount, 30);
 assert.deepEqual(implementedServiceEvents, [
   {
     kind: "host-service-return",
@@ -821,28 +978,71 @@ assert.deepEqual(implementedServiceEvents, [
     stackPointerBefore: 0x006fffec,
     stackPointerAfter: 0x006ffff4,
   },
+  {
+    kind: "host-service-return",
+    requester: "window-pixel.exe",
+    module: "user32.dll",
+    symbol: "RegisterClassExA",
+    variant: "wndclassexa-v48-local-ascii",
+    implementationStatus: "partial",
+    guestCallSite: 0x0040103c,
+    guestCallSiteRva: 0x103c,
+    guestReturnAddress: 0x00401042,
+    guestReturnRva: 0x1042,
+    iatAddress: 0x004020ec,
+    iatRva: 0x20ec,
+    thunkAddress: 0x005000a0,
+    callingConvention: "stdcall",
+    argumentBytes: 4,
+    arguments: [0x00403004],
+    result: 0x0000c000,
+    className: "VineWindowPixelFixture",
+    wndProc: 0x00401260,
+    stackPointerBefore: 0x006fffec,
+    stackPointerAfter: 0x006ffff4,
+  },
 ]);
 assert.deepEqual(diagnostic, {
   kind: "unsupported-host-service",
   requester: "window-pixel.exe",
   module: "user32.dll",
-  symbol: "RegisterClassExA",
-  guestCallSite: 0x0040103c,
-  guestCallSiteRva: 0x103c,
-  guestReturnAddress: 0x00401042,
-  guestReturnRva: 0x1042,
-  iatAddress: 0x004020ec,
-  iatRva: 0x20ec,
-  thunkAddress: 0x005000a0,
+  symbol: "CreateWindowExA",
+  guestCallSite: expectedCreateWindow.callSite,
+  guestCallSiteRva: expectedCreateWindow.callSite - pe.imageBase,
+  guestReturnAddress: expectedCreateWindow.returnAddress,
+  guestReturnRva: expectedCreateWindow.returnAddress - pe.imageBase,
+  iatAddress: expectedCreateWindow.iatAddress,
+  iatRva: expectedCreateWindow.iatAddress - pe.imageBase,
+  thunkAddress: expectedCreateWindow.thunkAddress,
   engineStopReason: stopReason.invalidOpcode,
   engineErrorCode: -1,
-  stackPointer: 0x006fffec,
+  stackPointer: 0x006fffc0,
 });
-assert.equal(readGuestU32(finalState.esp + 4, "RegisterClassExA argument"), 0x00403004);
-assert.equal(readGuestU32(0x00403004, "window class size"), 48);
-assert.equal(readGuestU32(0x0040300c, "window procedure"), 0x00401260);
-assert.equal(readGuestU32(0x00403018, "window class instance"), mainModule.baseAddress);
-assert.equal(readGuestU32(0x0040302c, "window class name"), 0x00402000);
+assert.deepEqual(
+  Array.from({ length: 12 }, (_, index) =>
+    readGuestU32(finalState.esp + 4 + index * 4, `CreateWindowExA argument ${index}`),
+  ),
+  expectedCreateWindow.arguments,
+);
+assert.equal(logicalClassesByKey.size, 1);
+assert.equal(logicalClassesByAtom.size, 1);
+const logicalClass = logicalClassesByAtom.get(0xc000);
+assert(logicalClass);
+assert.equal(logicalClassesByKey.get(logicalClass.key), logicalClass);
+assert.deepEqual(logicalClass, {
+  key: localClassKey(mainModule, expectedWindowClass.name),
+  atom: 0xc000,
+  scope: "local",
+  encoding: "A-ascii",
+  name: expectedWindowClass.name,
+  instance: mainModule.baseAddress,
+  wndProc: expectedWindowClass.wndProc,
+  style: 0,
+  classExtraBytes: 0,
+  windowExtraBytes: 0,
+});
+assert.equal(finalState.eax, logicalClass.atom);
+assert.equal(finalState.esp, 0x006fffc0);
 assert.equal(readGuestU32(0x006ffff4, "saved entry ESI"), calleeSaved.esi);
 assert.equal(readGuestU32(0x006ffff8, "saved entry EDI"), calleeSaved.edi);
 assert.equal(readGuestU32(0x006ffffc, "entry return sentinel"), guest.entryReturn);
@@ -850,8 +1050,8 @@ assert.deepEqual(Object.keys(hostImportCalls), ["microtick"]);
 assert(hostImportCalls.microtick > 0);
 
 console.log(
-  `runtime window module ingress passed: imports=${resolvedImports.length}, ` +
-    `implemented-variant=${implementedServiceEvents[0].module}!${implementedServiceEvents[0].symbol}(NULL), ` +
+  `runtime window class ingress passed: imports=${resolvedImports.length}, ` +
+    `implemented-variants=${implementedServiceEvents.length}, atom=0x${logicalClass.atom.toString(16)}, ` +
     `stop=${diagnostic.module}!${diagnostic.symbol}, ` +
     `call=0x${diagnostic.guestCallSite.toString(16)}, ` +
     `budget stops=${budgetEvents.length}, instructions=${finalState.instructionCount}`,
