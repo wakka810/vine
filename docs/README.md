@@ -5,14 +5,14 @@
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 対象: current `main` worktree
-- 実装成熟度: Phase 0 discovery／W1 fixed headless slice／W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow／W3 browser first-pixel boundary。repository check、PE32 fixture、LLVM／Wasm baseline、v86 bounded adapter、version 1 CPU state ABI、Windows trace v1／v2、selected IDirect3D9 root evidence、fixed PE／ABI／window flow、high-address／protection memory measurement、version 1 event／Chrome Canvas readbackは存在するがproduction PE／memory／Win32 runtime、browser app、CIはまだない
+- 実装成熟度: Phase 0 discovery／W1 fixed headless slice／W2 native fixture／runtime flow／W3 browser first-pixel boundary／W7 PE32 load-plan ingress。repository check、PE32 fixture、LLVM／Wasm baseline、v86 bounded adapter、version 1 CPU state ABI、Windows trace v1／v2、selected IDirect3D9 root evidence、high-address／protection memory measurement、Rust immutable snapshot／bounded BGI planは存在するがguest memory materialization、DLL／bootstrap／Win32 runtime、browser app、CIはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
 
 このディレクトリは、Vine を「Windows 向け VN/ADV 実行ファイルを、元の配布ファイルを原則として変更せずブラウザ上で再ホストする Windows userspace 互換ランタイム」として開発するための基準文書である。
 
-調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、source から再現生成する PE32 fixture、LLVM／Wasm toolchain spike、固定した v86 source adapter、Windows 用のversioned focused Frida tracer／summary、selected IDirect3D9 root trace、fixed T1 imageのW1 PE／ABI harness、W2 native window fixture／runtime harness、W3 browser first-pixel spike、high-address PE／memory spikeがある。native traceとW1／W2／W3／memory spikeは限定したcorpus／feasibility／oracle evidenceであり、production Windows compatibility runtimeの実装済み機能を示すものではない。
+調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、source から再現生成する PE32 fixture、LLVM／Wasm toolchain spike、固定した v86 source adapter、Windows 用のversioned focused Frida tracer／summary、selected IDirect3D9 root trace、fixed T1 imageのW1 PE／ABI harness、W2 native window fixture／runtime harness、W3 browser first-pixel spike、high-address PE／memory spike、Rust workspaceのW7 PE32 load-plan ingressがある。native traceと各checkpointは限定したcorpus／feasibility／oracle evidenceであり、production Windows compatibility runtimeの完成を示さない。
 
 ## プロジェクトの位置づけ
 
@@ -54,8 +54,9 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [toolchain-spike.md](toolchain-spike.md) | 何を再現生成できるか | LLVM／Wasm baseline、PE32 fixture、次の engine 比較条件 |
 | [x86-engine-scorecard.md](x86-engine-scorecard.md) | どの x86 engine を先に試すか | 4 候補の比較、v86 実行 evidence、adapter blocker と採用 gate |
 | [adr-003-guest-memory.md](adr-003-guest-memory.md) | guest memoryをどこが所有するか | high-address／R／W／X測定、候補比較、provisional page ownership |
+| [pe-loader-ingress.md](pe-loader-ingress.md) | immutable PE32 planをどこまで作れるか | Rust workspace、bounded parser／plan、fixture contract、BGI W7 stop |
 | [windows-development.md](windows-development.md) | Windows で何から始めるか | toolchain、Frida trace、最初の縦断 checkpoint、test 方針 |
-| [windows-native-evidence.md](windows-native-evidence.md) | Windows で何が実測済みか | W0 version、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first pixel |
+| [windows-native-evidence.md](windows-native-evidence.md) | Windows で何が実測済みか | W0 version、BGI trace v1／v2、selected IDirect3D9 root、W1／W2／W3、W7 loader ingress |
 | [requirements.md](requirements.md) | 何を、どこまで作るか | 目的、スコープ、機能要件、非機能要件、personal target 定義 |
 | [target-architecture.md](target-architecture.md) | どの境界で作るか | コンポーネント、実行モデル、同期・非同期境界、runtime robustness |
 | [risks-and-open-questions.md](risks-and-open-questions.md) | 何が未確定で、何が失敗要因か | 意思決定待ち、リスク台帳、停止条件、ADR 候補 |

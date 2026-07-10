@@ -3,8 +3,8 @@
 ## 1. 文書情報
 
 - ステータス: Proposed
-- 目的: 実装開始前に、交換可能な技術と壊してはいけない境界を分離する
-- 注意: 記載するコンポーネントは設計案であり、リポジトリに実装は存在しない
+- 目的: 交換可能な技術と壊してはいけない境界を分離する
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはimmutable snapshotとbounded PE32 load-plan ingressだけがあり、guest memory materialization、DLL lifecycle、bootstrap、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -214,6 +214,8 @@ Interpreter、threaded interpreter、IR interpreter、DBT、generated Wasm modul
 ## 8. PE / DLL loader
 
 Loader は file parse、image mapping、module lifecycle、symbol resolution を分離する。
+
+現在のversion 1 ingressは、owned source bytesをmap-timeに再hashし、PE32 section／import／`HIGHLOW` relocationのchecked planを作るparse層だけを実装する。BGI.exeでplanを完了し、`process-bootstrap`／`peb-teb-process-parameters-unimplemented`を返す。guest memory、IAT binding、module graph、PEB／TEB／entry executionはnot attemptedであり、詳細は[pe-loader-ingress.md](pe-loader-ingress.md)を正とする。
 
 ### 8.1 Parse layer
 

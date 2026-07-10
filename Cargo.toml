@@ -1,0 +1,15 @@
+[workspace]
+members = ["crates/vine-core", "crates/vine-pe-probe"]
+resolver = "3"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+[workspace.dependencies]
+goblin = { version = "=0.10.7", default-features = false, features = ["std", "pe32", "endian_fd"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = { version = "=0.11.0", default-features = false }

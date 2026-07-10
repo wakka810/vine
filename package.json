@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "npm run check:docs && npm run check:toolchain && npm run check:engine && npm run check:windows-trace",
+    "check": "npm run check:docs && npm run check:toolchain && npm run check:runtime:pe && npm run check:engine && npm run check:windows-trace",
     "check:docs": "node tools/check-docs.mjs",
     "check:toolchain": "node tools/run-toolchain-spike.mjs",
     "check:engine": "node tools/run-x86-engine-spike.mjs",
@@ -12,9 +12,11 @@
     "check:engine:adapter": "node tools/run-v86-adapter-spike.mjs",
     "check:runtime:abi": "node tools/run-runtime-abi-slice.mjs",
     "check:runtime:memory": "node tools/run-runtime-memory-slice.mjs",
+    "check:runtime:pe": "cargo fmt --all --check && cargo test --workspace --locked",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",
+    "probe:runtime:pe": "cargo run --quiet --locked -p vine-pe-probe --",
     "prepare:engine": "node tools/prepare-v86-adapter.mjs"
   },
   "engines": {
