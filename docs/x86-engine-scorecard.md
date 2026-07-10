@@ -186,11 +186,11 @@ host-directed resumeはversion 1 state bufferのEIPとPREVIOUS_EIPを同時に�
 
 これはcdecl、1 callback depth、single threadのbaselineである。stdcall／thiscall／fastcall、nested callback、exception／SEH、wait／wake、async host responseの証明ではない。
 
-### B7. Fixed W2 loader／module／class／window-create ingress: Verified baseline
+### B7. Fixed W2 loader／module／class／window-create／visibility ingress: Verified baseline
 
-`npm run check:runtime:window-loader`はSHA-256固定の`window-pixel.exe`を同じ8 MiB contiguous memoryへpreferred-base mapし、3 DLL／13 named importを一意なowned `UD2` thunkへ解決する。`GetModuleHandleA(NULL)`に続き、fixed `RegisterClassExA` variantの48-byte structureとbounded ASCII nameをchecked readし、host-owned logical class stateとATOM `0xC000`を登録してstdcall resumeする。fixed `CreateWindowExA` variantは12 argumentsとmodule-scoped class lookupを検査し、harness-local typed HWND `0x57010001`と48-byte `CREATESTRUCTA`を作り、WndProc `0x00401260`の`WM_CREATE` callback／return sentinelを往復する。outer stdcallをresumeした後、次の`ShowWindow` thunkをcall site `0x004010A8`へ帰属し、arguments `[HWND, 5]`付きの`unsupported-host-service`として停止する。budget stopは16回、faulting `UD2` attemptを含む累積命令counterは57である。
+`npm run check:runtime:window-loader`はSHA-256固定の`window-pixel.exe`を同じ8 MiB contiguous memoryへpreferred-base mapし、3 DLL／13 named importを一意なowned `UD2` thunkへ解決する。`GetModuleHandleA(NULL)`に続き、fixed `RegisterClassExA` variantの48-byte structureとbounded ASCII nameをchecked readし、host-owned logical class stateとATOM `0xC000`を登録してstdcall resumeする。fixed `CreateWindowExA` variantは12 argumentsとmodule-scoped class lookupを検査し、harness-local typed HWND `0x57010001`と48-byte `CREATESTRUCTA`を作り、WndProc `0x00401260`の`WM_CREATE` callback／return sentinelを往復する。fixed `showwindow-sw-show-hidden-to-visible`はcreated／hidden objectとarguments `[HWND, 5]`を検査し、visibilityをtrueへ遷移して`showCommand=5`を保持し、previous visibilityのBOOL `0`をstdcall returnする。次の`InvalidateRect` thunkをcall site `0x004010B3`へ帰属し、arguments `[HWND, NULL, FALSE]`付きの`unsupported-host-service`として停止する。budget stopは17回、faulting `UD2` attemptを含む累積命令counterは62、全execute stopは23回である。
 
-これはmultiple thunk resolution、3 fixed partial variants、checked structure／ASCII string、copied class／window semantic state、1段のstdcall callback／sentinel、successful serviceから次failureへのclassificationのbaselineである。HWNDのtag／generation／slot、runtime scratch、host call frameはfixed harnessの選択であり、production handle encoding／lifetime、general callback allocator／reentrancy modelを固定しない。general `RegisterClassExA`／`CreateWindowExA`／CP932／Unicode、duplicate／failure／LastError、`WM_NCCREATE`／補助message、callback failure／fault、`ShowWindow`／visibility、relocation、protection、sparse memory、browser Workerは未検証であり、production loader／ABI gatewayを示さない。
+これはmultiple thunk resolution、4 fixed partial variants、checked structure／ASCII string、copied class／window semantic state、1段のstdcall callback／sentinel、fixed logical visibility、successful serviceから次failureへのclassificationのbaselineである。HWNDのtag／generation／slot、runtime scratch、host call frameはfixed harnessの選択であり、production handle encoding／lifetime、general callback allocator／reentrancy modelを固定しない。prior-visible／repeated `ShowWindow`、別show command、invalid／stale／destroyed／wrong-type HWND、failure／LastError、activation／focus／z-order／placement、補助message、DOM／canvas presentation、`InvalidateRect`／queue／paint、relocation、protection、sparse memory、browser Workerは未検証であり、production loader／ABI gatewayを示さない。
 
 ### B8. Browser Worker
 
@@ -198,11 +198,11 @@ host-directed resumeはversion 1 state bufferのEIPとPREVIOUS_EIPを同時に�
 
 ### B9. Correctness と performance
 
-W1の21命令とW2の57命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
+W1の21命令とW2の62命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class／window-create ingressは13 thunk、3 fixed partial variants、WndProc callback、次failure診断を実証した。次はprivate bootstrap offsetやharness-local handle layoutをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class／window-create／visibility ingressは13 thunk、4 fixed partial variants、WndProc callback、logical visibility、次failure診断を実証した。次はprivate bootstrap offsetやharness-local handle layoutをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT

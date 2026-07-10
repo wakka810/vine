@@ -114,12 +114,21 @@ const expectedCreateWindow = {
   callbackReturnStackPointer: 0x006fffc0,
 };
 const expectedShowWindow = {
+  variant: "showwindow-sw-show-hidden-to-visible",
   callSite: 0x004010a8,
   returnAddress: 0x004010ae,
   iatAddress: 0x004020f0,
   thunkAddress: 0x005000b0,
   stackPointer: 0x006fffe8,
   arguments: [0x57010001, 5],
+};
+const expectedInvalidateRect = {
+  callSite: 0x004010b3,
+  returnAddress: 0x004010b9,
+  iatAddress: 0x004020e4,
+  thunkAddress: 0x00500080,
+  stackPointer: 0x006fffe4,
+  arguments: [0x57010001, 0, 0],
 };
 const expectedSections = [
   {
@@ -1243,6 +1252,7 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
       requestedOuterSize: Object.freeze({ width, height }),
       parent: null,
       menu: null,
+      showCommand: null,
     });
     assert.equal(window.handle, expectedCreateWindow.logicalHandle);
     const createStructAddress = guest.callbackScratch;
@@ -1318,12 +1328,65 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
     continue;
   }
 
-  if (implementedServiceEvents.length === 3) {
+  const isShowWindow =
+    service.module === "user32.dll" && service.symbol === "ShowWindow";
+  if (isShowWindow && implementedServiceEvents.length === 3) {
     const window = lookupLogicalWindow(expectedCreateWindow.logicalHandle);
+    assert.equal(hostCallFrames.length, 0);
+    assert.equal(state.esp, expectedShowWindow.stackPointer);
     assert.equal(state.eax, window.handle);
     assert.equal(state.words[savedStateWord.esi], window.handle);
     assert.equal(window.lifecycle, "created");
     assert.equal(window.visible, false);
+    assert.equal(window.showCommand, null);
+    const showArguments = Array.from({ length: 2 }, (_, index) =>
+      readGuestU32(state.esp + 4 + index * 4, `ShowWindow argument ${index}`),
+    );
+    assert.deepEqual(showArguments, expectedShowWindow.arguments);
+    const [handle, command] = showArguments;
+    assert.equal(lookupLogicalWindow(handle), window);
+    assert.equal(command, 5);
+    const wasVisible = window.visible;
+    window.visible = true;
+    window.showCommand = command;
+    const argumentBytes = showArguments.length * 4;
+    const resumeEsp = state.esp + 4 + argumentBytes;
+    assert.equal(resumeEsp, 0x006ffff4);
+    assert.equal(readGuestU32(resumeEsp, "saved entry ESI"), calleeSaved.esi);
+    implementedServiceEvents.push({
+      kind: "host-service-return",
+      requester: service.requester,
+      module: service.module,
+      symbol: service.symbol,
+      variant: expectedShowWindow.variant,
+      implementationStatus: "partial",
+      guestCallSite: callSite,
+      guestCallSiteRva: callSite - pe.imageBase,
+      guestReturnAddress: returnAddress,
+      guestReturnRva: returnAddress - pe.imageBase,
+      iatAddress: service.iatAddress,
+      iatRva: service.iatRva,
+      thunkAddress: service.thunkAddress,
+      callingConvention: "stdcall",
+      argumentBytes,
+      arguments: [...showArguments],
+      result: wasVisible ? 1 : 0,
+      visibilityBefore: wasVisible,
+      visibilityAfter: window.visible,
+      stackPointerBefore: state.esp,
+      stackPointerAfter: resumeEsp,
+    });
+    resume(state, { eax: wasVisible ? 1 : 0, esp: resumeEsp, eip: returnAddress });
+    continue;
+  }
+
+  if (implementedServiceEvents.length === 4) {
+    const window = lookupLogicalWindow(expectedCreateWindow.logicalHandle);
+    assert.equal(state.eax, 0);
+    assert.equal(state.words[savedStateWord.esi], window.handle);
+    assert.equal(window.lifecycle, "created");
+    assert.equal(window.visible, true);
+    assert.equal(window.showCommand, 5);
   }
 
   diagnostic = {
@@ -1372,8 +1435,13 @@ assert.deepEqual(budgetEvents, [
     esp: expectedShowWindow.stackPointer,
     esi: expectedCreateWindow.logicalHandle,
   },
+  {
+    eip: expectedInvalidateRect.callSite,
+    esp: expectedShowWindow.stackPointer,
+    esi: expectedCreateWindow.logicalHandle,
+  },
 ]);
-assert.equal(finalState.instructionCount, 57);
+assert.equal(finalState.instructionCount, 62);
 assert.deepEqual(implementedServiceEvents, [
   {
     kind: "host-service-return",
@@ -1446,28 +1514,51 @@ assert.deepEqual(implementedServiceEvents, [
     stackPointerBefore: 0x006fffc0,
     stackPointerAfter: 0x006ffff4,
   },
+  {
+    kind: "host-service-return",
+    requester: "window-pixel.exe",
+    module: "user32.dll",
+    symbol: "ShowWindow",
+    variant: expectedShowWindow.variant,
+    implementationStatus: "partial",
+    guestCallSite: expectedShowWindow.callSite,
+    guestCallSiteRva: expectedShowWindow.callSite - pe.imageBase,
+    guestReturnAddress: expectedShowWindow.returnAddress,
+    guestReturnRva: expectedShowWindow.returnAddress - pe.imageBase,
+    iatAddress: expectedShowWindow.iatAddress,
+    iatRva: expectedShowWindow.iatAddress - pe.imageBase,
+    thunkAddress: expectedShowWindow.thunkAddress,
+    callingConvention: "stdcall",
+    argumentBytes: 8,
+    arguments: expectedShowWindow.arguments,
+    result: 0,
+    visibilityBefore: false,
+    visibilityAfter: true,
+    stackPointerBefore: expectedShowWindow.stackPointer,
+    stackPointerAfter: 0x006ffff4,
+  },
 ]);
 assert.deepEqual(diagnostic, {
   kind: "unsupported-host-service",
   requester: "window-pixel.exe",
   module: "user32.dll",
-  symbol: "ShowWindow",
-  guestCallSite: expectedShowWindow.callSite,
-  guestCallSiteRva: expectedShowWindow.callSite - pe.imageBase,
-  guestReturnAddress: expectedShowWindow.returnAddress,
-  guestReturnRva: expectedShowWindow.returnAddress - pe.imageBase,
-  iatAddress: expectedShowWindow.iatAddress,
-  iatRva: expectedShowWindow.iatAddress - pe.imageBase,
-  thunkAddress: expectedShowWindow.thunkAddress,
+  symbol: "InvalidateRect",
+  guestCallSite: expectedInvalidateRect.callSite,
+  guestCallSiteRva: expectedInvalidateRect.callSite - pe.imageBase,
+  guestReturnAddress: expectedInvalidateRect.returnAddress,
+  guestReturnRva: expectedInvalidateRect.returnAddress - pe.imageBase,
+  iatAddress: expectedInvalidateRect.iatAddress,
+  iatRva: expectedInvalidateRect.iatAddress - pe.imageBase,
+  thunkAddress: expectedInvalidateRect.thunkAddress,
   engineStopReason: stopReason.invalidOpcode,
   engineErrorCode: -1,
-  stackPointer: expectedShowWindow.stackPointer,
+  stackPointer: expectedInvalidateRect.stackPointer,
 });
 assert.deepEqual(
-  Array.from({ length: 2 }, (_, index) =>
-    readGuestU32(finalState.esp + 4 + index * 4, `ShowWindow argument ${index}`),
+  Array.from({ length: 3 }, (_, index) =>
+    readGuestU32(finalState.esp + 4 + index * 4, `InvalidateRect argument ${index}`),
   ),
-  expectedShowWindow.arguments,
+  expectedInvalidateRect.arguments,
 );
 assert.equal(logicalClassesByKey.size, 1);
 assert.equal(logicalClassesByAtom.size, 1);
@@ -1536,7 +1627,7 @@ assert.deepEqual(logicalWindow, {
   generation: 1,
   slot: 1,
   lifecycle: "created",
-  visible: false,
+  visible: true,
   moduleIdentity: moduleIdentity(mainModule),
   classKey: logicalClass.key,
   classAtom: logicalClass.atom,
@@ -1548,13 +1639,16 @@ assert.deepEqual(logicalWindow, {
   requestedOuterSize: { width: 160, height: 120 },
   parent: null,
   menu: null,
+  showCommand: 5,
 });
 assert.equal(readGuestU32(0x0040305c, "final WM_CREATE count"), 1);
 assert.equal(readGuestU32(0x00403068, "final window event count"), 1);
 assert.equal(readGuestU32(0x0040306c, "final first window event"), 1);
-assert.equal(finalState.eax, logicalWindow.handle);
+assert.equal(finalState.eax, 0);
 assert.equal(finalState.words[savedStateWord.esi], logicalWindow.handle);
-assert.equal(finalState.esp, expectedShowWindow.stackPointer);
+assert.equal(finalState.esp, expectedInvalidateRect.stackPointer);
+assert.equal(finalState.eip, expectedInvalidateRect.thunkAddress);
+assert.equal(finalState.previousEip, expectedInvalidateRect.thunkAddress);
 assert.equal(readGuestU32(0x006ffff4, "saved entry ESI"), calleeSaved.esi);
 assert.equal(readGuestU32(0x006ffff8, "saved entry EDI"), calleeSaved.edi);
 assert.equal(readGuestU32(0x006ffffc, "entry return sentinel"), guest.entryReturn);
@@ -1566,9 +1660,9 @@ assert.deepEqual(Object.keys(hostImportCalls), ["microtick"]);
 assert(hostImportCalls.microtick > 0);
 
 console.log(
-  `runtime window create ingress passed: imports=${resolvedImports.length}, ` +
+  `runtime window visibility ingress passed: imports=${resolvedImports.length}, ` +
     `implemented-variants=${implementedServiceEvents.length}, hwnd=0x${logicalWindow.handle.toString(16)}, ` +
-    `callback=WM_CREATE, ` +
+    `visible=${logicalWindow.visible}, ` +
     `stop=${diagnostic.module}!${diagnostic.symbol}, ` +
     `call=0x${diagnostic.guestCallSite.toString(16)}, ` +
     `budget stops=${budgetEvents.length}, instructions=${finalState.instructionCount}`,
