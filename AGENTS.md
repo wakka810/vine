@@ -73,7 +73,7 @@ Browser Web API backends
 
 - 利用者、開発者、maintainer は同一の 1 人である。
 - 完全個人用プロジェクトである。team process や public release process を active work に持ち込まない。
-- OS: Windows 11 Pro 25H2
+- OS profile: Windows 11 Pro 25H2。2026-07-10 の `Win32_OperatingSystem` は Windows 11 Home、build `10.0.26200.8655` を返した。edition 差は未解決として記録し、runtime gate には build／architecture の実測値を使う。
 - Repository: `V:\src\vine`
 - Primary browser: current stable Chrome。evidence には実際の version を記録する。
 - Primary shell: PowerShell
@@ -216,8 +216,10 @@ Verified behavior:
 7. exact budget、fault、CPU state round trip を検証する source adapter runner。
 8. Windows toolchain／BGI fingerprint checker。
 9. Frida による focused startup tracer。module load、dynamic symbol lookup、file、window、GDI／GDI+、D3D9、DirectInput、DirectSound、WinMM、COM entry を JSONL に出す。
+10. raw trace の sequence、thread-local API pairing、module、API、A/W file wrapper を検証する deterministic summarizer と contract test。
+11. Windows W0、60 秒 BGI startup trace、native EXE -> DLL -> EXE callback oracle の tracked evidence。
 
-Windows scripts は static syntax check まで完了しているが、対象 Windows／Frida versionでの実行はまだである。`npm run check`、BGI fingerprint check、native startup trace、Chrome smokeはWindows上で再取得されていない。
+2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。詳細は `docs/windows-native-evidence.md` を参照する。Chrome 上で実行する runtime はまだ存在しないため、Chrome execution smoke は未実施である。
 
 まだ存在しないもの:
 
@@ -231,7 +233,7 @@ Windows scripts は static syntax check まで完了しているが、対象 Win
 - graphics、audio、storage backend
 - BGI.exe を Vine 内で load／executeした evidence
 
-現状を「runtime が一部完成している」と誤認しないこと。成立しているのは toolchain と CPU adapter の feasibility checkpoint である。
+現状を「runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence の checkpoint である。
 
 ## 8. Corpus
 
@@ -259,7 +261,7 @@ npm ci
 npm run check
 ```
 
-`npm run check` は documentation、LLVM PE／Wasm fixture、pin 済み v86 prebuilt smoke を実行する。
+`npm run check` は documentation、LLVM PE／Wasm fixture、Windows 上の native callback oracle、pin 済み v86 prebuilt smoke、trace summarizer contract を実行する。
 
 Environment と BGI fingerprint:
 
@@ -269,13 +271,19 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -BgiExe "V:\softs\サクラノ詩\BGI.exe"
 ```
 
-最初の native trace:
+次の native trace。runner は既存 output を既定で拒否する。
 
 ```powershell
+$trace = ".work\windows-traces\sakura-startup-{0}.jsonl" -f `
+  (Get-Date -Format "yyyyMMdd-HHmmss")
 py tools/windows/trace.py `
   --exe "V:\softs\サクラノ詩\BGI.exe" `
-  --output ".work\windows-traces\sakura-startup.jsonl" `
+  --output $trace `
   --seconds 0
+
+node tools/summarize-windows-trace.mjs `
+  --input $trace `
+  --output "$trace.summary.json"
 ```
 
 利用者がタイトル画面まで操作したら `Ctrl+C` で収集を終了する。process を終了したい場合は `--kill-after` を加えるか、収集後にエージェントが終了してよい。
@@ -292,24 +300,24 @@ Generated output は `.work/` に置く。raw artifact は commit せず、重�
 
 ## 10. Active Queue
 
-長期 roadmap の全 task を日常の checklist にしない。現在の queue は次のとおりである。
+Windows W0、最初の focused trace／summary、native ABI oracle、次の slice 選択は 2026-07-10 に完了した。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. Windows toolchain version、`npm run check`、BGI fingerprint を確認する。
-2. focused Frida trace を起動し、利用者の操作でサクラノ詩のタイトル画面まで到達する。
-3. raw JSONL から loaded module と runtime-reachable file／window／graphics／input／audio／COM entry を要約する。
-4. native `abi-smoke.exe`／DLL callback fixture を実行し、最初の Windows oracle sample を記録する。
-5. 既存 PE32 fixture を使う最小 runtime sliceを選ぶ。最初の候補は `guest instructions -> import thunk -> host service -> guest callback -> return sentinel` である。
-6. slice に必要な guest memory案、thunk、callback、schedulerだけを実装し、代表 contract test 1 本を通す。
-7. 最小 Win32 PE32 window fixtureで logical window、message、first pixelへ広げる。
+1. source adapterを準備し、`abi-smoke.exe`をfixed T1 imageとして8 MiB identity memoryへmapするloader-liteを作る。
+2. IAT 2 slotを runtime-owned `UD2` thunkへ解決し、所有 addressだけを host callに分類する。
+3. cdecl host service、guest `add_one` callback、callback／entry return sentinelを single-thread bounded loopで通す。
+4. instruction budget `3`でcallback result `43`、final EAX `0`、stack balance、最低1 budget yieldを一つのrepresentative contract testで検証する。
+5. この slice の測定から guest memory案を更新する。8 MiB前後の低位 identity mappingを sparse 4 GiB案の決定として扱わない。
+6. checkpoint後、最小 Win32 window／message／pixel fixtureへ広げる。
+7. 次の subsystem-focused native trace前に caller module＋RVA、call ID、last errorを追加し、選んだvtableだけを観測する。
 8. BGI.exe を loaderへ投入し、first unsupported import／bootstrap pointまで進める。
 
-trace の結果により 4～8 の順序は調整してよい。調整理由を短く記録し、同時に複数 subsystem を active にしない。
+項目1～4は一つの W1 checkpoint であり、primary implementation taskを別 subsystemへ分岐させない。
 
 ## 11. Major Open Questions
 
 優先順:
 
-1. サクラノ詩のタイトル画面までに実際に load／call される dependency は何か。
+1. サクラノ詩の title resource bandで到達した factory以降のD3D9／DirectInput／DirectSound method、format、stateは何か。
 2. v86 paging と bounded physical allocatorを使うか、CPU memory accessを独自 sparse memoryへ接続するか。
 3. runtime-owned thunk／callback sentinelとWin32 exception deliveryをどう統合するか。
 4. cooperative guest threads、wait／message、async host responseをどうsuspend／resumeするか。
@@ -363,6 +371,7 @@ trace の結果により 4～8 の順序は調整してよい。調整理由を�
 | `docs/x86-engine-scorecard.md` | engine comparison、v86 evidence、remaining gates |
 | `docs/toolchain-spike.md` | LLVM PE／Wasm fixture baseline |
 | `docs/windows-development.md` | Windows bring-up、trace、checkpoint commands |
+| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、選択した W1 slice |
 | `spikes/x86-engine/README.md` | v86 source adapter reproduction |
 
 文書内の長い test／task listは将来coverageの地図であり、今すぐ全件実装する指示ではない。本書のactive queueと「広く浅く、代表test 1本」を優先する。

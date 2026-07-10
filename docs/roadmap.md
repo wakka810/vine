@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery。static corpus inventory、LLVM toolchain baseline、v86 prebuilt smoke、source-built bounded adapter、version 1 CPU state round trip は完了。Windows 上の critical scenario／dynamic trace、memory adapter、engine 最終選定は未完了
+- 現在地: Phase 0 In discovery。static corpus inventory、LLVM toolchain baseline、v86 bounded adapter、version 1 CPU state round trip、Windows W0、最初の BGI startup trace／summary、native callback oracle は完了。visual critical scenario、COM method trace、memory adapter、engine 最終選定は未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks があり、PE／Win32 runtime、browser app、CI は未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -18,6 +18,7 @@
 - [x86-engine-scorecard.md](x86-engine-scorecard.md): engine 候補、実行 evidence、adapter 採用 gate
 - [risks-and-open-questions.md](risks-and-open-questions.md): `Q-*`、`R-*`、go / no-go 条件
 - [testing-and-acceptance.md](testing-and-acceptance.md): test 資産、証跡、`AC-*`
+- [windows-native-evidence.md](windows-native-evidence.md): Windows W0、BGI startup trace、native ABI oracle、次の W1 slice
 
 ## 2. 計画上の前提
 
@@ -141,7 +142,7 @@ Phase 6 は Phase 3 の scheduler、clock、handle、browser topology が確定�
 
 技術選択を暗黙に固定せず、corpus、test oracle、resource control、build／CI、主要 ADR を揃える。最初の code は product feature ではなく、execution、storage、graphics、audio 候補を比較する disposable spike とする。
 
-現在 `P0-COR-01` は In discovery であり、7 entry executable の PE32/i386 判定、SHA-256、static import inventory は [corpus-inventory.md](corpus-inventory.md) に記録済みである。`P0-COR-03` の最初の EXE／DLL／callback fixture と `P0-ARCH-01` の LLVM baseline は [toolchain-spike.md](toolchain-spike.md) で再現可能になった。`P0-ARCH-02` は v86／Unicorn／Bochs／libx86emu の比較、v86 prebuilt Wasm の integer／x87／SSE smoke、固定 source adapter の exact budget／CPL3 fault stop／version 1 CPU state round trip まで進んだ。[x86-engine-scorecard.md](x86-engine-scorecard.md) に残る memory／callback／browser gate を記録した。`P0-COR-02` の primary title はサクラノ詩に確定したが、Windows 上の critical scenario、dynamic dependency、production toolchain、engine 最終選定は未確定である。
+現在 `P0-COR-01` は In discovery であり、7 entry executable の PE32/i386 判定、SHA-256、static import inventory は [corpus-inventory.md](corpus-inventory.md) に記録済みである。primary の最初の Windows trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+、title resource bandまで取得し、[windows-native-evidence.md](windows-native-evidence.md) に正規化した。factory以降のCOM methodとvisual checkpointは未確定である。`P0-COR-03` の EXE／DLL／callback fixture と `P0-ARCH-01` の LLVM baseline は [toolchain-spike.md](toolchain-spike.md) で再現可能であり、Windows native callback oracleも通った。`P0-ARCH-02` は v86／Unicorn／Bochs／libx86emu の比較、v86 prebuilt Wasm の integer／x87／SSE smoke、固定 source adapter の exact budget／CPL3 fault stop／version 1 CPU state round tripまで進んだ。[x86-engine-scorecard.md](x86-engine-scorecard.md) に残る memory／callback／browser gateを記録した。production toolchainとengine最終選定は未確定である。
 
 ### 6.2 Entry criteria
 
@@ -895,16 +896,16 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title 選択、CPU adapter checkpoint は完了している。以後は [windows-development.md](windows-development.md) に従い、同じ Windows workspace で次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、最初の startup trace／summary、native callback oracleは完了した。以後は [windows-development.md](windows-development.md) と [windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. `W0`: Windows toolchain version、`npm run check`、BGI.exe fingerprint を確認する。
-2. `P0-COR-01`: focused Frida runner でサクラノ詩の startup JSONL を取得する。
-3. `P0-COR-02`: タイトル画面までの最短操作と first window／graphics／input／audio checkpoint を固定する。
-4. `P6D-COR-01`／`P6D-COR-02`: trace で到達した D3D9／DirectInput entry だけを versioned manifest にする。
-5. `P0-COR-04`: 既存 synthetic EXE／DLL fixture を Windows native oracle で一度実行し、trace schema の sample を作る。
-6. `W1`～`W3`: native evidence から最初の headless execution／startup／first-frame slice を一つ選ぶ。
-7. `P1-ABI-01`／`P1-ABI-03`: 選んだ slice に必要な runtime-owned thunk、return sentinel、guest callback を既存 state ABI 上へ追加する。
-8. `P0-ARCH-03`: 最初の mapped image が要求する high address を使って guest memory 案を測り、`ADR-003` を更新する。
+1. `W1 ABI slice`（`P1-ABI-01`／`P1-ABI-03`へのpartial evidence）: fixed `abi-smoke.exe` のIATをruntime-owned thunkへ解決し、cdecl host service、1段guest callback、return sentinelを通す。
+2. `W1 scheduler slice`（`P1-SCH-01`へのpartial evidence）: single-thread bounded loopとminimum 1 budget yieldだけを実装する。wait／wake、async、Workerは入れない。
+3. `W1 contract`（`P1-QA-01`へのpartial evidence）: result `43`、final EAX `0`、stack balanceを一つのcontract testでnative oracleと比較する。CI／replay／state hash全体の完了とは扱わない。
+4. `P0-ARCH-03`へのmeasurement: low-address mapped imageの実測を記録し、sparse 4 GiBとpage ownershipの候補を更新する。task完了とは扱わない。
+5. `P0-COR-02`: manual markerを持つfocused traceでvisual title checkpointを閉じる。
+6. `P6D-COR-01`／`P6D-COR-02`: graphics／input slice開始時にcaller attributionと選択したCOM vtable methodだけを追加取得する。
+7. `W2`～`W3`: 最小Win32 window／message／pixel fixtureへ広げる。
+8. `W7`: BGI.exeをloaderへ投入し、first unsupported import／bootstrap pointまで進める。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 

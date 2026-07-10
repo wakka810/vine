@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "npm run check:docs && npm run check:toolchain && npm run check:engine",
+    "check": "npm run check:docs && npm run check:toolchain && npm run check:engine && npm run check:windows-trace",
     "check:docs": "node tools/check-docs.mjs",
     "check:toolchain": "node tools/run-toolchain-spike.mjs",
     "check:engine": "node tools/run-x86-engine-spike.mjs",
+    "check:windows-trace": "node tools/test-windows-trace-summary.mjs",
     "check:engine:adapter": "node tools/run-v86-adapter-spike.mjs",
     "prepare:engine": "node tools/prepare-v86-adapter.mjs"
   },

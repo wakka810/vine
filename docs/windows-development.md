@@ -9,8 +9,12 @@
 - v86 `0.5.424` prebuilt Wasm の integer／x87／SSE smoke
 - v86 source revision `2f1346b0e7d88d4cbbbcc05fe15b4e369c3de23f` の reproducible adapter build
 - exact instruction budget、CPL3 fault stop、version 1 CPU state round trip
+- Windows W0 environment、BGI fingerprint、canonical check
+- Frida 17.15.4 による60秒startup traceとvalidated local summary
+- native `abi-smoke.exe` の DLL callback oracle
 
 guest memory、PE loader、Win32 API、graphics／audio は未実装である。サクラノ詩の native trace を実装順の根拠にする。
+取得値と次の fixed T1 slice は [windows-native-evidence.md](windows-native-evidence.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -56,20 +60,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/check-environm
 npm run prepare:engine
 ```
 
-最初の Windows checkpoint は、全 tool の version、canonical check、BGI fingerprint が一致することである。
+最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
 
 ## 4. First native trace
 
 focused Frida runner は module load と起動経路の高信号 API だけを JSONL に記録する。
 
 ```powershell
+$trace = ".work\windows-traces\sakura-startup-{0}.jsonl" -f `
+  (Get-Date -Format "yyyyMMdd-HHmmss")
 py tools/windows/trace.py `
   --exe "V:\softs\サクラノ詩\BGI.exe" `
-  --output ".work\windows-traces\sakura-startup.jsonl" `
+  --output $trace `
   --seconds 0
+
+node tools/summarize-windows-trace.mjs `
+  --input $trace `
+  --output "$trace.summary.json"
 ```
 
-利用者がタイトル画面まで手動操作した後、`Ctrl+C` で detach する。時間で区切る場合は `--seconds 60` 等を指定する。trace 終了時に game も停止する必要がある場合だけ `--kill-after` を加える。
+利用者がタイトル画面まで手動操作した後、`Ctrl+C` で detach する。時間で区切る場合は `--seconds 60` 等を指定する。trace 終了時に game も停止する必要がある場合だけ `--kill-after` を加える。runnerとsummarizerは既存outputを拒否する。意図的に置き換える調査だけ`--force`を使う。
 
 最初の trace から次だけを確定する。
 
@@ -84,7 +94,7 @@ py tools/windows/trace.py `
 
 一つの subsystem を完成させてから次へ進まず、次の縦断 checkpoint を順に通す。
 
-1. `W0 Native evidence`: startup traceをタイトル画面まで取得し、checkpointを固定する。
+1. `W0 Native evidence`: tool version／fingerprintと、W1選択に十分なstartup resource-band traceを固定する。manual marker付きvisual titleは`P0-COR-02`で継続する。
 2. `W1 Headless execution`: controlled synthetic PE32をmapし、entry pointからreturn sentinelまで走らせる。system Notepadは初期fixtureにしない。
 3. `W2 Startup substrate`: trace 先頭に必要な Kernel32／User32 の最小経路で logical window を作る。
 4. `W3 First frame`: 観測した GDI／GDI+／D3D9 create／present 経路の一つを canvas command まで通す。
@@ -102,7 +112,9 @@ py tools/windows/trace.py `
 - `npm run check` が Windows で通る
 - BGI.exe の fingerprint が corpus inventory と一致する
 - startup JSONL が再取得できる
-- タイトル画面までの runtime-reachable module／API 一覧がある
+- startup／title resource bandのruntime-reachable module／API一覧がある
 - 最初の未対応 vertical slice が W1～W3 の具体的な一項に落ちている
+
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。最初の slice は `abi-smoke.exe` の import thunk／guest callback／return sentinel に固定した。視覚的な title checkpoint は旧 schema に manual marker がないため `P0-COR-02` の未 acceptance のままだが、W1 headless slice の開始条件にはしない。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

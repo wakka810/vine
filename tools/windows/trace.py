@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import platform
 import sys
 import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +18,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seconds", type=float, default=30.0)
     parser.add_argument("--kill-after", action="store_true")
+    parser.add_argument(
+        "--force", action="store_true", help="Replace an existing output file."
+    )
     return parser.parse_args()
 
 
@@ -32,39 +36,78 @@ def main() -> int:
 
     agent_path = Path(__file__).with_name("trace-agent.js")
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    if args.output.exists() and not args.force:
+        raise FileExistsError(
+            f"trace output already exists (use --force to replace): {args.output}"
+        )
     detached = threading.Event()
+    detached_reason: str | None = None
+    detached_crash: str | None = None
     device = frida.get_local_device()
+    with executable.open("rb") as target:
+        target_sha256 = hashlib.file_digest(target, "sha256").hexdigest()
 
-    with args.output.open("w", encoding="utf-8", newline="\n") as output:
-        def write_event(event: dict) -> None:
-            output.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
-            output.flush()
+    output_mode = "w" if args.force else "x"
+    write_lock = threading.Lock()
+    accepting_agent_events = True
+    with args.output.open(output_mode, encoding="utf-8", newline="\n") as output:
+        def write_event(event: dict, *, agent_event: bool = False) -> None:
+            with write_lock:
+                if agent_event and not accepting_agent_events:
+                    return
+                output.write(
+                    json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+                    + "\n"
+                )
+                output.flush()
 
-        write_event({
-            "schema": "vine.win32-trace.v1",
-            "kind": "trace-start",
-            "timestamp": utc_now(),
-            "executable": str(executable),
-        })
+        write_event(
+            {
+                "schema": "vine.win32-trace.v1",
+                "kind": "trace-start",
+                "timestamp": utc_now(),
+                "executable": str(executable),
+                "executableBytes": executable.stat().st_size,
+                "executableSha256": target_sha256,
+                "python": platform.python_version(),
+                "frida": frida.__version__,
+                "platform": platform.platform(),
+                "arguments": {
+                    "seconds": args.seconds,
+                    "killAfter": args.kill_after,
+                },
+            },
+        )
 
         pid = device.spawn([str(executable)], cwd=str(executable.parent))
         session = None
         resumed = False
+        stop_reason = "setup-failure"
         try:
             session = device.attach(pid)
-            session.on("detached", lambda *_: detached.set())
+
+            def on_detached(reason: str, crash: object | None) -> None:
+                nonlocal detached_reason, detached_crash
+                detached_reason = reason
+                detached_crash = None if crash is None else str(crash)
+                detached.set()
+
+            session.on("detached", on_detached)
             script = session.create_script(agent_path.read_text(encoding="utf-8"))
 
             def on_message(message: dict, _data: bytes | None) -> None:
                 if message["type"] == "send":
-                    write_event(message["payload"])
+                    write_event(message["payload"], agent_event=True)
                 else:
-                    write_event({
-                        "schema": "vine.win32-trace.v1",
-                        "kind": "agent-message",
-                        "timestamp": utc_now(),
-                        "message": message,
-                    })
+                    write_event(
+                        {
+                            "schema": "vine.win32-trace.v1",
+                            "kind": "agent-message",
+                            "timestamp": utc_now(),
+                            "message": message,
+                        },
+                        agent_event=True,
+                    )
 
             script.on("message", on_message)
             script.load()
@@ -72,28 +115,47 @@ def main() -> int:
             resumed = True
 
             try:
-                detached.wait(None if args.seconds <= 0 else args.seconds)
+                ended = detached.wait(None if args.seconds <= 0 else args.seconds)
+                stop_reason = "target-detached" if ended else "timeout"
             except KeyboardInterrupt:
-                pass
+                stop_reason = "keyboard-interrupt"
         finally:
             if not detached.is_set():
                 try:
                     if args.kill_after or not resumed:
                         device.kill(pid)
+                        detached.wait(1.0)
+                        stop_reason = f"{stop_reason}-kill"
                     elif session is not None:
                         session.detach()
+                        stop_reason = f"{stop_reason}-detach"
                 except Exception as error:
-                    write_event({
-                        "schema": "vine.win32-trace.v1",
-                        "kind": "cleanup-error",
-                        "timestamp": utc_now(),
-                        "error": str(error),
-                    })
-            write_event({
-                "schema": "vine.win32-trace.v1",
-                "kind": "trace-stop",
-                "timestamp": utc_now(),
-            })
+                    write_event(
+                        {
+                            "schema": "vine.win32-trace.v1",
+                            "kind": "cleanup-error",
+                            "timestamp": utc_now(),
+                            "error": str(error),
+                        }
+                    )
+            with write_lock:
+                accepting_agent_events = False
+                output.write(
+                    json.dumps(
+                        {
+                            "schema": "vine.win32-trace.v1",
+                            "kind": "trace-stop",
+                            "timestamp": utc_now(),
+                            "reason": stop_reason,
+                            "detachedReason": detached_reason,
+                            "crash": detached_crash,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
+                output.flush()
 
     print(f"trace written: {args.output.resolve()}")
     return 0

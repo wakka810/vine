@@ -128,6 +128,12 @@ run("lld-link", [
   importLibrary,
 ]);
 
+let nativeAbiExitCode = null;
+if (process.platform === "win32") {
+  run(exeFile, []);
+  nativeAbiExitCode = 0;
+}
+
 const exeInspection = run("llvm-readobj", [
   "--file-headers",
   "--coff-imports",
@@ -162,6 +168,7 @@ const report = {
     peFormat: "PE32/i386",
     peImports: ["fixture_add", "fixture_call_callback"],
     dllExports: ["fixture_add", "fixture_call_callback"],
+    nativeAbiExitCode,
   },
   artifacts: [wasmModule, exeFile, dllFile, importLibrary].map(artifact),
 };

@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: 1 人の個人開発、primary corpus、full-play goal、Rust + TypeScript、static dependency inventory、LLVM toolchain baseline は確定。runtime workspace、dynamic trace、段階的 checkpoint は未確定
+- 現状: 1 人の個人開発、primary corpus、full-play goal、Rust + TypeScript、static dependency inventory、LLVM toolchain baseline、最初のWindows startup trace／native ABI oracleは確定。runtime workspace、method-level trace、段階的browser checkpointは未確定
 
 この文書は、不確実性を TODO のまま埋め込まず、実装を進める条件と見直す条件を明確にする。所有者欄の role は別人を意味せず、単一 maintainer が判断時に切り替える責任観点を示す。
 

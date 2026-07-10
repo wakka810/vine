@@ -1,0 +1,226 @@
+# Windows native evidence
+
+## 1. 文書情報
+
+- ステータス: W0／最初のnative oracleはVerified。visual／method-level coverageはIn discovery
+- 取得日: 2026-07-10
+- 完了 checkpoint: `W0`、`P0-COR-04` の最初のnative sample
+- partial evidence: `P0-COR-01`、`P0-COR-02`、`P6D-COR-01`、`P6D-COR-02`
+- primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
+
+raw JSONL、local summary、game file、absolute trace pathはGitに追加しない。summaryはabsolute title／system pathとPIDを保持するlocal-sensitive artifactであり、共有用に正規化されたmanifestではない。本書は同じraw traceから再生成できる小さなredacted resultだけを記録する。
+
+## 2. W0 environment
+
+Windows host で `npm ci`、canonical check、environment checker、Chrome version 取得を行った。
+
+| Component | Observed |
+|---|---|
+| Windows | Windows 11 25H2、`10.0.26200.8655`、x64 host |
+| Chrome stable | `150.0.7871.115` |
+| Git | `2.55.0.windows.2` |
+| Node.js／npm | `24.18.0`／`11.16.0` |
+| Python | `3.14.6` |
+| Frida／frida-tools | `17.15.4`／`14.10.4` |
+| LLVM／Clang／LLD | `22.1.8` |
+| BGI.exe | `1,193,472` bytes、fingerprint matched |
+
+再現 command:
+
+```powershell
+npm ci
+npm run check
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File tools/windows/check-environment.ps1 `
+  -BgiExe "V:\softs\サクラノ詩\BGI.exe"
+```
+
+全 command は成功した。Chrome executable の version は取得済みだが、browser runtime がまだ存在しないため Chrome execution smoke の acceptance ではない。
+
+project profileはWindows 11 Pro 25H2としているが、今回の`Win32_OperatingSystem`はWindows 11 Homeを返した。build `10.0.26200.8655` とx64は実測値として使い、edition差はruntime checkpointの合否に使わず、環境台帳上の未解決差として残す。
+
+## 3. Sakura startup trace
+
+### 3.1 Provenance
+
+```powershell
+py tools/windows/trace.py `
+  --exe "V:\softs\サクラノ詩\BGI.exe" `
+  --output ".work\windows-traces\sakura-startup.jsonl" `
+  --seconds 60 `
+  --kill-after
+
+node tools/summarize-windows-trace.mjs `
+  --input ".work\windows-traces\sakura-startup.jsonl" `
+  --output ".work\windows-traces\sakura-startup.summary.json"
+```
+
+既存summaryを意図的に再生成する場合だけsummarizerへ`--force`を加える。
+
+| Field | Result |
+|---|---|
+| Capture source commit | `231775d8349d0af86975d1dfed38e06760172b41` |
+| Capture dirty state | tracked／untrackedともclean。`.work`と`node_modules`はignore |
+| `package-lock.json` SHA-256 | `e8b3191d2eec2384524b2b0d3bf46de23a6800dbbdd2d6ff4d76ee833d016814` |
+| Trace schema | `vine.win32-trace.v1` |
+| Summary schema | `vine.win32-trace-summary.v1` |
+| Capture UTC | `2026-07-10T07:53:30.377309Z` ～ `2026-07-10T07:54:31.480395Z` |
+| Duration | `61.103` seconds |
+| Raw size | `1,675,818` bytes、`8,343` JSONL records |
+| Raw SHA-256 | `c5130aeba6cb489c97c68f566b3612b154286bf93b452758603c6121b2fb7cf2` |
+| Agent target | `ia32`、pointer size `4` |
+| Agent sequence | `0` ～ `8340`、contiguous |
+| API pairing | enter `4,135`、leave `4,135`、thread-local max depth `3` |
+| Module events | `70` loads、case-fold 後 `64` unique names |
+| Diagnostics | hook error `0`、agent message `0`、cleanup error `0` |
+
+capture時点の`trace-start`はtarget pathだけを持ち、hashを埋め込まない。表のprimary fingerprintはcapture直前のenvironment checkとcapture直後の`Get-FileHash`が同値だったことを手動で結合したevidenceである。runnerはこのcapture後にtarget size／hashをheaderへ追加したため、次回からこの制約はない。
+
+capture 開始時に利用者へタイトル画面までの操作を依頼した。trace には `SGTitle*` と `bgm040` の asset search が残り、title 用 resource load band まで進んだ。一方、この revision の schema は手動 checkpoint label と screenshot を持たないため、「タイトル画面が視覚的に表示された」こと自体は machine-verifiable acceptance に数えない。
+
+### 3.2 Observed process module set
+
+次は case-fold で重複 load をまとめた process-wide module set である。driver／OS 内部 load を含むため、この一覧だけから guest requirement または direct import と判定しない。
+
+```text
+BGI.exe, ntdll.dll, kernel32.dll, kernelbase.dll, imm32.dll, win32u.dll,
+user32.dll, gdi32.dll, d3d9.dll, winmm.dll, dinput8.dll, gdi32full.dll,
+ucrtbase.dll, msvcrt.dll, msvcp_win.dll, advapi32.dll, sechost.dll,
+comdlg32.dll, rpcrt4.dll, combase.dll, shcore.dll, shlwapi.dll, version.dll,
+dwmapi.dll, shell32.dll, comctl32.dll, ole32.dll, dxcore.dll, gdiplus.dll,
+wininet.dll, dsound.dll, resampledmo.dll, powrprof.dll, winmmbase.dll,
+oleaut32.dll, msdmo.dll, umpdc.dll, ws2_32.dll, crypt32.dll, iphlpapi.dll,
+dnsapi.dll, psapi.dll, bcrypt.dll, dsparse.dll, nsi.dll, inputhost.dll,
+kernel.appcore.dll, uxtheme.dll, atidx9loader32.dll, amdxn32.dll, dxgi.dll,
+bcryptprimitives.dll, amdihk32.dll, resourcepolicyclient.dll, d3dx9_43.dll,
+msctf.dll, hid.dll, setupapi.dll, devobj.dll, wintrust.dll, mmdevapi.dll,
+audioses.dll, windows.ui.dll, avrt.dll
+```
+
+### 3.3 First-reach entries
+
+sequence は ASLR address や wall clock より安定した順序 evidence として使う。call count は 60 秒 capture 固有の診断値であり、compatibility contract ではない。
+
+| Sequence | Entry | Observation |
+|---:|---|---|
+| 56 | `ole32!CoInitialize` | COM initialization。続いて `CoInitializeEx` |
+| 58 | `user32!CreateWindowExW` | OLE hidden window。title main window ではない |
+| 63 | `gdi32!BitBlt` | 最初の hooked graphics entry |
+| 65 | `kernel32!CreateFileA` | `${TITLE_ROOT}\BGI.gdb` |
+| 73 | `user32!CreateWindowExA` | class `BGI - Main window`、Ethornell version title |
+| 111 | `d3d9!Direct3DCreate9` | SDK version `0x20`。capture 中 4 calls |
+| 241／244 | `LoadLibraryA`／`GetProcAddress` | `d3dx9_43.dll` と `D3DXCreateEffect` を動的解決。method call 自体は未観測 |
+| 255 | `gdi32!StretchDIBits` | capture 中 2 calls |
+| 457 | `dinput8!DirectInput8Create` | DirectInput 8 factory entry |
+| 675 | `dsound!DirectSoundCreate8` | static ordinal import の OS 上の named entry |
+| 680 | `ole32!CoCreateInstance` | capture 中 43 calls。CLSID／IID は現 schema では未取得 |
+| 811 | `gdiplus!GdiplusStartup` | GDI+ startup |
+
+`winmm.dll` は初期 module set にあるが、hook 対象の MCI／waveOut entry は 0 calls だった。D3D9、DirectInput、DirectSound は factory 到達だけが確定し、COM vtable method、format、state、Acquire、buffer、Present は未観測である。
+
+### 3.4 File behavior
+
+`CreateFileA` から内部 `CreateFileW` への nested wrapper を thread-local call stack で一つにまとめた。
+
+| Metric | Result |
+|---|---:|
+| Raw A／W hook entries | 3,702 |
+| Logical file calls | 1,887 |
+| Case-insensitive unique paths | 1,481 |
+| Title-relative logical calls | 1,813 |
+| Title-relative successful／failed calls | 239／1,574 |
+| Title-relative unique attempted paths | 1,462 |
+| Successful title-relative paths | 31 |
+
+成功した path:
+
+```text
+BGI.exe
+BGI.gdb
+data01099.arc, data01100.arc, data01101.arc, data01102.arc, data01103.arc
+data01104.arc, data01105.arc, data01106.arc, data01107.arc, data01108.arc
+data01109.arc, data01999.arc, data02099.arc, data02100.arc, data02300.arc
+data02301.arc, data02302.arc, data02303.arc, data02304.arc, data02305.arc
+data02306.arc, data02500.arc, data02501.arc, data02502.arc, data02503.arc
+data05000.arc
+sysgrp.arc, sysprg.arc, system.arc
+```
+
+失敗 probe は title root と `ActionCode`、`BitmapsForAnimation`、`Graphic`、`GroupedImage`、`MapData`、`Script`、`Sound`、`Stream`、`Voice`、`実験リソース` の各 search root に分布した。VFS は成功 path だけでなく、この case-insensitive search／not-found behavior を再現する必要がある。ただし現 hook は desired access、share、creation disposition、flags、last error を取らないため、read／write intent はまだ確定しない。
+
+## 4. Native ABI oracle
+
+Windows で deterministic PE32 fixture を直接実行した。
+
+| Artifact | SHA-256 |
+|---|---|
+| `abi-smoke.exe` | `60f882a22d7d44e0ebe734f284dc8676e29035207ff004ed0cdf6e97c629b9c7` |
+| `vine_fixture.dll` | `a9c2530df2a89317048ae9380e4202c8bd41994d1ff0e14b43fa578bb32c4878` |
+
+`abi-smoke.exe` は `fixture_add(19, 23) == 42`、DLL から EXE の `add_one` callback、結果 `43` の store を通った場合だけ entry code `0` を返す。`Start-Process -Wait -PassThru` で exit code `0` を確認した。さらに Windows 上の `npm run check:toolchain` は同じ EXE を毎回実行し、report の `nativeAbiExitCode` に `0` を要求する。Windows 以外ではこの field は `null` であり、native oracle 済みとは扱わない。
+
+## 5. Selected W1 slice
+
+次の primary implementation checkpoint は、同じ `abi-smoke.exe` を固定 T1 image として使う。
+
+| Item | Fixed value／behavior |
+|---|---|
+| EXE SHA-256 | `60f882a22d7d44e0ebe734f284dc8676e29035207ff004ed0cdf6e97c629b9c7` |
+| Image base | `0x00400000` |
+| Entry | `0x00401000` |
+| IAT `fixture_add` | `0x00402034` |
+| IAT `fixture_call_callback` | `0x00402038` |
+| Guest callback `add_one` | `0x00401030` |
+| Result storage | `0x00403000` |
+| T1 guest RAM | 8 MiB identity mapping、`[0x00000000, 0x00800000)` |
+| Runtime trap page | `[0x00500000, 0x00501000)` |
+| Thunks | add `0x00500000`、callback `0x00500010`、各先頭は `UD2` |
+| Sentinels | callback return `0x00500100`、entry return `0x00500110`、各先頭は `UD2` |
+| Stack | `[0x00600000, 0x00700000)`、initial ESP `0x006FFFFC` |
+| Execution model | single guest thread、instruction budget `3`、host call／callback／return sentinel のみ |
+
+代表 contract test は次を一度に通す。
+
+```text
+guest entry
+  -> fixture_add(19, 23)
+  -> host result 42
+  -> fixture_call_callback(add_one, 42)
+  -> guest callback result 43
+  -> callback return sentinel
+  -> [0x00403000] = 43
+  -> entry return sentinel with EAX = 0
+```
+
+この checkpoint は low-address contiguous mapping を使ってよいが、sparse 4 GiB memory、page ownership、production DLL loader、stdcall／thiscall、nested callback、async scheduler、Worker の decision にはしない。所有 thunk 外の `#UD` は通常の guest fault のままにし、title EIP 固有 skip は行わない。
+
+trap dispatch は stop reason `0x106` と exact owned EIP の両方が一致した場合だけ行う。trap page の各 owned slot は `UD2` で始め、その他の byte は CPL3 `HLT` で埋めて accidental entry を structured `#GP` にする。host が resume addressを設定するときは version 1 CPU state の EIP と PREVIOUS_EIP を同じ値へ更新する。
+
+entry開始時は `[0x006FFFFC] = 0x00500110`、EIP／PREVIOUS_EIP `0x00401000` とする。import thunk到達時の cdecl stack は `[ESP] = guest return`、argumentは `[ESP+4...]` である。host service完了時はreturn addressの4 bytesだけをpopし、argument cleanupはguest callerに残す。
+
+expected import traps:
+
+```text
+fixture_add:
+  ESP=0x006FFFF0
+  [ESP]=0x0040100A, [ESP+4]=19, [ESP+8]=23
+
+fixture_call_callback:
+  ESP=0x006FFFF0
+  [ESP]=0x00401019, [ESP+4]=0x00401030, [ESP+8]=42
+```
+
+callback thunkではouter ESPを保存し、`[outerESP-8] = 0x00500100`、`[outerESP-4] = 42`、ESP `outerESP-8`、EIP／PREVIOUS_EIP `0x00401030` とする。callback return trapはESP `outerESP-4`、EAX `43` で到達する。outer callを完了するときは保存したreturn addressへ戻り、ESPを`outerESP+4`へ進める。entry return sentinelではESP `0x00700000`、EAX `0` を要求する。budget `3` を固定し、少なくとも1回のbudget stopをcontractに含める。
+
+loader-liteは実行前にEXE hashを検証し、`.data` のvirtual size 4 bytes／raw size 0をzero-fillし、IATをpatchしてから実行する。section permissionをmetadataとして保持し、CPU enforcementを加える場合はIAT patch後に適用する。このsliceだけのためにfull page protectionを実装しない。W1はsource-built adapter artifactを使うため、実装開始時のprerequisiteは次とする。
+
+```powershell
+npm run prepare:engine
+npm run check:engine:adapter
+```
+
+## 6. Remaining trace work
+
+次の subsystem-focused native trace 前に、caller module＋RVA、call ID／parent call ID、leave の last error／durationをschemaへ加える。trace runnerは今回のcapture後にtarget hash／tool version／options／stop reasonの記録と既存outputの上書き拒否を追加済みであり、次回captureから適用される。
+
+caller attribution がない現在の process-wide `GetProcAddress`、`CreateFile`、`CreateThread` を、そのまま BGI の guest requirement に昇格しない。D3D9／DirectInput／DirectSound の vtable hook は該当 vertical slice を開始するときだけ追加する。

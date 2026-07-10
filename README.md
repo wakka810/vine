@@ -6,12 +6,15 @@ PE32/i386 in Chrome.
 
 The repository is in Phase 0 discovery. The current evidence includes
 reproducible PE32 fixtures, a freestanding Wasm module, and a source-patched
-v86 adapter with bounded execution, structured faults, and a versioned CPU
-state ABI. A PE/Win32 runtime and browser application do not exist yet.
+v86 adapter with bounded execution, structured faults, a versioned CPU state
+ABI, and a normalized Windows startup trace. A PE/Win32 runtime and browser
+application do not exist yet.
 
-Development uses Windows 11 Pro 25H2. The first task is to capture a focused
-native startup trace from the target `BGI.exe`; see
-[docs/windows-development.md](docs/windows-development.md).
+The development profile is Windows 11 Pro 25H2, although the current OS API
+reports Home; the observed build is recorded separately from that unresolved
+edition label. The next task is to run the deterministic PE32 ABI fixture
+through runtime-owned import thunks, a guest callback, and a return sentinel;
+see [docs/windows-native-evidence.md](docs/windows-native-evidence.md).
 
 ## Requirements
 
@@ -29,9 +32,10 @@ npm run check
 ```
 
 The canonical check validates the documentation, rebuilds the LLVM PE/Wasm
-fixtures, verifies the pinned v86 Wasm artifacts, and runs controlled i386,
-x87, SSE, and CPL3 trap programs. Generated reports are written under `.work/`
-and are not tracked by Git.
+fixtures, runs the native ABI callback oracle on Windows, verifies the pinned
+v86 Wasm artifacts, runs controlled i386, x87, SSE, and CPL3 trap programs,
+and checks the Windows trace summarizer contract. Generated reports are written
+under `.work/` and are not tracked by Git.
 
 `npm run prepare:engine` reproduces the source adapter and its single CPU state
 round-trip contract check when the pinned v86 source build is needed.

@@ -44,7 +44,7 @@ abi-smoke.exe
   -> entry returns pass/fail
 ```
 
-fixture は CRT と Windows SDK header を使わず、Clang と LLD だけで生成する。現在の spike は PE structure の生成／検査までを扱い、Windows oracle result は Windows 環境へ移行後に同じ source／hashへ追加する。
+fixture は CRT と Windows SDK header を使わず、Clang と LLD だけで生成する。Windows では生成直後の EXE も実行し、DLL import、cdecl、DLL から EXE への callback が entry code `0` まで通ることを native oracle とする。
 
 ## 5. Generated evidence
 
@@ -54,6 +54,7 @@ fixture は CRT と Windows SDK header を使わず、Clang と LLD だけで生
 - EXE が `COFF-i386`／`IMAGE_FILE_MACHINE_I386` である
 - EXE が `vine_fixture.dll` の 2 symbol を named import する
 - DLL が同じ 2 symbol を export する
+- Windows では `abi-smoke.exe` を直接実行し、exit code が `0` である
 - Wasm、EXE、DLL、import library の size と SHA-256 を `report.json` に記録する
 
 `.work/` は生成物なので Git 管理しない。
@@ -62,17 +63,20 @@ fixture は CRT と Windows SDK header を使わず、Clang と LLD だけで生
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `wasm-smoke.wasm` | 319 bytes | `6e52188e2ed1567154ab5a6f909c2c69d1e5818fde968c4570ed7a97ba758b28` |
+| `wasm-smoke.wasm` | 399 bytes | `d8e2fee03819c64707910bd2fa529ab9aa8319b6742a5556c00293f91b9feaf8` |
 | `abi-smoke.exe` | 2,560 bytes | `60f882a22d7d44e0ebe734f284dc8676e29035207ff004ed0cdf6e97c629b9c7` |
 | `vine_fixture.dll` | 2,048 bytes | `a9c2530df2a89317048ae9380e4202c8bd41994d1ff0e14b43fa578bb32c4878` |
 | `vine_fixture.lib` | 1,708 bytes | `ebb025e3a0c82f6726331aa8799b7a5fdafd4b2dfa3b3dcdce19d0630075c031` |
+
+旧文書のWasm値は319 bytes／`6e5218...`だったが、そのraw artifactは保持されておらず差の原因を再検証できない。現在のWindows canonical commandを複数回実行した結果は399 bytes／`d8e2fe...`で安定しているため、本表で旧観測を置き換える。source変化やcompiler regressionが確認できたという意味にはしない。
 
 ## 6. Interpretation
 
 今回の実行により、次を Phase 0 の事実として扱える。
 
 - T0／T1 PE32 fixture を source から再現生成できる
+- Windows native で EXE -> DLL -> EXE callback の cdecl oracle が exit code `0` になる
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC boot を迂回した integer／x87／SSE 実行に加え、Rust 1.97.0 から source を buildし、release fallback の exact instruction budget、CPL3 structured fault stop、version 1 CPU state round trip まで成立した。次は Windows native trace を取得し、その evidence に沿って memory ownership、guest callback、browser Worker を検証して ADR-001／002／003 を決める。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC boot を迂回した integer／x87／SSE 実行に加え、Rust 1.97.0 から source を buildし、release fallback の exact instruction budget、CPL3 structured fault stop、version 1 CPU state round trip まで成立した。Windows startup trace と native callback oracle は [windows-native-evidence.md](windows-native-evidence.md) に記録した。次は同じ fixture を v86 上の runtime-owned thunk／callback sentinelへ接続し、その実測から memory ownership と Worker 前の scheduler 境界を狭める。

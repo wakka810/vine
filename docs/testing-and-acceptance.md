@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、LLVM／Wasm smoke、v86 bounded execution／CPU state contract は存在する。runtime test runner、CI、benchmark、対応 browser は未選定
+- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、Windows trace summary contractは存在する。runtime test runner、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 

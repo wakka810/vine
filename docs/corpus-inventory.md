@@ -7,7 +7,7 @@
 - 開発形態: 1 人、完全個人用
 - corpus root: `V:\softs`
 - 主目標: `V:\softs\サクラノ詩\BGI.exe`
-- 調査方法: `file`、`llvm-readobj --file-headers --coff-imports`、`strings`、`sha256sum` による read-only static inventory
+- 調査方法: `llvm-readobj` と hash による read-only static inventory、Frida 17.15.4 による focused native trace
 
 この文書は、実装順と互換性 gap を決めるための T3 corpus 台帳である。ゲーム本体、実行ファイル、同梱 DLL、asset、既存の解析生成物は repository に格納しない。静的 import は実行時に通る API を保証せず、`LoadLibrary`／`GetProcAddress`、COM vtable、条件分岐後の call は dynamic trace で補う。
 
@@ -60,14 +60,16 @@ Static import に現れない dependency があるため、この表だけで su
 - binary string 上の runtime 表記は `Ethornell - BURIKO General Interpreter ( Version : 1.614.1 - Compatibility : 1.72 )`
 - `Direct3DCreate9` を静的 import する。以後の D3D9 呼び出しは COM vtable 経由なので、必要 method は import table から判定できない
 - `DirectInput8Create` を静的 import する
-- DirectSound は ordinal で 1 symbol を import する。正確な entry と利用 interface は trace／oracle で確定する
+- DirectSound は ordinal で 1 symbol を importし、Windows startup traceでは `DirectSoundCreate8` に到達した。利用interfaceとmethodは未確定
 - GDI は DIB、font、glyph、palette、text、clip、`StretchDIBits` を含む
 - GDI+ は bitmap load／save、DIB conversion、LockBits／UnlockBits を含む 16 symbol を import する
 - WinMM は timer、`PlaySoundA`、`mciSendCommandA` を含む
 - Kernel32 は thread、wait、TLS、file mapping、file I/O、process creation、virtual memory を含む 146 symbol を import する
 - title root 直下には `BGI.gdb`、`BGI.hvl` と 48 個の `.arc` がある。個別 asset decoder は作らず、guest file I/O と engine code に処理させる
 
-`WININET.dll` も静的 import されるが、primary scenario で到達するかは未確認である。静的に存在するだけの API を completion の必須実装へ昇格させず、runtime call evidence で判断する。
+60秒 startup traceでは main window、`Direct3DCreate9`、`DirectInput8Create`、`DirectSoundCreate8`、`GdiplusStartup`、title-local archive loadに到達した。`d3dx9_43.dll` と `D3DXCreateEffect` の動的解決も観測した。WinMM moduleはloadされたが、hook対象entryは未到達だった。詳細とattribution上の制約は [windows-native-evidence.md](windows-native-evidence.md) を参照する。
+
+`WININET.dll` も静的 importされ、process module setにも現れたが、現traceはcallerを記録しないためBGIからのruntime callとは未確定である。静的に存在する、またはprocess内でloadされただけのAPIをcompletionの必須実装へ昇格させず、caller付きruntime call evidenceで判断する。
 
 ## 6. Corpus priority
 
@@ -81,12 +83,12 @@ Static import に現れない dependency があるため、この表だけで su
 
 ## 7. 次に取得する evidence
 
-1. サクラノ詩の primary critical scenario と checkpoint を固定する。
-2. native run で process start からタイトル画面までの module、Win32 API、thread、file、registry trace を取る。
-3. D3D9 の interface version、CreateDevice parameters、呼び出す vtable method、format、render state、vertex path、Reset／device-lost path を記録する。
+1. manual marker／screenshot付きでサクラノ詩のvisual title checkpointを固定する。
+2. caller module＋RVAとcall ID付きtraceでBGI direct callとOS／driver内部callを分ける。
+3. D3D9 の interface version、CreateDevice parameters、呼び出す vtable method、format、render state、vertex path、Reset／device-lost pathを記録する。
 4. DirectInput 8 の device type、data format、cooperative level、Acquire／GetDeviceState／GetDeviceData の実利用を記録する。
-5. DirectSound、WinMM／MCI、GDI+、COM class の primary scenario 到達性を記録する。
-6. executed instruction／CPU feature と thread／wait pattern を Phase 1 workload へ落とす。
-7. file open／mapping／write と registry access を source volume／save overlay の設計入力へ落とす。
+5. DirectSound、WinMM／MCI、GDI+、COM class の primary scenario method到達性を記録する。
+6. executed instruction／CPU featureとthread／wait patternをPhase 1 workloadへ落とす。
+7. file access／share／disposition／last errorとregistry accessをsource volume／save overlayの設計入力へ落とす。
 
 既存の local trace／decompiler output は調査材料として利用できるが、Vine の acceptance evidence にする場合は取得条件、対象 hash、開始／終了 checkpoint、trace schema を固定して再取得する。
