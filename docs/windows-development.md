@@ -15,6 +15,7 @@
 - source-built v86 上の fixed PE32 map、IAT thunk、cdecl host service、1段 guest callback、budget yield、return sentinel
 - native `window-pixel.exe` のstdcall WndProc、queued message、paint、pixel、destroy／quit oracle
 - source-built v86 上の`window-pixel.exe` preferred-base map、13 owned thunk、`GetModuleHandleA(NULL)`、fixed class semantic state／ATOM、harness-local logical HWND／HDC／2x2 client、`WM_CREATE`／nested `WM_PAINT`／`WM_DESTROY` callback、paint／destroy／quit、entry return sentinel
+- fixed W2 resultのversion 1 browser present eventと、Chrome Canvas 2Dのone-shot present／pixel readback
 
 production guest memory、PE／DLL loader、Win32 API、graphics／audio は未実装である。W1 は Node.js 上の fixed loader-lite であり、サクラノ詩の native trace を引き続き実装順の根拠にする。
 取得値と W1／W2 fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow result は [windows-native-evidence.md](windows-native-evidence.md) を正とする。
@@ -64,6 +65,7 @@ npm run check:toolchain
 npm run prepare:engine
 npm run check:runtime:abi
 npm run check:runtime:window-loader
+npm run check:runtime:window-browser
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -103,7 +105,7 @@ node tools/summarize-windows-trace.mjs `
 1. `W0 Native evidence`: tool version／fingerprintと、W1選択に十分なstartup resource-band traceを固定する。manual marker付きvisual titleは`P0-COR-02`で継続する。
 2. `W1 Headless execution` [Verified]: controlled synthetic PE32をmapし、runtime-owned import thunk、guest callback、entry return sentinelまで走らせる。
 3. `W2 Startup substrate` [Native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow verified]: trace 先頭に必要な Kernel32／User32 の最小経路で logical window を作る。
-4. `W3 First frame` [browser-facing 1-pixel boundary next]: fixed logical window／message／pixel resultをversioned eventへ変換し、最小Canvas sinkまで通した後、観測したGDI／GDI+／D3D9 create／present経路の一つへ進む。
+4. `W3 First frame` [browser-facing 1-pixel boundary verified]: fixed logical window／message／pixel resultをversion 1 eventへ変換し、Chromeの最小Canvas sinkで1回present／readbackした。guest execution、production surface、renderer backendは未検証である。
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
@@ -121,6 +123,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。`abi-smoke.exe` の import thunk／guest callback／return sentinel は W1 contractで完了し、最小Win32 fixtureのnative event／pixel oracleも固定した。同じfixed fixtureの3 DLL／13 importをowned thunkへ解決し、13 fixed partial service variantsをreturnした。harness-only 2x2 clientへ`BeginPaint -> SetPixel(1,1,0xFF) -> EndPaint`を通し、nested `DestroyWindow -> WM_DESTROY -> PostQuitMessage(0)`、`WM_PAINT`／Dispatch return、2回目の`GetMessageA`による`WM_QUIT`、entry sentinelまで完了した。次はこのlogical window／message／pixel resultをbrowser-facing eventへ変換し、Chromeの最小Canvas sinkで1 pixelを確認する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。`abi-smoke.exe` の import thunk／guest callback／return sentinel は W1 contractで完了し、最小Win32 fixtureのnative event／pixel oracleも固定した。同じfixed fixtureの3 DLL／13 importをowned thunkへ解決し、13 fixed partial service variantsをreturnした。harness-only 2x2 clientへ`BeginPaint -> SetPixel(1,1,0xFF) -> EndPaint`を通し、nested `DestroyWindow -> WM_DESTROY -> PostQuitMessage(0)`、`WM_PAINT`／Dispatch return、2回目の`GetMessageA`による`WM_QUIT`、entry sentinelまで完了した。そのfinal stateをversion 1 sparse `rgba8` eventへ変換し、Chrome `150.0.7871.115`のone-shot Canvas sinkで1回presentして`(1,1) = [255,0,0,255]`をreadbackした。次はsubsystem-focused traceに必要なcaller attribution、call ownership、LastError、durationをschemaへ追加する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

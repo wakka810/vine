@@ -202,6 +202,8 @@ crash consistency test は commit の各 injection point で process／Worker ki
 
 fixed `GetMessageA`はcandidateをzero metadataのMSGへmaterialize／dequeueし、fixed `DispatchMessageA`は同じMSGからregistered WndProcの`WM_PAINT` branchへ入る。fixed paint／quit continuationはBeginPaint／SetPixel／EndPaint、nested WM_DESTROY／PostQuit、strict unwind、WM_QUIT、entry returnまで進み、native oracleの関連event／counter／COLORREF／quit code／exit `0`と一致する。native oracleはVineの2x2 bounds、PAINTSTRUCT bytes、HDC／HWND数値、pixel map、zero metadata、call ID／stack addressをgoldenにしない。Vine側の1 pixelはlogical stateであり、物理的な表示は未検証である。
 
+W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
+
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch
 - timer、paint invalidation、focus、capture

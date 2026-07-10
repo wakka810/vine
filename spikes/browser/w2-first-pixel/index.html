@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vine W3</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        display: grid;
+        min-height: 100vh;
+        place-items: center;
+        overflow: hidden;
+        background: #202124;
+      }
+
+      canvas {
+        width: min(64vmin, 320px);
+        height: min(64vmin, 320px);
+        border: 1px solid #80868b;
+        background: #f8f9fa;
+        image-rendering: pixelated;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body data-check-status="pending" data-present-count="0">
+    <canvas id="vine-canvas" aria-label="Vine W3 first pixel"></canvas>
+    <output id="vine-result" class="visually-hidden" aria-live="polite">pending</output>
+    <script type="module">
+      import { createFixedW2CanvasSink } from "./canvas-sink.mjs";
+
+      const body = document.body;
+      const output = document.querySelector("#vine-result");
+
+      try {
+        const response = await fetch("/present-event.json", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`present event request failed with ${response.status}`);
+        }
+        const event = await response.json();
+        const sink = createFixedW2CanvasSink(document.querySelector("#vine-canvas"));
+        const result = sink.present(event);
+        const pixel = sink.readPixel(1, 1);
+        const passed =
+          result.presentCount === 1 &&
+          result.presentedPixels === 1 &&
+          result.width === 2 &&
+          result.height === 2 &&
+          pixel.every((component, index) => component === [255, 0, 0, 255][index]);
+
+        body.dataset.checkStatus = passed ? "passed" : "failed";
+        body.dataset.presentCount = String(sink.presentCount);
+        body.dataset.schemaVersion = String(event.schemaVersion);
+        body.dataset.presentSequence = String(event.presentSequence);
+        body.dataset.canvasSize = `${result.width}x${result.height}`;
+        body.dataset.pixelRgba = pixel.join(",");
+        output.value = JSON.stringify({ passed, ...result, pixel });
+        globalThis.vineW2BrowserCheckpoint = Object.freeze({ event, result, pixel, passed });
+      } catch (error) {
+        body.dataset.checkStatus = "failed";
+        body.dataset.error = error instanceof Error ? error.message : String(error);
+        output.value = body.dataset.error;
+      }
+    </script>
+  </body>
+</html>

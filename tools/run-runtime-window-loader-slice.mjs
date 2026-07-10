@@ -5,6 +5,11 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import {
+  browserPresentEventLogPrefix,
+  createFixedW2BrowserPresentEvent,
+} from "../spikes/browser/w2-first-pixel/present-event.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultWasmPath = path.join(
   root,
@@ -1111,6 +1116,7 @@ const decodeImportCall = (state, service) => {
 const budgetEvents = [];
 const implementedServiceEvents = [];
 const callbackEvents = [];
+const browserPresentEvents = [];
 const hostCallFrames = [];
 const maxHostCallDepth = 4;
 let nextHostCallId = 1;
@@ -1603,6 +1609,17 @@ for (
       window.activePaintSession = null;
       window.paintState = paintLifecycle.none;
       window.paintSequence = null;
+      const setPixelForPresent = implementedServiceEvents.at(-1);
+      assert.equal(setPixelForPresent.symbol, "SetPixel");
+      const [, pixelX, pixelY, colorRef] = setPixelForPresent.arguments;
+      assert.equal(window.clientSurface.pixels.get(`${pixelX},${pixelY}`), colorRef);
+      browserPresentEvents.push(
+        createFixedW2BrowserPresentEvent({
+          bounds: window.clientSurface.bounds,
+          paintSequence: session.paintSequence,
+          pixels: [{ x: pixelX, y: pixelY, colorRef }],
+        }),
+      );
       const argumentBytes = arguments_.length * 4;
       const resumeEsp = state.esp + 4 + argumentBytes;
       assert.equal(resumeEsp, 0x006fffd4);
@@ -2860,6 +2877,11 @@ assert.deepEqual(
 );
 assert.deepEqual(Object.keys(hostImportCalls), ["microtick"]);
 assert(hostImportCalls.microtick > 0);
+
+assert.equal(browserPresentEvents.length, 1);
+const [browserPresentEvent] = browserPresentEvents;
+assert.equal(browserPresentEvent.source.paintSequence, retiredPaintSession.paintSequence);
+console.log(`${browserPresentEventLogPrefix}${JSON.stringify(browserPresentEvent)}`);
 
 console.log(
   `runtime window paint and quit flow passed: imports=${resolvedImports.length}, ` +

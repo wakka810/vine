@@ -194,6 +194,7 @@ Verified behavior:
 - GPR、flags、segment／control state、x87、XMM／MXCSR の save／reset／restore／resume 1 sequence
 - fixed T1 image の PE32 section map、IAT thunk、cdecl host call、1 段 guest callback、return sentinel
 - fixed W2 image の3 DLL／13 IAT thunk、`GetModuleHandleA(NULL)`、checked `WNDCLASSEXA`、host-owned logical class／ATOM／HWND／HDC、window／message／paint／nested destroy／quit flow、callback／entry return sentinel
+- fixed W2 resultからversion 1 browser present eventを1件生成し、Chrome Canvas 2Dへ1回presentしてpixel readbackするW3 first-pixel boundary
 
 未検証または未実装:
 
@@ -230,8 +231,9 @@ Verified behavior:
 19. `InvalidateRect`のfixed `invalidaterect-whole-client-no-erase` variantでlive HWND、NULL RECT、FALSE eraseを検査し、whole-client update regionとthread-owned generated-paint candidate 1件を作ってBOOL `1`をstdcall returnし、`GetMessageA`を構造化するW2 invalidation ingress contract。
 20. `GetMessageA`のfixed `getmessagea-unfiltered-generated-paint-zero-metadata` variantでcandidate 1件を28-byte `MSG`へmaterialize／dequeueし、paint stateを`queued`から`in-flight`へ遷移してBOOL `1`をstdcall returnする。続くfixed `dispatchmessagea-generated-wm-paint-callback`で`CALL ESI`をIAT thunkへ帰属し、guest WndProcの`WM_PAINT` callbackへ入ってreentrant `BeginPaint`を構造化するW2 message dispatch ingress contract。
 21. harness-only 2x2 logical clientへfixed `BeginPaint`／`SetPixel`／`EndPaint`を通し、typed HDC `0x48010001`のsession lifetimeとpixel `(1,1) = 0x000000FF`を検証する。`DestroyWindow`からnested `WM_DESTROY` callback／`PostQuitMessage(0)`へ入り、strict reverse callback／API unwind、2回目の`GetMessageA`による`WM_QUIT`、entry return sentinelまで完了するW2 paint／quit flow contract。
+22. W2 harnessの最終logical pixelを`vine.browser-present` schema version `1`のsparse `rgba8` eventへ変換し、clean temporary profileのChrome `150.0.7871.115`でone-shot Canvas 2D sinkへ1回presentする。Canvas readbackは`(1,1) = [255,0,0,255]`、present countは`1`となるW3 browser first-pixel contract。
 
-2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutはharness-localでnative geometry、production common surface、general Win32、browser presentationの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleであり、Chrome execution smokeは未実施である。
+2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
 
 まだ存在しないもの:
 
@@ -244,7 +246,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGI.exe を Vine 内で load／executeした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle、fixed W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowである。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle、fixed W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first-pixel boundaryである。
 
 ## 8. Corpus
 
@@ -306,22 +308,22 @@ npm run check:toolchain
 npm run prepare:engine
 npm run check:runtime:abi
 npm run check:runtime:window-loader
+npm run check:runtime:window-browser
 ```
 
-`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`と`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI contractとW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow contractを実行する。source adapterを使うこれらのcheckpointは通常の`npm run check`には含めない。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`と`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI contractとW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow contractを実行する。`check:runtime:window-browser`は同じW2 harnessがemitしたeventを一時local serverからclean Chrome profileへ渡し、Canvas pixelをreadbackする。source adapterを使うこれらのcheckpointは通常の`npm run check`には含めない。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowは 2026-07-11 までに完了した。8 MiB low-address contiguous mapping とharness-local HWND／HDC／2x2 client／surface／queue／frame encodingは測定／fixture上の選択であり、sparse 4 GiB memory、page ownership、production object／surface／queue layoutの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowとW3 browser first-pixel boundaryは 2026-07-11 までに完了した。8 MiB low-address contiguous mapping、harness-local HWND／HDC／2x2 client／surface／queue／frame encoding、sparse `rgba8` eventは測定／fixture上の選択であり、sparse 4 GiB memory、page ownership、production object／surface／queue layoutの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. fixed W2のlogical window／message lifecycleとharness-only 2x2 pixel resultをversioned browser-facing eventへ変換し、Chromeの最小Canvas sinkで`(1,1) = 0x000000FF`を1回presentしてpixel checkする。
-2. 次の subsystem-focused native trace 前に caller module＋RVA、call ID／parent call ID、last error、duration を追加し、選んだ vtable だけを観測する。
-3. high-address mapping と page fault／protectionを別 fixtureで測り、v86 paging と独自 sparse memory案を比較する。
-4. BGI.exe を production loader 候補へ投入し、first unsupported import／bootstrap pointまで進める。
+1. 次の subsystem-focused native trace 前に caller module＋RVA、call ID／parent call ID、last error、duration を追加し、選んだ vtable だけを観測する。
+2. high-address mapping と page fault／protectionを別 fixtureで測り、v86 paging と独自 sparse memory案を比較する。
+3. BGI.exe を production loader 候補へ投入し、first unsupported import／bootstrap pointまで進める。
 
-項目1が次の primary implementation checkpointである。W2 paint／quit flowの成功をnative client geometry、general BeginPaint／EndPaint／DC／SetPixel、common surface／format／pitch／orientation／dirty region、general DestroyWindow／WM_NCDESTROY、message ordering／wait、arbitrary callback nesting、DOM／Canvas presentation、Win32 runtime、browser integrationの完成と扱わない。次checkpointもharness-only stateを1 pixelへ運ぶ境界に限定し、renderer backendやproduction common surfaceを同時に決定しない。
+項目1が次の primary implementation checkpointである。W3の成功をnative client geometry、general BeginPaint／EndPaint／DC／SetPixel、common surface／format／pitch／orientation／dirty region、renderer backend、Runtime Worker protocol、Win32 runtime、browser applicationの完成と扱わない。次checkpointでは既存trace全体を広げず、後続のsubsystem-focused captureに必要なattributionとcall ownershipをschemaへ追加し、vtable観測は選んだinterfaceだけに限定する。
 
 ## 11. Major Open Questions
 
