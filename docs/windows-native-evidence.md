@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／native ABI oracle／W1／W2／W3／W7 PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry／fixed cdecl service／callback return ingressはVerified。visual title／device-level method coverageはIn discovery
+- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／native ABI oracle／W1／W2／W3／W7 PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry／fixed cdecl service／callback return／outer return ingressはVerified。visual title／device-level method coverageはIn discovery
 - 取得日: 2026-07-10／2026-07-11
 - runtime checkpoint更新日: 2026-07-11
-- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`W7 PE32 load-plan ingress`、`production guest-memory ingress`、`production PE32 materialization`、`production PE32 import binding`、`production-memory v86 entry ingress`、`production cdecl service ingress`、`production callback return ingress`、`P0-COR-04` の最初のnative sample
+- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`W7 PE32 load-plan ingress`、`production guest-memory ingress`、`production PE32 materialization`、`production PE32 import binding`、`production-memory v86 entry ingress`、`production cdecl service ingress`、`production callback return ingress`、`production outer return ingress`、`P0-COR-04` の最初のnative sample
 - partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-MEM-01`、`P1-MEM-02`、`P1-MEM-03`、`P1-ABI-01`、`P1-ABI-02`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-03`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P2-COR-01`、`P3-WIN-01`、`P3-WIN-03`、`P4-UI-01`、`P4-UI-02`、`P4-GDI-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
@@ -677,4 +677,12 @@ callback modeのreflectionは7 production pages、generation `6`、content SHA-2
 
 thunk ID `2`到達時のouter ESPは`0x006FFFF0`である。frame ID `1`はparent thunk ID `2`、outer return `0x10001019`、target `0x10001030`、value `42`を保持する。checked writable stackのESP `0x006FFFE8`へ`[0x7F010000,42]`を置き、targetを実行した。6 execute stop／3 budget stop後、EIP／previous EIP `0x7F010000`、EAX `43`、ESP `0x006FFFEC`でexact callback-return trapへ到達した。callee-saved registerは保持され、host importは`microtick` 1回である。
 
-version 1 reportは7,028 bytes／SHA-256 `4c176ba2358254a8d47c9bcc3040435977a19e4c6b495fb6f220a839e8869093`で一致した。control range／owner／IDはcheckpoint-localで、adapter stack mutationはRust memoryへ戻らない。frame ID `1`はactiveのままで、outer service return、nested callback、reentrancy、exception／SEH、production stack／bootstrap、BGI executionを実装しない。詳細は[v86-callback-return-ingress.md](v86-callback-return-ingress.md)を正とする。次はframe ID `1`をretireし、EAX `43`、ESP `0x006FFFF4`、EIP／previous EIP `0x10001019`でouter thunk ID `2`からguestへreturnしてentry continuationを測る。
+version 1 reportは7,028 bytes／SHA-256 `4c176ba2358254a8d47c9bcc3040435977a19e4c6b495fb6f220a839e8869093`で一致した。control range／owner／IDはcheckpoint-localで、adapter stack mutationはRust memoryへ戻らない。frame ID `1`はactiveのままで、outer service return、nested callback、reentrancy、exception／SEH、production stack／bootstrap、BGI executionを実装しない。詳細は[v86-callback-return-ingress.md](v86-callback-return-ingress.md)を正とする。outer continuationは次節で完了したが、このcallback-only reportとstopは変更しない。
+
+## 18. Production outer return ingress
+
+`npm run check:runtime:outer-return`はcallback-return checkpointと同じgeneration `6`／7 production pagesを使い、exact sentinel stateからframe ID `1`をretireする。outer thunk ID `2`のfixed cdecl returnとしてEAX `43`、ESP `0x006FFFF4`、EIP／previous EIP `0x10001019`を復元した。callee `RET`相当はouter return addressだけをconsumeし、2 argumentsはguest callerに残す。
+
+guestは`ADD ESP,8`でargumentsをcleanupし、`0x10003000`へ`43`を書いた。続くcomparisonはentry EAX `0`を作り、final `RET`はinitial stackのharness-only `0xDEADC0DE`をconsumeしてESP `0x00700000`へ進めた。このaddressはunmappedなので、合計9 execute stop／5 budget stop後にreason `0x10E`、PFEC `4`、CR2／EIP／previous EIP `0xDEADC0DE`のstructured `#PF`となった。callee-saved registerは保持され、host importは`microtick` 1回である。
+
+version 1 reportは8,124 bytes／SHA-256 `e8202c64fd7a184b8f01a194169f8b5632d7689e866e2588c26be158af587598`で一致し、entry／cdecl／callback-only reportはbyte-identicalである。これはfixed outer cdecl unwind、guest result、entry result、stack balanceのevidenceであり、page faultをprocess exitとは扱わない。production-owned entry sentinel、general frame stack、nested／reentrant callback、exception／SEH、PEB／TEB、production stack／bootstrap、BGI executionは未実装である。詳細は[v86-outer-return-ingress.md](v86-outer-return-ingress.md)を正とする。次はexact production-owned entry return sentinelをinitial stackへ置き、successful entry completionを構造化する。

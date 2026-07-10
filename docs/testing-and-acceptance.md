@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、fixed W1／W2 runtime、W3 browser pixel、high-address／protection memory、Rust PE32 loader／memory／materialization／import-binding／controlled entry／fixed cdecl service／callback return、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、fixed W1／W2 runtime、W3 browser pixel、high-address／protection memory、Rust PE32 loader／memory／materialization／import-binding／controlled entry／fixed cdecl service／callback return／outer return、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -136,6 +136,8 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 
 `npm run check:runtime:callback`はoptional Rust-owned control owner／RX sentinel page、generation `6` reflection、actual invalidation acknowledgement、frame ID `1`、checked writable stack `[sentinel,42]`、executable callback target、exact callback return trap、EAX `43`／ESP `0x006FFFEC`を1 sequenceで検査する。6 execute stop／3 budget stopと7,028-byte deterministic reportを固定するが、frame retirementとouter service returnを行わない。詳細は[v86-callback-return-ingress.md](v86-callback-return-ingress.md)を正とする。
 
+`npm run check:runtime:outer-return`はそのexact stopからframe ID `1`をretireし、outer cdecl return state EAX `43`／ESP `0x006FFFF4`／EIP `0x10001019`を復元する。guest caller cleanup、result `0x10003000 = 43`、entry EAX `0`、final ESP `0x00700000`、unmapped harness return `0xDEADC0DE`のreason `0x10E`／PFEC `4`／CR2を1 sequenceで検査する。9 execute stop／5 budget stopと8,124-byte deterministic reportを固定するが、production-owned entry sentinelやprocess exitを実装しない。詳細は[v86-outer-return-ingress.md](v86-outer-return-ingress.md)を正とする。
+
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
 runtime-owned scratch `0x00501000`へ48-byte `CREATESTRUCTA`を書き、ESP `0x006FFFAC`へreturn sentinel `0x00500E00`と`[HWND, WM_CREATE, 0, CREATESTRUCTA*]`を積んでWndProc `0x00401260`を呼ぶ。callbackはEAX `0`、ESP `0x006FFFC0`でsentinelへ戻り、outer stdcallはEAX `HWND`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x0040109B`でresumeする。logical windowは`creating`から`created`へ移り、hiddenのまま保持される。fixed `showwindow-sw-show-hidden-to-visible`はcreated／hiddenのlive objectだけをvisibleへ遷移し、previous visibilityのBOOL `0`を返す。fixed `invalidaterect-whole-client-no-erase`はcall site `0x004010B3`、ESP `0x006FFFE4`のarguments `[HWND, NULL, FALSE]`をchecked readし、NULL pointerをsymbolic whole-client regionへ変換してerase falseを保持する。owner guest threadのgenerated-paint laneへsequence 1のcandidate `[HWND, WM_PAINT, 0, 0]`を1件置き、paint stateをqueuedへ遷移する。BOOL `1`をEAXへ返し、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x004010B9`でresumeする。
@@ -182,6 +184,8 @@ ABI fixture は stack に sentinel を置き、call 前後の ESP、callee／cal
 production-memory cdecl representative contractは同じfixtureのfirst serviceだけをordered production thunk metadataからdispatchする。calleeの`RET`相当でreturn addressだけをconsumeしてEAX `42`を返し、guest callerが2 argumentsをcleanupした後にcallback-service thunk ID `2`へ到達する。これはfixed two-DWORD cdecl returnのevidenceであり、general cdecl schema、他calling convention、callback frame／return、LastError、SEHの代用にはしない。
 
 production callback representative contractはimport thunkと分離したsentinel ID／address、active frame ID／parent thunk、outer ESP／return address、target／valueを保持し、one-level cdecl callbackの`RET`をexact sentinelで分類する。これはone frameのentry／return stopだけであり、outer unwind、nested／reentrant callback、fault／cancellation、general frame allocatorの代用にはしない。
+
+production outer-return representative contractはそのfixed frameをretireし、callee `RET`相当でouter return addressだけをconsumeしてresult `43`をguest cdecl callerへ返す。guest自身の2 argument cleanup、result write、entry comparison、stack balanceを検証するが、process-entry return sentinel、general entry lifecycle、nested／reentrant frame unwind、callback fault／cancellationの代用にはしない。
 
 W2のcreate／invalidation ingress segmentは`GetModuleHandleA(NULL)`とfixed `RegisterClassExA`をstdcall resumeし、fixed `CreateWindowExA`では48-byte argument bandを保持したまま1段のWndProc stdcall callbackを往復する。callback frameはreturn sentinelを含む20 bytesで、WndProcの`ret 16`後にouter ESP `0x006FFFC0`へ戻る。outer service完了時はreturn addressと12 argumentsの52 bytesをpopし、EAX `0x57010001`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x0040109B`とする。fixed `ShowWindow`は2 DWORD argumentsをpopし、previous visibilityのBOOL `0`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x004010AE`でresumeする。fixed `InvalidateRect`は3 DWORD argumentsをpopし、BOOL `1`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x004010B9`でresumeする。host boundaryのcallee-saved registerとentry prologueのsaved ESI／EDIを保持する。後続のpaint／quit flowはfixed 2-level callbackとfixture entry returnまで通すが、これらをgeneral stdcall、invalid stack、thiscall／fastcall、arbitrary nested callback／reentrant service、callback fault／failure、general process entry lifecycleの代用にはしない。
 
@@ -421,7 +425,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／cdecl／callback ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUがreflected pagesを使ってfirst API trap、fixed service return、second API trap、one guest callback returnまで進むが、stackはharness-onlyで、outer service unwind、general callback stack／service、pixel／audio／persistence、general mutation、guard／heap／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／cdecl／callback／outer return ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUがreflected pagesを使ってfirst API trap、fixed service return、second API trap、one guest callback、outer service unwind、entry result／stack balanceまで進むが、stackとentry returnはharness-onlyで、production process lifecycle、general callback stack／service、pixel／audio／persistence、general mutation、guard／heap／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 

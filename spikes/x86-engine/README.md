@@ -59,6 +59,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:callback` optionally adds a separate Rust-owned RX callback-control page, acknowledges generation `6`, creates frame ID `1` on checked harness stack space, and executes target `0x10001030` to exact sentinel `0x7F010000` with result `43`. It stops before outer service return; the result is recorded in [v86-callback-return-ingress.md](../../docs/v86-callback-return-ingress.md).
 
+`npm run check:runtime:outer-return` continues that exact stop, retires frame ID `1`, returns result `43` through outer cdecl thunk ID `2`, and executes the guest result／entry continuation. It verifies result `43`, entry EAX `0`, ESP `0x00700000`, and the structured instruction-fetch page fault at the harness-only unmapped return `0xDEADC0DE`. The result is recorded in [v86-outer-return-ingress.md](../../docs/v86-outer-return-ingress.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.

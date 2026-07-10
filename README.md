@@ -16,16 +16,19 @@ integration, DLL/export resolution, process bootstrap, the Win32 runtime, and th
 browser application do not exist yet. The sealed controlled image now crosses
 a versioned Rust-to-v86 reflection boundary, dispatches fixed cdecl
 `fixture_add(19, 23)`, and executes one guest callback to a separately owned
-exact return sentinel after real cache invalidation.
+exact return sentinel after real cache invalidation. The host now retires that
+callback frame, returns result `43` through the outer cdecl thunk, and runs the
+guest entry continuation through result `43`, entry result `0`, and balanced
+stack state.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. The controlled fixture now binds both imports and seals its
 image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
-at `DINPUT8.dll!DirectInput8Create`. The next task retires callback frame ID
-`1`, returns result `43` through outer thunk ID `2`, and measures the following
-guest entry continuation; see
-[docs/v86-callback-return-ingress.md](docs/v86-callback-return-ingress.md).
+at `DINPUT8.dll!DirectInput8Create`. The controlled entry currently ends in a
+structured fetch fault at its harness-only unmapped return value. The next task
+replaces that value with an exact production-owned process-entry return
+sentinel; see [docs/v86-outer-return-ingress.md](docs/v86-outer-return-ingress.md).
 
 ## Requirements
 
@@ -57,6 +60,9 @@ and controlled entry-to-thunk boundary. `npm run check:runtime:cdecl` verifies
 the fixed cdecl return and callback-service ingress without invoking the
 callback. `npm run check:runtime:callback` verifies the separate Rust-owned
 return sentinel, checked frame, guest callback, and exact result `43` stop.
+`npm run check:runtime:outer-return` retires that frame, returns through the
+outer cdecl thunk, and verifies the following result write, entry result, stack
+balance, and structured unmapped-return fault.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

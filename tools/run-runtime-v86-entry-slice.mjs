@@ -10,18 +10,24 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
 const dispatchAddRequested = commandArguments.includes("--dispatch-add");
-const dispatchCallback = commandArguments.includes("--dispatch-callback");
+const dispatchCallbackRequested = commandArguments.includes("--dispatch-callback");
+const dispatchOuterReturn = commandArguments.includes("--dispatch-outer-return");
 assert(
-  !(dispatchAddRequested && dispatchCallback),
-  "choose only one of --dispatch-add or --dispatch-callback",
+  Number(dispatchAddRequested) + Number(dispatchCallbackRequested) + Number(dispatchOuterReturn) <=
+    1,
+  "choose only one dispatch mode",
 );
+const dispatchCallback = dispatchCallbackRequested || dispatchOuterReturn;
 const dispatchAdd = dispatchAddRequested || dispatchCallback;
 const positionalArguments = commandArguments.filter(
-  (value) => value !== "--dispatch-add" && value !== "--dispatch-callback",
+  (value) =>
+    value !== "--dispatch-add" &&
+    value !== "--dispatch-callback" &&
+    value !== "--dispatch-outer-return",
 );
 assert(
   positionalArguments.length <= 2,
-  "usage: run-runtime-v86-entry-slice.mjs [--dispatch-add | --dispatch-callback] [WASM] [EXE]",
+  "usage: run-runtime-v86-entry-slice.mjs [--dispatch-add | --dispatch-callback | --dispatch-outer-return] [WASM] [EXE]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -33,7 +39,9 @@ const fixturePath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchCallback
+  dispatchOuterReturn
+    ? "v86-outer-return-ingress"
+    : dispatchCallback
     ? "v86-callback-return-ingress"
     : dispatchAdd
       ? "v86-cdecl-ingress"
@@ -54,6 +62,7 @@ const expected = {
   },
   imageLoadBase: 0x10000000,
   entry: 0x10001000,
+  resultAddress: 0x10003000,
   firstThunk: {
     id: 1,
     address: 0x7f000000,
@@ -95,6 +104,10 @@ const expected = {
   callbackReport: {
     bytes: 7_028,
     sha256: "4c176ba2358254a8d47c9bcc3040435977a19e4c6b495fb6f220a839e8869093",
+  },
+  outerReturnReport: {
+    bytes: 8_124,
+    sha256: "e8202c64fd7a184b8f01a194169f8b5632d7689e866e2588c26be158af587598",
   },
 };
 
@@ -142,6 +155,7 @@ const stateWord = {
 const stopReason = {
   budget: 1,
   invalidOpcode: 0x106,
+  pageFault: 0x10e,
 };
 const calleeSaved = {
   ebx: 0x11223344,
@@ -302,11 +316,13 @@ async function run() {
 
     const execution = executeControlled(offer, wasmContext);
     const report = {
-      schema: dispatchCallback
-        ? "vine.v86-callback-return-ingress"
-        : dispatchAdd
-          ? "vine.v86-cdecl-service-ingress"
-          : "vine.v86-entry-ingress",
+      schema: dispatchOuterReturn
+        ? "vine.v86-outer-return-ingress"
+        : dispatchCallback
+          ? "vine.v86-callback-return-ingress"
+          : dispatchAdd
+            ? "vine.v86-cdecl-service-ingress"
+            : "vine.v86-entry-ingress",
       schemaVersion: 1,
       source: offer.source,
       ...(dispatchCallback
@@ -352,30 +368,40 @@ async function run() {
         entryPoint: offer.entryPointAddress,
       },
       execution,
-      stop: dispatchCallback
+      stop: dispatchOuterReturn
         ? {
-            stage: "callback-return",
-            code: "outer-cdecl-return-unimplemented",
+            stage: "process-entry-return",
+            code: "production-entry-return-sentinel-unimplemented",
             message:
-              "guest callback returned 43 to the exact production-owned sentinel; returning through outer thunk ID 2 was not attempted",
+              "outer cdecl thunk ID 2 returned 43 and the guest entry completed; its RET reached the harness-only unmapped return address before a production-owned entry sentinel was installed",
           }
-        : dispatchAdd
-        ? {
-            stage: "callback-dispatch",
-            code: "guest-callback-frame-unimplemented",
-            message:
-              "fixed cdecl thunk ID 1 returned to guest execution and reached thunk ID 2; callback frame construction and invocation were not attempted",
-          }
-        : {
-            stage: "thunk-dispatch",
-            code: "owned-import-service-unimplemented",
-            message:
-              "the controlled entry reached exact runtime-owned thunk ID 1; host service dispatch and guest resume were not attempted",
-          },
+        : dispatchCallback
+          ? {
+              stage: "callback-return",
+              code: "outer-cdecl-return-unimplemented",
+              message:
+                "guest callback returned 43 to the exact production-owned sentinel; returning through outer thunk ID 2 was not attempted",
+            }
+          : dispatchAdd
+            ? {
+                stage: "callback-dispatch",
+                code: "guest-callback-frame-unimplemented",
+                message:
+                  "fixed cdecl thunk ID 1 returned to guest execution and reached thunk ID 2; callback frame construction and invocation were not attempted",
+              }
+            : {
+                stage: "thunk-dispatch",
+                code: "owned-import-service-unimplemented",
+                message:
+                  "the controlled entry reached exact runtime-owned thunk ID 1; host service dispatch and guest resume were not attempted",
+              },
     };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    if (dispatchCallback) {
+    if (dispatchOuterReturn) {
+      assert.equal(reportBytes.byteLength, expected.outerReturnReport.bytes);
+      assert.equal(sha256(reportBytes), expected.outerReturnReport.sha256);
+    } else if (dispatchCallback) {
       assert.equal(reportBytes.byteLength, expected.callbackReport.bytes);
       assert.equal(sha256(reportBytes), expected.callbackReport.sha256);
     } else if (dispatchAdd) {
@@ -386,7 +412,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expected.entryReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchCallback) {
+    if (dispatchOuterReturn) {
+      console.log(
+        `v86 outer return ingress passed: frame ID ${execution.callbackFrame.id} ` +
+          `${execution.callbackFrame.state}, result=${execution.entryContinuation.result}, ` +
+          `${execution.budgetStops} budget stops, #PF ` +
+          `0x${execution.entryContinuation.faultAddress.toString(16)}`,
+      );
+    } else if (dispatchCallback) {
       console.log(
         `v86 callback return ingress passed: frame ID ${execution.callbackFrame.id}, ` +
           `result=${execution.callbackReturn.result}, ${execution.budgetStops} budget stops, ` +
@@ -811,6 +844,7 @@ function executeControlled(offer, context) {
       words,
       eax: words[stateWord.eax],
       esp: words[stateWord.esp],
+      faultAddress: words[stateWord.controlRegisterBase + 2],
       instructionPointer: words[stateWord.instructionPointer],
       previousInstructionPointer: words[stateWord.previousInstructionPointer],
     };
@@ -875,6 +909,32 @@ function executeControlled(offer, context) {
     assert.equal(trap.kind, "callback-return");
     assert.equal(trap.sentinel.id, callbackSentinel.id);
     return state;
+  };
+  const runUntilPageFault = (expectedAddress, label) => {
+    for (let index = 0; index < 16; index += 1) {
+      const before = saveState(0);
+      const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
+      assert(
+        executablePages.has(currentPage),
+        `execute gate rejected EIP 0x${before.instructionPointer.toString(16)}`,
+      );
+      const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
+      executeStops += 1;
+      const state = saveState(reason);
+      assert.equal(state.words[stateWord.ebx], calleeSaved.ebx);
+      assert.equal(state.words[stateWord.ebp], calleeSaved.ebp);
+      assert.equal(state.words[stateWord.esi], calleeSaved.esi);
+      assert.equal(state.words[stateWord.edi], calleeSaved.edi);
+      if (reason === stopReason.budget) {
+        budgetStops += 1;
+        continue;
+      }
+      assert.equal(reason, stopReason.pageFault);
+      assert.equal(state.errorCode, 4);
+      assert.equal(state.faultAddress, expectedAddress, `${label} faulted at the wrong address`);
+      return state;
+    }
+    assert.fail(`${label} did not reach its page-fault boundary within 16 slices`);
   };
   const resume = (state, { eax, esp, instructionPointer }) => {
     context.wasm.vine_cpu_state_save();
@@ -1054,7 +1114,7 @@ function executeControlled(offer, context) {
   assert.equal(budgetStops, 3);
   assert.deepEqual(context.hostImportCalls, { microtick: 1 });
 
-  return {
+  const callbackResult = {
     instructionBudget: guest.instructionBudget,
     executeStops,
     budgetStops,
@@ -1071,6 +1131,79 @@ function executeControlled(offer, context) {
       eax: callbackReturnState.eax,
       result: callbackReturnState.eax,
       esp: callbackReturnState.esp,
+    },
+    hostImportCalls: { ...context.hostImportCalls },
+  };
+  if (!dispatchOuterReturn) {
+    return callbackResult;
+  }
+
+  const outerResumeEsp = callbackFrame.outerEsp + 4;
+  assert.equal(outerResumeEsp, guest.stackTop - 12);
+  const outerResume = {
+    eax: callbackReturnState.eax,
+    esp: outerResumeEsp,
+    instructionPointer: callbackFrame.outerReturnAddress,
+    previousInstructionPointer: callbackFrame.outerReturnAddress,
+  };
+  resume(callbackReturnState, outerResume);
+  const entryContinuationState = runUntilPageFault(
+    guest.entryReturn,
+    "fixture entry return",
+  );
+  assert.equal(entryContinuationState.instructionPointer, guest.entryReturn);
+  assert.equal(entryContinuationState.previousInstructionPointer, guest.entryReturn);
+  assert.equal(entryContinuationState.eax, 0);
+  assert.equal(entryContinuationState.esp, guest.stackTop);
+  const fixtureResult = context.readVirtualU32(
+    expected.resultAddress,
+    "fixture callback result",
+  );
+  assert.equal(fixtureResult, callbackReturnState.eax);
+  assert.equal(executeStops, 9);
+  assert.equal(budgetStops, 5);
+  assert.deepEqual(context.hostImportCalls, { microtick: 1 });
+
+  return {
+    instructionBudget: guest.instructionBudget,
+    executeStops,
+    budgetStops,
+    services: [
+      ...cdeclResult.services,
+      {
+        thunkId: offer.thunks[1].id,
+        thunkAddress: offer.thunks[1].address,
+        service: "vine_fixture.dll!fixture_call_callback",
+        esp: secondState.esp,
+        returnAddress: callbackReturn,
+        arguments: [callbackTarget, callbackValue],
+        callbackFrameId: callbackFrame.id,
+        result: callbackReturnState.eax,
+        resume: outerResume,
+      },
+    ],
+    callbackIngress: cdeclResult.callbackIngress,
+    callbackFrame: {
+      ...callbackFrame,
+      state: "retired",
+    },
+    callbackReturn: callbackResult.callbackReturn,
+    outerReturn: {
+      thunkId: offer.thunks[1].id,
+      callbackFrameId: callbackFrame.id,
+      result: callbackReturnState.eax,
+      resume: outerResume,
+    },
+    entryContinuation: {
+      stopReason: entryContinuationState.reason,
+      stopErrorCode: entryContinuationState.errorCode,
+      faultAddress: entryContinuationState.faultAddress,
+      instructionPointer: entryContinuationState.instructionPointer,
+      previousInstructionPointer: entryContinuationState.previousInstructionPointer,
+      eax: entryContinuationState.eax,
+      esp: entryContinuationState.esp,
+      resultAddress: expected.resultAddress,
+      result: fixtureResult,
     },
     hostImportCalls: { ...context.hostImportCalls },
   };
