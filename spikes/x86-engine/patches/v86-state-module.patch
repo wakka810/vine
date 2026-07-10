@@ -1,0 +1,9 @@
+diff --git a/src/rust/cpu/mod.rs b/src/rust/cpu/mod.rs
+index c340036..350f700 100644
+--- a/src/rust/cpu/mod.rs
++++ b/src/rust/cpu/mod.rs
+@@ -14,3 +14,4 @@ pub mod pic;
+ pub mod sse_instr;
+ pub mod string;
+ pub mod vga;
++pub mod vine;
