@@ -193,7 +193,7 @@ Verified behavior:
 - CPL0 halt reason
 - GPR、flags、segment／control state、x87、XMM／MXCSR の save／reset／restore／resume 1 sequence
 - fixed T1 image の PE32 section map、IAT thunk、cdecl host call、1 段 guest callback、return sentinel
-- fixed W2 image の3 DLL／13 IAT thunk、`GetModuleHandleA(NULL)`、checked `WNDCLASSEXA`、host-owned logical class／ATOM、logical HWND、`WM_CREATE` callback／return sentinel、logical visibility、whole-client invalidation／pending paint、次host service診断
+- fixed W2 image の3 DLL／13 IAT thunk、`GetModuleHandleA(NULL)`、checked `WNDCLASSEXA`、host-owned logical class／ATOM、logical HWND、`WM_CREATE` callback／return sentinel、logical visibility／invalidation、fixed `GetMessageA` materialization／dequeue、pending `DispatchMessageA`／`WM_PAINT` callback、reentrant `BeginPaint`診断
 
 未検証または未実装:
 
@@ -228,8 +228,9 @@ Verified behavior:
 17. `CreateWindowExA`のfixed `createwindowexa-v12-local-ascii-wm-create` variantで12 argumentsとmodule-scoped classを検査し、harness-local HWND、48-byte `CREATESTRUCTA`、guest WndProcの`WM_CREATE` stdcall callback／return sentinelを通して`ShowWindow`を構造化するW2 window-create ingress contract。
 18. `ShowWindow`のfixed `showwindow-sw-show-hidden-to-visible` variantでcreated／hiddenのlive HWNDと`SW_SHOW`を検査し、logical visibilityをtrueへ遷移してprevious visibilityのBOOL `0`をstdcall returnし、`InvalidateRect`を構造化するW2 visibility ingress contract。
 19. `InvalidateRect`のfixed `invalidaterect-whole-client-no-erase` variantでlive HWND、NULL RECT、FALSE eraseを検査し、whole-client update regionとthread-owned generated-paint candidate 1件を作ってBOOL `1`をstdcall returnし、`GetMessageA`を構造化するW2 invalidation ingress contract。
+20. `GetMessageA`のfixed `getmessagea-unfiltered-generated-paint-zero-metadata` variantでcandidate 1件を28-byte `MSG`へmaterialize／dequeueし、paint stateを`queued`から`in-flight`へ遷移してBOOL `1`をstdcall returnする。続くfixed `dispatchmessagea-generated-wm-paint-callback`で`CALL ESI`をIAT thunkへ帰属し、guest WndProcの`WM_PAINT` callbackへ入ってreentrant `BeginPaint`を構造化するW2 message dispatch ingress contract。
 
-2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation ingressを再実行し、3 DLL／13 importをowned thunkへ解決して5 fixed partial variantsを順にresumeした。最後の`InvalidateRect` variantはlogical HWND `0x57010001`へwhole-client update region、erase false、thread-owned generated-paint candidate 1件を保持し、BOOL `1`を返した後、19回のbudget stop／26回のexecute stop／累積70命令でguest call site `0x004010CC`の`user32.dll!GetMessageA`を次のunsupported host serviceとして停止した。`MSG`は未書込である。詳細は `docs/windows-native-evidence.md` を参照する。HWND／queue layoutはharness-localでproduction決定ではない。W1／W2 ingressはNode.js上の固定harness、W2 fixtureはnative Windows oracleであり、Chrome execution smokeは未実施である。
+2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingressを再実行し、3 DLL／13 importをowned thunkへ解決して6 fixed partial API returnを完了した。最後の`GetMessageA` variantはcandidate 1件を`MSG [0x57010001, 0x000F, 0, 0, 0, 0, 0]`へ全書込してlaneを1件から0件、paint stateを`queued`から`in-flight`へ遷移し、BOOL `1`を返した。fixed `DispatchMessageA`はAPI call ID `3`としてguest WndProcの`WM_PAINT` callback ID `4`へ入り、callback内の`BeginPaint`をparent／root call付きのreentrant unsupported serviceとして停止した。callback／Dispatch frame 2件と未書込でzeroの`PAINTSTRUCT`を保持し、28回のbudget stop／37回のexecute stop／累積101命令、completed variants 6件／callback events 3件で完了した。詳細は `docs/windows-native-evidence.md` を参照する。HWND／queue／frame layoutはharness-localでproduction決定ではない。W1／W2 ingressはNode.js上の固定harness、W2 fixtureはnative Windows oracleであり、Chrome execution smokeは未実施である。
 
 まだ存在しないもの:
 
@@ -242,7 +243,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGI.exe を Vine 内で load／executeした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle、fixed W2 loader／module／class／window-create／visibility／invalidation ingressである。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle、fixed W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingressである。
 
 ## 8. Corpus
 
@@ -306,21 +307,20 @@ npm run check:runtime:abi
 npm run check:runtime:window-loader
 ```
 
-`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`と`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI contractとW2 loader／module／class／window-create／visibility／invalidation ingress contractを実行する。source adapterを使うこれらのcheckpointは通常の`npm run check`には含めない。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`と`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI contractとW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress contractを実行する。source adapterを使うこれらのcheckpointは通常の`npm run check`には含めない。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 loader／module／class／window-create／visibility／invalidation ingressは 2026-07-11 までに完了した。8 MiB low-address contiguous mapping とharness-local HWND／queue encodingは測定／fixture上の選択であり、sparse 4 GiB memory、page ownership、production object／queue layoutの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingressは 2026-07-11 までに完了した。8 MiB low-address contiguous mapping とharness-local HWND／queue／frame encodingは測定／fixture上の選択であり、sparse 4 GiB memory、page ownership、production object／queue layoutの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. `GetMessageA`のfixed pointer／filter variantでthread-owned generated-paint candidateを`MSG`へmaterializeし、`DispatchMessageA`からWndProcの`WM_PAINT` callbackへ入って`BeginPaint`を構造化する。
-2. `BeginPaint`／`SetPixel`／`EndPaint`、destroy／quitをnative event oracleと比較する。
-3. 次の subsystem-focused native trace 前に caller module＋RVA、call ID／parent call ID、last error、duration を追加し、選んだ vtable だけを観測する。
-4. high-address mapping と page fault／protectionを別 fixtureで測り、v86 paging と独自 sparse memory案を比較する。
-5. BGI.exe を production loader 候補へ投入し、first unsupported import／bootstrap pointまで進める。
+1. `BeginPaint`／`SetPixel`／`EndPaint`を実装し、`WM_PAINT` callback／`DispatchMessageA` return、destroy／quitをnative event oracleと比較する。
+2. 次の subsystem-focused native trace 前に caller module＋RVA、call ID／parent call ID、last error、duration を追加し、選んだ vtable だけを観測する。
+3. high-address mapping と page fault／protectionを別 fixtureで測り、v86 paging と独自 sparse memory案を比較する。
+4. BGI.exe を production loader 候補へ投入し、first unsupported import／bootstrap pointまで進める。
 
-項目1が次の primary implementation checkpointである。W2 invalidation ingressの成功をgeneral `InvalidateRect`、hidden window、non-NULL RECT／region union／clip、erase TRUE、repeat coalescing、invalid HWND／failure／LastError、general ordering／filter／wait、`GetMessageA`、callback／`BeginPaint`、DOM／canvas presentation、Win32 runtime、browser integrationの完成と扱わず、graphics／audio subsystemを同時に開始しない。
+項目1が次の primary implementation checkpointである。W2 message dispatch ingressの成功をgeneral `GetMessageA` filter／ordering／block／wake／WM_QUIT／error、posted／sent／timer／input lane、cross-thread queue、repeat invalidation／coalescing、nonzero time／point、guest-mutated `MSG`、general `DispatchMessageA`、nested callback、`WM_PAINT` callback／Dispatch return、`BeginPaint` semantics、paint completion、DOM／canvas presentation、Win32 runtime、browser integrationの完成と扱わず、graphics／audio subsystemを同時に開始しない。
 
 ## 11. Major Open Questions
 
@@ -380,7 +380,7 @@ Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE
 | `docs/x86-engine-scorecard.md` | engine comparison、v86 evidence、remaining gates |
 | `docs/toolchain-spike.md` | LLVM PE／Wasm fixture baseline |
 | `docs/windows-development.md` | Windows bring-up、trace、checkpoint commands |
-| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、W1 runtime、W2 native fixture／loader／module／class／window-create／visibility／invalidation ingress |
+| `docs/windows-native-evidence.md` | Windows W0、BGI startup trace、native ABI oracle、W1 runtime、W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress |
 | `spikes/x86-engine/README.md` | v86 source adapter reproduction |
 
 文書内の長い test／task listは将来coverageの地図であり、今すぐ全件実装する指示ではない。本書のactive queueと「広く浅く、代表test 1本」を優先する。

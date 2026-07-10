@@ -186,13 +186,17 @@ host-directed resumeはversion 1 state bufferのEIPとPREVIOUS_EIPを同時に�
 
 これはcdecl、1 callback depth、single threadのbaselineである。stdcall／thiscall／fastcall、nested callback、exception／SEH、wait／wake、async host responseの証明ではない。
 
-### B7. Fixed W2 loader／module／class／window-create／visibility／invalidation ingress: Verified baseline
+### B7. Fixed W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress: Verified baseline
 
 `npm run check:runtime:window-loader`はSHA-256固定の`window-pixel.exe`を同じ8 MiB contiguous memoryへpreferred-base mapし、3 DLL／13 named importを一意なowned `UD2` thunkへ解決する。`GetModuleHandleA(NULL)`に続き、fixed `RegisterClassExA` variantの48-byte structureとbounded ASCII nameをchecked readし、host-owned logical class stateとATOM `0xC000`を登録してstdcall resumeする。fixed `CreateWindowExA` variantは12 argumentsとmodule-scoped class lookupを検査し、harness-local typed HWND `0x57010001`と48-byte `CREATESTRUCTA`を作り、WndProc `0x00401260`の`WM_CREATE` callback／return sentinelを往復する。fixed `showwindow-sw-show-hidden-to-visible`はcreated／hidden objectとarguments `[HWND, 5]`を検査し、visibilityをtrueへ遷移して`showCommand=5`を保持し、previous visibilityのBOOL `0`をstdcall returnする。
 
-fixed `invalidaterect-whole-client-no-erase`はarguments `[HWND, NULL, FALSE]`を検査し、symbolic whole-client update region、erase false、paint state queuedをwindowへ保持して、owner guest threadのgenerated-paint laneへcandidate `[HWND, WM_PAINT, 0, 0]`を1件追加する。BOOL `1`をstdcall returnした後、次の`GetMessageA` thunkをcall site `0x004010CC`へ帰属し、arguments `[0x00403034, NULL, 0, 0]`付きの`unsupported-host-service`として停止する。MSGはzeroのままである。budget stopは19回、累積命令counterは70、全execute stopは26回である。
+fixed `invalidaterect-whole-client-no-erase`はarguments `[HWND, NULL, FALSE]`を検査し、symbolic whole-client update region、erase false、paint state queuedをwindowへ保持して、owner guest threadのgenerated-paint laneへcandidate `[HWND, WM_PAINT, 0, 0]`を1件追加する。BOOL `1`をstdcall returnする。これは直前のinvalidation checkpointで`GetMessageA`を次failureとして19 budget stop／26 execute stop／70命令まで進めたevidenceを保持する。
 
-これはmultiple thunk resolution、5 fixed partial variants、checked structure／ASCII string、copied class／window semantic state、1段のstdcall callback／sentinel、fixed invalidation／pending paint、successful serviceから次failureへのclassificationのbaselineである。HWND、thread message state、generated-paint laneはfixed harnessの選択であり、production object／queue layoutを固定しない。hidden window、non-NULL RECT、region union／clip、erase TRUE、repeat coalescing、invalid HWND／failure／LastError、general ordering／filter／wait、`GetMessageA` implementation、callback／`BeginPaint`、DOM／canvas presentation、relocation、protection、sparse memory、browser Workerは未検証であり、production loader／ABI gatewayを示さない。
+fixed `getmessagea-unfiltered-generated-paint-zero-metadata`はarguments `[0x00403034, NULL, 0, 0]`と28-byte writable MSG spanを検査し、`[HWND, WM_PAINT, 0, 0, 0, 0, 0]`を全書込する。candidate laneを1件から0件へdequeueし、paint stateを`queued`から`in-flight`へ遷移してregion／erase／sequenceを保持し、BOOL `1`をstdcall returnする。6 completed partial returnsの後、fixed `dispatchmessagea-generated-wm-paint-callback`はfixtureの`CALL ESI`をIAT `0x004020D8`／thunk `0x00500050`へ帰属し、MSGをchecked readしてWndProc `0x00401260`へ`[HWND, WM_PAINT, 0, 0]`を積む。
+
+Dispatch API ID `3`とcallback ID `4`をpendingにしたまま、guestはpaint／event／BeginPaint countを進め、callback内の`BeginPaint(HWND, 0x0040308C)`をparent／root call付きの`unsupported-reentrant-host-service`として停止する。callback eventsはWM_CREATE enter／returnとWM_PAINT enterの3件、budget stopは28回、execute stopは37回、累積命令counterは101である。`PAINTSTRUCT`は未書込でzeroのまま、callback／Dispatchは未returnである。
+
+これはmultiple thunk resolution、6 fixed completed partial returns、checked structure／ASCII string／MSG、copied class／window semantic state、WM_CREATE callback round trip、fixed invalidation／message dequeue、pending WM_PAINT callback、reentrant failure classificationのbaselineである。HWND、thread message state、in-flight object、call ID／frame layoutはfixed harnessの選択であり、production object／queue layoutを固定しない。hidden window、non-NULL RECT、region union／clip、erase TRUE、repeat coalescing、invalid HWND／failure／LastError、general filter／ordering／block／wake／WM_QUIT／error、other message lanes／cross-thread、nonzero time／point、guest-mutated MSG、general Dispatch、nested callback、`WM_PAINT` callback／Dispatch return、`BeginPaint` semantics、DOM／canvas presentation、relocation、protection、sparse memory、browser Workerは未検証であり、production loader／ABI gatewayを示さない。
 
 ### B8. Browser Worker
 
@@ -200,11 +204,11 @@ fixed `invalidaterect-whole-client-no-erase`はarguments `[HWND, NULL, FALSE]`�
 
 ### B9. Correctness と performance
 
-W1の21命令とW2の70命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
+W1の21命令とW2の101命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class／window-create／visibility／invalidation ingressは13 thunk、5 fixed partial variants、WndProc callback、pending generated paint、次failure診断を実証した。次はprivate bootstrap offsetやharness-local object／queue layoutをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingressは13 thunk、6 completed partial returns、2 WndProc callback entry、generated paintのmaterialize／dequeue、pending frame 2件、reentrant `BeginPaint`診断を実証した。次はprivate bootstrap offsetやharness-local object／queue／frame layoutをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
