@@ -4,8 +4,8 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress。static corpus inventory、LLVM toolchain baseline、v86 bounded adapter、version 1 CPU state round trip、Windows W0、最初の BGI startup trace／summary、native callback oracle、fixed PE／cdecl callback contract、native window／message／pixel oracle、13-import ingress、6 completed partial API variants、fixed `GetMessageA` materialization、pending `DispatchMessageA`／`WM_PAINT` callback、reentrant `BeginPaint` stopは完了。visual critical scenario、COM method trace、memory adapter、engine 最終選定は未完了
-- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1 fixed loader-lite、W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingressがあり、production PE／Win32 runtime、browser app、CIは未実装
+- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow。static corpus inventory、LLVM toolchain baseline、v86 bounded adapter、version 1 CPU state round trip、Windows W0、最初の BGI startup trace／summary、native callback oracle、fixed PE／cdecl callback contract、native window／message／pixel oracle、13-import ingress、13 completed partial service variants、6 callback events、fixed paint／nested destroy／quit／entry returnは完了。browser-facing first pixel、visual critical scenario、COM method trace、memory adapter、engine 最終選定は未完了
+- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1 fixed loader-lite、W2 native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowがあり、production PE／Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
 このロードマップは、広範な Windows 互換を一度に実装する計画ではない。Windows native trace を根拠に、headless 実行、startup、first frame、input、audio、persistence の短い vertical checkpoint を広く浅く通す。各 subsystem の全面実装は後回しにし、各 phase は日付ではなく受け入れ条件を満たした時点で完了する。
@@ -18,7 +18,7 @@
 - [x86-engine-scorecard.md](x86-engine-scorecard.md): engine 候補、実行 evidence、adapter 採用 gate
 - [risks-and-open-questions.md](risks-and-open-questions.md): `Q-*`、`R-*`、go / no-go 条件
 - [testing-and-acceptance.md](testing-and-acceptance.md): test 資産、証跡、`AC-*`
-- [windows-native-evidence.md](windows-native-evidence.md): Windows W0、BGI startup trace、native ABI oracle、W1 runtime、W2 native window fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress
+- [windows-native-evidence.md](windows-native-evidence.md): Windows W0、BGI startup trace、native ABI oracle、W1 runtime、W2 native window fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow
 
 ## 2. 計画上の前提
 
@@ -896,9 +896,9 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、最初の startup trace／summary、native callback oracle、W1 fixed PE／ABI slice、W2 native fixture、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingressは完了した。W1は`P1-ABI-01`／`P1-ABI-03`／`P1-SCH-01`／`P1-QA-01`へのpartial evidenceであり、task全体または`AC-P1`の完了ではない。W2 native成功も`P4-*`または`AC-P4`の完了ではない。invalidation checkpointのevidenceを保持した上で、message-dispatch checkpointの新しいdeltaは`P1-ABI-01`／`P1-ABI-02`／`P1-ABI-03`／`P1-DIAG-01`／`P1-SCH-01`／`P3-WIN-01`／`P3-WIN-03`／`P4-UI-02`に限る。`P1-ABI-03`はpending `DispatchMessageA`内のsequential `WM_PAINT` callback entry、`P1-SCH-01`はbounded same-thread dequeue／resumeと2 pending frameの保持、`P3-WIN-01`はlive typed owner HWND lookup、`P3-WIN-03`は1 lane／1 candidateのfixed Get／dequeue／dispatch、`P4-UI-02`はpaint state `queued -> in-flight`とcallback ingressだけを示す。`WM_PAINT` callback／Dispatch return、general queue、paint completionを含まず、`AC-P1-03`、`AC-P3-02`、`AC-P4-01`を含むacceptance criterionは一つも完了しない。以後は [windows-development.md](windows-development.md) と [windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、最初の startup trace／summary、native callback oracle、W1 fixed PE／ABI slice、W2 native fixture、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowは完了した。W1は`P1-ABI-01`／`P1-ABI-03`／`P1-SCH-01`／`P1-QA-01`へのpartial evidenceであり、task全体または`AC-P1`の完了ではない。W2 native成功も`P4-*`または`AC-P4`の完了ではない。従来checkpointのevidenceを保持した上で、paint／quit checkpointの新しいdeltaは`P1-ABI-01`／`P1-ABI-02`／`P1-ABI-03`／`P1-DIAG-01`／`P1-SCH-01`／`P3-WIN-01`／`P3-WIN-03`／`P4-UI-01`／`P4-UI-02`／`P4-GDI-01`に限る。`P1-ABI-03`は2 guest callback level／4 API-callback frameのfixed nested unwind、`P1-SCH-01`はbounded same-thread synchronous nestingとready quit slot、`P3-WIN-01`はtyped HWNDの`created -> destroying -> destroyed`、`P3-WIN-03`はfixed PostQuit／WM_QUIT Get、`P4-UI-01`はdestroy subset、`P4-UI-02`は1 whole-client paint completion、`P4-GDI-01`はBeginPaintからEndPaintまでのtyped HDC lifetimeだけを示す。`P4-GFX-01`と`P4-GDI-04`はclaimせず、`AC-P1-03`、`AC-P3-02`、`AC-P4-01`、`AC-P4-02`を含むacceptance criterionは一つも完了しない。以後は [windows-development.md](windows-development.md) と [windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. `W2 paint／quit`: `BeginPaint`／`SetPixel`／`EndPaint`を実装し、`WM_PAINT` callback／`DispatchMessageA` return、destroy／quitをnative event oracleと比較する。
+1. `W3 browser first-pixel boundary`: fixed W2のlogical window／message lifecycleとharness-only 2x2 pixel resultをversioned browser-facing eventへ変換し、Chromeの最小Canvas sinkで`(1,1) = 0x000000FF`を1回presentしてpixel checkする。renderer backendやproduction common surfaceは決定しない。
 2. `P0-ARCH-03`: W1／W2の8 MiB low-address contiguous mappingをpartial measurementとして使い、high-address／protection fixtureでsparse 4 GiBとpage ownership候補を比較する。
 3. `P0-COR-02`: manual markerを持つfocused traceでvisual title checkpointを閉じる。
 4. `P6D-COR-01`／`P6D-COR-02`: graphics／input slice開始時にcaller attributionと選択したCOM vtable methodだけを追加取得する。

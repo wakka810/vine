@@ -14,10 +14,10 @@
 - native `abi-smoke.exe` の DLL callback oracle
 - source-built v86 上の fixed PE32 map、IAT thunk、cdecl host service、1段 guest callback、budget yield、return sentinel
 - native `window-pixel.exe` のstdcall WndProc、queued message、paint、pixel、destroy／quit oracle
-- source-built v86 上の`window-pixel.exe` preferred-base map、13 owned thunk、`GetModuleHandleA(NULL)`、fixed class semantic state／ATOM、harness-local logical HWND、`WM_CREATE` callback／return sentinel、fixed logical visibility／invalidation、`GetMessageA` materialization、pending `DispatchMessageA`／`WM_PAINT` callback、reentrant `BeginPaint`診断
+- source-built v86 上の`window-pixel.exe` preferred-base map、13 owned thunk、`GetModuleHandleA(NULL)`、fixed class semantic state／ATOM、harness-local logical HWND／HDC／2x2 client、`WM_CREATE`／nested `WM_PAINT`／`WM_DESTROY` callback、paint／destroy／quit、entry return sentinel
 
 production guest memory、PE／DLL loader、Win32 API、graphics／audio は未実装である。W1 は Node.js 上の fixed loader-lite であり、サクラノ詩の native trace を引き続き実装順の根拠にする。
-取得値と W1／W2 fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress result は [windows-native-evidence.md](windows-native-evidence.md) を正とする。
+取得値と W1／W2 fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow result は [windows-native-evidence.md](windows-native-evidence.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -102,8 +102,8 @@ node tools/summarize-windows-trace.mjs `
 
 1. `W0 Native evidence`: tool version／fingerprintと、W1選択に十分なstartup resource-band traceを固定する。manual marker付きvisual titleは`P0-COR-02`で継続する。
 2. `W1 Headless execution` [Verified]: controlled synthetic PE32をmapし、runtime-owned import thunk、guest callback、entry return sentinelまで走らせる。
-3. `W2 Startup substrate` [Native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress verified、paint／quit next]: trace 先頭に必要な Kernel32／User32 の最小経路で logical window を作る。
-4. `W3 First frame`: 観測した GDI／GDI+／D3D9 create／present 経路の一つを canvas command まで通す。
+3. `W2 Startup substrate` [Native fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow verified]: trace 先頭に必要な Kernel32／User32 の最小経路で logical window を作る。
+4. `W3 First frame` [browser-facing 1-pixel boundary next]: fixed logical window／message／pixel resultをversioned eventへ変換し、最小Canvas sinkまで通した後、観測したGDI／GDI+／D3D9 create／present経路の一つへ進む。
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
@@ -121,6 +121,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。`abi-smoke.exe` の import thunk／guest callback／return sentinel は W1 contractで完了し、最小Win32 fixtureのnative event／pixel oracleも固定した。同じfixed fixtureの3 DLL／13 importをowned thunkへ解決し、6 fixed partial variantsをstdcall returnした。最後の`GetMessageA` variantはthread-owned generated paintを28-byte `MSG`へmaterialize／dequeueし、paint stateをin-flightへ遷移してBOOL `1`を返した。fixed `DispatchMessageA`は同じMSGからWndProcの`WM_PAINT` callbackへ入り、callback内の`BeginPaint`をreentrant unsupported serviceとして構造化した。次は`BeginPaint`／`SetPixel`／`EndPaint`、`WM_PAINT` callback／Dispatch return、destroy／quitをnative oracleと比較する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。`abi-smoke.exe` の import thunk／guest callback／return sentinel は W1 contractで完了し、最小Win32 fixtureのnative event／pixel oracleも固定した。同じfixed fixtureの3 DLL／13 importをowned thunkへ解決し、13 fixed partial service variantsをreturnした。harness-only 2x2 clientへ`BeginPaint -> SetPixel(1,1,0xFF) -> EndPaint`を通し、nested `DestroyWindow -> WM_DESTROY -> PostQuitMessage(0)`、`WM_PAINT`／Dispatch return、2回目の`GetMessageA`による`WM_QUIT`、entry sentinelまで完了した。次はこのlogical window／message／pixel resultをbrowser-facing eventへ変換し、Chromeの最小Canvas sinkで1 pixelを確認する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

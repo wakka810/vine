@@ -154,12 +154,83 @@ const expectedDispatchMessage = {
   callbackReturnStackPointer: 0x006fffec,
 };
 const expectedBeginPaint = {
+  variant: "beginpaint-whole-client-harness-surface",
   callSite: 0x0040133d,
   returnAddress: 0x00401343,
   iatAddress: 0x004020c8,
   thunkAddress: 0x00500010,
   stackPointer: 0x006fffc8,
   arguments: [0x57010001, 0x0040308c],
+};
+const expectedPaint = {
+  logicalDc: 0x48010001,
+  clientBounds: Object.freeze({ left: 0, top: 0, right: 2, bottom: 2 }),
+  paintStructWords: Object.freeze([
+    0x48010001,
+    0,
+    0,
+    0,
+    2,
+    2,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+  ]),
+};
+const expectedSetPixel = {
+  variant: "setpixel-harness-surface-exact-point",
+  callSite: 0x00401357,
+  returnAddress: 0x0040135d,
+  iatAddress: 0x004020f8,
+  thunkAddress: 0x005000c0,
+  stackPointer: 0x006fffc0,
+  arguments: [expectedPaint.logicalDc, 1, 1, 0x000000ff],
+};
+const expectedEndPaint = {
+  variant: "endpaint-matching-active-session",
+  callSite: 0x0040138d,
+  returnAddress: 0x00401393,
+  iatAddress: 0x004020dc,
+  thunkAddress: 0x00500060,
+  stackPointer: 0x006fffc8,
+  arguments: expectedBeginPaint.arguments,
+};
+const expectedDestroyWindow = {
+  variant: "destroywindow-synchronous-wm-destroy",
+  callSite: 0x004013d6,
+  returnAddress: 0x004013dc,
+  iatAddress: 0x004020d4,
+  thunkAddress: 0x00500040,
+  stackPointer: 0x006fffcc,
+  arguments: [expectedCreateWindow.logicalHandle],
+  callbackStackPointer: 0x006fffb8,
+  callbackReturnStackPointer: 0x006fffcc,
+};
+const expectedPostQuitMessage = {
+  variant: "postquitmessage-thread-slot-exit-zero",
+  callSite: 0x004013fd,
+  returnAddress: 0x00401403,
+  iatAddress: 0x004020e8,
+  thunkAddress: 0x00500090,
+  stackPointer: 0x006fffac,
+  arguments: [0],
+};
+const expectedQuitMessage = {
+  variant: "getmessagea-unfiltered-thread-quit-zero-metadata",
+  callSite: 0x00401102,
+  returnAddress: 0x00401104,
+  iatAddress: 0x004020e0,
+  thunkAddress: 0x00500070,
+  stackPointer: 0x006fffe0,
+  arguments: expectedGetMessage.arguments,
+  messageWords: [0, 0x0012, 0, 0, 0, 0, 0],
 };
 const expectedSections = [
   {
@@ -665,12 +736,14 @@ const paintLifecycle = Object.freeze({
   none: "none",
   queued: "queued",
   inFlight: "in-flight",
+  painting: "painting",
 });
 const mainGuestThread = Object.seal({
   id: 1,
   messageState: Object.seal({
     generatedPaintLane: [],
     inFlightPaint: null,
+    quitSlot: null,
     nextSequence: 1,
   }),
 });
@@ -682,6 +755,7 @@ let nextClassAtom = 0xc000;
 const localClassKey = (module, className) =>
   `${moduleIdentity(module)}:local:A:${className}`;
 const logicalWindowsByHandle = new Map();
+const retiredLogicalWindows = new Map();
 const windowHandleTag = 0x57;
 let nextWindowSlot = 1;
 const encodeWindowHandle = (generation, slot) =>
@@ -721,6 +795,41 @@ const lookupLogicalWindow = (handle) => {
   assert.equal((normalizedHandle >>> 16) & 0xff, window.generation);
   assert.equal(normalizedHandle & 0xffff, window.slot);
   return window;
+};
+const paintDcHandleTag = 0x48;
+const logicalPaintDcsByHandle = new Map();
+const retiredPaintDcs = new Map();
+const retiredPaintSessions = [];
+let nextPaintDcSlot = 1;
+let nextPaintSessionId = 1;
+const allocateLogicalPaintDc = (fields) => {
+  assert(nextPaintDcSlot > 0 && nextPaintDcSlot <= 0xffff, "paint DC slot space exhausted");
+  const slot = nextPaintDcSlot;
+  const generation = 1;
+  const handle =
+    ((paintDcHandleTag << 24) | (generation << 16) | slot) >>> 0;
+  assert(!logicalPaintDcsByHandle.has(handle), "duplicate logical HDC");
+  const dc = Object.seal({
+    ...fields,
+    handle,
+    type: "paint-dc",
+    typeTag: paintDcHandleTag,
+    generation,
+    slot,
+    lifecycle: "active",
+  });
+  logicalPaintDcsByHandle.set(handle, dc);
+  nextPaintDcSlot += 1;
+  return dc;
+};
+const lookupLogicalPaintDc = (handle) => {
+  const normalizedHandle = handle >>> 0;
+  const dc = logicalPaintDcsByHandle.get(normalizedHandle);
+  assert(dc, `unknown logical HDC 0x${normalizedHandle.toString(16)}`);
+  assert.equal(dc.type, "paint-dc");
+  assert.equal(dc.lifecycle, "active");
+  assert.equal(normalizedHandle >>> 24, paintDcHandleTag);
+  return dc;
 };
 const maxGeneratedPaintCandidates = 16;
 const enqueueGeneratedPaint = (window) => {
@@ -980,16 +1089,22 @@ const decodeImportCall = (state, service) => {
     executableImageSectionForRange(registerCallSite, registerCallSize),
     "register guest import call is outside an executable image section",
   );
-  assert.deepEqual(
-    memory.slice(registerCallSite, returnAddress),
-    Uint8Array.from([0xff, 0xd6]),
-    "fixed register import call is not CALL ESI",
+  const registerOpcode = memory[registerCallSite + 1];
+  assert.equal(memory[registerCallSite], 0xff);
+  assert(
+    registerOpcode === 0xd6 || registerOpcode === 0xd7,
+    "fixed register import call is not CALL ESI or CALL EDI",
   );
-  assert.equal(state.words[savedStateWord.esi], service.thunkAddress);
+  const registerWord =
+    registerOpcode === 0xd6 ? savedStateWord.esi : savedStateWord.edi;
+  assert.equal(state.words[registerWord], service.thunkAddress);
   return {
     callSite: registerCallSite,
     returnAddress,
-    callEncoding: "register-indirect-esi",
+    callEncoding:
+      registerOpcode === 0xd6
+        ? "register-indirect-esi"
+        : "register-indirect-edi",
   };
 };
 
@@ -997,7 +1112,7 @@ const budgetEvents = [];
 const implementedServiceEvents = [];
 const callbackEvents = [];
 const hostCallFrames = [];
-const maxHostCallDepth = 2;
+const maxHostCallDepth = 4;
 let nextHostCallId = 1;
 const pushHostCallFrame = (frame) => {
   assert(hostCallFrames.length < maxHostCallDepth, "host call depth exceeded");
@@ -1014,9 +1129,14 @@ const popHostCallFrame = (kind) => {
   return frame;
 };
 let diagnostic = null;
+let completion = null;
 let finalState = null;
 let executeStopCount = 0;
-for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
+for (
+  let stopCount = 0;
+  stopCount < 128 && diagnostic === null && completion === null;
+  stopCount += 1
+) {
   const reason = wasm.vine_execute_budget(guest.instructionBudget);
   executeStopCount += 1;
   const state = saveState(reason);
@@ -1045,15 +1165,12 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
     assert.equal(callbackFrame.kind, "guest-callback");
     assert.equal(callbackFrame.returnSentinel, guest.callbackReturn);
     assert.equal(state.esp, callbackFrame.expectedReturnEsp);
-    assert.equal(state.eax, 0, "fixed WM_CREATE callback rejected window creation");
-    assert.equal(state.words[savedStateWord.esi], mainModule.baseAddress);
     const apiFrame = hostCallFrames.at(-2);
     assert(apiFrame);
     assert.equal(apiFrame.kind, "api");
     assert.equal(apiFrame.id, callbackFrame.parentId);
     assert.equal(callbackFrame.expectedReturnEsp, apiFrame.outerEsp);
     assert.equal(apiFrame.phase, "callback");
-    assert.equal(apiFrame.service.symbol, "CreateWindowExA");
     assert.equal(
       readGuestU32(callbackFrame.entryEsp, "WndProc callback return sentinel"),
       callbackFrame.returnSentinel,
@@ -1080,25 +1197,7 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
       ),
       apiFrame.arguments,
     );
-    assert.equal(lookupLogicalWindow(apiFrame.window.handle), apiFrame.window);
-    assert.equal(apiFrame.window.lifecycle, "creating");
-    assert.equal(readGuestU32(0x0040305c, "WM_CREATE count"), 1);
-    assert.equal(readGuestU32(0x00403068, "window event count"), 1);
-    assert.equal(readGuestU32(0x0040306c, "first window event"), 1);
-    assert.equal(readGuestU32(0x00403058, "window failure code"), 0);
-    assert.deepEqual(
-      Array.from({ length: 12 }, (_, index) =>
-        readGuestU32(
-          apiFrame.createStructAddress + index * 4,
-          `CREATESTRUCTA word ${index}`,
-        ),
-      ),
-      expectedCreateWindow.createStructWords,
-    );
-    assert.equal(popHostCallFrame("guest-callback"), callbackFrame);
-    apiFrame.window.lifecycle = "created";
-    apiFrame.phase = "returning";
-    callbackEvents.push({
+    const callbackReturnEvent = {
       kind: "guest-callback-return",
       callId: callbackFrame.id,
       parentCallId: apiFrame.id,
@@ -1107,16 +1206,139 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
       result: state.eax,
       stackPointer: state.esp,
       instructionCount: state.instructionCount,
-    });
-    const completedApiFrame = popHostCallFrame("api");
-    assert.equal(completedApiFrame, apiFrame);
+    };
+
+    if (callbackFrame.role === "window-procedure-wm-create") {
+      assert.equal(apiFrame.service.symbol, "CreateWindowExA");
+      assert.equal(state.eax, 0, "fixed WM_CREATE callback rejected window creation");
+      assert.equal(state.words[savedStateWord.esi], mainModule.baseAddress);
+      assert.equal(lookupLogicalWindow(apiFrame.window.handle), apiFrame.window);
+      assert.equal(apiFrame.window.lifecycle, "creating");
+      assert.equal(readGuestU32(0x0040305c, "WM_CREATE count"), 1);
+      assert.equal(readGuestU32(0x00403068, "window event count"), 1);
+      assert.equal(readGuestU32(0x0040306c, "first window event"), 1);
+      assert.equal(readGuestU32(0x00403058, "window failure code"), 0);
+      assert.deepEqual(
+        Array.from({ length: 12 }, (_, index) =>
+          readGuestU32(
+            apiFrame.createStructAddress + index * 4,
+            `CREATESTRUCTA word ${index}`,
+          ),
+        ),
+        expectedCreateWindow.createStructWords,
+      );
+      assert.equal(popHostCallFrame("guest-callback"), callbackFrame);
+      apiFrame.window.lifecycle = "created";
+      apiFrame.phase = "returning";
+      callbackEvents.push(callbackReturnEvent);
+      assert.equal(popHostCallFrame("api"), apiFrame);
+      implementedServiceEvents.push({
+        kind: "host-service-return",
+        callId: apiFrame.id,
+        requester: apiFrame.service.requester,
+        module: apiFrame.service.module,
+        symbol: apiFrame.service.symbol,
+        variant: expectedCreateWindow.variant,
+        implementationStatus: "partial",
+        guestCallSite: apiFrame.callSite,
+        guestCallSiteRva: apiFrame.callSite - pe.imageBase,
+        guestReturnAddress: apiFrame.returnAddress,
+        guestReturnRva: apiFrame.returnAddress - pe.imageBase,
+        iatAddress: apiFrame.service.iatAddress,
+        iatRva: apiFrame.service.iatRva,
+        thunkAddress: apiFrame.service.thunkAddress,
+        callingConvention: "stdcall",
+        argumentBytes: apiFrame.argumentBytes,
+        arguments: [...apiFrame.arguments],
+        result: apiFrame.window.handle,
+        className: apiFrame.className,
+        windowName: apiFrame.windowName,
+        callbackCallId: callbackFrame.id,
+        callbackMessage: 1,
+        callbackResult: state.eax,
+        stackPointerBefore: apiFrame.outerEsp,
+        stackPointerAfter: apiFrame.resumeEsp,
+      });
+      resume(state, {
+        eax: apiFrame.window.handle,
+        esp: apiFrame.resumeEsp,
+        eip: apiFrame.returnAddress,
+      });
+      continue;
+    }
+
+    if (callbackFrame.role === "window-procedure-wm-destroy") {
+      assert.equal(apiFrame.service.symbol, "DestroyWindow");
+      assert.equal(apiFrame.id, 5);
+      assert.equal(callbackFrame.id, 6);
+      assert.equal(state.eax, 0);
+      assert.equal(state.words[savedStateWord.esi], apiFrame.window.handle);
+      assert.equal(apiFrame.window.lifecycle, "destroying");
+      assert.equal(logicalWindowsByHandle.get(apiFrame.window.handle), apiFrame.window);
+      assert(mainGuestThread.messageState.quitSlot);
+      assert.equal(readGuestU32(0x00403064, "WM_DESTROY count"), 1);
+      assert.equal(readGuestU32(0x00403068, "window event count"), 3);
+      assert.equal(readGuestU32(0x00403074, "third window event"), 2);
+      assert.equal(popHostCallFrame("guest-callback"), callbackFrame);
+      callbackEvents.push(callbackReturnEvent);
+      apiFrame.window.lifecycle = "destroyed";
+      apiFrame.window.visible = false;
+      assert.equal(logicalWindowsByHandle.delete(apiFrame.window.handle), true);
+      retiredLogicalWindows.set(apiFrame.window.handle, apiFrame.window);
+      apiFrame.phase = "returning";
+      const rootCallId = hostCallFrames[0].id;
+      assert.equal(popHostCallFrame("api"), apiFrame);
+      implementedServiceEvents.push({
+        kind: "host-service-return",
+        callId: apiFrame.id,
+        parentCallId: apiFrame.parentId,
+        rootCallId,
+        requester: apiFrame.service.requester,
+        module: apiFrame.service.module,
+        symbol: apiFrame.service.symbol,
+        variant: expectedDestroyWindow.variant,
+        implementationStatus: "partial",
+        guestCallSite: apiFrame.callSite,
+        guestCallSiteRva: apiFrame.callSite - pe.imageBase,
+        guestReturnAddress: apiFrame.returnAddress,
+        guestReturnRva: apiFrame.returnAddress - pe.imageBase,
+        iatAddress: apiFrame.service.iatAddress,
+        iatRva: apiFrame.service.iatRva,
+        thunkAddress: apiFrame.service.thunkAddress,
+        callingConvention: "stdcall",
+        argumentBytes: apiFrame.argumentBytes,
+        arguments: [...apiFrame.arguments],
+        result: 1,
+        callbackCallId: callbackFrame.id,
+        callbackMessage: 2,
+        callbackResult: state.eax,
+        stackPointerBefore: apiFrame.outerEsp,
+        stackPointerAfter: apiFrame.resumeEsp,
+      });
+      resume(state, { eax: 1, esp: apiFrame.resumeEsp, eip: apiFrame.returnAddress });
+      continue;
+    }
+
+    assert.equal(callbackFrame.role, "window-procedure-wm-paint");
+    assert.equal(apiFrame.service.symbol, "DispatchMessageA");
+    assert.equal(state.eax, 0);
+    assert.equal(state.words[savedStateWord.esi], expectedDispatchMessage.thunkAddress);
+    assert.equal(apiFrame.window.lifecycle, "destroyed");
+    assert.equal(retiredLogicalWindows.get(apiFrame.window.handle), apiFrame.window);
+    assert.equal(mainGuestThread.messageState.inFlightPaint, null);
+    assert.equal(apiFrame.window.paintState, paintLifecycle.none);
+    assert.equal(apiFrame.window.activePaintSession, null);
+    assert.equal(popHostCallFrame("guest-callback"), callbackFrame);
+    callbackEvents.push(callbackReturnEvent);
+    apiFrame.phase = "returning";
+    assert.equal(popHostCallFrame("api"), apiFrame);
     implementedServiceEvents.push({
       kind: "host-service-return",
       callId: apiFrame.id,
       requester: apiFrame.service.requester,
       module: apiFrame.service.module,
       symbol: apiFrame.service.symbol,
-      variant: expectedCreateWindow.variant,
+      variant: expectedDispatchMessage.variant,
       implementationStatus: "partial",
       guestCallSite: apiFrame.callSite,
       guestCallSiteRva: apiFrame.callSite - pe.imageBase,
@@ -1125,27 +1347,38 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
       iatAddress: apiFrame.service.iatAddress,
       iatRva: apiFrame.service.iatRva,
       thunkAddress: apiFrame.service.thunkAddress,
+      callEncoding: apiFrame.callEncoding,
       callingConvention: "stdcall",
       argumentBytes: apiFrame.argumentBytes,
       arguments: [...apiFrame.arguments],
-      result: apiFrame.window.handle,
-      className: apiFrame.className,
-      windowName: apiFrame.windowName,
+      result: state.eax,
       callbackCallId: callbackFrame.id,
-      callbackMessage: 1,
+      callbackMessage: 0x000f,
       callbackResult: state.eax,
       stackPointerBefore: apiFrame.outerEsp,
       stackPointerAfter: apiFrame.resumeEsp,
     });
     resume(state, {
-      eax: apiFrame.window.handle,
+      eax: state.eax,
       esp: apiFrame.resumeEsp,
       eip: apiFrame.returnAddress,
     });
     continue;
   }
 
-  assert.notEqual(state.eip, guest.entryReturn, "fixture returned before host dispatch");
+  if (state.eip === guest.entryReturn) {
+    assert.equal(hostCallFrames.length, 0);
+    completion = Object.freeze({
+      kind: "fixture-entry-return",
+      returnSentinel: guest.entryReturn,
+      result: state.eax,
+      stackPointer: state.esp,
+      instructionCount: state.instructionCount,
+    });
+    finalState = state;
+    continue;
+  }
+
   const service = ownedServices.get(state.eip);
   assert(service, `#UD at unowned guest address 0x${state.eip.toString(16)}`);
 
@@ -1153,13 +1386,21 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
 
   if (hostCallFrames.length !== 0) {
     const callbackFrame = peekHostCallFrame();
-    const apiFrame = hostCallFrames.find(({ kind }) => kind === "api");
-    const isExpectedBeginPaint =
+    assert(callbackFrame);
+    assert.equal(callbackFrame.kind, "guest-callback");
+    const apiFrame = hostCallFrames.at(-2);
+    assert(apiFrame);
+    assert.equal(apiFrame.kind, "api");
+    assert.equal(callbackFrame.parentId, apiFrame.id);
+    const rootApiFrame = hostCallFrames[0];
+    assert.equal(rootApiFrame.kind, "api");
+
+    const isBeginPaint =
       service.module === "user32.dll" &&
       service.symbol === "BeginPaint" &&
-      callbackFrame?.role === "window-procedure-wm-paint" &&
-      apiFrame?.service.symbol === "DispatchMessageA";
-    if (isExpectedBeginPaint) {
+      callbackFrame.role === "window-procedure-wm-paint" &&
+      apiFrame.service.symbol === "DispatchMessageA";
+    if (isBeginPaint) {
       const window = lookupLogicalWindow(expectedCreateWindow.logicalHandle);
       assert.equal(apiFrame.id, 3);
       assert.equal(callbackFrame.id, 4);
@@ -1186,19 +1427,53 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
       assert.equal(window.paintState, paintLifecycle.inFlight);
       assert.equal(window.paintSequence, 1);
       assert.equal(mainGuestThread.messageState.generatedPaintLane.length, 0);
-      assert(mainGuestThread.messageState.inFlightPaint);
-      diagnostic = {
-        kind: "unsupported-reentrant-host-service",
+      const inFlightPaint = mainGuestThread.messageState.inFlightPaint;
+      assert(inFlightPaint);
+      assert.equal(inFlightPaint.sequence, window.paintSequence);
+      assert.equal(inFlightPaint.sequence, apiFrame.paintSequence);
+      assert.equal(window.activePaintSession, null);
+      assert.equal(logicalPaintDcsByHandle.size, 0);
+      const dc = allocateLogicalPaintDc({
+        ownerThreadId: mainGuestThread.id,
+        windowHandle: window.handle,
+        paintSequence: inFlightPaint.sequence,
+        bounds: window.clientSurface.bounds,
+      });
+      assert.equal(dc.handle, expectedPaint.logicalDc);
+      const session = Object.seal({
+        id: nextPaintSessionId,
+        ownerThreadId: mainGuestThread.id,
+        windowHandle: window.handle,
+        paintStructAddress: beginPaintArguments[1],
+        paintSequence: inFlightPaint.sequence,
+        updateRegion: window.updateRegion,
+        bounds: window.clientSurface.bounds,
+        dc,
+        lifecycle: "active",
+      });
+      nextPaintSessionId += 1;
+      window.activePaintSession = session;
+      window.updateRegion = null;
+      window.erasePending = false;
+      window.paintState = paintLifecycle.painting;
+      mainGuestThread.messageState.inFlightPaint = null;
+      writeGuestWords(
+        session.paintStructAddress,
+        expectedPaint.paintStructWords,
+        "BeginPaint PAINTSTRUCT",
+      );
+      const argumentBytes = beginPaintArguments.length * 4;
+      const resumeEsp = state.esp + 4 + argumentBytes;
+      assert.equal(resumeEsp, 0x006fffd4);
+      implementedServiceEvents.push({
+        kind: "host-service-return",
         parentCallId: callbackFrame.id,
-        rootCallId: apiFrame.id,
-        rootModule: apiFrame.service.module,
-        rootSymbol: apiFrame.service.symbol,
-        rootVariant: apiFrame.variant,
-        callbackRole: callbackFrame.role,
-        callbackTarget: callbackFrame.target,
+        rootCallId: rootApiFrame.id,
         requester: service.requester,
         module: service.module,
         symbol: service.symbol,
+        variant: expectedBeginPaint.variant,
+        implementationStatus: "partial",
         guestCallSite: callSite,
         guestCallSiteRva: callSite - pe.imageBase,
         guestReturnAddress: returnAddress,
@@ -1207,24 +1482,304 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
         iatRva: service.iatRva,
         thunkAddress: service.thunkAddress,
         callEncoding,
-        engineStopReason: state.reason,
-        engineErrorCode: state.errorCode,
-        stackPointer: state.esp,
-      };
-      finalState = state;
+        callingConvention: "stdcall",
+        argumentBytes,
+        arguments: [...beginPaintArguments],
+        result: dc.handle,
+        paintSessionId: session.id,
+        paintSequence: session.paintSequence,
+        updateRegion: session.updateRegion.kind,
+        clientBounds: { ...session.bounds },
+        paintStructWords: [...expectedPaint.paintStructWords],
+        stackPointerBefore: state.esp,
+        stackPointerAfter: resumeEsp,
+      });
+      resume(state, { eax: dc.handle, esp: resumeEsp, eip: returnAddress });
       continue;
     }
-    if (
-      apiFrame?.service.symbol === "CreateWindowExA" &&
-      apiFrame.window?.lifecycle === "creating"
-    ) {
-      apiFrame.window.lifecycle = "create-failed";
-      logicalWindowsByHandle.delete(apiFrame.window.handle);
+
+    const isSetPixel =
+      service.module === "gdi32.dll" &&
+      service.symbol === "SetPixel" &&
+      callbackFrame.role === "window-procedure-wm-paint" &&
+      apiFrame.service.symbol === "DispatchMessageA";
+    if (isSetPixel) {
+      const window = apiFrame.window;
+      assert.equal(callSite, expectedSetPixel.callSite);
+      assert.equal(returnAddress, expectedSetPixel.returnAddress);
+      assert.equal(service.iatAddress, expectedSetPixel.iatAddress);
+      assert.equal(service.thunkAddress, expectedSetPixel.thunkAddress);
+      assert.equal(callEncoding, "iat-indirect");
+      assert.equal(state.esp, expectedSetPixel.stackPointer);
+      const arguments_ = Array.from({ length: 4 }, (_, index) =>
+        readGuestU32(state.esp + 4 + index * 4, `SetPixel argument ${index}`),
+      );
+      assert.deepEqual(arguments_, expectedSetPixel.arguments);
+      const [dcHandle, x, y, color] = arguments_;
+      const dc = lookupLogicalPaintDc(dcHandle);
+      const session = window.activePaintSession;
+      assert(session);
+      assert.equal(session.lifecycle, "active");
+      assert.equal(session.dc, dc);
+      assert.equal(session.paintSequence, apiFrame.paintSequence);
+      assert.equal(dc.paintSequence, session.paintSequence);
+      assert.equal(dc.ownerThreadId, mainGuestThread.id);
+      assert.equal(dc.windowHandle, window.handle);
+      assert.equal(window.paintState, paintLifecycle.painting);
+      assert(x >= session.bounds.left && x < session.bounds.right);
+      assert(y >= session.bounds.top && y < session.bounds.bottom);
+      assert.equal(color, 0x000000ff);
+      window.clientSurface.pixels.set(`${x},${y}`, color);
+      const argumentBytes = arguments_.length * 4;
+      const resumeEsp = state.esp + 4 + argumentBytes;
+      assert.equal(resumeEsp, 0x006fffd4);
+      implementedServiceEvents.push({
+        kind: "host-service-return",
+        parentCallId: callbackFrame.id,
+        rootCallId: rootApiFrame.id,
+        requester: service.requester,
+        module: service.module,
+        symbol: service.symbol,
+        variant: expectedSetPixel.variant,
+        implementationStatus: "partial",
+        guestCallSite: callSite,
+        guestCallSiteRva: callSite - pe.imageBase,
+        guestReturnAddress: returnAddress,
+        guestReturnRva: returnAddress - pe.imageBase,
+        iatAddress: service.iatAddress,
+        iatRva: service.iatRva,
+        thunkAddress: service.thunkAddress,
+        callEncoding,
+        callingConvention: "stdcall",
+        argumentBytes,
+        arguments: [...arguments_],
+        result: color,
+        paintSessionId: session.id,
+        paintSequence: session.paintSequence,
+        stackPointerBefore: state.esp,
+        stackPointerAfter: resumeEsp,
+      });
+      resume(state, { eax: color, esp: resumeEsp, eip: returnAddress });
+      continue;
     }
-    hostCallFrames.length = 0;
+
+    const isEndPaint =
+      service.module === "user32.dll" &&
+      service.symbol === "EndPaint" &&
+      callbackFrame.role === "window-procedure-wm-paint" &&
+      apiFrame.service.symbol === "DispatchMessageA";
+    if (isEndPaint) {
+      const window = apiFrame.window;
+      assert.equal(callSite, expectedEndPaint.callSite);
+      assert.equal(returnAddress, expectedEndPaint.returnAddress);
+      assert.equal(service.iatAddress, expectedEndPaint.iatAddress);
+      assert.equal(service.thunkAddress, expectedEndPaint.thunkAddress);
+      assert.equal(callEncoding, "iat-indirect");
+      assert.equal(state.esp, expectedEndPaint.stackPointer);
+      const arguments_ = Array.from({ length: 2 }, (_, index) =>
+        readGuestU32(state.esp + 4 + index * 4, `EndPaint argument ${index}`),
+      );
+      assert.deepEqual(arguments_, expectedEndPaint.arguments);
+      const [handle, paintStructAddress] = arguments_;
+      assert.equal(lookupLogicalWindow(handle), window);
+      const session = window.activePaintSession;
+      assert(session);
+      assert.equal(session.paintStructAddress, paintStructAddress);
+      assert.equal(session.lifecycle, "active");
+      assert.equal(session.paintSequence, apiFrame.paintSequence);
+      assert.equal(lookupLogicalPaintDc(session.dc.handle), session.dc);
+      assert.equal(session.dc.paintSequence, session.paintSequence);
+      assert.deepEqual(
+        Array.from({ length: 16 }, (_, index) =>
+          readGuestU32(paintStructAddress + index * 4, `EndPaint PAINTSTRUCT word ${index}`),
+        ),
+        expectedPaint.paintStructWords,
+      );
+      session.lifecycle = "retired";
+      session.dc.lifecycle = "retired";
+      assert.equal(logicalPaintDcsByHandle.delete(session.dc.handle), true);
+      retiredPaintDcs.set(session.dc.handle, session.dc);
+      retiredPaintSessions.push(session);
+      window.activePaintSession = null;
+      window.paintState = paintLifecycle.none;
+      window.paintSequence = null;
+      const argumentBytes = arguments_.length * 4;
+      const resumeEsp = state.esp + 4 + argumentBytes;
+      assert.equal(resumeEsp, 0x006fffd4);
+      implementedServiceEvents.push({
+        kind: "host-service-return",
+        parentCallId: callbackFrame.id,
+        rootCallId: rootApiFrame.id,
+        requester: service.requester,
+        module: service.module,
+        symbol: service.symbol,
+        variant: expectedEndPaint.variant,
+        implementationStatus: "partial",
+        guestCallSite: callSite,
+        guestCallSiteRva: callSite - pe.imageBase,
+        guestReturnAddress: returnAddress,
+        guestReturnRva: returnAddress - pe.imageBase,
+        iatAddress: service.iatAddress,
+        iatRva: service.iatRva,
+        thunkAddress: service.thunkAddress,
+        callEncoding,
+        callingConvention: "stdcall",
+        argumentBytes,
+        arguments: [...arguments_],
+        result: 1,
+        paintSessionId: session.id,
+        paintSequence: session.paintSequence,
+        stackPointerBefore: state.esp,
+        stackPointerAfter: resumeEsp,
+      });
+      resume(state, { eax: 1, esp: resumeEsp, eip: returnAddress });
+      continue;
+    }
+
+    const isDestroyWindow =
+      service.module === "user32.dll" &&
+      service.symbol === "DestroyWindow" &&
+      callbackFrame.role === "window-procedure-wm-paint" &&
+      apiFrame.service.symbol === "DispatchMessageA";
+    if (isDestroyWindow) {
+      const window = apiFrame.window;
+      assert.equal(rootApiFrame, apiFrame);
+      assert.equal(callSite, expectedDestroyWindow.callSite);
+      assert.equal(returnAddress, expectedDestroyWindow.returnAddress);
+      assert.equal(service.iatAddress, expectedDestroyWindow.iatAddress);
+      assert.equal(service.thunkAddress, expectedDestroyWindow.thunkAddress);
+      assert.equal(callEncoding, "iat-indirect");
+      assert.equal(state.esp, expectedDestroyWindow.stackPointer);
+      const arguments_ = [readGuestU32(state.esp + 4, "DestroyWindow HWND")];
+      assert.deepEqual(arguments_, expectedDestroyWindow.arguments);
+      assert.equal(lookupLogicalWindow(arguments_[0]), window);
+      assert.equal(window.lifecycle, "created");
+      assert.equal(window.paintState, paintLifecycle.none);
+      assert.equal(window.paintSequence, null);
+      assert.equal(window.activePaintSession, null);
+      assert.equal(logicalPaintDcsByHandle.size, 0);
+      const logicalClass = logicalClassesByAtom.get(window.classAtom);
+      assert(logicalClass);
+      const callbackTarget = resolveGuestCallback(logicalClass.wndProcCallback);
+      const callbackArguments = [window.handle, 2, 0, 0];
+      const callbackFrameBytes = 4 + logicalClass.wndProcCallback.argumentBytes;
+      const callbackStackPointer = state.esp - callbackFrameBytes;
+      assert.equal(callbackStackPointer, expectedDestroyWindow.callbackStackPointer);
+      writeGuestU32(callbackStackPointer, guest.callbackReturn, "WM_DESTROY return sentinel");
+      writeGuestWords(callbackStackPointer + 4, callbackArguments, "WM_DESTROY arguments");
+      window.lifecycle = "destroying";
+      const argumentBytes = 4;
+      const destroyApiFrame = pushHostCallFrame({
+        parentId: callbackFrame.id,
+        kind: "api",
+        service,
+        variant: expectedDestroyWindow.variant,
+        phase: "callback",
+        callSite,
+        callEncoding,
+        returnAddress,
+        outerEsp: state.esp,
+        argumentBytes,
+        resumeEsp: state.esp + 4 + argumentBytes,
+        arguments: Object.freeze([...arguments_]),
+        window,
+      });
+      assert.equal(destroyApiFrame.id, 5);
+      const destroyCallbackFrame = pushHostCallFrame({
+        parentId: destroyApiFrame.id,
+        kind: "guest-callback",
+        role: "window-procedure-wm-destroy",
+        target: callbackTarget,
+        returnSentinel: guest.callbackReturn,
+        entryEsp: callbackStackPointer,
+        expectedReturnEsp: callbackStackPointer + callbackFrameBytes,
+        argumentBytes: logicalClass.wndProcCallback.argumentBytes,
+        arguments: Object.freeze([...callbackArguments]),
+      });
+      assert.equal(destroyCallbackFrame.id, 6);
+      assert.equal(
+        destroyCallbackFrame.expectedReturnEsp,
+        expectedDestroyWindow.callbackReturnStackPointer,
+      );
+      callbackEvents.push({
+        kind: "guest-callback-enter",
+        callId: destroyCallbackFrame.id,
+        parentCallId: destroyApiFrame.id,
+        role: destroyCallbackFrame.role,
+        target: callbackTarget,
+        returnSentinel: guest.callbackReturn,
+        arguments: [...callbackArguments],
+        stackPointer: callbackStackPointer,
+        instructionCount: state.instructionCount,
+      });
+      resume(state, { esp: callbackStackPointer, eip: callbackTarget });
+      continue;
+    }
+
+    const isPostQuitMessage =
+      service.module === "user32.dll" &&
+      service.symbol === "PostQuitMessage" &&
+      callbackFrame.role === "window-procedure-wm-destroy" &&
+      apiFrame.service.symbol === "DestroyWindow";
+    if (isPostQuitMessage) {
+      assert.equal(rootApiFrame.service.symbol, "DispatchMessageA");
+      assert.equal(callSite, expectedPostQuitMessage.callSite);
+      assert.equal(returnAddress, expectedPostQuitMessage.returnAddress);
+      assert.equal(service.iatAddress, expectedPostQuitMessage.iatAddress);
+      assert.equal(service.thunkAddress, expectedPostQuitMessage.thunkAddress);
+      assert.equal(callEncoding, "iat-indirect");
+      assert.equal(state.esp, expectedPostQuitMessage.stackPointer);
+      const arguments_ = [readGuestU32(state.esp + 4, "PostQuitMessage exit code")];
+      assert.deepEqual(arguments_, expectedPostQuitMessage.arguments);
+      assert.equal(mainGuestThread.messageState.quitSlot, null);
+      const quitSlot = Object.freeze({
+        sequence: mainGuestThread.messageState.nextSequence,
+        kind: "thread-quit",
+        source: "PostQuitMessage",
+        ownerThreadId: mainGuestThread.id,
+        hwnd: 0,
+        message: 0x0012,
+        wParam: arguments_[0],
+        lParam: 0,
+      });
+      mainGuestThread.messageState.nextSequence += 1;
+      mainGuestThread.messageState.quitSlot = quitSlot;
+      const argumentBytes = 4;
+      const resumeEsp = state.esp + 4 + argumentBytes;
+      assert.equal(resumeEsp, 0x006fffb4);
+      implementedServiceEvents.push({
+        kind: "host-service-return",
+        parentCallId: callbackFrame.id,
+        rootCallId: rootApiFrame.id,
+        requester: service.requester,
+        module: service.module,
+        symbol: service.symbol,
+        variant: expectedPostQuitMessage.variant,
+        implementationStatus: "partial",
+        guestCallSite: callSite,
+        guestCallSiteRva: callSite - pe.imageBase,
+        guestReturnAddress: returnAddress,
+        guestReturnRva: returnAddress - pe.imageBase,
+        iatAddress: service.iatAddress,
+        iatRva: service.iatRva,
+        thunkAddress: service.thunkAddress,
+        callEncoding,
+        callingConvention: "stdcall",
+        argumentBytes,
+        arguments: [...arguments_],
+        result: null,
+        quitSequence: quitSlot.sequence,
+        stackPointerBefore: state.esp,
+        stackPointerAfter: resumeEsp,
+      });
+      resume(state, { eax: state.eax, esp: resumeEsp, eip: returnAddress });
+      continue;
+    }
+
     diagnostic = {
       kind: "unsupported-reentrant-host-service",
-      parentCallId: callbackFrame?.parentId ?? null,
+      parentCallId: callbackFrame.id,
+      rootCallId: rootApiFrame.id,
       requester: service.requester,
       module: service.module,
       symbol: service.symbol,
@@ -1433,6 +1988,11 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
       style,
       requestedPosition: Object.freeze({ x: "use-default", y: "use-default" }),
       requestedOuterSize: Object.freeze({ width, height }),
+      clientSurface: Object.seal({
+        kind: "harness-local-logical-surface",
+        bounds: expectedPaint.clientBounds,
+        pixels: new Map(),
+      }),
       parent: null,
       menu: null,
       ownerThreadId: mainGuestThread.id,
@@ -1440,6 +2000,7 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
       erasePending: false,
       paintState: paintLifecycle.none,
       paintSequence: null,
+      activePaintSession: null,
       showCommand: null,
     });
     assert.equal(window.handle, expectedCreateWindow.logicalHandle);
@@ -1843,6 +2404,68 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
     continue;
   }
 
+  if (isGetMessageA && implementedServiceEvents.length === 12) {
+    assert.equal(hostCallFrames.length, 0);
+    assert.equal(logicalWindowsByHandle.size, 0);
+    assert.equal(retiredLogicalWindows.size, 1);
+    assert.equal(service.iatAddress, expectedQuitMessage.iatAddress);
+    assert.equal(service.thunkAddress, expectedQuitMessage.thunkAddress);
+    assert.equal(callSite, expectedQuitMessage.callSite);
+    assert.equal(returnAddress, expectedQuitMessage.returnAddress);
+    assert.equal(callEncoding, "register-indirect-edi");
+    assert.equal(state.esp, expectedQuitMessage.stackPointer);
+    assert.equal(state.eax, 0);
+    assert.equal(state.words[savedStateWord.esi], expectedDispatchMessage.thunkAddress);
+    assert.equal(state.words[savedStateWord.edi], expectedQuitMessage.thunkAddress);
+    const arguments_ = Array.from({ length: 4 }, (_, index) =>
+      readGuestU32(state.esp + 4 + index * 4, `quit GetMessageA argument ${index}`),
+    );
+    assert.deepEqual(arguments_, expectedQuitMessage.arguments);
+    const [messageAddress, windowFilter, minimumMessage, maximumMessage] = arguments_;
+    assert.deepEqual([windowFilter, minimumMessage, maximumMessage], [0, 0, 0]);
+    const quitSlot = mainGuestThread.messageState.quitSlot;
+    assert(quitSlot);
+    assert(Object.isFrozen(quitSlot));
+    assert.equal(quitSlot.source, "PostQuitMessage");
+    assert.equal(quitSlot.ownerThreadId, mainGuestThread.id);
+    assert.equal(quitSlot.sequence, 2);
+    assert.deepEqual(
+      [quitSlot.hwnd, quitSlot.message, quitSlot.wParam, quitSlot.lParam],
+      expectedQuitMessage.messageWords.slice(0, 4),
+    );
+    writeGuestWords(messageAddress, expectedQuitMessage.messageWords, "GetMessageA WM_QUIT MSG");
+    mainGuestThread.messageState.quitSlot = null;
+    const argumentBytes = arguments_.length * 4;
+    const resumeEsp = state.esp + 4 + argumentBytes;
+    assert.equal(resumeEsp, 0x006ffff4);
+    implementedServiceEvents.push({
+      kind: "host-service-return",
+      requester: service.requester,
+      module: service.module,
+      symbol: service.symbol,
+      variant: expectedQuitMessage.variant,
+      implementationStatus: "partial",
+      guestCallSite: callSite,
+      guestCallSiteRva: callSite - pe.imageBase,
+      guestReturnAddress: returnAddress,
+      guestReturnRva: returnAddress - pe.imageBase,
+      iatAddress: service.iatAddress,
+      iatRva: service.iatRva,
+      thunkAddress: service.thunkAddress,
+      callEncoding,
+      callingConvention: "stdcall",
+      argumentBytes,
+      arguments: [...arguments_],
+      result: 0,
+      materializedMessage: [...expectedQuitMessage.messageWords],
+      quitSequence: quitSlot.sequence,
+      stackPointerBefore: state.esp,
+      stackPointerAfter: resumeEsp,
+    });
+    resume(state, { eax: 0, esp: resumeEsp, eip: returnAddress });
+    continue;
+  }
+
   diagnostic = {
     kind: "unsupported-host-service",
     requester: service.requester,
@@ -1862,10 +2485,17 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
   finalState = state;
 }
 
-assert(diagnostic, "runtime loader slice did not reach an owned host service thunk");
+assert.equal(diagnostic, null, `unexpected runtime diagnostic: ${JSON.stringify(diagnostic)}`);
 assert(finalState);
-assert.equal(executeStopCount, 37);
-assert.deepEqual(budgetEvents, [
+assert.deepEqual(completion, {
+  kind: "fixture-entry-return",
+  returnSentinel: guest.entryReturn,
+  result: 0,
+  stackPointer: guest.stackTop,
+  instructionCount: 231,
+});
+assert.equal(executeStopCount, 83);
+const expectedBudgetEvents = [
   { eip: 0x00401004, esp: 0x006ffff0, esi: calleeSaved.esi },
   { eip: 0x00401014, esp: 0x006ffff4, esi: mainModule.baseAddress },
   { eip: 0x0040102d, esp: 0x006ffff4, esi: mainModule.baseAddress },
@@ -1930,242 +2560,128 @@ assert.deepEqual(budgetEvents, [
     esp: 0x006fffd4,
     esi: expectedDispatchMessage.thunkAddress,
   },
-  {
-    eip: 0x004012cf,
-    esp: 0x006fffd4,
-    esi: expectedCreateWindow.logicalHandle,
-  },
-  {
-    eip: 0x004012d9,
-    esp: 0x006fffd4,
-    esi: expectedCreateWindow.logicalHandle,
-  },
-  {
-    eip: 0x0040132b,
-    esp: 0x006fffd4,
-    esi: expectedCreateWindow.logicalHandle,
-  },
-  {
-    eip: 0x0040133c,
-    esp: 0x006fffd0,
-    esi: expectedCreateWindow.logicalHandle,
-  },
-]);
-assert.equal(budgetEvents.length, 28);
-assert.equal(executeStopCount - budgetEvents.length, 9);
-assert.equal(finalState.instructionCount, 101);
-assert.deepEqual(implementedServiceEvents, [
-  {
-    kind: "host-service-return",
-    requester: "window-pixel.exe",
-    module: "kernel32.dll",
-    symbol: "GetModuleHandleA",
-    variant: "module-name-null",
-    implementationStatus: "partial",
-    guestCallSite: 0x00401004,
-    guestCallSiteRva: 0x1004,
-    guestReturnAddress: 0x0040100a,
-    guestReturnRva: 0x100a,
-    iatAddress: 0x004020c0,
-    iatRva: 0x20c0,
-    thunkAddress: 0x00500000,
-    callingConvention: "stdcall",
-    argumentBytes: 4,
-    arguments: [0],
-    result: 0x00400000,
-    stackPointerBefore: 0x006fffec,
-    stackPointerAfter: 0x006ffff4,
-  },
-  {
-    kind: "host-service-return",
-    requester: "window-pixel.exe",
-    module: "user32.dll",
-    symbol: "RegisterClassExA",
-    variant: "wndclassexa-v48-local-ascii",
-    implementationStatus: "partial",
-    guestCallSite: 0x0040103c,
-    guestCallSiteRva: 0x103c,
-    guestReturnAddress: 0x00401042,
-    guestReturnRva: 0x1042,
-    iatAddress: 0x004020ec,
-    iatRva: 0x20ec,
-    thunkAddress: 0x005000a0,
-    callingConvention: "stdcall",
-    argumentBytes: 4,
-    arguments: [0x00403004],
-    result: 0x0000c000,
-    className: "VineWindowPixelFixture",
-    wndProc: 0x00401260,
-    stackPointerBefore: 0x006fffec,
-    stackPointerAfter: 0x006ffff4,
-  },
-  {
-    kind: "host-service-return",
-    callId: 1,
-    requester: "window-pixel.exe",
-    module: "user32.dll",
-    symbol: "CreateWindowExA",
-    variant: expectedCreateWindow.variant,
-    implementationStatus: "partial",
-    guestCallSite: expectedCreateWindow.callSite,
-    guestCallSiteRva: expectedCreateWindow.callSite - pe.imageBase,
-    guestReturnAddress: expectedCreateWindow.returnAddress,
-    guestReturnRva: expectedCreateWindow.returnAddress - pe.imageBase,
-    iatAddress: expectedCreateWindow.iatAddress,
-    iatRva: expectedCreateWindow.iatAddress - pe.imageBase,
-    thunkAddress: expectedCreateWindow.thunkAddress,
-    callingConvention: "stdcall",
-    argumentBytes: 48,
-    arguments: expectedCreateWindow.arguments,
-    result: expectedCreateWindow.logicalHandle,
-    className: expectedCreateWindow.className,
-    windowName: expectedCreateWindow.windowName,
-    callbackCallId: 2,
-    callbackMessage: 1,
-    callbackResult: 0,
-    stackPointerBefore: 0x006fffc0,
-    stackPointerAfter: 0x006ffff4,
-  },
-  {
-    kind: "host-service-return",
-    requester: "window-pixel.exe",
-    module: "user32.dll",
-    symbol: "ShowWindow",
-    variant: expectedShowWindow.variant,
-    implementationStatus: "partial",
-    guestCallSite: expectedShowWindow.callSite,
-    guestCallSiteRva: expectedShowWindow.callSite - pe.imageBase,
-    guestReturnAddress: expectedShowWindow.returnAddress,
-    guestReturnRva: expectedShowWindow.returnAddress - pe.imageBase,
-    iatAddress: expectedShowWindow.iatAddress,
-    iatRva: expectedShowWindow.iatAddress - pe.imageBase,
-    thunkAddress: expectedShowWindow.thunkAddress,
-    callingConvention: "stdcall",
-    argumentBytes: 8,
-    arguments: expectedShowWindow.arguments,
-    result: 0,
-    visibilityBefore: false,
-    visibilityAfter: true,
-    stackPointerBefore: expectedShowWindow.stackPointer,
-    stackPointerAfter: 0x006ffff4,
-  },
-  {
-    kind: "host-service-return",
-    requester: "window-pixel.exe",
-    module: "user32.dll",
-    symbol: "InvalidateRect",
-    variant: expectedInvalidateRect.variant,
-    implementationStatus: "partial",
-    guestCallSite: expectedInvalidateRect.callSite,
-    guestCallSiteRva: expectedInvalidateRect.callSite - pe.imageBase,
-    guestReturnAddress: expectedInvalidateRect.returnAddress,
-    guestReturnRva: expectedInvalidateRect.returnAddress - pe.imageBase,
-    iatAddress: expectedInvalidateRect.iatAddress,
-    iatRva: expectedInvalidateRect.iatAddress - pe.imageBase,
-    thunkAddress: expectedInvalidateRect.thunkAddress,
-    callingConvention: "stdcall",
-    argumentBytes: 12,
-    arguments: expectedInvalidateRect.arguments,
-    result: 1,
-    updateRegion: "whole-client",
-    eraseRequested: false,
-    erasePendingAfter: false,
-    paintStateAfter: paintLifecycle.queued,
-    paintCandidateEnqueued: true,
-    paintCandidateSequence: 1,
-    queueOwnerThreadId: mainGuestThread.id,
-    queueLane: "generated-paint",
-    generatedPaintDepthAfter: 1,
-    stackPointerBefore: expectedInvalidateRect.stackPointer,
-    stackPointerAfter: 0x006ffff4,
-  },
-  {
-    kind: "host-service-return",
-    requester: "window-pixel.exe",
-    module: "user32.dll",
-    symbol: "GetMessageA",
-    variant: expectedGetMessage.variant,
-    implementationStatus: "partial",
-    guestCallSite: expectedGetMessage.callSite,
-    guestCallSiteRva: expectedGetMessage.callSite - pe.imageBase,
-    guestReturnAddress: expectedGetMessage.returnAddress,
-    guestReturnRva: expectedGetMessage.returnAddress - pe.imageBase,
-    iatAddress: expectedGetMessage.iatAddress,
-    iatRva: expectedGetMessage.iatAddress - pe.imageBase,
-    thunkAddress: expectedGetMessage.thunkAddress,
-    callEncoding: "iat-indirect",
-    callingConvention: "stdcall",
-    argumentBytes: 16,
-    arguments: expectedGetMessage.arguments,
-    result: 1,
-    materializedMessage: expectedGetMessage.messageWords,
-    messageTime: 0,
-    messagePoint: { x: 0, y: 0 },
-    paintStateBefore: paintLifecycle.queued,
-    paintStateAfter: paintLifecycle.inFlight,
-    paintCandidateSequence: 1,
-    queueOwnerThreadId: mainGuestThread.id,
-    generatedPaintDepthBefore: 1,
-    generatedPaintDepthAfter: 0,
-    stackPointerBefore: expectedGetMessage.stackPointer,
-    stackPointerAfter: 0x006ffff4,
-  },
-]);
-assert.deepEqual(diagnostic, {
-  kind: "unsupported-reentrant-host-service",
-  parentCallId: 4,
-  rootCallId: 3,
-  rootModule: "user32.dll",
-  rootSymbol: "DispatchMessageA",
-  rootVariant: expectedDispatchMessage.variant,
-  callbackRole: "window-procedure-wm-paint",
-  callbackTarget: expectedDispatchMessage.callbackTarget,
-  requester: "window-pixel.exe",
-  module: "user32.dll",
-  symbol: "BeginPaint",
-  guestCallSite: expectedBeginPaint.callSite,
-  guestCallSiteRva: expectedBeginPaint.callSite - pe.imageBase,
-  guestReturnAddress: expectedBeginPaint.returnAddress,
-  guestReturnRva: expectedBeginPaint.returnAddress - pe.imageBase,
-  iatAddress: expectedBeginPaint.iatAddress,
-  iatRva: expectedBeginPaint.iatAddress - pe.imageBase,
-  thunkAddress: expectedBeginPaint.thunkAddress,
-  callEncoding: "iat-indirect",
-  engineStopReason: stopReason.invalidOpcode,
-  engineErrorCode: -1,
-  stackPointer: expectedBeginPaint.stackPointer,
-});
+  { eip: 0x004012cf, esp: 0x006fffd4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x004012d9, esp: 0x006fffd4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x0040132b, esp: 0x006fffd4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x0040133c, esp: 0x006fffd0, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x0040134d, esp: 0x006fffd4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x00401356, esp: 0x006fffc8, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x0040136c, esp: 0x006fffd4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x0040138c, esp: 0x006fffd0, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x004013d6, esp: 0x006fffd0, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x00401268, esp: 0x006fffb4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x004012a3, esp: 0x006fffb4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x004012b1, esp: 0x006fffb4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x004012c3, esp: 0x006fffb4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x00401311, esp: 0x006fffb4, esi: expectedCreateWindow.logicalHandle },
+  { eip: expectedPostQuitMessage.thunkAddress, esp: 0x006fffac, esi: expectedCreateWindow.logicalHandle },
+  { eip: guest.callbackReturn, esp: 0x006fffcc, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x004013e6, esp: 0x006fffd4, esi: expectedCreateWindow.logicalHandle },
+  { eip: 0x00401406, esp: 0x006fffd8, esi: expectedDispatchMessage.thunkAddress },
+  { eip: 0x004010fd, esp: 0x006fffe8, esi: expectedDispatchMessage.thunkAddress },
+  ...[
+    0x0040112f,
+    0x00401138,
+    0x00401169,
+    0x00401177,
+    0x00401187,
+    0x00401191,
+    0x0040119c,
+    0x004011a6,
+    0x004011b1,
+    0x004011bc,
+    0x004011ca,
+    0x004011d5,
+    0x004011e0,
+    0x004011eb,
+    0x004011f8,
+    0x00401207,
+    0x00401216,
+    0x00401225,
+    0x00401237,
+    0x00401245,
+    0x0040124f,
+    0x00401179,
+  ].map((eip) => ({
+    eip,
+    esp: 0x006ffff4,
+    esi: expectedDispatchMessage.thunkAddress,
+  })),
+  { eip: guest.entryReturn, esp: guest.stackTop, esi: calleeSaved.esi },
+];
+assert.deepEqual(budgetEvents, expectedBudgetEvents);
+assert.equal(budgetEvents.length, 66);
+assert.equal(executeStopCount - budgetEvents.length, 17);
+assert.equal(finalState.instructionCount, 231);
+
+assert.equal(implementedServiceEvents.length, 13);
 assert.deepEqual(
-  Array.from({ length: 2 }, (_, index) =>
-    readGuestU32(finalState.esp + 4 + index * 4, `BeginPaint argument ${index}`),
-  ),
-  expectedBeginPaint.arguments,
+  implementedServiceEvents.map(({ module, symbol }) => `${module}!${symbol}`),
+  [
+    "kernel32.dll!GetModuleHandleA",
+    "user32.dll!RegisterClassExA",
+    "user32.dll!CreateWindowExA",
+    "user32.dll!ShowWindow",
+    "user32.dll!InvalidateRect",
+    "user32.dll!GetMessageA",
+    "user32.dll!BeginPaint",
+    "gdi32.dll!SetPixel",
+    "user32.dll!EndPaint",
+    "user32.dll!PostQuitMessage",
+    "user32.dll!DestroyWindow",
+    "user32.dll!DispatchMessageA",
+    "user32.dll!GetMessageA",
+  ],
 );
-assert.equal(logicalClassesByKey.size, 1);
-assert.equal(logicalClassesByAtom.size, 1);
-const logicalClass = logicalClassesByAtom.get(0xc000);
-assert(logicalClass);
-assert.equal(logicalClassesByKey.get(logicalClass.key), logicalClass);
-assert(Object.isFrozen(logicalClass));
-assert(Object.isFrozen(logicalClass.wndProcCallback));
-assert.deepEqual(logicalClass, {
-  key: localClassKey(mainModule, expectedWindowClass.name),
-  atom: 0xc000,
-  scope: "local",
-  encoding: "A-ascii",
-  name: expectedWindowClass.name,
-  moduleIdentity: moduleIdentity(mainModule),
-  wndProcCallback: {
-    kind: "window-procedure-a",
-    moduleIdentity: moduleIdentity(mainModule),
-    entryRva: expectedWindowClass.wndProc - mainModule.baseAddress,
-    callingConvention: "stdcall",
-    argumentBytes: 16,
-  },
-  style: 0,
-  classExtraBytes: 0,
-  windowExtraBytes: 0,
-});
+const beginPaintEvent = implementedServiceEvents[6];
+assert.equal(beginPaintEvent.variant, expectedBeginPaint.variant);
+assert.equal(beginPaintEvent.result, expectedPaint.logicalDc);
+assert.deepEqual(
+  [beginPaintEvent.parentCallId, beginPaintEvent.rootCallId, beginPaintEvent.paintSequence],
+  [4, 3, 1],
+);
+assert.deepEqual(beginPaintEvent.paintStructWords, expectedPaint.paintStructWords);
+assert.deepEqual(beginPaintEvent.clientBounds, expectedPaint.clientBounds);
+const setPixelEvent = implementedServiceEvents[7];
+assert.equal(setPixelEvent.result, 0x000000ff);
+assert.deepEqual(setPixelEvent.arguments, expectedSetPixel.arguments);
+assert.deepEqual(
+  [setPixelEvent.parentCallId, setPixelEvent.rootCallId, setPixelEvent.paintSequence],
+  [4, 3, 1],
+);
+const endPaintEvent = implementedServiceEvents[8];
+assert.equal(endPaintEvent.result, 1);
+assert.equal(endPaintEvent.paintSessionId, beginPaintEvent.paintSessionId);
+assert.deepEqual(
+  [endPaintEvent.parentCallId, endPaintEvent.rootCallId, endPaintEvent.paintSequence],
+  [4, 3, 1],
+);
+const postQuitEvent = implementedServiceEvents[9];
+assert.equal(postQuitEvent.result, null);
+assert.equal(postQuitEvent.quitSequence, 2);
+assert.deepEqual([postQuitEvent.parentCallId, postQuitEvent.rootCallId], [6, 3]);
+const destroyEvent = implementedServiceEvents[10];
+assert.deepEqual(
+  [
+    destroyEvent.callId,
+    destroyEvent.parentCallId,
+    destroyEvent.rootCallId,
+    destroyEvent.callbackCallId,
+    destroyEvent.callbackMessage,
+    destroyEvent.result,
+  ],
+  [5, 4, 3, 6, 2, 1],
+);
+const dispatchEvent = implementedServiceEvents[11];
+assert.deepEqual(
+  [dispatchEvent.callId, dispatchEvent.callbackCallId, dispatchEvent.callbackMessage, dispatchEvent.result],
+  [3, 4, 0x000f, 0],
+);
+const quitGetMessageEvent = implementedServiceEvents[12];
+assert.equal(quitGetMessageEvent.callEncoding, "register-indirect-edi");
+assert.equal(quitGetMessageEvent.result, 0);
+assert.deepEqual(quitGetMessageEvent.materializedMessage, expectedQuitMessage.messageWords);
+
 assert.deepEqual(callbackEvents, [
   {
     kind: "guest-callback-enter",
@@ -2203,168 +2719,138 @@ assert.deepEqual(callbackEvents, [
     stackPointer: expectedDispatchMessage.callbackStackPointer,
     instructionCount: 83,
   },
+  {
+    kind: "guest-callback-enter",
+    callId: 6,
+    parentCallId: 5,
+    role: "window-procedure-wm-destroy",
+    target: expectedWindowClass.wndProc,
+    returnSentinel: guest.callbackReturn,
+    arguments: [expectedCreateWindow.logicalHandle, 2, 0, 0],
+    stackPointer: expectedDestroyWindow.callbackStackPointer,
+    instructionCount: 124,
+  },
+  {
+    kind: "guest-callback-return",
+    callId: 6,
+    parentCallId: 5,
+    role: "window-procedure-wm-destroy",
+    target: expectedWindowClass.wndProc,
+    result: 0,
+    stackPointer: expectedDestroyWindow.callbackReturnStackPointer,
+    instructionCount: 147,
+  },
+  {
+    kind: "guest-callback-return",
+    callId: 4,
+    parentCallId: 3,
+    role: "window-procedure-wm-paint",
+    target: expectedDispatchMessage.callbackTarget,
+    result: 0,
+    stackPointer: expectedDispatchMessage.callbackReturnStackPointer,
+    instructionCount: 155,
+  },
 ]);
-assert.equal(hostCallFrames.length, 2);
-const [dispatchApiFrame, paintCallbackFrame] = hostCallFrames;
-assert(Object.isSealed(dispatchApiFrame));
-assert.equal(dispatchApiFrame.id, 3);
-assert.equal(dispatchApiFrame.kind, "api");
-assert.equal(dispatchApiFrame.service.module, "user32.dll");
-assert.equal(dispatchApiFrame.service.symbol, "DispatchMessageA");
-assert.equal(dispatchApiFrame.variant, expectedDispatchMessage.variant);
-assert.equal(dispatchApiFrame.phase, "callback");
-assert.equal(dispatchApiFrame.callSite, expectedDispatchMessage.callSite);
-assert.equal(dispatchApiFrame.callEncoding, "register-indirect-esi");
-assert.equal(dispatchApiFrame.returnAddress, expectedDispatchMessage.returnAddress);
-assert.equal(dispatchApiFrame.outerEsp, expectedDispatchMessage.stackPointer);
-assert.equal(dispatchApiFrame.argumentBytes, 4);
-assert.equal(dispatchApiFrame.resumeEsp, 0x006ffff4);
-assert.deepEqual(dispatchApiFrame.arguments, expectedDispatchMessage.arguments);
-assert.deepEqual(dispatchApiFrame.message, expectedGetMessage.messageWords);
-assert.equal(dispatchApiFrame.paintSequence, 1);
-assert.equal(dispatchApiFrame.window.handle, expectedCreateWindow.logicalHandle);
-assert(Object.isSealed(paintCallbackFrame));
-assert.equal(paintCallbackFrame.id, 4);
-assert.equal(paintCallbackFrame.parentId, dispatchApiFrame.id);
-assert.equal(paintCallbackFrame.kind, "guest-callback");
-assert.equal(paintCallbackFrame.role, "window-procedure-wm-paint");
-assert.equal(paintCallbackFrame.target, expectedDispatchMessage.callbackTarget);
-assert.equal(paintCallbackFrame.returnSentinel, guest.callbackReturn);
-assert.equal(paintCallbackFrame.entryEsp, expectedDispatchMessage.callbackStackPointer);
-assert.equal(
-  paintCallbackFrame.expectedReturnEsp,
-  expectedDispatchMessage.callbackReturnStackPointer,
-);
-assert.equal(paintCallbackFrame.argumentBytes, 16);
-assert.deepEqual(paintCallbackFrame.arguments, [
-  expectedCreateWindow.logicalHandle,
-  0x000f,
-  0,
-  0,
-]);
-assert.equal(logicalWindowsByHandle.size, 1);
-assert.equal(nextWindowSlot, 2);
-assert.equal(nextHostCallId, 5);
-const logicalWindow = lookupLogicalWindow(expectedCreateWindow.logicalHandle);
+assert.equal(hostCallFrames.length, 0);
+assert.equal(nextHostCallId, 7);
+
+assert.equal(logicalClassesByKey.size, 1);
+assert.equal(logicalClassesByAtom.size, 1);
+const logicalClass = logicalClassesByAtom.get(0xc000);
+assert(logicalClass);
+assert.equal(logicalClassesByKey.get(logicalClass.key), logicalClass);
+assert(Object.isFrozen(logicalClass));
+assert(Object.isFrozen(logicalClass.wndProcCallback));
+assert.equal(logicalWindowsByHandle.size, 0);
+assert.equal(retiredLogicalWindows.size, 1);
+const logicalWindow = retiredLogicalWindows.get(expectedCreateWindow.logicalHandle);
+assert(logicalWindow);
 assert(Object.isSealed(logicalWindow));
-assert(Object.isFrozen(logicalWindow.requestedPosition));
-assert(Object.isFrozen(logicalWindow.requestedOuterSize));
-assert(Object.isFrozen(logicalWindow.updateRegion));
-assert.deepEqual(logicalWindow, {
-  handle: expectedCreateWindow.logicalHandle,
-  type: "window",
-  typeTag: windowHandleTag,
-  generation: 1,
-  slot: 1,
-  lifecycle: "created",
-  visible: true,
-  moduleIdentity: moduleIdentity(mainModule),
-  classKey: logicalClass.key,
-  classAtom: logicalClass.atom,
-  className: expectedCreateWindow.className,
-  title: expectedCreateWindow.windowName,
-  extendedStyle: 0,
-  style: 0x00cf0000,
-  requestedPosition: { x: "use-default", y: "use-default" },
-  requestedOuterSize: { width: 160, height: 120 },
-  parent: null,
-  menu: null,
-  ownerThreadId: mainGuestThread.id,
-  updateRegion: { kind: "whole-client" },
-  erasePending: false,
-  paintState: paintLifecycle.inFlight,
-  paintSequence: 1,
-  showCommand: 5,
+assert.equal(logicalWindow.lifecycle, "destroyed");
+assert.equal(logicalWindow.visible, false);
+assert.equal(logicalWindow.updateRegion, null);
+assert.equal(logicalWindow.erasePending, false);
+assert.equal(logicalWindow.paintState, paintLifecycle.none);
+assert.equal(logicalWindow.paintSequence, null);
+assert.equal(logicalWindow.activePaintSession, null);
+assert.deepEqual(logicalWindow.clientSurface.bounds, expectedPaint.clientBounds);
+assert.equal(logicalWindow.clientSurface.pixels.size, 1);
+assert.equal(logicalWindow.clientSurface.pixels.get("1,1"), 0x000000ff);
+assert.deepEqual(logicalWindow.requestedOuterSize, { width: 160, height: 120 });
+assert.notDeepEqual(logicalWindow.clientSurface.bounds, {
+  left: 0,
+  top: 0,
+  right: logicalWindow.requestedOuterSize.width,
+  bottom: logicalWindow.requestedOuterSize.height,
 });
-assert.equal(dispatchApiFrame.window, logicalWindow);
+
+assert.equal(logicalPaintDcsByHandle.size, 0);
+assert.equal(retiredPaintDcs.size, 1);
+const retiredDc = retiredPaintDcs.get(expectedPaint.logicalDc);
+assert(retiredDc);
+assert.equal(retiredDc.lifecycle, "retired");
+assert.equal(retiredDc.windowHandle, logicalWindow.handle);
+assert.equal(retiredDc.paintSequence, 1);
+assert.equal(retiredPaintSessions.length, 1);
+const [retiredPaintSession] = retiredPaintSessions;
+assert.equal(retiredPaintSession.lifecycle, "retired");
+assert.equal(retiredPaintSession.dc, retiredDc);
+assert.equal(retiredPaintSession.paintSequence, 1);
+assert.equal(retiredPaintSession.updateRegion.kind, "whole-client");
+assert.equal(nextPaintDcSlot, 2);
+assert.equal(nextPaintSessionId, 2);
+
 assert(Object.isSealed(mainGuestThread));
 assert(Object.isSealed(mainGuestThread.messageState));
-assert.equal(mainGuestThread.messageState.nextSequence, 2);
+assert.equal(mainGuestThread.messageState.nextSequence, 3);
 assert.equal(mainGuestThread.messageState.generatedPaintLane.length, 0);
-const inFlightPaint = mainGuestThread.messageState.inFlightPaint;
-assert(inFlightPaint);
-assert(Object.isFrozen(inFlightPaint));
-assert(Object.isFrozen(inFlightPaint.point));
-assert.deepEqual(inFlightPaint, {
-  sequence: 1,
-  kind: "generated-paint",
-  source: "window-update-region",
-  ownerThreadId: mainGuestThread.id,
-  hwnd: logicalWindow.handle,
-  message: 0x000f,
-  wParam: 0,
-  lParam: 0,
-  time: 0,
-  point: { x: 0, y: 0 },
-});
+assert.equal(mainGuestThread.messageState.inFlightPaint, null);
+assert.equal(mainGuestThread.messageState.quitSlot, null);
 assert.deepEqual(
   Array.from({ length: 7 }, (_, index) =>
     readGuestU32(expectedGetMessage.arguments[0] + index * 4, `final MSG word ${index}`),
   ),
-  expectedGetMessage.messageWords,
+  expectedQuitMessage.messageWords,
 );
 assert.deepEqual(
   Array.from({ length: 16 }, (_, index) =>
-    readGuestU32(expectedBeginPaint.arguments[1] + index * 4, `final PAINTSTRUCT word ${index}`),
-  ),
-  Array(16).fill(0),
-);
-assert.equal(readGuestU32(0x00403050, "final dispatch count"), 1);
-assert.equal(readGuestU32(0x00403054, "final dispatched paint count"), 1);
-assert.equal(readGuestU32(0x00403058, "final window failure code"), 0);
-assert.equal(readGuestU32(0x0040305c, "final WM_CREATE count"), 1);
-assert.equal(readGuestU32(0x00403060, "final WM_PAINT count"), 1);
-assert.equal(readGuestU32(0x00403064, "final WM_DESTROY count"), 0);
-assert.equal(readGuestU32(0x00403068, "final window event count"), 2);
-assert.equal(readGuestU32(0x0040306c, "final first window event"), 1);
-assert.equal(readGuestU32(0x00403070, "final second window event"), 0x000f);
-assert.equal(readGuestU32(0x00403074, "final third window event"), 0);
-assert.equal(readGuestU32(0x00403078, "final BeginPaint count"), 1);
-assert.equal(readGuestU32(0x0040307c, "final EndPaint count"), 0);
-assert.equal(readGuestU32(0x00403080, "final SetPixel count"), 0);
-assert.equal(readGuestU32(0x00403084, "final destroy success count"), 0);
-assert.equal(readGuestU32(0x00403088, "final PostQuitMessage count"), 0);
-assert.equal(readGuestU32(0x00403000, "final pixel result"), 0xffffffff);
-assert.equal(finalState.eax, 1);
-assert.equal(finalState.words[savedStateWord.esi], logicalWindow.handle);
-assert.equal(finalState.words[savedStateWord.edi], expectedGetMessage.thunkAddress);
-assert.equal(finalState.esp, expectedBeginPaint.stackPointer);
-assert.equal(finalState.eip, expectedBeginPaint.thunkAddress);
-assert.equal(finalState.previousEip, expectedBeginPaint.thunkAddress);
-assert.equal(
-  readGuestU32(expectedBeginPaint.stackPointer, "BeginPaint return address"),
-  expectedBeginPaint.returnAddress,
-);
-assert.deepEqual(
-  Array.from({ length: 2 }, (_, index) =>
     readGuestU32(
-      expectedBeginPaint.stackPointer + 4 + index * 4,
-      `preserved BeginPaint argument ${index}`,
+      expectedBeginPaint.arguments[1] + index * 4,
+      `final PAINTSTRUCT word ${index}`,
     ),
   ),
-  expectedBeginPaint.arguments,
+  expectedPaint.paintStructWords,
 );
-assert.equal(
-  readGuestU32(expectedDispatchMessage.callbackStackPointer, "WM_PAINT return sentinel"),
-  guest.callbackReturn,
-);
-assert.deepEqual(
-  Array.from({ length: 4 }, (_, index) =>
-    readGuestU32(
-      expectedDispatchMessage.callbackStackPointer + 4 + index * 4,
-      `preserved WM_PAINT argument ${index}`,
-    ),
-  ),
-  [expectedCreateWindow.logicalHandle, 0x000f, 0, 0],
-);
-assert.equal(
-  readGuestU32(expectedDispatchMessage.stackPointer, "DispatchMessageA return address"),
-  expectedDispatchMessage.returnAddress,
-);
-assert.equal(
-  readGuestU32(expectedDispatchMessage.stackPointer + 4, "DispatchMessageA MSG argument"),
-  expectedDispatchMessage.arguments[0],
-);
+
+for (const [address, label, expected] of [
+  [0x00403050, "dispatch count", 1],
+  [0x00403054, "dispatched paint count", 1],
+  [0x00403058, "window failure code", 0],
+  [0x0040305c, "WM_CREATE count", 1],
+  [0x00403060, "WM_PAINT count", 1],
+  [0x00403064, "WM_DESTROY count", 1],
+  [0x00403068, "window event count", 3],
+  [0x0040306c, "first window event", 1],
+  [0x00403070, "second window event", 0x000f],
+  [0x00403074, "third window event", 2],
+  [0x00403078, "BeginPaint count", 1],
+  [0x0040307c, "EndPaint count", 1],
+  [0x00403080, "SetPixel count", 1],
+  [0x00403084, "destroy success count", 1],
+  [0x00403088, "PostQuitMessage count", 1],
+  [0x00403000, "pixel result", 0x000000ff],
+]) {
+  assert.equal(readGuestU32(address, `final ${label}`), expected);
+}
+
+assert.equal(finalState.eax, 0);
+assert.equal(finalState.words[savedStateWord.ebx], calleeSaved.ebx);
+assert.equal(finalState.words[savedStateWord.ebp], calleeSaved.ebp);
+assert.equal(finalState.words[savedStateWord.esi], calleeSaved.esi);
+assert.equal(finalState.words[savedStateWord.edi], calleeSaved.edi);
+assert.equal(finalState.esp, guest.stackTop);
+assert.equal(finalState.eip, guest.entryReturn);
+assert.equal(finalState.previousEip, guest.entryReturn);
 assert.equal(readGuestU32(0x006ffff4, "saved entry ESI"), calleeSaved.esi);
 assert.equal(readGuestU32(0x006ffff8, "saved entry EDI"), calleeSaved.edi);
 assert.equal(readGuestU32(0x006ffffc, "entry return sentinel"), guest.entryReturn);
@@ -2376,13 +2862,10 @@ assert.deepEqual(Object.keys(hostImportCalls), ["microtick"]);
 assert(hostImportCalls.microtick > 0);
 
 console.log(
-  `runtime window message dispatch ingress passed: imports=${resolvedImports.length}, ` +
+  `runtime window paint and quit flow passed: imports=${resolvedImports.length}, ` +
     `completed-variants=${implementedServiceEvents.length}, callback-events=${callbackEvents.length}, ` +
-    `hwnd=0x${logicalWindow.handle.toString(16)}, message=0x${inFlightPaint.message.toString(16)}, ` +
-    `paint-state=${logicalWindow.paintState}, ` +
-    `paint-candidates=${mainGuestThread.messageState.generatedPaintLane.length}, ` +
-    `stop=${diagnostic.module}!${diagnostic.symbol}, ` +
-    `call=0x${diagnostic.guestCallSite.toString(16)}, ` +
+    `hwnd=0x${logicalWindow.handle.toString(16)}, hdc=0x${retiredDc.handle.toString(16)}, ` +
+    `pixel=0x${logicalWindow.clientSurface.pixels.get("1,1").toString(16)}, ` +
     `budget stops=${budgetEvents.length}, execute stops=${executeStopCount}, ` +
     `instructions=${finalState.instructionCount}`,
 );
