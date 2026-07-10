@@ -123,12 +123,21 @@ const expectedShowWindow = {
   arguments: [0x57010001, 5],
 };
 const expectedInvalidateRect = {
+  variant: "invalidaterect-whole-client-no-erase",
   callSite: 0x004010b3,
   returnAddress: 0x004010b9,
   iatAddress: 0x004020e4,
   thunkAddress: 0x00500080,
   stackPointer: 0x006fffe4,
   arguments: [0x57010001, 0, 0],
+};
+const expectedGetMessage = {
+  callSite: 0x004010cc,
+  returnAddress: 0x004010d2,
+  iatAddress: 0x004020e0,
+  thunkAddress: 0x00500070,
+  stackPointer: 0x006fffe0,
+  arguments: [0x00403034, 0, 0, 0],
 };
 const expectedSections = [
   {
@@ -630,6 +639,18 @@ const mainModule = Object.freeze({
   imageSize: pe.sizeOfImage,
   sha256: sourceHash,
 });
+const paintLifecycle = Object.freeze({
+  none: "none",
+  queued: "queued",
+  inFlight: "in-flight",
+});
+const mainGuestThread = Object.seal({
+  id: 1,
+  messageState: Object.seal({
+    generatedPaintLane: [],
+    nextSequence: 1,
+  }),
+});
 const moduleIdentity = (module) =>
   `${module.sha256}@${module.baseAddress.toString(16)}`;
 const logicalClassesByKey = new Map();
@@ -677,6 +698,55 @@ const lookupLogicalWindow = (handle) => {
   assert.equal((normalizedHandle >>> 16) & 0xff, window.generation);
   assert.equal(normalizedHandle & 0xffff, window.slot);
   return window;
+};
+const maxGeneratedPaintCandidates = 16;
+const enqueueGeneratedPaint = (window) => {
+  assert.equal(window.ownerThreadId, mainGuestThread.id);
+  assert(window.updateRegion, "generated paint requires an update region");
+  const lane = mainGuestThread.messageState.generatedPaintLane;
+  const existing = lane.filter(
+    ({ kind, hwnd }) => kind === "generated-paint" && hwnd === window.handle,
+  );
+  if (window.paintState === paintLifecycle.queued) {
+    assert.equal(existing.length, 1, "queued paint requires one generated candidate");
+    assert.equal(existing[0].sequence, window.paintSequence);
+    return {
+      candidate: existing[0],
+      sequence: window.paintSequence,
+      enqueued: false,
+    };
+  }
+  if (window.paintState === paintLifecycle.inFlight) {
+    assert.equal(existing.length, 0, "in-flight paint still has a queued candidate");
+    assert(Number.isInteger(window.paintSequence) && window.paintSequence > 0);
+    return {
+      candidate: null,
+      sequence: window.paintSequence,
+      enqueued: false,
+    };
+  }
+  assert.equal(window.paintState, paintLifecycle.none);
+  assert.equal(window.paintSequence, null);
+  assert.equal(existing.length, 0, "unowned generated paint candidate");
+  assert(
+    lane.length < maxGeneratedPaintCandidates,
+    "generated paint lane limit exceeded",
+  );
+  const candidate = Object.freeze({
+    sequence: mainGuestThread.messageState.nextSequence,
+    kind: "generated-paint",
+    source: "window-update-region",
+    ownerThreadId: mainGuestThread.id,
+    hwnd: window.handle,
+    message: 0x000f,
+    wParam: 0,
+    lParam: 0,
+  });
+  mainGuestThread.messageState.nextSequence += 1;
+  lane.push(candidate);
+  window.paintState = paintLifecycle.queued;
+  window.paintSequence = candidate.sequence;
+  return { candidate, sequence: candidate.sequence, enqueued: true };
 };
 for (const service of resolvedImports) {
   assert.equal(
@@ -898,8 +968,10 @@ const popHostCallFrame = (kind) => {
 };
 let diagnostic = null;
 let finalState = null;
+let executeStopCount = 0;
 for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
   const reason = wasm.vine_execute_budget(guest.instructionBudget);
+  executeStopCount += 1;
   const state = saveState(reason);
   assertInvariantRegisters(state.words);
 
@@ -1252,6 +1324,11 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
       requestedOuterSize: Object.freeze({ width, height }),
       parent: null,
       menu: null,
+      ownerThreadId: mainGuestThread.id,
+      updateRegion: null,
+      erasePending: false,
+      paintState: paintLifecycle.none,
+      paintSequence: null,
       showCommand: null,
     });
     assert.equal(window.handle, expectedCreateWindow.logicalHandle);
@@ -1380,13 +1457,91 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
     continue;
   }
 
-  if (implementedServiceEvents.length === 4) {
+  const isInvalidateRect =
+    service.module === "user32.dll" && service.symbol === "InvalidateRect";
+  if (isInvalidateRect && implementedServiceEvents.length === 4) {
     const window = lookupLogicalWindow(expectedCreateWindow.logicalHandle);
+    assert.equal(hostCallFrames.length, 0);
+    assert.equal(state.esp, expectedInvalidateRect.stackPointer);
     assert.equal(state.eax, 0);
     assert.equal(state.words[savedStateWord.esi], window.handle);
     assert.equal(window.lifecycle, "created");
     assert.equal(window.visible, true);
     assert.equal(window.showCommand, 5);
+    assert.equal(window.updateRegion, null);
+    assert.equal(window.erasePending, false);
+    assert.equal(window.paintState, paintLifecycle.none);
+    assert.equal(window.paintSequence, null);
+    assert.equal(window.ownerThreadId, mainGuestThread.id);
+    assert.equal(mainGuestThread.messageState.generatedPaintLane.length, 0);
+    const invalidateArguments = Array.from({ length: 3 }, (_, index) =>
+      readGuestU32(state.esp + 4 + index * 4, `InvalidateRect argument ${index}`),
+    );
+    assert.deepEqual(invalidateArguments, expectedInvalidateRect.arguments);
+    const [handle, rectangle, erase] = invalidateArguments;
+    assert.equal(lookupLogicalWindow(handle), window);
+    assert.equal(rectangle, 0);
+    assert.equal(erase, 0);
+    window.updateRegion = Object.freeze({ kind: "whole-client" });
+    window.erasePending = window.erasePending || erase !== 0;
+    const queuedPaint = enqueueGeneratedPaint(window);
+    assert.equal(queuedPaint.enqueued, true);
+    assert(queuedPaint.candidate);
+    const argumentBytes = invalidateArguments.length * 4;
+    const resumeEsp = state.esp + 4 + argumentBytes;
+    assert.equal(resumeEsp, 0x006ffff4);
+    assert.equal(readGuestU32(resumeEsp, "saved entry ESI"), calleeSaved.esi);
+    implementedServiceEvents.push({
+      kind: "host-service-return",
+      requester: service.requester,
+      module: service.module,
+      symbol: service.symbol,
+      variant: expectedInvalidateRect.variant,
+      implementationStatus: "partial",
+      guestCallSite: callSite,
+      guestCallSiteRva: callSite - pe.imageBase,
+      guestReturnAddress: returnAddress,
+      guestReturnRva: returnAddress - pe.imageBase,
+      iatAddress: service.iatAddress,
+      iatRva: service.iatRva,
+      thunkAddress: service.thunkAddress,
+      callingConvention: "stdcall",
+      argumentBytes,
+      arguments: [...invalidateArguments],
+      result: 1,
+      updateRegion: window.updateRegion.kind,
+      eraseRequested: false,
+      erasePendingAfter: window.erasePending,
+      paintStateAfter: window.paintState,
+      paintCandidateEnqueued: queuedPaint.enqueued,
+      paintCandidateSequence: queuedPaint.sequence,
+      queueOwnerThreadId: mainGuestThread.id,
+      queueLane: "generated-paint",
+      generatedPaintDepthAfter:
+        mainGuestThread.messageState.generatedPaintLane.length,
+      stackPointerBefore: state.esp,
+      stackPointerAfter: resumeEsp,
+    });
+    resume(state, { eax: 1, esp: resumeEsp, eip: returnAddress });
+    continue;
+  }
+
+  if (implementedServiceEvents.length === 5) {
+    const window = lookupLogicalWindow(expectedCreateWindow.logicalHandle);
+    assert.equal(service.module, "user32.dll");
+    assert.equal(service.symbol, "GetMessageA");
+    assert.equal(service.iatAddress, expectedGetMessage.iatAddress);
+    assert.equal(service.thunkAddress, expectedGetMessage.thunkAddress);
+    assert.equal(callSite, expectedGetMessage.callSite);
+    assert.equal(returnAddress, expectedGetMessage.returnAddress);
+    assert.equal(state.esp, expectedGetMessage.stackPointer);
+    assert.equal(state.eax, 1);
+    assert.equal(state.words[savedStateWord.esi], window.handle);
+    assert.deepEqual(window.updateRegion, { kind: "whole-client" });
+    assert.equal(window.erasePending, false);
+    assert.equal(window.paintState, paintLifecycle.queued);
+    assert.equal(window.paintSequence, 1);
+    assert.equal(mainGuestThread.messageState.generatedPaintLane.length, 1);
   }
 
   diagnostic = {
@@ -1410,6 +1565,7 @@ for (let stopCount = 0; stopCount < 64 && diagnostic === null; stopCount += 1) {
 
 assert(diagnostic, "runtime loader slice did not reach an owned host service thunk");
 assert(finalState);
+assert.equal(executeStopCount, 26);
 assert.deepEqual(budgetEvents, [
   { eip: 0x00401004, esp: 0x006ffff0, esi: calleeSaved.esi },
   { eip: 0x00401014, esp: 0x006ffff4, esi: mainModule.baseAddress },
@@ -1440,8 +1596,18 @@ assert.deepEqual(budgetEvents, [
     esp: expectedShowWindow.stackPointer,
     esi: expectedCreateWindow.logicalHandle,
   },
+  {
+    eip: 0x004010c3,
+    esp: 0x006ffff0,
+    esi: expectedCreateWindow.logicalHandle,
+  },
+  {
+    eip: expectedGetMessage.callSite,
+    esp: 0x006fffe4,
+    esi: expectedCreateWindow.logicalHandle,
+  },
 ]);
-assert.equal(finalState.instructionCount, 62);
+assert.equal(finalState.instructionCount, 70);
 assert.deepEqual(implementedServiceEvents, [
   {
     kind: "host-service-return",
@@ -1537,28 +1703,58 @@ assert.deepEqual(implementedServiceEvents, [
     stackPointerBefore: expectedShowWindow.stackPointer,
     stackPointerAfter: 0x006ffff4,
   },
+  {
+    kind: "host-service-return",
+    requester: "window-pixel.exe",
+    module: "user32.dll",
+    symbol: "InvalidateRect",
+    variant: expectedInvalidateRect.variant,
+    implementationStatus: "partial",
+    guestCallSite: expectedInvalidateRect.callSite,
+    guestCallSiteRva: expectedInvalidateRect.callSite - pe.imageBase,
+    guestReturnAddress: expectedInvalidateRect.returnAddress,
+    guestReturnRva: expectedInvalidateRect.returnAddress - pe.imageBase,
+    iatAddress: expectedInvalidateRect.iatAddress,
+    iatRva: expectedInvalidateRect.iatAddress - pe.imageBase,
+    thunkAddress: expectedInvalidateRect.thunkAddress,
+    callingConvention: "stdcall",
+    argumentBytes: 12,
+    arguments: expectedInvalidateRect.arguments,
+    result: 1,
+    updateRegion: "whole-client",
+    eraseRequested: false,
+    erasePendingAfter: false,
+    paintStateAfter: paintLifecycle.queued,
+    paintCandidateEnqueued: true,
+    paintCandidateSequence: 1,
+    queueOwnerThreadId: mainGuestThread.id,
+    queueLane: "generated-paint",
+    generatedPaintDepthAfter: 1,
+    stackPointerBefore: expectedInvalidateRect.stackPointer,
+    stackPointerAfter: 0x006ffff4,
+  },
 ]);
 assert.deepEqual(diagnostic, {
   kind: "unsupported-host-service",
   requester: "window-pixel.exe",
   module: "user32.dll",
-  symbol: "InvalidateRect",
-  guestCallSite: expectedInvalidateRect.callSite,
-  guestCallSiteRva: expectedInvalidateRect.callSite - pe.imageBase,
-  guestReturnAddress: expectedInvalidateRect.returnAddress,
-  guestReturnRva: expectedInvalidateRect.returnAddress - pe.imageBase,
-  iatAddress: expectedInvalidateRect.iatAddress,
-  iatRva: expectedInvalidateRect.iatAddress - pe.imageBase,
-  thunkAddress: expectedInvalidateRect.thunkAddress,
+  symbol: "GetMessageA",
+  guestCallSite: expectedGetMessage.callSite,
+  guestCallSiteRva: expectedGetMessage.callSite - pe.imageBase,
+  guestReturnAddress: expectedGetMessage.returnAddress,
+  guestReturnRva: expectedGetMessage.returnAddress - pe.imageBase,
+  iatAddress: expectedGetMessage.iatAddress,
+  iatRva: expectedGetMessage.iatAddress - pe.imageBase,
+  thunkAddress: expectedGetMessage.thunkAddress,
   engineStopReason: stopReason.invalidOpcode,
   engineErrorCode: -1,
-  stackPointer: expectedInvalidateRect.stackPointer,
+  stackPointer: expectedGetMessage.stackPointer,
 });
 assert.deepEqual(
-  Array.from({ length: 3 }, (_, index) =>
-    readGuestU32(finalState.esp + 4 + index * 4, `InvalidateRect argument ${index}`),
+  Array.from({ length: 4 }, (_, index) =>
+    readGuestU32(finalState.esp + 4 + index * 4, `GetMessageA argument ${index}`),
   ),
-  expectedInvalidateRect.arguments,
+  expectedGetMessage.arguments,
 );
 assert.equal(logicalClassesByKey.size, 1);
 assert.equal(logicalClassesByAtom.size, 1);
@@ -1620,6 +1816,7 @@ const logicalWindow = lookupLogicalWindow(expectedCreateWindow.logicalHandle);
 assert(Object.isSealed(logicalWindow));
 assert(Object.isFrozen(logicalWindow.requestedPosition));
 assert(Object.isFrozen(logicalWindow.requestedOuterSize));
+assert(Object.isFrozen(logicalWindow.updateRegion));
 assert.deepEqual(logicalWindow, {
   handle: expectedCreateWindow.logicalHandle,
   type: "window",
@@ -1639,16 +1836,48 @@ assert.deepEqual(logicalWindow, {
   requestedOuterSize: { width: 160, height: 120 },
   parent: null,
   menu: null,
+  ownerThreadId: mainGuestThread.id,
+  updateRegion: { kind: "whole-client" },
+  erasePending: false,
+  paintState: paintLifecycle.queued,
+  paintSequence: 1,
   showCommand: 5,
 });
+assert(Object.isSealed(mainGuestThread));
+assert(Object.isSealed(mainGuestThread.messageState));
+assert.equal(mainGuestThread.messageState.nextSequence, 2);
+assert.equal(mainGuestThread.messageState.generatedPaintLane.length, 1);
+const [paintCandidate] = mainGuestThread.messageState.generatedPaintLane;
+assert(Object.isFrozen(paintCandidate));
+assert.deepEqual(paintCandidate, {
+  sequence: 1,
+  kind: "generated-paint",
+  source: "window-update-region",
+  ownerThreadId: mainGuestThread.id,
+  hwnd: logicalWindow.handle,
+  message: 0x000f,
+  wParam: 0,
+  lParam: 0,
+});
+assert.deepEqual(
+  Array.from({ length: 7 }, (_, index) =>
+    readGuestU32(expectedGetMessage.arguments[0] + index * 4, `final MSG word ${index}`),
+  ),
+  [0, 0, 0, 0, 0, 0, 0],
+);
+assert.equal(readGuestU32(0x00403050, "final dispatch count"), 0);
+assert.equal(readGuestU32(0x00403054, "final dispatched paint count"), 0);
+assert.equal(readGuestU32(0x00403058, "final window failure code"), 0);
 assert.equal(readGuestU32(0x0040305c, "final WM_CREATE count"), 1);
+assert.equal(readGuestU32(0x00403060, "final WM_PAINT count"), 0);
+assert.equal(readGuestU32(0x00403064, "final WM_DESTROY count"), 0);
 assert.equal(readGuestU32(0x00403068, "final window event count"), 1);
 assert.equal(readGuestU32(0x0040306c, "final first window event"), 1);
-assert.equal(finalState.eax, 0);
+assert.equal(finalState.eax, 1);
 assert.equal(finalState.words[savedStateWord.esi], logicalWindow.handle);
-assert.equal(finalState.esp, expectedInvalidateRect.stackPointer);
-assert.equal(finalState.eip, expectedInvalidateRect.thunkAddress);
-assert.equal(finalState.previousEip, expectedInvalidateRect.thunkAddress);
+assert.equal(finalState.esp, expectedGetMessage.stackPointer);
+assert.equal(finalState.eip, expectedGetMessage.thunkAddress);
+assert.equal(finalState.previousEip, expectedGetMessage.thunkAddress);
 assert.equal(readGuestU32(0x006ffff4, "saved entry ESI"), calleeSaved.esi);
 assert.equal(readGuestU32(0x006ffff8, "saved entry EDI"), calleeSaved.edi);
 assert.equal(readGuestU32(0x006ffffc, "entry return sentinel"), guest.entryReturn);
@@ -1660,10 +1889,13 @@ assert.deepEqual(Object.keys(hostImportCalls), ["microtick"]);
 assert(hostImportCalls.microtick > 0);
 
 console.log(
-  `runtime window visibility ingress passed: imports=${resolvedImports.length}, ` +
+  `runtime window invalidation ingress passed: imports=${resolvedImports.length}, ` +
     `implemented-variants=${implementedServiceEvents.length}, hwnd=0x${logicalWindow.handle.toString(16)}, ` +
-    `visible=${logicalWindow.visible}, ` +
+    `visible=${logicalWindow.visible}, update=${logicalWindow.updateRegion.kind}, ` +
+    `paint-state=${logicalWindow.paintState}, ` +
+    `paint-candidates=${mainGuestThread.messageState.generatedPaintLane.length}, ` +
     `stop=${diagnostic.module}!${diagnostic.symbol}, ` +
     `call=0x${diagnostic.guestCallSite.toString(16)}, ` +
-    `budget stops=${budgetEvents.length}, instructions=${finalState.instructionCount}`,
+    `budget stops=${budgetEvents.length}, execute stops=${executeStopCount}, ` +
+    `instructions=${finalState.instructionCount}`,
 );
