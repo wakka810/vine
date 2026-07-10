@@ -186,7 +186,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。fixed T1 imageではexact owned `UD2` thunk、cdecl host service、1段guest callback、callback／entry return sentinelをbudget `3`で通した。これは engine の採用決定ではない。通常 RAM は engine 内部の contiguous physical buffer のままで、広いcalling convention、nested callback、SEH、browser Workerは未検証である。`ADR-002` はbrowser／correctness／performance gate、`ADR-003` はv86 pagingとVine sparse memoryのどちらをownership boundaryにするかを後続spikeで決める。
+固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。fixed T1／W2 flowに続き、high-address PEを2 MiB physical poolから`0xF1000000`へmapし、present／R／W、cross-page fault ordering、protect／remap invalidationを測定した。v86はinstruction fetchをreadと区別せずnon-executable sectionを実行するため、Vine region table＋bounded allocator＋execute gateをv86 pagingへ接続する案を`ADR-003` provisional candidateとする。これは engine／memoryの採用決定ではない。広いcalling convention、SEH、snapshot、generated-code invalidation、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 

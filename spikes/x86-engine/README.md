@@ -6,7 +6,7 @@
 - Rust: `1.97.0` (`2d8144b7880597b6e6d3dfd63a9a9efae3f533d3`)
 - LLVM／Clang: `22.1.8`
 - Target: `wasm32-unknown-unknown`
-- Result: bounded interpreter、release exception stop、versioned CPU state round trip verified
+- Result: bounded interpreter、release exception stop、versioned CPU state round trip、high-address paging／R／W fault measurement verified
 
 This is a disposable Phase 0 adapter experiment, not a vendored v86 fork or an accepted production engine.
 
@@ -51,6 +51,8 @@ The check writes `.work/v86-adapter-spike/report.json` and verifies:
 - CPL0 `hlt` returns the halt reason
 - GPR、x87、XMM state survives one save／reset／restore／resume sequence
 
+After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v86-memory-spike/report.json`. It maps a fixed PE32 image at `0xF1000000` through low physical pages and checks present／R／W faults、cross-page no-partial-write、protect／remap invalidation. It also records that this v86 revision executes a PE non-executable section and does not emit the instruction-fetch PFEC bit. [ADR-003](../../docs/adr-003-guest-memory.md) keeps the resulting paging candidate provisional.
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.
@@ -65,4 +67,4 @@ The 2026-07-10 local build produced the following evidence. Compiler output hash
 
 ## Remaining work
 
-The state layout is explicit, but guest physical memory remains contiguous and initial CPU/RAM setup still uses private offsets pinned to this artifact. The external W1 harness now verifies exact owned `UD2` thunks, one cdecl guest callback, and callback/entry return sentinels for the fixed `abi-smoke.exe`. General thunk metadata, broader calling conventions, nested callbacks, sparse memory, and Chromium Worker integration remain unimplemented.
+The state layout is explicit, but guest physical memory remains contiguous and initial CPU/RAM setup still uses private offsets pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, and the memory harness verifies high VA plus R／W behavior. Production region／page ownership、bounded allocation、execute gate、snapshot、general ABI、Chromium Worker remain unimplemented.

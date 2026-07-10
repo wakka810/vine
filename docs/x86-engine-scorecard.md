@@ -165,12 +165,14 @@ upstream release／fallback artifact では `cpu_exception_hook` が compile out
 
 ### B4. Guest memory model
 
-v86 の通常 RAM は contiguous guest physical memory である。一方、Vine は 4 GiB guest virtual address、reserve／commit／protection、bounded physical memory を必要とする。次の 2 案を `ADR-003` spike で比較する。
+v86 の通常 RAM は contiguous guest physical memory である。一方、Vine は 4 GiB guest virtual address、reserve／commit／R／W／X、bounded physical memory を必要とする。2026-07-11の`ADR-003` spikeは次の2案を同じhigh-address mapで比較した。
 
 - v86 の paging を使い、Vine region table を page table と bounded physical page allocator へ反映する
 - v86 memory access を Vine の checked sparse memory interface へ差し替える
 
-前者は CPU core の変更が少ないが、page table ownership、TLB invalidation、snapshot が v86 semantics に寄る。後者は architecture 境界が明確だが、hot path と JIT を大きく変更する。
+3,072-byteのfixed PE32 imageはimage base `0xF1000000`で、`.text` RX、`.rdata`／`.rprobe`／`.nxprobe` R、`.data` RWを持つ。2 MiB physical poolの15 pages／60 KiBをdirectory、3 page tables、11 mapped pagesへ割り当て、44 KiBのvirtual mappingからhigh EIP／stackを実行した。R write PFEC `7`、unmapped read／write PFEC `4`／`6`、cross-page writeのsecond-page fault／no partial write、PTE protect／remap後の`full_clear_tlb`効果はv86 pagingで成立した。
+
+一方、fixed v86はinstruction fetchをread translationとして扱い、PEのnon-executable `.nxprobe`を実行した。unmapped fetchもPFEC `4`でinstruction-fetch bitを持たない。checked sparse referenceは同じpage metadataからnon-executable／unmapped fetchを`21`／`20`として拒否したがCPU未接続である。この結果から、Vine region table＋bounded physical allocatorをv86 pagingへ反映し、adapter-owned execute gateを追加する案をprovisional candidateとする。snapshot、guard、generated-code invalidation、Worker ceilingを閉じるまで`ADR-003`はAcceptedではない。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)を正とする。
 
 ### B5. Stable state ABI: Verified baseline
 
@@ -210,7 +212,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowは13 thunk、13 completed partial returns、6 callback events、typed paint session、nested destroy／quit、entry returnを実証した。fixed resultからversioned eventを経由するW3 browser first pixelも完了した。次はprivate bootstrap offsetや8 MiB low-address mappingをproduction APIとして拡散させず、high-address／protection fixtureでmemory候補を比較する。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。次はprivate offset、fixture page table、2 MiB poolをproduction APIとして拡散させず、BGI loaderのparse／map planをfirst unsupported pointまで進める。guest execution前にprovisional ADR-003 boundaryをRust-owned region／page APIへ接続する。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -221,8 +223,8 @@ invalidate code range
 adapter fixture は次の順に増やす。
 
 1. [Fixed baseline verified] 最小Win32 fixtureで複数のowned thunk IDとguest window callbackを通した。後続のproduction sliceでgenerated API metadata／callback schemaを使うgeneral dispatcherへ移す。
-2. unmapped、read-only、non-executable page accessを区別する。
-3. v86 pagingとbounded physical page allocator、またはchecked sparse memoryを接続する。
+2. [Measured] unmapped／read-only accessとcross-page faultを区別した。non-executableはcurrent v86 gapとして固定した。
+3. provisional v86 paging案へbounded physical allocator、region table、execute gateを接続する。
 4. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
 5. 同じfixtureをNodeとChromium Workerで実行する。
 6. adopted ISA fixtureとnormalized workloadを測定する。
@@ -236,10 +238,11 @@ adapter fixture は次の順に増やす。
 - release-size build で CPL3 fault stop が動く
 - versioned CPU state が save／reset／restore／resume を通る
 - fixed T1 fixture の exact owned API trap と cdecl guest callback が通る
+- high-address mapping、R／W fault ordering、protect／remap invalidationのmeasurementがあり、native execute gapが明示される
 
 `ADR-002` の採用前に残る gate:
 
-- `ADR-003` の guest memory 案と page fault／code invalidation が両立する
+- `ADR-003` provisional案へexecute gate、bounded allocator、snapshot、generated-code invalidationを接続する
 - Chromium Worker で correctness smoke と provisional benchmark が通る
 - target workloadに必要なISA／ABI／exception bandを説明できる
 - fork の変更範囲と upstream追従手順を説明できる

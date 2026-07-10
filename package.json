@@ -11,6 +11,7 @@
     "check:windows-trace": "node tools/test-windows-trace-summary.mjs",
     "check:engine:adapter": "node tools/run-v86-adapter-spike.mjs",
     "check:runtime:abi": "node tools/run-runtime-abi-slice.mjs",
+    "check:runtime:memory": "node tools/run-runtime-memory-slice.mjs",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",

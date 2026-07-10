@@ -17,6 +17,7 @@
 - source-built v86 上の`window-pixel.exe` preferred-base map、13 owned thunk、`GetModuleHandleA(NULL)`、fixed class semantic state／ATOM、harness-local logical HWND／HDC／2x2 client、`WM_CREATE`／nested `WM_PAINT`／`WM_DESTROY` callback、paint／destroy／quit、entry return sentinel
 - fixed W2 resultのversion 1 browser present eventと、Chrome Canvas 2Dのone-shot present／pixel readback
 - trace v2のcaller module＋RVA、call ID／parent call ID、leave LastError／durationと、explicit selected `IDirect3D9` root 11-method evidence
+- high-memory PE32の`0xF1000000` map、present／R／W／cross-page fault、TLB invalidationとv86 execute-protection gap
 
 production guest memory、PE／DLL loader、Win32 API、graphics／audio は未実装である。W1 は Node.js 上の fixed loader-lite であり、サクラノ詩の native trace を引き続き実装順の根拠にする。
 trace v1／v2、selected IDirect3D9 root、W1／W2 fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 resultは [windows-native-evidence.md](windows-native-evidence.md) を正とする。
@@ -65,6 +66,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/check-environm
 npm run check:toolchain
 npm run prepare:engine
 npm run check:runtime:abi
+npm run check:runtime:memory
 npm run check:runtime:window-loader
 npm run check:runtime:window-browser
 ```
@@ -125,6 +127,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。後続trace v2はcaller attribution、call ownership、LastError、durationを固定し、明示選択した`IDirect3D9` rootの11 methods／53 callsを観測したが、device／resource methodsは未観測である。W1／W2／W3はheadless ABI、window／paint／quit、browser first-pixelまで完了した。次はhigh-address／protection fixtureでguest memory候補を比較する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。後続trace v2はcaller attributionとselected `IDirect3D9` root 11 methodsを観測したがdevice／resource methodsは未観測である。W1／W2／W3に続き、high-address memory spikeはv86 pagingのpresent／R／W／fault orderingを通し、execute protection gapを分離した。次はBGI.exeをproduction loader候補へ入力してfirst unsupported pointまで進める。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

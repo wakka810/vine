@@ -57,6 +57,8 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
   -> DestroyWindow -> PostQuitMessage -> WM_QUIT -> entry returns 0
 ```
 
+`fixtures/pe32/high-memory/`はimage base `0xF1000000`、LAA、importなしのPE32 fixtureである。`.text` RX、`.rdata`／`.rprobe`／`.nxprobe` R、`.data` RWを分離し、high entry、read-only write、unmapped read／write、cross-page write、non-executable fetchのprobeをexportする。Windows native oracleではなく、guest memory候補を同じfixed imageで比較するinputである。
+
 ## 5. Generated evidence
 
 `npm run check:toolchain` は `.work/toolchain-spike/` を作り直し、次を検証する。
@@ -67,12 +69,13 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - DLL が同じ 2 symbol を export する
 - Windows では `abi-smoke.exe` を直接実行し、exit code が `0` である
 - window fixtureのPE32形式、3 DLL／13 symbol、関連message順、native exit code `0`を検証する
+- high-memory fixtureのPE32／LAA、image base、section flags、named probe exportを検証し、nativeでは起動しない
 - native processを10秒で打ち切り、paintに必要な通常のwindow表示を抑止しない
-- Wasm、EXE、DLL、import library、window fixture の size と SHA-256 を `report.json` に記録する
+- Wasm、EXE、DLL、import library、window／high-memory fixture の size と SHA-256 を `report.json` に記録する
 
 `.work/` は生成物なので Git 管理しない。
 
-2026-07-10 の実行結果:
+2026-07-10／11 の実行結果:
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
@@ -81,6 +84,7 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 | `vine_fixture.dll` | 2,048 bytes | `a9c2530df2a89317048ae9380e4202c8bd41994d1ff0e14b43fa578bb32c4878` |
 | `vine_fixture.lib` | 1,708 bytes | `ebb025e3a0c82f6726331aa8799b7a5fdafd4b2dfa3b3dcdce19d0630075c031` |
 | `window-pixel.exe` | 4,096 bytes | `ad8f4a0bddd759ac52b18119e60838c3ad13d29994449f38b0393fdedde454e9` |
+| `high-memory.exe` | 3,072 bytes | `084bca4dbd9c60a178f751e7c6a87e0b2865fd45cdff8d6135468886316a7aa7` |
 
 旧文書のWasm値は319 bytes／`6e5218...`だったが、そのraw artifactは保持されておらず差の原因を再検証できない。現在のWindows canonical commandを複数回実行した結果は399 bytes／`d8e2fe...`で安定しているため、本表で旧観測を置き換える。source変化やcompiler regressionが確認できたという意味にはしない。
 
@@ -94,4 +98,4 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC boot を迂回した integer／x87／SSE 実行に加え、Rust 1.97.0 から source を buildし、release fallback の exact instruction budget、CPL3 structured fault stop、version 1 CPU state round trip まで成立した。Windows trace v1／v2、native callback oracle、W1／W2 fixed runtime result、W3 browser first pixelは [windows-native-evidence.md](windows-native-evidence.md) に記録した。次は8 MiB low-address mappingをproduction memory ownershipへ昇格せず、high-address／protection fixtureで別に測定する。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC bootを迂回したexecution、bounded adapter、W1／W2／W3に続き、high-memory fixtureを使う4 GiB VA／protection候補比較を[adr-003-guest-memory.md](adr-003-guest-memory.md)へ記録した。次はfixture page tableをproduction ownershipへ昇格せず、BGI loader候補をfirst unsupported pointまで進める。

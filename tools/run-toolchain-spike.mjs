@@ -127,6 +127,14 @@ const windowFixtureDirectory = path.join(
 );
 const windowObject = path.join(outputDirectory, "fixture-window.obj");
 const windowExe = path.join(outputDirectory, "window-pixel.exe");
+const memoryFixtureDirectory = path.join(
+  root,
+  "fixtures",
+  "pe32",
+  "high-memory",
+);
+const memoryObject = path.join(outputDirectory, "fixture-memory.obj");
+const memoryExe = path.join(outputDirectory, "high-memory.exe");
 const windowImportLibraries = ["kernel32", "user32", "gdi32"].map(
   (name) => ({
     definition: path.join(windowFixtureDirectory, `${name}.def`),
@@ -156,6 +164,10 @@ compilePeObject(path.join(fixtureDirectory, "fixture-exe.c"), exeObject);
 compilePeObject(
   path.join(windowFixtureDirectory, "fixture-window.c"),
   windowObject,
+);
+compilePeObject(
+  path.join(memoryFixtureDirectory, "fixture-memory.c"),
+  memoryObject,
 );
 
 for (const { definition, library } of windowImportLibraries) {
@@ -207,6 +219,20 @@ run("lld-link", [
   ...windowImportLibraries.map(({ library }) => library),
 ]);
 
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/base:0xf1000000",
+  "/fixed",
+  "/largeaddressaware",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${memoryExe}`,
+  memoryObject,
+]);
+
 let nativeAbiExitCode = null;
 let windowPixelNativeExitCode = null;
 if (process.platform === "win32") {
@@ -226,6 +252,12 @@ const windowInspection = run("llvm-readobj", [
   "--file-headers",
   "--coff-imports",
   windowExe,
+]);
+const memoryInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--sections",
+  "--coff-exports",
+  memoryExe,
 ]);
 
 const requiredExeEvidence = [
@@ -253,6 +285,24 @@ for (const expected of [
 ]) {
   if (!windowInspection.includes(expected)) {
     throw new Error(`window pixel inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+  "ImageBase: 0xF1000000",
+  "IMAGE_FILE_LARGE_ADDRESS_AWARE",
+  "IMAGE_DLL_CHARACTERISTICS_NX_COMPAT",
+  "Name: .rprobe",
+  "Name: .nxprobe",
+  "Name: fixture_entry",
+  "Name: fixture_nonexec_code",
+  "Name: fixture_readonly",
+  "Name: fixture_writable",
+]) {
+  if (!memoryInspection.includes(expected)) {
+    throw new Error(`high-memory inspection is missing: ${expected}`);
   }
 }
 
@@ -296,6 +346,9 @@ const report = {
     windowPixelImports,
     windowPixelExpectedEvents: ["WM_CREATE", "WM_PAINT", "WM_DESTROY"],
     windowPixelNativeExitCode,
+    highMemoryFormat: "PE32/i386",
+    highMemoryImageBase: "0xf1000000",
+    highMemoryNativeExecution: "not-run",
   },
   artifacts: [
     wasmModule,
@@ -303,6 +356,7 @@ const report = {
     dllFile,
     importLibrary,
     windowExe,
+    memoryExe,
   ].map(artifact),
 };
 

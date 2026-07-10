@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: 1 人の個人開発、primary corpus、full-play goal、Rust + TypeScript、static dependency inventory、LLVM toolchain baseline、Windows trace v1／v2 attribution、selected IDirect3D9 root、native ABI oracle、W1／W2／W3 checkpointは確定。runtime workspace、device-level method trace、memory model、production browser runtimeは未確定
+- 現状: 1 人の個人開発、primary corpus、full-play goal、Rust + TypeScript、static dependency inventory、LLVM baseline、Windows trace v1／v2、selected IDirect3D9 root、W1／W2／W3、high-address memory measurementは確定。runtime workspace、device-level trace、production memory／loader／browser runtimeは未確定
 
 この文書は、不確実性を TODO のまま埋め込まず、実装を進める条件と見直す条件を明確にする。所有者欄の role は別人を意味せず、単一 maintainer が判断時に切り替える責任観点を示す。
 
@@ -54,8 +54,8 @@
 | Q-010 | Investigating | core の言語 ownership、workspace、Wasm toolchain は何か | Rust は CPU／memory／PE／ABI core、TypeScript は Windows API facade／browser backend／UI／toolingを担当する。language ownershipは固定済みだが、production workspaceとWasm boundaryは最初のproduction sliceで固定 | [toolchain-spike.md](toolchain-spike.md)、最初のRust／TypeScript workspace build | Phase 0 | Runtime lead |
 | Q-011 | Investigating | x86 engine は既存 engine、独自 interpreter、hybrid のどれか | v86を交換可能なworking baselineとして使う。fixed T1のcdecl／1段callbackは通った。具体的なblockerがない限り他候補の比較や自作をactive workにせず、最終固定はmemory model、browser Worker、ISA／performance spike後 | [x86-engine-scorecard.md](x86-engine-scorecard.md)、W1 result、ISA tests、browser benchmark | Phase 0 | CPU lead |
 | Q-012 | Open | optimized execution は threaded interpreter、IR、DBT、generated Wasm のどれか | Phase 1 は baseline interpreter。性能不足が測定された hot path だけを最適化 | cold／warm benchmark、CSP、cache invalidation、differential trace | Phase 1 gate | CPU lead |
-| Q-013 | Open | 4 GiB guest VA をどう表現するか | sparse page／region mapping。Wasm offset との 1:1 mapping を避ける。W1の8 MiB low-address identity mappingは候補決定に使わない | W1 low-address measurement、high-address PE、VirtualAlloc、mapped file、memory pressure spike | Phase 0 | Runtime lead |
-| Q-014 | Open | page size、protection、guard、self-modifying code policy は何か | Windows-visible page metadata と code invalidation を持つ | conformance fixture、performance profile、malicious write test | Phase 1 | CPU + Memory owners |
+| Q-013 | Investigating | 4 GiB guest VA をどう表現するか | high-address spikeにより、Vine region table＋bounded physical allocatorをv86 pagingへ反映する案をprovisional candidateとした。Wasm offsetとの1:1 mappingは避ける | [adr-003-guest-memory.md](adr-003-guest-memory.md)、production allocator、mapped file、memory pressure／Worker spike | Phase 0 | Runtime lead |
+| Q-014 | Investigating | page size、protection、guard、self-modifying code policy は何か | 4 KiB region／page metadataとtransactional invalidationをbaseline候補とする。current v86にnative execute protectionがないためadapter fetch gateが必須 | [adr-003-guest-memory.md](adr-003-guest-memory.md)、execute／guard／generated-code／snapshot fixture | Phase 1 | CPU + Memory owners |
 | Q-015 | Open | guest thread を cooperative に multiplex するか、Worker へ分散するか | Runtime Worker 上の cooperative scheduler を baseline | wait／callback／message test、UI responsiveness、multi-thread corpus inventory | Phase 0 | Runtime lead |
 | Q-016 | Open | SharedArrayBuffer と cross-origin isolation を必須にするか | optional fast path として検証。必要なら Tier 1 の deployment requirement にする | audio ring、thread、copy overhead、embed 制約、header smoke | Phase 1 gate | Web platform |
 | Q-017 | Open | SEH、VEH、APC、TLS／TEB をどこまで実装するか | corpus と compiler fixture の使用経路を inventory 化し、silent stub はしない | Windows differential traces、title startup traces | Phase 1-2 | Windows ABI owner |
@@ -142,7 +142,7 @@
 | R-010 | x86 flags、x87、exception の誤りが非決定的な title failure になる | High | High | oracle 差分、scene ごとの crash、save state divergence | ISA differential tests、compiler corpus、instruction trace bisection | engine 候補を変更、命令範囲を限定 | CPU lead |
 | R-011 | interpreter が実用 frame／audio deadline を満たさない | High | High | Phase 1 hot path が provisional budget を大幅超過 | profile-driven cache／IR、既存 engine 比較、Worker isolation | target title／resolution を絞るか optimized engine へ gate 付き移行 | CPU + Performance |
 | R-012 | browser 向け DBT／generated Wasm が compile pause、CSP、cache invalidation で成立しない | Medium | High | cold start spike、self-modifying code mismatch、strict CSP failure | interpreter fallback、small block cache、write invalidation test | DBT を非採用。support scope を baseline 性能内に縮小 | CPU lead |
-| R-013 | guest 4 GiB VA と host memory 制約が衝突する | High | High | high base image／large allocation が map 不可、browser OOM | sparse mapping、bounded physical pages、region eviction | 対応 address range／title を制限し profile に記録 | Memory owner |
+| R-013 | guest 4 GiB VA と host memory 制約が衝突する | High | High | high-base fixtureは通ったが、allocator quota／snapshot／Chrome WorkerでOOMまたはstale mapping | v86 paging＋bounded physical pages＋region owner、memory ceiling test | checked sparse replacementを再評価、対応rangeをprofileに記録 | Memory owner |
 | R-014 | sync Win32 と async Web API の橋が deadlock／reentrancy bug を生む | High | High | nested callback、SendMessage、file wait で停止 | explicit thread states、request IDs、callback depth、model tests | API／thread support band を縮小し unsupported stop | Runtime lead |
 | R-015 | cooperative scheduling が timing-sensitive multi-thread title と合わない | Medium | High | wait starvation、audio producer miss、race oracle 差 | fairness、virtual clock、yield points、thread trace | SAB／multi-Worker spike、対象 title 除外 | Runtime lead |
 | R-016 | background throttling や browser lifecycle で guest time が破綻する | High | Medium | resume 後 timer storm、audio desync、save corruption | freeze/resume policy、lifecycle event、bounded catch-up | background 実行を非対応にし pause を強制 | Web platform |
