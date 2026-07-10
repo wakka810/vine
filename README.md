@@ -15,17 +15,17 @@ prefix to deterministic runtime-owned `UD2` thunks. General CPU memory/process
 integration, DLL/export resolution, process bootstrap, the Win32 runtime, and the
 browser application do not exist yet. The sealed controlled image now crosses
 a versioned Rust-to-v86 reflection boundary, dispatches fixed cdecl
-`fixture_add(19, 23)`, resumes guest cleanup, and reaches the exact
-callback-service thunk after real cache invalidation.
+`fixture_add(19, 23)`, and executes one guest callback to a separately owned
+exact return sentinel after real cache invalidation.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. The controlled fixture now binds both imports and seals its
 image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
-at `DINPUT8.dll!DirectInput8Create`. The next task allocates a production-owned
-callback return sentinel and frame, enters callback target `0x10001030`, and
-stops at that exact sentinel with result `43`; see
-[docs/v86-cdecl-ingress.md](docs/v86-cdecl-ingress.md).
+at `DINPUT8.dll!DirectInput8Create`. The next task retires callback frame ID
+`1`, returns result `43` through outer thunk ID `2`, and measures the following
+guest entry continuation; see
+[docs/v86-callback-return-ingress.md](docs/v86-callback-return-ingress.md).
 
 ## Requirements
 
@@ -55,7 +55,8 @@ round-trip contract check when the pinned v86 source build is needed.
 `npm run check:runtime:entry` then verifies the production-memory reflection
 and controlled entry-to-thunk boundary. `npm run check:runtime:cdecl` verifies
 the fixed cdecl return and callback-service ingress without invoking the
-callback.
+callback. `npm run check:runtime:callback` verifies the separate Rust-owned
+return sentinel, checked frame, guest callback, and exact result `43` stop.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

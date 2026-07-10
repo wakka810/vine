@@ -1,11 +1,16 @@
 #![forbid(unsafe_code)]
 
+mod callbacks;
 mod imports;
 mod materialize;
 mod memory;
 mod pe32;
 mod snapshot;
 
+pub use callbacks::{
+    CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE, CALLBACK_RETURN_SLOT_SIZE,
+    CallbackReturnSentinel, CallbackReturnSentinelId, install_callback_return_sentinel,
+};
 pub use imports::{
     IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, IMPORT_THUNK_SLOT_SIZE, ImportBinding,
     ImportThunk, ImportThunkArena, ImportThunkId, RuntimeExport, RuntimeExportCatalog,

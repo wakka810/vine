@@ -9,11 +9,19 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
-const dispatchAdd = commandArguments.includes("--dispatch-add");
-const positionalArguments = commandArguments.filter((value) => value !== "--dispatch-add");
+const dispatchAddRequested = commandArguments.includes("--dispatch-add");
+const dispatchCallback = commandArguments.includes("--dispatch-callback");
+assert(
+  !(dispatchAddRequested && dispatchCallback),
+  "choose only one of --dispatch-add or --dispatch-callback",
+);
+const dispatchAdd = dispatchAddRequested || dispatchCallback;
+const positionalArguments = commandArguments.filter(
+  (value) => value !== "--dispatch-add" && value !== "--dispatch-callback",
+);
 assert(
   positionalArguments.length <= 2,
-  "usage: run-runtime-v86-entry-slice.mjs [--dispatch-add] [WASM] [EXE]",
+  "usage: run-runtime-v86-entry-slice.mjs [--dispatch-add | --dispatch-callback] [WASM] [EXE]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -25,7 +33,11 @@ const fixturePath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchAdd ? "v86-cdecl-ingress" : "v86-entry-ingress",
+  dispatchCallback
+    ? "v86-callback-return-ingress"
+    : dispatchAdd
+      ? "v86-cdecl-ingress"
+      : "v86-entry-ingress",
 );
 const reportPath = path.join(outputDirectory, "report.json");
 
@@ -57,6 +69,17 @@ const expected = {
     callbackTarget: 0x10001030,
     value: 42,
   },
+  callbackReturnSentinel: {
+    id: 1,
+    address: 0x7f010000,
+    owner: 3,
+    arenaStart: 0x7f010000,
+    arenaBytes: 0x1_0000,
+    committedPages: 1,
+    slotSize: 0x10,
+    contentSha256: "4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059",
+    generation: 6,
+  },
   reflectionContentSha256:
     "3a3510468616980e99ccf36ccba29083acd8edffb01f1bbfdfd60e3b4a1d297e",
   entryReport: {
@@ -66,6 +89,12 @@ const expected = {
   cdeclReport: {
     bytes: 5_501,
     sha256: "5ee8871673b667a097c2b25be4ca2f810555785ad4e4a563b9c43681c968d953",
+  },
+  callbackReflectionContentSha256:
+    "45d980f7ab5aa3c98942777693438a9c780f5d6a4f0e86f2f8db63211a3af406",
+  callbackReport: {
+    bytes: 7_028,
+    sha256: "4c176ba2358254a8d47c9bcc3040435977a19e4c6b495fb6f220a839e8869093",
   },
 };
 
@@ -145,7 +174,7 @@ function checkedGuestEnd(address, size, label) {
 }
 
 function expectedReflectedPages() {
-  return [
+  const pages = [
     [0x10000000, 1, { read: true, write: false, execute: false }],
     [0x10001000, 1, { read: true, write: false, execute: true }],
     [0x10002000, 1, { read: true, write: false, execute: false }],
@@ -153,6 +182,10 @@ function expectedReflectedPages() {
     [0x10004000, 1, { read: true, write: false, execute: false }],
     [0x7f000000, 2, { read: true, write: false, execute: true }],
   ];
+  if (dispatchCallback) {
+    pages.push([0x7f010000, 3, { read: true, write: false, execute: true }]);
+  }
+  return pages;
 }
 
 function reflectionContentSha256(pages) {
@@ -181,30 +214,34 @@ async function run() {
   assert.equal(fixtureBytes.byteLength, expected.source.bytes);
   assert.equal(sha256(fixtureBytes), expected.source.sha256);
 
+  const probeArguments = [
+    "run",
+    "--quiet",
+    "--locked",
+    "-p",
+    "vine-pe-probe",
+    "--",
+    "--v86-reflection-session",
+    "--expect-sha256",
+    expected.source.sha256,
+    "--prepare-memory-pages",
+    dispatchCallback ? "7" : "6",
+    "--materialize-image-base",
+    "0x10000000",
+    "--bind-name",
+    "vine_fixture.dll",
+    "fixture_add",
+    "--bind-name",
+    "vine_fixture.dll",
+    "fixture_call_callback",
+  ];
+  if (dispatchCallback) {
+    probeArguments.push("--install-callback-return-sentinel");
+  }
+  probeArguments.push(fixturePath);
   const child = spawn(
     "cargo",
-    [
-      "run",
-      "--quiet",
-      "--locked",
-      "-p",
-      "vine-pe-probe",
-      "--",
-      "--v86-reflection-session",
-      "--expect-sha256",
-      expected.source.sha256,
-      "--prepare-memory-pages",
-      "6",
-      "--materialize-image-base",
-      "0x10000000",
-      "--bind-name",
-      "vine_fixture.dll",
-      "fixture_add",
-      "--bind-name",
-      "vine_fixture.dll",
-      "fixture_call_callback",
-      fixturePath,
-    ],
+    probeArguments,
     {
       cwd: root,
       windowsHide: true,
@@ -265,9 +302,16 @@ async function run() {
 
     const execution = executeControlled(offer, wasmContext);
     const report = {
-      schema: dispatchAdd ? "vine.v86-cdecl-service-ingress" : "vine.v86-entry-ingress",
+      schema: dispatchCallback
+        ? "vine.v86-callback-return-ingress"
+        : dispatchAdd
+          ? "vine.v86-cdecl-service-ingress"
+          : "vine.v86-entry-ingress",
       schemaVersion: 1,
       source: offer.source,
+      ...(dispatchCallback
+        ? { runtimeControl: { callbackReturnSentinel: offer.callbackReturnSentinel } }
+        : {}),
       adapter: {
         wasm: {
           bytes: expected.wasm.bytes,
@@ -308,7 +352,14 @@ async function run() {
         entryPoint: offer.entryPointAddress,
       },
       execution,
-      stop: dispatchAdd
+      stop: dispatchCallback
+        ? {
+            stage: "callback-return",
+            code: "outer-cdecl-return-unimplemented",
+            message:
+              "guest callback returned 43 to the exact production-owned sentinel; returning through outer thunk ID 2 was not attempted",
+          }
+        : dispatchAdd
         ? {
             stage: "callback-dispatch",
             code: "guest-callback-frame-unimplemented",
@@ -324,7 +375,10 @@ async function run() {
     };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    if (dispatchAdd) {
+    if (dispatchCallback) {
+      assert.equal(reportBytes.byteLength, expected.callbackReport.bytes);
+      assert.equal(sha256(reportBytes), expected.callbackReport.sha256);
+    } else if (dispatchAdd) {
       assert.equal(reportBytes.byteLength, expected.cdeclReport.bytes);
       assert.equal(sha256(reportBytes), expected.cdeclReport.sha256);
     } else {
@@ -332,7 +386,13 @@ async function run() {
       assert.equal(sha256(reportBytes), expected.entryReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchAdd) {
+    if (dispatchCallback) {
+      console.log(
+        `v86 callback return ingress passed: frame ID ${execution.callbackFrame.id}, ` +
+          `result=${execution.callbackReturn.result}, ${execution.budgetStops} budget stops, ` +
+          `sentinel 0x${execution.callbackReturn.instructionPointer.toString(16)}`,
+      );
+    } else if (dispatchAdd) {
       console.log(
         `v86 cdecl ingress passed: result=${execution.services[0].result}, ` +
           `${execution.budgetStops} budget stops, callback thunk ID ` +
@@ -380,14 +440,38 @@ function validateOffer(offer) {
   assert.equal(offer.thunks[1].module, "vine_fixture.dll");
   assert.equal(offer.thunks[1].kind, "name");
   assert.equal(offer.thunks[1].name, "fixture_call_callback");
+  if (dispatchCallback) {
+    const sentinel = offer.callbackReturnSentinel;
+    assert(sentinel, "callback mode requires a production-owned return sentinel");
+    assert.equal(sentinel.id, expected.callbackReturnSentinel.id);
+    assert.equal(sentinel.address, expected.callbackReturnSentinel.address);
+    assert.equal(sentinel.owner, expected.callbackReturnSentinel.owner);
+    assert.equal(sentinel.arenaRange.start, expected.callbackReturnSentinel.arenaStart);
+    assert.equal(
+      sentinel.arenaRange.byteLength,
+      expected.callbackReturnSentinel.arenaBytes,
+    );
+    assert.equal(sentinel.committedPages, expected.callbackReturnSentinel.committedPages);
+    assert.equal(sentinel.slotSize, expected.callbackReturnSentinel.slotSize);
+    assert.equal(sentinel.contentSha256, expected.callbackReturnSentinel.contentSha256);
+    assert.equal(sentinel.ownerSealed, true);
+    assert.deepEqual(sentinel.invalidation, {
+      generation: expected.callbackReturnSentinel.generation,
+      dataTlb: true,
+      instructionFetch: true,
+      generatedCode: true,
+    });
+  } else {
+    assert.equal(offer.callbackReturnSentinel, undefined);
+  }
   assert.deepEqual(offer.reflection.invalidation, {
-    generation: 4,
+    generation: dispatchCallback ? expected.callbackReturnSentinel.generation : 4,
     dataTlb: true,
     instructionFetch: true,
     generatedCode: true,
   });
   assert.equal(offer.reflection.pageSize, page.size);
-  assert.equal(offer.reflection.pages.length, 6);
+  assert.equal(offer.reflection.pages.length, expectedReflectedPages().length);
   assert.deepEqual(
     offer.reflection.pages.map(({ address, owner, protection }) => [
       address,
@@ -408,7 +492,12 @@ function validateOffer(offer) {
     reflectionContentSha256(offer.reflection.pages),
     offer.reflection.contentSha256,
   );
-  assert.equal(offer.reflection.contentSha256, expected.reflectionContentSha256);
+  assert.equal(
+    offer.reflection.contentSha256,
+    dispatchCallback
+      ? expected.callbackReflectionContentSha256
+      : expected.reflectionContentSha256,
+  );
 }
 
 async function prepareV86(offer) {
@@ -564,6 +653,7 @@ async function prepareV86(offer) {
     for (let index = 0; index < 4; index += 1) {
       const current = (address + index) >>> 0;
       const mapping = mappingFor(current, label);
+      assert(mapping.protection.write, `${label} writes a read-only guest page`);
       physicalMemory[mapping.physicalBase + (current & (page.size - 1))] =
         value >>> (index * 8);
     }
@@ -638,6 +728,7 @@ async function prepareV86(offer) {
     readVirtualBytes,
     readVirtualU32,
     wasm,
+    writeVirtualU32,
   };
 }
 
@@ -648,8 +739,20 @@ function validateReceipt(receipt, offer, context) {
     receipt.acknowledgedGeneration,
     offer.reflection.invalidation.generation,
   );
-  assert.equal(receipt.stats.generation, 4);
+  assert.equal(
+    receipt.stats.generation,
+    dispatchCallback ? expected.callbackReturnSentinel.generation : 4,
+  );
   assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (dispatchCallback) {
+    assert.equal(receipt.stats.owners, 3);
+    assert.equal(receipt.stats.sealedOwners, 3);
+    assert.equal(receipt.stats.regions, 3);
+    assert.equal(receipt.stats.reservedPages, 37);
+    assert.equal(receipt.stats.committedPages, 7);
+    assert.equal(receipt.stats.physicalPages, 7);
+    assert.equal(receipt.stats.dirtyPages, 7);
+  }
   assert.equal(receipt.iatValue, expected.firstThunk.address);
   assert.deepEqual(
     receipt.entryBytes,
@@ -663,6 +766,24 @@ function validateReceipt(receipt, offer, context) {
     0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
     0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
   ]);
+  if (dispatchCallback) {
+    assert.deepEqual(
+      receipt.callbackReturnBytes,
+      [
+        ...context.readVirtualBytes(
+          expected.callbackReturnSentinel.address,
+          16,
+          "reflected callback return bytes",
+        ),
+      ],
+    );
+    assert.deepEqual(receipt.callbackReturnBytes, [
+      0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+      0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+    ]);
+  } else {
+    assert.equal(receipt.callbackReturnBytes, undefined);
+  }
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
 }
@@ -696,7 +817,21 @@ function executeControlled(offer, context) {
   };
   const ownedThunks = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
   assert.equal(ownedThunks.size, offer.thunks.length, "owned thunk addresses must be unique");
-  const runUntilOwnedThunk = (expectedThunk, label) => {
+  const callbackSentinel = offer.callbackReturnSentinel;
+  if (callbackSentinel) {
+    assert(!ownedThunks.has(callbackSentinel.address));
+  }
+  const classifyTrap = (address) => {
+    const thunk = ownedThunks.get(address);
+    if (thunk) {
+      return { kind: "import-thunk", thunk };
+    }
+    if (callbackSentinel?.address === address) {
+      return { kind: "callback-return", sentinel: callbackSentinel };
+    }
+    return null;
+  };
+  const runUntilExactTrap = (expectedAddress, label) => {
     for (let index = 0; index < 16; index += 1) {
       const before = saveState(0);
       const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
@@ -717,14 +852,29 @@ function executeControlled(offer, context) {
       }
       assert.equal(reason, stopReason.invalidOpcode);
       assert.equal(state.errorCode, -1);
-      const thunk = ownedThunks.get(state.instructionPointer);
-      assert(thunk, `#UD at unowned address 0x${state.instructionPointer.toString(16)}`);
-      assert.equal(thunk.id, expectedThunk.id, `${label} reached the wrong thunk`);
-      assert.equal(state.instructionPointer, expectedThunk.address);
-      assert.equal(state.previousInstructionPointer, expectedThunk.address);
-      return state;
+      const trap = classifyTrap(state.instructionPointer);
+      assert(trap, `#UD at unowned address 0x${state.instructionPointer.toString(16)}`);
+      assert.equal(state.instructionPointer, expectedAddress, `${label} reached the wrong trap`);
+      assert.equal(state.previousInstructionPointer, expectedAddress);
+      return { state, trap };
     }
-    assert.fail(`${label} did not reach an owned thunk within 16 slices`);
+    assert.fail(`${label} did not reach its exact owned trap within 16 slices`);
+  };
+  const runUntilOwnedThunk = (expectedThunk, label) => {
+    const { state, trap } = runUntilExactTrap(expectedThunk.address, label);
+    assert.equal(trap.kind, "import-thunk", `${label} reached a non-import trap`);
+    assert.equal(trap.thunk.id, expectedThunk.id, `${label} reached the wrong thunk`);
+    return state;
+  };
+  const runUntilCallbackReturn = () => {
+    assert(callbackSentinel, "callback return execution requires sentinel metadata");
+    const { state, trap } = runUntilExactTrap(
+      callbackSentinel.address,
+      "guest callback return",
+    );
+    assert.equal(trap.kind, "callback-return");
+    assert.equal(trap.sentinel.id, callbackSentinel.id);
+    return state;
   };
   const resume = (state, { eax, esp, instructionPointer }) => {
     context.wasm.vine_cpu_state_save();
@@ -806,11 +956,9 @@ function executeControlled(offer, context) {
     context.readVirtualU32(expected.secondThunk.iatAddress, "bound callback IAT"),
     expected.secondThunk.address,
   );
-  assert.equal(executeStops, 4);
-  assert.equal(budgetStops, 2);
   assert.deepEqual(context.hostImportCalls, { microtick: 1 });
 
-  return {
+  const cdeclResult = {
     instructionBudget: guest.instructionBudget,
     executeStops,
     budgetStops,
@@ -844,6 +992,85 @@ function executeControlled(offer, context) {
       returnAddress: callbackReturn,
       callbackTarget,
       callbackValue,
+    },
+    hostImportCalls: { ...context.hostImportCalls },
+  };
+  if (!dispatchCallback) {
+    assert.equal(executeStops, 4);
+    assert.equal(budgetStops, 2);
+    return cdeclResult;
+  }
+
+  let nextCallbackFrameId = 1;
+  const callbackStackPointer = secondState.esp - 8;
+  checkedEnd(
+    callbackStackPointer,
+    8,
+    secondState.esp,
+    "guest callback frame stack space",
+  );
+  assert(callbackStackPointer >= guest.stackBase);
+  const callbackFrame = {
+    id: nextCallbackFrameId,
+    parentThunkId: offer.thunks[1].id,
+    outerEsp: secondState.esp,
+    outerReturnAddress: callbackReturn,
+    target: callbackTarget,
+    value: callbackValue,
+    returnSentinelId: callbackSentinel.id,
+    returnSentinelAddress: callbackSentinel.address,
+    stackPointer: callbackStackPointer,
+    state: "callback-return-trapped",
+  };
+  nextCallbackFrameId += 1;
+  assert.equal(nextCallbackFrameId, 2);
+  context.writeVirtualU32(
+    callbackStackPointer,
+    callbackSentinel.address,
+    "callback return sentinel",
+  );
+  context.writeVirtualU32(
+    callbackStackPointer + 4,
+    callbackValue,
+    "callback value argument",
+  );
+  resume(secondState, {
+    eax: secondState.eax,
+    esp: callbackStackPointer,
+    instructionPointer: callbackTarget,
+  });
+  const callbackReturnState = runUntilCallbackReturn();
+  assert.equal(callbackReturnState.eax, 43);
+  assert.equal(callbackReturnState.esp, secondState.esp - 4);
+  assert.equal(
+    context.readVirtualU32(callbackStackPointer, "consumed callback sentinel slot"),
+    callbackSentinel.address,
+  );
+  assert.equal(
+    context.readVirtualU32(callbackStackPointer + 4, "callback argument after return"),
+    callbackValue,
+  );
+  assert.equal(executeStops, 6);
+  assert.equal(budgetStops, 3);
+  assert.deepEqual(context.hostImportCalls, { microtick: 1 });
+
+  return {
+    instructionBudget: guest.instructionBudget,
+    executeStops,
+    budgetStops,
+    services: cdeclResult.services,
+    callbackIngress: cdeclResult.callbackIngress,
+    callbackFrame,
+    callbackReturn: {
+      stopReason: callbackReturnState.reason,
+      stopErrorCode: callbackReturnState.errorCode,
+      sentinelId: callbackSentinel.id,
+      sentinelAddress: callbackSentinel.address,
+      instructionPointer: callbackReturnState.instructionPointer,
+      previousInstructionPointer: callbackReturnState.previousInstructionPointer,
+      eax: callbackReturnState.eax,
+      result: callbackReturnState.eax,
+      esp: callbackReturnState.esp,
     },
     hostImportCalls: { ...context.hostImportCalls },
   };

@@ -304,7 +304,11 @@ impl GuestMemoryError {
         error
     }
 
-    fn runtime_defect(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn runtime_defect(
+        stage: &'static str,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(GuestMemoryErrorClass::RuntimeDefect, stage, code, message)
     }
 
