@@ -11,23 +11,29 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
 const dispatchAddRequested = commandArguments.includes("--dispatch-add");
 const dispatchCallbackRequested = commandArguments.includes("--dispatch-callback");
-const dispatchOuterReturn = commandArguments.includes("--dispatch-outer-return");
+const dispatchOuterReturnRequested = commandArguments.includes("--dispatch-outer-return");
+const dispatchEntryReturn = commandArguments.includes("--dispatch-entry-return");
 assert(
-  Number(dispatchAddRequested) + Number(dispatchCallbackRequested) + Number(dispatchOuterReturn) <=
+  Number(dispatchAddRequested) +
+    Number(dispatchCallbackRequested) +
+    Number(dispatchOuterReturnRequested) +
+    Number(dispatchEntryReturn) <=
     1,
   "choose only one dispatch mode",
 );
+const dispatchOuterReturn = dispatchOuterReturnRequested || dispatchEntryReturn;
 const dispatchCallback = dispatchCallbackRequested || dispatchOuterReturn;
 const dispatchAdd = dispatchAddRequested || dispatchCallback;
 const positionalArguments = commandArguments.filter(
   (value) =>
     value !== "--dispatch-add" &&
     value !== "--dispatch-callback" &&
-    value !== "--dispatch-outer-return",
+    value !== "--dispatch-outer-return" &&
+    value !== "--dispatch-entry-return",
 );
 assert(
   positionalArguments.length <= 2,
-  "usage: run-runtime-v86-entry-slice.mjs [--dispatch-add | --dispatch-callback | --dispatch-outer-return] [WASM] [EXE]",
+  "usage: run-runtime-v86-entry-slice.mjs [--dispatch-add | --dispatch-callback | --dispatch-outer-return | --dispatch-entry-return] [WASM] [EXE]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -39,13 +45,15 @@ const fixturePath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchOuterReturn
-    ? "v86-outer-return-ingress"
-    : dispatchCallback
-    ? "v86-callback-return-ingress"
-    : dispatchAdd
-      ? "v86-cdecl-ingress"
-      : "v86-entry-ingress",
+  dispatchEntryReturn
+    ? "v86-entry-return-ingress"
+    : dispatchOuterReturn
+      ? "v86-outer-return-ingress"
+      : dispatchCallback
+        ? "v86-callback-return-ingress"
+        : dispatchAdd
+          ? "v86-cdecl-ingress"
+          : "v86-entry-ingress",
 );
 const reportPath = path.join(outputDirectory, "report.json");
 
@@ -89,6 +97,17 @@ const expected = {
     contentSha256: "4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059",
     generation: 6,
   },
+  processEntryReturnSentinel: {
+    id: 2,
+    address: 0x7f010010,
+    owner: 3,
+    arenaStart: 0x7f010000,
+    arenaBytes: 0x1_0000,
+    committedPages: 1,
+    slotSize: 0x10,
+    contentSha256: "bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc",
+    generation: 6,
+  },
   reflectionContentSha256:
     "3a3510468616980e99ccf36ccba29083acd8edffb01f1bbfdfd60e3b4a1d297e",
   entryReport: {
@@ -108,6 +127,12 @@ const expected = {
   outerReturnReport: {
     bytes: 8_124,
     sha256: "e8202c64fd7a184b8f01a194169f8b5632d7689e866e2588c26be158af587598",
+  },
+  entryReturnReflectionContentSha256:
+    "b184b076d28abbf59401e35113aaeb30ca1f29b8cee590ff1d71897313bfb9db",
+  entryReturnReport: {
+    bytes: 8_674,
+    sha256: "2619711263b918c419b61483499da1bcdc7d02ab9fe261ba57546a356b39756c",
   },
 };
 
@@ -252,6 +277,9 @@ async function run() {
   if (dispatchCallback) {
     probeArguments.push("--install-callback-return-sentinel");
   }
+  if (dispatchEntryReturn) {
+    probeArguments.push("--install-process-entry-return-sentinel");
+  }
   probeArguments.push(fixturePath);
   const child = spawn(
     "cargo",
@@ -316,17 +344,26 @@ async function run() {
 
     const execution = executeControlled(offer, wasmContext);
     const report = {
-      schema: dispatchOuterReturn
-        ? "vine.v86-outer-return-ingress"
-        : dispatchCallback
-          ? "vine.v86-callback-return-ingress"
-          : dispatchAdd
-            ? "vine.v86-cdecl-service-ingress"
-            : "vine.v86-entry-ingress",
+      schema: dispatchEntryReturn
+        ? "vine.v86-entry-return-ingress"
+        : dispatchOuterReturn
+          ? "vine.v86-outer-return-ingress"
+          : dispatchCallback
+            ? "vine.v86-callback-return-ingress"
+            : dispatchAdd
+              ? "vine.v86-cdecl-service-ingress"
+              : "vine.v86-entry-ingress",
       schemaVersion: 1,
       source: offer.source,
       ...(dispatchCallback
-        ? { runtimeControl: { callbackReturnSentinel: offer.callbackReturnSentinel } }
+        ? {
+            runtimeControl: {
+              callbackReturnSentinel: offer.callbackReturnSentinel,
+              ...(dispatchEntryReturn
+                ? { processEntryReturnSentinel: offer.processEntryReturnSentinel }
+                : {}),
+            },
+          }
         : {}),
       adapter: {
         wasm: {
@@ -364,32 +401,41 @@ async function run() {
         stackBase: guest.stackBase,
         stackTop: guest.stackTop,
         initialEsp: guest.stackTop - 4,
-        entryReturn: guest.entryReturn,
+        entryReturn: dispatchEntryReturn
+          ? offer.processEntryReturnSentinel.address
+          : guest.entryReturn,
         entryPoint: offer.entryPointAddress,
       },
       execution,
-      stop: dispatchOuterReturn
+      stop: dispatchEntryReturn
         ? {
-            stage: "process-entry-return",
-            code: "production-entry-return-sentinel-unimplemented",
+            stage: "process-lifecycle",
+            code: "entry-completion-lifecycle-unimplemented",
             message:
-              "outer cdecl thunk ID 2 returned 43 and the guest entry completed; its RET reached the harness-only unmapped return address before a production-owned entry sentinel was installed",
+              "the guest entry returned result 0 to the exact production-owned sentinel with a balanced stack; process bootstrap ownership and completion lifecycle were not attempted",
           }
-        : dispatchCallback
+        : dispatchOuterReturn
           ? {
-              stage: "callback-return",
-              code: "outer-cdecl-return-unimplemented",
+              stage: "process-entry-return",
+              code: "production-entry-return-sentinel-unimplemented",
               message:
-                "guest callback returned 43 to the exact production-owned sentinel; returning through outer thunk ID 2 was not attempted",
+                "outer cdecl thunk ID 2 returned 43 and the guest entry completed; its RET reached the harness-only unmapped return address before a production-owned entry sentinel was installed",
             }
-          : dispatchAdd
+          : dispatchCallback
             ? {
+                stage: "callback-return",
+                code: "outer-cdecl-return-unimplemented",
+                message:
+                  "guest callback returned 43 to the exact production-owned sentinel; returning through outer thunk ID 2 was not attempted",
+              }
+            : dispatchAdd
+              ? {
                 stage: "callback-dispatch",
                 code: "guest-callback-frame-unimplemented",
                 message:
                   "fixed cdecl thunk ID 1 returned to guest execution and reached thunk ID 2; callback frame construction and invocation were not attempted",
               }
-            : {
+              : {
                 stage: "thunk-dispatch",
                 code: "owned-import-service-unimplemented",
                 message:
@@ -398,7 +444,10 @@ async function run() {
     };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    if (dispatchOuterReturn) {
+    if (dispatchEntryReturn) {
+      assert.equal(reportBytes.byteLength, expected.entryReturnReport.bytes);
+      assert.equal(sha256(reportBytes), expected.entryReturnReport.sha256);
+    } else if (dispatchOuterReturn) {
       assert.equal(reportBytes.byteLength, expected.outerReturnReport.bytes);
       assert.equal(sha256(reportBytes), expected.outerReturnReport.sha256);
     } else if (dispatchCallback) {
@@ -412,7 +461,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expected.entryReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchOuterReturn) {
+    if (dispatchEntryReturn) {
+      console.log(
+        `v86 entry return ingress passed: sentinel ID ` +
+          `${execution.entryCompletion.sentinelId}, entry result=` +
+          `${execution.entryCompletion.entryResult}, ${execution.budgetStops} budget stops, ` +
+          `EIP 0x${execution.entryCompletion.instructionPointer.toString(16)}`,
+      );
+    } else if (dispatchOuterReturn) {
       console.log(
         `v86 outer return ingress passed: frame ID ${execution.callbackFrame.id} ` +
           `${execution.callbackFrame.state}, result=${execution.entryContinuation.result}, ` +
@@ -486,7 +542,12 @@ function validateOffer(offer) {
     );
     assert.equal(sentinel.committedPages, expected.callbackReturnSentinel.committedPages);
     assert.equal(sentinel.slotSize, expected.callbackReturnSentinel.slotSize);
-    assert.equal(sentinel.contentSha256, expected.callbackReturnSentinel.contentSha256);
+    assert.equal(
+      sentinel.contentSha256,
+      dispatchEntryReturn
+        ? expected.processEntryReturnSentinel.contentSha256
+        : expected.callbackReturnSentinel.contentSha256,
+    );
     assert.equal(sentinel.ownerSealed, true);
     assert.deepEqual(sentinel.invalidation, {
       generation: expected.callbackReturnSentinel.generation,
@@ -496,6 +557,32 @@ function validateOffer(offer) {
     });
   } else {
     assert.equal(offer.callbackReturnSentinel, undefined);
+  }
+  if (dispatchEntryReturn) {
+    const sentinel = offer.processEntryReturnSentinel;
+    assert(sentinel, "entry-return mode requires a production-owned return sentinel");
+    assert.equal(sentinel.id, expected.processEntryReturnSentinel.id);
+    assert.equal(sentinel.address, expected.processEntryReturnSentinel.address);
+    assert.equal(sentinel.owner, expected.processEntryReturnSentinel.owner);
+    assert.equal(sentinel.arenaRange.start, expected.processEntryReturnSentinel.arenaStart);
+    assert.equal(
+      sentinel.arenaRange.byteLength,
+      expected.processEntryReturnSentinel.arenaBytes,
+    );
+    assert.equal(sentinel.committedPages, expected.processEntryReturnSentinel.committedPages);
+    assert.equal(sentinel.slotSize, expected.processEntryReturnSentinel.slotSize);
+    assert.equal(sentinel.contentSha256, expected.processEntryReturnSentinel.contentSha256);
+    assert.equal(sentinel.ownerSealed, true);
+    assert.deepEqual(sentinel.invalidation, {
+      generation: expected.processEntryReturnSentinel.generation,
+      dataTlb: true,
+      instructionFetch: true,
+      generatedCode: true,
+    });
+    assert.equal(sentinel.owner, offer.callbackReturnSentinel.owner);
+    assert.notEqual(sentinel.address, offer.callbackReturnSentinel.address);
+  } else {
+    assert.equal(offer.processEntryReturnSentinel, undefined);
   }
   assert.deepEqual(offer.reflection.invalidation, {
     generation: dispatchCallback ? expected.callbackReturnSentinel.generation : 4,
@@ -527,7 +614,9 @@ function validateOffer(offer) {
   );
   assert.equal(
     offer.reflection.contentSha256,
-    dispatchCallback
+    dispatchEntryReturn
+      ? expected.entryReturnReflectionContentSha256
+      : dispatchCallback
       ? expected.callbackReflectionContentSha256
       : expected.reflectionContentSha256,
   );
@@ -712,7 +801,10 @@ async function prepareV86(offer) {
   };
 
   const initialEsp = guest.stackTop - 4;
-  writeVirtualU32(initialEsp, guest.entryReturn, "entry return sentinel");
+  const entryReturnAddress = dispatchEntryReturn
+    ? offer.processEntryReturnSentinel.address
+    : guest.entryReturn;
+  writeVirtualU32(initialEsp, entryReturnAddress, "entry return sentinel");
   wasm.reset_cpu();
   assert.equal(wasm.vine_cpu_state_version(), 1);
   assert.equal(wasm.vine_cpu_state_size(), 640);
@@ -817,6 +909,24 @@ function validateReceipt(receipt, offer, context) {
   } else {
     assert.equal(receipt.callbackReturnBytes, undefined);
   }
+  if (dispatchEntryReturn) {
+    assert.deepEqual(
+      receipt.processEntryReturnBytes,
+      [
+        ...context.readVirtualBytes(
+          expected.processEntryReturnSentinel.address,
+          16,
+          "reflected process entry return bytes",
+        ),
+      ],
+    );
+    assert.deepEqual(receipt.processEntryReturnBytes, [
+      0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+      0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+    ]);
+  } else {
+    assert.equal(receipt.processEntryReturnBytes, undefined);
+  }
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
 }
@@ -855,6 +965,11 @@ function executeControlled(offer, context) {
   if (callbackSentinel) {
     assert(!ownedThunks.has(callbackSentinel.address));
   }
+  const processEntrySentinel = offer.processEntryReturnSentinel;
+  if (processEntrySentinel) {
+    assert(!ownedThunks.has(processEntrySentinel.address));
+    assert.notEqual(processEntrySentinel.address, callbackSentinel?.address);
+  }
   const classifyTrap = (address) => {
     const thunk = ownedThunks.get(address);
     if (thunk) {
@@ -862,6 +977,9 @@ function executeControlled(offer, context) {
     }
     if (callbackSentinel?.address === address) {
       return { kind: "callback-return", sentinel: callbackSentinel };
+    }
+    if (processEntrySentinel?.address === address) {
+      return { kind: "process-entry-return", sentinel: processEntrySentinel };
     }
     return null;
   };
@@ -908,6 +1026,16 @@ function executeControlled(offer, context) {
     );
     assert.equal(trap.kind, "callback-return");
     assert.equal(trap.sentinel.id, callbackSentinel.id);
+    return state;
+  };
+  const runUntilProcessEntryReturn = () => {
+    assert(processEntrySentinel, "entry return execution requires sentinel metadata");
+    const { state, trap } = runUntilExactTrap(
+      processEntrySentinel.address,
+      "process entry return",
+    );
+    assert.equal(trap.kind, "process-entry-return");
+    assert.equal(trap.sentinel.id, processEntrySentinel.id);
     return state;
   };
   const runUntilPageFault = (expectedAddress, label) => {
@@ -1147,12 +1275,14 @@ function executeControlled(offer, context) {
     previousInstructionPointer: callbackFrame.outerReturnAddress,
   };
   resume(callbackReturnState, outerResume);
-  const entryContinuationState = runUntilPageFault(
-    guest.entryReturn,
-    "fixture entry return",
-  );
-  assert.equal(entryContinuationState.instructionPointer, guest.entryReturn);
-  assert.equal(entryContinuationState.previousInstructionPointer, guest.entryReturn);
+  const entryContinuationState = dispatchEntryReturn
+    ? runUntilProcessEntryReturn()
+    : runUntilPageFault(guest.entryReturn, "fixture entry return");
+  const expectedEntryReturnAddress = dispatchEntryReturn
+    ? processEntrySentinel.address
+    : guest.entryReturn;
+  assert.equal(entryContinuationState.instructionPointer, expectedEntryReturnAddress);
+  assert.equal(entryContinuationState.previousInstructionPointer, expectedEntryReturnAddress);
   assert.equal(entryContinuationState.eax, 0);
   assert.equal(entryContinuationState.esp, guest.stackTop);
   const fixtureResult = context.readVirtualU32(
@@ -1163,6 +1293,54 @@ function executeControlled(offer, context) {
   assert.equal(executeStops, 9);
   assert.equal(budgetStops, 5);
   assert.deepEqual(context.hostImportCalls, { microtick: 1 });
+
+  if (dispatchEntryReturn) {
+    return {
+      instructionBudget: guest.instructionBudget,
+      executeStops,
+      budgetStops,
+      services: [
+        ...cdeclResult.services,
+        {
+          thunkId: offer.thunks[1].id,
+          thunkAddress: offer.thunks[1].address,
+          service: "vine_fixture.dll!fixture_call_callback",
+          esp: secondState.esp,
+          returnAddress: callbackReturn,
+          arguments: [callbackTarget, callbackValue],
+          callbackFrameId: callbackFrame.id,
+          result: callbackReturnState.eax,
+          resume: outerResume,
+        },
+      ],
+      callbackIngress: cdeclResult.callbackIngress,
+      callbackFrame: {
+        ...callbackFrame,
+        state: "retired",
+      },
+      callbackReturn: callbackResult.callbackReturn,
+      outerReturn: {
+        thunkId: offer.thunks[1].id,
+        callbackFrameId: callbackFrame.id,
+        result: callbackReturnState.eax,
+        resume: outerResume,
+      },
+      entryCompletion: {
+        stopReason: entryContinuationState.reason,
+        stopErrorCode: entryContinuationState.errorCode,
+        sentinelId: processEntrySentinel.id,
+        sentinelAddress: processEntrySentinel.address,
+        instructionPointer: entryContinuationState.instructionPointer,
+        previousInstructionPointer: entryContinuationState.previousInstructionPointer,
+        eax: entryContinuationState.eax,
+        entryResult: entryContinuationState.eax,
+        esp: entryContinuationState.esp,
+        fixtureResultAddress: expected.resultAddress,
+        fixtureResult,
+      },
+      hostImportCalls: { ...context.hostImportCalls },
+    };
+  }
 
   return {
     instructionBudget: guest.instructionBudget,

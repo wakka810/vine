@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはimmutable snapshot、bounded PE32 load plan、sparse guest memory、PE32 source copy／zero-fill／`HIGHLOW` materialization、runtime-owned import thunk binding、controlled v86 entry reflection、fixed cdecl service／callback return／outer return ingressがある。general memory／process integration、DLL／export lifecycle、bootstrap、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはimmutable snapshot、bounded PE32 load plan、sparse guest memory、PE32 source copy／zero-fill／`HIGHLOW` materialization、runtime-owned import thunk binding、controlled v86 entry reflection、fixed cdecl service／callback return／outer return／entry return ingressがある。general memory／process integration、DLL／export lifecycle、bootstrap、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -87,7 +87,7 @@ guest CALL / JMP import thunk
 
 API implementation は `Promise` を guest へ見せない。deferred operation の途中でも、別 guest thread、message、cancel、timeout を scheduler が扱える設計にする。
 
-現在のcontrolled sliceはordered `ImportThunk` metadataでexact service trapを分類し、fixed two-DWORD cdecl serviceをversion 1 CPU state ABI経由でreturnする。続くcallback modeはimport arenaと分離したRust-owned RX control regionへexact return sentinelを置き、host-owned frame ID `1`のchecked stackからone-level guest callbackを実行する。outer modeはframeをretireし、result `43`をouter cdecl callerへ返してguest result／entry continuationとbalanced stackまで進める。general ABI schema、LastError、deferred service、frame stack、process-entry return sentinelは未実装である。詳細は[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)を正とする。
+現在のcontrolled sliceはordered `ImportThunk` metadataでexact service trapを分類し、fixed two-DWORD cdecl serviceをversion 1 CPU state ABI経由でreturnする。callback modeはRust-owned RX control regionのslot `1`へexact callback sentinelを置き、host-owned frame ID `1`からone-level guest callbackを実行する。outer modeはframeをretireしてguest result／entry continuationへ進み、entry-return modeはslot `2`のtyped sentinelでentry EAX `0`／balanced ESPをexact分類する。general ABI schema、LastError、deferred service、frame stack、production initial stack／process lifecycleは未実装である。詳細は[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)、[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を正とする。
 
 ### 4.3 Host から guest callback
 
@@ -102,7 +102,7 @@ Window procedure、timer procedure、enumeration callback 等は host event か�
 
 callback と再入は後付けしない。Phase 1 の vertical slice で実証する。
 
-controlled callback return ingressでは、sentinel kindをimport thunk address rangeから推測せず、separate ownerのexact ID／address metadataで分類する。frame IDはactive outer thunk、saved ESP／return address、target／value、sentinel identityを保持する。outer return ingressはその1 frameをretireし、fixed cdecl resultをguest callerへ返す。これはgeneral frame allocatorではなく、nested callback、reentrant service、callback fault／cancellation policyは未実装である。
+controlled callback／entry return ingressでは、sentinel kindをcontrol address rangeから推測せず、typed exact ID／address metadataで分類する。frame IDはactive outer thunk、saved ESP／return address、target／value、callback sentinel identityを保持する。outer returnでその1 frameをretireし、process-entry sentinelはframeとは別のcompletion kindとして扱う。これはgeneral frame／lifecycle allocatorではなく、nested callback、reentrant service、callback fault／cancellation、thread／process exit policyは未実装である。
 
 ## 5. Browser execution topology
 
@@ -155,7 +155,7 @@ background tab、debugger pause、audio suspend 後に catch-up するか freeze
 
 Wasm32 linear memory の offset と guest virtual address を同一と仮定しない。推奨案は sparse page table または region table を介し、CPU と marshaller が共通の checked memory interface を使う方式である。hot path の TLB/cache は profile 後に追加する。
 
-現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装し、low BGI imageとhigh fixtureを同じchecked rangeで所有する。controlled callback modeはsealed image／import pagesにseparate callback-control ownerのRX pageを加えた7 pagesをsemantic reflectionとしてv86へ反映し、generation `6`のactual invalidation後にone-level callback、outer return、guest entry continuationまで実行した。adapter stack／result writesはRust memoryへ戻らず、これはgeneral mutation／dirty-page synchronizationではない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)を正とする。
+現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装し、low BGI imageとhigh fixtureを同じchecked rangeで所有する。controlled entry-return modeはsealed image／import pagesにtyped callback／process-entry sentinelを持つcontrol RX pageを加えた7 pagesをsemantic reflectionとしてv86へ反映し、generation `6`のactual invalidation後にone-level callback、outer return、exact entry completionまで実行した。initial stackとadapter stack／result writesはRust memoryへ戻らず、これはgeneral mutation／dirty-page synchronizationではない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)、[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を正とする。
 
 ### 6.2 Page state
 
@@ -194,7 +194,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。fixed T1／W2 flowとhigh-address memory measurementに続き、controlled production pagesをphysical-frame IDなしのsemantic reflectionでv86 page tablesへcopyし、actual invalidation後にentry、fixed cdecl service、separate exact callback sentinel、outer callback unwind、guest entry continuationまで実行した。frame ID `1`はresult `43`でreturn後にretireし、entryはEAX `0`／ESP `0x00700000`からharness-only unmapped returnのstructured `#PF`へ進んだ。v86はinstruction fetchをreadと区別しないため、Vine metadataを使うslice-boundary execute gateを保持する。これは`ADR-003` provisional candidateの限定したCPU接続であり、general mutation、bidirectional dirty pages、guard、snapshot、broad ABI、production entry sentinel、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)を正とする。
+固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。fixed T1／W2 flowとhigh-address memory measurementに続き、controlled production pagesをphysical-frame IDなしのsemantic reflectionでv86 page tablesへcopyし、actual invalidation後にentry、fixed cdecl service、typed callback sentinel、outer callback unwind、typed process-entry sentinelまで実行した。frame ID `1`はresult `43`でreturn後にretireし、entryはEAX `0`／ESP `0x00700000`でexact completionした。outer-only modeはharness-only unmapped returnのstructured `#PF`を保持する。v86はinstruction fetchをreadと区別しないため、Vine metadataを使うslice-boundary execute gateを保持する。これは`ADR-003` provisional candidateの限定したCPU接続であり、production stack、general mutation、bidirectional dirty pages、guard、snapshot、broad ABI、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)、[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 

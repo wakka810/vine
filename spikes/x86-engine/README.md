@@ -61,6 +61,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:outer-return` continues that exact stop, retires frame ID `1`, returns result `43` through outer cdecl thunk ID `2`, and executes the guest result／entry continuation. It verifies result `43`, entry EAX `0`, ESP `0x00700000`, and the structured instruction-fetch page fault at the harness-only unmapped return `0xDEADC0DE`. The result is recorded in [v86-outer-return-ingress.md](../../docs/v86-outer-return-ingress.md).
 
+`npm run check:runtime:entry-return` adds process-entry sentinel ID `2` at control slot `0x7F010010`, places that exact address on the initial stack, and classifies the final `#UD` as successful entry completion with EAX `0`, ESP `0x00700000`, and fixture result `43`. The outer-only unmapped fault remains a separate regression contract. The result is recorded in [v86-entry-return-ingress.md](../../docs/v86-entry-return-ingress.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.

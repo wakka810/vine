@@ -11,9 +11,9 @@ use vine_core::{
     CallbackReturnSentinel, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
     ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportThunk, LoaderError,
     LoaderErrorClass, LoaderIngressReport, MemoryInvalidation, MemoryLimits, MemoryReflection,
-    MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits, RuntimeExport, RuntimeExportCatalog,
-    UnsupportedPoint, bind_pe32_imports, build_pe32_load_plan, install_callback_return_sentinel,
-    materialize_pe32_image,
+    MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits, ProcessEntryReturnSentinel,
+    RuntimeExport, RuntimeExportCatalog, UnsupportedPoint, bind_pe32_imports, build_pe32_load_plan,
+    install_callback_return_sentinel, install_runtime_return_sentinels, materialize_pe32_image,
 };
 
 #[derive(Debug)]
@@ -26,6 +26,7 @@ struct Arguments {
     runtime_exports: Vec<RuntimeExport>,
     v86_reflection_session: bool,
     install_callback_return_sentinel: bool,
+    install_process_entry_return_sentinel: bool,
 }
 
 #[derive(Serialize)]
@@ -99,6 +100,8 @@ struct V86ReflectionOffer {
     thunks: Vec<ImportThunk>,
     #[serde(skip_serializing_if = "Option::is_none")]
     callback_return_sentinel: Option<CallbackReturnSentinel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process_entry_return_sentinel: Option<ProcessEntryReturnSentinel>,
     reflection: MemoryReflection,
 }
 
@@ -125,6 +128,8 @@ struct V86ReflectionReceipt {
     thunk_bytes: Vec<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     callback_return_bytes: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process_entry_return_bytes: Option<Vec<u8>>,
     stop: UnsupportedPoint,
 }
 
@@ -303,13 +308,31 @@ fn run_v86_reflection_session(
             "v86 entry reflection requires at least one runtime-owned import thunk",
         )
     })?;
-    let callback_return_sentinel = arguments
-        .install_callback_return_sentinel
-        .then(|| install_callback_return_sentinel(&mut memory).map_err(memory_error))
-        .transpose()?;
-    let expected_invalidation = callback_return_sentinel
+    let (callback_return_sentinel, process_entry_return_sentinel) =
+        if arguments.install_process_entry_return_sentinel {
+            let sentinels = install_runtime_return_sentinels(&mut memory).map_err(memory_error)?;
+            (
+                Some(sentinels.callback_return),
+                Some(sentinels.process_entry_return),
+            )
+        } else {
+            (
+                arguments
+                    .install_callback_return_sentinel
+                    .then(|| install_callback_return_sentinel(&mut memory).map_err(memory_error))
+                    .transpose()?,
+                None,
+            )
+        };
+    let expected_invalidation = process_entry_return_sentinel
         .as_ref()
-        .map_or(binding.invalidation, |sentinel| sentinel.invalidation);
+        .map(|sentinel| sentinel.invalidation)
+        .or_else(|| {
+            callback_return_sentinel
+                .as_ref()
+                .map(|sentinel| sentinel.invalidation)
+        })
+        .unwrap_or(binding.invalidation);
     let reflection = memory.pending_reflection().map_err(memory_error)?;
     if reflection.invalidation != expected_invalidation {
         return Err(LoaderError::runtime_defect(
@@ -328,6 +351,7 @@ fn run_v86_reflection_session(
         first_thunk: first_thunk.clone(),
         thunks: binding.thunks.clone(),
         callback_return_sentinel: callback_return_sentinel.clone(),
+        process_entry_return_sentinel: process_entry_return_sentinel.clone(),
         reflection,
     };
     write_protocol_message(&offer)?;
@@ -364,6 +388,10 @@ fn run_v86_reflection_session(
         .as_ref()
         .map(|sentinel| memory.fetch(sentinel.address, 16).map_err(memory_error))
         .transpose()?;
+    let process_entry_return_bytes = process_entry_return_sentinel
+        .as_ref()
+        .map(|sentinel| memory.fetch(sentinel.address, 16).map_err(memory_error))
+        .transpose()?;
     let receipt = V86ReflectionReceipt {
         schema: "vine.v86-memory-reflection-receipt",
         schema_version: 1,
@@ -373,6 +401,7 @@ fn run_v86_reflection_session(
         entry_bytes,
         thunk_bytes,
         callback_return_bytes,
+        process_entry_return_bytes,
         stop: UnsupportedPoint {
             stage: "adapter-execution",
             code: "entry-to-first-owned-thunk-pending",
@@ -530,6 +559,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut runtime_exports = Vec::new();
     let mut v86_reflection_session = false;
     let mut install_callback_return_sentinel = false;
+    let mut install_process_entry_return_sentinel = false;
     let mut arguments = env::args_os().skip(1);
 
     while let Some(argument) = arguments.next() {
@@ -581,6 +611,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             install_callback_return_sentinel = true;
+        } else if argument == "--install-process-entry-return-sentinel" {
+            if install_process_entry_return_sentinel {
+                return Err(usage_error());
+            }
+            install_process_entry_return_sentinel = true;
         } else if argument.to_string_lossy().starts_with('-') || input.is_some() {
             return Err(usage_error());
         } else {
@@ -605,6 +640,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if install_callback_return_sentinel && !v86_reflection_session {
         return Err(usage_error());
     }
+    if install_process_entry_return_sentinel
+        && (!v86_reflection_session || !install_callback_return_sentinel)
+    {
+        return Err(usage_error());
+    }
 
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
@@ -615,6 +655,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         runtime_exports,
         v86_reflection_session,
         install_callback_return_sentinel,
+        install_process_entry_return_sentinel,
     })
 }
 
@@ -690,7 +731,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session [--install-callback-return-sentinel] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel]] | --output FILE] INPUT".to_owned(),
     }
 }
 

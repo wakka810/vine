@@ -19,16 +19,18 @@ a versioned Rust-to-v86 reflection boundary, dispatches fixed cdecl
 exact return sentinel after real cache invalidation. The host now retires that
 callback frame, returns result `43` through the outer cdecl thunk, and runs the
 guest entry continuation through result `43`, entry result `0`, and balanced
-stack state.
+stack state. A second typed runtime-control slot now classifies that entry
+return at an exact production-owned sentinel.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. The controlled fixture now binds both imports and seals its
 image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
-at `DINPUT8.dll!DirectInput8Create`. The controlled entry currently ends in a
-structured fetch fault at its harness-only unmapped return value. The next task
-replaces that value with an exact production-owned process-entry return
-sentinel; see [docs/v86-outer-return-ingress.md](docs/v86-outer-return-ingress.md).
+at `DINPUT8.dll!DirectInput8Create`. The controlled entry now returns result `0`
+to exact process-entry sentinel ID `2` with ESP `0x00700000`; arbitrary unmapped
+returns still fault. The next task moves the adapter-local initial stack into
+Rust-owned guest memory; see
+[docs/v86-entry-return-ingress.md](docs/v86-entry-return-ingress.md).
 
 ## Requirements
 
@@ -63,6 +65,9 @@ return sentinel, checked frame, guest callback, and exact result `43` stop.
 `npm run check:runtime:outer-return` retires that frame, returns through the
 outer cdecl thunk, and verifies the following result write, entry result, stack
 balance, and structured unmapped-return fault.
+`npm run check:runtime:entry-return` replaces that harness return value with a
+second production-owned control sentinel and verifies exact successful entry
+completion without accepting unrelated faults.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

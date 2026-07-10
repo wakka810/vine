@@ -203,6 +203,7 @@ Verified behavior:
 - ordered production thunk metadataでexact thunk ID `1`を分類し、fixed cdecl frame `[return,19,23]`をchecked readしてEAX `42`を返す。guest側のargument cleanup後にexact thunk ID `2`へ到達し、callback target `0x10001030`／value `42`を構造化するcdecl service ingress
 - separate runtime ownerのRX control pageへcallback return sentinel ID `1`／`0x7F010000`を置き、frame ID `1`でchecked stackへ`[sentinel,42]`を積む。guest callback `0x10001030`を実行し、exact sentinelへEAX `43`で戻るcallback return ingress
 - frame ID `1`をretireし、outer cdecl thunk ID `2`からEAX `43`、ESP `0x006FFFF4`、EIP `0x10001019`でguestへ戻す。guest自身のargument cleanup、result `43`、entry result `0`、final ESP `0x00700000`を通し、harness-only unmapped return `0xDEADC0DE`のstructured `#PF`まで測るouter return ingress
+- 同じruntime control pageのslot `2`／`0x7F010010`へprocess-entry return sentinel ID `2`を追加し、initial stackからguest entryをexact sentinelへEAX `0`、ESP `0x00700000`でreturnさせる。fixture result `43`を保持し、その他のunmapped returnを`#PF`のままにするentry return ingress
 
 未検証または未実装:
 
@@ -250,6 +251,7 @@ Verified behavior:
 30. 同じreflection sessionとordered thunk metadataを使い、thunk ID `1`のfixed two-argument cdecl serviceをdispatchする。EAX `42`、callee `RET`相当のESP `+4`でguestへresumeし、guest自身のargument cleanup後にthunk ID `2`／callback target `0x10001030`／value `42`へ到達するproduction cdecl service ingress contract。
 31. optional callback modeでseparate runtime owner `3`の`[0x7F010000,0x7F020000)`へcallback return sentinel ID `1`を割り当て、generation `6`の7 production pagesをreflectする。frame ID `1`、ESP `0x006FFFE8`へ`[sentinel,42]`を積んでguest callbackへ入り、6 execute stop／3 budget stop後にexact sentinelへEAX `43`、ESP `0x006FFFEC`で到達するproduction callback return ingress contract。
 32. callback frame ID `1`をretireし、outer cdecl thunk ID `2`のreturn addressだけをconsumeしてguest `0x10001019`へresult `43`を返す。guest callerの2 argument cleanup、`0x10003000 = 43`、entry EAX `0`、ESP `0x00700000`を通し、9 execute stop／5 budget stop後にunmapped `0xDEADC0DE` fetchのPFEC `4`で停止するproduction outer return ingress contract。
+33. optional entry-return modeでcontrol owner `3`のslot `2`へprocess-entry sentinel ID `2`／`0x7F010010`を置き、combined page SHA-256 `bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc`をgeneration `6`でsealする。initial ESP `0x006FFFFC`へexact addressを置き、9 execute stop／5 budget stop後にEAX `0`、ESP `0x00700000`でentry completionを分類するproduction entry return ingress contract。
 
 2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
 
@@ -273,6 +275,8 @@ Verified behavior:
 
 続けてframe ID `1`をretireし、outer thunk ID `2`からEAX `43`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x10001019`でfixed cdecl returnした。guestは2 argumentsをcleanupし、`0x10003000`へ`43`を書いてentry result EAX `0`を作り、final `RET`でESP `0x00700000`へ到達した。initial stackのharness-only `0xDEADC0DE`はunmappedのため、9 execute stop／5 budget stop後にEIP／CR2 `0xDEADC0DE`、PFEC `4`のstructured `#PF`となった。version 1 reportは8,124 bytes／SHA-256 `e8202c64fd7a184b8f01a194169f8b5632d7689e866e2588c26be158af587598`である。production-owned entry sentinel、process exit lifecycle、bidirectional dirty-page sync、general callback stackは未実装である。詳細は`docs/v86-outer-return-ingress.md`を正とする。
 
+続けてprocess-entry sentinel ID `2`／`0x7F010010`を同じcontrol pageのslot `2`へ追加した。callback slot `1`と合わせたpage SHA-256は`bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc`、7 reflected pagesのcontent SHA-256は`b184b076d28abbf59401e35113aaeb30ca1f29b8cee590ff1d71897313bfb9db`で、generation `6`／12 adapter pagesを維持する。initial ESP `0x006FFFFC`へexact sentinelを置き、9 execute stop／5 budget stop後にEIP／PREVIOUS_EIP `0x7F010010`、EAX `0`、ESP `0x00700000`、fixture result `43`でentry completionを分類した。version 1 reportは8,674 bytes／SHA-256 `2619711263b918c419b61483499da1bcdc7d02ab9fe261ba57546a356b39756c`である。initial stackはなおharness-onlyで、process／thread exit lifecycle、PEB／TEB、process parametersは未実装である。詳細は`docs/v86-entry-return-ingress.md`を正とする。
+
 まだ存在しないもの:
 
 - production TypeScript／Wasm browser workspaceとRust coreのWasm packaging
@@ -284,7 +288,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGI.exe をv86-connected Vine guest memoryでexecuteした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、trace v2 attribution／selected IDirect3D9 root evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle／runtime flow、W3 browser first-pixel boundary、fixed high-address memory measurement、W7 Rust load-plan／guest-memory／image-materialization／import-binding／controlled entry／fixed cdecl service／callback return／outer return ingressである。controlled production imageはv86上でfixed service、1段callback、outer cdecl return、entry continuationを通したが、process-entry returnはunmapped harness valueのpage faultで止まり、BGIは1 importだけbindした未seal／未実行imageである。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、trace v2 attribution／selected IDirect3D9 root evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle／runtime flow、W3 browser first-pixel boundary、fixed high-address memory measurement、W7 Rust load-plan／guest-memory／image-materialization／import-binding／controlled entry／fixed cdecl service／callback return／outer return／entry return ingressである。controlled production imageはv86上でfixed service、1段callback、outer cdecl return、exact entry completionまで通したが、initial stackとprocess lifecycleはharness-onlyで、BGIは1 importだけbindした未seal／未実行imageである。
 
 ## 8. Corpus
 
@@ -356,20 +360,21 @@ npm run check:runtime:entry
 npm run check:runtime:cdecl
 npm run check:runtime:callback
 npm run check:runtime:outer-return
+npm run check:runtime:entry-return
 ```
 
-`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI、high-address／protection、W2 runtime flow contractを実行する。`check:runtime:window-browser`は同じW2 harnessがemitしたeventを一時local serverからclean Chrome profileへ渡し、Canvas pixelをreadbackする。`check:runtime:entry`はproduction Rust reflectionとsource-built v86をsession接続してcontrolled entryからfirst owned thunkまで実行し、`check:runtime:cdecl`は同じboundaryでfixed cdecl return後にcallback-service thunkまで進め、`check:runtime:callback`はoptional control owner／frameからexact callback return sentinelまで実行し、`check:runtime:outer-return`はframeをretireしてouter cdecl return後のentry continuation／unmapped fetch faultまで進める。`check:runtime:pe`、`check:runtime:memory-core`、`check:runtime:materialization`、`check:runtime:imports`はroot Rust workspaceのW7 plan／memory／mapped-byte／IAT-thunk contractを個別に実行し、すべてを含む`check:runtime:core`がcanonical checkに入る。source adapterを使う前8 checkpointは通常の`npm run check`には含めない。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI、high-address／protection、W2 runtime flow contractを実行する。`check:runtime:window-browser`は同じW2 harnessがemitしたeventを一時local serverからclean Chrome profileへ渡し、Canvas pixelをreadbackする。`check:runtime:entry`はproduction Rust reflectionとsource-built v86をsession接続してcontrolled entryからfirst owned thunkまで実行し、`check:runtime:cdecl`は同じboundaryでfixed cdecl return後にcallback-service thunkまで進め、`check:runtime:callback`はoptional control owner／frameからexact callback return sentinelまで実行し、`check:runtime:outer-return`はframeをretireしてouter cdecl return後のentry continuation／unmapped fetch faultまで進め、`check:runtime:entry-return`は同じflowをproduction-owned exact process-entry sentinelで閉じる。`check:runtime:pe`、`check:runtime:memory-core`、`check:runtime:materialization`、`check:runtime:imports`はroot Rust workspaceのW7 plan／memory／mapped-byte／IAT-thunk contractを個別に実行し、すべてを含む`check:runtime:core`がcanonical checkに入る。source adapterを使う前9 checkpointは通常の`npm run check`には含めない。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 runtime flow、W3 browser first-pixel boundary、trace v2 attribution／selected IDirect3D9 root capture、high-address／protection memory measurement、W7 Rust PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry／fixed cdecl service／callback return／outer return ingressは 2026-07-11 までに完了した。frame ID `1`はretiredとなり、outer thunk ID `2`からresult `43`をguestへ返した。guestはresultを`0x10003000`へ書き、entry EAX `0`／ESP `0x00700000`まで進んで、harness-only unmapped return `0xDEADC0DE`のPFEC `4`で停止した。BGIは`d3d9.dll!Direct3DCreate9`だけをbindし、次の`DINPUT8.dll!DirectInput8Create`で停止した未実行imageである。2 MiB v86 pool、physical placement、one-page stack、flat CPL3 state、`0x7F000000` import arena、`0x7F010000` control arenaはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshotの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 runtime flow、W3 browser first-pixel boundary、trace v2 attribution／selected IDirect3D9 root capture、high-address／protection memory measurement、W7 Rust PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry／fixed cdecl service／callback return／outer return／entry return ingressは 2026-07-11 までに完了した。control slot `2`／sentinel ID `2`／`0x7F010010`をinitial stackへ置き、fixture result `43`、entry EAX `0`、ESP `0x00700000`でexact entry completionまで進んだ。outer-only modeはunmapped `0xDEADC0DE`のPFEC `4`を保持する。BGIは`d3d9.dll!Direct3DCreate9`だけをbindし、次の`DINPUT8.dll!DirectInput8Create`で停止した未実行imageである。2 MiB v86 pool、physical placement、one-page stack、flat CPL3 state、`0x7F000000` import arena、`0x7F010000` control arenaはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshotの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. process-entry returnをproduction-owned sentinelへ移し、exact sentinel identity、fixture result `43`、entry result `0`、ESP `0x00700000`を同じproduction pathで閉じる。その他のunmapped returnはstructured `#PF`のまま保持する。
-2. controlled initial stackとentry completion recordをproduction process-bootstrap候補へ接続し、PEB／TEB／process parametersへ進む前の最小ownership boundaryを決める。
+1. controlled initial thread stackとentry completion recordをRust-owned guest memoryへ移し、adapter-local stack allocationをこのmodeから除く。checked initializationでexact entry sentinelを置き、同じfinal stateを保持する。
+2. 最小PEB／TEB／process parameters layoutをfixtureで決め、production process-bootstrap recordからentryへ渡す最初のfield accessを一つ通す。
 
-項目1が次の primary implementation checkpointである。outer return ingressをprocess exit、production bootstrap、general callback stack、bidirectional dirty-page sync、`AC-P1`／`AC-P2`の完成と扱わない。次checkpointはproduction-owned entry sentinelの割当、initial stackへの配置、exact successful return classificationに限定する。
+項目1が次の primary implementation checkpointである。entry return ingressをWindows process exit、production bootstrap、general callback stack、bidirectional dirty-page sync、`AC-P1`／`AC-P2`の完成と扱わない。次checkpointはone-page controlled stackのRust ownership、bootstrap metadata、reflection、adapter-local stack除去に限定する。
 
 ## 11. Major Open Questions
 
@@ -432,13 +437,14 @@ Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE
 | `docs/v86-cdecl-ingress.md` | exact thunk metadata、fixed cdecl return、guest cleanup、callback-service ingress |
 | `docs/v86-callback-return-ingress.md` | separate control owner／sentinel、frame ID、one-level guest callback return evidence |
 | `docs/v86-outer-return-ingress.md` | callback frame retirement、outer cdecl return、guest result／entry continuation evidence |
+| `docs/v86-entry-return-ingress.md` | process-entry sentinel、exact successful entry completion、stack balance evidence |
 | `docs/roadmap.md` | long-term phase、task、dependency、acceptance mapping |
 | `docs/risks-and-open-questions.md` | unresolved decisions、risk、go／no-go |
 | `docs/testing-and-acceptance.md` | test candidate、evidence、phase acceptance |
 | `docs/x86-engine-scorecard.md` | engine comparison、v86 evidence、remaining gates |
 | `docs/toolchain-spike.md` | LLVM PE／Wasm fixture baseline |
 | `docs/windows-development.md` | Windows bring-up、trace、checkpoint commands |
-| `docs/windows-native-evidence.md` | Windows W0、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native fixture／runtime flow、W3 browser first pixel、W7 loader／memory／materialization／import-binding／entry／cdecl／callback／outer return ingress |
+| `docs/windows-native-evidence.md` | Windows W0、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native fixture／runtime flow、W3 browser first pixel、W7 loader／memory／materialization／import-binding／entry／cdecl／callback／outer／entry return ingress |
 | `spikes/x86-engine/README.md` | v86 source adapter reproduction |
 
 文書内の長い test／task listは将来coverageの地図であり、今すぐ全件実装する指示ではない。本書のactive queueと「広く浅く、代表test 1本」を優先する。

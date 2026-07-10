@@ -9,6 +9,7 @@ use crate::memory::{
 pub const CALLBACK_RETURN_ARENA_BASE: GuestAddress = GuestAddress(0x7f01_0000);
 pub const CALLBACK_RETURN_ARENA_SIZE: u64 = 0x1_0000;
 pub const CALLBACK_RETURN_SLOT_SIZE: u32 = 0x10;
+pub const PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS: GuestAddress = GuestAddress(0x7f01_0010);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -28,9 +29,59 @@ pub struct CallbackReturnSentinel {
     pub invalidation: MemoryInvalidation,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct ProcessEntryReturnSentinelId(pub u32);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessEntryReturnSentinel {
+    pub id: ProcessEntryReturnSentinelId,
+    pub address: GuestAddress,
+    pub owner: MemoryOwnerId,
+    pub arena_range: GuestRange,
+    pub committed_pages: usize,
+    pub slot_size: u32,
+    pub content_sha256: String,
+    pub owner_sealed: bool,
+    pub invalidation: MemoryInvalidation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeReturnSentinels {
+    pub callback_return: CallbackReturnSentinel,
+    pub process_entry_return: ProcessEntryReturnSentinel,
+}
+
 pub fn install_callback_return_sentinel(
     memory: &mut GuestMemory,
 ) -> Result<CallbackReturnSentinel, GuestMemoryError> {
+    let (callback_return, process_entry_return) = install_return_sentinels(memory, false)?;
+    debug_assert!(process_entry_return.is_none());
+    Ok(callback_return)
+}
+
+pub fn install_runtime_return_sentinels(
+    memory: &mut GuestMemory,
+) -> Result<RuntimeReturnSentinels, GuestMemoryError> {
+    let (callback_return, process_entry_return) = install_return_sentinels(memory, true)?;
+    let process_entry_return = process_entry_return.ok_or_else(|| {
+        GuestMemoryError::runtime_defect(
+            "process-entry-return",
+            "process-entry-return-sentinel-missing",
+            "combined runtime return installation omitted the process-entry sentinel",
+        )
+    })?;
+    Ok(RuntimeReturnSentinels {
+        callback_return,
+        process_entry_return,
+    })
+}
+
+fn install_return_sentinels(
+    memory: &mut GuestMemory,
+    include_process_entry_return: bool,
+) -> Result<(CallbackReturnSentinel, Option<ProcessEntryReturnSentinel>), GuestMemoryError> {
     let owner = memory.create_owner(MemoryOwnerKind::Runtime)?;
     let arena_range = match memory.reserve_fixed(
         owner,
@@ -56,12 +107,26 @@ pub fn install_callback_return_sentinel(
     )?;
     fill_halt_page(memory, owner)?;
     memory.write_initialization(owner, CALLBACK_RETURN_ARENA_BASE, &[0x0f, 0x0b])?;
+    if include_process_entry_return {
+        memory.write_initialization(owner, PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS, &[0x0f, 0x0b])?;
+    }
     let content_sha256 = hash_initialization_page(memory, owner)?;
     let invalidation = memory.seal_owner(owner)?;
 
-    Ok(CallbackReturnSentinel {
+    let callback_return = CallbackReturnSentinel {
         id: CallbackReturnSentinelId(1),
         address: CALLBACK_RETURN_ARENA_BASE,
+        owner,
+        arena_range,
+        committed_pages: 1,
+        slot_size: CALLBACK_RETURN_SLOT_SIZE,
+        content_sha256: content_sha256.clone(),
+        owner_sealed: true,
+        invalidation,
+    };
+    let process_entry_return = include_process_entry_return.then_some(ProcessEntryReturnSentinel {
+        id: ProcessEntryReturnSentinelId(2),
+        address: PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS,
         owner,
         arena_range,
         committed_pages: 1,
@@ -69,7 +134,8 @@ pub fn install_callback_return_sentinel(
         content_sha256,
         owner_sealed: true,
         invalidation,
-    })
+    });
+    Ok((callback_return, process_entry_return))
 }
 
 fn fill_halt_page(memory: &mut GuestMemory, owner: MemoryOwnerId) -> Result<(), GuestMemoryError> {

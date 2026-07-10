@@ -9,7 +9,9 @@ mod snapshot;
 
 pub use callbacks::{
     CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE, CALLBACK_RETURN_SLOT_SIZE,
-    CallbackReturnSentinel, CallbackReturnSentinelId, install_callback_return_sentinel,
+    CallbackReturnSentinel, CallbackReturnSentinelId, PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS,
+    ProcessEntryReturnSentinel, ProcessEntryReturnSentinelId, RuntimeReturnSentinels,
+    install_callback_return_sentinel, install_runtime_return_sentinels,
 };
 pub use imports::{
     IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, IMPORT_THUNK_SLOT_SIZE, ImportBinding,

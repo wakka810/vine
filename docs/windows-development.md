@@ -26,9 +26,10 @@
 - ordered production thunk metadataとversioned CPU stateによるfixed cdecl result `42`、guest cleanup、thunk ID `2`のcallback-service ingress
 - separate Rust runtime ownerのcallback return sentinel、frame ID `1`、checked stack、guest callback result `43`のexact return stop
 - frame ID `1`のretirement、outer cdecl result `43`、guest result／entry continuation、balanced ESPとharness-only unmapped returnのstructured `#PF`
+- 同じcontrol pageのtyped process-entry sentinel ID `2`、exact entry result `0`／ESP `0x00700000` completionとunmapped-fault regression
 
-general v86 memory／process integration、DLL／export lifecycle／bootstrap、Win32 API、graphics／audio は未実装である。controlled imageはfixed cdecl service、one-level guest callback、outer service return、entry result／stack balanceまで進んだが、process-entry returnはunmapped harness valueのpage faultで止まる。BGIは`Direct3DCreate9` 1件だけbindした未seal／未実行imageである。サクラノ詩のnative traceを引き続き実装順の根拠にする。
-trace v1／v2、selected IDirect3D9 root、W1／W2／W3／W7 resultは [windows-native-evidence.md](windows-native-evidence.md) を正とし、W7 planは[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、mapped bytesは[pe-materialization.md](pe-materialization.md)、thunk ownershipは[pe-import-binding.md](pe-import-binding.md)、CPU handoffは[v86-entry-ingress.md](v86-entry-ingress.md)、cdecl continuationは[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、callback returnは[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、outer returnは[v86-outer-return-ingress.md](v86-outer-return-ingress.md)を参照する。
+general v86 memory／process integration、DLL／export lifecycle／bootstrap、Win32 API、graphics／audio は未実装である。controlled imageはfixed cdecl service、one-level guest callback、outer service return、typed exact entry completionまで進んだが、initial stackとprocess lifecycleはharness-onlyである。BGIは`Direct3DCreate9` 1件だけbindした未seal／未実行imageである。サクラノ詩のnative traceを引き続き実装順の根拠にする。
+trace v1／v2、selected IDirect3D9 root、W1／W2／W3／W7 resultは [windows-native-evidence.md](windows-native-evidence.md) を正とし、W7 planは[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、mapped bytesは[pe-materialization.md](pe-materialization.md)、thunk ownershipは[pe-import-binding.md](pe-import-binding.md)、CPU handoffは[v86-entry-ingress.md](v86-entry-ingress.md)、cdecl continuationは[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、callback returnは[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、outer returnは[v86-outer-return-ingress.md](v86-outer-return-ingress.md)、entry completionは[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を参照する。
 
 ## 2. Windows toolchain
 
@@ -85,6 +86,7 @@ npm run check:runtime:entry
 npm run check:runtime:cdecl
 npm run check:runtime:callback
 npm run check:runtime:outer-return
+npm run check:runtime:entry-return
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -143,6 +145,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。後続trace v2はcaller attributionとselected `IDirect3D9` root 11 methodsを観測したがdevice／resource methodsは未観測である。W1／W2／W3とhigh-address memory spikeに続き、W7 controlled imageはproduction reflection／actual invalidation、fixed cdecl result `42`、separate callback sentinel、guest callback result `43`、outer cdecl return、entry result `0`／balanced ESPまで進んだ。BGIはruntime-owned `Direct3DCreate9` thunkをbindして次のunsupported importで停止している。次はharness-only unmapped entry returnをproduction-owned exact sentinelへ置き換える。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。後続trace v2はcaller attributionとselected `IDirect3D9` root 11 methodsを観測したがdevice／resource methodsは未観測である。W1／W2／W3とhigh-address memory spikeに続き、W7 controlled imageはproduction reflection／actual invalidation、fixed cdecl result `42`、typed callback／process-entry sentinel、guest callback result `43`、outer cdecl return、entry result `0`／balanced ESPまで進んだ。BGIはruntime-owned `Direct3DCreate9` thunkをbindして次のunsupported importで停止している。次はadapter-local initial stackをRust-owned guest memoryへ移す。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。
