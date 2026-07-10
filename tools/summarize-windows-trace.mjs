@@ -4,8 +4,30 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-const traceSchema = "vine.win32-trace.v1";
-const summarySchema = "vine.win32-trace-summary.v1";
+const legacyTraceSchema = "vine.win32-trace.v1";
+const traceSchema = "vine.win32-trace.v2";
+const supportedTraceSchemas = new Set([legacyTraceSchema, traceSchema]);
+const summarySchema = "vine.win32-trace-summary.v2";
+const supportedVtables = new Set(["idirect3d9"]);
+const idirect3d9MethodNames = [
+  "QueryInterface",
+  "AddRef",
+  "Release",
+  "RegisterSoftwareDevice",
+  "GetAdapterCount",
+  "GetAdapterIdentifier",
+  "GetAdapterModeCount",
+  "EnumAdapterModes",
+  "GetAdapterDisplayMode",
+  "CheckDeviceType",
+  "CheckDeviceFormat",
+  "CheckDeviceMultiSampleType",
+  "CheckDepthStencilMatch",
+  "CheckDeviceFormatConversion",
+  "GetDeviceCaps",
+  "GetAdapterMonitor",
+  "CreateDevice",
+];
 
 const categoryApis = {
   file: new Set(["CreateFileA", "CreateFileW"]),
@@ -47,17 +69,82 @@ const firstSequence = (event) =>
 
 const apiEvent = (event) => ({
   sequence: firstSequence(event),
+  callId: event.callId ?? null,
+  parentCallId: event.parentCallId ?? null,
+  caller:
+    event.caller === undefined
+      ? null
+      : { module: event.caller.module, rva: event.caller.rva },
   module: event.module,
   api: event.api,
   arguments: Array.isArray(event.arguments) ? event.arguments : [],
 });
 
-const pairApiCalls = (events) => {
+const validateCaller = (event) => {
+  const caller = event.caller;
+  if (caller === null || typeof caller !== "object") {
+    throw new Error(`${event.kind} sequence ${event.sequence} has no caller`);
+  }
+  if (
+    typeof caller.address !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(caller.address)
+  ) {
+    throw new Error(`${event.kind} sequence ${event.sequence} has invalid caller address`);
+  }
+  if (caller.module === null) {
+    if (caller.rva !== null) {
+      throw new Error(`${event.kind} sequence ${event.sequence} has caller RVA without module`);
+    }
+    return;
+  }
+  if (typeof caller.module !== "string" || caller.module.length === 0) {
+    throw new Error(`${event.kind} sequence ${event.sequence} has invalid caller module`);
+  }
+  if (
+    !Number.isInteger(caller.rva) ||
+    caller.rva < 0 ||
+    caller.rva > 0xffffffff
+  ) {
+    throw new Error(`${event.kind} sequence ${event.sequence} has invalid caller RVA`);
+  }
+};
+
+const sameCaller = (left, right) =>
+  left.address.toLowerCase() === right.address.toLowerCase() &&
+  (left.module === null
+    ? right.module === null
+    : typeof right.module === "string" &&
+      left.module.toLowerCase() === right.module.toLowerCase()) &&
+  left.rva === right.rva;
+
+const validateCallTarget = (event, selectedVtables) => {
+  if (event.interface === undefined) {
+    if (event.vtableSlot !== undefined || event.object !== undefined) {
+      throw new Error(`${event.kind} sequence ${event.sequence} has partial vtable target`);
+    }
+    return;
+  }
+  if (event.interface !== "IDirect3D9" || !selectedVtables.includes("idirect3d9")) {
+    throw new Error(`${event.kind} sequence ${event.sequence} has unselected interface`);
+  }
+  if (
+    !Number.isInteger(event.vtableSlot) ||
+    idirect3d9MethodNames[event.vtableSlot] !== event.api
+  ) {
+    throw new Error(`${event.kind} sequence ${event.sequence} has invalid vtable slot`);
+  }
+  if (typeof event.object !== "string" || !/^0x[0-9a-f]+$/iu.test(event.object)) {
+    throw new Error(`${event.kind} sequence ${event.sequence} has invalid COM object`);
+  }
+};
+
+const pairApiCalls = (events, requireCallMetadata) => {
   const stacks = new Map();
   const pairs = [];
   let enters = 0;
   let leaves = 0;
   let maxDepth = 0;
+  let expectedCallId = 1;
 
   for (const event of events) {
     if (event.kind !== "api-enter" && event.kind !== "api-leave") {
@@ -70,6 +157,23 @@ const pairApiCalls = (events) => {
     const stack = stacks.get(event.threadId) ?? [];
     stacks.set(event.threadId, stack);
     if (event.kind === "api-enter") {
+      if (requireCallMetadata) {
+        if (event.callId !== expectedCallId) {
+          throw new Error(
+            `api-enter sequence ${event.sequence} has callId ${event.callId}, ` +
+              `expected ${expectedCallId}`,
+          );
+        }
+        const expectedParentCallId = stack.at(-1)?.enter.callId ?? null;
+        if (event.parentCallId !== expectedParentCallId) {
+          throw new Error(
+            `api-enter call ${event.callId} has parent ${event.parentCallId}, ` +
+              `expected ${expectedParentCallId}`,
+          );
+        }
+        validateCaller(event);
+        expectedCallId += 1;
+      }
       enters += 1;
       stack.push({ enter: event, parent: stack.at(-1)?.enter ?? null });
       maxDepth = Math.max(maxDepth, stack.length);
@@ -81,6 +185,34 @@ const pairApiCalls = (events) => {
     if (frame === undefined) {
       throw new Error(`api-leave sequence ${event.sequence} has no matching enter`);
     }
+    if (requireCallMetadata) {
+      if (event.callId !== frame.enter.callId) {
+        throw new Error(
+          `api-leave sequence ${event.sequence} has callId ${event.callId}, ` +
+            `expected ${frame.enter.callId}`,
+        );
+      }
+      if (event.parentCallId !== frame.enter.parentCallId) {
+        throw new Error(
+          `api-leave call ${event.callId} has parent ${event.parentCallId}, ` +
+            `expected ${frame.enter.parentCallId}`,
+        );
+      }
+      validateCaller(event);
+      if (!sameCaller(frame.enter.caller, event.caller)) {
+        throw new Error(`api-leave call ${event.callId} changed caller attribution`);
+      }
+      if (
+        !Number.isInteger(event.lastError) ||
+        event.lastError < 0 ||
+        event.lastError > 0xffffffff
+      ) {
+        throw new Error(`api-leave call ${event.callId} has invalid lastError`);
+      }
+      if (!Number.isInteger(event.durationMs) || event.durationMs < 0) {
+        throw new Error(`api-leave call ${event.callId} has invalid durationMs`);
+      }
+    }
     if (
       frame.enter.module.toLowerCase() !== event.module.toLowerCase() ||
       frame.enter.api !== event.api
@@ -89,6 +221,13 @@ const pairApiCalls = (events) => {
         `api-leave sequence ${event.sequence} closes ${event.module}!${event.api}, ` +
           `expected ${frame.enter.module}!${frame.enter.api}`,
       );
+    }
+    if (
+      (frame.enter.interface ?? null) !== (event.interface ?? null) ||
+      (frame.enter.vtableSlot ?? null) !== (event.vtableSlot ?? null) ||
+      (frame.enter.object ?? null) !== (event.object ?? null)
+    ) {
+      throw new Error(`api-leave call ${event.callId ?? "<legacy>"} changed call target`);
     }
     pairs.push({ enter: frame.enter, leave: event, parent: frame.parent });
   }
@@ -103,7 +242,7 @@ const pairApiCalls = (events) => {
   }
 
   pairs.sort((left, right) => left.enter.sequence - right.enter.sequence);
-  return { pairs, enters, leaves, maxDepth };
+  return { pairs, enters, leaves, maxDepth, callMetadata: requireCallMetadata };
 };
 
 const normalizedWindowsPath = (value) => value.replaceAll("/", "\\");
@@ -133,7 +272,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     } catch (error) {
       throw new Error(`trace line ${index + 1} is not valid JSON: ${error.message}`);
     }
-    if (event.schema !== traceSchema) {
+    if (!supportedTraceSchemas.has(event.schema)) {
       throw new Error(
         `trace line ${index + 1} has schema ${event.schema ?? "<missing>"}`,
       );
@@ -150,8 +289,39 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   if (events.at(-1) !== traceStop) {
     throw new Error("trace-stop must be the last record");
   }
+  if (events.some((event) => event.schema !== traceStart.schema)) {
+    throw new Error("trace mixes schema versions");
+  }
   if (!Number.isInteger(agentReady.sequence)) {
     throw new Error("agent-ready must have an integer sequence");
+  }
+  const requireCallMetadata = traceStart.schema === traceSchema;
+  let selectedVtables = [];
+  if (requireCallMetadata) {
+    const requestedVtables = traceStart.arguments?.vtables;
+    selectedVtables = agentReady.selectedVtables;
+    if (
+      !Array.isArray(requestedVtables) ||
+      !requestedVtables.every((item) => typeof item === "string") ||
+      !Array.isArray(selectedVtables) ||
+      !selectedVtables.every((item) => typeof item === "string")
+    ) {
+      throw new Error("trace v2 has invalid selected vtable metadata");
+    }
+    if (
+      new Set(selectedVtables).size !== selectedVtables.length ||
+      selectedVtables.some((item) => !supportedVtables.has(item))
+    ) {
+      throw new Error("trace v2 has unsupported or duplicate selected vtable");
+    }
+    if (JSON.stringify(requestedVtables) !== JSON.stringify(selectedVtables)) {
+      throw new Error("trace-start and agent-ready selected vtables differ");
+    }
+    for (const event of events) {
+      if (event.kind === "api-enter" || event.kind === "api-leave") {
+        validateCallTarget(event, selectedVtables);
+      }
+    }
   }
   const sequenced = events.filter((event) => event.sequence !== undefined);
   let previousSequence = -1;
@@ -176,7 +346,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   for (const event of events) {
     eventCounts.set(event.kind, (eventCounts.get(event.kind) ?? 0) + 1);
   }
-  const apiPairing = pairApiCalls(events);
+  const apiPairing = pairApiCalls(events, requireCallMetadata);
 
   const modulesByName = new Map();
   for (const event of events.filter((item) => item.kind === "module-load")) {
@@ -200,25 +370,71 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
 
   const apiEntries = events.filter((event) => event.kind === "api-enter");
   const apisByName = new Map();
-  for (const event of apiEntries) {
-    const key = `${event.module.toLowerCase()}\0${event.api}`;
+  for (const pair of apiPairing.pairs) {
+    const event = pair.enter;
+    const key =
+      `${event.module.toLowerCase()}\0${event.interface ?? ""}\0` +
+      `${event.vtableSlot ?? ""}\0${event.api}`;
     const existing = apisByName.get(key);
-    if (existing === undefined) {
-      apisByName.set(key, {
+    const api =
+      existing ??
+      {
         module: event.module,
         api: event.api,
-        calls: 1,
+        interface: event.interface ?? null,
+        vtableSlot: event.vtableSlot ?? null,
+        calls: 0,
         firstSequence: event.sequence,
         lastSequence: event.sequence,
-      });
-    } else {
-      existing.calls += 1;
-      existing.lastSequence = event.sequence;
+        callers: new Map(),
+        durationTotalMs: 0,
+        durationMaxMs: 0,
+        lastErrors: new Map(),
+      };
+    api.calls += 1;
+    api.lastSequence = event.sequence;
+    if (requireCallMetadata) {
+      const caller = event.caller;
+      const callerKey = `${caller.module ?? "<unknown>"}\0${caller.rva ?? "<unknown>"}`;
+      const callerStats = api.callers.get(callerKey) ?? {
+        module: caller.module,
+        rva: caller.rva,
+        calls: 0,
+      };
+      callerStats.calls += 1;
+      api.callers.set(callerKey, callerStats);
+      api.durationTotalMs += pair.leave.durationMs;
+      api.durationMaxMs = Math.max(api.durationMaxMs, pair.leave.durationMs);
+      api.lastErrors.set(
+        pair.leave.lastError,
+        (api.lastErrors.get(pair.leave.lastError) ?? 0) + 1,
+      );
     }
+    apisByName.set(key, api);
   }
-  const apis = [...apisByName.values()].sort(
-    (left, right) => left.firstSequence - right.firstSequence,
-  );
+  const apis = [...apisByName.values()]
+    .sort((left, right) => left.firstSequence - right.firstSequence)
+    .map((api) => ({
+      module: api.module,
+      api: api.api,
+      interface: api.interface,
+      vtableSlot: api.vtableSlot,
+      calls: api.calls,
+      firstSequence: api.firstSequence,
+      lastSequence: api.lastSequence,
+      callers: [...api.callers.values()].sort(
+        (left, right) =>
+          right.calls - left.calls ||
+          compareOrdinal(left.module ?? "", right.module ?? "") ||
+          (left.rva ?? -1) - (right.rva ?? -1),
+      ),
+      durationMs: requireCallMetadata
+        ? { total: api.durationTotalMs, max: api.durationMaxMs }
+        : null,
+      lastErrors: [...api.lastErrors.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([value, calls]) => ({ value, calls })),
+    }));
 
   const categories = {};
   for (const [category, names] of Object.entries(categoryApis)) {
@@ -303,9 +519,52 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   }
 
   const diagnostics = {};
-  for (const kind of ["hook-error", "agent-message", "cleanup-error"]) {
+  for (const kind of [
+    "hook-error",
+    "vtable-error",
+    "call-stack-error",
+    "agent-message",
+    "cleanup-error",
+  ]) {
     diagnostics[kind] = events.filter((event) => event.kind === kind);
   }
+
+  const vtables = events
+    .filter((event) => event.kind === "vtable-observed")
+    .map((event) => {
+      if (requireCallMetadata) {
+        if (event.interface !== "IDirect3D9") {
+          throw new Error(`unsupported observed vtable: ${event.interface}`);
+        }
+        if (!selectedVtables.includes("idirect3d9")) {
+          throw new Error("IDirect3D9 vtable was observed without selection");
+        }
+        if (
+          typeof event.object !== "string" ||
+          !/^0x[0-9a-f]+$/iu.test(event.object) ||
+          typeof event.vtable !== "string" ||
+          !/^0x[0-9a-f]+$/iu.test(event.vtable) ||
+          !Array.isArray(event.slots) ||
+          event.slots.length !== 17 ||
+          !event.slots.every(
+            (slot, index) =>
+              slot?.slot === index &&
+              slot.name === idirect3d9MethodNames[index] &&
+              typeof slot.address === "string" &&
+              /^0x[0-9a-f]+$/iu.test(slot.address),
+          )
+        ) {
+          throw new Error("IDirect3D9 vtable has invalid slot metadata");
+        }
+      }
+      return {
+        sequence: event.sequence,
+        interface: event.interface,
+        slots: Array.isArray(event.slots)
+          ? event.slots.map(({ slot, name }) => ({ slot, name }))
+          : [],
+      };
+    });
 
   return {
     schema: summarySchema,
@@ -316,6 +575,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       sha256: crypto.createHash("sha256").update(buffer).digest("hex"),
     },
     trace: {
+      inputSchema: traceStart.schema,
       executable: traceStart.executable,
       executableBytes: traceStart.executableBytes ?? null,
       executableSha256: traceStart.executableSha256 ?? null,
@@ -334,6 +594,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       architecture: agentReady.architecture,
       pointerSize: agentReady.pointerSize,
       processId: agentReady.processId,
+      selectedVtables,
       sequence: {
         events: sequenced.length,
         first: sequenced.length === 0 ? null : sequenced[0].sequence,
@@ -341,6 +602,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         contiguous: true,
       },
       apiPairing: {
+        contract: apiPairing.callMetadata ? "call-id-v1" : "legacy-thread-stack",
         enters: apiPairing.enters,
         leaves: apiPairing.leaves,
         pairs: apiPairing.pairs.length,
@@ -352,6 +614,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     diagnostics,
     modules,
     apis,
+    vtables,
     categories,
     files: {
       hookCalls: categories.file.calls,

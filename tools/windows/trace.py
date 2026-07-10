@@ -11,6 +11,9 @@ from pathlib import Path
 
 import frida
 
+TRACE_SCHEMA = "vine.win32-trace.v2"
+SUPPORTED_VTABLES = ("idirect3d9",)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Capture a focused Win32 startup trace.")
@@ -20,6 +23,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--kill-after", action="store_true")
     parser.add_argument(
         "--force", action="store_true", help="Replace an existing output file."
+    )
+    parser.add_argument(
+        "--vtable",
+        action="append",
+        choices=SUPPORTED_VTABLES,
+        default=[],
+        help="Observe one explicitly selected COM vtable (repeatable).",
     )
     return parser.parse_args()
 
@@ -63,7 +73,7 @@ def main() -> int:
 
         write_event(
             {
-                "schema": "vine.win32-trace.v1",
+                "schema": TRACE_SCHEMA,
                 "kind": "trace-start",
                 "timestamp": utc_now(),
                 "executable": str(executable),
@@ -75,6 +85,7 @@ def main() -> int:
                 "arguments": {
                     "seconds": args.seconds,
                     "killAfter": args.kill_after,
+                    "vtables": list(dict.fromkeys(args.vtable)),
                 },
             },
         )
@@ -93,7 +104,13 @@ def main() -> int:
                 detached.set()
 
             session.on("detached", on_detached)
-            script = session.create_script(agent_path.read_text(encoding="utf-8"))
+            agent_options = {"vtables": list(dict.fromkeys(args.vtable))}
+            agent_source = (
+                f'"use strict";\n'
+                f"globalThis.__vineTraceOptions = {json.dumps(agent_options)};\n"
+                + agent_path.read_text(encoding="utf-8")
+            )
+            script = session.create_script(agent_source)
 
             def on_message(message: dict, _data: bytes | None) -> None:
                 if message["type"] == "send":
@@ -101,7 +118,7 @@ def main() -> int:
                 else:
                     write_event(
                         {
-                            "schema": "vine.win32-trace.v1",
+                            "schema": TRACE_SCHEMA,
                             "kind": "agent-message",
                             "timestamp": utc_now(),
                             "message": message,
@@ -132,7 +149,7 @@ def main() -> int:
                 except Exception as error:
                     write_event(
                         {
-                            "schema": "vine.win32-trace.v1",
+                            "schema": TRACE_SCHEMA,
                             "kind": "cleanup-error",
                             "timestamp": utc_now(),
                             "error": str(error),
@@ -143,7 +160,7 @@ def main() -> int:
                 output.write(
                     json.dumps(
                         {
-                            "schema": "vine.win32-trace.v1",
+                            "schema": TRACE_SCHEMA,
                             "kind": "trace-stop",
                             "timestamp": utc_now(),
                             "reason": stop_reason,

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { summarizeTrace } from "./summarize-windows-trace.mjs";
 
-const schema = "vine.win32-trace.v1";
+const schema = "vine.win32-trace.v2";
 const events = [
   {
     schema,
@@ -20,7 +20,7 @@ const events = [
     python: "3.14.6",
     frida: "17.15.4",
     platform: "Windows-11-test",
-    arguments: { seconds: 1.25, killAfter: true },
+    arguments: { seconds: 1.25, killAfter: true, vtables: ["idirect3d9"] },
   },
   {
     schema,
@@ -43,6 +43,7 @@ const events = [
     architecture: "ia32",
     pointerSize: 4,
     processId: 123,
+    selectedVtables: ["idirect3d9"],
   },
   {
     schema,
@@ -190,6 +191,62 @@ const events = [
   },
   {
     schema,
+    sequence: 19,
+    threadId: 10,
+    kind: "vtable-observed",
+    interface: "IDirect3D9",
+    object: "0x330000",
+    vtable: "0x76010000",
+    slots: [
+      "QueryInterface",
+      "AddRef",
+      "Release",
+      "RegisterSoftwareDevice",
+      "GetAdapterCount",
+      "GetAdapterIdentifier",
+      "GetAdapterModeCount",
+      "EnumAdapterModes",
+      "GetAdapterDisplayMode",
+      "CheckDeviceType",
+      "CheckDeviceFormat",
+      "CheckDeviceMultiSampleType",
+      "CheckDepthStencilMatch",
+      "CheckDeviceFormatConversion",
+      "GetDeviceCaps",
+      "GetAdapterMonitor",
+      "CreateDevice",
+    ].map((name, slot) => ({
+      slot,
+      name,
+      address: `0x7601${slot.toString(16).padStart(4, "0")}`,
+    })),
+  },
+  {
+    schema,
+    sequence: 20,
+    threadId: 10,
+    kind: "api-enter",
+    module: "d3d9.dll",
+    api: "CreateDevice",
+    interface: "IDirect3D9",
+    vtableSlot: 16,
+    object: "0x330000",
+    arguments: ["0x0", "0x1", "0x44", "0x44", "0x340000", "0x350000"],
+  },
+  {
+    schema,
+    sequence: 21,
+    threadId: 10,
+    kind: "api-leave",
+    module: "d3d9.dll",
+    api: "CreateDevice",
+    interface: "IDirect3D9",
+    vtableSlot: 16,
+    object: "0x330000",
+    result: "0x0",
+  },
+  {
+    schema,
     kind: "trace-stop",
     timestamp: "2026-07-10T00:00:01.250Z",
     reason: "timeout-kill",
@@ -198,13 +255,123 @@ const events = [
   },
 ];
 
+const mainCaller = {
+  address: "0x00401100",
+  module: "abi-smoke.exe",
+  rva: 0x1100,
+};
+const wrapperCaller = {
+  address: "0x76001234",
+  module: "KERNEL32.DLL",
+  rva: 0x1234,
+};
+for (const call of [
+  {
+    callId: 1,
+    parentCallId: null,
+    enterSequence: 3,
+    leaveSequence: 6,
+    caller: mainCaller,
+    durationMs: 5,
+    lastError: 0,
+  },
+  {
+    callId: 2,
+    parentCallId: 1,
+    enterSequence: 4,
+    leaveSequence: 5,
+    caller: wrapperCaller,
+    durationMs: 2,
+    lastError: 0,
+  },
+  {
+    callId: 3,
+    parentCallId: null,
+    enterSequence: 7,
+    leaveSequence: 8,
+    caller: mainCaller,
+    durationMs: 3,
+    lastError: 2,
+  },
+  {
+    callId: 4,
+    parentCallId: null,
+    enterSequence: 9,
+    leaveSequence: 10,
+    caller: mainCaller,
+    durationMs: 4,
+    lastError: 0,
+  },
+  {
+    callId: 5,
+    parentCallId: null,
+    enterSequence: 11,
+    leaveSequence: 12,
+    caller: mainCaller,
+    durationMs: 6,
+    lastError: 0,
+  },
+  {
+    callId: 6,
+    parentCallId: null,
+    enterSequence: 13,
+    leaveSequence: 14,
+    caller: mainCaller,
+    durationMs: 7,
+    lastError: 0,
+  },
+  {
+    callId: 7,
+    parentCallId: null,
+    enterSequence: 15,
+    leaveSequence: 16,
+    caller: mainCaller,
+    durationMs: 8,
+    lastError: 0,
+  },
+  {
+    callId: 8,
+    parentCallId: null,
+    enterSequence: 17,
+    leaveSequence: 18,
+    caller: mainCaller,
+    durationMs: 9,
+    lastError: 0,
+  },
+  {
+    callId: 9,
+    parentCallId: null,
+    enterSequence: 20,
+    leaveSequence: 21,
+    caller: mainCaller,
+    durationMs: 12,
+    lastError: 0,
+  },
+]) {
+  const enter = events.find((event) => event.sequence === call.enterSequence);
+  const leave = events.find((event) => event.sequence === call.leaveSequence);
+  Object.assign(enter, {
+    callId: call.callId,
+    parentCallId: call.parentCallId,
+    caller: { ...call.caller },
+  });
+  Object.assign(leave, {
+    callId: call.callId,
+    parentCallId: call.parentCallId,
+    caller: { ...call.caller },
+    durationMs: call.durationMs,
+    lastError: call.lastError,
+  });
+}
+
 const encode = (items) =>
   Buffer.from(`${items.map((event) => JSON.stringify(event)).join("\n")}\n`);
 const buffer = encode(events);
 const summary = summarizeTrace(buffer, "fixture.jsonl");
 
-assert.equal(summary.schema, "vine.win32-trace-summary.v1");
+assert.equal(summary.schema, "vine.win32-trace-summary.v2");
 assert.equal(summary.source.lines, events.length);
+assert.equal(summary.trace.inputSchema, schema);
 assert.equal(summary.trace.durationMs, 1250);
 assert.equal(summary.trace.architecture, "ia32");
 assert.equal(summary.trace.pointerSize, 4);
@@ -219,22 +386,62 @@ assert.deepEqual(summary.trace.tools, {
 assert.deepEqual(summary.trace.captureArguments, {
   seconds: 1.25,
   killAfter: true,
+  vtables: ["idirect3d9"],
 });
+assert.deepEqual(summary.trace.selectedVtables, ["idirect3d9"]);
 assert.deepEqual(summary.trace.sequence, {
-  events: 19,
+  events: 22,
   first: 0,
-  last: 18,
+  last: 21,
   contiguous: true,
 });
 assert.deepEqual(summary.trace.apiPairing, {
-  enters: 8,
-  leaves: 8,
-  pairs: 8,
+  contract: "call-id-v1",
+  enters: 9,
+  leaves: 9,
+  pairs: 9,
   maxDepth: 2,
   balanced: true,
 });
 assert.equal(summary.modules.length, 2);
-assert.equal(summary.apis.length, 7);
+assert.equal(summary.apis.length, 8);
+assert.deepEqual(summary.apis[0], {
+  module: "KERNEL32.DLL",
+  api: "CreateFileA",
+  interface: null,
+  vtableSlot: null,
+  calls: 1,
+  firstSequence: 3,
+  lastSequence: 3,
+  callers: [{ module: "abi-smoke.exe", rva: 0x1100, calls: 1 }],
+  durationMs: { total: 5, max: 5 },
+  lastErrors: [{ value: 0, calls: 1 }],
+});
+assert.deepEqual(summary.vtables, [
+  {
+    sequence: 19,
+    interface: "IDirect3D9",
+    slots: [
+      "QueryInterface",
+      "AddRef",
+      "Release",
+      "RegisterSoftwareDevice",
+      "GetAdapterCount",
+      "GetAdapterIdentifier",
+      "GetAdapterModeCount",
+      "EnumAdapterModes",
+      "GetAdapterDisplayMode",
+      "CheckDeviceType",
+      "CheckDeviceFormat",
+      "CheckDeviceMultiSampleType",
+      "CheckDepthStencilMatch",
+      "CheckDeviceFormatConversion",
+      "GetDeviceCaps",
+      "GetAdapterMonitor",
+      "CreateDevice",
+    ].map((name, slot) => ({ slot, name })),
+  },
+]);
 assert.equal(summary.categories.file.calls, 3);
 assert.equal(summary.categories.window.first.api, "CreateWindowExA");
 assert.equal(summary.categories.graphics.first.api, "Direct3DCreate9");
@@ -253,6 +460,8 @@ assert.deepEqual(summary.files.titleRelative.failedSearchRoots, [
 ]);
 assert.deepEqual(summary.diagnostics, {
   "hook-error": [],
+  "vtable-error": [],
+  "call-stack-error": [],
   "agent-message": [],
   "cleanup-error": [],
 });
@@ -273,7 +482,7 @@ assert.throws(
 const stopBeforeTail = [
   ...events.slice(0, -1),
   events.at(-1),
-  { schema, sequence: 19, kind: "module-load", module: "late.dll", path: "late.dll" },
+  { schema, sequence: 22, kind: "module-load", module: "late.dll", path: "late.dll" },
 ];
 assert.throws(
   () => summarizeTrace(encode(stopBeforeTail)),
@@ -293,6 +502,57 @@ assert.throws(
   () => summarizeTrace(encode(negativeDuration)),
   /trace stop timestamp precedes trace start/,
 );
+
+const wrongCallId = structuredClone(events);
+wrongCallId.find((event) => event.sequence === 5).callId = 99;
+assert.throws(
+  () => summarizeTrace(encode(wrongCallId)),
+  /api-leave sequence 5 has callId 99, expected 2/,
+);
+
+const wrongParent = structuredClone(events);
+wrongParent.find((event) => event.sequence === 4).parentCallId = null;
+assert.throws(
+  () => summarizeTrace(encode(wrongParent)),
+  /api-enter call 2 has parent null, expected 1/,
+);
+
+const missingCaller = structuredClone(events);
+delete missingCaller.find((event) => event.sequence === 3).caller;
+assert.throws(
+  () => summarizeTrace(encode(missingCaller)),
+  /api-enter sequence 3 has no caller/,
+);
+
+const invalidLeaveMetadata = structuredClone(events);
+invalidLeaveMetadata.find((event) => event.sequence === 8).lastError = -1;
+assert.throws(
+  () => summarizeTrace(encode(invalidLeaveMetadata)),
+  /api-leave call 3 has invalid lastError/,
+);
+invalidLeaveMetadata.find((event) => event.sequence === 8).lastError = 2;
+invalidLeaveMetadata.find((event) => event.sequence === 8).durationMs = -1;
+assert.throws(
+  () => summarizeTrace(encode(invalidLeaveMetadata)),
+  /api-leave call 3 has invalid durationMs/,
+);
+
+const legacyEvents = structuredClone(events);
+for (const event of legacyEvents) {
+  event.schema = "vine.win32-trace.v1";
+  if (event.kind === "api-enter" || event.kind === "api-leave") {
+    delete event.callId;
+    delete event.parentCallId;
+    delete event.caller;
+    delete event.durationMs;
+    delete event.lastError;
+  }
+}
+delete legacyEvents.find((event) => event.kind === "agent-ready").selectedVtables;
+delete legacyEvents[0].arguments.vtables;
+const legacySummary = summarizeTrace(encode(legacyEvents));
+assert.equal(legacySummary.trace.inputSchema, "vine.win32-trace.v1");
+assert.equal(legacySummary.trace.apiPairing.contract, "legacy-thread-stack");
 
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "vine-trace-"));
 try {
