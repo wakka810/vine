@@ -4,8 +4,8 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture。static corpus inventory、LLVM toolchain baseline、v86 bounded adapter、version 1 CPU state round trip、Windows W0、最初の BGI startup trace／summary、native callback oracle、fixed PE／cdecl callback contract、native window／message／pixel oracleは完了。visual critical scenario、COM method trace、memory adapter、engine 最終選定は未完了
-- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1 fixed loader-lite、W2 native fixtureがあり、production PE／Win32 runtime、browser app、CIは未実装
+- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／loader ingress。static corpus inventory、LLVM toolchain baseline、v86 bounded adapter、version 1 CPU state round trip、Windows W0、最初の BGI startup trace／summary、native callback oracle、fixed PE／cdecl callback contract、native window／message／pixel oracle、13-import ingress diagnosticは完了。visual critical scenario、COM method trace、memory adapter、engine 最終選定は未完了
+- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1 fixed loader-lite、W2 native fixture／loader ingressがあり、production PE／Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
 このロードマップは、広範な Windows 互換を一度に実装する計画ではない。Windows native trace を根拠に、headless 実行、startup、first frame、input、audio、persistence の短い vertical checkpoint を広く浅く通す。各 subsystem の全面実装は後回しにし、各 phase は日付ではなく受け入れ条件を満たした時点で完了する。
@@ -896,12 +896,12 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、最初の startup trace／summary、native callback oracle、W1 fixed PE／ABI slice、W2 native fixtureは完了した。W1は`P1-ABI-01`／`P1-ABI-03`／`P1-SCH-01`／`P1-QA-01`へのpartial evidenceであり、task全体または`AC-P1`の完了ではない。W2 native成功も`P4-*`または`AC-P4`の完了ではない。以後は [windows-development.md](windows-development.md) と [windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、最初の startup trace／summary、native callback oracle、W1 fixed PE／ABI slice、W2 native fixture、W2 loader ingressは完了した。W1は`P1-ABI-01`／`P1-ABI-03`／`P1-SCH-01`／`P1-QA-01`へのpartial evidenceであり、task全体または`AC-P1`の完了ではない。W2 native成功も`P4-*`または`AC-P4`の完了ではない。W2 loader ingressは`P1-ABI-01`／`P1-DIAG-01`／`P2-PE-01`／`P2-PE-02`／`P2-PE-04`／`P2-PE-10`／`P2-DIAG-01`への限定したpartial evidenceであり、各taskまたは`AC-P2`の完了ではない。以後は [windows-development.md](windows-development.md) と [windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. `W2 loader checkpoint`: fixed window fixtureをmapし、3 DLL／13 importをowned thunkへ解決してfirst unsupported host serviceを構造化する。
-2. `W2 startup substrate`: trace先頭で到達済みのKernel32／User32 entryからlogical windowとmessage dispatchを通す。
+1. `W2 module ingress`: `GetModuleHandleA(NULL)`をlogical main moduleへ解決し、stdcall resume後の`RegisterClassExA` call siteまで進める。
+2. `W2 startup substrate`: checked `WNDCLASSEXA`とguest WndProcを登録し、logical windowとmessage dispatchを通す。
 3. `W3 first pixel`: 同じfixtureのpaint callbackから一つのlogical pixel commandをhost surfaceへ渡す。
-4. `P0-ARCH-03`: W1の8 MiB low-address contiguous mappingをpartial measurementとして使い、high-address／protection fixtureでsparse 4 GiBとpage ownership候補を比較する。
+4. `P0-ARCH-03`: W1／W2の8 MiB low-address contiguous mappingをpartial measurementとして使い、high-address／protection fixtureでsparse 4 GiBとpage ownership候補を比較する。
 5. `P0-COR-02`: manual markerを持つfocused traceでvisual title checkpointを閉じる。
 6. `P6D-COR-01`／`P6D-COR-02`: graphics／input slice開始時にcaller attributionと選択したCOM vtable methodだけを追加取得する。
 7. `W7`: BGI.exeをproduction loader候補へ投入し、first unsupported import／bootstrap pointまで進める。

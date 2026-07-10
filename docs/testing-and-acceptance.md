@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、native window／message／pixel oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、Windows trace summary contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 EXE／DLL fixture、Windows native callback oracle、native window／message／pixel oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state contract、fixed T1 PE／ABI runtime contract、fixed W2 loader ingress contract、Windows trace summary contractは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -115,6 +115,10 @@ Property test では allocation/free sequence、path segment、PE section layout
 negative corpus は truncated header、invalid signature、RVA overflow、overlapping section、directory out-of-range、relocation overflow、import recursion、oversized count／string、PE32+ on PE32-only build を含む。
 
 合格条件は、valid fixture が expected module trace を返し、invalid fixture が host crash、panic、unbounded allocation を起こさず stable error class を返すことである。
+
+現在のW2 loader ingress representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。budget `3`でentryを実行し、最初の`kernel32.dll!GetModuleHandleA`をguest call site RVA `0x1004`付きの`unsupported-host-service`として停止した場合だけ成功する。source hash、IAT terminator、thunk ownership、executable call encoding、engine stop、cycle上限も同時に検証する。
+
+これはpreferred-base固定のNode.js harnessであり、relocation、ordinal／export／forwarder、final protection、module graph、source provider差替え、guest stack trace、host API実装を検証しない。`P1-ABI-01`／`P1-DIAG-01`／`P2-PE-01`／`P2-PE-02`／`P2-PE-04`／`P2-PE-10`／`P2-DIAG-01`への限定したpartial evidenceであって、各task、`AC-P2-06`、`AC-P2`全体の完了ではない。
 
 ### 5.4 CPU と ABI tests
 

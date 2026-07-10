@@ -6,7 +6,7 @@
 - 基準日: 2026-07-10
 - 対象: PE32 / i386 のサクラノ詩 full-play runtime
 - 開発形態: 1 人、完全個人用
-- 前提: production runtime は未実装。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、fixed T1 PE／cdecl callback contract、native Win32 window／message／pixel oracleは完了済みである
+- 前提: production runtime は未実装。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、fixed T1 PE／cdecl callback contract、native Win32 window／message／pixel oracle、fixed W2 loader ingressは完了済みである
 
 ## 2. 目的
 

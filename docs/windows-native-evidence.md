@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／native ABI oracle／W1 fixed runtime slice／W2 native window fixtureはVerified。visual／method-level coverageはIn discovery
+- ステータス: W0／native ABI oracle／W1 fixed runtime slice／W2 native window fixture／W2 loader ingressはVerified。visual／method-level coverageはIn discovery
 - 取得日: 2026-07-10
-- 完了 checkpoint: `W0`、`W1`、`W2 native fixture`、`P0-COR-04` の最初のnative sample
-- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-03`、`P1-SCH-01`、`P1-QA-01`、`P6D-COR-01`、`P6D-COR-02`
+- 完了 checkpoint: `W0`、`W1`、`W2 native fixture`、`W2 loader ingress`、`P0-COR-04` の最初のnative sample
+- partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-ABI-01`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-04`、`P2-PE-10`、`P2-DIAG-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
 raw JSONL、local summary、game file、absolute trace pathはGitに追加しない。summaryはabsolute title／system pathとPIDを保持するlocal-sensitive artifactであり、共有用に正規化されたmanifestではない。本書は同じraw traceから再生成できる小さなredacted resultだけを記録する。
@@ -219,6 +219,7 @@ npm run check:toolchain
 npm run prepare:engine
 npm run check:engine:adapter
 npm run check:runtime:abi
+npm run check:runtime:window-loader
 ```
 
 ## 6. W1 runtime result
@@ -291,7 +292,42 @@ WM_CREATE
 
 このoracleはWindows上のstdcall WndProc、queued message、GDI pixel call、cleanup順を固定する。Vine内のstdcall gateway、logical HWND／DC、message scheduler、host surface、browser presentation、物理的に見えるpixelはまだ検証していない。W2 runtime、W3 first frame、`P4-*`、`AC-P4`の完了とは扱わない。
 
-## 8. Remaining trace work
+## 8. W2 loader ingress result
+
+`tools/run-runtime-window-loader-slice.mjs`は`window-pixel.exe`を一度だけimmutable bufferへ読み、size `4,096`とSHA-256 `ad8f4a0bddd759ac52b18119e60838c3ad13d29994449f38b0393fdedde454e9`をadapter初期化前に固定する。DOS／COFF／PE32 header、4 section、3 import descriptor、13 named import、IAT directoryをchecked rangeでparseし、map後にもsource hashが不変であることを検証する。adapter WasmはW1と同じsize、hash、import／export countへ固定する。
+
+8 MiB contiguous identity memoryのpreferred base `0x00400000`へheaderとsectionをmapし、13 IAT slotを`0x00500000`からstride `0x10`の一意なowned `UD2` thunkへ全件解決した。各thunkはmodule、symbol、IAT RVA／VAを逆引きでき、3 descriptorのIAT terminator `0x004020C4`、`0x004020F4`、`0x004020FC`はzeroのまま保持した。trap page外へのthunk配置、entry return sentinelとの衝突、unowned `#UD`は失敗する。
+
+実行commandと結果:
+
+```text
+npm run check:runtime:window-loader
+runtime window loader slice passed: imports=13,
+stop=unsupported-host-service, service=kernel32.dll!GetModuleHandleA,
+call=0x401004, budget stops=1, instructions=5
+```
+
+entry `0x00401000`からinstruction budget `3`で実行すると、`push edi`、`push esi`、`push 0`の後、call直前`0x00401004`／ESP `0x006FFFF0`で1回budget stopする。次のsliceはIAT `0x004020C0`経由でthunk `0x00500000`へ入り、faulting `UD2` attemptを含む累積5命令でstop reason `0x106`、error code `-1`となった。thunk時のESPは`0x006FFFEC`、return addressは`0x0040100A`、最初のraw stack argumentは`NULL`である。host serviceは成功値を返さず、guestをresumeしない。
+
+call siteはreturn addressから無条件に逆算しない。直前6 bytesが`FF 15 C0 20 40 00`であり、absolute operandが到達thunkを指すIAT slotと一致し、requester imageのexecutable section内にあることを検証してから次の診断を構築する。
+
+```text
+kind:                unsupported-host-service
+requester:           window-pixel.exe
+module:              kernel32.dll
+symbol:              GetModuleHandleA
+guest call VA / RVA: 0x00401004 / 0x1004
+return VA / RVA:     0x0040100A / 0x100A
+IAT VA / RVA:        0x004020C0 / 0x20C0
+thunk VA:            0x00500000
+engine stop / error: 0x106 / -1
+```
+
+これはimport解決後の最初のhost dispatch attemptを分類する`W2 loader ingress`であり、unresolved import testではない。`P1-ABI-01`／`P1-DIAG-01`／`P2-PE-01`／`P2-PE-02`／`P2-PE-04`／`P2-PE-10`／`P2-DIAG-01`への限定したpartial evidenceである。relocation、ordinal／export／forwarder、final protection、module graph、mutable backing replacement、guest stack trace、`GetModuleHandleA`実装、stdcall cleanup、logical HWND、message、paint、browser presentationは未検証であり、各task、`AC-P2-06`、`AC-P2`、W2 runtimeの完了とは扱わない。
+
+次のprimary actionは`GetModuleHandleA(NULL)`をlogical main module handleへ解決してstdcall規則でguestをresumeし、同じfixed imageの`RegisterClassExA` call siteまで進めることである。
+
+## 9. Remaining trace work
 
 次の subsystem-focused native trace 前に、caller module＋RVA、call ID／parent call ID、leave の last error／durationをschemaへ加える。trace runnerは今回のcapture後にtarget hash／tool version／options／stop reasonの記録と既存outputの上書き拒否を追加済みであり、次回captureから適用される。
 

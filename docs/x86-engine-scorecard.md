@@ -186,17 +186,23 @@ host-directed resumeはversion 1 state bufferのEIPとPREVIOUS_EIPを同時に�
 
 これはcdecl、1 callback depth、single threadのbaselineである。stdcall／thiscall／fastcall、nested callback、exception／SEH、wait／wake、async host responseの証明ではない。
 
-### B7. Browser Worker
+### B7. Fixed W2 loader ingress: Verified baseline
+
+`npm run check:runtime:window-loader`はSHA-256固定の`window-pixel.exe`を同じ8 MiB contiguous memoryへpreferred-base mapし、3 DLL／13 named importをstride `0x10`の一意なowned `UD2` thunkへ解決する。entryからbudget `3`で実行し、1回のbudget stop後に`kernel32.dll!GetModuleHandleA` thunkへ到達した。guest call bytesとIAT operandを検証してcall site `0x00401004`／RVA `0x1004`を帰属し、`unsupported-host-service`診断でresumeせず停止する。累積命令counterはfaulting `UD2` attemptを含む5である。
+
+これはmultiple thunk resolutionとfirst-failure classificationのbaselineである。`GetModuleHandleA`の実装、stdcall cleanup、relocation、protection、sparse memory、logical window、browser Workerは未検証であり、production loader／ABI gatewayを示さない。
+
+### B8. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B8. Correctness と performance
+### B9. Correctness と performance
 
 21 命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callbackを実証した。次はprivate bootstrap offsetをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state を提供し、W1 fixed T1 harnessはowned thunkと1段callback、W2 loader ingressは13 thunkとfirst-failure診断を実証した。次はprivate bootstrap offsetをproduction APIとして拡散させず、memory／exception／Worker gateを閉じる。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
