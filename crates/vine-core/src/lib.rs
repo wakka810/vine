@@ -15,8 +15,8 @@ pub use materialize::{ImageMaterialization, UnboundImport, materialize_pe32_imag
 pub use memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
     GuestRange, GuestWriteResult, ImageMemoryLayout, MemoryAccess, MemoryFault, MemoryFaultReason,
-    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
-    MemoryStats, PageProtection,
+    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryReflection,
+    MemoryReflectionPage, MemoryRegionKind, MemoryStats, PageProtection,
 };
 pub use pe32::{
     DataDirectoryAddressKind, DataDirectoryPlan, FeatureInventory, HeaderMappingPlan, ImageKind,

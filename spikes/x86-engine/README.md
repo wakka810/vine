@@ -53,6 +53,8 @@ The check writes `.work/v86-adapter-spike/report.json` and verifies:
 
 After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v86-memory-spike/report.json`. It maps a fixed PE32 image at `0xF1000000` through low physical pages and checks present／R／W faults、cross-page no-partial-write、protect／remap invalidation. It also records that this v86 revision executes a PE non-executable section and does not emit the instruction-fetch PFEC bit. [ADR-003](../../docs/adr-003-guest-memory.md) keeps the resulting paging candidate provisional.
 
+`npm run check:runtime:entry` holds a production Rust `GuestMemory` in a bounded probe session, reflects six sealed semantic pages without exposing Rust physical-frame indices, and acknowledges generation `4` only after v86 state restore、`full_clear_tlb`、and `jit_clear_cache_js`. It then executes the relocated controlled entry on one harness stack page and stops at production thunk ID `1`. The versioned result and non-claims are recorded in [v86-entry-ingress.md](../../docs/v86-entry-ingress.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.
@@ -67,4 +69,4 @@ The 2026-07-10 local build produced the following evidence. Compiler output hash
 
 ## Remaining work
 
-The state layout is explicit, but guest physical memory remains contiguous and initial CPU/RAM setup still uses private offsets pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, and the memory harness verifies high VA plus R／W behavior. Production region／page ownership、bounded allocation、execute gate、snapshot、general ABI、Chromium Worker remain unimplemented.
+The state layout is explicit, but adapter physical memory remains contiguous and memory-size setup still uses one private offset pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior, and the production reflection harness reaches its first owned thunk. General region mutation／dirty-page synchronization、production stack／bootstrap、snapshot、general ABI、Chromium Worker remain unimplemented.

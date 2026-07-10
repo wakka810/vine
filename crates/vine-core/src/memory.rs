@@ -3,6 +3,7 @@ use std::fmt;
 use std::ops::Range;
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::{MappingProtection, ModuleIdentity, Pe32LoadPlan};
 
@@ -211,6 +212,26 @@ pub struct MemoryStats {
     pub generation: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_invalidation: Option<MemoryInvalidation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryReflectionPage {
+    pub address: GuestAddress,
+    pub owner: MemoryOwnerId,
+    pub owner_sealed: bool,
+    pub protection: PageProtection,
+    pub dirty: bool,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryReflection {
+    pub invalidation: MemoryInvalidation,
+    pub page_size: u64,
+    pub pages: Vec<MemoryReflectionPage>,
+    pub content_sha256: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1070,6 +1091,65 @@ impl GuestMemory {
         }
     }
 
+    pub fn pending_reflection(&self) -> Result<MemoryReflection, GuestMemoryError> {
+        let invalidation = self.pending_invalidation.ok_or_else(|| {
+            GuestMemoryError::invalid_request(
+                "memory-reflection",
+                "no-memory-invalidation-pending",
+                "memory reflection requires a pending invalidation generation",
+            )
+        })?;
+        let mut pages = Vec::with_capacity(self.pages.len());
+        let mut hasher = Sha256::new();
+        for (&virtual_page, page) in &self.pages {
+            let address = GuestAddress(
+                virtual_page
+                    .checked_mul(GUEST_PAGE_SIZE as u32)
+                    .ok_or_else(|| {
+                        GuestMemoryError::runtime_defect(
+                            "memory-reflection",
+                            "virtual-page-address-overflow",
+                            "committed virtual page does not fit the 32-bit guest address space",
+                        )
+                    })?,
+            );
+            let owner = self.require_owner(page.owner)?;
+            if page.protection.execute && !owner.sealed {
+                return Err(GuestMemoryError::conflict(
+                    "memory-reflection",
+                    "executable-owner-unsealed",
+                    "executable pages cannot be reflected before their owner is sealed",
+                ));
+            }
+            let bytes = self.frames.bytes(page.frame)?.to_vec();
+            let protection_bits = u8::from(page.protection.read)
+                | u8::from(page.protection.write) << 1
+                | u8::from(page.protection.execute) << 2;
+            hasher.update(address.0.to_le_bytes());
+            hasher.update(page.owner.0.to_le_bytes());
+            hasher.update([
+                protection_bits,
+                u8::from(owner.sealed),
+                u8::from(page.dirty),
+            ]);
+            hasher.update(&bytes);
+            pages.push(MemoryReflectionPage {
+                address,
+                owner: page.owner,
+                owner_sealed: owner.sealed,
+                protection: page.protection,
+                dirty: page.dirty,
+                bytes,
+            });
+        }
+        Ok(MemoryReflection {
+            invalidation,
+            page_size: GUEST_PAGE_SIZE,
+            pages,
+            content_sha256: hex_digest(&hasher.finalize()),
+        })
+    }
+
     fn require_owner(&self, owner: MemoryOwnerId) -> Result<&OwnerState, GuestMemoryError> {
         self.owners.get(&owner).ok_or_else(|| {
             GuestMemoryError::invalid_request(
@@ -1495,4 +1575,14 @@ fn segment_bounds_error() -> GuestMemoryError {
         "preflighted-segment-out-of-bounds",
         "access segment escaped its preflighted page or input bounds",
     )
+}
+
+fn hex_digest(digest: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut value = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        value.push(char::from(HEX[usize::from(byte >> 4)]));
+        value.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    value
 }

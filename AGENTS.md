@@ -199,10 +199,11 @@ Verified behavior:
 - production Rust sparse memoryでhigh imageの6 pagesとBGI planの380 pagesをbounded ownershipへ入れ、logical execute seal、cross-page preflight、generation-tagged invalidation requirementを通すCPU未接続のguest-memory ingress
 - owned W7 planだけからfixed T1とBGIを`0x10000000`へmaterializeし、source copy、explicit zero-fill／readback、`HIGHLOW` relocation、original IAT verification、mapped-content digestを通すCPU未接続のPE32 mapping layer
 - version 1 runtime export catalogと`[0x7F000000, 0x7F010000)`のowned `UD2` thunk arenaでsupported import prefixをIATへbindする。fixed T1の2 import／両owner sealと、BGIの`Direct3DCreate9` 1件／次のunsupported symbol stopを通すCPU未接続のimport-binding layer
+- sealed fixed T1の6 production pagesをsemantic reflectionでprovisional v86 pagingへcopyし、actual TLB／fetch／generated-code invalidation後にgeneration `4`をacknowledgeする。harness-only 4 KiB stackからentry `0x10001000`を実行し、exact owned thunk ID `1`へ到達するv86 entry ingress
 
 未検証または未実装:
 
-- v86へ接続したguest memory／page ownership／execute gate、snapshot
+- general v86-connected guest memory／page ownership／execute gate、snapshot
 - general stdcall／thiscall／fastcall、arbitrary nested callback、SEH と production ABI gateway
 - Chromium Worker integration
 - broad ISA correctness と target workload performance
@@ -242,6 +243,7 @@ Verified behavior:
 26. `vine-core`にsparse 4 GiB guest address、owner／region／page table、bounded zeroed physical allocator、reserve／commit／protect／decommit／release、logical execute seal、cross-page preflight、generation-tagged invalidation protocolを実装する。fixed high-memory imageの6 pagesとBGI planの380 pagesをexact quotaで所有し、`image-materialization`／`image-bytes-relocations-import-binding-unimplemented`で停止するproduction guest-memory ingress contract。
 27. `abi-smoke.exe`をpreferred `0x00400000`から`0x10000000`へmaterializeし、4 source range／2,560 bytes、5 zero range／17,920 bytes、5 `HIGHLOW`、2 original IAT slot、20,480 mapped bytes digestを検証する。同じversion 1 boundaryでBGIを380 pagesへcopy／zero-fillし、18,199 `HIGHLOW`と330 IAT slotを検証して`d3d9.dll!Direct3DCreate9`の`import-binding`／`iat-binding-unimplemented`で停止するW7 materialization contract。
 28. 64 KiBのproduction runtime thunk rangeへ16-byte stride／1-based stable IDでowned `UD2` slotを割り当てる。controlled `abi-smoke.exe`の2 named importを全bindしてimage／runtime ownerをsealし、BGIではnative-reachable `d3d9.dll!Direct3DCreate9`だけをbindして、次の`DINPUT8.dll!DirectInput8Create`をmodule／symbol／IAT付きで構造化停止するW7 import-binding contract。
+29. 同じlive `GuestMemory`から6 sealed pagesをversion 1 reflectionとしてv86へ渡し、page directory／3 tables／6 reflected pages／1 harness stackを2 MiB poolの11 pagesへ配置する。state ABI restore、`full_clear_tlb`、`jit_clear_cache_js`後だけgeneration `4`をacknowledgeし、instruction budget `3`でentryからthunk ID `1`へ到達するproduction-memory entry ingress contract。
 
 2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
 
@@ -257,10 +259,12 @@ Verified behavior:
 
 同日、production import bindingを追加した。`abi-smoke.exe`はphysical 6 pagesでthunk ID `1`／`2`を`0x7F000000`／`0x7F000010`へ割り当て、IAT `0x10002034`／`0x10002038`をbindしてimage／runtime ownerをsealした。arena SHA-256は`bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc`、version 1 reportは4,421 bytes／SHA-256 `04d6f001e157c0e0fc3f1878516fb913a131e5cfe187162cf265b375e949472d`である。BGIは381-page quotaでIAT `0x100D14F4`をthunk ID `1`へbindし、329 importsを残して`DINPUT8.dll!DirectInput8Create`／IAT `0x100D1050`で停止した。BGI arena SHA-256は`4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059`、reportは4,258 bytes／SHA-256 `64217ed90cd86098396d27652ed41828ffeb6354f29f96bb7cc981daaab34fc0`である。BGI imageは未sealで、general DLL／export resolution、service behavior、v86接続、bootstrap／executionはnot attemptedである。詳細は`docs/pe-import-binding.md`を正とする。
 
+同日、controlled production memoryをprovisional v86 pagingへ接続した。Rust offerは6 pages／content SHA-256 `3a3510468616980e99ccf36ccba29083acd8edffb01f1bbfdfd60e3b4a1d297e`をphysical frame番号なしで渡し、Node adapterは2 MiB poolの11 pages／44 KiBへpage directory、3 tables、reflection、harness-only stackを配置した。state ABI restore／`full_clear_tlb`／`jit_clear_cache_js`後にgeneration `4`をacknowledgeし、Rust normal accessでIAT／entry／thunkを再検証した。entryは2 execute stop／1 budget stopでthunk ID `1`／`0x7F000000`へ達し、ESP `0x006FFFF0`、return `0x1000100A`、arguments `[19,23]`となった。version 1 reportは4,831 bytes／SHA-256 `9b32ed50a4fa53d60a2743267230d43acf754bb6bc490851dd754955e70cbcb8`である。host service dispatch、callback、production stack／bootstrap、snapshot、BGI executionはnot attemptedである。詳細は`docs/v86-entry-ingress.md`を正とする。
+
 まだ存在しないもの:
 
 - production TypeScript／Wasm browser workspaceとRust coreのWasm packaging
-- v86 memory接続、general DLL／export resolutionとDLL lifecycle／loader
+- general v86 memory／process integration、general DLL／export resolutionとDLL lifecycle／loader
 - broad calling convention、nested callback、SEH を扱う production ABI gateway
 - scheduler／Runtime Worker
 - production／general Win32 API compatibility implementation
@@ -268,7 +272,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGI.exe をv86-connected Vine guest memoryでexecuteした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、trace v2 attribution／selected IDirect3D9 root evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle／runtime flow、W3 browser first-pixel boundary、fixed high-address memory measurement、W7 Rust load-plan／guest-memory／image-materialization／import-binding ingressである。controlled production imageのIATはbind済みだがCPU未接続で、BGIは1 importだけbindした未seal imageである。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、trace v2 attribution／selected IDirect3D9 root evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle／runtime flow、W3 browser first-pixel boundary、fixed high-address memory measurement、W7 Rust load-plan／guest-memory／image-materialization／import-binding／controlled entry ingressである。controlled production imageはv86上で最初のthunkまで実行済みだがservice未dispatchで、BGIは1 importだけbindした未seal／未実行imageである。
 
 ## 8. Corpus
 
@@ -336,27 +340,28 @@ npm run check:runtime:pe
 npm run check:runtime:memory-core
 npm run check:runtime:materialization
 npm run check:runtime:imports
+npm run check:runtime:entry
 ```
 
-`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI、high-address／protection、W2 runtime flow contractを実行する。`check:runtime:window-browser`は同じW2 harnessがemitしたeventを一時local serverからclean Chrome profileへ渡し、Canvas pixelをreadbackする。`check:runtime:pe`、`check:runtime:memory-core`、`check:runtime:materialization`、`check:runtime:imports`はroot Rust workspaceのW7 plan／memory／mapped-byte／IAT-thunk contractを個別に実行し、すべてを含む`check:runtime:core`がcanonical checkに入る。source adapterを使う前4checkpointは通常の`npm run check`には含めない。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI、high-address／protection、W2 runtime flow contractを実行する。`check:runtime:window-browser`は同じW2 harnessがemitしたeventを一時local serverからclean Chrome profileへ渡し、Canvas pixelをreadbackする。`check:runtime:entry`はproduction Rust reflectionとsource-built v86をsession接続してcontrolled entryからfirst owned thunkまで実行する。`check:runtime:pe`、`check:runtime:memory-core`、`check:runtime:materialization`、`check:runtime:imports`はroot Rust workspaceのW7 plan／memory／mapped-byte／IAT-thunk contractを個別に実行し、すべてを含む`check:runtime:core`がcanonical checkに入る。source adapterを使う前5checkpointは通常の`npm run check`には含めない。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 runtime flow、W3 browser first-pixel boundary、trace v2 attribution／selected IDirect3D9 root capture、high-address／protection memory measurement、W7 Rust PE32 load-plan／guest-memory／image-materialization／import-binding ingressは 2026-07-11 までに完了した。controlled `abi-smoke.exe`はproduction arenaの2 owned thunkへ全IATをbindして両ownerをsealした。BGIは`0x10000000`～`0x1017C000`の380 image pagesと1 thunk pageを所有し、`d3d9.dll!Direct3DCreate9`だけをbindして次の`DINPUT8.dll!DirectInput8Create`で停止した。8 MiB low-address mapping、2 MiB v86 physical pool／44 KiB high mapping、`0x7F000000` thunk arena、harness-local object／surface／queue、sparse `rgba8` eventはcheckpoint上のversion 1選択であり、final process layout、snapshot、object／surface／queue layoutの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 runtime flow、W3 browser first-pixel boundary、trace v2 attribution／selected IDirect3D9 root capture、high-address／protection memory measurement、W7 Rust PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry ingressは 2026-07-11 までに完了した。controlled `abi-smoke.exe`の6 production pagesはgeneration `4`のactual invalidation後にv86へ反映され、harness-only 4 KiB stackからentryを実行してthunk ID `1`へ到達した。BGIは`d3d9.dll!Direct3DCreate9`だけをbindし、次の`DINPUT8.dll!DirectInput8Create`で停止した未実行imageである。2 MiB v86 pool、physical placement、one-page stack、flat CPL3 state、`0x7F000000` arenaはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshotの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. sealed controlled image、production thunk arena、bounded initial stackをprovisional v86 pagingへ反映し、実際のTLB／fetch／generated-code invalidation後だけgeneration `4`をacknowledgeして、entry `0x10001000`からexact owned thunk ID `1`へ到達する。
-2. item 1のtrapからfixed cdecl `fixture_add`をdispatchしてguestへreturnし、次のowned thunk／callback ingressまで進める。
+1. exact thunk ID `1`でcdecl frameをchecked readし、fixed `fixture_add(19,23) = 42`をEAXへ返してguest return `0x1000100A`へresumeし、thunk ID `2`まで進める。
+2. thunk ID `2`のcallback target／valueをchecked readし、production callback return sentinel／frame ownershipを定義してguest callback ingressへ入る。
 
-項目1が次の primary implementation checkpointである。import bindingの成功をv86 page-table integration、actual invalidation、process bootstrap、host service、callback、snapshot、`AC-P1`／`AC-P2`の完成と扱わない。次checkpointはproduction ownershipをadapterへ反映する境界に限定し、W1 harnessのprivate contiguous image mapやprivate thunk tableをruntime全体へ昇格しない。
+項目1が次の primary implementation checkpointである。first-thunk到達をgeneral page reflection、process bootstrap、host ABI gateway、callback、snapshot、`AC-P1`／`AC-P2`の完成と扱わない。次checkpointはproduction thunk metadataとversioned CPU stateを使うfixed cdecl returnに限定し、W1 private thunk map／service tableを流用しない。
 
 ## 11. Major Open Questions
 
 優先順:
 
 1. IDirect3D9 rootでは11 methodsへ到達したが、device／resource vtable、presentation parameters内容、format／state／draw／Present／Reset、DirectInput／DirectSound methodは何か。
-2. production Rust region／page stateをv86 pagingへどう反映し、acknowledgementを実際のTLB／fetch／generated-code invalidationとsnapshotへ結び付けるか。
+2. controlled reflection／actual invalidationは成立したが、general mutation、bidirectional dirty-page ownership、snapshotを同じv86 paging boundaryへどう結び付けるか。
 3. version 1 production import thunkのaddress／ID ownershipをcallback sentinel、Win32 exception delivery、generated API metadataとどう統合するか。
 4. cooperative guest threads、wait／message、async host responseをどうsuspend／resumeするか。
 5. root Rust workspaceに続くTypeScript package、schema generation、Wasm build／ownership boundaryをどう固定するか。
@@ -408,13 +413,14 @@ Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE
 | `docs/pe-loader-ingress.md` | Rust workspace、immutable PE32 plan、W7 BGI result／structured stop |
 | `docs/pe-materialization.md` | source copy／zero-fill／`HIGHLOW`、fixture／BGI mapped-content evidence、IAT stop |
 | `docs/pe-import-binding.md` | runtime thunk arena／ID、IAT prefix binding、owner seal、unsupported stop |
+| `docs/v86-entry-ingress.md` | production page reflection／invalidation ack、bounded stack、entry-to-thunk evidence |
 | `docs/roadmap.md` | long-term phase、task、dependency、acceptance mapping |
 | `docs/risks-and-open-questions.md` | unresolved decisions、risk、go／no-go |
 | `docs/testing-and-acceptance.md` | test candidate、evidence、phase acceptance |
 | `docs/x86-engine-scorecard.md` | engine comparison、v86 evidence、remaining gates |
 | `docs/toolchain-spike.md` | LLVM PE／Wasm fixture baseline |
 | `docs/windows-development.md` | Windows bring-up、trace、checkpoint commands |
-| `docs/windows-native-evidence.md` | Windows W0、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native fixture／runtime flow、W3 browser first pixel、W7 loader／memory／materialization／import-binding ingress |
+| `docs/windows-native-evidence.md` | Windows W0、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native fixture／runtime flow、W3 browser first pixel、W7 loader／memory／materialization／import-binding／entry ingress |
 | `spikes/x86-engine/README.md` | v86 source adapter reproduction |
 
 文書内の長い test／task listは将来coverageの地図であり、今すぐ全件実装する指示ではない。本書のactive queueと「広く浅く、代表test 1本」を優先する。

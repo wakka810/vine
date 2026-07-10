@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはimmutable snapshot、bounded PE32 load plan、CPU未接続のsparse guest memory、PE32 source copy／zero-fill／`HIGHLOW` materialization、runtime-owned import thunk bindingがある。v86 memory接続、general DLL／export lifecycle、bootstrap、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはimmutable snapshot、bounded PE32 load plan、sparse guest memory、PE32 source copy／zero-fill／`HIGHLOW` materialization、runtime-owned import thunk bindingとcontrolled v86 entry reflectionがある。general memory／process integration、DLL／export lifecycle、bootstrap、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -151,7 +151,7 @@ background tab、debugger pause、audio suspend 後に catch-up するか freeze
 
 Wasm32 linear memory の offset と guest virtual address を同一と仮定しない。推奨案は sparse page table または region table を介し、CPU と marshaller が共通の checked memory interface を使う方式である。hot path の TLB/cache は profile 後に追加する。
 
-現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装し、low BGI imageとhigh fixtureを同じchecked rangeで所有する。これはsemantic source of truthの最初のproduction boundaryであり、v86 page table／physical RAMへの反映はまだ行わない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
+現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装し、low BGI imageとhigh fixtureを同じchecked rangeで所有する。controlled sealed image／thunk pagesはguest VA／owner／R／W／X／bytesだけのsemantic reflectionとしてv86 page table／physical RAMへ反映し、first thunkまで実行した。これはgeneral mutation／dirty-page synchronizationではない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)と[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
 
 ### 6.2 Page state
 
@@ -164,7 +164,7 @@ UNMAPPED -> RESERVED -> COMMITTED
 
 host の実行権限とは無関係に、guest `EXECUTE` を論理検査する。write-to-code が発生した場合は decode/cache を無効化し、policy によって継続または診断停止する。
 
-current ingressはpage R／W／Xとowner sealをfetch前に検査し、mapping／protection／seal／write-to-codeをgeneration-tagged invalidationへ変換する。guest accessはlatest generationのacknowledgementまで停止する。ただしacknowledgementはまだv86 TLB／fetch／generated-code cacheの実flushへ接続されておらず、CPU integration contractではない。
+current ingressはpage R／W／Xとowner sealをfetch前に検査し、mapping／protection／seal／write-to-codeをgeneration-tagged invalidationへ変換する。guest accessはlatest generationのacknowledgementまで停止する。controlled sessionではv86 state restore／TLB／generated-code cacheの実flush後だけgeneration `4`をacknowledgeした。general runtime mutation、range-specific invalidation、bidirectional dirty-page ownership、snapshot generationは未接続である。
 
 ### 6.3 Heap と mapped file
 
@@ -190,7 +190,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。fixed T1／W2 flowに続き、high-address PEを2 MiB physical poolから`0xF1000000`へmapし、present／R／W、cross-page fault ordering、protect／remap invalidationを測定した。v86はinstruction fetchをreadと区別せずnon-executable sectionを実行するため、Vine region table＋bounded allocator＋execute gateをv86 pagingへ接続する案を`ADR-003` provisional candidateとする。Rust region／page ownershipとlogical execute gateはproduction ingressへ入ったがCPU未接続であり、engine／memoryの採用決定ではない。広いcalling convention、SEH、snapshot、actual generated-code invalidation、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)を正とする。
+固定 source overlay では、release fallback に追加 import を増やさず exact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABI を追加できた。fixed T1／W2 flowとhigh-address memory measurementに続き、controlled production pagesをphysical-frame IDなしのsemantic reflectionでv86 page tablesへcopyし、state restore／TLB／generated-code invalidation後にRust generation `4`をacknowledgeしてentryからowned thunk ID `1`まで実行した。v86はinstruction fetchをreadと区別しないため、Vine metadataを使うslice-boundary execute gateを保持する。これは`ADR-003` provisional candidateの限定したCPU接続であり、general mutation、bidirectional dirty pages、guard、snapshot、broad ABI、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)と[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 

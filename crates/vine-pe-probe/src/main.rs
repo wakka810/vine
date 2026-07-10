@@ -6,10 +6,11 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use vine_core::{
     GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass, ImageMaterialization,
-    ImageMemoryLayout, ImportBinding, LoaderError, LoaderErrorClass, MemoryLimits, MemoryStats,
+    ImageMemoryLayout, ImportBinding, ImportThunk, LoaderError, LoaderErrorClass,
+    LoaderIngressReport, MemoryInvalidation, MemoryLimits, MemoryReflection, MemoryStats,
     ModuleIdentity, ModuleSnapshot, Pe32Limits, RuntimeExport, RuntimeExportCatalog,
     UnsupportedPoint, bind_pe32_imports, build_pe32_load_plan, materialize_pe32_image,
 };
@@ -22,6 +23,7 @@ struct Arguments {
     prepare_memory_pages: Option<usize>,
     materialize_image_base: Option<u32>,
     runtime_exports: Vec<RuntimeExport>,
+    v86_reflection_session: bool,
 }
 
 #[derive(Serialize)]
@@ -82,6 +84,43 @@ struct ImportBindingIngressReport {
     stats: MemoryStats,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86ReflectionOffer {
+    schema: &'static str,
+    schema_version: u32,
+    source: ModuleIdentity,
+    image_load_base: GuestAddress,
+    entry_point_address: GuestAddress,
+    image_owner: vine_core::MemoryOwnerId,
+    first_thunk: ImportThunk,
+    reflection: MemoryReflection,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86ReflectionAck {
+    schema: String,
+    schema_version: u32,
+    generation: u64,
+    data_tlb: bool,
+    instruction_fetch: bool,
+    generated_code: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86ReflectionReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    acknowledged_generation: u64,
+    stats: MemoryStats,
+    iat_value: u32,
+    entry_bytes: Vec<u8>,
+    thunk_bytes: Vec<u8>,
+    stop: UnsupportedPoint,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -109,6 +148,9 @@ fn run() -> Result<(), LoaderError> {
         snapshot.verify_expected_sha256(expected)?;
     }
     let loader_report = build_pe32_load_plan(&snapshot, limits)?;
+    if arguments.v86_reflection_session {
+        return run_v86_reflection_session(arguments, &snapshot, &loader_report);
+    }
     let mut json = if !arguments.runtime_exports.is_empty() {
         let load_base = arguments.materialize_image_base.ok_or_else(usage_error)?;
         let max_physical_pages = arguments.prepare_memory_pages.ok_or_else(usage_error)?;
@@ -212,6 +254,201 @@ fn run() -> Result<(), LoaderError> {
     Ok(())
 }
 
+fn run_v86_reflection_session(
+    arguments: Arguments,
+    snapshot: &ModuleSnapshot,
+    loader_report: &LoaderIngressReport,
+) -> Result<(), LoaderError> {
+    const MAX_REFLECTION_PAGES: usize = 16;
+    let load_base = arguments.materialize_image_base.ok_or_else(usage_error)?;
+    let max_physical_pages = arguments.prepare_memory_pages.ok_or_else(usage_error)?;
+    if max_physical_pages > MAX_REFLECTION_PAGES {
+        return Err(LoaderError::resource_limit(
+            "memory-reflection",
+            "reflection-page-limit-exceeded",
+            "the version 1 reflection session is limited to 16 physical pages",
+        ));
+    }
+    let memory_limits = MemoryLimits {
+        max_physical_pages,
+        ..MemoryLimits::default()
+    };
+    let mut memory = GuestMemory::new(memory_limits).map_err(memory_error)?;
+    let materialization = materialize_pe32_image(
+        &mut memory,
+        snapshot,
+        loader_report,
+        GuestAddress(load_base),
+    )?;
+    let catalog = RuntimeExportCatalog::new(arguments.runtime_exports)?;
+    let binding = bind_pe32_imports(&mut memory, loader_report, &materialization, &catalog)?;
+    if !binding.complete || !binding.image_owner_sealed {
+        return Err(LoaderError::invalid_input(
+            "memory-reflection",
+            "image-import-binding-incomplete",
+            "v86 reflection requires an image whose imports and owner are fully bound and sealed",
+        ));
+    }
+    let first_thunk = binding.thunks.first().cloned().ok_or_else(|| {
+        LoaderError::invalid_input(
+            "memory-reflection",
+            "image-has-no-owned-import-thunk",
+            "v86 entry reflection requires at least one runtime-owned import thunk",
+        )
+    })?;
+    let reflection = memory.pending_reflection().map_err(memory_error)?;
+    if reflection.invalidation != binding.invalidation {
+        return Err(LoaderError::runtime_defect(
+            "memory-reflection",
+            "binding-reflection-generation-mismatch",
+            "reflected memory does not carry the completed import-binding generation",
+        ));
+    }
+    let offer = V86ReflectionOffer {
+        schema: "vine.v86-memory-reflection",
+        schema_version: 1,
+        source: loader_report.source.clone(),
+        image_load_base: materialization.load_base,
+        entry_point_address: materialization.entry_point_address,
+        image_owner: binding.image_owner,
+        first_thunk: first_thunk.clone(),
+        reflection,
+    };
+    write_protocol_message(&offer)?;
+
+    let ack = read_v86_reflection_ack()?;
+    validate_v86_reflection_ack(&ack, offer.reflection.invalidation)?;
+    memory
+        .acknowledge_invalidation(ack.generation)
+        .map_err(memory_error)?;
+    let iat_bytes = memory
+        .read(first_thunk.iat_address, 4)
+        .map_err(memory_error)?;
+    let iat_value = u32::from_le_bytes(iat_bytes.try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "memory-reflection",
+            "acknowledged-iat-width-invalid",
+            "acknowledged IAT read did not return four bytes",
+        )
+    })?);
+    if iat_value != first_thunk.address.0 {
+        return Err(LoaderError::runtime_defect(
+            "memory-reflection",
+            "acknowledged-iat-value-mismatch",
+            "acknowledged IAT no longer points to the first owned thunk",
+        ));
+    }
+    let entry_bytes = memory
+        .fetch(materialization.entry_point_address, 16)
+        .map_err(memory_error)?;
+    let thunk_bytes = memory
+        .fetch(first_thunk.address, 16)
+        .map_err(memory_error)?;
+    let receipt = V86ReflectionReceipt {
+        schema: "vine.v86-memory-reflection-receipt",
+        schema_version: 1,
+        acknowledged_generation: ack.generation,
+        stats: memory.stats(),
+        iat_value,
+        entry_bytes,
+        thunk_bytes,
+        stop: UnsupportedPoint {
+            stage: "adapter-execution",
+            code: "entry-to-first-owned-thunk-pending",
+            message: "the production-owned image and thunk pages are synchronized for adapter execution; initial stack setup and guest entry execution have not yet been attempted",
+        },
+    };
+    write_protocol_message(&receipt)
+}
+
+fn read_v86_reflection_ack() -> Result<V86ReflectionAck, LoaderError> {
+    const MAX_ACK_BYTES: u64 = 4_096;
+    let mut bytes = Vec::new();
+    io::stdin()
+        .take(MAX_ACK_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            io_error(
+                "memory-reflection",
+                "reflection-ack-read-failed",
+                "could not read the adapter invalidation acknowledgement",
+                error,
+            )
+        })?;
+    if bytes.len() as u64 > MAX_ACK_BYTES {
+        return Err(LoaderError::resource_limit(
+            "memory-reflection",
+            "reflection-ack-size-exceeded",
+            "adapter invalidation acknowledgement exceeds 4 KiB",
+        ));
+    }
+    serde_json::from_slice(&bytes).map_err(|error| {
+        LoaderError::invalid_input(
+            "memory-reflection",
+            "reflection-ack-invalid",
+            format!("adapter invalidation acknowledgement is not valid JSON: {error}"),
+        )
+    })
+}
+
+fn validate_v86_reflection_ack(
+    ack: &V86ReflectionAck,
+    pending: MemoryInvalidation,
+) -> Result<(), LoaderError> {
+    if ack.schema != "vine.v86-memory-reflection-ack" || ack.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "memory-reflection",
+            "reflection-ack-schema-unsupported",
+            "adapter acknowledgement must use vine.v86-memory-reflection-ack version 1",
+        ));
+    }
+    if ack.generation != pending.generation {
+        return Err(LoaderError::invalid_input(
+            "memory-reflection",
+            "reflection-ack-generation-mismatch",
+            "adapter acknowledgement does not match the pending memory generation",
+        ));
+    }
+    if (pending.data_tlb && !ack.data_tlb)
+        || (pending.instruction_fetch && !ack.instruction_fetch)
+        || (pending.generated_code && !ack.generated_code)
+    {
+        return Err(LoaderError::invalid_input(
+            "memory-reflection",
+            "reflection-ack-incomplete",
+            "adapter acknowledgement did not complete every required invalidation class",
+        ));
+    }
+    Ok(())
+}
+
+fn write_protocol_message(message: &impl Serialize) -> Result<(), LoaderError> {
+    let mut stdout = io::stdout().lock();
+    serde_json::to_writer(&mut stdout, message).map_err(|error| {
+        LoaderError::runtime_defect(
+            "memory-reflection",
+            "reflection-message-serialization-failed",
+            format!("could not serialize the reflection protocol message: {error}"),
+        )
+    })?;
+    stdout.write_all(b"\n").map_err(|error| {
+        io_error(
+            "memory-reflection",
+            "reflection-message-write-failed",
+            "could not write the reflection protocol message",
+            error,
+        )
+    })?;
+    stdout.flush().map_err(|error| {
+        io_error(
+            "memory-reflection",
+            "reflection-message-flush-failed",
+            "could not flush the reflection protocol message",
+            error,
+        )
+    })
+}
+
 fn serialize_report(report: &impl Serialize) -> Result<Vec<u8>, LoaderError> {
     serde_json::to_vec_pretty(report).map_err(|error| {
         LoaderError::runtime_defect(
@@ -270,6 +507,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut prepare_memory_pages = None;
     let mut materialize_image_base = None;
     let mut runtime_exports = Vec::new();
+    let mut v86_reflection_session = false;
     let mut arguments = env::args_os().skip(1);
 
     while let Some(argument) = arguments.next() {
@@ -311,6 +549,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
             let ordinal = ordinal.into_string().map_err(|_| usage_error())?;
             let ordinal = ordinal.parse::<u16>().map_err(|_| usage_error())?;
             runtime_exports.push(RuntimeExport::ordinal(module, ordinal));
+        } else if argument == "--v86-reflection-session" {
+            if v86_reflection_session {
+                return Err(usage_error());
+            }
+            v86_reflection_session = true;
         } else if argument.to_string_lossy().starts_with('-') || input.is_some() {
             return Err(usage_error());
         } else {
@@ -324,6 +567,14 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if !runtime_exports.is_empty() && materialize_image_base.is_none() {
         return Err(usage_error());
     }
+    if v86_reflection_session
+        && (output.is_some()
+            || runtime_exports.is_empty()
+            || materialize_image_base.is_none()
+            || prepare_memory_pages.is_none())
+    {
+        return Err(usage_error());
+    }
 
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
@@ -332,6 +583,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         prepare_memory_pages,
         materialize_image_base,
         runtime_exports,
+        v86_reflection_session,
     })
 }
 
@@ -407,7 +659,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session | --output FILE] INPUT".to_owned(),
     }
 }
 

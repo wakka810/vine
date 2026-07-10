@@ -6,8 +6,8 @@
 - Measurement date: 2026-07-11
 - Scope: `P0-ARCH-03` partial evidence for 4 GiB guest VA、page protection、page ownership
 - Working candidate: Vine region table + bounded physical page allocator reflected into v86 paging
-- Implemented ingress: Rust-owned sparse region／page API、bounded zeroed frames、logical execute gate、invalidation acknowledgement protocol
-- Not decided: v86 page-table reflection、guard、snapshot、actual generated-code invalidation、Worker memory ceiling
+- Implemented ingress: Rust-owned sparse region／page API、bounded zeroed frames、logical execute gate、invalidation acknowledgement protocol、controlled semantic v86 reflection／actual invalidation
+- Not decided: general page-table mutation／dirty-page ownership、guard、snapshot、Worker memory ceiling
 
 この文書はmemory architectureのaccepted decisionではない。fixed high-address fixtureで2候補を比較し、production Rust ingressでownership contractを実装した。CPU integrationとacceptance前に閉じるgateが残るため、working directionは引き続きprovisionalである。
 
@@ -108,10 +108,12 @@ RW PTEをread-onlyへ変更した直後はcached TLBによりwriteが通り、`f
 
 high-memory contractは6 image pagesと1 anonymous probe pageをexact quota内で扱い、BGI planは380 image pagesをexact quotaで所有した。詳細なfault sequence、report hash、structured stopは[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
 
+後続のcontrolled entry contractはsealed image 5 pagesとruntime thunk 1 pageをguest VA／owner／R／W／X／bytesだけのsemantic reflectionとしてv86へ渡した。同じRust memory objectはgeneration `4`をpendingに保ち、adapterのstate restore／`full_clear_tlb`／`jit_clear_cache_js`後のackだけを受理した。2 MiB poolのpage directory／3 tables／6 reflected pagesとharness stackからentryを実行し、owned thunk ID `1`へ到達した。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
+
 次は未実装であり、このADRをAcceptedへ進める前に閉じる。
 
-- region stateから生成するv86 page directory／PTE ownershipとbounded physical backingの接続
-- Rust acknowledgementを実際のv86 TLB／fetch／generated-code invalidation完了へ結び付けるadapter contract
+- runtime mutationを反映するincremental PDE／PTE更新とbidirectional dirty-page ownership
+- process-wide stack／heap／module mappingとexecute gate、fault classificationのgeneralization
 - region／page／CPU generationを揃えるsnapshot contract
 - guard、mapped file、copy-on-write、sharing、memory pressure、Worker ceiling
 
@@ -119,6 +121,6 @@ host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 fac
 
 ## 7. Non-Claims And Next Gate
 
-production ingress checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、CPU-connected self-modifying code、PAE／NX、generated JIT、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはproduction coreに入ったが、v86のmemory／fetch pathには未接続である。
+production ingressとcontrolled reflection checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、CPU-connected self-modifying code、PAE／NX、generated JIT、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはcontrolled sealed pagesだけv86へ反映でき、general process memory／mutation pathには未接続である。
 
-owned W7 planからheader／section bytesをcopyし、zero-fillを検証して`HIGHLOW`を適用するvertical checkpointは[pe-materialization.md](pe-materialization.md)、runtime-owned thunk／IAT bindingとcontrolled owner sealは[pe-import-binding.md](pe-import-binding.md)で完了した。次はsealed image、thunk arena、bounded stackをprovisional v86 page tables／physical backingへ反映し、実際のTLB／fetch／generated-code invalidation後だけRust generationをacknowledgeする。snapshotとgeneral guest executionが未完了であるためADR statusは変えない。
+owned W7 planのmaterializationは[pe-materialization.md](pe-materialization.md)、runtime-owned thunk／IAT bindingは[pe-import-binding.md](pe-import-binding.md)、controlled v86 reflection／entryは[v86-entry-ingress.md](v86-entry-ingress.md)で完了した。次はfirst thunkのfixed cdecl dispatchへ進むが、general mutation／stack／heap／snapshotが未完了であるためADR statusは変えない。

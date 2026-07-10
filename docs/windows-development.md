@@ -22,9 +22,10 @@
 - Rust `vine-core`のsparse owner／region／page table、bounded zeroed frame allocator、logical execute seal／invalidation protocolと、BGIの380-page memory-ingress stop
 - Rust `vine-core`のsource copy／explicit zero-fill／`HIGHLOW` materializationと、BGIの330-slot original IAT verification／first unbound import stop
 - Rust `vine-core`の64 KiB runtime-owned thunk arena／stable ID／supported-prefix IAT bindingと、controlled fixtureのowner seal／BGIの次unsupported import stop
+- Rust semantic reflection／ack sessionによるcontrolled 6 pagesのv86 mapping、actual invalidation、bounded stack／entry-to-thunk ID `1`
 
-v86 memory接続、general DLL／export lifecycle／bootstrap、Win32 API、graphics／audio は未実装である。controlled imageのIATは全bind／seal済みだがCPU未接続で、BGIは`Direct3DCreate9` 1件だけbindした未seal imageである。サクラノ詩のnative traceを引き続き実装順の根拠にする。
-trace v1／v2、selected IDirect3D9 root、W1／W2／W3／W7 resultは [windows-native-evidence.md](windows-native-evidence.md) を正とし、W7 planは[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、mapped bytesは[pe-materialization.md](pe-materialization.md)、thunk ownershipは[pe-import-binding.md](pe-import-binding.md)を参照する。
+general v86 memory／process integration、DLL／export lifecycle／bootstrap、Win32 API、graphics／audio は未実装である。controlled imageはfirst production thunkまでCPU実行済みだがservice未dispatchで、BGIは`Direct3DCreate9` 1件だけbindした未seal／未実行imageである。サクラノ詩のnative traceを引き続き実装順の根拠にする。
+trace v1／v2、selected IDirect3D9 root、W1／W2／W3／W7 resultは [windows-native-evidence.md](windows-native-evidence.md) を正とし、W7 planは[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、mapped bytesは[pe-materialization.md](pe-materialization.md)、thunk ownershipは[pe-import-binding.md](pe-import-binding.md)、CPU handoffは[v86-entry-ingress.md](v86-entry-ingress.md)を参照する。
 
 ## 2. Windows toolchain
 
@@ -77,6 +78,7 @@ npm run check:runtime:pe
 npm run check:runtime:memory-core
 npm run check:runtime:materialization
 npm run check:runtime:imports
+npm run check:runtime:entry
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -121,7 +123,7 @@ node tools/summarize-windows-trace.mjs `
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
-8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／import-binding ingress verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。native-reachable `d3d9.dll!Direct3DCreate9`をproduction thunkへbindし、次の`DINPUT8.dll!DirectInput8Create`で停止する。
+8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／import-binding ingress verified; controlled fixture entry verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。native-reachable `d3d9.dll!Direct3DCreate9`をproduction thunkへbindし、次の`DINPUT8.dll!DirectInput8Create`で停止する。production CPU handoffはcontrolled fixtureだけfirst thunkまで通す。
 
 各 checkpoint の automated test は原則 1 本にする。追加 test は、実際の regression、calling convention／fault ordering の曖昧さ、または title failure を最小化した場合だけ作る。
 
@@ -135,6 +137,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。後続trace v2はcaller attributionとselected `IDirect3D9` root 11 methodsを観測したがdevice／resource methodsは未観測である。W1／W2／W3とhigh-address memory spikeに続き、W7はBGIのowned plan、380-page materialization、runtime-owned `Direct3DCreate9` thunkを通して次のunsupported importまで進んだ。次はsealed controlled image／thunk arena／bounded stackをprovisional v86 pagingへ反映し、entryからexact thunk ID `1`へ到達する。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達し、W0を閉じるのに必要な実装順を決めた。後続trace v2はcaller attributionとselected `IDirect3D9` root 11 methodsを観測したがdevice／resource methodsは未観測である。W1／W2／W3とhigh-address memory spikeに続き、W7 controlled imageはproduction reflection／actual invalidationを経てentryからexact thunk ID `1`へ到達した。BGIはruntime-owned `Direct3DCreate9` thunkをbindして次のunsupported importで停止している。次はthunk ID `1`のfixed cdecl serviceをdispatchし、guest returnからthunk ID `2`まで進める。視覚的なtitle checkpointは旧schemaにmanual markerがないため`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

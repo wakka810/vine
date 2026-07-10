@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、fixed W1／W2 runtime、W3 browser pixel、high-address／protection memory、Rust PE32 loader／memory／materialization／import-binding、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、fixed W1／W2 runtime、W3 browser pixel、high-address／protection memory、Rust PE32 loader／memory／materialization／import-binding／controlled entry、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -129,6 +129,8 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 現在のPE32 materialization contractは同じ`abi-smoke.exe`を`0x10000000`へrelocateする。4 source ranges／2,560 bytes、5 zero ranges／17,920 bytes、5 `HIGHLOW` target、2 original IAT slots、20,480 mapped bytesのSHA-256を1 sequenceで検査する。source-derived expected sectionへdeltaを独立適用し、全copy／zero／relocated DWORD／IAT／pending invalidation／source immutabilityをassertして`import-binding`／`iat-binding-unimplemented`で停止する。BGI replayは18,199 relocationsと330 IAT slotsを同じboundaryで通したがautomated testを複製しない。詳細は[pe-materialization.md](pe-materialization.md)を正とする。
 
 現在のimport-binding contractは同じmaterialized fixtureの2 named importsをcase-insensitive DLL／case-sensitive symbol catalogからresolveし、16-byte strideのowned thunk ID `1`／`2`をIATへ書いてruntime／image ownerをsealする。6-page exact quota、`UD2`／`HLT` bytes、arena digest、generation `4` acknowledgement前のaccess block、acknowledgement後のIAT／fetch、sealed IAT write PFEC `7`、deterministic JSONを1 sequenceで検査する。BGI replayはnative-reachable `Direct3DCreate9`だけをbindし、329 importsを残して`DirectInput8Create`のmodule／symbol／IAT diagnosticで停止するがautomated testを複製しない。詳細は[pe-import-binding.md](pe-import-binding.md)を正とする。
+
+`npm run check:runtime:entry`は同じlive Rust memoryから6 sealed pagesをversion 1 semantic reflectionとしてsource-built v86へ渡す。2 MiB poolへpage directory／3 tables／6 reflected pages／1 harness stackを置き、state ABI restore、explicit TLB／generated-code clear後だけgeneration `4`をacknowledgeする。Rust normal read／fetch receipt、reflection metadata／content digest、slice-boundary execute gate、entry `0x10001000`、instruction budget `3`、first thunk ID `1`、ESP／return／2 arguments、deterministic reportを1 sequenceで検査する。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
 
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
@@ -411,7 +413,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory ingressは`AC-P1-01`へのpartial evidenceである。high fixtureとlow BGI layout、reserve／commit／protect、cross-page faultは存在するが、CPUが同じboundaryを使わず、guard／stack／heap／snapshotも未実装のためcriterionは未完了である。`AC-P1`全体も未完了である。
+現在のproduction memory／entry ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUが同じreflected pagesを使ってfirst API trapまで進むが、stackはharness-onlyで、service／callback／pixel／audio／persistence、general mutation、guard／heap／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
