@@ -121,4 +121,4 @@ host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 fac
 
 production ingress checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、CPU-connected self-modifying code、PAE／NX、generated JIT、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはproduction coreに入ったが、v86のmemory／fetch pathには未接続である。
 
-次のvertical checkpointは、owned W7 planからheader／section bytesをこのmemory ownerへcopyし、zero-fillを検証して`HIGHLOW` relocationを適用する。IAT bindingまたはprocess bootstrapの次のfirst unsupported pointで構造化停止し、guest codeはまだ実行しない。
+owned W7 planからheader／section bytesをcopyし、zero-fillを検証して`HIGHLOW`を適用するvertical checkpointは[pe-materialization.md](pe-materialization.md)で完了した。次は未seal ownerへruntime-owned thunk／IAT bindingを追加する。v86接続、snapshot、guest executionが未完了であるためADR statusは変えない。

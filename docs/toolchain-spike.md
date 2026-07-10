@@ -98,4 +98,4 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC bootを迂回したexecution、bounded adapter、W1／W2／W3に続き、high-memory fixtureを使う4 GiB VA／protection候補比較を[adr-003-guest-memory.md](adr-003-guest-memory.md)へ記録した。その後、BGI load planとproduction Rust guest-memory ingressはfirst image-materialization stopまで進んだ。次はowned source copy、zero-fill、`HIGHLOW`を同じmemory ownerへ接続する。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC bootを迂回したexecution、bounded adapter、W1／W2／W3に続き、high-memory fixtureを使う4 GiB VA／protection候補比較を[adr-003-guest-memory.md](adr-003-guest-memory.md)へ記録した。その後、BGI load plan、production Rust guest-memory ingress、source copy／zero-fill／`HIGHLOW` materializationまで進んだ。次はcontrolled fixtureからruntime-owned thunk／IAT bindingをproduction boundaryへ接続する。

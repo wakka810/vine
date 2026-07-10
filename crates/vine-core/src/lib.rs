@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod materialize;
 mod memory;
 mod pe32;
 mod snapshot;
 
+pub use materialize::{ImageMaterialization, UnboundImport, materialize_pe32_image};
 pub use memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
     GuestRange, GuestWriteResult, ImageMemoryLayout, MemoryAccess, MemoryFault, MemoryFaultReason,

@@ -214,7 +214,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。BGI load planとproduction Rust region／page ownershipも成立した。active loader checkpointでsource copy／zero-fill／`HIGHLOW`を閉じた後、adapter sliceはprivate offset、fixture page table、2 MiB poolをruntime全体へ拡散させず、Rust memory generationをv86 mapping／invalidation／fetch gateへ接続する。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。BGI load plan、production Rust region／page ownership、source copy／zero-fill／`HIGHLOW` materializationも成立した。active loaderはIAT bindingへ進み、その後のadapter sliceでprivate offset、fixture page table、2 MiB poolをruntime全体へ拡散させず、Rust memory generationをv86 mapping／invalidation／fetch gateへ接続する。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT

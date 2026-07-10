@@ -106,4 +106,4 @@ valid planの次に返すstopは次である。
 
 このcheckpointは`REQ-IMP-07`、`REQ-PE-01`／`REQ-PE-02`／`REQ-PE-03`／`REQ-PE-06`、`P2-PE-01`／`P2-PE-02`／`P2-PE-03`／`P2-PE-04`／`P2-PE-10`、`P2-DIAG-01`、`P2-COR-01`へのpartial evidenceである。relocationをguest memoryへ適用せず、DLL graph／export resolution／forwarder／resource parser／TLS／delay import／module lifecycle／API binding／bootstrap／execution／malformed corpus／fuzzを完了しないため、`AC-P2-01`、`AC-P2-05`、`AC-P2-06`、`AC-P2-09`、`AC-P2-10`、`AC-P2-11`を含むacceptance criterionは一つも完了しない。
 
-このowned planをADR-003のregion／page owner、bounded physical allocator、logical execute gateへ接続するcheckpointは完了し、[guest-memory-ingress.md](guest-memory-ingress.md)へ記録した。次のprimary checkpointは同じowned source／planからheader／section bytesをcopyし、zero-fillを検証して`HIGHLOW`をguest memory内へ適用する。IAT bindingまたはprocess bootstrapのfirst unsupported pointで停止し、guest codeはまだ実行しない。
+このowned planをADR-003のmemory ownerへ接続するcheckpointは[guest-memory-ingress.md](guest-memory-ingress.md)、source copy／zero-fill／`HIGHLOW` continuationは[pe-materialization.md](pe-materialization.md)で完了した。次のprimary checkpointはruntime-owned thunk addressを定義し、controlled fixture IATをbindしてBGIのfirst unsupported importまで進める。guest codeはまだ実行しない。

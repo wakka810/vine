@@ -742,24 +742,46 @@ impl GuestMemory {
         source: &ModuleIdentity,
         plan: &Pe32LoadPlan,
     ) -> Result<ImageMemoryLayout, GuestMemoryError> {
-        let image_range = GuestRange::new(
-            GuestAddress(plan.image.preferred_image_base),
-            u64::from(plan.image.size_of_image),
-        )?;
-        require_page_aligned(image_range, "image-range-not-page-aligned")?;
-        if image_range.end() != plan.image.image_end {
+        self.prepare_image_layout_at(source, plan, GuestAddress(plan.image.preferred_image_base))
+    }
+
+    pub fn prepare_image_layout_at(
+        &mut self,
+        source: &ModuleIdentity,
+        plan: &Pe32LoadPlan,
+        load_base: GuestAddress,
+    ) -> Result<ImageMemoryLayout, GuestMemoryError> {
+        if !load_base.0.is_multiple_of(0x1_0000) {
+            return Err(GuestMemoryError::invalid_request(
+                "image-layout",
+                "image-load-base-not-allocation-aligned",
+                "image load base must be aligned to the 64 KiB Windows allocation granularity",
+            ));
+        }
+        let preferred_end = u64::from(plan.image.preferred_image_base)
+            .checked_add(u64::from(plan.image.size_of_image))
+            .ok_or_else(|| {
+                GuestMemoryError::invalid_request(
+                    "image-layout",
+                    "preferred-image-end-overflow",
+                    "preferred image base plus SizeOfImage overflowed 64-bit accounting",
+                )
+            })?;
+        if preferred_end != plan.image.image_end {
             return Err(GuestMemoryError::invalid_request(
                 "image-layout",
                 "image-end-mismatch",
                 "preferred image base plus SizeOfImage does not match the load plan image end",
             ));
         }
+        let image_range = GuestRange::new(load_base, u64::from(plan.image.size_of_image))?;
+        require_page_aligned(image_range, "image-range-not-page-aligned")?;
 
         let mut page_specs = BTreeMap::new();
         insert_plan_mapping(
             &mut page_specs,
             image_range,
-            plan.image.preferred_image_base,
+            load_base.0,
             plan.header_mapping.destination_rva.0,
             plan.header_mapping.mapped_size,
             plan.header_mapping.final_protection.into(),
@@ -769,7 +791,7 @@ impl GuestMemory {
             insert_plan_mapping(
                 &mut page_specs,
                 image_range,
-                plan.image.preferred_image_base,
+                load_base.0,
                 section.destination_rva.0,
                 section.mapped_size,
                 section.final_protection.into(),
@@ -850,6 +872,24 @@ impl GuestMemory {
         })
     }
 
+    pub fn read_initialization(
+        &self,
+        owner: MemoryOwnerId,
+        address: GuestAddress,
+        byte_length: usize,
+    ) -> Result<Vec<u8>, GuestMemoryError> {
+        let owner_state = self.require_owner(owner)?;
+        if owner_state.sealed {
+            return Err(GuestMemoryError::conflict(
+                "image-initialization",
+                "memory-owner-already-sealed",
+                "owner initialization reads are forbidden after sealing",
+            ));
+        }
+        let segments = self.preflight_owner_access(owner, address, byte_length)?;
+        self.read_segments(&segments, byte_length)
+    }
+
     pub fn write_initialization(
         &mut self,
         owner: MemoryOwnerId,
@@ -870,6 +910,47 @@ impl GuestMemory {
         Ok(GuestWriteResult {
             bytes_written: bytes.len(),
             dirty_pages,
+            invalidation: None,
+        })
+    }
+
+    pub fn zero_initialization(
+        &mut self,
+        owner: MemoryOwnerId,
+        address: GuestAddress,
+        byte_length: usize,
+    ) -> Result<GuestWriteResult, GuestMemoryError> {
+        let owner_state = self.require_owner(owner)?;
+        if owner_state.sealed {
+            return Err(GuestMemoryError::conflict(
+                "image-initialization",
+                "memory-owner-already-sealed",
+                "owner initialization zero-fill is forbidden after sealing",
+            ));
+        }
+        let segments = self.preflight_owner_access(owner, address, byte_length)?;
+        for segment in &segments {
+            let page = self.pages.get_mut(&segment.virtual_page).ok_or_else(|| {
+                GuestMemoryError::runtime_defect(
+                    "page-table",
+                    "preflighted-page-missing",
+                    "zero-fill preflight succeeded but page disappeared",
+                )
+            })?;
+            let bytes = self.frames.bytes_mut(page.frame)?;
+            let end = segment
+                .page_offset
+                .checked_add(segment.byte_length)
+                .ok_or_else(segment_bounds_error)?;
+            let destination = bytes
+                .get_mut(segment.page_offset..end)
+                .ok_or_else(segment_bounds_error)?;
+            destination.fill(0);
+            page.dirty = true;
+        }
+        Ok(GuestWriteResult {
+            bytes_written: byte_length,
+            dirty_pages: unique_segment_pages(&segments),
             invalidation: None,
         })
     }

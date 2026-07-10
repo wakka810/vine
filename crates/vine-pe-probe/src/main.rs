@@ -8,9 +8,9 @@ use std::process::ExitCode;
 
 use serde::Serialize;
 use vine_core::{
-    GuestMemory, GuestMemoryError, GuestMemoryErrorClass, ImageMemoryLayout, LoaderError,
-    LoaderErrorClass, MemoryLimits, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
-    UnsupportedPoint, build_pe32_load_plan,
+    GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass, ImageMaterialization,
+    ImageMemoryLayout, LoaderError, LoaderErrorClass, MemoryLimits, MemoryStats, ModuleIdentity,
+    ModuleSnapshot, Pe32Limits, UnsupportedPoint, build_pe32_load_plan, materialize_pe32_image,
 };
 
 #[derive(Debug)]
@@ -19,6 +19,7 @@ struct Arguments {
     output: Option<PathBuf>,
     expected_sha256: Option<String>,
     prepare_memory_pages: Option<usize>,
+    materialize_image_base: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -53,6 +54,18 @@ struct MemoryImageSummary {
     section_count: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MaterializationIngressReport {
+    schema: &'static str,
+    schema_version: u32,
+    loader_schema: &'static str,
+    loader_schema_version: u32,
+    memory_limits: MemoryLimits,
+    materialization: ImageMaterialization,
+    stats: MemoryStats,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -80,7 +93,30 @@ fn run() -> Result<(), LoaderError> {
         snapshot.verify_expected_sha256(expected)?;
     }
     let loader_report = build_pe32_load_plan(&snapshot, limits)?;
-    let mut json = if let Some(max_physical_pages) = arguments.prepare_memory_pages {
+    let mut json = if let Some(load_base) = arguments.materialize_image_base {
+        let max_physical_pages = arguments.prepare_memory_pages.ok_or_else(usage_error)?;
+        let memory_limits = MemoryLimits {
+            max_physical_pages,
+            ..MemoryLimits::default()
+        };
+        let mut memory = GuestMemory::new(memory_limits).map_err(memory_error)?;
+        let materialization = materialize_pe32_image(
+            &mut memory,
+            &snapshot,
+            &loader_report,
+            GuestAddress(load_base),
+        )?;
+        let report = MaterializationIngressReport {
+            schema: "vine.pe32-materialization",
+            schema_version: 1,
+            loader_schema: loader_report.schema,
+            loader_schema_version: loader_report.schema_version,
+            memory_limits,
+            materialization,
+            stats: memory.stats(),
+        };
+        serialize_report(&report)?
+    } else if let Some(max_physical_pages) = arguments.prepare_memory_pages {
         let memory_limits = MemoryLimits {
             max_physical_pages,
             ..MemoryLimits::default()
@@ -188,6 +224,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut output = None;
     let mut expected_sha256 = None;
     let mut prepare_memory_pages = None;
+    let mut materialize_image_base = None;
     let mut arguments = env::args_os().skip(1);
 
     while let Some(argument) = arguments.next() {
@@ -209,6 +246,13 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
             if value == 0 || prepare_memory_pages.replace(value).is_some() {
                 return Err(usage_error());
             }
+        } else if argument == "--materialize-image-base" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            let value = value.into_string().map_err(|_| usage_error())?;
+            let value = parse_u32_argument(&value)?;
+            if materialize_image_base.replace(value).is_some() {
+                return Err(usage_error());
+            }
         } else if argument.to_string_lossy().starts_with('-') || input.is_some() {
             return Err(usage_error());
         } else {
@@ -216,12 +260,28 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         }
     }
 
+    if materialize_image_base.is_some() && prepare_memory_pages.is_none() {
+        return Err(usage_error());
+    }
+
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
         output,
         expected_sha256,
         prepare_memory_pages,
+        materialize_image_base,
     })
+}
+
+fn parse_u32_argument(value: &str) -> Result<u32, LoaderError> {
+    let parsed = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .map_or_else(
+            || value.parse::<u32>(),
+            |hexadecimal| u32::from_str_radix(hexadecimal, 16),
+        );
+    parsed.map_err(|_| usage_error())
 }
 
 fn read_bounded(path: &Path, max_file_bytes: u64) -> Result<Vec<u8>, LoaderError> {
@@ -285,7 +345,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT] [--output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS]] [--output FILE] INPUT".to_owned(),
     }
 }
 

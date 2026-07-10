@@ -6,7 +6,7 @@
 - 基準日: 2026-07-10
 - 対象: PE32 / i386 のサクラノ詩 full-play runtime
 - 開発形態: 1 人、完全個人用
-- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、fixed W1／W2／W3 contract、high-address memory measurement、Rust immutable snapshot／bounded PE32 load planによるW7 BGI ingress、production Rust guest-memory ingressは完了済みである。PE byte materialization、v86 memory接続、DLL graph、bootstrap、executionは未実装である
+- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、fixed W1／W2／W3 contract、high-address memory measurement、Rust immutable snapshot／bounded PE32 load plan／guest-memory／image-materializationによるW7 BGI ingressは完了済みである。IAT binding、v86 memory接続、DLL graph、bootstrap、executionは未実装である
 
 ## 2. 目的
 
@@ -135,6 +135,8 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | REQ-MEM-03 | executable、writable 等の guest protection を論理的に追跡し、self-modifying code を検出できる | Should |
 
 現在のproduction guest-memory ingressは、sparse 4 GiB range、owner-scoped reserve／commit／protect／decommit／release、bounded physical quota、cross-page preflight、logical execute seal、write-to-code invalidation requirementを実装する。stack／heap／guard／snapshot semanticsとCPU接続は未実装であり、`REQ-MEM-01`～`REQ-MEM-03`はいずれもpartialである。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
+
+続くPE32 materializationはowned planだけからheader／section copy、explicit zero-fill／readback、nonpreferred `HIGHLOW`、original IAT verificationを行う。BGIを`0x10000000`へmaterializeしたがIAT／DLL／bootstrapを処理しないため、`REQ-PE-02`／`REQ-PE-03`／`REQ-PE-06`はいずれもpartialである。詳細は[pe-materialization.md](pe-materialization.md)を正とする。
 
 ### 7.3 Process bootstrap、x86 execution、ABI
 

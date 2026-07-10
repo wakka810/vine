@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／native ABI oracle／W1／W2／W3／W7 PE32 load-plan ingress／production guest-memory ingressはVerified。visual title／device-level method coverageはIn discovery
+- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／native ABI oracle／W1／W2／W3／W7 PE32 load-plan／guest-memory／image-materialization ingressはVerified。visual title／device-level method coverageはIn discovery
 - 取得日: 2026-07-10／2026-07-11
 - runtime checkpoint更新日: 2026-07-11
-- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`W7 PE32 load-plan ingress`、`production guest-memory ingress`、`P0-COR-04` の最初のnative sample
+- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 native fixture`、`W2 loader ingress`、`W2 module ingress`、`W2 class ingress`、`W2 window-create ingress`、`W2 visibility ingress`、`W2 invalidation ingress`、`W2 message dispatch ingress`、`W2 paint／quit flow`、`W3 browser first-pixel boundary`、`W7 PE32 load-plan ingress`、`production guest-memory ingress`、`production PE32 materialization`、`P0-COR-04` の最初のnative sample
 - partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-MEM-01`、`P1-MEM-02`、`P1-MEM-03`、`P1-ABI-01`、`P1-ABI-02`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-03`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P2-COR-01`、`P3-WIN-01`、`P3-WIN-03`、`P4-UI-01`、`P4-UI-02`、`P4-GDI-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
@@ -606,4 +606,25 @@ BGI image rangeは`0x00400000`～`0x0057C000`、380 reserved／committed／physi
 
 structured stopは`image-materialization`／`image-bytes-relocations-import-binding-unimplemented`である。pagesはallocator初期化のzeroだけを持ち、header／section source copy、PE zero-fill verification、`HIGHLOW`、IAT binding、BGI owner seal、v86 page table／TLB／generated-code invalidation、guest executionを行わない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
 
-次のprimary actionは、同じowned source／planからheader／section bytesをcopyし、zero-fillを検証して`HIGHLOW` relocationをguest memory内だけへ適用することである。IAT bindingまたはprocess bootstrapのfirst unsupported pointで停止し、guest executionへはまだ進まない。
+同じowned source／planからheader／section bytesをcopyし、zero-fillを検証して`HIGHLOW`を適用する次checkpointは完了した。memory-ingress report自体のstopとnon-claimsは変更しない。
+
+## 13. Production PE32 image materialization
+
+`npm run check:runtime:materialization`はfixed `abi-smoke.exe`をpreferred `0x00400000`から`0x10000000`へrelocateする。4 source ranges／2,560 bytesをcopyし、5 mapped tails／17,920 bytesをexplicit zero-fillして全byteをread backする。5 `HIGHLOW` target、2 original IAT slots、entry `0x10001000`を検査し、20,480 mapped bytesのSHA-256 `1cfa1ba4ef560433b38e2598ba291ae6cbd0f8139408274c2192c30e4a185110`を返した。first stopは`vine_fixture.dll!fixture_add`の`import-binding`／`iat-binding-unimplemented`である。
+
+fingerprint済みBGI.exeには次を適用した。
+
+```powershell
+npm run probe:runtime:pe -- `
+  --expect-sha256 f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1 `
+  --prepare-memory-pages 380 `
+  --materialize-image-base 0x10000000 `
+  --output .work\materialization\bgi.json `
+  "V:\softs\サクラノ詩\BGI.exe"
+```
+
+BGI imageは`[0x10000000, 0x1017C000)`、entry `0x100A383E`となった。6 ranges／1,193,472 source bytes、5 ranges／363,008 zero bytes、18,199 `HIGHLOW`、330 original IAT slotsを検証した。mapped 1,556,480 bytesのSHA-256は`d9dc33d121ea2da6ba5e459a9da13b70bf8bfc1c668593a80c6b3689d841199b`である。first unbound importはIAT `0x100D14F4`の`d3d9.dll!Direct3DCreate9`だった。
+
+fixture／BGI reportを各2回生成し、それぞれ2,403 bytes／SHA-256 `f66b1dcf4d6a008c672b807c1e6acaf35348eaf1d37e3ad22d8c62011774407c`、2,448 bytes／SHA-256 `e6ce8d5599922c7ea11470475313907e6732c1c9e4a2ca0ecd4457cd0d502019`で一致した。元BGI.exeは1,193,472 bytes／primary SHA-256を保持した。
+
+ownerは未seal、generation `1` invalidationはpendingである。IAT write、runtime-owned thunk、DLL／export resolution、discardable unmap、v86 page table／invalidation、PEB／TEB／stack、guest executionはnot attemptedである。詳細は[pe-materialization.md](pe-materialization.md)を正とする。次のprimary actionはcontrolled fixtureの2 importをproduction thunkへbindし、owner sealまで進めることである。
