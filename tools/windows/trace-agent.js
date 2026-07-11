@@ -235,6 +235,12 @@ if (selectedObservations.has("heap-lifecycle")) {
     ["HeapDestroy", [null]],
   );
 }
+if (selectedObservations.has("module-handle")) {
+  hooks["kernel32.dll"].push(
+    ["GetModuleHandleA", ["ansi"]],
+    ["GetModuleHandleW", ["utf16"]],
+  );
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -357,7 +363,7 @@ function attachHook(module, name, decoders) {
       const observation =
         name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
-          : name.startsWith("Heap")
+          : name.startsWith("Heap") || name.startsWith("GetModuleHandle")
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
             : {};
       this.traceStartupInfoPointer =

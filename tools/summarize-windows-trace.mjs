@@ -13,6 +13,7 @@ const supportedObservations = new Set([
   "startup-info",
   "heap-set-information",
   "heap-lifecycle",
+  "module-handle",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

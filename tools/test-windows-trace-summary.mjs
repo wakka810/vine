@@ -560,6 +560,13 @@ heapLifecycleSelection.find(
 ).selectedObservations = ["heap-lifecycle"];
 assert.doesNotThrow(() => summarizeTrace(encode(heapLifecycleSelection)));
 
+const moduleHandleSelection = structuredClone(events);
+moduleHandleSelection[0].arguments.observations = ["module-handle"];
+moduleHandleSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["module-handle"];
+assert.doesNotThrow(() => summarizeTrace(encode(moduleHandleSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

@@ -41,6 +41,7 @@ struct Arguments {
     startup_info_return_session: bool,
     heap_set_information_return_session: bool,
     heap_create_return_session: bool,
+    get_module_handle_w_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -59,6 +60,7 @@ struct V86ReturnSessionOptions {
     startup_info: bool,
     heap_set_information: bool,
     heap_create: bool,
+    get_module_handle_w: bool,
 }
 
 #[derive(Serialize)]
@@ -669,6 +671,93 @@ struct V86HeapCreateReturnReceipt {
     stats: MemoryStats,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86GetModuleHandleWReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    loaded_module_owner: String,
+    variant_id: String,
+    module_name_address: u32,
+    module_name: String,
+    preserve_last_error: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct X86LogicalLoadedModuleHandle {
+    namespace: &'static str,
+    value: u32,
+    type_tag: u8,
+    generation: u8,
+    slot: u16,
+}
+
+impl X86LogicalLoadedModuleHandle {
+    const NAMESPACE: &str = "vine.logical-loaded-module.v1";
+    const TYPE_TAG: u8 = 0x4d;
+    const GENERATION: u8 = 1;
+    const SLOT: u16 = 1;
+
+    fn kernel32() -> Self {
+        let value = (u32::from(Self::TYPE_TAG) << 24)
+            | (u32::from(Self::GENERATION) << 16)
+            | u32::from(Self::SLOT);
+        Self {
+            namespace: Self::NAMESPACE,
+            value,
+            type_tag: Self::TYPE_TAG,
+            generation: Self::GENERATION,
+            slot: Self::SLOT,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct X86LogicalLoadedModule {
+    owner: String,
+    variant_id: String,
+    handle: X86LogicalLoadedModuleHandle,
+    kind: &'static str,
+    lifecycle: &'static str,
+    requested_name: String,
+    canonical_name: &'static str,
+    name_match: &'static str,
+    module_role: &'static str,
+    reference_count_changed: bool,
+    guest_image_materialization: &'static str,
+    export_resolution: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86GetModuleHandleWReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    module_name_address: GuestAddress,
+    module_name_utf16_bytes: Vec<u8>,
+    logical_module: X86LogicalLoadedModule,
+    preserve_last_error: bool,
+    result: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -1131,6 +1220,7 @@ fn run_v86_reflection_session(
             startup_info: arguments.startup_info_return_session,
             heap_set_information: arguments.heap_set_information_return_session,
             heap_create: arguments.heap_create_return_session,
+            get_module_handle_w: arguments.get_module_handle_w_return_session,
         };
         run_v86_system_time_delta_session(
             &mut protocol_input,
@@ -2163,7 +2253,7 @@ fn run_v86_heap_set_information_return_session(
         message_limit,
     )?;
     if return_sessions.heap_create {
-        run_v86_heap_create_return_session(input, memory, binding, message_limit)?;
+        run_v86_heap_create_return_session(input, memory, binding, message_limit, return_sessions)?;
     }
     Ok(())
 }
@@ -2173,6 +2263,7 @@ fn run_v86_heap_create_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    return_sessions: V86ReturnSessionOptions,
 ) -> Result<(), LoaderError> {
     const OWNER_ID: &str = "checkpoint-process-private-heaps";
     const VARIANT_ID: &str = "heapcreate-growable-initial-4096";
@@ -2293,6 +2384,149 @@ fn run_v86_heap_create_return_session(
             stats: memory.stats(),
         },
         message_limit,
+    )?;
+    if return_sessions.get_module_handle_w {
+        run_v86_get_module_handle_w_return_session(input, memory, binding, message_limit)?;
+    }
+    Ok(())
+}
+
+fn run_v86_get_module_handle_w_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+) -> Result<(), LoaderError> {
+    const OWNER_ID: &str = "checkpoint-loaded-modules";
+    const VARIANT_ID: &str = "getmodulehandlew-kernel32-loaded-runtime-module";
+    const CANONICAL_NAME: &str = "kernel32.dll";
+    let request: V86GetModuleHandleWReturnRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-loaded-module",
+        "get-module-handle-w-return-request",
+        "controlled loaded-module lookup request",
+    )?;
+    if request.schema != "vine.v86-get-module-handle-w-return-request"
+        || request.schema_version != 1
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-loaded-module",
+            "get-module-handle-w-return-request-schema-unsupported",
+            "loaded-module request must use vine.v86-get-module-handle-w-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 4 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "get-module-handle-w-argument-width-mismatch",
+            "GetModuleHandleW requires one four-byte stdcall argument",
+        ));
+    }
+    if request.loaded_module_owner != OWNER_ID
+        || request.variant_id != VARIANT_ID
+        || request.module_name_address == 0
+        || !request.module_name.eq_ignore_ascii_case(CANONICAL_NAME)
+        || !request.preserve_last_error
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-loaded-module",
+            "get-module-handle-w-variant-unsupported",
+            "controlled module lookup supports only GetModuleHandleW(L\"KERNEL32.DLL\") with unchanged LastError",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "get-module-handle-w-thunk-id-unowned",
+                "loaded-module request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "GetModuleHandleW"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "get-module-handle-w-thunk-identity-mismatch",
+            "loaded-module request does not match the declared GetModuleHandleW thunk",
+        ));
+    }
+
+    let (stack_reconciliation, observed_name, module_name_utf16_bytes) = {
+        let mut transaction = memory.begin_transaction();
+        let reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[request.module_name_address],
+        )?;
+        let (observed_name, utf16_bytes) =
+            read_bounded_utf16_nul(&transaction, GuestAddress(request.module_name_address), 64)?;
+        if observed_name != request.module_name
+            || !observed_name.eq_ignore_ascii_case(CANONICAL_NAME)
+        {
+            return Err(LoaderError::invalid_input(
+                "win32-loaded-module",
+                "get-module-handle-w-name-mismatch",
+                "guest UTF-16 module name does not identify the controlled KERNEL32.dll module",
+            ));
+        }
+        transaction.commit_transaction();
+        (reconciliation, observed_name, utf16_bytes)
+    };
+
+    let logical_module = X86LogicalLoadedModule {
+        owner: request.loaded_module_owner,
+        variant_id: request.variant_id,
+        handle: X86LogicalLoadedModuleHandle::kernel32(),
+        kind: "loaded-module",
+        lifecycle: "loaded",
+        requested_name: observed_name,
+        canonical_name: CANONICAL_NAME,
+        name_match: "unicode-case-insensitive-basename",
+        module_role: "runtime-system-module",
+        reference_count_changed: false,
+        guest_image_materialization: "not-present",
+        export_resolution: "deferred-until-first-reached-getprocaddress",
+    };
+    let result = logical_module.handle.value;
+    write_protocol_message(
+        &V86GetModuleHandleWReturnReceipt {
+            schema: "vine.v86-get-module-handle-w-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            module_name_address: GuestAddress(request.module_name_address),
+            module_name_utf16_bytes,
+            logical_module,
+            preserve_last_error: request.preserve_last_error,
+            result,
+            stack_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
     )
 }
 
@@ -2383,6 +2617,65 @@ fn validate_stdcall_iat_frame(
         ));
     }
     Ok(())
+}
+
+fn read_bounded_utf16_nul(
+    memory: &GuestMemory,
+    address: GuestAddress,
+    maximum_units: usize,
+) -> Result<(String, Vec<u8>), LoaderError> {
+    let mut units = Vec::new();
+    let mut bytes = Vec::new();
+    for index in 0..maximum_units {
+        let byte_offset = index.checked_mul(2).ok_or_else(|| {
+            LoaderError::resource_limit(
+                "win32-loaded-module",
+                "utf16-offset-overflow",
+                "bounded UTF-16 offset overflowed host accounting",
+            )
+        })?;
+        let byte_offset = u32::try_from(byte_offset).map_err(|_| {
+            LoaderError::resource_limit(
+                "win32-loaded-module",
+                "utf16-offset-unrepresentable",
+                "bounded UTF-16 offset does not fit the guest address width",
+            )
+        })?;
+        let unit_address = address.0.checked_add(byte_offset).ok_or_else(|| {
+            LoaderError::invalid_input(
+                "win32-loaded-module",
+                "utf16-address-overflow",
+                "bounded UTF-16 read crosses the guest address limit",
+            )
+        })?;
+        let unit_bytes = memory
+            .read(GuestAddress(unit_address), 2)
+            .map_err(memory_error)?;
+        let unit = u16::from_le_bytes(unit_bytes.as_slice().try_into().map_err(|_| {
+            LoaderError::runtime_defect(
+                "win32-loaded-module",
+                "utf16-unit-width-invalid",
+                "checked UTF-16 read did not return one complete code unit",
+            )
+        })?);
+        bytes.extend_from_slice(&unit_bytes);
+        if unit == 0 {
+            let text = String::from_utf16(&units).map_err(|_| {
+                LoaderError::invalid_input(
+                    "win32-loaded-module",
+                    "utf16-name-invalid",
+                    "loaded-module name is not valid UTF-16",
+                )
+            })?;
+            return Ok((text, bytes));
+        }
+        units.push(unit);
+    }
+    Err(LoaderError::invalid_input(
+        "win32-loaded-module",
+        "utf16-name-unterminated",
+        "loaded-module name has no NUL terminator within the controlled bound",
+    ))
 }
 
 fn read_protocol_message<T: DeserializeOwned>(
@@ -2532,6 +2825,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut startup_info_return_session = false;
     let mut heap_set_information_return_session = false;
     let mut heap_create_return_session = false;
+    let mut get_module_handle_w_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -2630,6 +2924,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             heap_create_return_session = true;
+        } else if argument == "--get-module-handle-w-return-session" {
+            if get_module_handle_w_return_session {
+                return Err(usage_error());
+            }
+            get_module_handle_w_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -2733,6 +3032,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if heap_create_return_session && !heap_set_information_return_session {
         return Err(usage_error());
     }
+    if get_module_handle_w_return_session && !heap_create_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -2754,6 +3056,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         startup_info_return_session,
         heap_set_information_return_session,
         heap_create_return_session,
+        get_module_handle_w_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -2836,7 +3139,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session [--get-module-handle-w-return-session]]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

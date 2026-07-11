@@ -20,7 +20,9 @@ const dispatchStartupInfoOnly = commandArguments.includes("--dispatch-startup-in
 const dispatchHeapSetInformationOnly = commandArguments.includes(
   "--dispatch-heap-set-information",
 );
-const dispatchHeapCreate = commandArguments.includes("--dispatch-heap-create");
+const dispatchHeapCreateOnly = commandArguments.includes("--dispatch-heap-create");
+const dispatchModuleHandle = commandArguments.includes("--dispatch-module-handle");
+const dispatchHeapCreate = dispatchHeapCreateOnly || dispatchModuleHandle;
 const dispatchHeapSetInformation = dispatchHeapSetInformationOnly || dispatchHeapCreate;
 const dispatchStartupInfo = dispatchStartupInfoOnly || dispatchHeapSetInformation;
 const dispatchPerformanceCounter = dispatchPerformanceCounterOnly || dispatchStartupInfo;
@@ -66,8 +68,13 @@ assert.equal(
 );
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-heap-create").length,
-  Number(dispatchHeapCreate),
+  Number(dispatchHeapCreateOnly),
   "--dispatch-heap-create may be specified only once",
+);
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-module-handle").length,
+  Number(dispatchModuleHandle),
+  "--dispatch-module-handle may be specified only once",
 );
 assert(
   Number(dispatchSystemTimeOnly) +
@@ -77,7 +84,8 @@ assert(
     Number(dispatchPerformanceCounterOnly) +
     Number(dispatchStartupInfoOnly) +
     Number(dispatchHeapSetInformationOnly) +
-    Number(dispatchHeapCreate) <=
+    Number(dispatchHeapCreateOnly) +
+    Number(dispatchModuleHandle) <=
     1,
   "dispatch modes are mutually exclusive",
 );
@@ -90,11 +98,12 @@ const positionalArguments = commandArguments.filter(
     argument !== "--dispatch-performance-counter" &&
     argument !== "--dispatch-startup-info" &&
     argument !== "--dispatch-heap-set-information" &&
-    argument !== "--dispatch-heap-create",
+    argument !== "--dispatch-heap-create" &&
+    argument !== "--dispatch-module-handle",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -107,8 +116,10 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchHeapCreate
-    ? "v86-bgi-eighth-win32-call"
+  dispatchModuleHandle
+    ? "v86-bgi-ninth-win32-call"
+    : dispatchHeapCreate
+      ? "v86-bgi-eighth-win32-call"
     : dispatchHeapSetInformation
     ? "v86-bgi-seventh-win32-call"
     : dispatchStartupInfo
@@ -247,6 +258,42 @@ const controlledPrivateHeap = {
     },
   },
 };
+const controlledLoadedModule = {
+  owner: "checkpoint-loaded-modules",
+  variantId: "getmodulehandlew-kernel32-loaded-runtime-module",
+  handle: {
+    namespace: "vine.logical-loaded-module.v1",
+    value: 0x4d010001,
+    typeTag: 0x4d,
+    generation: 1,
+    slot: 1,
+  },
+  kind: "loaded-module",
+  lifecycle: "loaded",
+  requestedName: "KERNEL32.DLL",
+  canonicalName: "kernel32.dll",
+  nameMatch: "unicode-case-insensitive-basename",
+  moduleRole: "runtime-system-module",
+  referenceCountChanged: false,
+  guestImageMaterialization: "not-present",
+  exportResolution: "deferred-until-first-reached-getprocaddress",
+  preserveLastError: true,
+  nativeObservation: {
+    source: "focused-frida-module-handle-2026-07-12",
+    traceBytes: 347_850,
+    traceSha256: "bac37acf086ff691ba436b2959143c76894f20f5e271667813cefebeb5ee3557",
+    callerRva: 0x000a5811,
+    argument: "KERNEL32.DLL",
+    resultRole: "host-system-module-base-observed-and-discarded",
+    lastErrorBefore: 87,
+    lastErrorAfter: 87,
+    firstConsumer: {
+      api: "GetProcAddress",
+      callerRva: 0x000a582f,
+      symbol: "FlsAlloc",
+    },
+  },
+};
 
 const expected = {
   source: {
@@ -272,8 +319,10 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchHeapCreate
-      ? 9
+    declared: dispatchModuleHandle
+      ? 10
+      : dispatchHeapCreate
+        ? 9
       : dispatchHeapSetInformation
         ? 8
       : dispatchStartupInfo
@@ -289,8 +338,10 @@ const expected = {
           : dispatchSystemTime
             ? 2
             : 1,
-    unsupported: dispatchHeapCreate
-      ? 321
+    unsupported: dispatchModuleHandle
+      ? 320
+      : dispatchHeapCreate
+        ? 321
       : dispatchHeapSetInformation
         ? 322
       : dispatchStartupInfo
@@ -582,7 +633,7 @@ const expected = {
         module: "KERNEL32.dll",
         name: "GetModuleHandleW",
       },
-      unsupported: true,
+      unsupported: !dispatchModuleHandle,
       returnAddress: 0x100a5811,
       stackWords: [0x100a5811, 0x100d24d0, 0, 0x100a375b, 0xe93f6d87, 0, 0, 0],
     },
@@ -591,6 +642,31 @@ const expected = {
     budgetStops: 13,
     reportBytes: 49_699,
     reportSha256: "f8c8ca1e678bb1e118248a6626825ddf585dc240aa59e1abc428429cbab3a1ad",
+  },
+  ninthCall: {
+    offerLineBytes: 4_904_305,
+    requestLineBytes: 8_721,
+    receiptLineBytes: 1_499,
+    moduleNameBytesSha256: "4d40ac1582e46f291dedb30130e36b167bbe19b401a248b1972b1bfa7391d924",
+    stackPageContentSha256: "2d08da9d16a6782982e4b2b9e4617909c4ec2a65fbc1702479972ad4618f4b2e",
+    reconciledChangedBytes: 9,
+    nextThunk: {
+      identity: {
+        id: 150,
+        address: 0x7f000950,
+        iatAddress: 0x100d1300,
+        module: "KERNEL32.dll",
+        name: "GetProcAddress",
+      },
+      unsupported: true,
+      returnAddress: 0x100a582f,
+      stackWords: [0x100a582f, 0x4d010001, 0x100d250c, 0, 0, 0x100a375b, 0xe93f6d87, 0],
+    },
+    instructionCount: 131,
+    executeStops: 9,
+    budgetStops: 8,
+    reportBytes: 56_729,
+    reportSha256: "147a3599cf942af03034c7f410d333b35c0360812936e39a7473c43008d8d5be",
   },
 };
 
@@ -828,6 +904,14 @@ async function run() {
           "--heap-create-return-session",
         ]
       : []),
+    ...(dispatchModuleHandle
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "GetModuleHandleW",
+          "--get-module-handle-w-return-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -983,6 +1067,16 @@ async function run() {
           execution: heapPolicy.continuation,
           nextMessage,
           offer,
+          continueSession: dispatchModuleHandle,
+        })
+      : null;
+    const loadedModule = dispatchModuleHandle
+      ? await dispatchNinthGetModuleHandleWCall({
+          child,
+          context,
+          execution: privateHeap.continuation,
+          nextMessage,
+          offer,
         })
       : null;
     const processExit = await exit;
@@ -992,8 +1086,30 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchHeapCreate
-      ? buildEighthHeapCreateReport({
+    const report = dispatchModuleHandle
+      ? buildNinthGetModuleHandleWReport({
+          context,
+          execution,
+          heapPolicy,
+          invalidationCalls,
+          loadedModule,
+          monotonicClock,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          performanceCounter,
+          privateHeap,
+          processIdentity,
+          processStartup,
+          receipt,
+          receiptMessage,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+          threadIdentity,
+        })
+      : dispatchHeapCreate
+        ? buildEighthHeapCreateReport({
           context,
           execution,
           heapPolicy,
@@ -1203,8 +1319,10 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchHeapCreate
-      ? { bytes: expected.eighthCall.reportBytes, sha256: expected.eighthCall.reportSha256 }
+    const expectedReport = dispatchModuleHandle
+      ? { bytes: expected.ninthCall.reportBytes, sha256: expected.ninthCall.reportSha256 }
+      : dispatchHeapCreate
+        ? { bytes: expected.eighthCall.reportBytes, sha256: expected.eighthCall.reportSha256 }
       : dispatchHeapSetInformation
         ? { bytes: expected.seventhCall.reportBytes, sha256: expected.seventhCall.reportSha256 }
       : dispatchStartupInfo
@@ -1225,7 +1343,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchHeapCreate) {
+    if (dispatchModuleHandle) {
+      console.log(
+        `v86 BGI ninth Win32 call passed: logical loaded module ` +
+          `0x${loadedModule.module.handle.value.toString(16)}, next thunk ID ` +
+          `${loadedModule.continuation.terminal.thunk.id} after ` +
+          `${loadedModule.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchHeapCreate) {
       console.log(
         `v86 BGI eighth Win32 call passed: logical private heap ` +
           `0x${privateHeap.heap.handle.value.toString(16)}, next thunk ID ` +
@@ -1353,6 +1478,11 @@ function validateOffer(offer, offerLineBytes) {
   validateThunk(
     offer.thunks[expected.eighthCall.nextThunk.identity.id - 1],
     expected.eighthCall.nextThunk.identity,
+    !dispatchModuleHandle,
+  );
+  validateThunk(
+    offer.thunks[expected.ninthCall.nextThunk.identity.id - 1],
+    expected.ninthCall.nextThunk.identity,
     true,
   );
   assert.equal(
@@ -1441,8 +1571,10 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchHeapCreate
-    ? expected.eighthCall.offerLineBytes
+  const expectedOfferLineBytes = dispatchModuleHandle
+    ? expected.ninthCall.offerLineBytes
+    : dispatchHeapCreate
+      ? expected.eighthCall.offerLineBytes
     : dispatchHeapSetInformation
       ? expected.seventhCall.offerLineBytes
     : dispatchStartupInfo
@@ -3395,6 +3527,7 @@ async function dispatchEighthHeapCreateCall({
   execution,
   nextMessage,
   offer,
+  continueSession,
 }) {
   const trapped = execution.finalState;
   const argumentBytes = 12;
@@ -3465,7 +3598,11 @@ async function dispatchEighthHeapCreateCall({
   if (expected.eighthCall.requestLineBytes !== null) {
     assert.equal(Buffer.byteLength(requestLine) - 1, expected.eighthCall.requestLineBytes);
   }
-  child.stdin.end(requestLine);
+  if (continueSession) {
+    child.stdin.write(requestLine);
+  } else {
+    child.stdin.end(requestLine);
+  }
 
   const receiptMessage = await nextMessage("HeapCreate return receipt");
   const receipt = receiptMessage.message;
@@ -3556,6 +3693,205 @@ async function dispatchEighthHeapCreateCall({
       ...receipt.logicalHeap,
       preserveLastError: receipt.preserveLastError,
       nativeObservation: controlledPrivateHeap.nativeObservation,
+    },
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
+async function dispatchNinthGetModuleHandleWCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+}) {
+  const trapped = execution.finalState;
+  const argumentBytes = 4;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4 + argumentBytes,
+    "read",
+    "GetModuleHandleW stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "GetModuleHandleW return address",
+  );
+  const moduleNameAddress = context.readVirtualU32(
+    trapped.esp + 4,
+    "GetModuleHandleW module name address",
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  const moduleNameByteLength = (controlledLoadedModule.requestedName.length + 1) * 2;
+  const moduleNamePages = context.preflightVirtualRange(
+    moduleNameAddress,
+    moduleNameByteLength,
+    "read",
+    "GetModuleHandleW UTF-16 module name",
+  );
+  assert.equal(moduleNamePages.length, 1);
+  assert.equal(moduleNamePages[0].owner, expected.image.owner);
+  const moduleNameBytes = context.readVirtualBytes(
+    moduleNameAddress,
+    moduleNameByteLength,
+    "GetModuleHandleW UTF-16 module name bytes",
+  );
+  assert.deepEqual([...moduleNameBytes.subarray(-2)], [0, 0]);
+  const moduleName = Buffer.from(moduleNameBytes.subarray(0, -2)).toString("utf16le");
+  assert.equal(moduleName, controlledLoadedModule.requestedName);
+  const moduleNameBytesSha256 = sha256(moduleNameBytes);
+
+  const callSite = returnAddress - 6;
+  const callBytes = context.readVirtualBytes(
+    callSite,
+    6,
+    "GetModuleHandleW indirect IAT call",
+  );
+  assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
+  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
+  assert.equal(callView.getUint32(2, true), expected.eighthCall.nextThunk.identity.iatAddress);
+  assert.equal(
+    context.readVirtualU32(
+      expected.eighthCall.nextThunk.identity.iatAddress,
+      "GetModuleHandleW bound IAT",
+    ),
+    expected.eighthCall.nextThunk.identity.address,
+  );
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before GetModuleHandleW return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-get-module-handle-w-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.sixthCall.deltaGeneration,
+    thunkId: expected.eighthCall.nextThunk.identity.id,
+    thunkAddress: expected.eighthCall.nextThunk.identity.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes,
+    stackPageAddress,
+    stackPageOwner: expected.stack.owner,
+    stackPageBytes: [...stackPageBytes],
+    loadedModuleOwner: controlledLoadedModule.owner,
+    variantId: controlledLoadedModule.variantId,
+    moduleNameAddress,
+    moduleName,
+    preserveLastError: controlledLoadedModule.preserveLastError,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 64 * 1024);
+  if (expected.ninthCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.ninthCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("GetModuleHandleW return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-get-module-handle-w-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  validateThunk(receipt.thunk, expected.eighthCall.nextThunk.identity, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, argumentBytes);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.equal(receipt.moduleNameAddress, moduleNameAddress);
+  assert.deepEqual(receipt.moduleNameUtf16Bytes, [...moduleNameBytes]);
+  assert.deepEqual(receipt.logicalModule, {
+    owner: controlledLoadedModule.owner,
+    variantId: controlledLoadedModule.variantId,
+    handle: controlledLoadedModule.handle,
+    kind: controlledLoadedModule.kind,
+    lifecycle: controlledLoadedModule.lifecycle,
+    requestedName: controlledLoadedModule.requestedName,
+    canonicalName: controlledLoadedModule.canonicalName,
+    nameMatch: controlledLoadedModule.nameMatch,
+    moduleRole: controlledLoadedModule.moduleRole,
+    referenceCountChanged: controlledLoadedModule.referenceCountChanged,
+    guestImageMaterialization: controlledLoadedModule.guestImageMaterialization,
+    exportResolution: controlledLoadedModule.exportResolution,
+  });
+  assert.equal(receipt.preserveLastError, controlledLoadedModule.preserveLastError);
+  assert.equal(receipt.result, controlledLoadedModule.handle.value);
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(receipt.stackReconciliation.changedBytes > 0);
+  if (expected.ninthCall.reconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.ninthCall.reconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.ninthCall.stackPageContentSha256);
+    assert.equal(moduleNameBytesSha256, expected.ninthCall.moduleNameBytesSha256);
+  }
+  assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.ninthCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.ninthCall.receiptLineBytes);
+  }
+
+  const resume = resumeGetModuleHandleWStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    receipt.result,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  assert.equal(continuation.terminal.kind, "owned-import-thunk");
+  if (expected.ninthCall.nextThunk !== null) {
+    validateThunk(
+      continuation.terminal.thunk,
+      expected.ninthCall.nextThunk.identity,
+      expected.ninthCall.nextThunk.unsupported,
+    );
+    assert.equal(continuation.instructionCount, expected.ninthCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.ninthCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.ninthCall.budgetStops);
+    assert.equal(continuation.terminal.returnAddress, expected.ninthCall.nextThunk.returnAddress);
+    assert.deepEqual(continuation.terminal.stackWords, expected.ninthCall.nextThunk.stackWords);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      arguments: [moduleNameAddress],
+      stackPageAddress: request.stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      moduleNameAddress,
+      moduleName,
+      moduleNameUtf16Bytes: [...moduleNameBytes],
+      moduleNameBytesSha256,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    module: {
+      ...receipt.logicalModule,
+      preserveLastError: receipt.preserveLastError,
+      nativeObservation: controlledLoadedModule.nativeObservation,
     },
     receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
     resume,
@@ -3758,6 +4094,31 @@ function resumeHeapCreateStdcallResult(context, trapped, returnAddress, result) 
     eaxAfter: restored.resumed.eax,
     resultSource: controlledPrivateHeap.owner,
     handleNamespace: controlledPrivateHeap.handle.namespace,
+    lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
+  };
+}
+
+function resumeGetModuleHandleWStdcallResult(context, trapped, returnAddress, result) {
+  const argumentBytes = 4;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "GetModuleHandleW",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: controlledLoadedModule.owner,
+    handleNamespace: controlledLoadedModule.handle.namespace,
     lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
   };
 }
@@ -4259,6 +4620,60 @@ function buildEighthHeapCreateReport({ privateHeap, ...seventhCallArguments }) {
       code: "next-runtime-reachable-owned-import-trap",
       message:
         "BGI returned from eight checked Kernel32 calls through HeapCreate and reached the next exact runtime-owned import thunk without dispatching it",
+    },
+  };
+}
+
+function buildNinthGetModuleHandleWReport({ loadedModule, ...eighthCallArguments }) {
+  const eighthCall = buildEighthHeapCreateReport(eighthCallArguments);
+  return {
+    schema: "vine.v86-bgi-ninth-win32-call",
+    schemaVersion: 1,
+    source: eighthCall.source,
+    sourceSnapshot: eighthCall.sourceSnapshot,
+    contract: {
+      ...eighthCall.contract,
+      loadedModuleOwner: controlledLoadedModule.owner,
+      logicalLoadedModuleHandleNamespace: controlledLoadedModule.handle.namespace,
+      supportedServiceDispatches: 9,
+    },
+    bootstrap: eighthCall.bootstrap,
+    imports: {
+      ...eighthCall.imports,
+      supportedGetModuleHandleW:
+        eighthCallArguments.offer.thunks[expected.eighthCall.nextThunk.identity.id - 1],
+    },
+    adapter: eighthCall.adapter,
+    reflection: eighthCall.reflection,
+    firstTrap: eighthCall.firstTrap,
+    systemTime: eighthCall.systemTime,
+    firstContinuation: eighthCall.firstContinuation,
+    processId: eighthCall.processId,
+    secondContinuation: eighthCall.secondContinuation,
+    threadId: eighthCall.threadId,
+    thirdContinuation: eighthCall.thirdContinuation,
+    tickCount: eighthCall.tickCount,
+    fourthContinuation: eighthCall.fourthContinuation,
+    performanceCounter: eighthCall.performanceCounter,
+    fifthContinuation: eighthCall.fifthContinuation,
+    startupInfo: eighthCall.startupInfo,
+    sixthContinuation: eighthCall.sixthContinuation,
+    heapSetInformation: eighthCall.heapSetInformation,
+    seventhContinuation: eighthCall.seventhContinuation,
+    heapCreate: eighthCall.heapCreate,
+    eighthContinuation: eighthCall.continuation,
+    getModuleHandleW: {
+      request: loadedModule.request,
+      module: loadedModule.module,
+      receipt: loadedModule.receipt,
+      resume: loadedModule.resume,
+    },
+    continuation: loadedModule.continuation,
+    stop: {
+      stage: "thunk-dispatch",
+      code: "next-runtime-reachable-owned-import-trap",
+      message:
+        "BGI returned from nine checked Kernel32 calls through GetModuleHandleW and reached the next exact runtime-owned import thunk without dispatching it",
     },
   };
 }

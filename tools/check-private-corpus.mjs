@@ -30,6 +30,7 @@ for (const modeArguments of [
   ["--dispatch-startup-info"],
   ["--dispatch-heap-set-information"],
   ["--dispatch-heap-create"],
+  ["--dispatch-module-handle"],
 ]) {
   const result = spawnSync(
     process.execPath,

@@ -4,7 +4,7 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-eighth-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-ninth-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
 330 imports to deterministic runtime-owned `UD2` thunks, and reflects 388
 sealed pages into source-built v86. BGI executes 19 instructions from entry
@@ -32,8 +32,12 @@ endpoints are declared at that stage. An eighth checked stdcall validates
 `HeapCreate(0, 0x1000, 0)`, creates Rust-owned metadata for logical private
 heap handle `0x68010001` without copying the native host pointer, and runs 14
 more instructions to thunk ID `72`, `KERNEL32.dll!GetModuleHandleW`. Nine
-endpoints are now declared; the other 321 retain exact identity as explicit
-traps. Memory generation remains `27`.
+endpoints are declared at that stage. A ninth checked stdcall reads bounded
+UTF-16 `KERNEL32.DLL`, returns Rust-owned logical loaded-module handle
+`0x4D010001` without copying the native HMODULE, and runs nine more
+instructions to thunk ID `150`, `KERNEL32.dll!GetProcAddress`. Ten endpoints
+are now declared; the other 320 retain exact identity as explicit traps.
+Memory generation remains `27`.
 
 The foundation below that checkpoint now has an incremental `MemoryDelta`
 protocol. The first transfer is a full snapshot; later generations carry only
@@ -51,8 +55,8 @@ The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next endpoint checkpoint is the checked one-argument stdcall at thunk ID
-`72` for `GetModuleHandleW(L"KERNEL32.DLL")`.
+The next endpoint checkpoint is the checked two-argument stdcall at thunk ID
+`150` for `GetProcAddress(logicalKernel32, "FlsAlloc")`.
 
 ## Requirements
 
@@ -132,6 +136,9 @@ on-corruption variant, preserves generation `27`, returns BOOL success from ID
 `npm run check:runtime:bgi-eighth-win32-call` validates the exact private-heap
 creation variant, returns typed logical handle `0x68010001` from ID `102`
 without a guest write, and stops at exact thunk ID `72` before module lookup.
+`npm run check:runtime:bgi-ninth-win32-call` validates bounded UTF-16 module
+lookup, returns typed logical KERNEL32 handle `0x4D010001` from ID `72`, and
+stops at exact thunk ID `150` before dynamic export lookup.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

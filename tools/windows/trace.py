@@ -17,6 +17,7 @@ SUPPORTED_OBSERVATIONS = (
     "startup-info",
     "heap-set-information",
     "heap-lifecycle",
+    "module-handle",
 )
 
 

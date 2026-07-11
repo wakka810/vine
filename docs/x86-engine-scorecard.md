@@ -322,17 +322,23 @@ return後21命令、entryから累計108命令でID `102`／`KERNEL32.dll!HeapCr
 
 return後14命令、entryから累計122命令でID `72`／`KERNEL32.dll!GetModuleHandleW`へ到達する。49,699-byte reportのSHA-256は`f8c8ca1e678bb1e118248a6626825ddf585dc240aa59e1abc428429cbab3a1ad`である。これはone controlled logical private-heap creation／API returnであり、native pointer、heap backing／allocation、general loader、LastError modelを実装しない。詳細は[v86-bgi-eighth-win32-call.md](v86-bgi-eighth-win32-call.md)を正とする。
 
-### B27. Browser Worker
+### B27. Ninth BGI Win32 call return: Verified ingress
+
+`npm run check:runtime:bgi-ninth-win32-call`はnative BGI target caller RVA `0xA5811`で`GetModuleHandleW(L"KERNEL32.DLL")`、nonzero host HMODULE、LastError `87 -> 87`、immediate `GetProcAddress(...,"FlsAlloc")` consumerをfocused traceで確認する。runtime側はID `72`のone-argument stdcall frame／IAT callとbounded UTF-16 nameをadapterとRustで検査し、generation `27`のlive pageから9 changed bytesをreconcileする。owner `checkpoint-loaded-modules`のbounded metadataへtyped logical handle `0x4D010001`を作り、guest writeなしでgeneration `27`／dirty 0を保持してreturnする。
+
+return後9命令、entryから累計131命令でID `150`／`KERNEL32.dll!GetProcAddress`へ到達する。56,729-byte reportのSHA-256は`147a3599cf942af03034c7f410d333b35c0360812936e39a7473c43008d8d5be`である。これはone controlled logical loaded-module lookup／API returnであり、native HMODULE、guest system-DLL image、general loader／export／LastError modelを実装しない。詳細は[v86-bgi-ninth-win32-call.md](v86-bgi-ninth-win32-call.md)を正とする。
+
+### B28. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B28. Correctness と performance
+### B29. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transfer、first eight checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `72`のone-argument `GetModuleHandleW(L"KERNEL32.DLL")` stdcall returnである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transfer、first nine checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `150`のtwo-argument `GetProcAddress(logicalKernel32,"FlsAlloc")` stdcall returnである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -364,10 +370,11 @@ adapter fixture は次の順に増やす。
 20. [Verified] exact `GetStartupInfoW` frameへcontrolled x86 structを書き、next trapを測る。
 21. [Verified] exact `HeapSetInformation` frameの到達variantをreturnし、next trapを測る。
 22. [Verified] exact `HeapCreate` frameへtyped logical heap handleを返し、next trapを測る。
-23. exact `GetModuleHandleW` frameへtyped logical loaded-module handleを返し、next trapを測る。
-24. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-25. 同じfixtureをNodeとChromium Workerで実行する。
-26. adopted ISA fixtureとnormalized workloadを測定する。
+23. [Verified] exact `GetModuleHandleW` frameへtyped logical loaded-module handleを返し、next trapを測る。
+24. exact `GetProcAddress` frameへidentity-preserving callable runtime endpointを返し、next trapを測る。
+25. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+26. 同じfixtureをNodeとChromium Workerで実行する。
+27. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 
