@@ -25,10 +25,15 @@ jobs:
           toolchain: 1.97.0
           components: rustfmt, clippy
 
-      - uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "22.1.0"
-          force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.0/LLVM-22.1.0-Linux-X64.tar.xz
+      - name: Install LLVM 22
+        run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/apt.llvm.org.gpg
+          echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm-22.list
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends clang-22 lld-22 llvm-22
+          echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
 
       - id: chrome
         uses: browser-actions/setup-chrome@v2
