@@ -36,6 +36,7 @@ struct Arguments {
     system_time_delta_session: bool,
     process_id_return_session: bool,
     thread_id_return_session: bool,
+    tick_count_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -298,6 +299,44 @@ struct V86ThreadIdReturnReceipt {
     return_address: GuestAddress,
     thread_identity_owner: String,
     thread_id: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86TickCountReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    monotonic_clock_owner: String,
+    sample_id: String,
+    paired_wall_clock_sample_id: String,
+    tick_count: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86TickCountReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    monotonic_clock_owner: String,
+    sample_id: String,
+    paired_wall_clock_sample_id: String,
+    tick_count: u32,
     stack_reconciliation: GuestPageReconciliation,
     stats: MemoryStats,
 }
@@ -763,6 +802,7 @@ fn run_v86_reflection_session(
             reflection_message_limit,
             arguments.process_id_return_session,
             arguments.thread_id_return_session,
+            arguments.tick_count_return_session,
         )?;
     }
     Ok(())
@@ -816,6 +856,7 @@ fn run_v86_system_time_delta_session(
     message_limit: usize,
     process_id_return_session: bool,
     thread_id_return_session: bool,
+    tick_count_return_session: bool,
 ) -> Result<(), LoaderError> {
     let request: V86SystemTimeWriteRequest = read_protocol_message(
         input,
@@ -978,6 +1019,7 @@ fn run_v86_system_time_delta_session(
             binding,
             message_limit,
             thread_id_return_session,
+            tick_count_return_session,
         )?;
     }
     Ok(())
@@ -989,6 +1031,7 @@ fn run_v86_process_id_return_session(
     binding: &ImportBinding,
     message_limit: usize,
     thread_id_return_session: bool,
+    tick_count_return_session: bool,
 ) -> Result<(), LoaderError> {
     let request: V86ProcessIdReturnRequest = read_protocol_message(
         input,
@@ -1083,7 +1126,13 @@ fn run_v86_process_id_return_session(
         message_limit,
     )?;
     if thread_id_return_session {
-        run_v86_thread_id_return_session(input, memory, binding, message_limit)?;
+        run_v86_thread_id_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            tick_count_return_session,
+        )?;
     }
     Ok(())
 }
@@ -1093,6 +1142,7 @@ fn run_v86_thread_id_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    tick_count_return_session: bool,
 ) -> Result<(), LoaderError> {
     let request: V86ThreadIdReturnRequest = read_protocol_message(
         input,
@@ -1181,6 +1231,115 @@ fn run_v86_thread_id_return_session(
             return_address: GuestAddress(request.return_address),
             thread_identity_owner: request.thread_identity_owner,
             thread_id: request.thread_id,
+            stack_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
+    )?;
+    if tick_count_return_session {
+        run_v86_tick_count_return_session(input, memory, binding, message_limit)?;
+    }
+    Ok(())
+}
+
+fn run_v86_tick_count_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+) -> Result<(), LoaderError> {
+    let request: V86TickCountReturnRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-monotonic-clock",
+        "tick-count-return-request",
+        "controlled tick-count return request",
+    )?;
+    if request.schema != "vine.v86-tick-count-return-request" || request.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "win32-monotonic-clock",
+            "tick-count-return-request-schema-unsupported",
+            "tick-count request must use vine.v86-tick-count-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 0 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "tick-count-argument-width-mismatch",
+            "GetTickCount requires a zero-argument stdcall frame",
+        ));
+    }
+    if request.monotonic_clock_owner.is_empty()
+        || request.sample_id.is_empty()
+        || request.paired_wall_clock_sample_id.is_empty()
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-monotonic-clock",
+            "controlled-tick-count-sample-invalid",
+            "controlled tick-count sample requires nonempty clock ownership and sample identities",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "tick-count-thunk-id-unowned",
+                "tick-count request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "GetTickCount"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "tick-count-thunk-identity-mismatch",
+            "tick-count request does not match the declared GetTickCount thunk",
+        ));
+    }
+
+    let stack_reconciliation = {
+        let mut transaction = memory.begin_transaction();
+        let reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[],
+        )?;
+        transaction.commit_transaction();
+        reconciliation
+    };
+
+    write_protocol_message(
+        &V86TickCountReturnReceipt {
+            schema: "vine.v86-tick-count-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            monotonic_clock_owner: request.monotonic_clock_owner,
+            sample_id: request.sample_id,
+            paired_wall_clock_sample_id: request.paired_wall_clock_sample_id,
+            tick_count: request.tick_count,
             stack_reconciliation,
             stats: memory.stats(),
         },
@@ -1419,6 +1578,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut system_time_delta_session = false;
     let mut process_id_return_session = false;
     let mut thread_id_return_session = false;
+    let mut tick_count_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -1492,6 +1652,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             thread_id_return_session = true;
+        } else if argument == "--tick-count-return-session" {
+            if tick_count_return_session {
+                return Err(usage_error());
+            }
+            tick_count_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -1580,6 +1745,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if thread_id_return_session && !process_id_return_session {
         return Err(usage_error());
     }
+    if tick_count_return_session && !thread_id_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -1596,6 +1764,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         system_time_delta_session,
         process_id_return_session,
         thread_id_return_session,
+        tick_count_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -1678,7 +1847,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

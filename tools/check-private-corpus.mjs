@@ -25,6 +25,7 @@ for (const modeArguments of [
   ["--dispatch-system-time"],
   ["--dispatch-process-id"],
   ["--dispatch-thread-id"],
+  ["--dispatch-tick-count"],
 ]) {
   const result = spawnSync(
     process.execPath,

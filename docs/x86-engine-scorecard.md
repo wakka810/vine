@@ -292,17 +292,23 @@ return後3命令、entryから累計26命令でID `149`／`KERNEL32.dll!GetCurre
 
 return後3命令、entryから累計29命令でID `13`／`KERNEL32.dll!GetTickCount`へ到達する。22,383-byte reportのSHA-256は`d6bf15bec208ed1ced26970ff96a9d9f0faebbcec55da19cfbf27588b452d4fa`である。これはone controlled thread identity／API returnであり、general process／thread／TEB client-ID／scheduler modelを実装しない。詳細は[v86-bgi-third-win32-call.md](v86-bgi-third-win32-call.md)を正とする。
 
-### B22. Browser Worker
+### B22. Fourth BGI Win32 call return: Verified ingress
+
+`npm run check:runtime:bgi-fourth-win32-call`はID `13`のzero-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-monotonic-clock`のcontrolled tick count `3,600,000`をEAXへ返す。sample ID `uptime-ms-3600000`をfixed wall-clock sampleとpairし、generation `25`のlive stack pageから1 changed byteをreconcileするが、host writeがないためgeneration `25`／dirty 0を保持する。
+
+return後5命令、entryから累計34命令でID `157`／`KERNEL32.dll!QueryPerformanceCounter`へ到達する。26,558-byte reportのSHA-256は`79924bf3817104a9d2762b730534d8f74dc1ca1adfd17aa75c3855bcdf9bf111`である。これはone controlled monotonic sample／API returnであり、general clock／timer／scheduler／snapshot modelを実装しない。詳細は[v86-bgi-fourth-win32-call.md](v86-bgi-fourth-win32-call.md)を正とする。
+
+### B23. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B23. Correctness と performance
+### B24. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transfer、ID `104`／`103`／`149`のchecked stdcall returnまで進んだ。次のadapter sliceはexact thunk ID `13`のzero-argument stdcall／controlled tick-count returnである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transfer、ID `104`／`103`／`149`／`13`のchecked stdcall returnまで進んだ。次のadapter sliceはexact thunk ID `157`のone-argument stdcall／controlled 64-bit performance-counter writeである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -329,10 +335,11 @@ adapter fixture は次の順に増やす。
 15. [Verified] exact `GetSystemTimeAsFileTime` frameへcontrolled `FILETIME`を書き、guestへreturnしてnext trapを測る。
 16. [Verified] exact `GetCurrentProcessId` frameへcontrolled process IDを返し、next trapを測る。
 17. [Verified] exact `GetCurrentThreadId` frameへcontrolled thread IDを返し、next trapを測る。
-18. exact `GetTickCount` frameへcontrolled tick-count sampleを返し、next trapを測る。
-19. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-20. 同じfixtureをNodeとChromium Workerで実行する。
-21. adopted ISA fixtureとnormalized workloadを測定する。
+18. [Verified] exact `GetTickCount` frameへcontrolled tick-count sampleを返し、next trapを測る。
+19. exact `QueryPerformanceCounter` frameへcontrolled 64-bit sampleを書き、next trapを測る。
+20. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+21. 同じfixtureをNodeとChromium Workerで実行する。
+22. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 
