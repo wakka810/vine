@@ -34,12 +34,13 @@
 - typed process-parameters／command-line regions、generation `21` reflection、exact UTF-16 observationとentry result `0`
 - BGIの388-page bounded reflection、v86 VGA MMIO physical hole回避、generation `24` acknowledgement、entryから19命令後のexact `KERNEL32.dll!GetSystemTimeAsFileTime` trap
 - controlled clock、generation／owner付きstack reconciliation、generation `25` `FILETIME` delta、ID `104` stdcall return、ID `103`／`GetCurrentProcessId` next trap
+- controlled process identity／PID `4096`、generation `25` reconciliation、ID `103` zero-argument stdcall return、ID `149`／`GetCurrentThreadId` next trap
 - 初回full reflection後のdirty-page-only `MemoryDelta`、通常RW／NX 8-byte writeのlive v86 readback、generation単位acknowledgement
 - process environment／PE materialization／import bindingのsnapshot transaction、failpoint rollback、same-memory retry
 - `check:fast`／`check:fixture-e2e`／`check:adapter`／`check:private-corpus`、Linux public CI、PE planner fuzz／randomized memory contract
 - valid low-alignment PEのstructured unsupported stopと、cross-page NX instructionのconservative execute gate
 
-general process integration／parameters、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEBとnative-oracled command-line bytesまで進んだ。BGIは全330 importsをowned trapsへbindし、first runtime-reachable APIを1回returnしたが2件目以降は未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md) を正とする。
+general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEBとnative-oracled command-line bytesまで進んだ。BGIは全330 importsをowned trapsへbindし、runtime-reachable APIを2回returnしたが3件目以降は未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-second-win32-call.md](v86-bgi-second-win32-call.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -107,6 +108,7 @@ npm run check:runtime:bootstrap-params
 npm run check:runtime:memory-delta
 npm run check:runtime:bgi-first-trap
 npm run check:runtime:bgi-first-win32-call
+npm run check:runtime:bgi-second-win32-call
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -151,7 +153,7 @@ node tools/summarize-windows-trace.mjs `
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
-8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding／BGI first Win32 call verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。330 importsをowned thunksへbindし、388-page bootstrap stateをsource-v86へ渡す。entryから`GetSystemTimeAsFileTime`へ到達し、controlled `FILETIME` deltaとstdcall return後に`GetCurrentProcessId`まで実行する。2件目のAPI returnは未実装である。
+8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding／BGI first／second Win32 call verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。330 importsをowned thunksへbindし、388-page bootstrap stateをsource-v86へ渡す。controlled `FILETIME`とprocess IDを返して`GetCurrentThreadId`まで実行する。3件目のAPI returnは未実装である。
 
 各 checkpoint の automated test は原則 1 本にする。追加 test は、実際の regression、calling convention／fault ordering の曖昧さ、または title failure を最小化した場合だけ作る。
 
@@ -165,6 +167,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、388-page transfer、first `GetSystemTimeAsFileTime` returnまで固定した。次はexact `GetCurrentProcessId`へcontrolled process IDを返してnext trapを測る。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、388-page transfer、first two Kernel32 returnsまで固定した。次はexact `GetCurrentThreadId`へcontrolled thread IDを返してnext trapを測る。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

@@ -204,6 +204,7 @@ Verified behavior:
 - optional explicit trap policyでcatalog-missing importにもidentity付きowned `UD2` slotを割り当てる。controlled fixtureの1 unsupported trapと、BGIの1 declared／329 unsupported importsを全bindしてimage／runtime ownerをsealするCPU未接続のtrap-binding layer
 - opt-in 400-page／8 MiB-line bounded reflectionでBGIの388 production pagesを2 MiB v86 poolへ渡す。VGA MMIO holeをphysical allocationから除外し、generation `24` acknowledgement後にentry `0x100A383E`から19命令でexact thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`へ到達してreturn前に止めるprimary-title entry ingress
 - exact thunk ID `104`を2番目のdeclared endpointとし、1引数stdcall frame／IAT callをchecked処理する。v86-mutated stack owner `4`の1 pageをgeneration `24`へreconcileし、controlled `FILETIME`をgeneration `25`の1-page `MemoryDelta`で返して4命令後のexact thunk ID `103`／`KERNEL32.dll!GetCurrentProcessId`へ進むprimary-title first Win32 call return
+- exact thunk ID `103`を3番目のdeclared endpointとし、generation `25`のlive zero-argument stdcall frame／IAT callをRustでchecked処理する。owner `checkpoint-process-identity`のcontrolled PID `4096`をEAXへ返し、3命令後のexact thunk ID `149`／`KERNEL32.dll!GetCurrentThreadId`へ進むprimary-title second Win32 call return
 - sealed fixed T1の6 production pagesをsemantic reflectionでprovisional v86 pagingへcopyし、actual TLB／fetch／generated-code invalidation後にgeneration `6`をacknowledgeする。harness-only 4 KiB stackからentry `0x10001000`を実行し、exact owned thunk ID `1`へ到達するv86 entry ingress
 - ordered production thunk metadataでexact thunk ID `1`を分類し、fixed cdecl frame `[return,19,23]`をchecked readしてEAX `42`を返す。guest側のargument cleanup後にexact thunk ID `2`へ到達し、callback target `0x10001030`／value `42`を構造化するcdecl service ingress
 - separate runtime ownerのRX control pageへcallback return sentinel ID `1`／`0x7F010000`を置き、frame ID `1`でchecked stackへ`[sentinel,42]`を積む。guest callback `0x10001030`を実行し、exact sentinelへEAX `43`で戻るcallback return ingress
@@ -278,6 +279,7 @@ Verified behavior:
 44. canonical checksを`check:fast`／`check:fixture-e2e`／`check:adapter`／`check:private-corpus`へ分け、public fixture E2EとLinux GitHub Actionsを追加する。private BGI absenceは理由付きskipとする。
 45. valid low-section-alignment PEをstructured unsupportedとして早期拒否し、PE planner fuzz target、randomized GuestMemory reference-model test、cross-page NX execute fixtureを追加するfoundation hardening contract。
 46. controlled host clock sample `2026-07-11T00:00:00Z`を`FILETIME 134282016000000000`へ固定し、BGIのlive stack pageをgeneration／owner付きでRustへreconcileする。ID `104`のchecked frame／IAT、8-byte output、generation `25` delta、stdcall returnを通して累計23命令でID `103`／`GetCurrentProcessId`へ到達するBGI first Win32 call contract。
+47. owner `checkpoint-process-identity`のcontrolled PID `4096`を固定し、ID `103`のlive stack pageをgeneration `25`へreconcileしてzero-argument stdcall frame／IATをRustで検査する。EAXへPIDを返し、累計26命令でID `149`／`GetCurrentThreadId`へ到達するBGI second Win32 call contract。
 
 2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
 
@@ -315,6 +317,8 @@ Verified behavior:
 
 2026-07-12にfirst reachable APIを1件returnした。ID `104`をdeclared endpointへ上げ、call site `0x100A88CC`、return `0x100A88D2`、frame `[return,0x006FFFEC]`をchecked readした。host clock owner `checkpoint-host-clock`はUTC `2026-07-11T00:00:00Z`／`FILETIME 134282016000000000`を供給する。v86が変更したstack page `0x006FF000`／owner `4`はgeneration `24`とownerを照合してRustへreconcileし、11 changed bytes／SHA-256 `46d99e572b1fb4f18aeb340362f31a5264cfc745cb01d22e32bc00bbb19dc785`を得た。8-byte writeはgeneration `25`、dirty 1 page／4 KiB、mapping／cache effects 0、delta SHA-256 `dfad2cdbcc57bb6c05b66962dc185dbb6139a458f4da3e725536168474653840`である。stdcall return後4命令、累計23命令でID `103`／`KERNEL32.dll!GetCurrentProcessId`／`0x7F000660`へ到達した。14,540-byte reportのSHA-256は`7457cdfb50affd0003a3860e6959d5803cc9e7edd1c9bb0358454a6046984c16`である。詳細は`docs/v86-bgi-first-win32-call.md`を正とする。
 
+続けてsecond reachable APIをreturnした。ID `103`をdeclared endpointへ上げ、call site `0x100A88D8`、return `0x100A88DE`、zero-argument frameをchecked処理した。hostではなくowner `checkpoint-process-identity`がPID `4096`を所有する。generation `25`のcurrent stack pageとの差は4 bytes、SHA-256は`5aa539018b6830e5fb6ebdd82880174b37e6edd05f6933008b68d6d994c8223f`であり、reconciliation後もgeneration `25`／dirty 0を保持する。EAXへPIDを返した3命令後、累計26命令でID `149`／`KERNEL32.dll!GetCurrentThreadId`／`0x7F000940`へ到達した。18,472-byte reportのSHA-256は`bbce0252bd7215b0643118c49bef61c724e3c8c0f80279ede1cd5c3ba1b94e67`である。詳細は`docs/v86-bgi-second-win32-call.md`を正とする。
+
 まだ存在しないもの:
 
 - production TypeScript／Wasm browser workspaceとRust coreのWasm packaging
@@ -324,9 +328,9 @@ Verified behavior:
 - production／general Win32 API compatibility implementation
 - browser application
 - graphics、audio、storage backend
-- BGIの2件目以降のreachable API dispatch／returnと、その先のentry execution evidence
+- BGIの3件目以降のreachable API dispatch／returnと、その先のentry execution evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingress、explicit import trap binding、BGI first Win32 call returnである。測定済みcommand-line pathと1件のcontrolled system-time callだけを所有し、general process parameters、process identity、clock、lifecycleは未実装である。unsupported trapはAPI実装ではない。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingress、explicit import trap binding、BGI first／second Win32 call returnである。測定済みcommand-line path、1件のcontrolled system-time call、1件のcontrolled process-ID callだけを所有し、general process parameters、process／thread identity、clock、lifecycleは未実装である。unsupported trapはAPI実装ではない。
 
 ## 8. Corpus
 
@@ -409,25 +413,26 @@ npm run check:runtime:bootstrap-params
 npm run check:runtime:memory-delta
 npm run check:runtime:bgi-first-trap
 npm run check:runtime:bgi-first-win32-call
+npm run check:runtime:bgi-second-win32-call
 ```
 
-`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とする。`check:runtime:entry`から`check:runtime:entry-return`はproduction reflectionとfixed ABI returnを段階的に固定し、`check:runtime:stack-bootstrap`はcontrolled stackをRust ownershipへ移す。`check:runtime:bootstrap-fs-first-stop`はnative FS oracleとzero-base fault、`check:runtime:bootstrap-fs`はRust-owned TEB／PEBとFS-base restore後のentry completion、`check:runtime:bootstrap-params-first-stop`はnative command-line oracleとzero process-parameters pointer、`check:runtime:bootstrap-params`は測定済みparameters／UTF-16 bytesのRust ownershipとentry completionを固定する。`check:runtime:memory-delta`は初回reflection後のdirty data pageをlive v86へ差分適用する。`check:runtime:bgi-first-trap`は388-page reflectionからfirst exact owned trapまで、`check:runtime:bgi-first-win32-call`はbounded stack reconciliation／`FILETIME` delta／stdcall returnからnext trapまでを再現する。両者はprimary BGI fileとsource adapterを必要とする。source adapterを使うpublic fixture checkpointは`check:fixture-e2e`を通じて通常の`npm run check`へ含まれ、BGIだけはprivate corpus checkに留める。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とする。`check:runtime:entry`から`check:runtime:entry-return`はproduction reflectionとfixed ABI returnを段階的に固定し、`check:runtime:stack-bootstrap`はcontrolled stackをRust ownershipへ移す。`check:runtime:bootstrap-fs-first-stop`はnative FS oracleとzero-base fault、`check:runtime:bootstrap-fs`はRust-owned TEB／PEBとFS-base restore後のentry completion、`check:runtime:bootstrap-params-first-stop`はnative command-line oracleとzero process-parameters pointer、`check:runtime:bootstrap-params`は測定済みparameters／UTF-16 bytesのRust ownershipとentry completionを固定する。`check:runtime:memory-delta`は初回reflection後のdirty data pageをlive v86へ差分適用する。BGI checksはfirst trap、system-time return、process-ID returnを累積再現する。これらはprimary BGI fileとsource adapterを必要とする。source adapterを使うpublic fixture checkpointは`check:fixture-e2e`を通じて通常の`npm run check`へ含まれ、BGIだけはprivate corpus checkに留める。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS／process-parameters ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、transaction rollback、atomic import binding、canonical public E2E／CI、low-alignment rejection、negative／randomized／fuzz ingress、cross-page execute gateは 2026-07-11 までに完了した。2026-07-12にはBGIのID `104`／`GetSystemTimeAsFileTime`へcontrolled `FILETIME`をgeneration `25`のstack deltaで返し、累計23命令でID `103`／`KERNEL32.dll!GetCurrentProcessId`へ到達した。fixed addresses、command-line text、FS selector `0`、zero-filled unmeasured fields、trap policy、clock sample、one-page reconciliation、2 MiB v86 pool、VGA hole exclusionはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshot／API supportの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS／process-parameters ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、transaction rollback、atomic import binding、canonical public E2E／CI、low-alignment rejection、negative／randomized／fuzz ingress、cross-page execute gateは 2026-07-11 までに完了した。2026-07-12にはBGIのID `104`／`GetSystemTimeAsFileTime`とID `103`／`GetCurrentProcessId`をchecked returnし、累計26命令でID `149`／`KERNEL32.dll!GetCurrentThreadId`へ到達した。fixed addresses、command-line text、FS selector `0`、zero-filled unmeasured fields、trap policy、clock／process samples、one-page reconciliation、2 MiB v86 pool、VGA hole exclusionはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshot／API supportの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. exact thunk ID `103`のzero-argument stdcall frameとIAT callをchecked処理し、明示的なcontrolled process IDを`GetCurrentProcessId`のEAXとして返してBGIを次のexact owned trapまでresumeする。
+1. exact thunk ID `149`のzero-argument stdcall frameとIAT callをchecked処理し、明示的なcontrolled thread IDを`GetCurrentThreadId`のEAXとして返してBGIを次のexact owned trapまでresumeする。
 
-項目1が次の primary implementation checkpointである。process ID ownershipと値を明示し、host OSのPIDをdeterministic testへ直接混ぜない。ID `103`以外のAPI実装、general process／handle／thread model、複数service dispatchは同時に行わない。
+項目1が次の primary implementation checkpointである。thread ID ownershipと値を明示し、host OSのthread IDをdeterministic testへ直接混ぜない。ID `149`以外のAPI実装、general thread／TEB client ID／scheduler model、複数service dispatchは同時に行わない。
 
 ## 11. Major Open Questions
 
 優先順:
 
-1. first `GetCurrentProcessId`のcontrolled process identityと、後続handle／thread／process object ownershipをどこに置くか。
+1. first `GetCurrentThreadId`のcontrolled thread identityと、TEB client ID／scheduler thread ownershipをどこに置くか。
 2. IDirect3D9 rootでは11 methodsへ到達したが、device／resource vtable、presentation parameters内容、format／state／draw／Present／Reset、DirectInput／DirectSound methodは何か。
 3. host-originated dirty-page delta／actual invalidationは成立したが、v86-originated writeback、general heap／stack mutation、snapshotを同じpaging boundaryへどう結び付けるか。
 4. version 1 production import thunkのaddress／ID ownershipをcallback sentinel、Win32 exception delivery、generated API metadataとどう統合するか。
@@ -497,6 +502,7 @@ Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load�
 | `docs/v86-bootstrap-params-ingress.md` | typed process-parameters／command-line regions、exact UTF-16 bytes、entry completion evidence |
 | `docs/v86-bgi-first-trap.md` | bounded large-image reflection、v86 physical placement、BGI first runtime-owned trap evidence |
 | `docs/v86-bgi-first-win32-call.md` | controlled clock sample、bounded stack reconciliation、`FILETIME` delta、first API return／next trap evidence |
+| `docs/v86-bgi-second-win32-call.md` | controlled process identity、generation-preserving reconciliation、second API return／next trap evidence |
 | `docs/roadmap.md` | long-term phase、task、dependency、acceptance mapping |
 | `docs/risks-and-open-questions.md` | unresolved decisions、risk、go／no-go |
 | `docs/testing-and-acceptance.md` | test candidate、evidence、phase acceptance |

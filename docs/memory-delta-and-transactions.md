@@ -94,6 +94,12 @@ mapping operations, and no cache effects. The full transferred page is checked
 against the current v86 page plus only the `FILETIME` bytes before stdcall
 return. See [v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md).
 
+The following `GetCurrentProcessId` call uses the same boundary at acknowledged
+generation `25` to reconcile its four-byte return frame. Because the API only
+returns EAX and performs no host memory write, generation remains `25`, no page
+is dirty, and no delta is emitted. See
+[v86-bgi-second-win32-call.md](v86-bgi-second-win32-call.md).
+
 ## Limits
 
 - Delta page payloads are still JSON numeric arrays; binary IPC is deferred.

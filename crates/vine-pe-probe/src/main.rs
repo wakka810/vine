@@ -34,6 +34,7 @@ struct Arguments {
     trap_unsupported_imports: bool,
     v86_reflection_session: bool,
     system_time_delta_session: bool,
+    process_id_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -229,6 +230,40 @@ struct V86SystemTimeDeltaReceipt {
     acknowledged_generation: u64,
     output_address: GuestAddress,
     output_bytes: Vec<u8>,
+    stats: MemoryStats,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86ProcessIdReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    process_identity_owner: String,
+    process_id: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86ProcessIdReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    process_identity_owner: String,
+    process_id: u32,
+    stack_reconciliation: GuestPageReconciliation,
     stats: MemoryStats,
 }
 
@@ -691,6 +726,7 @@ fn run_v86_reflection_session(
             &mut memory,
             &binding,
             reflection_message_limit,
+            arguments.process_id_return_session,
         )?;
     }
     Ok(())
@@ -742,6 +778,7 @@ fn run_v86_system_time_delta_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    process_id_return_session: bool,
 ) -> Result<(), LoaderError> {
     let request: V86SystemTimeWriteRequest = read_protocol_message(
         input,
@@ -805,72 +842,13 @@ fn run_v86_system_time_delta_session(
             )
             .map_err(memory_error)?;
 
-        let frame = transaction
-            .read(GuestAddress(request.stack_pointer), 8)
-            .map_err(memory_error)?;
-        let observed_return = u32::from_le_bytes(frame[0..4].try_into().map_err(|_| {
-            LoaderError::runtime_defect(
-                "abi-gateway",
-                "system-time-return-width-invalid",
-                "checked stdcall frame did not contain a four-byte return address",
-            )
-        })?);
-        let observed_output = u32::from_le_bytes(frame[4..8].try_into().map_err(|_| {
-            LoaderError::runtime_defect(
-                "abi-gateway",
-                "system-time-argument-width-invalid",
-                "checked stdcall frame did not contain one four-byte argument",
-            )
-        })?);
-        if observed_return != request.return_address || observed_output != request.output_address {
-            return Err(LoaderError::invalid_input(
-                "abi-gateway",
-                "system-time-frame-mismatch",
-                "reconciled stdcall frame does not match the adapter-observed return and output pointer",
-            ));
-        }
-
-        let call_site = request.return_address.checked_sub(6).ok_or_else(|| {
-            LoaderError::invalid_input(
-                "abi-gateway",
-                "system-time-return-address-underflow",
-                "system-time return address cannot identify a six-byte indirect call",
-            )
-        })?;
-        let call = transaction
-            .fetch(GuestAddress(call_site), 6)
-            .map_err(memory_error)?;
-        let iat_operand = u32::from_le_bytes(call[2..6].try_into().map_err(|_| {
-            LoaderError::runtime_defect(
-                "abi-gateway",
-                "system-time-call-width-invalid",
-                "checked import call did not contain a four-byte IAT operand",
-            )
-        })?);
-        if call[0..2] != [0xff, 0x15] || iat_operand != thunk.iat_address.0 {
-            return Err(LoaderError::invalid_input(
-                "abi-gateway",
-                "system-time-callsite-mismatch",
-                "system-time return address does not follow the expected indirect IAT call",
-            ));
-        }
-        let iat = transaction
-            .read(thunk.iat_address, 4)
-            .map_err(memory_error)?;
-        let iat_value = u32::from_le_bytes(iat.try_into().map_err(|_| {
-            LoaderError::runtime_defect(
-                "abi-gateway",
-                "system-time-iat-width-invalid",
-                "checked system-time IAT entry did not contain four bytes",
-            )
-        })?);
-        if iat_value != thunk.address.0 {
-            return Err(LoaderError::invalid_input(
-                "abi-gateway",
-                "system-time-iat-value-mismatch",
-                "system-time IAT entry no longer points to its owned thunk",
-            ));
-        }
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[request.output_address],
+        )?;
 
         let write = transaction
             .write(GuestAddress(request.output_address), &file_time_bytes)
@@ -955,7 +933,200 @@ fn run_v86_system_time_delta_session(
             stats: memory.stats(),
         },
         message_limit,
+    )?;
+    if process_id_return_session {
+        run_v86_process_id_return_session(input, memory, binding, message_limit)?;
+    }
+    Ok(())
+}
+
+fn run_v86_process_id_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+) -> Result<(), LoaderError> {
+    let request: V86ProcessIdReturnRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-process-identity",
+        "process-id-return-request",
+        "controlled process-ID return request",
+    )?;
+    if request.schema != "vine.v86-process-id-return-request" || request.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "win32-process-identity",
+            "process-id-return-request-schema-unsupported",
+            "process-ID request must use vine.v86-process-id-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 0 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "process-id-argument-width-mismatch",
+            "GetCurrentProcessId requires a zero-argument stdcall frame",
+        ));
+    }
+    if request.process_identity_owner.is_empty() || request.process_id == 0 {
+        return Err(LoaderError::invalid_input(
+            "win32-process-identity",
+            "controlled-process-identity-invalid",
+            "controlled process identity requires a nonempty owner and nonzero process ID",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "process-id-thunk-id-unowned",
+                "process-ID request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "GetCurrentProcessId"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "process-id-thunk-identity-mismatch",
+            "process-ID request does not match the declared GetCurrentProcessId thunk",
+        ));
+    }
+
+    let stack_reconciliation = {
+        let mut transaction = memory.begin_transaction();
+        let reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[],
+        )?;
+        transaction.commit_transaction();
+        reconciliation
+    };
+
+    write_protocol_message(
+        &V86ProcessIdReturnReceipt {
+            schema: "vine.v86-process-id-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            process_identity_owner: request.process_identity_owner,
+            process_id: request.process_id,
+            stack_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
     )
+}
+
+fn validate_stdcall_iat_frame(
+    memory: &GuestMemory,
+    thunk: &ImportThunk,
+    stack_pointer: u32,
+    return_address: u32,
+    expected_arguments: &[u32],
+) -> Result<(), LoaderError> {
+    let frame_words = expected_arguments.len().checked_add(1).ok_or_else(|| {
+        LoaderError::resource_limit(
+            "abi-gateway",
+            "stdcall-frame-word-count-overflow",
+            "stdcall frame word count overflowed host accounting",
+        )
+    })?;
+    let frame_bytes = frame_words.checked_mul(4).ok_or_else(|| {
+        LoaderError::resource_limit(
+            "abi-gateway",
+            "stdcall-frame-byte-count-overflow",
+            "stdcall frame byte count overflowed host accounting",
+        )
+    })?;
+    let frame = memory
+        .read(GuestAddress(stack_pointer), frame_bytes)
+        .map_err(memory_error)?;
+    let observed_words = frame
+        .chunks_exact(4)
+        .map(|word| {
+            let word = word.try_into().map_err(|_| {
+                LoaderError::runtime_defect(
+                    "abi-gateway",
+                    "stdcall-frame-word-width-invalid",
+                    "checked stdcall frame contained a partial word",
+                )
+            })?;
+            Ok(u32::from_le_bytes(word))
+        })
+        .collect::<Result<Vec<_>, LoaderError>>()?;
+    if observed_words.first().copied() != Some(return_address)
+        || observed_words.get(1..) != Some(expected_arguments)
+    {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "stdcall-frame-mismatch",
+            "reconciled stdcall frame does not match the adapter-observed return and arguments",
+        ));
+    }
+
+    let call_site = return_address.checked_sub(6).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "abi-gateway",
+            "stdcall-return-address-underflow",
+            "stdcall return address cannot identify a six-byte indirect call",
+        )
+    })?;
+    let call = memory
+        .fetch(GuestAddress(call_site), 6)
+        .map_err(memory_error)?;
+    let iat_operand = u32::from_le_bytes(call[2..6].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "abi-gateway",
+            "stdcall-call-width-invalid",
+            "checked import call did not contain a four-byte IAT operand",
+        )
+    })?);
+    if call[0..2] != [0xff, 0x15] || iat_operand != thunk.iat_address.0 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "stdcall-callsite-mismatch",
+            "stdcall return address does not follow its expected indirect IAT call",
+        ));
+    }
+    let iat = memory.read(thunk.iat_address, 4).map_err(memory_error)?;
+    let iat_value = u32::from_le_bytes(iat.try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "abi-gateway",
+            "stdcall-iat-width-invalid",
+            "checked stdcall IAT entry did not contain four bytes",
+        )
+    })?);
+    if iat_value != thunk.address.0 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "stdcall-iat-value-mismatch",
+            "stdcall IAT entry no longer points to its owned thunk",
+        ));
+    }
+    Ok(())
 }
 
 fn read_protocol_message<T: DeserializeOwned>(
@@ -1098,6 +1269,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut trap_unsupported_imports = false;
     let mut v86_reflection_session = false;
     let mut system_time_delta_session = false;
+    let mut process_id_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -1161,6 +1333,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             system_time_delta_session = true;
+        } else if argument == "--process-id-return-session" {
+            if process_id_return_session {
+                return Err(usage_error());
+            }
+            process_id_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -1243,6 +1420,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if system_time_delta_session && !v86_reflection_session {
         return Err(usage_error());
     }
+    if process_id_return_session && !system_time_delta_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -1257,6 +1437,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         trap_unsupported_imports,
         v86_reflection_session,
         system_time_delta_session,
+        process_id_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -1339,7 +1520,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

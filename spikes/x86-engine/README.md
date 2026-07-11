@@ -77,6 +77,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bgi-first-win32-call` keeps the same reflected bytes, reconciles one live stack page at generation `24`, writes a controlled `FILETIME` through a generation `25` delta, returns from exact thunk ID `104`, and stops after four more instructions at ID `103`／`KERNEL32.dll!GetCurrentProcessId`. The result is recorded in [v86-bgi-first-win32-call.md](../../docs/v86-bgi-first-win32-call.md).
 
+`npm run check:runtime:bgi-second-win32-call` reconciles the next zero-argument frame at generation `25`, returns controlled process ID `4096` from exact thunk ID `103`, and stops after three more instructions at ID `149`／`KERNEL32.dll!GetCurrentThreadId`. The result is recorded in [v86-bgi-second-win32-call.md](../../docs/v86-bgi-second-win32-call.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.
@@ -91,4 +93,4 @@ The 2026-07-10 local build produced the following evidence. Compiler output hash
 
 ## Remaining work
 
-The state layout is explicit, but adapter physical memory remains one bounded pool with an explicitly excluded VGA hole, and memory-size setup still uses one private offset pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior, and production reflection returns from one BGI API. General region mutation／dirty-page synchronization、second and later BGI API return、snapshot、general ABI、Chromium Worker remain unimplemented.
+The state layout is explicit, but adapter physical memory remains one bounded pool with an explicitly excluded VGA hole, and memory-size setup still uses one private offset pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior, and production reflection returns from two BGI APIs. General region mutation／dirty-page synchronization、third and later BGI API return、snapshot、general ABI、Chromium Worker remain unimplemented.

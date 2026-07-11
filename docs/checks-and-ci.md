@@ -41,8 +41,8 @@ npm run check:private-corpus
 If no private file exists, the command prints the reason and succeeds as an
 explicit skip. If BGI exists but the adapter is absent, it fails and requests
 `npm run check:adapter`. When both are present it runs the immutable first-trap
-contract and the first supported Win32 call／next-trap contract. Private
-binaries are never added to Git or required by CI.
+contract and the cumulative first／second supported Win32 call contracts.
+Private binaries are never added to Git or required by CI.
 
 ## GitHub Actions
 

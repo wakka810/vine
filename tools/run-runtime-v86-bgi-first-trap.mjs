@@ -9,18 +9,26 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
-const dispatchSystemTime = commandArguments.includes("--dispatch-system-time");
+const dispatchSystemTimeOnly = commandArguments.includes("--dispatch-system-time");
+const dispatchProcessId = commandArguments.includes("--dispatch-process-id");
+const dispatchSystemTime = dispatchSystemTimeOnly || dispatchProcessId;
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-system-time").length,
-  Number(dispatchSystemTime),
+  Number(dispatchSystemTimeOnly),
   "--dispatch-system-time may be specified only once",
 );
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-process-id").length,
+  Number(dispatchProcessId),
+  "--dispatch-process-id may be specified only once",
+);
+assert(!(dispatchSystemTimeOnly && dispatchProcessId), "dispatch modes are mutually exclusive");
 const positionalArguments = commandArguments.filter(
-  (argument) => argument !== "--dispatch-system-time",
+  (argument) => argument !== "--dispatch-system-time" && argument !== "--dispatch-process-id",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -33,7 +41,11 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchSystemTime ? "v86-bgi-first-win32-call" : "v86-bgi-first-trap",
+  dispatchProcessId
+    ? "v86-bgi-second-win32-call"
+    : dispatchSystemTime
+      ? "v86-bgi-first-win32-call"
+      : "v86-bgi-first-trap",
 );
 const reportPath = path.join(outputDirectory, "report.json");
 
@@ -44,6 +56,10 @@ const controlledClock = {
   fileTimeTicks: 134_282_016_000_000_000n,
   fileTimeLow: 929_513_472,
   fileTimeHigh: 31_264_968,
+};
+const controlledProcess = {
+  owner: "checkpoint-process-identity",
+  processId: 4_096,
 };
 
 const expected = {
@@ -70,8 +86,8 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchSystemTime ? 2 : 1,
-    unsupported: dispatchSystemTime ? 328 : 329,
+    declared: dispatchProcessId ? 3 : dispatchSystemTime ? 2 : 1,
+    unsupported: dispatchProcessId ? 327 : dispatchSystemTime ? 328 : 329,
     first: {
       id: 1,
       address: 0x7f000000,
@@ -181,6 +197,30 @@ const expected = {
     budgetStops: 3,
     reportBytes: 14_540,
     reportSha256: "7457cdfb50affd0003a3860e6959d5803cc9e7edd1c9bb0358454a6046984c16",
+  },
+  secondCall: {
+    offerLineBytes: 4_904_536,
+    requestLineBytes: 8_552,
+    receiptLineBytes: 845,
+    stackPageContentSha256: "5aa539018b6830e5fb6ebdd82880174b37e6edd05f6933008b68d6d994c8223f",
+    reconciledChangedBytes: 4,
+    nextThunk: {
+      identity: {
+        id: 149,
+        address: 0x7f000940,
+        iatAddress: 0x100d12fc,
+        module: "KERNEL32.dll",
+        name: "GetCurrentThreadId",
+      },
+      unsupported: true,
+      returnAddress: 0x100a88e6,
+      stackWords: [0x100a88e6, 0, 0, 0, 0, 0, 929_513_472, 31_264_968],
+    },
+    instructionCount: 26,
+    executeStops: 3,
+    budgetStops: 2,
+    reportBytes: 18_472,
+    reportSha256: "bbce0252bd7215b0643118c49bef61c724e3c8c0f80279ede1cd5c3ba1b94e67",
   },
 };
 
@@ -362,6 +402,14 @@ async function run() {
           "--system-time-delta-session",
         ]
       : []),
+    ...(dispatchProcessId
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "GetCurrentProcessId",
+          "--process-id-return-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -447,6 +495,16 @@ async function run() {
           execution,
           nextMessage,
           offer,
+          continueSession: dispatchProcessId,
+        })
+      : null;
+    const processIdentity = dispatchProcessId
+      ? await dispatchSecondProcessIdCall({
+          child,
+          context,
+          execution: systemTime.continuation,
+          nextMessage,
+          offer,
         })
       : null;
     const processExit = await exit;
@@ -456,8 +514,23 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchSystemTime
-      ? buildFirstSystemTimeReport({
+    const report = dispatchProcessId
+      ? buildSecondProcessIdReport({
+          context,
+          execution,
+          invalidationCalls,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          processIdentity,
+          receipt,
+          receiptMessage,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+        })
+      : dispatchSystemTime
+        ? buildFirstSystemTimeReport({
           context,
           execution,
           invalidationCalls,
@@ -470,7 +543,7 @@ async function run() {
           sourceBefore,
           systemTime,
         })
-      : {
+        : {
       schema: "vine.v86-bgi-first-trap",
       schemaVersion: 1,
       source: offer.source,
@@ -541,15 +614,23 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchSystemTime
-      ? { bytes: expected.firstCall.reportBytes, sha256: expected.firstCall.reportSha256 }
-      : expected.report;
+    const expectedReport = dispatchProcessId
+      ? { bytes: expected.secondCall.reportBytes, sha256: expected.secondCall.reportSha256 }
+      : dispatchSystemTime
+        ? { bytes: expected.firstCall.reportBytes, sha256: expected.firstCall.reportSha256 }
+        : expected.report;
     if (expectedReport.bytes !== null) {
       assert.equal(reportBytes.byteLength, expectedReport.bytes);
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchSystemTime) {
+    if (dispatchProcessId) {
+      console.log(
+        `v86 BGI second Win32 call passed: process ID ${controlledProcess.processId}, ` +
+          `next thunk ID ${processIdentity.continuation.terminal.thunk.id} after ` +
+          `${processIdentity.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchSystemTime) {
       console.log(
         `v86 BGI first Win32 call passed: FILETIME generation ` +
           `${systemTime.delta.delta.generation}, next thunk ID ` +
@@ -592,6 +673,11 @@ function validateOffer(offer, offerLineBytes) {
     offer.thunks[expected.terminal.thunk.id - 1],
     expected.terminal.thunk,
     !dispatchSystemTime,
+  );
+  validateThunk(
+    offer.thunks[expected.firstCall.nextThunk.identity.id - 1],
+    expected.firstCall.nextThunk.identity,
+    !dispatchProcessId,
   );
   assert.equal(
     offer.thunks.filter(({ disposition }) => disposition === undefined).length,
@@ -679,9 +765,11 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchSystemTime
-    ? expected.firstCall.offerLineBytes
-    : expected.offerLineBytes;
+  const expectedOfferLineBytes = dispatchProcessId
+    ? expected.secondCall.offerLineBytes
+    : dispatchSystemTime
+      ? expected.firstCall.offerLineBytes
+      : expected.offerLineBytes;
   if (expectedOfferLineBytes !== null) {
     assert.equal(offerLineBytes, expectedOfferLineBytes);
   }
@@ -1081,7 +1169,14 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   }
 }
 
-async function dispatchFirstSystemTimeCall({ child, context, execution, nextMessage, offer }) {
+async function dispatchFirstSystemTimeCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+  continueSession,
+}) {
   const trapped = execution.finalState;
   const framePages = context.preflightVirtualRange(
     trapped.esp,
@@ -1246,16 +1341,19 @@ async function dispatchFirstSystemTimeCall({ child, context, execution, nextMess
     [...context.readVirtualBytes(outputAddress, 8, "applied FILETIME output")],
     [...fileTimeBytes],
   );
-  child.stdin.end(
-    `${JSON.stringify({
-      schema: "vine.v86-memory-delta-ack",
-      schemaVersion: 1,
-      generation: delta.delta.generation,
-      dataTlb: false,
-      instructionFetch: false,
-      generatedCode: false,
-    })}\n`,
-  );
+  const deltaAcknowledgement = `${JSON.stringify({
+    schema: "vine.v86-memory-delta-ack",
+    schemaVersion: 1,
+    generation: delta.delta.generation,
+    dataTlb: false,
+    instructionFetch: false,
+    generatedCode: false,
+  })}\n`;
+  if (continueSession) {
+    child.stdin.write(deltaAcknowledgement);
+  } else {
+    child.stdin.end(deltaAcknowledgement);
+  }
   const receiptMessage = await nextMessage("GetSystemTimeAsFileTime delta receipt");
   const receipt = receiptMessage.message;
   assert.equal(receipt.schema, "vine.v86-system-time-delta-receipt");
@@ -1278,7 +1376,7 @@ async function dispatchFirstSystemTimeCall({ child, context, execution, nextMess
     validateThunk(
       continuation.terminal.thunk,
       expected.firstCall.nextThunk.identity,
-      expected.firstCall.nextThunk.unsupported,
+      !dispatchProcessId,
     );
     assert.equal(continuation.instructionCount, expected.firstCall.instructionCount);
     assert.equal(continuation.executeStops, expected.firstCall.executeStops);
@@ -1341,6 +1439,152 @@ async function dispatchFirstSystemTimeCall({ child, context, execution, nextMess
   };
 }
 
+async function dispatchSecondProcessIdCall({ child, context, execution, nextMessage, offer }) {
+  const trapped = execution.finalState;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4,
+    "read",
+    "GetCurrentProcessId stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "GetCurrentProcessId return address",
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  const callSite = returnAddress - 6;
+  const callBytes = context.readVirtualBytes(
+    callSite,
+    6,
+    "GetCurrentProcessId indirect IAT call",
+  );
+  assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
+  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
+  assert.equal(callView.getUint32(2, true), expected.firstCall.nextThunk.identity.iatAddress);
+  assert.equal(
+    context.readVirtualU32(
+      expected.firstCall.nextThunk.identity.iatAddress,
+      "GetCurrentProcessId bound IAT",
+    ),
+    expected.firstCall.nextThunk.identity.address,
+  );
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before process-ID return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-process-id-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.firstCall.deltaGeneration,
+    thunkId: expected.firstCall.nextThunk.identity.id,
+    thunkAddress: expected.firstCall.nextThunk.identity.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes: 0,
+    stackPageAddress,
+    stackPageOwner: framePages[0].owner,
+    stackPageBytes: [...stackPageBytes],
+    processIdentityOwner: controlledProcess.owner,
+    processId: controlledProcess.processId,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 64 * 1024);
+  if (expected.secondCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.secondCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("GetCurrentProcessId return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-process-id-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  validateThunk(receipt.thunk, expected.firstCall.nextThunk.identity, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, 0);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.equal(receipt.processIdentityOwner, controlledProcess.owner);
+  assert.equal(receipt.processId, controlledProcess.processId);
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.firstCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(receipt.stackReconciliation.changedBytes > 0);
+  if (expected.secondCall.reconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.secondCall.reconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.secondCall.stackPageContentSha256);
+  }
+  assert.equal(receipt.stats.generation, expected.firstCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.firstCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.secondCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.secondCall.receiptLineBytes);
+  }
+
+  const resume = resumeStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    0,
+    controlledProcess.processId,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  if (expected.secondCall.nextThunk !== null) {
+    validateThunk(
+      continuation.terminal.thunk,
+      expected.secondCall.nextThunk.identity,
+      expected.secondCall.nextThunk.unsupported,
+    );
+    assert.equal(continuation.instructionCount, expected.secondCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.secondCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.secondCall.budgetStops);
+    assert.equal(
+      continuation.terminal.returnAddress,
+      expected.secondCall.nextThunk.returnAddress,
+    );
+    assert.deepEqual(continuation.terminal.stackWords, expected.secondCall.nextThunk.stackWords);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      stackPageAddress: request.stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    identity: {
+      owner: controlledProcess.owner,
+      processId: controlledProcess.processId,
+    },
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
 function captureCpuState(context, reason) {
   context.wasm.vine_cpu_state_save();
   const words = Uint32Array.from(
@@ -1374,6 +1618,50 @@ function captureCpuState(context, reason) {
 
 function resumeVoidStdcall(context, trapped, returnAddress, argumentBytes) {
   assert.equal(argumentBytes, 4);
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    trapped.eax,
+    "GetSystemTimeAsFileTime",
+  );
+  assert.equal(restored.resumed.eax, trapped.eax, "void API return must not fabricate EAX");
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    voidResultPolicy: "preserve-eax-checkpoint-selection",
+  };
+}
+
+function resumeStdcallResult(context, trapped, returnAddress, argumentBytes, result) {
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "GetCurrentProcessId",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: controlledProcess.owner,
+  };
+}
+
+function restoreStdcall(context, trapped, returnAddress, argumentBytes, eax, label) {
   context.wasm.vine_cpu_state_save();
   const words = new Uint32Array(
     context.wasm.memory.buffer,
@@ -1384,30 +1672,18 @@ function resumeVoidStdcall(context, trapped, returnAddress, argumentBytes) {
   assert.equal(words[stateWord.previousInstructionPointer], trapped.previousInstructionPointer);
   assert.equal(words[stateWord.esp], trapped.esp);
   assert.equal(words[stateWord.eax], trapped.eax);
-  const resumedEsp = checkedGuestEnd(
-    trapped.esp,
-    4 + argumentBytes,
-    "GetSystemTimeAsFileTime stdcall cleanup",
-  );
+  const resumedEsp = checkedGuestEnd(trapped.esp, 4 + argumentBytes, `${label} stdcall cleanup`);
+  words[stateWord.eax] = eax >>> 0;
   words[stateWord.esp] = resumedEsp;
   words[stateWord.instructionPointer] = returnAddress;
   words[stateWord.previousInstructionPointer] = returnAddress;
   assert.equal(context.wasm.vine_cpu_state_restore(), 0);
   const resumed = captureCpuState(context, 0);
-  assert.equal(resumed.eax, trapped.eax, "void API return must not fabricate EAX");
+  assert.equal(resumed.eax, eax >>> 0);
   assert.equal(resumed.esp, resumedEsp);
   assert.equal(resumed.instructionPointer, returnAddress);
   assert.equal(resumed.previousInstructionPointer, returnAddress);
-  return {
-    callingConvention: "stdcall",
-    argumentBytes,
-    returnAddress,
-    stackPointerBefore: trapped.esp,
-    stackPointerAfter: resumedEsp,
-    eaxBefore: trapped.eax,
-    eaxAfter: resumed.eax,
-    voidResultPolicy: "preserve-eax-checkpoint-selection",
-  };
+  return { resumed, resumedEsp };
 }
 
 function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
@@ -1560,6 +1836,46 @@ function buildFirstSystemTimeReport({
       code: "next-runtime-reachable-owned-import-trap",
       message:
         "BGI returned from one checked GetSystemTimeAsFileTime call and reached the next exact runtime-owned import thunk without dispatching it",
+    },
+  };
+}
+
+function buildSecondProcessIdReport({ processIdentity, ...firstCallArguments }) {
+  const firstCall = buildFirstSystemTimeReport(firstCallArguments);
+  const { oneSupportedServiceDispatch: _firstCallOnly, ...sharedContract } = firstCall.contract;
+  return {
+    schema: "vine.v86-bgi-second-win32-call",
+    schemaVersion: 1,
+    source: firstCall.source,
+    sourceSnapshot: firstCall.sourceSnapshot,
+    contract: {
+      ...sharedContract,
+      processIdentityOwner: controlledProcess.owner,
+      supportedServiceDispatches: 2,
+    },
+    bootstrap: firstCall.bootstrap,
+    imports: {
+      ...firstCall.imports,
+      supportedProcessId:
+        firstCallArguments.offer.thunks[expected.firstCall.nextThunk.identity.id - 1],
+    },
+    adapter: firstCall.adapter,
+    reflection: firstCall.reflection,
+    firstTrap: firstCall.firstTrap,
+    systemTime: firstCall.systemTime,
+    firstContinuation: firstCall.continuation,
+    processId: {
+      request: processIdentity.request,
+      identity: processIdentity.identity,
+      receipt: processIdentity.receipt,
+      resume: processIdentity.resume,
+    },
+    continuation: processIdentity.continuation,
+    stop: {
+      stage: "thunk-dispatch",
+      code: "next-runtime-reachable-owned-import-trap",
+      message:
+        "BGI returned from checked GetSystemTimeAsFileTime and GetCurrentProcessId calls and reached the next exact runtime-owned import thunk without dispatching it",
     },
   };
 }

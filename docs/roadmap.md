@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI first Win32 call。BGIは`GetSystemTimeAsFileTime`を1回returnして`GetCurrentProcessId`へ到達した。visual critical scenario、device-level COM trace、general process integration／parameters、engine最終選定は未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI second Win32 call。BGIは`GetSystemTimeAsFileTime`と`GetCurrentProcessId`をreturnして`GetCurrentThreadId`へ到達した。visual critical scenario、device-level COM trace、general process／thread integration、engine最終選定は未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap executionがあり、general process integration、DLL lifecycle／export resolution、Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -909,9 +909,9 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、transaction rollback、atomic import binding、public E2E／CI、low-alignment rejection、planner fuzz／randomized memory test、cross-page execute gateは完了した。さらにBGIのexact thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`へcontrolled `FILETIME`をgeneration `25`のstack deltaで返し、entryから累計23命令でID `103`／`GetCurrentProcessId`へ到達した。general API dispatch、DLL／export resolution、process lifecycle／parameters、loader list、TLS、LastError、general v86-originated writeback、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、transaction rollback、atomic import binding、public E2E／CI、low-alignment rejection、planner fuzz／randomized memory test、cross-page execute gateは完了した。さらにBGIのexact thunk ID `104`／`GetSystemTimeAsFileTime`とID `103`／`GetCurrentProcessId`をreturnし、entryから累計26命令でID `149`／`GetCurrentThreadId`へ到達した。general API dispatch、DLL／export resolution、process／thread lifecycle、loader list、TLS、LastError、general v86-originated writeback、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [v86-bgi-second-win32-call.md](v86-bgi-second-win32-call.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. exact thunk ID `103`のchecked zero-argument stdcall frameへcontrolled process IDを返し、`GetCurrentProcessId`からguestへreturnして次のexact owned trapまで実行する。
+1. exact thunk ID `149`のchecked zero-argument stdcall frameへcontrolled thread IDを返し、`GetCurrentThreadId`からguestへreturnして次のexact owned trapまで実行する。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 
