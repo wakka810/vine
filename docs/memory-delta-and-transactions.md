@@ -38,6 +38,15 @@ duplicate, and never-offered acknowledgements are structured errors. A delta
 may be obtained, followed by another mutation, and then acknowledged safely:
 the newer page generation remains dirty for the next delta.
 
+`reconcile_reflected_page(generation, owner, address, bytes)` is the first
+bounded CPU-to-Rust direction. It accepts exactly one aligned 4 KiB writable
+page only when the initial reflection is acknowledged, no delta is pending,
+and the generation and owner match. The bytes already active in the CPU mirror
+replace the Rust frame without advancing generation or making it dirty. A
+following host write can then emit a normal full-page delta without erasing
+guest stack changes. This is a synchronous one-page handoff, not general dirty
+tracking.
+
 ## Transaction model
 
 `GuestMemory::begin_transaction()` takes a private snapshot of owners, regions,
@@ -77,11 +86,21 @@ The provisional adapter gate checks the conservative 15-byte x86 fetch window
 and returns `instruction-fetch / cross-page-execute-permission-unimplemented`
 without executing the instruction.
 
+The private BGI continuation uses the reconciliation boundary because the
+first `GetSystemTimeAsFileTime` output points into a v86-mutated stack page.
+Generation `24`／owner `4` reconciliation preserves 11 changed bytes; the
+eight-byte host output then emits generation `25`, one 4 KiB dirty page, no
+mapping operations, and no cache effects. The full transferred page is checked
+against the current v86 page plus only the `FILETIME` bytes before stdcall
+return. See [v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md).
+
 ## Limits
 
 - Delta page payloads are still JSON numeric arrays; binary IPC is deferred.
-- Dirty ownership is Rust-to-v86. Writes performed inside v86 are not yet
-  reconciled back into Rust.
+- Dirty ownership remains Rust-to-v86 in general. Only one explicitly supplied,
+  generation／owner-checked full page can currently be reconciled from v86;
+  automatic write detection, multi-page writeback, conflicts, and scheduling
+  are not implemented.
 - The transaction snapshot copies committed frames and is not the final large
   heap or framebuffer transaction strategy.
 - The 15-byte execute gate is conservative and can reject a short instruction

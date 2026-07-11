@@ -5,14 +5,14 @@
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 対象: current `main` worktree
-- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI first runtime trap。MemoryDelta、rollback transaction、atomic import binding、public Linux CIを追加済み。BGI entryは`GetSystemTimeAsFileTime`へ到達したがAPI未実装で、general process lifecycle、DLL／export resolution、Win32 runtime、browser appはまだない
+- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI first Win32 call。MemoryDelta、bounded CPU page reconciliation、rollback transaction、atomic import binding、public Linux CIを追加済み。BGIは`GetSystemTimeAsFileTime`を1回returnして`GetCurrentProcessId`へ到達したが、general process lifecycle、DLL／export resolution、Win32 runtime、browser appはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
 
 このディレクトリは、Vine を「Windows 向け VN/ADV 実行ファイルを、元の配布ファイルを原則として変更せずブラウザ上で再ホストする Windows userspace 互換ランタイム」として開発するための基準文書である。
 
-調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、再現生成するPE32 fixtures、固定したv86 source adapter、Windows trace、W1／W2／W3、high-address memory、Rust W7 load／memory／entry return／stack／bootstrap ingress、sealed BGI trap binding、BGI entry-to-first-trap実行がある。各checkpointは限定したevidenceであり、production Windows compatibility runtimeの完成を示さない。
+調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、再現生成するPE32 fixtures、固定したv86 source adapter、Windows trace、W1／W2／W3、high-address memory、Rust W7 load／memory／entry return／stack／bootstrap ingress、sealed BGI trap binding、BGI first Win32 call returnがある。各checkpointは限定したevidenceであり、production Windows compatibility runtimeの完成を示さない。
 
 ## プロジェクトの位置づけ
 
@@ -71,6 +71,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md) | process parametersの未実装境界はどこか | native command-line oracle、PEB `+0x10` zero、explicit result `2` |
 | [v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md) | 測定済みcommand-line pathをどこまで所有できるか | typed regions、exact UTF-16 bytes、source-v86 entry completion |
 | [v86-bgi-first-trap.md](v86-bgi-first-trap.md) | primary titleをどこまで実行できるか | bounded 388-page transfer、VGA hole回避、BGI entry、first runtime-owned trap |
+| [v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md) | first reachable APIをどこまでreturnできるか | controlled clock、stack page reconciliation、`FILETIME` delta、stdcall return、next trap |
 | [windows-development.md](windows-development.md) | Windows で何から始めるか | toolchain、Frida trace、最初の縦断 checkpoint、test 方針 |
 | [windows-native-evidence.md](windows-native-evidence.md) | Windows で何が実測済みか | W0 version、BGI trace v1／v2、selected IDirect3D9 root、W1／W2／W3、W7 loader／memory／entry／stack／FS ingress |
 | [requirements.md](requirements.md) | 何を、どこまで作るか | 目的、スコープ、機能要件、非機能要件、personal target 定義 |

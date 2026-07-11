@@ -38,10 +38,10 @@ pub use imports::{
 pub use materialize::{ImageMaterialization, UnboundImport, materialize_pe32_image};
 pub use memory::{
     CacheEffects, DirtyPage, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError,
-    GuestMemoryErrorClass, GuestMemoryTransaction, GuestRange, GuestWriteResult, ImageMemoryLayout,
-    MappingOperation, MemoryAccess, MemoryDelta, MemoryFault, MemoryFaultReason,
-    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryReflection,
-    MemoryReflectionPage, MemoryRegionKind, MemoryStats, PageProtection,
+    GuestMemoryErrorClass, GuestMemoryTransaction, GuestPageReconciliation, GuestRange,
+    GuestWriteResult, ImageMemoryLayout, MappingOperation, MemoryAccess, MemoryDelta, MemoryFault,
+    MemoryFaultReason, MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
+    MemoryReflection, MemoryReflectionPage, MemoryRegionKind, MemoryStats, PageProtection,
 };
 pub use pe32::{
     DataDirectoryAddressKind, DataDirectoryPlan, FeatureInventory, HeaderMappingPlan, ImageKind,

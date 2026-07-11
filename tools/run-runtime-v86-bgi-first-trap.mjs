@@ -9,20 +9,42 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
+const dispatchSystemTime = commandArguments.includes("--dispatch-system-time");
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-system-time").length,
+  Number(dispatchSystemTime),
+  "--dispatch-system-time may be specified only once",
+);
+const positionalArguments = commandArguments.filter(
+  (argument) => argument !== "--dispatch-system-time",
+);
 assert(
-  commandArguments.length <= 2,
-  "usage: run-runtime-v86-bgi-first-trap.mjs [WASM] [BGI.exe]",
+  positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
-  commandArguments[0] ??
+  positionalArguments[0] ??
     path.join(root, ".work", "v86-adapter-source", "build", "v86-fallback.wasm"),
 );
 const bgiPath = path.resolve(
-  commandArguments[1] ??
+  positionalArguments[1] ??
     "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe",
 );
-const outputDirectory = path.join(root, ".work", "v86-bgi-first-trap");
+const outputDirectory = path.join(
+  root,
+  ".work",
+  dispatchSystemTime ? "v86-bgi-first-win32-call" : "v86-bgi-first-trap",
+);
 const reportPath = path.join(outputDirectory, "report.json");
+
+const controlledClock = {
+  owner: "checkpoint-host-clock",
+  sampleId: "utc-2026-07-11T00:00:00.000Z",
+  utcIso: "2026-07-11T00:00:00.000Z",
+  fileTimeTicks: 134_282_016_000_000_000n,
+  fileTimeLow: 929_513_472,
+  fileTimeHigh: 31_264_968,
+};
 
 const expected = {
   source: {
@@ -48,8 +70,8 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: 1,
-    unsupported: 329,
+    declared: dispatchSystemTime ? 2 : 1,
+    unsupported: dispatchSystemTime ? 328 : 329,
     first: {
       id: 1,
       address: 0x7f000000,
@@ -132,6 +154,33 @@ const expected = {
   report: {
     bytes: 9_592,
     sha256: "4ed39b15de85c188b52dbafd0eda9c35e4d88f3c4aa8a9079c98f6d9d9f03840",
+  },
+  firstCall: {
+    offerLineBytes: 4_904_569,
+    requestLineBytes: 8_670,
+    deltaLineBytes: 9_584,
+    deltaReceiptLineBytes: 361,
+    deltaGeneration: 25,
+    stackPageContentSha256: "46d99e572b1fb4f18aeb340362f31a5264cfc745cb01d22e32bc00bbb19dc785",
+    reconciledChangedBytes: 11,
+    deltaContentSha256: "dfad2cdbcc57bb6c05b66962dc185dbb6139a458f4da3e725536168474653840",
+    nextThunk: {
+      identity: {
+        id: 103,
+        address: 0x7f000660,
+        iatAddress: 0x100d1244,
+        module: "KERNEL32.dll",
+        name: "GetCurrentProcessId",
+      },
+      unsupported: true,
+      returnAddress: 0x100a88de,
+      stackWords: [0x100a88de, 0, 0, 0, 0, 0, 929_513_472, 31_264_968],
+    },
+    instructionCount: 23,
+    executeStops: 4,
+    budgetStops: 3,
+    reportBytes: 14_540,
+    reportSha256: "7457cdfb50affd0003a3860e6959d5803cc9e7edd1c9bb0358454a6046984c16",
   },
 };
 
@@ -305,6 +354,14 @@ async function run() {
     "--bind-name",
     "d3d9.dll",
     "Direct3DCreate9",
+    ...(dispatchSystemTime
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "GetSystemTimeAsFileTime",
+          "--system-time-delta-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -358,36 +415,62 @@ async function run() {
     context.wasm.full_clear_tlb();
     context.wasm.jit_clear_cache_js();
 
-    child.stdin.end(
-      `${JSON.stringify({
-        schema: "vine.v86-memory-reflection-ack",
-        schemaVersion: 1,
-        generation: offer.reflection.invalidation.generation,
-        dataTlb: true,
-        instructionFetch: true,
-        generatedCode: true,
-      })}\n`,
-    );
+    const initialAcknowledgement = `${JSON.stringify({
+      schema: "vine.v86-memory-reflection-ack",
+      schemaVersion: 1,
+      generation: offer.reflection.invalidation.generation,
+      dataTlb: true,
+      instructionFetch: true,
+      generatedCode: true,
+    })}\n`;
+    if (dispatchSystemTime) {
+      child.stdin.write(initialAcknowledgement);
+    } else {
+      child.stdin.end(initialAcknowledgement);
+    }
     const receiptMessage = await nextMessage("reflection receipt");
     const receipt = receiptMessage.message;
     validateReceipt(receipt, offer, context, receiptMessage.lineBytes);
-    const processExit = await exit;
-    assert.equal(processExit.signal, null, `reflection probe terminated by ${processExit.signal}`);
-    assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
-    sessionCompleted = true;
 
     const execution = executeToFirstOwnedTrap(offer, context);
     assert.equal(execution.terminal.kind, "owned-import-thunk");
-    validateThunk(execution.terminal.thunk, expected.terminal.thunk, true);
+    validateThunk(execution.terminal.thunk, expected.terminal.thunk, !dispatchSystemTime);
     assert.equal(execution.instructionCount, expected.terminal.instructionCount);
     assert.equal(execution.executeStops, expected.terminal.executeStops);
     assert.equal(execution.budgetStops, expected.terminal.budgetStops);
     assert.equal(execution.terminal.returnAddress, expected.terminal.returnAddress);
     assert.deepEqual(execution.terminal.stackWords, expected.terminal.stackWords);
+    const systemTime = dispatchSystemTime
+      ? await dispatchFirstSystemTimeCall({
+          child,
+          context,
+          execution,
+          nextMessage,
+          offer,
+        })
+      : null;
+    const processExit = await exit;
+    assert.equal(processExit.signal, null, `reflection probe terminated by ${processExit.signal}`);
+    assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
+    sessionCompleted = true;
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = {
+    const report = dispatchSystemTime
+      ? buildFirstSystemTimeReport({
+          context,
+          execution,
+          invalidationCalls,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          receipt,
+          receiptMessage,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+        })
+      : {
       schema: "vine.v86-bgi-first-trap",
       schemaVersion: 1,
       source: offer.source,
@@ -455,19 +538,31 @@ async function run() {
         message:
           "BGI entry reached an exact runtime-owned import thunk; API dispatch, return-value fabrication, stack cleanup, and guest resume were not attempted",
       },
-    };
+      };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    if (expected.report.bytes !== null) {
-      assert.equal(reportBytes.byteLength, expected.report.bytes);
-      assert.equal(sha256(reportBytes), expected.report.sha256);
+    const expectedReport = dispatchSystemTime
+      ? { bytes: expected.firstCall.reportBytes, sha256: expected.firstCall.reportSha256 }
+      : expected.report;
+    if (expectedReport.bytes !== null) {
+      assert.equal(reportBytes.byteLength, expectedReport.bytes);
+      assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    console.log(
-      `v86 BGI first trap passed: ${offer.reflection.pages.length} pages, ` +
-        `${execution.instructionCount} instructions, thunk ID ${execution.terminal.thunk.id} ` +
-        `${execution.terminal.thunk.module}!${execution.terminal.thunk.name ?? `#${execution.terminal.thunk.ordinal}`}`,
-    );
+    if (dispatchSystemTime) {
+      console.log(
+        `v86 BGI first Win32 call passed: FILETIME generation ` +
+          `${systemTime.delta.delta.generation}, next thunk ID ` +
+          `${systemTime.continuation.terminal.thunk.id} after ` +
+          `${systemTime.continuation.instructionCount} total instructions`,
+      );
+    } else {
+      console.log(
+        `v86 BGI first trap passed: ${offer.reflection.pages.length} pages, ` +
+          `${execution.instructionCount} instructions, thunk ID ${execution.terminal.thunk.id} ` +
+          `${execution.terminal.thunk.module}!${execution.terminal.thunk.name ?? `#${execution.terminal.thunk.ordinal}`}`,
+      );
+    }
     console.log(
       `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
         `${path.relative(root, reportPath)}, ${reportBytes.byteLength} bytes, ` +
@@ -493,6 +588,11 @@ function validateOffer(offer, offerLineBytes) {
   validateThunk(offer.thunks[0], expected.imports.first, false);
   validateThunk(offer.thunks[1], expected.imports.second, true);
   validateThunk(offer.thunks.at(-1), expected.imports.last, true);
+  validateThunk(
+    offer.thunks[expected.terminal.thunk.id - 1],
+    expected.terminal.thunk,
+    !dispatchSystemTime,
+  );
   assert.equal(
     offer.thunks.filter(({ disposition }) => disposition === undefined).length,
     expected.imports.declared,
@@ -579,8 +679,11 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  if (expected.offerLineBytes !== null) {
-    assert.equal(offerLineBytes, expected.offerLineBytes);
+  const expectedOfferLineBytes = dispatchSystemTime
+    ? expected.firstCall.offerLineBytes
+    : expected.offerLineBytes;
+  if (expectedOfferLineBytes !== null) {
+    assert.equal(offerLineBytes, expectedOfferLineBytes);
   }
   for (const reflectedPage of reflected.pages) {
     assert.equal(reflectedPage.ownerSealed, true);
@@ -786,6 +889,7 @@ async function prepareV86(offer) {
     );
     physicalMemory.set(Uint8Array.from(reflected.bytes), physicalBase);
     mappings.set(virtualBase, {
+      owner: reflected.owner,
       physicalBase,
       protection: { ...reflected.protection },
       role: `reflected-owner-${reflected.owner}`,
@@ -799,8 +903,24 @@ async function prepareV86(offer) {
     assert(mapping, `${label} uses unmapped guest address 0x${address.toString(16)}`);
     return mapping;
   };
+  const preflightVirtualRange = (address, size, access, label) => {
+    const end = checkedGuestEnd(address, size, label);
+    const pages = [];
+    for (let current = address; current < end; ) {
+      const virtualBase = (current & ~(page.size - 1)) >>> 0;
+      const mapping = mappingFor(current, label);
+      assert(mapping.protection[access], `${label} is not guest-${access}able`);
+      pages.push({
+        address: virtualBase,
+        owner: mapping.owner,
+        protection: { ...mapping.protection },
+      });
+      current = Math.min(end, virtualBase + page.size);
+    }
+    return pages;
+  };
   const readVirtualBytes = (address, size, label) => {
-    checkedGuestEnd(address, size, label);
+    preflightVirtualRange(address, size, "read", label);
     const bytes = new Uint8Array(size);
     for (let index = 0; index < size; index += 1) {
       const current = (address + index) >>> 0;
@@ -817,6 +937,14 @@ async function prepareV86(offer) {
       (bytes[2] << 16) |
       (bytes[3] << 24)
     ) >>> 0;
+  };
+  const applyDirtyPage = (dirty, label) => {
+    assert.equal(dirty.address & (page.size - 1), 0, `${label} address is not page aligned`);
+    assert.equal(dirty.bytes.length, page.size, `${label} is not one guest page`);
+    const mapping = mappingFor(dirty.address, label);
+    assert.equal(mapping.owner, dirty.owner, `${label} owner changed`);
+    assert.deepEqual(mapping.protection, dirty.protection, `${label} protection changed`);
+    physicalMemory.set(Uint8Array.from(dirty.bytes), mapping.physicalBase);
   };
 
   assert.equal(
@@ -875,6 +1003,8 @@ async function prepareV86(offer) {
     mappings,
     pageDirectory,
     pageTables,
+    applyDirtyPage,
+    preflightVirtualRange,
     readVirtualBytes,
     readVirtualU32,
     wasm,
@@ -949,6 +1079,489 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   if (expected.receiptLineBytes !== null) {
     assert.equal(receiptLineBytes, expected.receiptLineBytes);
   }
+}
+
+async function dispatchFirstSystemTimeCall({ child, context, execution, nextMessage, offer }) {
+  const trapped = execution.finalState;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    8,
+    "read",
+    "GetSystemTimeAsFileTime stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "GetSystemTimeAsFileTime return address",
+  );
+  const outputAddress = context.readVirtualU32(
+    trapped.esp + 4,
+    "GetSystemTimeAsFileTime output pointer",
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  assert.equal(outputAddress, execution.terminal.stackWords[1]);
+
+  const callSite = returnAddress - 6;
+  const callBytes = context.readVirtualBytes(
+    callSite,
+    6,
+    "GetSystemTimeAsFileTime indirect IAT call",
+  );
+  assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
+  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
+  assert.equal(callView.getUint32(2, true), expected.terminal.thunk.iatAddress);
+  assert.equal(
+    context.readVirtualU32(
+      expected.terminal.thunk.iatAddress,
+      "GetSystemTimeAsFileTime bound IAT",
+    ),
+    expected.terminal.thunk.address,
+  );
+
+  const outputPages = context.preflightVirtualRange(
+    outputAddress,
+    8,
+    "write",
+    "GetSystemTimeAsFileTime FILETIME output",
+  );
+  assert.equal(outputPages.length, 1);
+  assert.equal(outputPages[0].owner, expected.stack.owner);
+  assert.equal(outputPages[0].protection.execute, false);
+  const stackPageAddress = (outputAddress & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const outputOffset = outputAddress - stackPageAddress;
+  const outputBefore = context.readVirtualBytes(
+    outputAddress,
+    8,
+    "FILETIME output before host write",
+  );
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page writeback",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const fileTimeBytes = Buffer.alloc(8);
+  fileTimeBytes.writeBigUInt64LE(controlledClock.fileTimeTicks);
+  assert.equal(Number(controlledClock.fileTimeTicks & 0xffff_ffffn), controlledClock.fileTimeLow);
+  assert.equal(
+    Number((controlledClock.fileTimeTicks >> 32n) & 0xffff_ffffn),
+    controlledClock.fileTimeHigh,
+  );
+
+  const request = {
+    schema: "vine.v86-system-time-write-request",
+    schemaVersion: 1,
+    reflectedGeneration: offer.reflection.invalidation.generation,
+    thunkId: expected.terminal.thunk.id,
+    thunkAddress: expected.terminal.thunk.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes: 4,
+    outputAddress,
+    stackPageAddress,
+    stackPageOwner: outputPages[0].owner,
+    stackPageBytes: [...stackPageBytes],
+    clockOwner: controlledClock.owner,
+    clockSampleId: controlledClock.sampleId,
+    clockUtcIso: controlledClock.utcIso,
+    fileTimeLow: controlledClock.fileTimeLow,
+    fileTimeHigh: controlledClock.fileTimeHigh,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 64 * 1024);
+  assert.equal(Buffer.byteLength(requestLine) - 1, expected.firstCall.requestLineBytes);
+  child.stdin.write(requestLine);
+
+  const deltaMessage = await nextMessage("GetSystemTimeAsFileTime memory delta");
+  const delta = deltaMessage.message;
+  assert.equal(delta.schema, "vine.v86-system-time-delta");
+  assert.equal(delta.schemaVersion, 1);
+  validateThunk(delta.thunk, expected.terminal.thunk, false);
+  assert.equal(delta.callingConvention, "stdcall");
+  assert.equal(delta.argumentBytes, 4);
+  assert.equal(delta.stackPointer, trapped.esp);
+  assert.equal(delta.returnAddress, returnAddress);
+  assert.equal(delta.outputAddress, outputAddress);
+  assert.equal(delta.clockOwner, controlledClock.owner);
+  assert.equal(delta.clockSampleId, controlledClock.sampleId);
+  assert.equal(delta.clockUtcIso, controlledClock.utcIso);
+  assert.equal(delta.fileTimeTicks, String(controlledClock.fileTimeTicks));
+  assert.equal(delta.fileTimeLow, controlledClock.fileTimeLow);
+  assert.equal(delta.fileTimeHigh, controlledClock.fileTimeHigh);
+  assert.deepEqual(delta.stackReconciliation, {
+    generation: offer.reflection.invalidation.generation,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: delta.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(delta.stackReconciliation.changedBytes > 0);
+  assert.equal(
+    delta.stackReconciliation.changedBytes,
+    expected.firstCall.reconciledChangedBytes,
+  );
+  assert.equal(
+    delta.stackReconciliation.contentSha256,
+    expected.firstCall.stackPageContentSha256,
+  );
+  assert.equal(delta.write.bytesWritten, 8);
+  assert.equal(delta.write.dirtyPages, 1);
+  assert.deepEqual(delta.write.invalidation, {
+    generation: expected.firstCall.deltaGeneration,
+    dataTlb: false,
+    instructionFetch: false,
+    generatedCode: false,
+  });
+  assert.equal(delta.delta.fromGeneration, offer.reflection.invalidation.generation);
+  assert.equal(delta.delta.generation, expected.firstCall.deltaGeneration);
+  assert.equal(delta.delta.pageSize, page.size);
+  assert.deepEqual(delta.delta.mappingOperations, []);
+  assert.equal(delta.delta.dirtyPages.length, 1);
+  const dirty = delta.delta.dirtyPages[0];
+  assert.equal(dirty.address, stackPageAddress);
+  assert.equal(dirty.owner, expected.stack.owner);
+  assert.equal(dirty.ownerSealed, true);
+  assert.deepEqual(dirty.protection, { read: true, write: true, execute: false });
+  assert.equal(dirty.bytes.length, page.size);
+  const expectedStackPage = Uint8Array.from(stackPageBytes);
+  expectedStackPage.set(fileTimeBytes, outputOffset);
+  assert.deepEqual(dirty.bytes, [...expectedStackPage]);
+  assert.equal(delta.delta.transferredBytes, page.size);
+  assert.deepEqual(delta.delta.cacheEffects, {
+    flushTlb: false,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  });
+  assert.match(delta.delta.contentSha256, /^[0-9a-f]{64}$/);
+  assert.equal(delta.delta.contentSha256, expected.firstCall.deltaContentSha256);
+  if (expected.firstCall.deltaLineBytes !== null) {
+    assert.equal(deltaMessage.lineBytes, expected.firstCall.deltaLineBytes);
+  }
+
+  context.applyDirtyPage(dirty, "GetSystemTimeAsFileTime stack delta");
+  assert.deepEqual(
+    [...context.readVirtualBytes(outputAddress, 8, "applied FILETIME output")],
+    [...fileTimeBytes],
+  );
+  child.stdin.end(
+    `${JSON.stringify({
+      schema: "vine.v86-memory-delta-ack",
+      schemaVersion: 1,
+      generation: delta.delta.generation,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    })}\n`,
+  );
+  const receiptMessage = await nextMessage("GetSystemTimeAsFileTime delta receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-system-time-delta-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  assert.equal(receipt.acknowledgedGeneration, delta.delta.generation);
+  assert.equal(receipt.outputAddress, outputAddress);
+  assert.deepEqual(receipt.outputBytes, [...fileTimeBytes]);
+  assert.equal(receipt.stats.generation, delta.delta.generation);
+  assert.equal(receipt.stats.acknowledgedGeneration, delta.delta.generation);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.firstCall.deltaReceiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.firstCall.deltaReceiptLineBytes);
+  }
+
+  const resume = resumeVoidStdcall(context, trapped, returnAddress, 4);
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  assert.equal(continuation.terminal.kind, "owned-import-thunk");
+  if (expected.firstCall.nextThunk !== null) {
+    validateThunk(
+      continuation.terminal.thunk,
+      expected.firstCall.nextThunk.identity,
+      expected.firstCall.nextThunk.unsupported,
+    );
+    assert.equal(continuation.instructionCount, expected.firstCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.firstCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.firstCall.budgetStops);
+    assert.equal(
+      continuation.terminal.returnAddress,
+      expected.firstCall.nextThunk.returnAddress,
+    );
+    assert.deepEqual(continuation.terminal.stackWords, expected.firstCall.nextThunk.stackWords);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      outputAddress: request.outputAddress,
+      outputBefore: [...outputBefore],
+      stackPageAddress: request.stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    clock: {
+      owner: controlledClock.owner,
+      sampleId: controlledClock.sampleId,
+      utcIso: controlledClock.utcIso,
+      fileTimeTicks: String(controlledClock.fileTimeTicks),
+      fileTimeLow: controlledClock.fileTimeLow,
+      fileTimeHigh: controlledClock.fileTimeHigh,
+      bytes: [...fileTimeBytes],
+    },
+    delta: {
+      lineBytes: deltaMessage.lineBytes,
+      callingConvention: delta.callingConvention,
+      argumentBytes: delta.argumentBytes,
+      stackReconciliation: delta.stackReconciliation,
+      write: delta.write,
+      delta: {
+        fromGeneration: delta.delta.fromGeneration,
+        generation: delta.delta.generation,
+        pageSize: delta.delta.pageSize,
+        mappingOperations: delta.delta.mappingOperations.length,
+        dirtyPages: delta.delta.dirtyPages.length,
+        dirtyPageAddress: dirty.address,
+        dirtyPageOwner: dirty.owner,
+        transferredBytes: delta.delta.transferredBytes,
+        cacheEffects: delta.delta.cacheEffects,
+        contentSha256: delta.delta.contentSha256,
+      },
+    },
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
+function captureCpuState(context, reason) {
+  context.wasm.vine_cpu_state_save();
+  const words = Uint32Array.from(
+    new Uint32Array(
+      context.wasm.memory.buffer,
+      context.wasm.vine_cpu_state_ptr(),
+      context.wasm.vine_cpu_state_size() / 4,
+    ),
+  );
+  const privateState = new DataView(context.wasm.memory.buffer);
+  return {
+    reason,
+    errorCode: context.wasm.vine_get_stop_error_code(),
+    instructionCount: privateState.getUint32(adapterPrivateOffset.instructionCounter, true),
+    eax: words[stateWord.eax],
+    ecx: words[stateWord.ecx],
+    edx: words[stateWord.edx],
+    ebx: words[stateWord.ebx],
+    esp: words[stateWord.esp],
+    ebp: words[stateWord.ebp],
+    esi: words[stateWord.esi],
+    edi: words[stateWord.edi],
+    flags: words[stateWord.flags],
+    faultAddress: words[stateWord.controlRegisterBase + 2],
+    instructionPointer: words[stateWord.instructionPointer],
+    previousInstructionPointer: words[stateWord.previousInstructionPointer],
+    fsSelector: words[stateWord.segmentSelectorBase + segmentIndex.fs],
+    fsBase: words[stateWord.segmentOffsetBase + segmentIndex.fs],
+  };
+}
+
+function resumeVoidStdcall(context, trapped, returnAddress, argumentBytes) {
+  assert.equal(argumentBytes, 4);
+  context.wasm.vine_cpu_state_save();
+  const words = new Uint32Array(
+    context.wasm.memory.buffer,
+    context.wasm.vine_cpu_state_ptr(),
+    context.wasm.vine_cpu_state_size() / 4,
+  );
+  assert.equal(words[stateWord.instructionPointer], trapped.instructionPointer);
+  assert.equal(words[stateWord.previousInstructionPointer], trapped.previousInstructionPointer);
+  assert.equal(words[stateWord.esp], trapped.esp);
+  assert.equal(words[stateWord.eax], trapped.eax);
+  const resumedEsp = checkedGuestEnd(
+    trapped.esp,
+    4 + argumentBytes,
+    "GetSystemTimeAsFileTime stdcall cleanup",
+  );
+  words[stateWord.esp] = resumedEsp;
+  words[stateWord.instructionPointer] = returnAddress;
+  words[stateWord.previousInstructionPointer] = returnAddress;
+  assert.equal(context.wasm.vine_cpu_state_restore(), 0);
+  const resumed = captureCpuState(context, 0);
+  assert.equal(resumed.eax, trapped.eax, "void API return must not fabricate EAX");
+  assert.equal(resumed.esp, resumedEsp);
+  assert.equal(resumed.instructionPointer, returnAddress);
+  assert.equal(resumed.previousInstructionPointer, returnAddress);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: resumed.eax,
+    voidResultPolicy: "preserve-eax-checkpoint-selection",
+  };
+}
+
+function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
+  const executablePages = new Set(
+    offer.reflection.pages
+      .filter(({ ownerSealed, protection }) => ownerSealed && protection.execute)
+      .map(({ address }) => address),
+  );
+  const thunksByAddress = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
+  const sentinelsByAddress = new Map([
+    [offer.callbackReturnSentinel.address, "callback-return-sentinel"],
+    [offer.processEntryReturnSentinel.address, "process-entry-return-sentinel"],
+  ]);
+  let budgetStops = 0;
+  let executeStops = 0;
+  let terminal = null;
+  let finalState = captureCpuState(context, 0);
+  assert.equal(finalState.instructionCount, initialInstructionCount);
+  for (let index = 0; index < guest.maximumExecuteStops; index += 1) {
+    const before = captureCpuState(context, 0);
+    const fetchWindow = executableFetchWindow(before.instructionPointer, executablePages);
+    if (!fetchWindow.allowed) {
+      terminal = {
+        kind: "logical-execute-gate",
+        stage: "instruction-fetch",
+        code: "cross-page-execute-permission-unimplemented",
+        instructionPointer: before.instructionPointer,
+        deniedPage: fetchWindow.deniedPage,
+        checkedBytes: 15,
+      };
+      finalState = before;
+      break;
+    }
+    const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
+    executeStops += 1;
+    const state = captureCpuState(context, reason);
+    finalState = state;
+    if (reason === stopReason.budget) {
+      budgetStops += 1;
+      continue;
+    }
+    terminal = classifyTerminal(state, thunksByAddress, sentinelsByAddress, context);
+    break;
+  }
+  assert(terminal, "BGI continuation exhausted its bounded window without a terminal stop");
+  assert.equal(terminal.kind, "owned-import-thunk", "BGI continuation did not reach an import");
+  return {
+    instructionBudget: guest.instructionBudget,
+    maximumExecuteStops: guest.maximumExecuteStops,
+    maximumAdditionalInstructions: guest.instructionBudget * guest.maximumExecuteStops,
+    executeStops,
+    budgetStops,
+    initialInstructionCount,
+    additionalInstructionCount: finalState.instructionCount - initialInstructionCount,
+    instructionCount: finalState.instructionCount,
+    finalState,
+    terminal,
+    hostImportCalls: context.hostImportCalls,
+  };
+}
+
+function buildFirstSystemTimeReport({
+  context,
+  execution,
+  invalidationCalls,
+  offer,
+  offerMessage,
+  ownerSummaries,
+  receipt,
+  receiptMessage,
+  sourceAfter,
+  sourceBefore,
+  systemTime,
+}) {
+  return {
+    schema: "vine.v86-bgi-first-win32-call",
+    schemaVersion: 1,
+    source: offer.source,
+    sourceSnapshot: {
+      immutableAcrossRun: true,
+      before: sourceBefore,
+      after: sourceAfter,
+    },
+    contract: {
+      largeImageReflection: {
+        maximumReflectionPages: protocol.maximumReflectionPages,
+        maximumProtocolLineBytes: protocol.maximumLineBytes,
+      },
+      commandLine: expected.processEnvironment.commandLine,
+      clockOwner: controlledClock.owner,
+      clockSampleId: controlledClock.sampleId,
+      oneSupportedServiceDispatch: true,
+      stopAtNextOwnedTrap: true,
+    },
+    bootstrap: {
+      imageLoadBase: offer.imageLoadBase,
+      entryPoint: offer.entryPointAddress,
+      initialThreadStack: offer.initialThreadStack,
+      initialProcessEnvironment: offer.initialProcessEnvironment,
+      fsSelector: 0,
+      fsBase: offer.initialProcessEnvironment.tebAddress,
+    },
+    imports: {
+      total: offer.thunks.length,
+      declared: offer.thunks.filter(({ disposition }) => disposition === undefined).length,
+      unsupported: offer.thunks.filter(({ disposition }) => disposition === "unsupported-trap")
+        .length,
+      first: offer.thunks[0],
+      supportedSystemTime: offer.thunks[expected.terminal.thunk.id - 1],
+      last: offer.thunks.at(-1),
+    },
+    adapter: {
+      wasm: expected.wasm,
+      physicalPoolBytes: guest.physicalPoolBytes,
+      excludedPhysicalRanges: guest.excludedPhysicalRanges,
+      pageDirectory: context.pageDirectory,
+      pageTables: [...context.pageTables.entries()].map(
+        ([directoryIndex, physicalAddress]) => ({ directoryIndex, physicalAddress }),
+      ),
+      allocatedPages: context.allocations.length,
+      reflectedPageAllocations: context.allocations.filter(({ role }) =>
+        role.startsWith("reflected-owner-"),
+      ).length,
+    },
+    reflection: {
+      offerLineBytes: offerMessage.lineBytes,
+      receiptLineBytes: receiptMessage.lineBytes,
+      pageSize: offer.reflection.pageSize,
+      pages: offer.reflection.pages.length,
+      contentSha256: offer.reflection.contentSha256,
+      ownerSummaries,
+      invalidation: offer.reflection.invalidation,
+      acknowledgement: {
+        generation: receipt.acknowledgedGeneration,
+        callsBeforeAck: invalidationCalls,
+        pendingAfterAck: receipt.stats.pendingInvalidation ?? null,
+      },
+    },
+    firstTrap: execution,
+    systemTime: {
+      request: systemTime.request,
+      clock: systemTime.clock,
+      delta: systemTime.delta,
+      receipt: systemTime.receipt,
+      resume: systemTime.resume,
+    },
+    continuation: systemTime.continuation,
+    stop: {
+      stage: "thunk-dispatch",
+      code: "next-runtime-reachable-owned-import-trap",
+      message:
+        "BGI returned from one checked GetSystemTimeAsFileTime call and reached the next exact runtime-owned import thunk without dispatching it",
+    },
+  };
 }
 
 function executeToFirstOwnedTrap(offer, context) {

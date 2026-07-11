@@ -2,19 +2,21 @@
 
 use std::env;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use vine_core::{
     CallbackReturnSentinel, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportThunk, InitialProcessEnvironment,
-    InitialThreadStack, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryInvalidation,
-    MemoryLimits, MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
-    ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog, UnsupportedPoint,
-    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
-    install_callback_return_sentinel, install_controlled_initial_stack,
+    GuestPageReconciliation, GuestWriteResult, ImageMaterialization, ImageMemoryLayout,
+    ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition, InitialProcessEnvironment,
+    InitialThreadStack, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
+    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
+    ModuleSnapshot, Pe32Limits, ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog,
+    UnsupportedPoint, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
+    build_pe32_load_plan, install_callback_return_sentinel, install_controlled_initial_stack,
     install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_parameters, install_runtime_return_sentinels,
@@ -31,6 +33,7 @@ struct Arguments {
     runtime_exports: Vec<RuntimeExport>,
     trap_unsupported_imports: bool,
     v86_reflection_session: bool,
+    system_time_delta_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -161,6 +164,72 @@ struct V86ReflectionReceipt {
     #[serde(skip_serializing_if = "Option::is_none")]
     command_line_bytes: Option<Vec<u8>>,
     stop: UnsupportedPoint,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86SystemTimeWriteRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    output_address: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    clock_owner: String,
+    clock_sample_id: String,
+    clock_utc_iso: String,
+    file_time_low: u32,
+    file_time_high: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86SystemTimeDeltaOffer {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    output_address: GuestAddress,
+    clock_owner: String,
+    clock_sample_id: String,
+    clock_utc_iso: String,
+    file_time_ticks: String,
+    file_time_low: u32,
+    file_time_high: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    write: GuestWriteResult,
+    delta: MemoryDelta,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86MemoryDeltaAck {
+    schema: String,
+    schema_version: u32,
+    generation: u64,
+    data_tlb: bool,
+    instruction_fetch: bool,
+    generated_code: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86SystemTimeDeltaReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    acknowledged_generation: u64,
+    output_address: GuestAddress,
+    output_bytes: Vec<u8>,
+    stats: MemoryStats,
 }
 
 fn main() -> ExitCode {
@@ -465,7 +534,9 @@ fn run_v86_reflection_session(
     };
     write_protocol_message(&offer, reflection_message_limit)?;
 
-    let ack = read_v86_reflection_ack()?;
+    let stdin = io::stdin();
+    let mut protocol_input = stdin.lock();
+    let ack = read_v86_reflection_ack(&mut protocol_input)?;
     validate_v86_reflection_ack(&ack, offer.reflection.invalidation)?;
     memory
         .acknowledge_invalidation(ack.generation)
@@ -613,37 +684,26 @@ fn run_v86_reflection_session(
             message: reflection_stop_message,
         },
     };
-    write_protocol_message(&receipt, reflection_message_limit)
+    write_protocol_message(&receipt, reflection_message_limit)?;
+    if arguments.system_time_delta_session {
+        run_v86_system_time_delta_session(
+            &mut protocol_input,
+            &mut memory,
+            &binding,
+            reflection_message_limit,
+        )?;
+    }
+    Ok(())
 }
 
-fn read_v86_reflection_ack() -> Result<V86ReflectionAck, LoaderError> {
-    const MAX_ACK_BYTES: u64 = 4_096;
-    let mut bytes = Vec::new();
-    io::stdin()
-        .take(MAX_ACK_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| {
-            io_error(
-                "memory-reflection",
-                "reflection-ack-read-failed",
-                "could not read the adapter invalidation acknowledgement",
-                error,
-            )
-        })?;
-    if bytes.len() as u64 > MAX_ACK_BYTES {
-        return Err(LoaderError::resource_limit(
-            "memory-reflection",
-            "reflection-ack-size-exceeded",
-            "adapter invalidation acknowledgement exceeds 4 KiB",
-        ));
-    }
-    serde_json::from_slice(&bytes).map_err(|error| {
-        LoaderError::invalid_input(
-            "memory-reflection",
-            "reflection-ack-invalid",
-            format!("adapter invalidation acknowledgement is not valid JSON: {error}"),
-        )
-    })
+fn read_v86_reflection_ack(input: &mut impl BufRead) -> Result<V86ReflectionAck, LoaderError> {
+    read_protocol_message(
+        input,
+        4 * 1024,
+        "memory-reflection",
+        "reflection-ack",
+        "adapter invalidation acknowledgement",
+    )
 }
 
 fn validate_v86_reflection_ack(
@@ -675,6 +735,258 @@ fn validate_v86_reflection_ack(
         ));
     }
     Ok(())
+}
+
+fn run_v86_system_time_delta_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+) -> Result<(), LoaderError> {
+    let request: V86SystemTimeWriteRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-system-time",
+        "system-time-write-request",
+        "controlled system-time write request",
+    )?;
+    if request.schema != "vine.v86-system-time-write-request" || request.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "win32-system-time",
+            "system-time-write-request-schema-unsupported",
+            "system-time write request must use vine.v86-system-time-write-request version 1",
+        ));
+    }
+    if request.argument_bytes != 4 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "system-time-argument-width-mismatch",
+            "GetSystemTimeAsFileTime requires one four-byte stdcall argument",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "system-time-thunk-id-unowned",
+                "system-time write request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "GetSystemTimeAsFileTime"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "system-time-thunk-identity-mismatch",
+            "system-time write request does not match the declared GetSystemTimeAsFileTime thunk",
+        ));
+    }
+
+    let file_time_ticks =
+        (u64::from(request.file_time_high) << 32) | u64::from(request.file_time_low);
+    let file_time_bytes = file_time_ticks.to_le_bytes();
+    let (stack_reconciliation, write, delta) = {
+        let mut transaction = memory.begin_transaction();
+        let stack_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+
+        let frame = transaction
+            .read(GuestAddress(request.stack_pointer), 8)
+            .map_err(memory_error)?;
+        let observed_return = u32::from_le_bytes(frame[0..4].try_into().map_err(|_| {
+            LoaderError::runtime_defect(
+                "abi-gateway",
+                "system-time-return-width-invalid",
+                "checked stdcall frame did not contain a four-byte return address",
+            )
+        })?);
+        let observed_output = u32::from_le_bytes(frame[4..8].try_into().map_err(|_| {
+            LoaderError::runtime_defect(
+                "abi-gateway",
+                "system-time-argument-width-invalid",
+                "checked stdcall frame did not contain one four-byte argument",
+            )
+        })?);
+        if observed_return != request.return_address || observed_output != request.output_address {
+            return Err(LoaderError::invalid_input(
+                "abi-gateway",
+                "system-time-frame-mismatch",
+                "reconciled stdcall frame does not match the adapter-observed return and output pointer",
+            ));
+        }
+
+        let call_site = request.return_address.checked_sub(6).ok_or_else(|| {
+            LoaderError::invalid_input(
+                "abi-gateway",
+                "system-time-return-address-underflow",
+                "system-time return address cannot identify a six-byte indirect call",
+            )
+        })?;
+        let call = transaction
+            .fetch(GuestAddress(call_site), 6)
+            .map_err(memory_error)?;
+        let iat_operand = u32::from_le_bytes(call[2..6].try_into().map_err(|_| {
+            LoaderError::runtime_defect(
+                "abi-gateway",
+                "system-time-call-width-invalid",
+                "checked import call did not contain a four-byte IAT operand",
+            )
+        })?);
+        if call[0..2] != [0xff, 0x15] || iat_operand != thunk.iat_address.0 {
+            return Err(LoaderError::invalid_input(
+                "abi-gateway",
+                "system-time-callsite-mismatch",
+                "system-time return address does not follow the expected indirect IAT call",
+            ));
+        }
+        let iat = transaction
+            .read(thunk.iat_address, 4)
+            .map_err(memory_error)?;
+        let iat_value = u32::from_le_bytes(iat.try_into().map_err(|_| {
+            LoaderError::runtime_defect(
+                "abi-gateway",
+                "system-time-iat-width-invalid",
+                "checked system-time IAT entry did not contain four bytes",
+            )
+        })?);
+        if iat_value != thunk.address.0 {
+            return Err(LoaderError::invalid_input(
+                "abi-gateway",
+                "system-time-iat-value-mismatch",
+                "system-time IAT entry no longer points to its owned thunk",
+            ));
+        }
+
+        let write = transaction
+            .write(GuestAddress(request.output_address), &file_time_bytes)
+            .map_err(memory_error)?;
+        let delta = transaction.pending_delta().map_err(memory_error)?;
+        if delta.from_generation != request.reflected_generation
+            || delta.dirty_pages.len() != 1
+            || delta.dirty_pages[0].address.0 != request.stack_page_address
+            || delta.dirty_pages[0].owner.0 != request.stack_page_owner
+            || !delta.mapping_operations.is_empty()
+            || delta.cache_effects.flush_tlb
+            || delta.cache_effects.invalidate_instruction_fetch
+            || delta.cache_effects.invalidate_generated_code
+        {
+            return Err(LoaderError::runtime_defect(
+                "memory-delta",
+                "system-time-delta-shape-invalid",
+                "checked FILETIME write did not produce one data-only stack-page delta",
+            ));
+        }
+        transaction.commit_transaction();
+        (stack_reconciliation, write, delta)
+    };
+
+    let delta_generation = delta.generation;
+    write_protocol_message(
+        &V86SystemTimeDeltaOffer {
+            schema: "vine.v86-system-time-delta",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            output_address: GuestAddress(request.output_address),
+            clock_owner: request.clock_owner,
+            clock_sample_id: request.clock_sample_id,
+            clock_utc_iso: request.clock_utc_iso,
+            file_time_ticks: file_time_ticks.to_string(),
+            file_time_low: request.file_time_low,
+            file_time_high: request.file_time_high,
+            stack_reconciliation,
+            write,
+            delta,
+        },
+        message_limit,
+    )?;
+
+    let ack: V86MemoryDeltaAck = read_protocol_message(
+        input,
+        4 * 1024,
+        "memory-delta",
+        "system-time-delta-ack",
+        "system-time memory-delta acknowledgement",
+    )?;
+    if ack.schema != "vine.v86-memory-delta-ack"
+        || ack.schema_version != 1
+        || ack.generation != delta_generation
+        || ack.data_tlb
+        || ack.instruction_fetch
+        || ack.generated_code
+    {
+        return Err(LoaderError::invalid_input(
+            "memory-delta",
+            "system-time-delta-ack-invalid",
+            "system-time delta acknowledgement does not match its generation and cache effects",
+        ));
+    }
+    memory
+        .acknowledge_invalidation(ack.generation)
+        .map_err(memory_error)?;
+    let output_bytes = memory
+        .read(GuestAddress(request.output_address), file_time_bytes.len())
+        .map_err(memory_error)?;
+    write_protocol_message(
+        &V86SystemTimeDeltaReceipt {
+            schema: "vine.v86-system-time-delta-receipt",
+            schema_version: 1,
+            acknowledged_generation: ack.generation,
+            output_address: GuestAddress(request.output_address),
+            output_bytes,
+            stats: memory.stats(),
+        },
+        message_limit,
+    )
+}
+
+fn read_protocol_message<T: DeserializeOwned>(
+    input: &mut impl BufRead,
+    maximum_bytes: usize,
+    stage: &'static str,
+    code: &'static str,
+    label: &'static str,
+) -> Result<T, LoaderError> {
+    let mut bytes = Vec::new();
+    input
+        .take((maximum_bytes + 1) as u64)
+        .read_until(b'\n', &mut bytes)
+        .map_err(|error| io_error(stage, "protocol-message-read-failed", label, error))?;
+    if bytes.is_empty() {
+        return Err(LoaderError::invalid_input(
+            stage,
+            "protocol-message-missing",
+            format!("{label} was not provided"),
+        ));
+    }
+    if bytes.len() > maximum_bytes {
+        return Err(LoaderError::resource_limit(
+            stage,
+            "protocol-message-size-exceeded",
+            format!("{label} exceeds its {maximum_bytes}-byte limit"),
+        ));
+    }
+    serde_json::from_slice(&bytes).map_err(|error| {
+        LoaderError::invalid_input(stage, code, format!("{label} is not valid JSON: {error}"))
+    })
 }
 
 fn write_protocol_message(
@@ -785,6 +1097,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut runtime_exports = Vec::new();
     let mut trap_unsupported_imports = false;
     let mut v86_reflection_session = false;
+    let mut system_time_delta_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -843,6 +1156,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             v86_reflection_session = true;
+        } else if argument == "--system-time-delta-session" {
+            if system_time_delta_session {
+                return Err(usage_error());
+            }
+            system_time_delta_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -922,6 +1240,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if large_image_reflection && !v86_reflection_session {
         return Err(usage_error());
     }
+    if system_time_delta_session && !v86_reflection_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -935,6 +1256,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         runtime_exports,
         trap_unsupported_imports,
         v86_reflection_session,
+        system_time_delta_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -1017,7 +1339,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

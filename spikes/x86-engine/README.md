@@ -71,9 +71,11 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bootstrap-params-first-stop` runs a separate import-free native command-line oracle, then executes it against the existing minimum TEB／PEB. It fixes the zero `PEB+0x10` observation, explicit result `2`, and exact entry return without pretending that process parameters exist. The result is recorded in [v86-bootstrap-params-first-stop.md](../../docs/v86-bootstrap-params-first-stop.md).
 
-`npm run check:runtime:bootstrap-params` adds typed Rust-owned process-parameters and command-line pages, reflects generation `14`, and verifies the exact UTF-16 observations plus entry result `0`. The result is recorded in [v86-bootstrap-params-ingress.md](../../docs/v86-bootstrap-params-ingress.md).
+`npm run check:runtime:bootstrap-params` adds typed Rust-owned process-parameters and command-line pages, reflects generation `21`, and verifies the exact UTF-16 observations plus entry result `0`. The result is recorded in [v86-bootstrap-params-ingress.md](../../docs/v86-bootstrap-params-ingress.md).
 
-`npm run check:runtime:bgi-first-trap` uses explicit 400-page／8 MiB protocol limits to reflect 388 sealed BGI pages at generation `16`. Its adapter allocator excludes v86's physical VGA MMIO hole, then executes entry `0x100A383E` for 19 instructions to exact owned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`. It stops before dispatch or return; the result is recorded in [v86-bgi-first-trap.md](../../docs/v86-bgi-first-trap.md).
+`npm run check:runtime:bgi-first-trap` uses explicit 400-page／8 MiB protocol limits to reflect 388 sealed BGI pages at generation `24`. Its adapter allocator excludes v86's physical VGA MMIO hole, then executes entry `0x100A383E` for 19 instructions to exact owned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`. It stops before dispatch or return; the result is recorded in [v86-bgi-first-trap.md](../../docs/v86-bgi-first-trap.md).
+
+`npm run check:runtime:bgi-first-win32-call` keeps the same reflected bytes, reconciles one live stack page at generation `24`, writes a controlled `FILETIME` through a generation `25` delta, returns from exact thunk ID `104`, and stops after four more instructions at ID `103`／`KERNEL32.dll!GetCurrentProcessId`. The result is recorded in [v86-bgi-first-win32-call.md](../../docs/v86-bgi-first-win32-call.md).
 
 ## Observed artifact
 
@@ -89,4 +91,4 @@ The 2026-07-10 local build produced the following evidence. Compiler output hash
 
 ## Remaining work
 
-The state layout is explicit, but adapter physical memory remains one bounded pool with an explicitly excluded VGA hole, and memory-size setup still uses one private offset pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior, and production reflection reaches the first BGI import trap. General region mutation／dirty-page synchronization、BGI API return、snapshot、general ABI、Chromium Worker remain unimplemented.
+The state layout is explicit, but adapter physical memory remains one bounded pool with an explicitly excluded VGA hole, and memory-size setup still uses one private offset pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior, and production reflection returns from one BGI API. General region mutation／dirty-page synchronization、second and later BGI API return、snapshot、general ABI、Chromium Worker remain unimplemented.

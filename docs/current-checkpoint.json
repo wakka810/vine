@@ -1,10 +1,14 @@
 {
   "schema": "vine.current-checkpoint",
   "schemaVersion": 1,
-  "checkpoint": "bgi-first-owned-trap",
-  "entryInstructionCount": 19,
-  "ownedTrapId": 104,
-  "ownedTrap": "KERNEL32.dll!GetSystemTimeAsFileTime",
+  "checkpoint": "bgi-first-win32-call",
+  "entryInstructionCount": 23,
+  "supportedCallCount": 1,
+  "lastSupportedCallId": 104,
+  "lastSupportedCall": "KERNEL32.dll!GetSystemTimeAsFileTime",
+  "memoryGeneration": 25,
+  "ownedTrapId": 103,
+  "ownedTrap": "KERNEL32.dll!GetCurrentProcessId",
   "memoryProtocol": "memory-delta-v1",
-  "nextCheckpoint": "first-supported-win32-call-return"
+  "nextCheckpoint": "second-supported-win32-call-return"
 }

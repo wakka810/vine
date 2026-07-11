@@ -20,14 +20,21 @@ if (!fs.existsSync(wasm)) {
     "private corpus is available but the source adapter is missing; run npm run check:adapter first",
   );
 }
-const result = spawnSync(
-  process.execPath,
-  [path.join(root, "tools", "run-runtime-v86-bgi-first-trap.mjs"), wasm, bgi],
-  { cwd: root, stdio: "inherit" },
-);
-if (result.error) {
-  throw result.error;
-}
-if (result.status !== 0) {
-  process.exit(result.status ?? 1);
+for (const modeArguments of [[], ["--dispatch-system-time"]]) {
+  const result = spawnSync(
+    process.execPath,
+    [
+      path.join(root, "tools", "run-runtime-v86-bgi-first-trap.mjs"),
+      ...modeArguments,
+      wasm,
+      bgi,
+    ],
+    { cwd: root, stdio: "inherit" },
+  );
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
 }

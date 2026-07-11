@@ -116,9 +116,11 @@ BGI continuationは同じboundaryを388 semantic pages／generation `24`へ拡�
 
 `npm run check:runtime:memory-delta`は初回snapshotのack後にnon-executable RW pageへ8 bytesを書き、generation `11`の1-page／4 KiB deltaをlive v86 mappingへ適用する。cache effectsはすべてfalseで、guest x86はEDX:EAX `0x8877665544332211`を読む。mapping／write-to-code／partial ackとtransaction failpointのRust contractを含む詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)を正とする。
 
+BGI first-call continuationは、outputとlive call frameが同じstack pageにあるcaseを固定した。adapterがcurrent 4 KiB pageをgeneration `24`／owner `4`付きで供給し、Rustはalignment／size／mapping／write permissionをchecked reconcileする。この取込はgenerationを進めずdirtyにもせず、直後の8-byte host writeだけがgeneration `25` deltaを作る。full delta pageがcurrent adapter page＋outputと一致することを検査した。これはexplicit one-page handoffであり、自動dirty trackingではない。詳細は[v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md)を正とする。
+
 次は未実装であり、このADRをAcceptedへ進める前に閉じる。
 
-- v86側guest writeをRustへ戻すbidirectional dirty-page ownership
+- v86側guest writeを自動検出しRustへ戻すgeneral bidirectional dirty-page ownership
 - process-wide stack／heap／module mappingとexecute gate、fault classificationのgeneralization
 - region／page／CPU generationを揃えるsnapshot contract
 - guard、mapped file、copy-on-write、sharing、memory pressure、Worker ceiling
@@ -127,6 +129,6 @@ host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 fac
 
 ## 7. Non-Claims And Next Gate
 
-production ingressとcontrolled reflection checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、v86-originated dirty capture、PAE／NX、decode-aware cross-page execute permission、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはhost-originated dirty pagesをv86へ差分反映できるが、general heap／module lifecycleには未接続である。
+production ingressとcontrolled reflection checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、automatic v86-originated dirty capture、PAE／NX、decode-aware cross-page execute permission、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはhost-originated dirty pagesをv86へ差分反映でき、one explicit CPU pageをreconcileできるが、general heap／module lifecycleには未接続である。
 
-owned W7 plan、entry completion、initial stack、typed bootstrap reflection、atomic import binding、MemoryDelta、BGI first runtime-reachable trapまで進んだ。host API outputのdirty synchronizationは成立したが、v86-originated mutation、stack growth／heap／snapshotが未完了であるためADR statusは変えない。
+owned W7 plan、entry completion、initial stack、typed bootstrap reflection、atomic import binding、MemoryDelta、BGI first API returnまで進んだ。host API outputとbounded one-page reconciliationは成立したが、automatic v86-originated mutation、stack growth／heap／snapshotが未完了であるためADR statusは変えない。

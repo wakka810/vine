@@ -33,6 +33,29 @@ fn transfers_incremental_memory_deltas_and_acknowledges_exact_generations() {
         .expect("initial acknowledgement");
     assert_eq!(memory.stats().dirty_pages, 0);
 
+    let mut cpu_page = reflection.pages[0].bytes.clone();
+    cpu_page[0x100..0x104].copy_from_slice(&[0xaa, 0xbb, 0xcc, 0xdd]);
+    let reconciliation = memory
+        .reconcile_reflected_page(
+            reflection.invalidation.generation,
+            data_owner,
+            DATA_BASE,
+            &cpu_page,
+        )
+        .expect("CPU page reconciliation");
+    assert_eq!(
+        reconciliation.generation,
+        reflection.invalidation.generation
+    );
+    assert_eq!(reconciliation.owner, data_owner);
+    assert_eq!(reconciliation.bytes_reconciled, 0x1000);
+    assert_eq!(reconciliation.changed_bytes, 4);
+    assert_eq!(
+        memory.stats().generation,
+        reflection.invalidation.generation
+    );
+    assert_eq!(memory.stats().dirty_pages, 0);
+
     let first_write = memory
         .write(GuestAddress(DATA_BASE.0 + 0x20), &[1, 2, 3, 4, 5, 6, 7, 8])
         .expect("ordinary data write");
@@ -42,6 +65,10 @@ fn transfers_incremental_memory_deltas_and_acknowledges_exact_generations() {
     assert_eq!(first_delta.dirty_pages.len(), 1);
     assert_eq!(first_delta.dirty_pages[0].address, DATA_BASE);
     assert_eq!(first_delta.transferred_bytes, 0x1000);
+    assert_eq!(
+        &first_delta.dirty_pages[0].bytes[0x100..0x104],
+        &[0xaa, 0xbb, 0xcc, 0xdd]
+    );
     assert_eq!(first_delta.cache_effects, CacheEffects::default());
     assert!(first_delta.mapping_operations.is_empty());
     memory

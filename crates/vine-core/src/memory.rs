@@ -268,6 +268,17 @@ pub struct GuestWriteResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GuestPageReconciliation {
+    pub generation: u64,
+    pub address: GuestAddress,
+    pub owner: MemoryOwnerId,
+    pub bytes_reconciled: usize,
+    pub changed_bytes: usize,
+    pub content_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ImageMemoryLayout {
     pub source: ModuleIdentity,
     pub owner: MemoryOwnerId,
@@ -1547,6 +1558,98 @@ impl GuestMemory {
             bytes_written: bytes.len(),
             dirty_pages: unique_segment_pages(&segments),
             invalidation,
+        })
+    }
+
+    pub fn reconcile_reflected_page(
+        &mut self,
+        acknowledged_generation: u64,
+        owner: MemoryOwnerId,
+        address: GuestAddress,
+        bytes: &[u8],
+    ) -> Result<GuestPageReconciliation, GuestMemoryError> {
+        self.ensure_synchronized()?;
+        if !self.initial_reflection_acknowledged {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-reconciliation",
+                "initial-memory-reflection-required",
+                "a full memory reflection must be acknowledged before CPU page reconciliation",
+            ));
+        }
+        if acknowledged_generation != self.acknowledged_generation {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-reconciliation",
+                "reconciliation-generation-mismatch",
+                "CPU page reconciliation does not match the acknowledged memory generation",
+            ));
+        }
+        if !address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-reconciliation",
+                "reconciliation-address-not-page-aligned",
+                "CPU page reconciliation address must be guest-page aligned",
+            ));
+        }
+        if bytes.len() != GUEST_PAGE_SIZE_USIZE {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-reconciliation",
+                "reconciliation-page-size-mismatch",
+                "CPU page reconciliation must provide exactly one guest page",
+            ));
+        }
+
+        let segments = self.preflight_guest_access_without_synchronization(
+            address,
+            bytes.len(),
+            MemoryAccess::Write,
+        )?;
+        let [segment] = segments.as_slice() else {
+            return Err(GuestMemoryError::runtime_defect(
+                "memory-reconciliation",
+                "reconciliation-segment-count-invalid",
+                "one aligned guest page did not produce exactly one access segment",
+            ));
+        };
+        let page = self.pages.get(&segment.virtual_page).ok_or_else(|| {
+            GuestMemoryError::runtime_defect(
+                "memory-reconciliation",
+                "preflighted-page-missing",
+                "CPU page reconciliation preflight succeeded but the page disappeared",
+            )
+        })?;
+        if page.owner != owner {
+            return Err(GuestMemoryError::conflict(
+                "memory-reconciliation",
+                "reconciliation-page-owner-mismatch",
+                "CPU page reconciliation names a different owner than the mapped page",
+            ));
+        }
+        if page.dirty_generation.is_some() {
+            return Err(GuestMemoryError::runtime_defect(
+                "memory-reconciliation",
+                "reconciliation-page-already-dirty",
+                "a synchronized page retained dirty state before CPU reconciliation",
+            ));
+        }
+        let frame = page.frame;
+        let changed_bytes = self
+            .frames
+            .bytes(frame)?
+            .iter()
+            .zip(bytes)
+            .filter(|(current, incoming)| current != incoming)
+            .count();
+        self.frames.bytes_mut(frame)?.copy_from_slice(bytes);
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+
+        Ok(GuestPageReconciliation {
+            generation: acknowledged_generation,
+            address,
+            owner,
+            bytes_reconciled: bytes.len(),
+            changed_bytes,
+            content_sha256: hex_digest(&hasher.finalize()),
         })
     }
 

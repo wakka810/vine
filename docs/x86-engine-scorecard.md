@@ -274,17 +274,23 @@ entry `0x100A383E`はinstruction budget `1`で全境界のlogical execute permis
 
 これはhost-originated data outputを全snapshot再送なしでCPUへ返せるevidenceである。v86-originated writeback、binary IPC、decode-aware execute span、general mapping lifecycleは未実装である。詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)を正とする。
 
-### B19. Browser Worker
+### B19. First BGI Win32 call return: Verified ingress
+
+`npm run check:runtime:bgi-first-win32-call`はID `104`のexact one-argument stdcall frame／IAT callを検査し、controlled UTC sampleを8-byte `FILETIME`として返す。outputがlive stack上にあるため、generation `24`／owner `4`のcurrent v86 pageをRustへreconcileしてからgeneration `25`のone-page deltaを発行する。11 guest-changed bytesを保持したfull page、zero mapping／cache effects、Rust acknowledgementを検査する。
+
+stdcall return後4命令、entryから累計23命令でID `103`／`KERNEL32.dll!GetCurrentProcessId`へ到達する。14,540-byte reportのSHA-256は`7457cdfb50affd0003a3860e6959d5803cc9e7edd1c9bb0358454a6046984c16`である。これはone fixed page writeback／clock sample／API returnであり、general dirty tracking、clock、ABI gateway、process identityを実装しない。詳細は[v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md)を正とする。
+
+### B20. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B20. Correctness と performance
+### B21. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transferとfirst runtime-reachable trapまで進んだ。次のadapter sliceはexact thunk ID `104`のchecked stdcall／`FILETIME` write／guest returnである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transfer、first runtime-reachable trap、ID `104`のchecked stdcall returnまで進んだ。次のadapter sliceはexact thunk ID `103`のzero-argument stdcall／controlled process ID returnである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -308,10 +314,11 @@ adapter fixture は次の順に増やす。
 12. [Verified] 測定済みprocess-parameters／command-line bytesをminimum Rust ownershipへ接続する。
 13. [Verified] BGI static importsをidentity付きexplicit trap thunksへbindしてimageをsealする。
 14. [Verified] sealed BGI imageをbounded large-image transferでadapterへ渡し、first reachable trapを測る。
-15. exact `GetSystemTimeAsFileTime` frameへcontrolled `FILETIME`を書き、guestへreturnしてnext trapを測る。
-15. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-16. 同じfixtureをNodeとChromium Workerで実行する。
-17. adopted ISA fixtureとnormalized workloadを測定する。
+15. [Verified] exact `GetSystemTimeAsFileTime` frameへcontrolled `FILETIME`を書き、guestへreturnしてnext trapを測る。
+16. exact `GetCurrentProcessId` frameへcontrolled process IDを返し、next trapを測る。
+17. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+18. 同じfixtureをNodeとChromium Workerで実行する。
+19. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 
