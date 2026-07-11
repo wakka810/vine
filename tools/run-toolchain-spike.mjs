@@ -135,6 +135,14 @@ const memoryFixtureDirectory = path.join(
 );
 const memoryObject = path.join(outputDirectory, "fixture-memory.obj");
 const memoryExe = path.join(outputDirectory, "high-memory.exe");
+const bootstrapFixtureDirectory = path.join(
+  root,
+  "fixtures",
+  "pe32",
+  "bootstrap-fs",
+);
+const bootstrapObject = path.join(outputDirectory, "fixture-bootstrap.obj");
+const bootstrapExe = path.join(outputDirectory, "bootstrap-fs.exe");
 const windowImportLibraries = ["kernel32", "user32", "gdi32"].map(
   (name) => ({
     definition: path.join(windowFixtureDirectory, `${name}.def`),
@@ -168,6 +176,10 @@ compilePeObject(
 compilePeObject(
   path.join(memoryFixtureDirectory, "fixture-memory.c"),
   memoryObject,
+);
+compilePeObject(
+  path.join(bootstrapFixtureDirectory, "fixture-bootstrap.c"),
+  bootstrapObject,
 );
 
 for (const { definition, library } of windowImportLibraries) {
@@ -233,13 +245,28 @@ run("lld-link", [
   memoryObject,
 ]);
 
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${bootstrapExe}`,
+  bootstrapObject,
+]);
+
 let nativeAbiExitCode = null;
 let windowPixelNativeExitCode = null;
+let bootstrapFsNativeExitCode = null;
 if (process.platform === "win32") {
   run(exeFile, [], { timeoutMs: 10_000 });
   nativeAbiExitCode = 0;
   run(windowExe, [], { timeoutMs: 10_000, windowsHide: false });
   windowPixelNativeExitCode = 0;
+  run(bootstrapExe, [], { timeoutMs: 10_000 });
+  bootstrapFsNativeExitCode = 0;
 }
 
 const exeInspection = run("llvm-readobj", [
@@ -258,6 +285,12 @@ const memoryInspection = run("llvm-readobj", [
   "--sections",
   "--coff-exports",
   memoryExe,
+]);
+const bootstrapInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  "--coff-exports",
+  bootstrapExe,
 ]);
 
 const requiredExeEvidence = [
@@ -286,6 +319,23 @@ for (const expected of [
   if (!windowInspection.includes(expected)) {
     throw new Error(`window pixel inspection is missing: ${expected}`);
   }
+}
+
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+  "Name: fixture_entry",
+  "Name: fixture_peb",
+  "Name: fixture_teb",
+  "Name: fixture_teb_peb",
+  "Name: fixture_teb_self",
+]) {
+  if (!bootstrapInspection.includes(expected)) {
+    throw new Error(`bootstrap FS inspection is missing: ${expected}`);
+  }
+}
+if (parseCoffImports(bootstrapInspection).length !== 0) {
+  throw new Error("bootstrap FS fixture must remain import-free");
 }
 
 for (const expected of [
@@ -349,6 +399,9 @@ const report = {
     highMemoryFormat: "PE32/i386",
     highMemoryImageBase: "0xf1000000",
     highMemoryNativeExecution: "not-run",
+    bootstrapFsFormat: "PE32/i386",
+    bootstrapFsOffsets: { tebSelf: "fs:[0x18]", peb: "fs:[0x30]" },
+    bootstrapFsNativeExitCode,
   },
   artifacts: [
     wasmModule,
@@ -357,6 +410,7 @@ const report = {
     importLibrary,
     windowExe,
     memoryExe,
+    bootstrapExe,
   ].map(artifact),
 };
 

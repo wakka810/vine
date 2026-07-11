@@ -59,6 +59,8 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 
 `fixtures/pe32/high-memory/`はimage base `0xF1000000`、LAA、importなしのPE32 fixtureである。`.text` RX、`.rdata`／`.rprobe`／`.nxprobe` R、`.data` RWを分離し、high entry、read-only write、unmapped read／write、cross-page write、non-executable fetchのprobeをexportする。Windows native oracleではなく、guest memory候補を同じfixed imageで比較するinputである。
 
+`fixtures/pe32/bootstrap-fs/`はimportなしのPE32 fixtureであり、`FS:[0x18]`のTEB self pointerと`FS:[0x30]`のPEB pointerを読み、TEB内の同じ2 fieldと一致することを自己検証する。Windowsではnative exit code `0`を要求し、source-v86ではTEB未実装時のexact first stopを別contractで固定する。
+
 ## 5. Generated evidence
 
 `npm run check:toolchain` は `.work/toolchain-spike/` を作り直し、次を検証する。
@@ -85,6 +87,7 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 | `vine_fixture.lib` | 1,708 bytes | `ebb025e3a0c82f6726331aa8799b7a5fdafd4b2dfa3b3dcdce19d0630075c031` |
 | `window-pixel.exe` | 4,096 bytes | `ad8f4a0bddd759ac52b18119e60838c3ad13d29994449f38b0393fdedde454e9` |
 | `high-memory.exe` | 3,072 bytes | `084bca4dbd9c60a178f751e7c6a87e0b2865fd45cdff8d6135468886316a7aa7` |
+| `bootstrap-fs.exe` | 2,560 bytes | `5712377ff8a8bd2be292f8678902d19d3b4b2f1c1919922cce9d373f0696637c` |
 
 旧文書のWasm値は319 bytes／`6e5218...`だったが、そのraw artifactは保持されておらず差の原因を再検証できない。現在のWindows canonical commandを複数回実行した結果は399 bytes／`d8e2fe...`で安定しているため、本表で旧観測を置き換える。source変化やcompiler regressionが確認できたという意味にはしない。
 
@@ -95,7 +98,8 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - T0／T1 PE32 fixture とSDK非依存のi386 system import libraryをsource／DEFから再現生成できる
 - Windows native で EXE -> DLL -> EXE callback の cdecl oracle が exit code `0` になる
 - Windows native でstdcall WndProc、queued message dispatch、paint、pixel、destroy／quit oracleがexit code `0`になる
+- Windows native でimport-free bootstrap fixtureのTEB self／PEB pointer oracleがexit code `0`になる
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC bootを迂回したexecution、bounded adapter、W1／W2／W3、high-memory comparisonに続き、BGI load plan、production memory／materialization／IAT binding、controlled cdecl／callback／entry completion、Rust-owned stack reflectionまで進んだ。次はseparate TEB／PEB bootstrap fixtureへ進む。詳細は[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)を正とする。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC bootを迂回したexecution、bounded adapter、W1／W2／W3、high-memory comparison、production memory／entry completion／Rust-owned stackに続き、separate bootstrap fixtureのnative FS oracleとzero-base first stopまで進んだ。次はRust-owned TEB／PEB reflectionへ進む。詳細は[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を正とする。

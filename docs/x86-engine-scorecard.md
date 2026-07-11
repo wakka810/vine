@@ -240,17 +240,23 @@ instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 bud
 
 これはcontrolled stack ownership handoffのevidenceである。fixed one-page stackはPE stack reserve／commit、guard／growth、multi-thread、teardown、mutation sync、PEB／TEBの代用ではない。詳細は[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)を正とする。
 
-### B14. Browser Worker
+### B14. Bootstrap FS first stop: Verified ingress
+
+`npm run check:runtime:bootstrap-fs-first-stop`はnative WindowsでTEB self／PEB pointerを自己検証するimport-free fixtureをproduction Rustの7-page reflectionから実行する。FS selector／base `0`／`0`の最初の`FS:[0x18]`はreason `0x10E`、PFEC `4`、CR2 `0x18`で止まり、current／previous EIPは`0x10001007`／`0x10001000`となった。5,982-byte reportのSHA-256は`9bca668c33208fa1bc6a4e8253dafb247bd9520a106761a24fd06cf46364f7f9`である。
+
+これはnative FS offset contractとTEB未実装境界のevidenceであり、guest TEB／PEB、nonzero FS base、process parameters、TLS、LastErrorを実装しない。詳細は[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を正とする。
+
+### B15. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B15. Correctness と performance
+### B16. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。high-address memory spikeはv86 pagingのpresent／R／W／fault ordering／invalidationを実証し、execute permission gapを分離した。controlled semantic reflectionはimage／import／controlにRust-owned stackを加え、fixed cdecl／callback／entry completionをadapter-local stackなしで通した。次のadapter sliceは別fixtureでi386 FS-based TEB self／PEB pointer contractを固定する。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、fixed W1／W2 flowを提供し、W3 browser first pixelも完了した。controlled semantic reflectionはimage／control／stackからimport-free bootstrap fixtureを実行し、FS base zeroのexact TEB-read faultまで進んだ。次のadapter sliceはRust-owned TEB／PEB pagesをreflectし、CPU state ABIのFS baseをTEBへ向ける。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -268,10 +274,11 @@ adapter fixture は次の順に増やす。
 6. [Verified] frameをretireしてouter service returnを完了し、guest entry continuationを測定する。
 7. [Verified] production-owned process-entry return sentinelでexact successful completionを分類する。
 8. [Verified] controlled initial stackとbootstrap recordをRust-owned reflectionへ移す。
-9. separate fixtureでFS-based TEB self／PEB pointer contractを固定する。
-10. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-11. 同じfixtureをNodeとChromium Workerで実行する。
-12. adopted ISA fixtureとnormalized workloadを測定する。
+9. [Verified] separate fixtureでnative FS-based TEB self／PEB pointer contractとzero-base first stopを固定する。
+10. Rust-owned TEB／PEB pagesとnonzero FS baseで同じfixtureをentry returnまで通す。
+11. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+12. 同じfixtureをNodeとChromium Workerで実行する。
+13. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 

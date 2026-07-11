@@ -4,8 +4,8 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／runtime flow／W3 browser first-pixel boundary／W7 PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry／fixed cdecl service／callback return／outer return／entry return／stack bootstrap ingress。static corpus inventory、LLVM baseline、v86 bounded adapter、Windows trace v1／v2、selected IDirect3D9 root、high-address memory measurement、Chrome Canvas readback、Rust BGI plan／mapped bytes／supported import prefix、Rust-owned controlled stack／exact entry completionは完了。visual critical scenario、device-level COM trace、general memory／process integration、DLL／PEB／TEB、engine最終選定は未完了
-- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1／W2／W3、high-address memory spike、Rust W7 load-plan／guest-memory／image-materialization／import-binding／entry／cdecl／callback／outer／entry return／stack bootstrap ingressがあり、general v86 memory／process integration、DLL lifecycle／PEB／TEB／Win32 runtime、browser app、CIは未実装
+- 現在地: Phase 0 In discovery／W1 fixed headless slice／W2 native fixture／runtime flow／W3 browser first-pixel boundary／W7 PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry／fixed cdecl service／callback return／outer return／entry return／stack bootstrap／bootstrap FS first-stop ingress。native TEB／PEB offset oracleとzero-FS-base exact faultまで完了。visual critical scenario、device-level COM trace、general memory／process integration、Rust-owned PEB／TEB、engine最終選定は未完了
+- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixture、LLVM／Wasm spike、v86 source patch／engine checks、W1／W2／W3、high-address memory spike、Rust W7 load-plan／memory／entry return／stack bootstrap／FS first-stop ingressがあり、general v86 memory／process integration、DLL lifecycle／PEB／TEB／Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
 このロードマップは、広範な Windows 互換を一度に実装する計画ではない。Windows native trace を根拠に、headless 実行、startup、first frame、input、audio、persistence の短い vertical checkpoint を広く浅く通す。各 subsystem の全面実装は後回しにし、各 phase は日付ではなく受け入れ条件を満たした時点で完了する。
@@ -27,6 +27,7 @@
 - [v86-outer-return-ingress.md](v86-outer-return-ingress.md): frame retirement、outer cdecl return、guest result／entry continuation evidence
 - [v86-entry-return-ingress.md](v86-entry-return-ingress.md): typed process-entry sentinel、exact completion、entry result／stack balance evidence
 - [v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md): Rust-owned stack region、bootstrap metadata、adapter-local stack removal evidence
+- [v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md): native TEB／PEB offset oracle、import-free production reflection、zero-FS-base exact fault evidence
 
 ## 2. 計画上の前提
 
@@ -904,10 +905,9 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、selected IDirect3D9 root、native callback oracle、W1 fixed PE／ABI、W2 native fixture／runtime flow、W3 browser first pixel、high-address／protection measurement、W7 Rust PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry／fixed cdecl service／callback return／outer return／entry return／stack bootstrap ingressは完了した。owner `4`のRust stack pageをgeneration `8`の8-page reflectionへ加え、adapter-local stack allocationなしでfixture result `43`、entry EAX `0`、ESP `0x00700000`へ到達した。BGIは`Direct3DCreate9`だけをbindし、`DirectInput8Create`で停止した未実行imageである。general DLL／export／forwarder resolution、general service dispatch／callback stack、stack growth／guard、process lifecycle、PEB／TEB、process parameters、snapshotはnot attemptedであり、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`／`AC-P2`／`AC-P3`／`AC-P4`／`AC-P6D`を完了しない。以後は [v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)、[v86-entry-return-ingress.md](v86-entry-return-ingress.md)、[pe-import-binding.md](pe-import-binding.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、selected IDirect3D9 root、native callback oracle、W1／W2／W3、high-address memory、W7 Rust PE32 load-plan／memory／entry return／stack bootstrap／bootstrap FS first-stop ingressは完了した。import-free fixtureはnativeでTEB self／PEB pointerを自己検証し、production Rustの7 pagesをreflectしたsource-v86はFS base `0`の最初の`FS:[0x18]`をCR2 `0x18`／PFEC `4`で停止した。BGIは`Direct3DCreate9`だけをbindし、`DirectInput8Create`で停止した未実行imageである。general DLL／export resolution、service dispatch、stack growth、process lifecycle、Rust-owned PEB／TEB、process parameters、snapshotはnot attemptedであり、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`／`AC-P2`／`AC-P3`／`AC-P4`／`AC-P6D`を完了しない。以後は [v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)、[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. separate controlled PE32 bootstrap fixtureでi386 `FS:[0x18]` TEB self pointerと`FS:[0x30]` PEB pointerの最小contractを固定し、native self-oracleとsource-built v86 first stopを取得する。
-2. Rust-owned one-page TEB／PEBをreflectし、versioned CPU stateのFS baseをTEBへ向けて同じfixtureのexact field accessを通す。
+1. Rust-owned one-page TEB／PEBをreflectし、versioned CPU stateのFS baseをTEBへ向けて同じfixtureのexact field accessとentry returnを通す。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 

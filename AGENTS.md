@@ -205,6 +205,7 @@ Verified behavior:
 - frame ID `1`をretireし、outer cdecl thunk ID `2`からEAX `43`、ESP `0x006FFFF4`、EIP `0x10001019`でguestへ戻す。guest自身のargument cleanup、result `43`、entry result `0`、final ESP `0x00700000`を通し、harness-only unmapped return `0xDEADC0DE`のstructured `#PF`まで測るouter return ingress
 - 同じruntime control pageのslot `2`／`0x7F010010`へprocess-entry return sentinel ID `2`を追加し、initial stackからguest entryをexact sentinelへEAX `0`、ESP `0x00700000`でreturnさせる。fixture result `43`を保持し、その他のunmapped returnを`#PF`のままにするentry return ingress
 - Rust-owned owner `4`／stack region `[0x006FF000,0x00700000)`をRW commitし、initial ESPへprocess-entry sentinelをchecked initializationする。generation `8`の8 production pagesをreflectし、adapter-local stack allocationなしで同じentry completionへ到達するstack bootstrap ingress
+- import-free PE32 bootstrap fixtureをnative Windowsでself-oracleし、production Rustの7 pagesをreflectしたsource-v86へFS base `0`で渡す。最初の`FS:[0x18]`をprevious EIP `0x10001000`、CR2 `0x18`、PFEC `4`で止めるbootstrap FS first-stop ingress
 
 未検証または未実装:
 
@@ -254,6 +255,7 @@ Verified behavior:
 32. callback frame ID `1`をretireし、outer cdecl thunk ID `2`のreturn addressだけをconsumeしてguest `0x10001019`へresult `43`を返す。guest callerの2 argument cleanup、`0x10003000 = 43`、entry EAX `0`、ESP `0x00700000`を通し、9 execute stop／5 budget stop後にunmapped `0xDEADC0DE` fetchのPFEC `4`で停止するproduction outer return ingress contract。
 33. optional entry-return modeでcontrol owner `3`のslot `2`へprocess-entry sentinel ID `2`／`0x7F010010`を置き、combined page SHA-256 `bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc`をgeneration `6`でsealする。initial ESP `0x006FFFFC`へexact addressを置き、9 execute stop／5 budget stop後にEAX `0`、ESP `0x00700000`でentry completionを分類するproduction entry return ingress contract。
 34. `MemoryRegionKind::Stack`のowner `4`としてone-page controlled stackをreserve／RW commitし、`0x006FFFFC`へentry sentinel addressをwriteしてpage SHA-256 `3e944a15f97096aba42964f3628826766b970bbaeb98d85962f679fd725de079`でsealする。generation `8`の8 production pagesをreflectし、adapter `harness-stack` allocationを0件にして9 execute stop／5 budget stopのexact entry completionを保持するproduction stack bootstrap ingress contract。
+35. import-free `bootstrap-fs.exe`で`FS:[0x18]` TEB selfと`FS:[0x30]` PEB pointerをnative exit code `0`へself-verifyする。5 image pages、control owner `2`、stack owner `3`のgeneration `6`／7-page reflectionをsource-v86へ渡し、FS base `0`の最初のreadをreason `0x10E`、PFEC `4`、CR2 `0x18`、current／previous EIP `0x10001007`／`0x10001000`で構造化するbootstrap FS first-stop contract。
 
 2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
 
@@ -292,7 +294,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGI.exe をv86-connected Vine guest memoryでexecuteした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、trace v2 attribution／selected IDirect3D9 root evidence、fixed T1 の W1 headless ABI checkpoint、W2 native fixture oracle／runtime flow、W3 browser first-pixel boundary、fixed high-address memory measurement、W7 Rust load-plan／guest-memory／image-materialization／import-binding／controlled entry／fixed cdecl service／callback return／outer return／entry return／stack bootstrap ingressである。controlled production imageはv86上でfixed service、1段callback、outer cdecl return、Rust-owned one-page stackからのexact entry completionまで通したが、PEB／TEBとprocess lifecycleは未実装で、BGIは1 importだけbindした未seal／未実行imageである。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、trace v2 attribution／selected IDirect3D9 root evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack bootstrap／bootstrap FS first-stop ingressである。controlled production imageはv86上でexact entry completionまで通し、separate fixtureはTEB未実装のexact faultまで進んだが、Rust-owned PEB／TEBとprocess lifecycleは未実装で、BGIは1 importだけbindした未seal／未実行imageである。
 
 ## 8. Corpus
 
@@ -366,20 +368,20 @@ npm run check:runtime:callback
 npm run check:runtime:outer-return
 npm run check:runtime:entry-return
 npm run check:runtime:stack-bootstrap
+npm run check:runtime:bootstrap-fs-first-stop
 ```
 
-`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI、high-address／protection、W2 runtime flow contractを実行する。`check:runtime:window-browser`は同じW2 harnessがemitしたeventを一時local serverからclean Chrome profileへ渡し、Canvas pixelをreadbackする。`check:runtime:entry`から`check:runtime:entry-return`はproduction reflection、fixed cdecl／callback／outer／entry returnを段階的に固定し、`check:runtime:stack-bootstrap`はcontrolled stackをRust ownershipへ移してadapter-local stackを除く。`check:runtime:pe`、`check:runtime:memory-core`、`check:runtime:materialization`、`check:runtime:imports`はroot Rust workspaceのW7 plan／memory／mapped-byte／IAT-thunk contractを個別に実行し、すべてを含む`check:runtime:core`がcanonical checkに入る。source adapterを使う前10 checkpointは通常の`npm run check`には含めない。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とし、それぞれW1 PE／ABI、high-address／protection、W2 runtime flow contractを実行する。`check:runtime:window-browser`は同じW2 harnessがemitしたeventを一時local serverからclean Chrome profileへ渡し、Canvas pixelをreadbackする。`check:runtime:entry`から`check:runtime:entry-return`はproduction reflection、fixed cdecl／callback／outer／entry returnを段階的に固定し、`check:runtime:stack-bootstrap`はcontrolled stackをRust ownershipへ移してadapter-local stackを除く。`check:runtime:bootstrap-fs-first-stop`はimport-free fixtureのnative FS oracleとTEB未実装時のexact guest faultを固定する。`check:runtime:pe`、`check:runtime:memory-core`、`check:runtime:materialization`、`check:runtime:imports`はroot Rust workspaceのW7 plan／memory／mapped-byte／IAT-thunk contractを個別に実行し、すべてを含む`check:runtime:core`がcanonical checkに入る。source adapterを使うcheckpointは通常の`npm run check`には含めない。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 runtime flow、W3 browser first-pixel boundary、trace v2 attribution／selected IDirect3D9 root capture、high-address／protection memory measurement、W7 Rust PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry／fixed cdecl service／callback return／outer return／entry return／stack bootstrap ingressは 2026-07-11 までに完了した。owner `4`のRust-owned stack pageをgeneration `8`でreflectし、adapter-local stack allocationなしでfixture result `43`、entry EAX `0`、ESP `0x00700000`のexact completionまで進んだ。BGIは`d3d9.dll!Direct3DCreate9`だけをbindし、次の`DINPUT8.dll!DirectInput8Create`で停止した未実行imageである。2 MiB v86 pool、physical placement、one-page stack、flat CPL3 state、`0x7F000000` import arena、`0x7F010000` control arenaはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshotの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE／ABI slice、W2 native window／message／pixel fixtureは 2026-07-10、W2 runtime flow、W3 browser first-pixel boundary、trace v2 attribution／selected IDirect3D9 root capture、high-address／protection memory measurement、W7 Rust PE32 load-plan／guest-memory／image-materialization／import-binding／controlled v86 entry／fixed cdecl service／callback return／outer return／entry return／stack bootstrap／bootstrap FS first-stop ingressは 2026-07-11 までに完了した。import-free fixtureはnative exit `0`となり、source-v86はFS base `0`からCR2 `0x18`／PFEC `4`で停止した。BGIは`d3d9.dll!Direct3DCreate9`だけをbindし、次の`DINPUT8.dll!DirectInput8Create`で停止した未実行imageである。2 MiB v86 pool、physical placement、one-page stack、flat CPL3 state、`0x7F000000` import arena、`0x7F010000` control arenaはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshotの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. separate controlled PE32 bootstrap fixtureでi386 `FS:[0x18]` TEB self pointerと`FS:[0x30]` PEB pointerの最小contractを固定し、native self-oracleとsource-built v86 first stopを取得する。
-2. Rust-owned one-page TEB／PEBをreflectし、versioned CPU stateのFS baseをTEBへ向けて同じfixtureのexact field accessを通す。
+1. Rust-owned one-page TEB／PEBをreflectし、versioned CPU stateのFS baseをTEBへ向けて同じfixtureのexact field accessとentry returnを通す。
 
-項目1が次の primary implementation checkpointである。stack bootstrap ingressをgeneral Windows stack、PEB／TEB、process lifecycle、bidirectional dirty-page sync、`AC-P1`／`AC-P2`の完成と扱わない。次checkpointは別fixtureによるTEB self／PEB pointerのnative／guest contract固定に限定する。
+項目1が次の primary implementation checkpointである。first-stop ingressをPEB／TEB全体、process parameters、loader list、TLS、LastError、process lifecycle、`AC-P1`／`AC-P2`の完成と扱わない。次checkpointはTEB offsets `0x18`／`0x30`とone-page PEBの最小ownership／FS-base boundaryに限定する。
 
 ## 11. Major Open Questions
 
@@ -444,13 +446,14 @@ Windows W0、最初の focused trace／summary、native ABI oracle、W1 fixed PE
 | `docs/v86-outer-return-ingress.md` | callback frame retirement、outer cdecl return、guest result／entry continuation evidence |
 | `docs/v86-entry-return-ingress.md` | process-entry sentinel、exact successful entry completion、stack balance evidence |
 | `docs/v86-stack-bootstrap-ingress.md` | Rust-owned initial stack、bootstrap metadata、adapter-local stack removal evidence |
+| `docs/v86-bootstrap-fs-first-stop.md` | native TEB／PEB FS contract、import-free reflection、zero-base exact fault evidence |
 | `docs/roadmap.md` | long-term phase、task、dependency、acceptance mapping |
 | `docs/risks-and-open-questions.md` | unresolved decisions、risk、go／no-go |
 | `docs/testing-and-acceptance.md` | test candidate、evidence、phase acceptance |
 | `docs/x86-engine-scorecard.md` | engine comparison、v86 evidence、remaining gates |
 | `docs/toolchain-spike.md` | LLVM PE／Wasm fixture baseline |
 | `docs/windows-development.md` | Windows bring-up、trace、checkpoint commands |
-| `docs/windows-native-evidence.md` | Windows W0、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native fixture／runtime flow、W3 browser first pixel、W7 loader／memory／materialization／import-binding／entry／cdecl／callback／outer／entry return／stack bootstrap ingress |
+| `docs/windows-native-evidence.md` | Windows W0、BGI trace v1／v2、selected IDirect3D9 root、W1／W2／W3、W7 loader／memory／entry return／stack／FS first-stop ingress |
 | `spikes/x86-engine/README.md` | v86 source adapter reproduction |
 
 文書内の長い test／task listは将来coverageの地図であり、今すぐ全件実装する指示ではない。本書のactive queueと「広く浅く、代表test 1本」を優先する。

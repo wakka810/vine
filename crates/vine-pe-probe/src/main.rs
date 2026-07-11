@@ -98,7 +98,8 @@ struct V86ReflectionOffer {
     image_load_base: GuestAddress,
     entry_point_address: GuestAddress,
     image_owner: vine_core::MemoryOwnerId,
-    first_thunk: ImportThunk,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_thunk: Option<ImportThunk>,
     thunks: Vec<ImportThunk>,
     #[serde(skip_serializing_if = "Option::is_none")]
     callback_return_sentinel: Option<CallbackReturnSentinel>,
@@ -127,9 +128,11 @@ struct V86ReflectionReceipt {
     schema_version: u32,
     acknowledged_generation: u64,
     stats: MemoryStats,
-    iat_value: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    iat_value: Option<u32>,
     entry_bytes: Vec<u8>,
-    thunk_bytes: Vec<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thunk_bytes: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     callback_return_bytes: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -307,13 +310,14 @@ fn run_v86_reflection_session(
             "v86 reflection requires an image whose imports and owner are fully bound and sealed",
         ));
     }
-    let first_thunk = binding.thunks.first().cloned().ok_or_else(|| {
-        LoaderError::invalid_input(
+    let first_thunk = binding.thunks.first().cloned();
+    if first_thunk.is_none() && binding.total_imports != 0 {
+        return Err(LoaderError::runtime_defect(
             "memory-reflection",
-            "image-has-no-owned-import-thunk",
-            "v86 entry reflection requires at least one runtime-owned import thunk",
-        )
-    })?;
+            "complete-import-image-has-no-owned-thunk",
+            "a fully bound image with planned imports has no runtime-owned thunk",
+        ));
+    }
     let (callback_return_sentinel, process_entry_return_sentinel) =
         if arguments.install_process_entry_return_sentinel {
             let sentinels = install_runtime_return_sentinels(&mut memory).map_err(memory_error)?;
@@ -385,29 +389,34 @@ fn run_v86_reflection_session(
     memory
         .acknowledge_invalidation(ack.generation)
         .map_err(memory_error)?;
-    let iat_bytes = memory
-        .read(first_thunk.iat_address, 4)
-        .map_err(memory_error)?;
-    let iat_value = u32::from_le_bytes(iat_bytes.try_into().map_err(|_| {
-        LoaderError::runtime_defect(
-            "memory-reflection",
-            "acknowledged-iat-width-invalid",
-            "acknowledged IAT read did not return four bytes",
-        )
-    })?);
-    if iat_value != first_thunk.address.0 {
-        return Err(LoaderError::runtime_defect(
-            "memory-reflection",
-            "acknowledged-iat-value-mismatch",
-            "acknowledged IAT no longer points to the first owned thunk",
-        ));
-    }
+    let iat_value = first_thunk
+        .as_ref()
+        .map(|thunk| {
+            let iat_bytes = memory.read(thunk.iat_address, 4).map_err(memory_error)?;
+            let iat_value = u32::from_le_bytes(iat_bytes.try_into().map_err(|_| {
+                LoaderError::runtime_defect(
+                    "memory-reflection",
+                    "acknowledged-iat-width-invalid",
+                    "acknowledged IAT read did not return four bytes",
+                )
+            })?);
+            if iat_value != thunk.address.0 {
+                return Err(LoaderError::runtime_defect(
+                    "memory-reflection",
+                    "acknowledged-iat-value-mismatch",
+                    "acknowledged IAT no longer points to the first owned thunk",
+                ));
+            }
+            Ok(iat_value)
+        })
+        .transpose()?;
     let entry_bytes = memory
         .fetch(materialization.entry_point_address, 16)
         .map_err(memory_error)?;
-    let thunk_bytes = memory
-        .fetch(first_thunk.address, 16)
-        .map_err(memory_error)?;
+    let thunk_bytes = first_thunk
+        .as_ref()
+        .map(|thunk| memory.fetch(thunk.address, 16).map_err(memory_error))
+        .transpose()?;
     let callback_return_bytes = callback_return_sentinel
         .as_ref()
         .map(|sentinel| memory.fetch(sentinel.address, 16).map_err(memory_error))
@@ -429,10 +438,28 @@ fn run_v86_reflection_session(
             memory.read(address, 16).map_err(memory_error)
         })
         .transpose()?;
-    let reflection_stop_message = if initial_thread_stack.is_some() {
-        "the production-owned image, thunk, control, and initial stack pages are synchronized for adapter execution; guest entry execution has not yet been attempted"
+    let (reflection_stop_code, reflection_stop_message) = if first_thunk.is_none()
+        && initial_thread_stack.is_some()
+    {
+        (
+            "entry-execution-pending",
+            "the sealed import-free image, control page, and initial stack are synchronized for adapter execution; guest entry execution has not yet been attempted",
+        )
+    } else if first_thunk.is_none() {
+        (
+            "entry-execution-pending",
+            "the sealed import-free image is synchronized for adapter execution; process control, initial stack setup, and guest entry execution have not yet been attempted",
+        )
+    } else if initial_thread_stack.is_some() {
+        (
+            "entry-to-first-owned-thunk-pending",
+            "the production-owned image, thunk, control, and initial stack pages are synchronized for adapter execution; guest entry execution has not yet been attempted",
+        )
     } else {
-        "the production-owned image and thunk pages are synchronized for adapter execution; initial stack setup and guest entry execution have not yet been attempted"
+        (
+            "entry-to-first-owned-thunk-pending",
+            "the production-owned image and thunk pages are synchronized for adapter execution; initial stack setup and guest entry execution have not yet been attempted",
+        )
     };
     let receipt = V86ReflectionReceipt {
         schema: "vine.v86-memory-reflection-receipt",
@@ -447,7 +474,7 @@ fn run_v86_reflection_session(
         initial_stack_top_bytes,
         stop: UnsupportedPoint {
             stage: "adapter-execution",
-            code: "entry-to-first-owned-thunk-pending",
+            code: reflection_stop_code,
             message: reflection_stop_message,
         },
     };
@@ -679,10 +706,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         return Err(usage_error());
     }
     if v86_reflection_session
-        && (output.is_some()
-            || runtime_exports.is_empty()
-            || materialize_image_base.is_none()
-            || prepare_memory_pages.is_none())
+        && (output.is_some() || materialize_image_base.is_none() || prepare_memory_pages.is_none())
     {
         return Err(usage_error());
     }
