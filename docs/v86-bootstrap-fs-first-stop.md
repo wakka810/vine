@@ -77,4 +77,4 @@ npm run check:runtime:bootstrap-fs-first-stop
 
 No Rust-owned TEB or PEB page is installed in this checkpoint. It does not set a nonzero FS base, execute the second FS read, complete the fixture, provide process parameters／loader lists／TLS／LastError, or define general process and thread lifecycle. The one-page stack and fixed control addresses remain controlled checkpoint choices.
 
-The next checkpoint adds one Rust-owned TEB page and one Rust-owned PEB page, initializes only TEB offsets `0x18` and `0x30`, reflects both pages, and sets the versioned CPU state's FS base to the TEB address. The same fixture must then observe both exact fields and return `0` to the existing process-entry sentinel.
+The Rust-owned continuation is complete in [v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md). It reflects separate TEB／PEB pages, restores the TEB as FS base, observes both exact fields, and returns `0` to the existing process-entry sentinel while preserving this first-stop report unchanged.

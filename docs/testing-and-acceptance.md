@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、fixed W1／W2 runtime、W3 browser pixel、high-address memory、Rust PE32 loader／memory／entry return／stack bootstrap／bootstrap FS first-stop、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB bootstrap、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -144,6 +144,8 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 
 `npm run check:runtime:bootstrap-fs-first-stop`はimport-free PE32 fixtureをnative実行し、`FS:[0x18]` TEB self／`FS:[0x30]` PEB pointerとTEB内fieldの一致をexit code `0`で検査する。同じfixtureの5 image pages、control、Rust-owned stackをgeneration `6`でreflectし、FS base zeroのfirst instructionがreason `0x10E`、PFEC `4`、CR2 `0x18`、previous EIP `0x10001000`で停止することと5,982-byte reportを固定する。guest TEB／PEBやnonzero FS baseは実装しない。詳細は[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を正とする。
 
+`npm run check:runtime:bootstrap-fs`はtyped TEB／PEB regions、checked zero／pointer initialization、page digest、generation `10`の9-page reflection、FS base restoreを検査する。同じfixtureの4 observation、entry EAX `0`、ESP `0x00700000`、exact process-entry sentinel、9 execute stop／8 budget stopと8,214-byte reportを固定する。process parameters、loader list、TLS、LastErrorは実装しない。詳細は[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。
+
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
 runtime-owned scratch `0x00501000`へ48-byte `CREATESTRUCTA`を書き、ESP `0x006FFFAC`へreturn sentinel `0x00500E00`と`[HWND, WM_CREATE, 0, CREATESTRUCTA*]`を積んでWndProc `0x00401260`を呼ぶ。callbackはEAX `0`、ESP `0x006FFFC0`でsentinelへ戻り、outer stdcallはEAX `HWND`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x0040109B`でresumeする。logical windowは`creating`から`created`へ移り、hiddenのまま保持される。fixed `showwindow-sw-show-hidden-to-visible`はcreated／hiddenのlive objectだけをvisibleへ遷移し、previous visibilityのBOOL `0`を返す。fixed `invalidaterect-whole-client-no-erase`はcall site `0x004010B3`、ESP `0x006FFFE4`のarguments `[HWND, NULL, FALSE]`をchecked readし、NULL pointerをsymbolic whole-client regionへ変換してerase falseを保持する。owner guest threadのgenerated-paint laneへsequence 1のcandidate `[HWND, WM_PAINT, 0, 0]`を1件置き、paint stateをqueuedへ遷移する。BOOL `1`をEAXへ返し、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x004010B9`でresumeする。
@@ -198,6 +200,8 @@ production entry-return representative contractはtyped sentinel ID `2`をinitia
 production stack-bootstrap representative contractは同じone-page bytesとbootstrap metadataをRust owner／region／page reflectionから供給し、adapter-local map／writeを0件にする。これはownership handoffのevidenceであり、PE headerの任意stack size、guard／growth、multi-thread、teardown、mutation writebackの代用にはしない。
 
 bootstrap FS first-stop representative contractはnative self-oracleとguest exact-faultを同じimport-free imageで結ぶ。FS base `0`からCR2 `0x18`になることを要求し、TEBがあるように見せるsilent zero-page mappingを許さない。これはoffset／fault baselineであり、PEB／TEB layout全体、process parameters、TLS、LastErrorの代用にはしない。
+
+bootstrap FS ingress representative contractはfirst-stopと同じimageへ2 typed pagesだけを追加し、TEB self／PEB pointerのdirect／indirect observationとentry returnを要求する。fixed addresses、selector `0`、empty PEBをgeneral Windows process environmentの代用にはしない。
 
 W2のcreate／invalidation ingress segmentは`GetModuleHandleA(NULL)`とfixed `RegisterClassExA`をstdcall resumeし、fixed `CreateWindowExA`では48-byte argument bandを保持したまま1段のWndProc stdcall callbackを往復する。callback frameはreturn sentinelを含む20 bytesで、WndProcの`ret 16`後にouter ESP `0x006FFFC0`へ戻る。outer service完了時はreturn addressと12 argumentsの52 bytesをpopし、EAX `0x57010001`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x0040109B`とする。fixed `ShowWindow`は2 DWORD argumentsをpopし、previous visibilityのBOOL `0`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x004010AE`でresumeする。fixed `InvalidateRect`は3 DWORD argumentsをpopし、BOOL `1`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x004010B9`でresumeする。host boundaryのcallee-saved registerとentry prologueのsaved ESI／EDIを保持する。後続のpaint／quit flowはfixed 2-level callbackとfixture entry returnまで通すが、これらをgeneral stdcall、invalid stack、thiscall／fastcall、arbitrary nested callback／reentrant service、callback fault／failure、general process entry lifecycleの代用にはしない。
 
@@ -437,7 +441,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／cdecl／callback／outer／entry return／stack bootstrap ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUがRust-reflected image／control／stack pagesからfixed service、one callback、outer unwind、typed entry completionまで進むが、general process lifecycle、PEB／TEB、callback stack／service、pixel／audio／persistence、mutation sync、guard／heap／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはtyped environment fieldsまで進むが、general process lifecycle、process parameters／broader PEB・TEB、callback service、pixel／audio／persistence、mutation sync、guard／heap／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 

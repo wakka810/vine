@@ -8,14 +8,32 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const commandArguments = process.argv.slice(2);
+const installProcessEnvironment = commandArguments.includes(
+  "--install-process-environment",
+);
+const positionalArguments = commandArguments.filter(
+  (value) => value !== "--install-process-environment",
+);
+assert(
+  positionalArguments.length <= 2,
+  "usage: run-runtime-v86-bootstrap-fs-slice.mjs [--install-process-environment] [WASM] [EXE]",
+);
 const wasmPath = path.resolve(
-  process.argv[2] ??
+  positionalArguments[0] ??
     path.join(root, ".work", "v86-adapter-source", "build", "v86-fallback.wasm"),
 );
 const fixturePath = path.resolve(
-  process.argv[3] ?? path.join(root, ".work", "toolchain-spike", "bootstrap-fs.exe"),
+  positionalArguments[1] ??
+    path.join(root, ".work", "toolchain-spike", "bootstrap-fs.exe"),
 );
-const outputDirectory = path.join(root, ".work", "v86-bootstrap-fs-first-stop");
+const outputDirectory = path.join(
+  root,
+  ".work",
+  installProcessEnvironment
+    ? "v86-bootstrap-fs-ingress"
+    : "v86-bootstrap-fs-first-stop",
+);
 const reportPath = path.join(outputDirectory, "report.json");
 
 const expected = {
@@ -55,11 +73,30 @@ const expected = {
     contentSha256: "3e944a15f97096aba42964f3628826766b970bbaeb98d85962f679fd725de079",
     generation: 6,
   },
+  processEnvironment: {
+    tebOwner: 4,
+    pebOwner: 5,
+    tebBase: 0x7ffde000,
+    pebBase: 0x7ffdf000,
+    pageBytes: 0x1000,
+    committedPages: 2,
+    tebSelfPointerOffset: 0x18,
+    tebPebPointerOffset: 0x30,
+    tebContentSha256: "5d4ad643f294d6976304f87d2912ec4a0b1f774fae1fd9a94de59749bfdcd67e",
+    pebContentSha256: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
+    generation: 10,
+  },
   reflectionContentSha256:
     "bb476b06336e93654df562ce78054e0927d5b2527ac12b54241d84a1d50b0696",
+  processEnvironmentReflectionContentSha256:
+    "14a986f7f10229da07f54d11fd5eda29be02e0639f06aba6151307e35f0206f3",
   report: {
     bytes: 5_982,
     sha256: "9bca668c33208fa1bc6a4e8253dafb247bd9520a106761a24fd06cf46364f7f9",
+  },
+  processEnvironmentReport: {
+    bytes: 8_214,
+    sha256: "4e2e951d53c9a51792767b0fc506c5d8162fb889960ee24dcce9c8333c9670f7",
   },
 };
 
@@ -105,6 +142,8 @@ const segmentIndex = {
   fs: 4,
 };
 const stopReason = {
+  budget: 1,
+  invalidOpcode: 0x106,
   pageFault: 0x10e,
 };
 
@@ -132,7 +171,7 @@ function checkedGuestEnd(address, size, label) {
 }
 
 function expectedReflectedPages() {
-  return [
+  const pages = [
     [0x006ff000, 3, { read: true, write: true, execute: false }],
     [0x10000000, 1, { read: true, write: false, execute: false }],
     [0x10001000, 1, { read: true, write: false, execute: true }],
@@ -141,6 +180,13 @@ function expectedReflectedPages() {
     [0x10004000, 1, { read: true, write: false, execute: false }],
     [0x7f010000, 2, { read: true, write: false, execute: true }],
   ];
+  if (installProcessEnvironment) {
+    pages.push(
+      [0x7ffde000, 4, { read: true, write: true, execute: false }],
+      [0x7ffdf000, 5, { read: true, write: true, execute: false }],
+    );
+  }
+  return pages;
 }
 
 function reflectionContentSha256(pages) {
@@ -189,27 +235,31 @@ async function run() {
   assert.equal(sha256(fixtureBytes), expected.fixture.sha256);
   const nativeOracle = runNativeOracle();
 
+  const probeArguments = [
+    "run",
+    "--quiet",
+    "--locked",
+    "-p",
+    "vine-pe-probe",
+    "--",
+    "--v86-reflection-session",
+    "--expect-sha256",
+    expected.fixture.sha256,
+    "--prepare-memory-pages",
+    installProcessEnvironment ? "9" : "7",
+    "--materialize-image-base",
+    "0x10000000",
+    "--install-callback-return-sentinel",
+    "--install-process-entry-return-sentinel",
+    "--install-controlled-initial-stack",
+  ];
+  if (installProcessEnvironment) {
+    probeArguments.push("--install-controlled-process-environment");
+  }
+  probeArguments.push(fixturePath);
   const child = spawn(
     "cargo",
-    [
-      "run",
-      "--quiet",
-      "--locked",
-      "-p",
-      "vine-pe-probe",
-      "--",
-      "--v86-reflection-session",
-      "--expect-sha256",
-      expected.fixture.sha256,
-      "--prepare-memory-pages",
-      "7",
-      "--materialize-image-base",
-      "0x10000000",
-      "--install-callback-return-sentinel",
-      "--install-process-entry-return-sentinel",
-      "--install-controlled-initial-stack",
-      fixturePath,
-    ],
+    probeArguments,
     {
       cwd: root,
       windowsHide: true,
@@ -266,9 +316,13 @@ async function run() {
     assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
     sessionCompleted = true;
 
-    const firstStop = executeFirstStop(offer, context);
+    const execution = installProcessEnvironment
+      ? executeWithProcessEnvironment(offer, context)
+      : executeFirstStop(offer, context);
     const report = {
-      schema: "vine.v86-bootstrap-fs-first-stop",
+      schema: installProcessEnvironment
+        ? "vine.v86-bootstrap-fs-ingress"
+        : "vine.v86-bootstrap-fs-first-stop",
       schemaVersion: 1,
       source: offer.source,
       nativeOracle,
@@ -281,8 +335,13 @@ async function run() {
         imageLoadBase: offer.imageLoadBase,
         entryPoint: offer.entryPointAddress,
         initialThreadStack: offer.initialThreadStack,
+        ...(installProcessEnvironment
+          ? { initialProcessEnvironment: offer.initialProcessEnvironment }
+          : {}),
         fsSelector: 0,
-        fsBase: 0,
+        fsBase: installProcessEnvironment
+          ? offer.initialProcessEnvironment.tebAddress
+          : 0,
       },
       reflection: {
         invalidation: offer.reflection.invalidation,
@@ -311,24 +370,44 @@ async function run() {
         allocatedPages: context.allocations,
         hostImportCalls: context.hostImportCalls,
       },
-      firstStop,
-      stop: {
-        stage: "process-bootstrap",
-        code: "fs-base-teb-unimplemented",
-        message:
-          "the import-free fixture reached its first FS-based TEB read with a flat zero FS base; Rust-owned TEB/PEB pages and the adopted FS base were not installed",
-      },
+      ...(installProcessEnvironment ? { execution } : { firstStop: execution }),
+      stop: installProcessEnvironment
+        ? {
+            stage: "process-bootstrap",
+            code: "process-parameters-unimplemented",
+            message:
+              "the Rust-owned TEB/PEB fields and adopted FS base are verified through exact entry completion; process parameters, loader lists, TLS, LastError, and general lifecycle were not attempted",
+          }
+        : {
+            stage: "process-bootstrap",
+            code: "fs-base-teb-unimplemented",
+            message:
+              "the import-free fixture reached its first FS-based TEB read with a flat zero FS base; Rust-owned TEB/PEB pages and the adopted FS base were not installed",
+          },
     };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    assert.equal(reportBytes.byteLength, expected.report.bytes);
-    assert.equal(sha256(reportBytes), expected.report.sha256);
+    const expectedReport = installProcessEnvironment
+      ? expected.processEnvironmentReport
+      : expected.report;
+    if (expectedReport.bytes !== null) {
+      assert.equal(reportBytes.byteLength, expectedReport.bytes);
+      assert.equal(sha256(reportBytes), expectedReport.sha256);
+    }
     fs.writeFileSync(reportPath, reportBytes);
-    console.log(
-      `v86 bootstrap FS first stop passed: native exit ${nativeOracle.exitCode}, ` +
-        `#PF 0x${firstStop.faultAddress.toString(16)}, PFEC ${firstStop.errorCode}, ` +
-        `FS base 0x${firstStop.fsBase.toString(16)}`,
-    );
+    if (installProcessEnvironment) {
+      console.log(
+        `v86 bootstrap FS ingress passed: native exit ${nativeOracle.exitCode}, ` +
+          `TEB 0x${execution.tebAddress.toString(16)}, PEB ` +
+          `0x${execution.pebAddress.toString(16)}, entry result ${execution.entryResult}`,
+      );
+    } else {
+      console.log(
+        `v86 bootstrap FS first stop passed: native exit ${nativeOracle.exitCode}, ` +
+          `#PF 0x${execution.faultAddress.toString(16)}, PFEC ${execution.errorCode}, ` +
+          `FS base 0x${execution.fsBase.toString(16)}`,
+      );
+    }
     console.log(
       `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
         `${path.relative(root, reportPath)}, ${reportBytes.byteLength} bytes, ` +
@@ -397,7 +476,54 @@ function validateOffer(offer) {
     generatedCode: true,
   });
 
-  assert.deepEqual(offer.reflection.invalidation, stack.invalidation);
+  const environment = offer.initialProcessEnvironment;
+  if (installProcessEnvironment) {
+    assert(environment, "process-environment mode requires TEB/PEB metadata");
+    assert.equal(environment.tebOwner, expected.processEnvironment.tebOwner);
+    assert.equal(environment.pebOwner, expected.processEnvironment.pebOwner);
+    assert.equal(environment.tebRegionKind, "thread-environment-block");
+    assert.equal(environment.pebRegionKind, "process-environment-block");
+    assert.equal(environment.tebRange.start, expected.processEnvironment.tebBase);
+    assert.equal(environment.tebRange.byteLength, expected.processEnvironment.pageBytes);
+    assert.equal(environment.pebRange.start, expected.processEnvironment.pebBase);
+    assert.equal(environment.pebRange.byteLength, expected.processEnvironment.pageBytes);
+    assert.equal(
+      environment.committedPages,
+      expected.processEnvironment.committedPages,
+    );
+    assert.equal(environment.tebAddress, expected.processEnvironment.tebBase);
+    assert.equal(environment.pebAddress, expected.processEnvironment.pebBase);
+    assert.equal(
+      environment.tebSelfPointerOffset,
+      expected.processEnvironment.tebSelfPointerOffset,
+    );
+    assert.equal(
+      environment.tebPebPointerOffset,
+      expected.processEnvironment.tebPebPointerOffset,
+    );
+    assert.equal(
+      environment.tebContentSha256,
+      expected.processEnvironment.tebContentSha256,
+    );
+    assert.equal(
+      environment.pebContentSha256,
+      expected.processEnvironment.pebContentSha256,
+    );
+    assert.equal(environment.ownersSealed, true);
+    assert.deepEqual(environment.invalidation, {
+      generation: expected.processEnvironment.generation,
+      dataTlb: true,
+      instructionFetch: true,
+      generatedCode: true,
+    });
+  } else {
+    assert.equal(environment, undefined);
+  }
+
+  assert.deepEqual(
+    offer.reflection.invalidation,
+    installProcessEnvironment ? environment.invalidation : stack.invalidation,
+  );
   assert.equal(offer.reflection.pageSize, page.size);
   assert.deepEqual(
     offer.reflection.pages.map(({ address, owner, protection }) => [
@@ -416,7 +542,10 @@ function validateOffer(offer) {
     reflectionContentSha256(offer.reflection.pages),
     offer.reflection.contentSha256,
   );
-  assert.equal(offer.reflection.contentSha256, expected.reflectionContentSha256);
+  const expectedReflectionSha256 = installProcessEnvironment
+    ? expected.processEnvironmentReflectionContentSha256
+    : expected.reflectionContentSha256;
+  assert.equal(offer.reflection.contentSha256, expectedReflectionSha256);
 }
 
 async function prepareV86(offer) {
@@ -597,15 +726,18 @@ async function prepareV86(offer) {
     words[stateWord.segmentLimitBase + index] = 0xffffffff;
     words[stateWord.segmentMetaBase + index] = 0xf2;
   }
+  words[stateWord.segmentOffsetBase + segmentIndex.fs] = installProcessEnvironment
+    ? offer.initialProcessEnvironment.tebAddress
+    : 0;
   words[stateWord.segmentMetaBase + segmentIndex.cs] = 0xfa;
   words[stateWord.controlRegisterBase] |= 0x80010001;
   words[stateWord.controlRegisterBase + 3] = pageDirectory;
   words[stateWord.controlRegisterBase + 4] |= 0x200;
   assert.equal(wasm.vine_cpu_state_restore(), 0);
-  assert.equal(allocations.length, 11);
+  assert.equal(allocations.length, installProcessEnvironment ? 14 : 11);
   assert.deepEqual(
     [...pageTables.keys()],
-    [1, 64, 508],
+    installProcessEnvironment ? [1, 64, 508, 511] : [1, 64, 508],
   );
 
   return {
@@ -615,6 +747,7 @@ async function prepareV86(offer) {
     pageDirectory,
     pageTables,
     readVirtualBytes,
+    readVirtualU32,
     wasm,
   };
 }
@@ -622,15 +755,18 @@ async function prepareV86(offer) {
 function validateReceipt(receipt, offer, context) {
   assert.equal(receipt.schema, "vine.v86-memory-reflection-receipt");
   assert.equal(receipt.schemaVersion, 1);
-  assert.equal(receipt.acknowledgedGeneration, expected.stack.generation);
-  assert.equal(receipt.stats.owners, 3);
-  assert.equal(receipt.stats.sealedOwners, 3);
-  assert.equal(receipt.stats.regions, 3);
-  assert.equal(receipt.stats.reservedPages, 22);
-  assert.equal(receipt.stats.committedPages, 7);
-  assert.equal(receipt.stats.physicalPages, 7);
-  assert.equal(receipt.stats.dirtyPages, 7);
-  assert.equal(receipt.stats.generation, expected.stack.generation);
+  const generation = installProcessEnvironment
+    ? expected.processEnvironment.generation
+    : expected.stack.generation;
+  assert.equal(receipt.acknowledgedGeneration, generation);
+  assert.equal(receipt.stats.owners, installProcessEnvironment ? 5 : 3);
+  assert.equal(receipt.stats.sealedOwners, installProcessEnvironment ? 5 : 3);
+  assert.equal(receipt.stats.regions, installProcessEnvironment ? 5 : 3);
+  assert.equal(receipt.stats.reservedPages, installProcessEnvironment ? 24 : 22);
+  assert.equal(receipt.stats.committedPages, installProcessEnvironment ? 9 : 7);
+  assert.equal(receipt.stats.physicalPages, installProcessEnvironment ? 9 : 7);
+  assert.equal(receipt.stats.dirtyPages, installProcessEnvironment ? 9 : 7);
+  assert.equal(receipt.stats.generation, generation);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   assert.equal(receipt.iatValue, undefined);
   assert.equal(receipt.thunkBytes, undefined);
@@ -650,6 +786,48 @@ function validateReceipt(receipt, offer, context) {
   assert.deepEqual(receipt.initialStackTopBytes, [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x00, 0x01, 0x7f,
   ]);
+  if (installProcessEnvironment) {
+    assert.deepEqual(
+      receipt.tebBytes,
+      [
+        ...context.readVirtualBytes(
+          expected.processEnvironment.tebBase,
+          64,
+          "TEB receipt bytes",
+        ),
+      ],
+    );
+    assert.deepEqual(
+      receipt.pebBytes,
+      [
+        ...context.readVirtualBytes(
+          expected.processEnvironment.pebBase,
+          64,
+          "PEB receipt bytes",
+        ),
+      ],
+    );
+    assert.equal(
+      context.readVirtualU32(
+        expected.processEnvironment.tebBase +
+          expected.processEnvironment.tebSelfPointerOffset,
+        "TEB self field",
+      ),
+      expected.processEnvironment.tebBase,
+    );
+    assert.equal(
+      context.readVirtualU32(
+        expected.processEnvironment.tebBase +
+          expected.processEnvironment.tebPebPointerOffset,
+        "TEB PEB field",
+      ),
+      expected.processEnvironment.pebBase,
+    );
+    assert(receipt.pebBytes.every((byte) => byte === 0));
+  } else {
+    assert.equal(receipt.tebBytes, undefined);
+    assert.equal(receipt.pebBytes, undefined);
+  }
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-execution-pending");
   assert.equal(offer.reflection.invalidation.generation, receipt.acknowledgedGeneration);
@@ -702,6 +880,129 @@ function executeFirstStop(offer, context) {
   assert.equal(result.edx, 0);
   assert.equal(result.fsSelector, 0);
   assert.equal(result.fsBase, 0);
+  assert.deepEqual(context.hostImportCalls, { microtick: 1 });
+  return result;
+}
+
+function executeWithProcessEnvironment(offer, context) {
+  const environment = offer.initialProcessEnvironment;
+  const processEntry = offer.processEntryReturnSentinel;
+  assert(environment && processEntry);
+  const executablePages = new Set(
+    offer.reflection.pages
+      .filter(({ ownerSealed, protection }) => ownerSealed && protection.execute)
+      .map(({ address }) => address),
+  );
+  const saveState = (reason) => {
+    context.wasm.vine_cpu_state_save();
+    const words = Uint32Array.from(
+      new Uint32Array(
+        context.wasm.memory.buffer,
+        context.wasm.vine_cpu_state_ptr(),
+        context.wasm.vine_cpu_state_size() / 4,
+      ),
+    );
+    return {
+      reason,
+      errorCode: context.wasm.vine_get_stop_error_code(),
+      words,
+      eax: words[stateWord.eax],
+      esp: words[stateWord.esp],
+      instructionPointer: words[stateWord.instructionPointer],
+      previousInstructionPointer: words[stateWord.previousInstructionPointer],
+      fsSelector: words[stateWord.segmentSelectorBase + segmentIndex.fs],
+      fsBase: words[stateWord.segmentOffsetBase + segmentIndex.fs],
+    };
+  };
+
+  const initial = saveState(0);
+  assert.equal(initial.instructionPointer, expected.fixture.entry);
+  assert.equal(initial.esp, expected.stack.initialEsp);
+  assert.equal(initial.fsSelector, 0);
+  assert.equal(initial.fsBase, environment.tebAddress);
+  let executeStops = 0;
+  let budgetStops = 0;
+  let completion = null;
+  for (let index = 0; index < 32; index += 1) {
+    const before = saveState(0);
+    const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
+    assert(
+      executablePages.has(currentPage),
+      `execute gate rejected EIP 0x${before.instructionPointer.toString(16)}`,
+    );
+    const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
+    executeStops += 1;
+    const state = saveState(reason);
+    if (reason === stopReason.budget) {
+      budgetStops += 1;
+      continue;
+    }
+    assert.equal(reason, stopReason.invalidOpcode);
+    assert.equal(state.errorCode, -1);
+    assert.equal(state.instructionPointer, processEntry.address);
+    assert.equal(state.previousInstructionPointer, processEntry.address);
+    completion = state;
+    break;
+  }
+  assert(completion, "bootstrap fixture did not reach the process-entry sentinel");
+
+  const fixtureTebAddress = expected.fixture.loadBase + 0x3000;
+  const fixturePebAddress = fixtureTebAddress + 4;
+  const fixtureTebSelfAddress = fixtureTebAddress + 8;
+  const fixtureTebPebAddress = fixtureTebAddress + 12;
+  const fixtureObservations = {
+    teb: context.readVirtualU32(fixtureTebAddress, "fixture TEB result"),
+    peb: context.readVirtualU32(fixturePebAddress, "fixture PEB result"),
+    tebSelf: context.readVirtualU32(
+      fixtureTebSelfAddress,
+      "fixture TEB self result",
+    ),
+    tebPeb: context.readVirtualU32(fixtureTebPebAddress, "fixture TEB PEB result"),
+  };
+  const tebSelfField = context.readVirtualU32(
+    environment.tebAddress + environment.tebSelfPointerOffset,
+    "post-execution TEB self field",
+  );
+  const tebPebField = context.readVirtualU32(
+    environment.tebAddress + environment.tebPebPointerOffset,
+    "post-execution TEB PEB field",
+  );
+  const result = {
+    reason: completion.reason,
+    errorCode: completion.errorCode,
+    instructionPointer: completion.instructionPointer,
+    previousInstructionPointer: completion.previousInstructionPointer,
+    entryResult: completion.eax,
+    finalEsp: completion.esp,
+    fsSelector: completion.fsSelector,
+    fsBase: completion.fsBase,
+    tebAddress: environment.tebAddress,
+    pebAddress: environment.pebAddress,
+    tebSelfField,
+    tebPebField,
+    fixtureObservations,
+    processEntrySentinelId: processEntry.id,
+    processEntrySentinelAddress: processEntry.address,
+    instructionBudget: guest.instructionBudget,
+    executeStops,
+    budgetStops,
+  };
+  assert.equal(result.entryResult, 0);
+  assert.equal(result.finalEsp, expected.stack.top);
+  assert.equal(result.fsSelector, 0);
+  assert.equal(result.fsBase, expected.processEnvironment.tebBase);
+  assert.equal(result.tebAddress, expected.processEnvironment.tebBase);
+  assert.equal(result.pebAddress, expected.processEnvironment.pebBase);
+  assert.equal(result.tebSelfField, result.tebAddress);
+  assert.equal(result.tebPebField, result.pebAddress);
+  assert.equal(result.executeStops, 9);
+  assert.equal(result.budgetStops, 8);
+  assert.deepEqual(result.fixtureObservations, {
+    teb: result.tebAddress,
+    peb: result.pebAddress,
+    tebSelf: result.tebAddress,
+    tebPeb: result.pebAddress,
+  });
   assert.deepEqual(context.hostImportCalls, { microtick: 1 });
   return result;
 }

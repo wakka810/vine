@@ -24,7 +24,9 @@ return at an exact production-owned sentinel. The controlled initial stack is
 also Rust-owned and reflected instead of being allocated by the adapter. A
 separate import-free bootstrap fixture now passes a native Windows oracle for
 `FS:[0x18]` TEB self and `FS:[0x30]` PEB access; source-v86 reaches its exact
-pre-implementation stop at CR2 `0x18` with PFEC `4` and FS base zero.
+pre-implementation stop at CR2 `0x18` with PFEC `4` and FS base zero. Rust now
+owns the minimum TEB／PEB pages as well; restoring FS base `0x7FFDE000` lets the
+same fixture observe both fields and return entry result `0`.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
@@ -32,9 +34,9 @@ edition label. The controlled fixture now binds both imports and seals its
 image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
 at `DINPUT8.dll!DirectInput8Create`. The controlled entry now returns result `0`
 to exact process-entry sentinel ID `2` with ESP `0x00700000`; arbitrary unmapped
-returns still fault. The next task reflects Rust-owned TEB／PEB pages and sets
-the versioned CPU state's FS base; see
-[docs/v86-bootstrap-fs-first-stop.md](docs/v86-bootstrap-fs-first-stop.md).
+returns still fault. The next bootstrap task is a native-oracled minimum
+process-parameters path; see
+[docs/v86-bootstrap-fs-ingress.md](docs/v86-bootstrap-fs-ingress.md).
 
 ## Requirements
 
@@ -76,6 +78,8 @@ completion without accepting unrelated faults.
 page and verifies the same completion with no adapter-local stack allocation.
 `npm run check:runtime:bootstrap-fs-first-stop` reruns the native FS oracle and
 verifies the exact zero-FS-base source-v86 page fault before TEB／PEB setup.
+`npm run check:runtime:bootstrap-fs` adds Rust-owned TEB／PEB pages, restores FS
+base through the CPU state ABI, and verifies exact entry completion.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

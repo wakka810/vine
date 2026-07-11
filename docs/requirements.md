@@ -6,7 +6,7 @@
 - 基準日: 2026-07-10
 - 対象: PE32 / i386 のサクラノ詩 full-play runtime
 - 開発形態: 1 人、完全個人用
-- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、fixed W1／W2／W3 contract、high-address memory measurement、Rust PE32 load／memory／entry return／stack bootstrap、native TEB／PEB offset oracleとbootstrap FS first-stop ingressは完了済みである。general v86 memory／process integration、DLL／export graph、Rust-owned PEB／TEB、general service dispatchは未実装である
+- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack bootstrap、native TEB／PEB oracle、Rust-owned minimum TEB／PEB／FS-base ingressは完了済みである。general process integration、DLL／export graph、process parameters、general service dispatchは未実装である
 
 ## 2. 目的
 
@@ -158,7 +158,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | REQ-ABI-04 | SEH / unwind / vectored exception の必要範囲を corpus で決定し、未対応経路を明示停止する | Must |
 | REQ-ABI-05 | varargs は API ごとに format／argument contract と上限を定義して検証し、schema のない汎用 variadic bridge を暗黙に許可しない | Must |
 
-controlled v86 entry／cdecl／callback／outer／entry return／stack bootstrap ingressはproduction-owned image／control／stack page、versioned CPU state、instruction budget、structured `#UD`／`#PF`、ordered exact thunk／sentinel metadataを接続した。separate bootstrap fixtureはnative TEB self／PEB offsetを固定し、FS base zeroのfirst readをCR2 `0x18`で構造化した。general stack reserve／growth／guard、process lifecycle、Rust-owned PEB／TEB、general frame stack／signature metadata、bidirectional dirty-page ownershipは未実装なので、`REQ-BOOT-01`を含む関連要件はいずれもpartialである。詳細は[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)と[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を正とする。
+controlled bootstrapはproduction-owned image／control／stackにtyped one-page TEB／PEBを加え、CPU state ABIでFS baseをrestoreしてnative-oracled fieldsとentry returnを通した。general stack reserve／growth／guard、process lifecycle、process parameters、loader list、TLS、LastError、bidirectional dirty-page ownershipは未実装なので、`REQ-BOOT-01`／`REQ-BOOT-02`等はpartialである。詳細は[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。
 
 ### 7.4 Windows userspace compatibility
 

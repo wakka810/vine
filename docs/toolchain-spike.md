@@ -102,4 +102,4 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。PC bootを迂回したexecution、bounded adapter、W1／W2／W3、high-memory comparison、production memory／entry completion／Rust-owned stackに続き、separate bootstrap fixtureのnative FS oracleとzero-base first stopまで進んだ。次はRust-owned TEB／PEB reflectionへ進む。詳細は[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を正とする。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。production memory／entry completion／Rust-owned stackに続き、native FS oracle、zero-base first stop、typed Rust TEB／PEB reflectionまで進んだ。次はnative-oracled process parametersである。詳細は[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。

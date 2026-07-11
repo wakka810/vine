@@ -29,9 +29,9 @@
 - 同じcontrol pageのtyped process-entry sentinel ID `2`、exact entry result `0`／ESP `0x00700000` completionとunmapped-fault regression
 - Rust owner `4`のone-page stack region／bootstrap metadata、generation `8` reflection、adapter-local stack allocationなしのexact completion
 - import-free bootstrap fixtureのnative `FS:[0x18]` TEB self／`FS:[0x30]` PEB oracleと、FS base zeroのsource-v86 CR2 `0x18`／PFEC `4` first stop
+- typed Rust TEB／PEB regions、generation `10` reflection、CPU state FS-base restore、4 exact field observationとentry result `0`
 
-general v86 memory／process integration、DLL／export lifecycle、PEB／TEB、Win32 API、graphics／audio は未実装である。controlled imageはRust-owned one-page stackからfixed cdecl service、one-level guest callback、outer service return、typed exact entry completionまで進んだ。BGIは`Direct3DCreate9` 1件だけbindした未seal／未実行imageである。サクラノ詩のnative traceを引き続き実装順の根拠にする。
-trace v1／v2、selected IDirect3D9 root、W1／W2／W3／W7 resultは [windows-native-evidence.md](windows-native-evidence.md) を正とし、W7 planは[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、entry completionは[v86-entry-return-ingress.md](v86-entry-return-ingress.md)、stack ownershipは[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)、FS baselineは[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を参照する。
+general process integration、DLL／export lifecycle、process parameters、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB fieldsからentry completionまで進んだ。BGIは`Direct3DCreate9` 1件だけbindした未seal／未実行imageである。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -91,6 +91,7 @@ npm run check:runtime:outer-return
 npm run check:runtime:entry-return
 npm run check:runtime:stack-bootstrap
 npm run check:runtime:bootstrap-fs-first-stop
+npm run check:runtime:bootstrap-fs
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -149,6 +150,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource band、D3D9／DirectInput／DirectSound factory、GDI+ まで到達した。後続trace v2はselected `IDirect3D9` root 11 methodsを観測したがdevice／resource methodsは未観測である。W7 controlled imageのentry completionとRust-owned stackに続き、import-free fixtureのnative FS oracle／zero-base first stopを固定した。BGIはruntime-owned `Direct3DCreate9` thunkをbindして次のunsupported importで停止している。次はRust-owned TEB／PEB reflectionである。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum TEB／PEB FS bootstrapまで固定した。BGIはruntime-owned `Direct3DCreate9` thunkをbindして次のunsupported importで停止している。次はnative-oracled process parametersである。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

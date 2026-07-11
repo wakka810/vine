@@ -67,6 +67,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bootstrap-fs-first-stop` runs the import-free native TEB／PEB offset oracle, reflects its sealed image／control／stack pages, and fixes the source-adapter stop at CR2 `0x18`／PFEC `4` with FS base zero. The result is recorded in [v86-bootstrap-fs-first-stop.md](../../docs/v86-bootstrap-fs-first-stop.md).
 
+`npm run check:runtime:bootstrap-fs` adds typed Rust-owned TEB／PEB pages, restores the TEB as FS base through CPU state ABI version `1`, and verifies all four fixture observations plus exact entry completion. The result is recorded in [v86-bootstrap-fs-ingress.md](../../docs/v86-bootstrap-fs-ingress.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.

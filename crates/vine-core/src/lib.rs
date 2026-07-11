@@ -2,6 +2,7 @@
 
 mod bootstrap;
 mod callbacks;
+mod environment;
 mod imports;
 mod materialize;
 mod memory;
@@ -17,6 +18,11 @@ pub use callbacks::{
     CallbackReturnSentinel, CallbackReturnSentinelId, PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS,
     ProcessEntryReturnSentinel, ProcessEntryReturnSentinelId, RuntimeReturnSentinels,
     install_callback_return_sentinel, install_runtime_return_sentinels,
+};
+pub use environment::{
+    CONTROLLED_ENVIRONMENT_PAGE_SIZE, CONTROLLED_PEB_BASE, CONTROLLED_TEB_BASE,
+    InitialProcessEnvironment, TEB_PEB_POINTER_OFFSET, TEB_SELF_POINTER_OFFSET,
+    install_controlled_process_environment,
 };
 pub use imports::{
     IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, IMPORT_THUNK_SLOT_SIZE, ImportBinding,

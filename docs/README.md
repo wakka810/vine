@@ -5,14 +5,14 @@
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 対象: current `main` worktree
-- 実装成熟度: Phase 0 discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap FS first-stop ingress。native TEB／PEB offset oracleとzero-FS-base exact faultは存在するが、general v86 memory／process integration、Rust-owned PEB／TEB、DLL／export resolution、Win32 runtime、browser app、CIはまだない
+- 実装成熟度: Phase 0 discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack／minimum TEB・PEB bootstrap ingress。native oracle、zero-base fault、FS-base completionは存在するが、general process integration、process parameters、DLL／export resolution、Win32 runtime、browser app、CIはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
 
 このディレクトリは、Vine を「Windows 向け VN/ADV 実行ファイルを、元の配布ファイルを原則として変更せずブラウザ上で再ホストする Windows userspace 互換ランタイム」として開発するための基準文書である。
 
-調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、再現生成するPE32 fixtures、固定したv86 source adapter、Windows trace、W1／W2／W3、high-address memory、Rust W7 load／memory／entry return／stack bootstrap、bootstrap FS first-stop ingressがある。各checkpointは限定したcorpus／feasibility／oracle evidenceであり、production Windows compatibility runtimeの完成を示さない。
+調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、再現生成するPE32 fixtures、固定したv86 source adapter、Windows trace、W1／W2／W3、high-address memory、Rust W7 load／memory／entry return／stack／minimum TEB・PEB ingressがある。各checkpointは限定したevidenceであり、production Windows compatibility runtimeの完成を示さない。
 
 ## プロジェクトの位置づけ
 
@@ -65,8 +65,9 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [v86-entry-return-ingress.md](v86-entry-return-ingress.md) | guest entry completionをどこまで所有できるか | typed process-entry sentinel、exact return classification、result／stack balance |
 | [v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md) | initial stackをどこまで所有できるか | Rust stack owner／region、bootstrap metadata、reflection、adapter-local stack removal |
 | [v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md) | i386 FS bootstrapの未実装境界はどこか | native TEB／PEB self-oracle、import-free reflection、zero-FS-base exact `#PF` |
+| [v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md) | 最小TEB／PEBをどこまで所有できるか | typed Rust regions、exact fields、FS-base restore、entry completion |
 | [windows-development.md](windows-development.md) | Windows で何から始めるか | toolchain、Frida trace、最初の縦断 checkpoint、test 方針 |
-| [windows-native-evidence.md](windows-native-evidence.md) | Windows で何が実測済みか | W0 version、BGI trace v1／v2、selected IDirect3D9 root、W1／W2／W3、W7 loader／memory／entry／return／stack／FS first-stop ingress |
+| [windows-native-evidence.md](windows-native-evidence.md) | Windows で何が実測済みか | W0 version、BGI trace v1／v2、selected IDirect3D9 root、W1／W2／W3、W7 loader／memory／entry／stack／FS ingress |
 | [requirements.md](requirements.md) | 何を、どこまで作るか | 目的、スコープ、機能要件、非機能要件、personal target 定義 |
 | [target-architecture.md](target-architecture.md) | どの境界で作るか | コンポーネント、実行モデル、同期・非同期境界、runtime robustness |
 | [risks-and-open-questions.md](risks-and-open-questions.md) | 何が未確定で、何が失敗要因か | 意思決定待ち、リスク台帳、停止条件、ADR 候補 |

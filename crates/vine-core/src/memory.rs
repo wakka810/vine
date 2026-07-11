@@ -113,6 +113,8 @@ pub enum MemoryOwnerKind {
 pub enum MemoryRegionKind {
     Image,
     Stack,
+    ThreadEnvironmentBlock,
+    ProcessEnvironmentBlock,
     Heap,
     Anonymous,
     Runtime,

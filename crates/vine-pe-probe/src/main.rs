@@ -9,12 +9,13 @@ use std::process::ExitCode;
 use serde::{Deserialize, Serialize};
 use vine_core::{
     CallbackReturnSentinel, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportThunk, InitialThreadStack,
-    LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryInvalidation, MemoryLimits,
-    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportThunk, InitialProcessEnvironment,
+    InitialThreadStack, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryInvalidation,
+    MemoryLimits, MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
     ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog, UnsupportedPoint,
     bind_pe32_imports, build_pe32_load_plan, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_runtime_return_sentinels, materialize_pe32_image,
+    install_controlled_initial_stack, install_controlled_process_environment,
+    install_runtime_return_sentinels, materialize_pe32_image,
 };
 
 #[derive(Debug)]
@@ -29,6 +30,7 @@ struct Arguments {
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
     install_controlled_initial_stack: bool,
+    install_controlled_process_environment: bool,
 }
 
 #[derive(Serialize)]
@@ -107,6 +109,8 @@ struct V86ReflectionOffer {
     process_entry_return_sentinel: Option<ProcessEntryReturnSentinel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     initial_thread_stack: Option<InitialThreadStack>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_process_environment: Option<InitialProcessEnvironment>,
     reflection: MemoryReflection,
 }
 
@@ -139,6 +143,10 @@ struct V86ReflectionReceipt {
     process_entry_return_bytes: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     initial_stack_top_bytes: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    teb_bytes: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    peb_bytes: Option<Vec<u8>>,
     stop: UnsupportedPoint,
 }
 
@@ -346,9 +354,18 @@ fn run_v86_reflection_session(
     } else {
         None
     };
-    let expected_invalidation = initial_thread_stack
+    let initial_process_environment = arguments
+        .install_controlled_process_environment
+        .then(|| install_controlled_process_environment(&mut memory).map_err(memory_error))
+        .transpose()?;
+    let expected_invalidation = initial_process_environment
         .as_ref()
-        .map(|stack| stack.invalidation)
+        .map(|environment| environment.invalidation)
+        .or_else(|| {
+            initial_thread_stack
+                .as_ref()
+                .map(|stack| stack.invalidation)
+        })
         .or_else(|| {
             process_entry_return_sentinel
                 .as_ref()
@@ -380,6 +397,7 @@ fn run_v86_reflection_session(
         callback_return_sentinel: callback_return_sentinel.clone(),
         process_entry_return_sentinel: process_entry_return_sentinel.clone(),
         initial_thread_stack: initial_thread_stack.clone(),
+        initial_process_environment: initial_process_environment.clone(),
         reflection,
     };
     write_protocol_message(&offer)?;
@@ -438,9 +456,30 @@ fn run_v86_reflection_session(
             memory.read(address, 16).map_err(memory_error)
         })
         .transpose()?;
+    let teb_bytes = initial_process_environment
+        .as_ref()
+        .map(|environment| {
+            memory
+                .read(environment.teb_address, 64)
+                .map_err(memory_error)
+        })
+        .transpose()?;
+    let peb_bytes = initial_process_environment
+        .as_ref()
+        .map(|environment| {
+            memory
+                .read(environment.peb_address, 64)
+                .map_err(memory_error)
+        })
+        .transpose()?;
     let (reflection_stop_code, reflection_stop_message) = if first_thunk.is_none()
-        && initial_thread_stack.is_some()
+        && initial_process_environment.is_some()
     {
+        (
+            "entry-execution-pending",
+            "the sealed import-free image, control page, initial stack, TEB, and PEB are synchronized for adapter execution; guest entry execution has not yet been attempted",
+        )
+    } else if first_thunk.is_none() && initial_thread_stack.is_some() {
         (
             "entry-execution-pending",
             "the sealed import-free image, control page, and initial stack are synchronized for adapter execution; guest entry execution has not yet been attempted",
@@ -472,6 +511,8 @@ fn run_v86_reflection_session(
         callback_return_bytes,
         process_entry_return_bytes,
         initial_stack_top_bytes,
+        teb_bytes,
+        peb_bytes,
         stop: UnsupportedPoint {
             stage: "adapter-execution",
             code: reflection_stop_code,
@@ -631,6 +672,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
     let mut install_controlled_initial_stack = false;
+    let mut install_controlled_process_environment = false;
     let mut arguments = env::args_os().skip(1);
 
     while let Some(argument) = arguments.next() {
@@ -692,6 +734,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             install_controlled_initial_stack = true;
+        } else if argument == "--install-controlled-process-environment" {
+            if install_controlled_process_environment {
+                return Err(usage_error());
+            }
+            install_controlled_process_environment = true;
         } else if argument.to_string_lossy().starts_with('-') || input.is_some() {
             return Err(usage_error());
         } else {
@@ -723,6 +770,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     {
         return Err(usage_error());
     }
+    if install_controlled_process_environment && !install_controlled_initial_stack {
+        return Err(usage_error());
+    }
 
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
@@ -735,6 +785,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
         install_controlled_initial_stack,
+        install_controlled_process_environment,
     })
 }
 
@@ -810,7 +861,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

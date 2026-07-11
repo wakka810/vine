@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stack bootstrapがあり、separate fixtureのnative FS oracleとzero-base first stopもある。general memory／process integration、DLL／export lifecycle、Rust-owned PEB／TEB、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB bootstrapがある。general process integration、DLL／export lifecycle、process parameters、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -87,7 +87,7 @@ guest CALL / JMP import thunk
 
 API implementation は `Promise` を guest へ見せない。deferred operation の途中でも、別 guest thread、message、cancel、timeout を scheduler が扱える設計にする。
 
-現在のcontrolled sliceはfixed service／callback／entry returnとRust-owned initial stackを通す。separate import-free fixtureはnative FS contractを固定し、FS base zeroから最初のTEB readをexact faultにする。general ABI schema、LastError、deferred service、stack growth／guard、Rust-owned PEB／TEB、process lifecycleは未実装である。詳細は[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)と[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を正とする。
+現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEBを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてentry completionまで実行した。general ABI schema、LastError、deferred service、stack growth／guard、process parameters、process lifecycleは未実装である。詳細は[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。
 
 ### 4.3 Host から guest callback
 
@@ -155,7 +155,7 @@ background tab、debugger pause、audio suspend 後に catch-up するか freeze
 
 Wasm32 linear memory の offset と guest virtual address を同一と仮定しない。推奨案は sparse page table または region table を介し、CPU と marshaller が共通の checked memory interface を使う方式である。hot path の TLB/cache は profile 後に追加する。
 
-現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装する。stack-bootstrap modeに加え、import-free fixtureのimage／control／stack 7 pagesをgeneration `6`でreflectし、zero-FS-base faultまで実行した。guest mutationはadapter bytesからRustへ戻らず、TEB／PEB pagesもまだない。詳細は[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)と[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を正とする。
+現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装する。typed TEB／PEB pagesを加えたgeneration `10`の9 pagesをreflectし、FS-base entry completionまで実行した。guest mutationはadapter bytesからRustへ戻らず、PEBはzero pageのままである。詳細は[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。
 
 ### 6.2 Page state
 
@@ -194,7 +194,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。controlled entry completion／Rust-owned stackに続き、FS base zeroのfirst TEB readをCR2 `0x18`で停止した。v86のexecute-permission gapにはslice-boundary gateを保持する。Rust-owned PEB／TEB、stack growth、general mutation、snapshot、broad ABI、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)と[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を正とする。
+固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsを実行した。v86のexecute-permission gapにはslice-boundary gateを保持する。process parameters、stack growth、general mutation、snapshot、broad ABI、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)と[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 
