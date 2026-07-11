@@ -34,7 +34,18 @@ function run(command, arguments_, { env = process.env, timeoutMs = 30_000 } = {}
     let stderr = "";
     const timeout = setTimeout(() => {
       child.kill();
-      reject(new Error(`${path.basename(command)} timed out after ${timeoutMs} ms`));
+      reject(
+        new Error(
+          [
+            `${path.basename(command)} timed out after ${timeoutMs} ms`,
+            stdout,
+            stderr,
+          ]
+            .filter(Boolean)
+            .join("\n")
+            .trim(),
+        ),
+      );
     }, timeoutMs);
 
     child.stdout.setEncoding("utf8");
@@ -224,7 +235,9 @@ if (serveOnly) {
       chrome,
       [
         "--headless=new",
-        ...(process.platform === "linux" ? ["--no-sandbox"] : []),
+        ...(process.platform === "linux"
+          ? ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+          : []),
         "--disable-background-networking",
         "--disable-breakpad",
         "--disable-component-update",
