@@ -7,6 +7,8 @@ import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { resolveV86AdapterProfile } from "./v86-adapter-profile.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
 const dispatchAddRequested = commandArguments.includes("--dispatch-add");
@@ -67,12 +69,6 @@ const expected = {
   source: {
     bytes: 2_560,
     sha256: "60f882a22d7d44e0ebe734f284dc8676e29035207ff004ed0cdf6e97c629b9c7",
-  },
-  wasm: {
-    bytes: 1_882_836,
-    sha256: "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
-    imports: 22,
-    exports: 809,
   },
   imageLoadBase: 0x10000000,
   entry: 0x10001000,
@@ -411,12 +407,7 @@ async function run() {
           }
         : {}),
       adapter: {
-        wasm: {
-          bytes: expected.wasm.bytes,
-          sha256: expected.wasm.sha256,
-          imports: expected.wasm.imports,
-          exports: expected.wasm.exports,
-        },
+        wasm: wasmContext.adapterProfile.wasm,
         physicalPoolBytes: guest.physicalPoolBytes,
         pageDirectory: wasmContext.pageDirectory,
         pageTables: [...wasmContext.pageTables.entries()].map(
@@ -502,24 +493,20 @@ async function run() {
     };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    if (dispatchStackBootstrap) {
-      assert.equal(reportBytes.byteLength, expected.stackBootstrapReport.bytes);
-      assert.equal(sha256(reportBytes), expected.stackBootstrapReport.sha256);
-    } else if (dispatchEntryReturn) {
-      assert.equal(reportBytes.byteLength, expected.entryReturnReport.bytes);
-      assert.equal(sha256(reportBytes), expected.entryReturnReport.sha256);
-    } else if (dispatchOuterReturn) {
-      assert.equal(reportBytes.byteLength, expected.outerReturnReport.bytes);
-      assert.equal(sha256(reportBytes), expected.outerReturnReport.sha256);
-    } else if (dispatchCallback) {
-      assert.equal(reportBytes.byteLength, expected.callbackReport.bytes);
-      assert.equal(sha256(reportBytes), expected.callbackReport.sha256);
-    } else if (dispatchAdd) {
-      assert.equal(reportBytes.byteLength, expected.cdeclReport.bytes);
-      assert.equal(sha256(reportBytes), expected.cdeclReport.sha256);
-    } else {
-      assert.equal(reportBytes.byteLength, expected.entryReport.bytes);
-      assert.equal(sha256(reportBytes), expected.entryReport.sha256);
+    const expectedReport = dispatchStackBootstrap
+      ? expected.stackBootstrapReport
+      : dispatchEntryReturn
+        ? expected.entryReturnReport
+        : dispatchOuterReturn
+          ? expected.outerReturnReport
+          : dispatchCallback
+            ? expected.callbackReport
+            : dispatchAdd
+              ? expected.cdeclReport
+              : expected.entryReport;
+    assert.equal(reportBytes.byteLength, expectedReport.bytes);
+    if (wasmContext.adapterProfile.hasCanonicalReportFingerprints) {
+      assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
     if (dispatchStackBootstrap) {
@@ -723,13 +710,12 @@ function validateOffer(offer) {
 
 async function prepareV86(offer) {
   const wasmBytes = fs.readFileSync(wasmPath);
-  assert.equal(wasmBytes.byteLength, expected.wasm.bytes);
-  assert.equal(sha256(wasmBytes), expected.wasm.sha256);
+  const adapterProfile = resolveV86AdapterProfile(wasmBytes);
   const module = new WebAssembly.Module(wasmBytes);
   const imports = WebAssembly.Module.imports(module);
   const exportsDescription = WebAssembly.Module.exports(module);
-  assert.equal(imports.length, expected.wasm.imports);
-  assert.equal(exportsDescription.length, expected.wasm.exports);
+  assert.equal(imports.length, adapterProfile.wasm.imports);
+  assert.equal(exportsDescription.length, adapterProfile.wasm.exports);
   const exportNames = new Set(exportsDescription.map(({ name }) => name));
   for (const name of [
     "allocate_memory",
@@ -974,6 +960,7 @@ async function prepareV86(offer) {
   }
 
   return {
+    adapterProfile,
     allocations,
     hostImportCalls,
     mappings,

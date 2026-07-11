@@ -5,6 +5,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { resolveV86AdapterProfile } from "./v86-adapter-profile.mjs";
+
 import {
   browserPresentEventLogPrefix,
   createFixedW2BrowserPresentEvent,
@@ -35,12 +37,6 @@ const expectedExe = {
   entry: 0x00401000,
   imageSize: 0x5000,
   headerSize: 0x400,
-};
-const expectedWasm = {
-  size: 1_882_836,
-  sha256: "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
-  importCount: 22,
-  exportCount: 809,
 };
 const expectedImports = [
   { module: "kernel32.dll", symbol: "GetModuleHandleA", iatRva: 0x20c0 },
@@ -564,17 +560,12 @@ assert.deepEqual(
 );
 
 const wasmBytes = fs.readFileSync(wasmPath);
-assert.equal(wasmBytes.byteLength, expectedWasm.size, "unexpected adapter Wasm size");
-assert.equal(
-  sha256(wasmBytes),
-  expectedWasm.sha256,
-  "adapter Wasm does not match the pinned W2 artifact",
-);
+const adapterProfile = resolveV86AdapterProfile(wasmBytes);
 const wasmModule = new WebAssembly.Module(wasmBytes);
 const imports = WebAssembly.Module.imports(wasmModule);
 const exportsDescription = WebAssembly.Module.exports(wasmModule);
-assert.equal(imports.length, expectedWasm.importCount);
-assert.equal(exportsDescription.length, expectedWasm.exportCount);
+assert.equal(imports.length, adapterProfile.wasm.imports);
+assert.equal(exportsDescription.length, adapterProfile.wasm.exports);
 const exportNames = new Set(exportsDescription.map(({ name }) => name));
 const requiredExports = [
   "allocate_memory",

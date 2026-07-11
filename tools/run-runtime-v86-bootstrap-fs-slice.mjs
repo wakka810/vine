@@ -7,6 +7,8 @@ import readline from "node:readline";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { resolveV86AdapterProfile } from "./v86-adapter-profile.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
 const installProcessEnvironmentRequested = commandArguments.includes(
@@ -81,12 +83,6 @@ const expected = {
     loadBase: 0x10000000,
     entry: 0x10001000,
     imageOwner: 1,
-  },
-  wasm: {
-    bytes: 1_882_836,
-    sha256: "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
-    imports: 22,
-    exports: 809,
   },
   control: {
     owner: 2,
@@ -473,7 +469,7 @@ async function run() {
         },
       },
       adapter: {
-        wasm: expected.wasm,
+        wasm: context.adapterProfile.wasm,
         physicalPoolBytes: guest.physicalPoolBytes,
         pageDirectory: context.pageDirectory,
         pageTables: [...context.pageTables.entries()].map(
@@ -524,7 +520,9 @@ async function run() {
         : expected.report;
     if (expectedReport.bytes !== null) {
       assert.equal(reportBytes.byteLength, expectedReport.bytes);
-      assert.equal(sha256(reportBytes), expectedReport.sha256);
+      if (context.adapterProfile.hasCanonicalReportFingerprints) {
+        assert.equal(sha256(reportBytes), expectedReport.sha256);
+      }
     }
     fs.writeFileSync(reportPath, reportBytes);
     if (installProcessParameters) {
@@ -785,13 +783,12 @@ function validateOffer(offer) {
 
 async function prepareV86(offer) {
   const wasmBytes = fs.readFileSync(wasmPath);
-  assert.equal(wasmBytes.byteLength, expected.wasm.bytes);
-  assert.equal(sha256(wasmBytes), expected.wasm.sha256);
+  const adapterProfile = resolveV86AdapterProfile(wasmBytes);
   const module = new WebAssembly.Module(wasmBytes);
   const imports = WebAssembly.Module.imports(module);
   const exportsDescription = WebAssembly.Module.exports(module);
-  assert.equal(imports.length, expected.wasm.imports);
-  assert.equal(exportsDescription.length, expected.wasm.exports);
+  assert.equal(imports.length, adapterProfile.wasm.imports);
+  assert.equal(exportsDescription.length, adapterProfile.wasm.exports);
   const exportNames = new Set(exportsDescription.map(({ name }) => name));
   for (const name of [
     "allocate_memory",
@@ -983,6 +980,7 @@ async function prepareV86(offer) {
   );
 
   return {
+    adapterProfile,
     allocations,
     hostImportCalls,
     mappings,

@@ -7,6 +7,8 @@ import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { resolveV86AdapterProfile } from "./v86-adapter-profile.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const wasmPath = path.resolve(
   process.argv[2] ??
@@ -15,12 +17,6 @@ const wasmPath = path.resolve(
 const outputDirectory = path.join(root, ".work", "v86-memory-delta");
 const reportPath = path.join(outputDirectory, "report.json");
 
-const expectedWasm = {
-  bytes: 1_882_836,
-  sha256: "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
-  imports: 22,
-  exports: 809,
-};
 const page = { size: 0x1000, present: 1, writable: 2, user: 4 };
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
@@ -230,12 +226,11 @@ function validateReceipt(receipt, update) {
 
 async function prepareV86(reflection) {
   const wasmBytes = fs.readFileSync(wasmPath);
-  assert.equal(wasmBytes.byteLength, expectedWasm.bytes);
-  assert.equal(sha256(wasmBytes), expectedWasm.sha256);
+  const adapterProfile = resolveV86AdapterProfile(wasmBytes);
   const module = new WebAssembly.Module(wasmBytes);
   const imports = WebAssembly.Module.imports(module);
-  assert.equal(imports.length, expectedWasm.imports);
-  assert.equal(WebAssembly.Module.exports(module).length, expectedWasm.exports);
+  assert.equal(imports.length, adapterProfile.wasm.imports);
+  assert.equal(WebAssembly.Module.exports(module).length, adapterProfile.wasm.exports);
   const environment = {
     __indirect_function_table: new WebAssembly.Table({ element: "anyfunc", initial: 1_924 }),
   };
