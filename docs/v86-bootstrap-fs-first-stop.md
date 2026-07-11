@@ -31,6 +31,10 @@ The fixture rejects a null TEB or PEB, then verifies `*(TEB + 0x18) == TEB` and 
 
 The native result is a self-oracle for these offsets, not a claim that Vine adopts every internal field of the host Windows PEB／TEB.
 
+On Linux CI, the runner verifies this exact fixture fingerprint and records
+`recorded-windows-i386-self-oracle` provenance with exit code `0`; it does not
+execute the PE32 fixture or count that consumption as new native evidence.
+
 ## 3. Production reflection
 
 The reflection session now permits a fully bound import-free image without inventing an import thunk. Existing imported-image offers keep their previous JSON shape and all six earlier entry／cdecl／callback／return report hashes remain unchanged.

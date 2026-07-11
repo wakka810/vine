@@ -55,6 +55,8 @@ process-parameters, MemoryDelta, window, and browser-presentation paths.
 `check:adapter` holds the broader adapter checks. `check:private-corpus` runs BGI
 only when `VINE_BGI_EXE` or the documented local path exists; absence is an
 explicit skip. GitHub Actions runs the two public check groups on Linux.
+Linux bootstrap checks consume fixture-hash-bound recorded Windows oracle
+evidence and label that provenance; they do not claim to execute PE32 natively.
 Generated reports are written under `.work/` and are not tracked by Git.
 
 `npm run prepare:engine` reproduces the source adapter and its single CPU state

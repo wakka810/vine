@@ -26,6 +26,11 @@ The fixture bounds `UNICODE_STRING.Length` to 32 KiB, requires an even nonzero l
 
 The selected offsets are a measured i386 support profile. They do not promise undocumented PEB／`RTL_USER_PROCESS_PARAMETERS` layout beyond this contract.
 
+On Linux CI, the runner verifies this exact fixture fingerprint and consumes
+the recorded Windows exit code `0` with explicit
+`recorded-windows-i386-self-oracle` provenance. It does not represent that as a
+fresh native PE32 execution.
+
 ## 3. Controlled guest comparison
 
 `npm run check:runtime:bootstrap-params-first-stop` relocates the fixture to `0x10000000` and installs the previously verified image-independent bootstrap state:

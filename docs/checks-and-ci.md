@@ -19,6 +19,12 @@ entry, cdecl dispatch, callback, outer return, entry sentinel, Rust-owned stack,
 FS／TEB／PEB, process parameters, MemoryDelta data roundtrip, window loader, and
 Chrome Canvas presentation paths. It uses only repository fixtures.
 
+Windows runs execute the two bootstrap fixtures as native self-oracles. Linux
+runs cannot execute PE32 directly, so they require the same fixed fixture
+SHA-256 and carry `recorded-windows-i386-self-oracle` provenance in the report
+while consuming the recorded exit code `0`. This is not reported as a fresh
+native execution.
+
 Broader adapter checks are separate:
 
 ```powershell
@@ -40,9 +46,27 @@ CI.
 ## GitHub Actions
 
 `.github/workflows/ci.yml` runs on Ubuntu 24.04 with Node 22, Rust 1.97.0,
-rustfmt, clippy, LLVM 22.1, and stable Chrome. It executes `npm ci`,
-`check:fast`, and `check:fixture-e2e`. The workflow has read-only repository
-permissions and does not run private-corpus checks.
+rustfmt, clippy, LLVM 22.1.8, and stable Chrome. The PE toolchain is the pinned
+82 MB llvm-mingw `20260616` release asset, verified as SHA-256
+`534b92e067b22a6b4441f48ae9240a3341b17825d04d577eab0cf85c44b4deda`;
+the runner's system clang handles the separate Wasm smoke. It executes
+`npm ci`, `check:fast`, and `check:fixture-e2e`. The workflow has read-only
+repository permissions and does not run private-corpus checks.
+
+The source adapter has two exact host-build profiles with the same 22 imports,
+809 exports, state ABI, and behavioral contract:
+
+| Host profile | Bytes | SHA-256 |
+|---|---:|---|
+| Windows GNU | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
+| Linux GNU | 2,141,050 | `ac8349cbaccd31d6f5c68a84012fc7bc3a73eda2c06e519331396b43d8c42540` |
+
+Windows report fingerprints remain the canonical evidence values. Linux
+reports preserve their actual adapter identity and run all semantic assertions,
+but do not pretend to have the same whole-report SHA-256. Browser presentation
+uses a clean temporary profile and loopback-only DevTools endpoint to read the
+Canvas result. Linux adds Chrome's CI-only sandbox/shared-memory/GPU flags;
+Chrome is terminated before the profile and local server are removed.
 
 ## Fuzz target
 

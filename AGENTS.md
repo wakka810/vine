@@ -182,6 +182,8 @@ v86 を現在の working baseline とする。具体的な blocker が出ない�
 - source build Rust: `1.97.0`
 - adapter artifact size: `1,882,836` bytes
 - adapter SHA-256: `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26`
+- Linux CI adapter artifact size: `2,141,050` bytes
+- Linux CI adapter SHA-256: `ac8349cbaccd31d6f5c68a84012fc7bc3a73eda2c06e519331396b43d8c42540`
 - Wasm imports／exports: `22`／`809`
 - CPU state ABI: version `1`, size `640` bytes
 
@@ -350,7 +352,7 @@ npm run check:fixture-e2e
 npm run check
 ```
 
-`check:fast`はdocumentation、LLVM PE／Wasm fixture、Rust fmt／test／clippy `-D warnings`、JavaScript syntax、pin済みv86 prebuilt smoke、trace summarizer contractを実行する。`check:fixture-e2e`はsource adapterを準備し、public entry／cdecl／callback／return／stack／bootstrap／MemoryDelta／window／browser presentationを通す。`check`はこの2群を順に実行する。PE32 system import libraryはtracked DEFから`llvm-dlltool -m i386 -k`で生成し、Windows SDK `.lib`には依存しない。adapterの広いmemory／CPU checkは`check:adapter`、BGI依存は`check:private-corpus`へ分離する。
+`check:fast`はdocumentation、LLVM PE／Wasm fixture、Rust fmt／test／clippy `-D warnings`、JavaScript syntax、pin済みv86 prebuilt smoke、trace summarizer contractを実行する。`check:fixture-e2e`はsource adapterを準備し、public entry／cdecl／callback／return／stack／bootstrap／MemoryDelta／window／browser presentationを通す。Linuxではexact fixture hashへ紐づくrecorded Windows bootstrap oracleをprovenance付きで使い、native PE実行済みとは扱わない。source adapterはWindows GNUとLinux GNUのexact artifact profileを別々に検証する。`check`はこの2群を順に実行する。PE32 system import libraryはtracked DEFから`llvm-dlltool -m i386 -k`で生成し、Windows SDK `.lib`には依存しない。adapterの広いmemory／CPU checkは`check:adapter`、BGI依存は`check:private-corpus`へ分離する。
 
 Environment と BGI fingerprint:
 
