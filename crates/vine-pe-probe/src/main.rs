@@ -40,6 +40,7 @@ struct Arguments {
     performance_counter_return_session: bool,
     startup_info_return_session: bool,
     heap_set_information_return_session: bool,
+    heap_create_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -57,6 +58,7 @@ struct V86ReturnSessionOptions {
     performance_counter: bool,
     startup_info: bool,
     heap_set_information: bool,
+    heap_create: bool,
 }
 
 #[derive(Serialize)]
@@ -582,6 +584,91 @@ struct V86HeapSetInformationReturnReceipt {
     stats: MemoryStats,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86HeapCreateReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    heap_state_owner: String,
+    variant_id: String,
+    creation_flags: u32,
+    initial_size: u32,
+    maximum_size: u32,
+    preserve_last_error: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct X86LogicalHeapHandle {
+    namespace: &'static str,
+    value: u32,
+    type_tag: u8,
+    generation: u8,
+    slot: u16,
+}
+
+impl X86LogicalHeapHandle {
+    const NAMESPACE: &str = "vine.logical-private-heap.v1";
+    const TYPE_TAG: u8 = 0x68;
+    const GENERATION: u8 = 1;
+    const SLOT: u16 = 1;
+
+    fn first_private_heap() -> Self {
+        let value = (u32::from(Self::TYPE_TAG) << 24)
+            | (u32::from(Self::GENERATION) << 16)
+            | u32::from(Self::SLOT);
+        Self {
+            namespace: Self::NAMESPACE,
+            value,
+            type_tag: Self::TYPE_TAG,
+            generation: Self::GENERATION,
+            slot: Self::SLOT,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct X86LogicalHeap {
+    owner: String,
+    variant_id: String,
+    handle: X86LogicalHeapHandle,
+    kind: &'static str,
+    lifecycle: &'static str,
+    creation_flags: u32,
+    initial_size: u32,
+    maximum_size: u32,
+    growable: bool,
+    backing_materialization: &'static str,
+    live_allocations: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86HeapCreateReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    logical_heap: X86LogicalHeap,
+    preserve_last_error: bool,
+    result: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -1043,6 +1130,7 @@ fn run_v86_reflection_session(
             performance_counter: arguments.performance_counter_return_session,
             startup_info: arguments.startup_info_return_session,
             heap_set_information: arguments.heap_set_information_return_session,
+            heap_create: arguments.heap_create_return_session,
         };
         run_v86_system_time_delta_session(
             &mut protocol_input,
@@ -1941,7 +2029,13 @@ fn run_v86_startup_info_return_session(
         message_limit,
     )?;
     if return_sessions.heap_set_information {
-        run_v86_heap_set_information_return_session(input, memory, binding, message_limit)?;
+        run_v86_heap_set_information_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
     }
     Ok(())
 }
@@ -1951,6 +2045,7 @@ fn run_v86_heap_set_information_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    return_sessions: V86ReturnSessionOptions,
 ) -> Result<(), LoaderError> {
     const HEAP_ENABLE_TERMINATION_ON_CORRUPTION: u32 = 1;
     const POLICY_ID: &str = "heap-enable-termination-on-corruption";
@@ -2062,6 +2157,138 @@ fn run_v86_heap_set_information_return_session(
             termination_on_corruption_enabled: true,
             preserve_last_error: request.preserve_last_error,
             result: 1,
+            stack_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
+    )?;
+    if return_sessions.heap_create {
+        run_v86_heap_create_return_session(input, memory, binding, message_limit)?;
+    }
+    Ok(())
+}
+
+fn run_v86_heap_create_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+) -> Result<(), LoaderError> {
+    const OWNER_ID: &str = "checkpoint-process-private-heaps";
+    const VARIANT_ID: &str = "heapcreate-growable-initial-4096";
+    const INITIAL_SIZE: u32 = 0x1000;
+    let request: V86HeapCreateReturnRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-private-heap",
+        "heap-create-return-request",
+        "controlled private heap creation request",
+    )?;
+    if request.schema != "vine.v86-heap-create-return-request" || request.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "win32-private-heap",
+            "heap-create-return-request-schema-unsupported",
+            "private heap request must use vine.v86-heap-create-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 12 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "heap-create-argument-width-mismatch",
+            "HeapCreate requires three four-byte stdcall arguments",
+        ));
+    }
+    if request.heap_state_owner != OWNER_ID
+        || request.variant_id != VARIANT_ID
+        || request.creation_flags != 0
+        || request.initial_size != INITIAL_SIZE
+        || request.maximum_size != 0
+        || !request.preserve_last_error
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-private-heap",
+            "heap-create-variant-unsupported",
+            "controlled private heap supports only HeapCreate(0, 0x1000, 0) with unchanged LastError",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "heap-create-thunk-id-unowned",
+                "private heap request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "HeapCreate"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "heap-create-thunk-identity-mismatch",
+            "private heap request does not match the declared HeapCreate thunk",
+        ));
+    }
+
+    let stack_reconciliation = {
+        let mut transaction = memory.begin_transaction();
+        let reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[
+                request.creation_flags,
+                request.initial_size,
+                request.maximum_size,
+            ],
+        )?;
+        transaction.commit_transaction();
+        reconciliation
+    };
+
+    let logical_heap = X86LogicalHeap {
+        owner: request.heap_state_owner,
+        variant_id: request.variant_id,
+        handle: X86LogicalHeapHandle::first_private_heap(),
+        kind: "private-heap",
+        lifecycle: "active",
+        creation_flags: request.creation_flags,
+        initial_size: request.initial_size,
+        maximum_size: request.maximum_size,
+        growable: true,
+        backing_materialization: "deferred-until-first-reached-heap-operation",
+        live_allocations: 0,
+    };
+    let result = logical_heap.handle.value;
+    write_protocol_message(
+        &V86HeapCreateReturnReceipt {
+            schema: "vine.v86-heap-create-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            logical_heap,
+            preserve_last_error: request.preserve_last_error,
+            result,
             stack_reconciliation,
             stats: memory.stats(),
         },
@@ -2304,6 +2531,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut performance_counter_return_session = false;
     let mut startup_info_return_session = false;
     let mut heap_set_information_return_session = false;
+    let mut heap_create_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -2397,6 +2625,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             heap_set_information_return_session = true;
+        } else if argument == "--heap-create-return-session" {
+            if heap_create_return_session {
+                return Err(usage_error());
+            }
+            heap_create_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -2497,6 +2730,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if heap_set_information_return_session && !startup_info_return_session {
         return Err(usage_error());
     }
+    if heap_create_return_session && !heap_set_information_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -2517,6 +2753,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         performance_counter_return_session,
         startup_info_return_session,
         heap_set_information_return_session,
+        heap_create_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -2599,7 +2836,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

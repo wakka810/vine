@@ -14,10 +14,11 @@ try {
   if (
     checkpoint.schema !== "vine.current-checkpoint" ||
     checkpoint.schemaVersion !== 1 ||
-    checkpoint.checkpoint !== "bgi-seventh-win32-call" ||
-    checkpoint.entryInstructionCount !== 108 ||
-    checkpoint.supportedCallCount !== 7 ||
-    checkpoint.lastSupportedCallId !== 84 ||
+    checkpoint.checkpoint !== "bgi-eighth-win32-call" ||
+    checkpoint.entryInstructionCount !== 122 ||
+    checkpoint.supportedCallCount !== 8 ||
+    checkpoint.lastSupportedCallId !== 102 ||
+    checkpoint.lastSupportedCall !== "KERNEL32.dll!HeapCreate" ||
     checkpoint.memoryGeneration !== 27 ||
     checkpoint.controlledProcessId !== 4096 ||
     checkpoint.controlledThreadId !== 8192 ||
@@ -26,8 +27,12 @@ try {
     checkpoint.controlledStartupInfoProfile !==
       "startupinfow-v68-zero-optional-fields" ||
     checkpoint.controlledHeapPolicy !== "heap-enable-termination-on-corruption" ||
-    checkpoint.ownedTrapId !== 102 ||
-    checkpoint.nextCheckpoint !== "eighth-supported-win32-call-return"
+    checkpoint.controlledPrivateHeapVariant !== "heapcreate-growable-initial-4096" ||
+    checkpoint.logicalPrivateHeapHandleNamespace !== "vine.logical-private-heap.v1" ||
+    checkpoint.logicalPrivateHeapHandle !== 0x68010001 ||
+    checkpoint.ownedTrapId !== 72 ||
+    checkpoint.ownedTrap !== "KERNEL32.dll!GetModuleHandleW" ||
+    checkpoint.nextCheckpoint !== "ninth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
   }

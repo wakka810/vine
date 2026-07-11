@@ -553,6 +553,13 @@ assert.throws(
   /trace-start and agent-ready selected observations differ/,
 );
 
+const heapLifecycleSelection = structuredClone(events);
+heapLifecycleSelection[0].arguments.observations = ["heap-lifecycle"];
+heapLifecycleSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["heap-lifecycle"];
+assert.doesNotThrow(() => summarizeTrace(encode(heapLifecycleSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

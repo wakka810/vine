@@ -17,9 +17,11 @@ const dispatchPerformanceCounterOnly = commandArguments.includes(
   "--dispatch-performance-counter",
 );
 const dispatchStartupInfoOnly = commandArguments.includes("--dispatch-startup-info");
-const dispatchHeapSetInformation = commandArguments.includes(
+const dispatchHeapSetInformationOnly = commandArguments.includes(
   "--dispatch-heap-set-information",
 );
+const dispatchHeapCreate = commandArguments.includes("--dispatch-heap-create");
+const dispatchHeapSetInformation = dispatchHeapSetInformationOnly || dispatchHeapCreate;
 const dispatchStartupInfo = dispatchStartupInfoOnly || dispatchHeapSetInformation;
 const dispatchPerformanceCounter = dispatchPerformanceCounterOnly || dispatchStartupInfo;
 const dispatchTickCount = dispatchTickCountOnly || dispatchPerformanceCounter;
@@ -59,8 +61,13 @@ assert.equal(
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-heap-set-information")
     .length,
-  Number(dispatchHeapSetInformation),
+  Number(dispatchHeapSetInformationOnly),
   "--dispatch-heap-set-information may be specified only once",
+);
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-heap-create").length,
+  Number(dispatchHeapCreate),
+  "--dispatch-heap-create may be specified only once",
 );
 assert(
   Number(dispatchSystemTimeOnly) +
@@ -69,7 +76,8 @@ assert(
     Number(dispatchTickCountOnly) +
     Number(dispatchPerformanceCounterOnly) +
     Number(dispatchStartupInfoOnly) +
-    Number(dispatchHeapSetInformation) <=
+    Number(dispatchHeapSetInformationOnly) +
+    Number(dispatchHeapCreate) <=
     1,
   "dispatch modes are mutually exclusive",
 );
@@ -81,11 +89,12 @@ const positionalArguments = commandArguments.filter(
     argument !== "--dispatch-tick-count" &&
     argument !== "--dispatch-performance-counter" &&
     argument !== "--dispatch-startup-info" &&
-    argument !== "--dispatch-heap-set-information",
+    argument !== "--dispatch-heap-set-information" &&
+    argument !== "--dispatch-heap-create",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -98,7 +107,9 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchHeapSetInformation
+  dispatchHeapCreate
+    ? "v86-bgi-eighth-win32-call"
+    : dispatchHeapSetInformation
     ? "v86-bgi-seventh-win32-call"
     : dispatchStartupInfo
       ? "v86-bgi-sixth-win32-call"
@@ -201,6 +212,41 @@ const controlledHeapPolicy = {
     lastErrorAfter: 87,
   },
 };
+const controlledPrivateHeap = {
+  owner: "checkpoint-process-private-heaps",
+  variantId: "heapcreate-growable-initial-4096",
+  handle: {
+    namespace: "vine.logical-private-heap.v1",
+    value: 0x68010001,
+    typeTag: 0x68,
+    generation: 1,
+    slot: 1,
+  },
+  kind: "private-heap",
+  lifecycle: "active",
+  creationFlags: 0,
+  initialSize: 0x1000,
+  maximumSize: 0,
+  growable: true,
+  preserveLastError: true,
+  backingMaterialization: "deferred-until-first-reached-heap-operation",
+  liveAllocations: 0,
+  nativeObservation: {
+    source: "focused-frida-heap-lifecycle-2026-07-12",
+    traceSha256: "9bdf000eedb8844a6e8db4732d025e7dd3a33854bea47175e26c5d5a3e678682",
+    callerRva: 0x000a8886,
+    arguments: [0, 0x1000, 0],
+    resultRole: "host-process-heap-address-observed-and-discarded",
+    lastErrorBefore: 0,
+    lastErrorAfter: 0,
+    firstConsumer: {
+      api: "HeapAlloc",
+      callerRva: 0x000ac3cc,
+      flags: 0x8,
+      bytes: 0x214,
+    },
+  },
+};
 
 const expected = {
   source: {
@@ -226,8 +272,10 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchHeapSetInformation
-      ? 8
+    declared: dispatchHeapCreate
+      ? 9
+      : dispatchHeapSetInformation
+        ? 8
       : dispatchStartupInfo
         ? 7
       : dispatchPerformanceCounter
@@ -241,8 +289,10 @@ const expected = {
           : dispatchSystemTime
             ? 2
             : 1,
-    unsupported: dispatchHeapSetInformation
-      ? 322
+    unsupported: dispatchHeapCreate
+      ? 321
+      : dispatchHeapSetInformation
+        ? 322
       : dispatchStartupInfo
         ? 323
       : dispatchPerformanceCounter
@@ -508,7 +558,7 @@ const expected = {
         module: "KERNEL32.dll",
         name: "HeapCreate",
       },
-      unsupported: true,
+      unsupported: !dispatchHeapCreate,
       returnAddress: 0x100a8886,
       stackWords: [0x100a8886, 0, 0x1000, 0, 0x100a374a, 0xe93f6d87, 0, 0],
     },
@@ -517,6 +567,30 @@ const expected = {
     budgetStops: 20,
     reportBytes: 43_980,
     reportSha256: "09fab7aeda311661aef516ff3ff2156e0fa3293c6c495e5e601503ca44fabc7f",
+  },
+  eighthCall: {
+    offerLineBytes: 4_904_338,
+    requestLineBytes: 8_691,
+    receiptLineBytes: 1_233,
+    stackPageContentSha256: "48f30a675492096d7110c249c8f8bc35da1b58ab3db07df9553e168e56e05d93",
+    reconciledChangedBytes: 8,
+    nextThunk: {
+      identity: {
+        id: 72,
+        address: 0x7f000470,
+        iatAddress: 0x100d11c8,
+        module: "KERNEL32.dll",
+        name: "GetModuleHandleW",
+      },
+      unsupported: true,
+      returnAddress: 0x100a5811,
+      stackWords: [0x100a5811, 0x100d24d0, 0, 0x100a375b, 0xe93f6d87, 0, 0, 0],
+    },
+    instructionCount: 122,
+    executeStops: 14,
+    budgetStops: 13,
+    reportBytes: 49_699,
+    reportSha256: "f8c8ca1e678bb1e118248a6626825ddf585dc240aa59e1abc428429cbab3a1ad",
   },
 };
 
@@ -746,6 +820,14 @@ async function run() {
           "--heap-set-information-return-session",
         ]
       : []),
+    ...(dispatchHeapCreate
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "HeapCreate",
+          "--heap-create-return-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -891,6 +973,16 @@ async function run() {
           execution: processStartup.continuation,
           nextMessage,
           offer,
+          continueSession: dispatchHeapCreate,
+        })
+      : null;
+    const privateHeap = dispatchHeapCreate
+      ? await dispatchEighthHeapCreateCall({
+          child,
+          context,
+          execution: heapPolicy.continuation,
+          nextMessage,
+          offer,
         })
       : null;
     const processExit = await exit;
@@ -900,8 +992,29 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchHeapSetInformation
-      ? buildSeventhHeapSetInformationReport({
+    const report = dispatchHeapCreate
+      ? buildEighthHeapCreateReport({
+          context,
+          execution,
+          heapPolicy,
+          invalidationCalls,
+          monotonicClock,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          performanceCounter,
+          privateHeap,
+          processIdentity,
+          processStartup,
+          receipt,
+          receiptMessage,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+          threadIdentity,
+        })
+      : dispatchHeapSetInformation
+        ? buildSeventhHeapSetInformationReport({
           context,
           execution,
           heapPolicy,
@@ -1090,8 +1203,10 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchHeapSetInformation
-      ? { bytes: expected.seventhCall.reportBytes, sha256: expected.seventhCall.reportSha256 }
+    const expectedReport = dispatchHeapCreate
+      ? { bytes: expected.eighthCall.reportBytes, sha256: expected.eighthCall.reportSha256 }
+      : dispatchHeapSetInformation
+        ? { bytes: expected.seventhCall.reportBytes, sha256: expected.seventhCall.reportSha256 }
       : dispatchStartupInfo
         ? { bytes: expected.sixthCall.reportBytes, sha256: expected.sixthCall.reportSha256 }
       : dispatchPerformanceCounter
@@ -1110,7 +1225,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchHeapSetInformation) {
+    if (dispatchHeapCreate) {
+      console.log(
+        `v86 BGI eighth Win32 call passed: logical private heap ` +
+          `0x${privateHeap.heap.handle.value.toString(16)}, next thunk ID ` +
+          `${privateHeap.continuation.terminal.thunk.id} after ` +
+          `${privateHeap.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchHeapSetInformation) {
       console.log(
         `v86 BGI seventh Win32 call passed: heap policy ` +
           `${heapPolicy.policy.policyId}, next thunk ID ` +
@@ -1223,6 +1345,16 @@ function validateOffer(offer, offerLineBytes) {
     expected.sixthCall.nextThunk.identity,
     !dispatchHeapSetInformation,
   );
+  validateThunk(
+    offer.thunks[expected.seventhCall.nextThunk.identity.id - 1],
+    expected.seventhCall.nextThunk.identity,
+    !dispatchHeapCreate,
+  );
+  validateThunk(
+    offer.thunks[expected.eighthCall.nextThunk.identity.id - 1],
+    expected.eighthCall.nextThunk.identity,
+    true,
+  );
   assert.equal(
     offer.thunks.filter(({ disposition }) => disposition === undefined).length,
     expected.imports.declared,
@@ -1309,8 +1441,10 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchHeapSetInformation
-    ? expected.seventhCall.offerLineBytes
+  const expectedOfferLineBytes = dispatchHeapCreate
+    ? expected.eighthCall.offerLineBytes
+    : dispatchHeapSetInformation
+      ? expected.seventhCall.offerLineBytes
     : dispatchStartupInfo
       ? expected.sixthCall.offerLineBytes
     : dispatchPerformanceCounter
@@ -3066,6 +3200,7 @@ async function dispatchSeventhHeapSetInformationCall({
   execution,
   nextMessage,
   offer,
+  continueSession,
 }) {
   const trapped = execution.finalState;
   const argumentBytes = 16;
@@ -3145,7 +3280,11 @@ async function dispatchSeventhHeapSetInformationCall({
   if (expected.seventhCall.requestLineBytes !== null) {
     assert.equal(Buffer.byteLength(requestLine) - 1, expected.seventhCall.requestLineBytes);
   }
-  child.stdin.end(requestLine);
+  if (continueSession) {
+    child.stdin.write(requestLine);
+  } else {
+    child.stdin.end(requestLine);
+  }
 
   const receiptMessage = await nextMessage("HeapSetInformation return receipt");
   const receipt = receiptMessage.message;
@@ -3243,6 +3382,180 @@ async function dispatchSeventhHeapSetInformationCall({
         controlledHeapPolicy.terminationOnCorruptionEnabled,
       preserveLastError: controlledHeapPolicy.preserveLastError,
       nativeObservation: controlledHeapPolicy.nativeObservation,
+    },
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
+async function dispatchEighthHeapCreateCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+}) {
+  const trapped = execution.finalState;
+  const argumentBytes = 12;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4 + argumentBytes,
+    "read",
+    "HeapCreate stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(trapped.esp, "HeapCreate return address");
+  const arguments_ = Array.from({ length: 3 }, (_, index) =>
+    context.readVirtualU32(
+      trapped.esp + 4 + index * 4,
+      `HeapCreate argument ${index}`,
+    ),
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  assert.deepEqual(arguments_, [
+    controlledPrivateHeap.creationFlags,
+    controlledPrivateHeap.initialSize,
+    controlledPrivateHeap.maximumSize,
+  ]);
+
+  const callSite = returnAddress - 6;
+  const callBytes = context.readVirtualBytes(callSite, 6, "HeapCreate indirect IAT call");
+  assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
+  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
+  assert.equal(callView.getUint32(2, true), expected.seventhCall.nextThunk.identity.iatAddress);
+  assert.equal(
+    context.readVirtualU32(
+      expected.seventhCall.nextThunk.identity.iatAddress,
+      "HeapCreate bound IAT",
+    ),
+    expected.seventhCall.nextThunk.identity.address,
+  );
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before HeapCreate return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-heap-create-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.sixthCall.deltaGeneration,
+    thunkId: expected.seventhCall.nextThunk.identity.id,
+    thunkAddress: expected.seventhCall.nextThunk.identity.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes,
+    stackPageAddress,
+    stackPageOwner: expected.stack.owner,
+    stackPageBytes: [...stackPageBytes],
+    heapStateOwner: controlledPrivateHeap.owner,
+    variantId: controlledPrivateHeap.variantId,
+    creationFlags: controlledPrivateHeap.creationFlags,
+    initialSize: controlledPrivateHeap.initialSize,
+    maximumSize: controlledPrivateHeap.maximumSize,
+    preserveLastError: controlledPrivateHeap.preserveLastError,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 64 * 1024);
+  if (expected.eighthCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.eighthCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("HeapCreate return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-heap-create-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  validateThunk(receipt.thunk, expected.seventhCall.nextThunk.identity, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, argumentBytes);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.deepEqual(receipt.logicalHeap, {
+    owner: controlledPrivateHeap.owner,
+    variantId: controlledPrivateHeap.variantId,
+    handle: controlledPrivateHeap.handle,
+    kind: controlledPrivateHeap.kind,
+    lifecycle: controlledPrivateHeap.lifecycle,
+    creationFlags: controlledPrivateHeap.creationFlags,
+    initialSize: controlledPrivateHeap.initialSize,
+    maximumSize: controlledPrivateHeap.maximumSize,
+    growable: controlledPrivateHeap.growable,
+    backingMaterialization: controlledPrivateHeap.backingMaterialization,
+    liveAllocations: controlledPrivateHeap.liveAllocations,
+  });
+  assert.equal(receipt.preserveLastError, controlledPrivateHeap.preserveLastError);
+  assert.equal(receipt.result, controlledPrivateHeap.handle.value);
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(receipt.stackReconciliation.changedBytes > 0);
+  if (expected.eighthCall.reconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.eighthCall.reconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.eighthCall.stackPageContentSha256);
+  }
+  assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.eighthCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.eighthCall.receiptLineBytes);
+  }
+
+  const resume = resumeHeapCreateStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    receipt.result,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  assert.equal(continuation.terminal.kind, "owned-import-thunk");
+  if (expected.eighthCall.nextThunk !== null) {
+    validateThunk(
+      continuation.terminal.thunk,
+      expected.eighthCall.nextThunk.identity,
+      expected.eighthCall.nextThunk.unsupported,
+    );
+    assert.equal(continuation.instructionCount, expected.eighthCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.eighthCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.eighthCall.budgetStops);
+    assert.equal(continuation.terminal.returnAddress, expected.eighthCall.nextThunk.returnAddress);
+    assert.deepEqual(continuation.terminal.stackWords, expected.eighthCall.nextThunk.stackWords);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      arguments: arguments_,
+      stackPageAddress: request.stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    heap: {
+      ...receipt.logicalHeap,
+      preserveLastError: receipt.preserveLastError,
+      nativeObservation: controlledPrivateHeap.nativeObservation,
     },
     receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
     resume,
@@ -3420,6 +3733,31 @@ function resumeHeapSetInformationStdcallResult(
     eaxBefore: trapped.eax,
     eaxAfter: restored.resumed.eax,
     resultSource: "BOOL-success-after-controlled-process-heap-policy",
+    lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
+  };
+}
+
+function resumeHeapCreateStdcallResult(context, trapped, returnAddress, result) {
+  const argumentBytes = 12;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "HeapCreate",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: controlledPrivateHeap.owner,
+    handleNamespace: controlledPrivateHeap.handle.namespace,
     lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
   };
 }
@@ -3869,6 +4207,58 @@ function buildSeventhHeapSetInformationReport({ heapPolicy, ...sixthCallArgument
       code: "next-runtime-reachable-owned-import-trap",
       message:
         "BGI returned from checked GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, GetStartupInfoW, and HeapSetInformation calls and reached the next exact runtime-owned import thunk without dispatching it",
+    },
+  };
+}
+
+function buildEighthHeapCreateReport({ privateHeap, ...seventhCallArguments }) {
+  const seventhCall = buildSeventhHeapSetInformationReport(seventhCallArguments);
+  return {
+    schema: "vine.v86-bgi-eighth-win32-call",
+    schemaVersion: 1,
+    source: seventhCall.source,
+    sourceSnapshot: seventhCall.sourceSnapshot,
+    contract: {
+      ...seventhCall.contract,
+      privateHeapStateOwner: controlledPrivateHeap.owner,
+      logicalHeapHandleNamespace: controlledPrivateHeap.handle.namespace,
+      supportedServiceDispatches: 8,
+    },
+    bootstrap: seventhCall.bootstrap,
+    imports: {
+      ...seventhCall.imports,
+      supportedHeapCreate:
+        seventhCallArguments.offer.thunks[expected.seventhCall.nextThunk.identity.id - 1],
+    },
+    adapter: seventhCall.adapter,
+    reflection: seventhCall.reflection,
+    firstTrap: seventhCall.firstTrap,
+    systemTime: seventhCall.systemTime,
+    firstContinuation: seventhCall.firstContinuation,
+    processId: seventhCall.processId,
+    secondContinuation: seventhCall.secondContinuation,
+    threadId: seventhCall.threadId,
+    thirdContinuation: seventhCall.thirdContinuation,
+    tickCount: seventhCall.tickCount,
+    fourthContinuation: seventhCall.fourthContinuation,
+    performanceCounter: seventhCall.performanceCounter,
+    fifthContinuation: seventhCall.fifthContinuation,
+    startupInfo: seventhCall.startupInfo,
+    sixthContinuation: seventhCall.sixthContinuation,
+    heapSetInformation: seventhCall.heapSetInformation,
+    seventhContinuation: seventhCall.continuation,
+    heapCreate: {
+      request: privateHeap.request,
+      heap: privateHeap.heap,
+      receipt: privateHeap.receipt,
+      resume: privateHeap.resume,
+    },
+    continuation: privateHeap.continuation,
+    stop: {
+      stage: "thunk-dispatch",
+      code: "next-runtime-reachable-owned-import-trap",
+      message:
+        "BGI returned from eight checked Kernel32 calls through HeapCreate and reached the next exact runtime-owned import thunk without dispatching it",
     },
   };
 }

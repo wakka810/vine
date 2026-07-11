@@ -2,10 +2,10 @@
 
 ## 1. 文書情報
 
-- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap／explicit import traps／BGI firstからseventh Win32 callはVerified。visual title／device-level method coverageはIn discovery
+- ステータス: W0／trace v2 attribution／selected IDirect3D9 root／W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap／explicit import traps／BGI firstからeighth Win32 callはVerified。visual title／device-level method coverageはIn discovery
 - 取得日: 2026-07-10／2026-07-11／2026-07-12
 - runtime checkpoint更新日: 2026-07-12
-- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 runtime flow`、`W3 browser first-pixel boundary`、`W7 PE32 load／memory／entry return ingress`、`production stack bootstrap ingress`、`bootstrap FS first-stop ingress`、`bootstrap FS ingress`、`process-parameters first stop`、`process-parameters ingress`、`explicit unsupported trap binding`、`BGI first runtime trap`、`BGI first Win32 call return`、`BGI second Win32 call return`、`BGI third Win32 call return`、`BGI fourth Win32 call return`、`BGI fifth Win32 call return`、`BGI sixth Win32 call return`、`BGI seventh Win32 call return`、`P0-COR-04` の最初のnative sample
+- 完了 checkpoint: `W0`、`trace v2 attribution ingress`、`selected IDirect3D9 root capture`、`W1`、`W2 runtime flow`、`W3 browser first-pixel boundary`、`W7 PE32 load／memory／entry return ingress`、`production stack bootstrap ingress`、`bootstrap FS first-stop ingress`、`bootstrap FS ingress`、`process-parameters first stop`、`process-parameters ingress`、`explicit unsupported trap binding`、`BGI first runtime trap`、`BGI first Win32 call return`、`BGI second Win32 call return`、`BGI third Win32 call return`、`BGI fourth Win32 call return`、`BGI fifth Win32 call return`、`BGI sixth Win32 call return`、`BGI seventh Win32 call return`、`BGI eighth Win32 call return`、`P0-COR-04` の最初のnative sample
 - partial evidence: `P0-COR-01`、`P0-COR-02`、`P0-COR-03`、`P0-ARCH-03`、`P1-MEM-01`、`P1-MEM-02`、`P1-MEM-03`、`P1-ABI-01`、`P1-ABI-02`、`P1-ABI-03`、`P1-DIAG-01`、`P1-SCH-01`、`P1-QA-01`、`P2-PE-01`、`P2-PE-02`、`P2-PE-03`、`P2-PE-04`、`P2-PE-10`、`P2-WIN-02`、`P2-DIAG-01`、`P2-COR-01`、`P3-WIN-01`、`P3-WIN-03`、`P4-UI-01`、`P4-UI-02`、`P4-GDI-01`、`P6D-COR-01`、`P6D-COR-02`
 - primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
@@ -812,3 +812,11 @@ opt-in `--observe heap-set-information` traceを2回取得し、target callがBG
 `npm run check:runtime:bgi-seventh-win32-call`はID `84`を8番目のdeclared endpointとし、call／return `0x100A36F6`／`0x100A36FC`、IAT `0x100D11F8`、frame `[return,NULL,1,NULL,0]`をadapterとRustで検査する。owner `checkpoint-process-heap-policy`のpolicy `heap-enable-termination-on-corruption`だけを受け付け、generation `27` stack pageとの差12 bytes／SHA-256 `d121a898c549de8cf2eea5d76912375a993cac9a7dfb41d101ef2eb2b68fa3da`をreconcileする。guest writeはなくgeneration `27`／dirty 0を保持し、LastErrorを変更せずBOOL `1`、ESP `0x006FFF80`でreturnする。
 
 21命令後、entryから累計108命令でexact ID `102`／`KERNEL32.dll!HeapCreate`／`0x7F000650`へ到達した。frameは`[return,0,0x1000,0]`、43,980-byte reportのSHA-256は`09fab7aeda311661aef516ff3ff2156e0fa3293c6c495e5e601503ca44fabc7f`で、source hashと先行report hashesは不変だった。これはone controlled heap-policy selectionであり、general heap allocator、corruption termination、LastError modelを実装しない。詳細は[v86-bgi-seventh-win32-call.md](v86-bgi-seventh-win32-call.md)を正とする。
+
+## 34. BGI eighth supported Win32 call return
+
+opt-in `--observe heap-lifecycle` traceは6,870,828 bytes／SHA-256 `9bdf000eedb8844a6e8db4732d025e7dd3a33854bea47175e26c5d5a3e678682`である。target `HeapCreate`はBGI caller RVA `0xA8886`、arguments `[0,0x1000,0]`、native result `0x04A40000`、LastError `0 -> 0`だった。このresultはhost process addressとして破棄する。最初のBGI-owned consumerはRVA `0xAC3CC`の`HeapAlloc(createdHeap,0x8,0x214)`で、その次はsize `0x800`だった。
+
+`npm run check:runtime:bgi-eighth-win32-call`はID `102`を9番目のdeclared endpointとし、call／return `0x100A8880`／`0x100A8886`、IAT `0x100D1240`、frame `[return,0,0x1000,0]`をadapterとRustで検査する。owner `checkpoint-process-private-heaps`へvariant `heapcreate-growable-initial-4096`のone live recordを作り、namespace `vine.logical-private-heap.v1`、type tag `0x68`、generation／slot `1`／`1`のlogical handle `0x68010001`を返す。backingはfirst reached heap operationまでdeferし、live allocationは0である。
+
+generation `27` stack pageとの差8 bytes／SHA-256 `48f30a675492096d7110c249c8f8bc35da1b58ab3db07df9553e168e56e05d93`をreconcileする。guest writeはなくgeneration `27`／dirty 0を保持し、ESP `0x006FFF7C`でreturnする。14命令後、entryから累計122命令でexact ID `72`／`KERNEL32.dll!GetModuleHandleW`／`0x7F000470`へ到達した。IATは`0x100D11C8`、frameは`[0x100A5811,0x100D24D0]`で、argumentはimmutable image内のUTF-16 `KERNEL32.DLL`である。49,699-byte reportのSHA-256は`f8c8ca1e678bb1e118248a6626825ddf585dc240aa59e1abc428429cbab3a1ad`で、source hashと先行report hashesは不変だった。これはone controlled logical heap creationであり、general heap backing／allocator、module loader、LastError modelを実装しない。詳細は[v86-bgi-eighth-win32-call.md](v86-bgi-eighth-win32-call.md)を正とする。

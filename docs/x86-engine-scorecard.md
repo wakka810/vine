@@ -316,17 +316,23 @@ return後9命令、entryから累計87命令でID `84`／`KERNEL32.dll!HeapSetIn
 
 return後21命令、entryから累計108命令でID `102`／`KERNEL32.dll!HeapCreate`へ到達する。43,980-byte reportのSHA-256は`09fab7aeda311661aef516ff3ff2156e0fa3293c6c495e5e601503ca44fabc7f`である。これはone controlled process heap-policy selection／API returnであり、general heap allocator、corruption termination、LastError modelを実装しない。詳細は[v86-bgi-seventh-win32-call.md](v86-bgi-seventh-win32-call.md)を正とする。
 
-### B26. Browser Worker
+### B26. Eighth BGI Win32 call return: Verified ingress
+
+`npm run check:runtime:bgi-eighth-win32-call`はnative BGI target caller RVA `0xA8886`でarguments `[0,0x1000,0]`、nonzero host result、LastError `0 -> 0`、first allocation consumerをfocused heap-lifecycle traceで確認する。runtime側はID `102`のthree-argument stdcall frame／IAT callをadapterとRustで検査し、generation `27`のlive pageから8 changed bytesをreconcileする。owner `checkpoint-process-private-heaps`のbounded metadataへtyped logical handle `0x68010001`を作り、guest writeなしでgeneration `27`／dirty 0を保持してreturnする。
+
+return後14命令、entryから累計122命令でID `72`／`KERNEL32.dll!GetModuleHandleW`へ到達する。49,699-byte reportのSHA-256は`f8c8ca1e678bb1e118248a6626825ddf585dc240aa59e1abc428429cbab3a1ad`である。これはone controlled logical private-heap creation／API returnであり、native pointer、heap backing／allocation、general loader、LastError modelを実装しない。詳細は[v86-bgi-eighth-win32-call.md](v86-bgi-eighth-win32-call.md)を正とする。
+
+### B27. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B27. Correctness と performance
+### B28. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transfer、first seven checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `102`のthree-argument `HeapCreate(0,0x1000,0)` stdcall returnである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transfer、first eight checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `72`のone-argument `GetModuleHandleW(L"KERNEL32.DLL")` stdcall returnである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -357,10 +363,11 @@ adapter fixture は次の順に増やす。
 19. [Verified] exact `QueryPerformanceCounter` frameへcontrolled 64-bit sampleを書き、next trapを測る。
 20. [Verified] exact `GetStartupInfoW` frameへcontrolled x86 structを書き、next trapを測る。
 21. [Verified] exact `HeapSetInformation` frameの到達variantをreturnし、next trapを測る。
-22. exact `HeapCreate` frameへtyped logical heap handleを返し、next trapを測る。
-23. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-24. 同じfixtureをNodeとChromium Workerで実行する。
-25. adopted ISA fixtureとnormalized workloadを測定する。
+22. [Verified] exact `HeapCreate` frameへtyped logical heap handleを返し、next trapを測る。
+23. exact `GetModuleHandleW` frameへtyped logical loaded-module handleを返し、next trapを測る。
+24. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+25. 同じfixtureをNodeとChromium Workerで実行する。
+26. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 

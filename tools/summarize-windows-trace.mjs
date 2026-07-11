@@ -12,6 +12,7 @@ const supportedVtables = new Set(["idirect3d9"]);
 const supportedObservations = new Set([
   "startup-info",
   "heap-set-information",
+  "heap-lifecycle",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

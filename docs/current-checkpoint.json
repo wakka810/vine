@@ -1,11 +1,11 @@
 {
   "schema": "vine.current-checkpoint",
   "schemaVersion": 1,
-  "checkpoint": "bgi-seventh-win32-call",
-  "entryInstructionCount": 108,
-  "supportedCallCount": 7,
-  "lastSupportedCallId": 84,
-  "lastSupportedCall": "KERNEL32.dll!HeapSetInformation",
+  "checkpoint": "bgi-eighth-win32-call",
+  "entryInstructionCount": 122,
+  "supportedCallCount": 8,
+  "lastSupportedCallId": 102,
+  "lastSupportedCall": "KERNEL32.dll!HeapCreate",
   "memoryGeneration": 27,
   "controlledProcessId": 4096,
   "controlledThreadId": 8192,
@@ -13,8 +13,11 @@
   "controlledPerformanceCounter": 12345678901,
   "controlledStartupInfoProfile": "startupinfow-v68-zero-optional-fields",
   "controlledHeapPolicy": "heap-enable-termination-on-corruption",
-  "ownedTrapId": 102,
-  "ownedTrap": "KERNEL32.dll!HeapCreate",
+  "controlledPrivateHeapVariant": "heapcreate-growable-initial-4096",
+  "logicalPrivateHeapHandleNamespace": "vine.logical-private-heap.v1",
+  "logicalPrivateHeapHandle": 1744896001,
+  "ownedTrapId": 72,
+  "ownedTrap": "KERNEL32.dll!GetModuleHandleW",
   "memoryProtocol": "memory-delta-v1",
-  "nextCheckpoint": "eighth-supported-win32-call-return"
+  "nextCheckpoint": "ninth-supported-win32-call-return"
 }

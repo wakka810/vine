@@ -225,6 +225,16 @@ if (selectedObservations.has("heap-set-information")) {
     [null, null, null, null],
   ]);
 }
+if (selectedObservations.has("heap-lifecycle")) {
+  hooks["kernel32.dll"].push(
+    ["HeapCreate", [null, null, null]],
+    ["HeapAlloc", [null, null, null]],
+    ["HeapReAlloc", [null, null, null, null]],
+    ["HeapFree", [null, null, null]],
+    ["HeapSize", [null, null, null]],
+    ["HeapDestroy", [null]],
+  );
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -347,9 +357,9 @@ function attachHook(module, name, decoders) {
       const observation =
         name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
-          : name === "HeapSetInformation"
+          : name.startsWith("Heap")
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
-          : {};
+            : {};
       this.traceStartupInfoPointer =
         name === "GetStartupInfoW" ? args[0] : null;
       this.traceFrame = beginCall(

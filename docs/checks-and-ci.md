@@ -41,14 +41,15 @@ npm run check:private-corpus
 If no private file exists, the command prints the reason and succeeds as an
 explicit skip. If BGI exists but the adapter is absent, it fails and requests
 `npm run check:adapter`. When both are present it runs the immutable first-trap
-contract and the cumulative first through seventh supported Win32 call contracts.
+contract and the cumulative first through eighth supported Win32 call contracts.
 Private binaries are never added to Git or required by CI.
 
-Focused native startup-info evidence is opt-in with
-`py tools/windows/trace.py ... --observe startup-info` or
-`--observe heap-set-information`. The former records the 68-byte x86 span on
-enter and leave; the latter records the exact arguments, BOOL, and LastError.
-Ordinary traces do not install either hook.
+Focused native startup／heap evidence is opt-in with
+`py tools/windows/trace.py ... --observe startup-info`,
+`--observe heap-set-information`, or `--observe heap-lifecycle`. The first
+records the 68-byte x86 span, the second records the exact policy call, and the
+third hooks reached create／allocate／resize／free／size／destroy calls with
+LastError. Ordinary traces do not install these hooks.
 
 ## GitHub Actions
 

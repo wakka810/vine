@@ -29,6 +29,7 @@ for (const modeArguments of [
   ["--dispatch-performance-counter"],
   ["--dispatch-startup-info"],
   ["--dispatch-heap-set-information"],
+  ["--dispatch-heap-create"],
 ]) {
   const result = spawnSync(
     process.execPath,

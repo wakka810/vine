@@ -89,6 +89,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bgi-seventh-win32-call` reconciles the exact four-argument frame at generation `27`, accepts only `HeapSetInformation(NULL,1,NULL,0)`, returns BOOL success without a guest write, and stops at ID `102`／`KERNEL32.dll!HeapCreate`. The result is recorded in [v86-bgi-seventh-win32-call.md](../../docs/v86-bgi-seventh-win32-call.md).
 
+`npm run check:runtime:bgi-eighth-win32-call` reconciles the exact three-argument frame at generation `27`, returns Rust-owned logical private-heap handle `0x68010001` for `HeapCreate(0,0x1000,0)` without copying the native pointer or materializing allocator backing, and stops at ID `72`／`KERNEL32.dll!GetModuleHandleW`. The result is recorded in [v86-bgi-eighth-win32-call.md](../../docs/v86-bgi-eighth-win32-call.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.
