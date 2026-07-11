@@ -122,21 +122,25 @@ async function installRustup() {
   );
 }
 
-function windowsFallbackBuildArguments(environment) {
-  const rustcDetails = capture(rustc, ["-vV"], { env: environment });
-  const host = /^host: (.+)$/m.exec(rustcDetails)?.[1];
-  assert(host, "rustc did not report a host triple");
+function fallbackBuildArguments(environment) {
+  let linker = "tools/rust-lld-wrapper";
+  if (process.platform === "win32") {
+    const rustcDetails = capture(rustc, ["-vV"], { env: environment });
+    const host = /^host: (.+)$/m.exec(rustcDetails)?.[1];
+    assert(host, "rustc did not report a host triple");
 
-  const sysroot = capture(rustc, ["--print", "sysroot"], {
-    env: environment,
-  });
-  const rustLld = path.join(sysroot, "lib", "rustlib", host, "bin", "rust-lld.exe");
-  assert(fs.existsSync(rustLld), `rust-lld not found: ${rustLld}`);
+    const sysroot = capture(rustc, ["--print", "sysroot"], {
+      env: environment,
+    });
+    linker = path.join(sysroot, "lib", "rustlib", host, "bin", "rust-lld.exe");
+    assert(fs.existsSync(linker), `rust-lld not found: ${linker}`);
+    linker = linker.replaceAll("\\", "/");
+  }
 
   const cargoFlags = [
     "--target wasm32-unknown-unknown",
     "--",
-    `-C linker=${rustLld.replaceAll("\\", "/")}`,
+    `-C linker=${linker}`,
     '-C link-args="--import-table --global-base=4096 --no-stack-first"',
     '-C link-args="build/softfloat.o"',
     '-C link-args="build/zstddeclib.o"',
@@ -211,10 +215,7 @@ run(
   ["target", "add", "wasm32-unknown-unknown", "--toolchain", rustVersion],
   { env: rustEnvironment },
 );
-const buildArguments =
-  process.platform === "win32"
-    ? windowsFallbackBuildArguments(rustEnvironment)
-    : ["build/v86-fallback.wasm"];
+const buildArguments = fallbackBuildArguments(rustEnvironment);
 run("make", buildArguments, {
   cwd: sourceDirectory,
   env: rustEnvironment,
