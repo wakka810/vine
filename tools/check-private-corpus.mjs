@@ -28,6 +28,7 @@ for (const modeArguments of [
   ["--dispatch-tick-count"],
   ["--dispatch-performance-counter"],
   ["--dispatch-startup-info"],
+  ["--dispatch-heap-set-information"],
 ]) {
   const result = spawnSync(
     process.execPath,

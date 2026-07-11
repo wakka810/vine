@@ -42,6 +42,7 @@
     "check:runtime:bgi-fourth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-tick-count",
     "check:runtime:bgi-fifth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-performance-counter",
     "check:runtime:bgi-sixth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-startup-info",
+    "check:runtime:bgi-seventh-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-heap-set-information",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",

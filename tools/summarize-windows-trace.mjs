@@ -9,6 +9,10 @@ const traceSchema = "vine.win32-trace.v2";
 const supportedTraceSchemas = new Set([legacyTraceSchema, traceSchema]);
 const summarySchema = "vine.win32-trace-summary.v2";
 const supportedVtables = new Set(["idirect3d9"]);
+const supportedObservations = new Set([
+  "startup-info",
+  "heap-set-information",
+]);
 const idirect3d9MethodNames = [
   "QueryInterface",
   "AddRef",
@@ -325,7 +329,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       !Array.isArray(selectedObservations) ||
       !selectedObservations.every((item) => typeof item === "string") ||
       new Set(selectedObservations).size !== selectedObservations.length ||
-      selectedObservations.some((item) => item !== "startup-info")
+      selectedObservations.some((item) => !supportedObservations.has(item))
     ) {
       throw new Error("trace v2 has unsupported or duplicate selected observation");
     }

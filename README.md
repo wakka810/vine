@@ -4,7 +4,7 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-sixth-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-seventh-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
 330 imports to deterministic runtime-owned `UD2` thunks, and reflects 388
 sealed pages into source-built v86. BGI executes 19 instructions from entry
@@ -24,8 +24,11 @@ more instructions to thunk ID `83`, `KERNEL32.dll!GetStartupInfoW`. A sixth
 checked VOID stdcall writes controlled 68-byte x86 `STARTUPINFOW` profile
 `startupinfow-v68-zero-optional-fields` through generation `27`, preserves
 EAX, and runs nine more instructions to thunk ID `84`,
-`KERNEL32.dll!HeapSetInformation`. Seven endpoints are declared; the other 323
-retain exact identity as explicit traps.
+`KERNEL32.dll!HeapSetInformation`. A seventh checked stdcall accepts only
+`HeapSetInformation(NULL, 1, NULL, 0)`, records the controlled process heap
+policy, returns BOOL success without changing generation `27`, and runs 21
+more instructions to thunk ID `102`, `KERNEL32.dll!HeapCreate`. Eight
+endpoints are declared; the other 322 retain exact identity as explicit traps.
 
 The foundation below that checkpoint now has an incremental `MemoryDelta`
 protocol. The first transfer is a full snapshot; later generations carry only
@@ -43,8 +46,8 @@ The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next endpoint checkpoint is the checked four-argument stdcall at thunk ID
-`84` for `HeapSetInformation(NULL, 1, NULL, 0)`.
+The next endpoint checkpoint is the checked three-argument stdcall at thunk ID
+`102` for `HeapCreate(0, 0x1000, 0)`.
 
 ## Requirements
 
@@ -118,6 +121,9 @@ performance-counter dispatch.
 startup profile through generation `27`, preserves EAX for the VOID return from
 exact thunk ID `83`, and stops at exact thunk ID `84` before a heap-information
 dispatch.
+`npm run check:runtime:bgi-seventh-win32-call` validates the exact termination-
+on-corruption variant, preserves generation `27`, returns BOOL success from ID
+`84`, and stops at exact thunk ID `102` before a heap-creation dispatch.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

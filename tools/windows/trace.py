@@ -13,7 +13,7 @@ import frida
 
 TRACE_SCHEMA = "vine.win32-trace.v2"
 SUPPORTED_VTABLES = ("idirect3d9",)
-SUPPORTED_OBSERVATIONS = ("startup-info",)
+SUPPORTED_OBSERVATIONS = ("startup-info", "heap-set-information")
 
 
 def parse_args() -> argparse.Namespace:

@@ -16,7 +16,11 @@ const dispatchTickCountOnly = commandArguments.includes("--dispatch-tick-count")
 const dispatchPerformanceCounterOnly = commandArguments.includes(
   "--dispatch-performance-counter",
 );
-const dispatchStartupInfo = commandArguments.includes("--dispatch-startup-info");
+const dispatchStartupInfoOnly = commandArguments.includes("--dispatch-startup-info");
+const dispatchHeapSetInformation = commandArguments.includes(
+  "--dispatch-heap-set-information",
+);
+const dispatchStartupInfo = dispatchStartupInfoOnly || dispatchHeapSetInformation;
 const dispatchPerformanceCounter = dispatchPerformanceCounterOnly || dispatchStartupInfo;
 const dispatchTickCount = dispatchTickCountOnly || dispatchPerformanceCounter;
 const dispatchThreadId = dispatchThreadIdOnly || dispatchTickCount;
@@ -49,8 +53,14 @@ assert.equal(
 );
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-startup-info").length,
-  Number(dispatchStartupInfo),
+  Number(dispatchStartupInfoOnly),
   "--dispatch-startup-info may be specified only once",
+);
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-heap-set-information")
+    .length,
+  Number(dispatchHeapSetInformation),
+  "--dispatch-heap-set-information may be specified only once",
 );
 assert(
   Number(dispatchSystemTimeOnly) +
@@ -58,7 +68,8 @@ assert(
     Number(dispatchThreadIdOnly) +
     Number(dispatchTickCountOnly) +
     Number(dispatchPerformanceCounterOnly) +
-    Number(dispatchStartupInfo) <=
+    Number(dispatchStartupInfoOnly) +
+    Number(dispatchHeapSetInformation) <=
     1,
   "dispatch modes are mutually exclusive",
 );
@@ -69,11 +80,12 @@ const positionalArguments = commandArguments.filter(
     argument !== "--dispatch-thread-id" &&
     argument !== "--dispatch-tick-count" &&
     argument !== "--dispatch-performance-counter" &&
-    argument !== "--dispatch-startup-info",
+    argument !== "--dispatch-startup-info" &&
+    argument !== "--dispatch-heap-set-information",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -86,8 +98,10 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchStartupInfo
-    ? "v86-bgi-sixth-win32-call"
+  dispatchHeapSetInformation
+    ? "v86-bgi-seventh-win32-call"
+    : dispatchStartupInfo
+      ? "v86-bgi-sixth-win32-call"
     : dispatchPerformanceCounter
       ? "v86-bgi-fifth-win32-call"
     : dispatchTickCount
@@ -168,6 +182,25 @@ const controlledProcessStartup = {
     standardHandles: "host-inherited-nonzero",
   },
 };
+const controlledHeapPolicy = {
+  owner: "checkpoint-process-heap-policy",
+  policyId: "heap-enable-termination-on-corruption",
+  heapHandle: 0,
+  informationClass: 1,
+  informationAddress: 0,
+  informationLength: 0,
+  terminationOnCorruptionEnabled: true,
+  preserveLastError: true,
+  result: 1,
+  nativeObservation: {
+    source: "focused-frida-heapsetinformation-2026-07-12",
+    callerRva: 0x000a36fc,
+    arguments: [0, 1, 0, 0],
+    result: 1,
+    lastErrorBefore: 87,
+    lastErrorAfter: 87,
+  },
+};
 
 const expected = {
   source: {
@@ -193,8 +226,10 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchStartupInfo
-      ? 7
+    declared: dispatchHeapSetInformation
+      ? 8
+      : dispatchStartupInfo
+        ? 7
       : dispatchPerformanceCounter
         ? 6
       : dispatchTickCount
@@ -206,8 +241,10 @@ const expected = {
           : dispatchSystemTime
             ? 2
             : 1,
-    unsupported: dispatchStartupInfo
-      ? 323
+    unsupported: dispatchHeapSetInformation
+      ? 322
+      : dispatchStartupInfo
+        ? 323
       : dispatchPerformanceCounter
         ? 324
       : dispatchTickCount
@@ -447,7 +484,7 @@ const expected = {
         module: "KERNEL32.dll",
         name: "HeapSetInformation",
       },
-      unsupported: true,
+      unsupported: !dispatchHeapSetInformation,
       returnAddress: 0x100a36fc,
       stackWords: [0x100a36fc, 0, 1, 0, 0, 0xe93f6d87, 0, 0],
     },
@@ -456,6 +493,30 @@ const expected = {
     budgetStops: 8,
     reportBytes: 39_031,
     reportSha256: "208e5930bdb17da0242fd4567dd8900467eb512992a1930a7e8ede7107c8232c",
+  },
+  seventhCall: {
+    offerLineBytes: 4_904_371,
+    requestLineBytes: 8_724,
+    receiptLineBytes: 1_042,
+    stackPageContentSha256: "d121a898c549de8cf2eea5d76912375a993cac9a7dfb41d101ef2eb2b68fa3da",
+    reconciledChangedBytes: 12,
+    nextThunk: {
+      identity: {
+        id: 102,
+        address: 0x7f000650,
+        iatAddress: 0x100d1240,
+        module: "KERNEL32.dll",
+        name: "HeapCreate",
+      },
+      unsupported: true,
+      returnAddress: 0x100a8886,
+      stackWords: [0x100a8886, 0, 0x1000, 0, 0x100a374a, 0xe93f6d87, 0, 0],
+    },
+    instructionCount: 108,
+    executeStops: 21,
+    budgetStops: 20,
+    reportBytes: 43_980,
+    reportSha256: "09fab7aeda311661aef516ff3ff2156e0fa3293c6c495e5e601503ca44fabc7f",
   },
 };
 
@@ -677,6 +738,14 @@ async function run() {
           "--startup-info-return-session",
         ]
       : []),
+    ...(dispatchHeapSetInformation
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "HeapSetInformation",
+          "--heap-set-information-return-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -812,6 +881,16 @@ async function run() {
           execution: performanceCounter.continuation,
           nextMessage,
           offer,
+          continueSession: dispatchHeapSetInformation,
+        })
+      : null;
+    const heapPolicy = dispatchHeapSetInformation
+      ? await dispatchSeventhHeapSetInformationCall({
+          child,
+          context,
+          execution: processStartup.continuation,
+          nextMessage,
+          offer,
         })
       : null;
     const processExit = await exit;
@@ -821,8 +900,28 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchStartupInfo
-      ? buildSixthStartupInfoReport({
+    const report = dispatchHeapSetInformation
+      ? buildSeventhHeapSetInformationReport({
+          context,
+          execution,
+          heapPolicy,
+          invalidationCalls,
+          monotonicClock,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          performanceCounter,
+          processIdentity,
+          processStartup,
+          receipt,
+          receiptMessage,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+          threadIdentity,
+        })
+      : dispatchStartupInfo
+        ? buildSixthStartupInfoReport({
           context,
           execution,
           invalidationCalls,
@@ -991,8 +1090,10 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchStartupInfo
-      ? { bytes: expected.sixthCall.reportBytes, sha256: expected.sixthCall.reportSha256 }
+    const expectedReport = dispatchHeapSetInformation
+      ? { bytes: expected.seventhCall.reportBytes, sha256: expected.seventhCall.reportSha256 }
+      : dispatchStartupInfo
+        ? { bytes: expected.sixthCall.reportBytes, sha256: expected.sixthCall.reportSha256 }
       : dispatchPerformanceCounter
         ? { bytes: expected.fifthCall.reportBytes, sha256: expected.fifthCall.reportSha256 }
       : dispatchTickCount
@@ -1009,7 +1110,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchStartupInfo) {
+    if (dispatchHeapSetInformation) {
+      console.log(
+        `v86 BGI seventh Win32 call passed: heap policy ` +
+          `${heapPolicy.policy.policyId}, next thunk ID ` +
+          `${heapPolicy.continuation.terminal.thunk.id} after ` +
+          `${heapPolicy.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchStartupInfo) {
       console.log(
         `v86 BGI sixth Win32 call passed: controlled STARTUPINFOW ` +
           `${processStartup.profile.profileId}, next thunk ID ` +
@@ -1110,6 +1218,11 @@ function validateOffer(offer, offerLineBytes) {
     expected.fifthCall.nextThunk.identity,
     !dispatchStartupInfo,
   );
+  validateThunk(
+    offer.thunks[expected.sixthCall.nextThunk.identity.id - 1],
+    expected.sixthCall.nextThunk.identity,
+    !dispatchHeapSetInformation,
+  );
   assert.equal(
     offer.thunks.filter(({ disposition }) => disposition === undefined).length,
     expected.imports.declared,
@@ -1196,8 +1309,10 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchStartupInfo
-    ? expected.sixthCall.offerLineBytes
+  const expectedOfferLineBytes = dispatchHeapSetInformation
+    ? expected.seventhCall.offerLineBytes
+    : dispatchStartupInfo
+      ? expected.sixthCall.offerLineBytes
     : dispatchPerformanceCounter
       ? expected.fifthCall.offerLineBytes
     : dispatchTickCount
@@ -2668,6 +2783,7 @@ function encodeX86StartupInfoW(fields) {
 
 async function dispatchSixthStartupInfoCall({
   child,
+  continueSession,
   context,
   execution,
   nextMessage,
@@ -2848,7 +2964,11 @@ async function dispatchSixthStartupInfoCall({
     instructionFetch: false,
     generatedCode: false,
   })}\n`;
-  child.stdin.end(deltaAcknowledgement);
+  if (continueSession) {
+    child.stdin.write(deltaAcknowledgement);
+  } else {
+    child.stdin.end(deltaAcknowledgement);
+  }
 
   const receiptMessage = await nextMessage("GetStartupInfoW delta receipt");
   const receipt = receiptMessage.message;
@@ -2933,6 +3053,196 @@ async function dispatchSixthStartupInfoCall({
         cacheEffects: delta.delta.cacheEffects,
         contentSha256: delta.delta.contentSha256,
       },
+    },
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
+async function dispatchSeventhHeapSetInformationCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+}) {
+  const trapped = execution.finalState;
+  const argumentBytes = 16;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4 + argumentBytes,
+    "read",
+    "HeapSetInformation stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "HeapSetInformation return address",
+  );
+  const arguments_ = Array.from({ length: 4 }, (_, index) =>
+    context.readVirtualU32(
+      trapped.esp + 4 + index * 4,
+      `HeapSetInformation argument ${index}`,
+    ),
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  assert.deepEqual(arguments_, [
+    controlledHeapPolicy.heapHandle,
+    controlledHeapPolicy.informationClass,
+    controlledHeapPolicy.informationAddress,
+    controlledHeapPolicy.informationLength,
+  ]);
+
+  const callSite = returnAddress - 6;
+  const callBytes = context.readVirtualBytes(
+    callSite,
+    6,
+    "HeapSetInformation indirect IAT call",
+  );
+  assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
+  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
+  assert.equal(callView.getUint32(2, true), expected.sixthCall.nextThunk.identity.iatAddress);
+  assert.equal(
+    context.readVirtualU32(
+      expected.sixthCall.nextThunk.identity.iatAddress,
+      "HeapSetInformation bound IAT",
+    ),
+    expected.sixthCall.nextThunk.identity.address,
+  );
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before HeapSetInformation return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-heap-set-information-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.sixthCall.deltaGeneration,
+    thunkId: expected.sixthCall.nextThunk.identity.id,
+    thunkAddress: expected.sixthCall.nextThunk.identity.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes,
+    stackPageAddress,
+    stackPageOwner: expected.stack.owner,
+    stackPageBytes: [...stackPageBytes],
+    heapPolicyOwner: controlledHeapPolicy.owner,
+    policyId: controlledHeapPolicy.policyId,
+    heapHandle: controlledHeapPolicy.heapHandle,
+    informationClass: controlledHeapPolicy.informationClass,
+    informationAddress: controlledHeapPolicy.informationAddress,
+    informationLength: controlledHeapPolicy.informationLength,
+    preserveLastError: controlledHeapPolicy.preserveLastError,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 64 * 1024);
+  if (expected.seventhCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.seventhCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("HeapSetInformation return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-heap-set-information-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  validateThunk(receipt.thunk, expected.sixthCall.nextThunk.identity, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, argumentBytes);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.equal(receipt.heapPolicyOwner, controlledHeapPolicy.owner);
+  assert.equal(receipt.policyId, controlledHeapPolicy.policyId);
+  assert.equal(receipt.heapHandle, controlledHeapPolicy.heapHandle);
+  assert.equal(receipt.informationClass, controlledHeapPolicy.informationClass);
+  assert.equal(receipt.informationAddress, controlledHeapPolicy.informationAddress);
+  assert.equal(receipt.informationLength, controlledHeapPolicy.informationLength);
+  assert.equal(
+    receipt.terminationOnCorruptionEnabled,
+    controlledHeapPolicy.terminationOnCorruptionEnabled,
+  );
+  assert.equal(receipt.preserveLastError, controlledHeapPolicy.preserveLastError);
+  assert.equal(receipt.result, controlledHeapPolicy.result);
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(receipt.stackReconciliation.changedBytes > 0);
+  if (expected.seventhCall.reconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.seventhCall.reconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.seventhCall.stackPageContentSha256);
+  }
+  assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.seventhCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.seventhCall.receiptLineBytes);
+  }
+
+  const resume = resumeHeapSetInformationStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    receipt.result,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  assert.equal(continuation.terminal.kind, "owned-import-thunk");
+  if (expected.seventhCall.nextThunk !== null) {
+    validateThunk(
+      continuation.terminal.thunk,
+      expected.seventhCall.nextThunk.identity,
+      expected.seventhCall.nextThunk.unsupported,
+    );
+    assert.equal(continuation.instructionCount, expected.seventhCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.seventhCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.seventhCall.budgetStops);
+    assert.equal(
+      continuation.terminal.returnAddress,
+      expected.seventhCall.nextThunk.returnAddress,
+    );
+    assert.deepEqual(continuation.terminal.stackWords, expected.seventhCall.nextThunk.stackWords);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      arguments: arguments_,
+      stackPageAddress: request.stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    policy: {
+      owner: controlledHeapPolicy.owner,
+      policyId: controlledHeapPolicy.policyId,
+      heapHandle: controlledHeapPolicy.heapHandle,
+      informationClass: controlledHeapPolicy.informationClass,
+      informationAddress: controlledHeapPolicy.informationAddress,
+      informationLength: controlledHeapPolicy.informationLength,
+      terminationOnCorruptionEnabled:
+        controlledHeapPolicy.terminationOnCorruptionEnabled,
+      preserveLastError: controlledHeapPolicy.preserveLastError,
+      nativeObservation: controlledHeapPolicy.nativeObservation,
     },
     receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
     resume,
@@ -3082,6 +3392,35 @@ function resumePerformanceCounterStdcallResult(context, trapped, returnAddress, 
     eaxBefore: trapped.eax,
     eaxAfter: restored.resumed.eax,
     resultSource: "BOOL-success-after-controlled-counter-write",
+  };
+}
+
+function resumeHeapSetInformationStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  result,
+) {
+  const argumentBytes = 16;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "HeapSetInformation",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: "BOOL-success-after-controlled-process-heap-policy",
+    lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
   };
 }
 
@@ -3480,6 +3819,56 @@ function buildSixthStartupInfoReport({ processStartup, ...fifthCallArguments }) 
       code: "next-runtime-reachable-owned-import-trap",
       message:
         "BGI returned from checked GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, and GetStartupInfoW calls and reached the next exact runtime-owned import thunk without dispatching it",
+    },
+  };
+}
+
+function buildSeventhHeapSetInformationReport({ heapPolicy, ...sixthCallArguments }) {
+  const sixthCall = buildSixthStartupInfoReport(sixthCallArguments);
+  return {
+    schema: "vine.v86-bgi-seventh-win32-call",
+    schemaVersion: 1,
+    source: sixthCall.source,
+    sourceSnapshot: sixthCall.sourceSnapshot,
+    contract: {
+      ...sixthCall.contract,
+      processHeapPolicyOwner: controlledHeapPolicy.owner,
+      heapPolicyId: controlledHeapPolicy.policyId,
+      supportedServiceDispatches: 7,
+    },
+    bootstrap: sixthCall.bootstrap,
+    imports: {
+      ...sixthCall.imports,
+      supportedHeapSetInformation:
+        sixthCallArguments.offer.thunks[expected.sixthCall.nextThunk.identity.id - 1],
+    },
+    adapter: sixthCall.adapter,
+    reflection: sixthCall.reflection,
+    firstTrap: sixthCall.firstTrap,
+    systemTime: sixthCall.systemTime,
+    firstContinuation: sixthCall.firstContinuation,
+    processId: sixthCall.processId,
+    secondContinuation: sixthCall.secondContinuation,
+    threadId: sixthCall.threadId,
+    thirdContinuation: sixthCall.thirdContinuation,
+    tickCount: sixthCall.tickCount,
+    fourthContinuation: sixthCall.fourthContinuation,
+    performanceCounter: sixthCall.performanceCounter,
+    fifthContinuation: sixthCall.fifthContinuation,
+    startupInfo: sixthCall.startupInfo,
+    sixthContinuation: sixthCall.continuation,
+    heapSetInformation: {
+      request: heapPolicy.request,
+      policy: heapPolicy.policy,
+      receipt: heapPolicy.receipt,
+      resume: heapPolicy.resume,
+    },
+    continuation: heapPolicy.continuation,
+    stop: {
+      stage: "thunk-dispatch",
+      code: "next-runtime-reachable-owned-import-trap",
+      message:
+        "BGI returned from checked GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, QueryPerformanceCounter, GetStartupInfoW, and HeapSetInformation calls and reached the next exact runtime-owned import thunk without dispatching it",
     },
   };
 }

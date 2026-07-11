@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／transaction／atomic import、BGI firstからsixth Win32 call return、Windows trace v1／v2 contracts、Linux public CIは存在する。production runtime test framework、benchmark、対応browser matrixは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／transaction／atomic import、BGI firstからseventh Win32 call return、Windows trace v1／v2 contracts、Linux public CIは存在する。production runtime test framework、benchmark、対応browser matrixは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -165,6 +165,8 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 `npm run check:runtime:bgi-fifth-win32-call`はID `157`をdeclared endpointへ上げ、controlled counter `12,345,678,901`、one-argument stdcall frame、IAT call、generation `25`のstack reconciliation、5 changed bytes、8-byte output、generation `26` delta／ack、BOOL result、ESP `+8`を固定する。return後44命令、累計78命令でexact ID `83`／`GetStartupInfoW`へ停止し、31,427-byte reportのSHA-256を検査する。counter frequency／origin、general clock／timer／scheduler modelは実装しない。詳細は[v86-bgi-fifth-win32-call.md](v86-bgi-fifth-win32-call.md)を正とする。
 
 `npm run check:runtime:bgi-sixth-win32-call`はfocused native traceでtarget callerの68-byte x86 layoutとfull overwriteを測定し、ID `83`をdeclared endpointへ上げる。controlled process-startup owner／profile、one-argument stdcall frame、IAT call、generation `26`のstack reconciliation、31 changed bytes、68-byte output、generation `27` delta／ack、VOID EAX-preserve policy、ESP `+8`を固定する。return後9命令、累計87命令でexact ID `84`／`HeapSetInformation`へ停止し、39,031-byte reportのSHA-256を検査する。general process creation、desktop、title path、console／standard handlesは実装しない。詳細は[v86-bgi-sixth-win32-call.md](v86-bgi-sixth-win32-call.md)を正とする。
+
+`npm run check:runtime:bgi-seventh-win32-call`はfocused native traceでtarget callerのarguments `[NULL,1,NULL,0]`、BOOL `1`、LastError unchangedを測定し、ID `84`をdeclared endpointへ上げる。controlled process heap-policy owner／ID、four-argument stdcall frame、IAT call、generation `27`のstack reconciliation、12 changed bytes、generation／dirty不変、BOOL result、ESP `+20`を固定する。return後21命令、累計108命令でexact ID `102`／`HeapCreate`へ停止し、43,980-byte reportのSHA-256を検査する。general heap allocator、corruption detection／termination、per-thread LastErrorは実装しない。詳細は[v86-bgi-seventh-win32-call.md](v86-bgi-seventh-win32-call.md)を正とする。
 
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
@@ -465,7 +467,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／MemoryDelta／BGI firstからsixth-call ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの6 API returnまで進みhost-originated data deltaを読めるが、general process／thread lifecycle、broader PEB・TEB、callback service、pixel／audio／persistence、automatic v86 writeback、guard／heap／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／MemoryDelta／BGI firstからseventh-call ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの7 API returnまで進みhost-originated data deltaを読めるが、general process／thread lifecycle、broader PEB・TEB、callback service、pixel／audio／persistence、automatic v86 writeback、guard／heap／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
@@ -481,7 +483,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
-現在のimport-binding／BGI firstからsixth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の6 API returnと次の`HeapSetInformation` identityまで処理するが、general API dispatch、ordinal fixture、export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+現在のimport-binding／BGI firstからseventh-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の7 API returnと次の`HeapCreate` identityまで処理するが、general API dispatch、ordinal fixture、export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 
 ### AC-P3: Win32 substrate and persistence complete
 

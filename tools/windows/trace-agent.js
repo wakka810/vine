@@ -219,6 +219,12 @@ const hooks = {
 if (selectedObservations.has("startup-info")) {
   hooks["kernel32.dll"].push(["GetStartupInfoW", [null]]);
 }
+if (selectedObservations.has("heap-set-information")) {
+  hooks["kernel32.dll"].push([
+    "HeapSetInformation",
+    [null, null, null, null],
+  ]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -341,6 +347,8 @@ function attachHook(module, name, decoders) {
       const observation =
         name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
+          : name === "HeapSetInformation"
+            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
           : {};
       this.traceStartupInfoPointer =
         name === "GetStartupInfoW" ? args[0] : null;

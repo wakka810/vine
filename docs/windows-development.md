@@ -39,12 +39,13 @@
 - controlled monotonic clock／tick count `3,600,000`、generation `25` reconciliation、ID `13` zero-argument stdcall return、ID `157`／`QueryPerformanceCounter` next trap
 - controlled performance counter `12,345,678,901`、generation `26` delta、ID `157` one-argument stdcall／BOOL return、ID `83`／`GetStartupInfoW` next trap
 - focused native `GetStartupInfoW` x86 observation、controlled 68-byte startup profile、generation `27` delta、ID `83` one-argument VOID stdcall return、ID `84`／`HeapSetInformation` next trap
+- focused native `HeapSetInformation` arguments／BOOL／LastError observation、controlled termination-on-corruption policy、generation `27` preserving reconciliation、ID `84` four-argument stdcall return、ID `102`／`HeapCreate` next trap
 - 初回full reflection後のdirty-page-only `MemoryDelta`、通常RW／NX 8-byte writeのlive v86 readback、generation単位acknowledgement
 - process environment／PE materialization／import bindingのsnapshot transaction、failpoint rollback、same-memory retry
 - `check:fast`／`check:fixture-e2e`／`check:adapter`／`check:private-corpus`、Linux public CI、PE planner fuzz／randomized memory contract
 - valid low-alignment PEのstructured unsupported stopと、cross-page NX instructionのconservative execute gate
 
-general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB、native-oracled command-line bytes、one controlled startup-info profileまで進んだ。BGIは全330 importsをowned trapsへbindし、runtime-reachable APIを6回returnしたが7件目以降は未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-sixth-win32-call.md](v86-bgi-sixth-win32-call.md) を正とする。
+general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB、native-oracled command-line bytes、one controlled startup-info profile／heap policyまで進んだ。BGIは全330 importsをowned trapsへbindし、runtime-reachable APIを7回returnしたが8件目以降は未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-seventh-win32-call.md](v86-bgi-seventh-win32-call.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -117,6 +118,7 @@ npm run check:runtime:bgi-third-win32-call
 npm run check:runtime:bgi-fourth-win32-call
 npm run check:runtime:bgi-fifth-win32-call
 npm run check:runtime:bgi-sixth-win32-call
+npm run check:runtime:bgi-seventh-win32-call
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -161,7 +163,7 @@ node tools/summarize-windows-trace.mjs `
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
-8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding／BGI firstからsixth Win32 call verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。330 importsをowned thunksへbindし、388-page bootstrap stateをsource-v86へ渡す。controlled clock／identity／startup-info callsを6件returnして`HeapSetInformation`まで実行する。7件目のAPI returnは未実装である。
+8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding／BGI firstからseventh Win32 call verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。330 importsをowned thunksへbindし、388-page bootstrap stateをsource-v86へ渡す。controlled clock／identity／startup-info／heap-policy callsを7件returnして`HeapCreate`まで実行する。8件目のAPI returnは未実装である。
 
 各 checkpoint の automated test は原則 1 本にする。追加 test は、実際の regression、calling convention／fault ordering の曖昧さ、または title failure を最小化した場合だけ作る。
 
@@ -175,6 +177,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、388-page transfer、first six Kernel32 returnsまで固定した。次はexact `HeapSetInformation(NULL,1,NULL,0)` variantをreturnしてnext trapを測る。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、388-page transfer、first seven Kernel32 returnsまで固定した。次はexact `HeapCreate(0,0x1000,0)` variantへtyped logical heap handleを返してnext trapを測る。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

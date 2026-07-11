@@ -39,6 +39,7 @@ struct Arguments {
     tick_count_return_session: bool,
     performance_counter_return_session: bool,
     startup_info_return_session: bool,
+    heap_set_information_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -55,6 +56,7 @@ struct V86ReturnSessionOptions {
     tick_count: bool,
     performance_counter: bool,
     startup_info: bool,
+    heap_set_information: bool,
 }
 
 #[derive(Serialize)]
@@ -534,6 +536,52 @@ struct V86StartupInfoDeltaReceipt {
     stats: MemoryStats,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86HeapSetInformationReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    heap_policy_owner: String,
+    policy_id: String,
+    heap_handle: u32,
+    information_class: u32,
+    information_address: u32,
+    information_length: u32,
+    preserve_last_error: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86HeapSetInformationReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    heap_policy_owner: String,
+    policy_id: String,
+    heap_handle: u32,
+    information_class: u32,
+    information_address: u32,
+    information_length: u32,
+    termination_on_corruption_enabled: bool,
+    preserve_last_error: bool,
+    result: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -994,6 +1042,7 @@ fn run_v86_reflection_session(
             tick_count: arguments.tick_count_return_session,
             performance_counter: arguments.performance_counter_return_session,
             startup_info: arguments.startup_info_return_session,
+            heap_set_information: arguments.heap_set_information_return_session,
         };
         run_v86_system_time_delta_session(
             &mut protocol_input,
@@ -1710,7 +1759,13 @@ fn run_v86_performance_counter_return_session(
         message_limit,
     )?;
     if return_sessions.startup_info {
-        run_v86_startup_info_return_session(input, memory, binding, message_limit)?;
+        run_v86_startup_info_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
     }
     Ok(())
 }
@@ -1720,6 +1775,7 @@ fn run_v86_startup_info_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    return_sessions: V86ReturnSessionOptions,
 ) -> Result<(), LoaderError> {
     let request: V86StartupInfoWriteRequest = read_protocol_message(
         input,
@@ -1880,6 +1936,133 @@ fn run_v86_startup_info_return_session(
             acknowledged_generation: ack.generation,
             output_address: GuestAddress(request.output_address),
             output_bytes,
+            stats: memory.stats(),
+        },
+        message_limit,
+    )?;
+    if return_sessions.heap_set_information {
+        run_v86_heap_set_information_return_session(input, memory, binding, message_limit)?;
+    }
+    Ok(())
+}
+
+fn run_v86_heap_set_information_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+) -> Result<(), LoaderError> {
+    const HEAP_ENABLE_TERMINATION_ON_CORRUPTION: u32 = 1;
+    const POLICY_ID: &str = "heap-enable-termination-on-corruption";
+    let request: V86HeapSetInformationReturnRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-heap-policy",
+        "heap-set-information-return-request",
+        "controlled heap policy return request",
+    )?;
+    if request.schema != "vine.v86-heap-set-information-return-request"
+        || request.schema_version != 1
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-heap-policy",
+            "heap-set-information-return-request-schema-unsupported",
+            "heap policy request must use vine.v86-heap-set-information-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 16 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "heap-set-information-argument-width-mismatch",
+            "HeapSetInformation requires four four-byte stdcall arguments",
+        ));
+    }
+    if request.heap_policy_owner.is_empty()
+        || request.policy_id != POLICY_ID
+        || request.heap_handle != 0
+        || request.information_class != HEAP_ENABLE_TERMINATION_ON_CORRUPTION
+        || request.information_address != 0
+        || request.information_length != 0
+        || !request.preserve_last_error
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-heap-policy",
+            "heap-set-information-variant-unsupported",
+            "controlled heap policy supports only HeapSetInformation(NULL, HeapEnableTerminationOnCorruption, NULL, 0) with unchanged LastError",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "heap-set-information-thunk-id-unowned",
+                "heap policy request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "HeapSetInformation"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "heap-set-information-thunk-identity-mismatch",
+            "heap policy request does not match the declared HeapSetInformation thunk",
+        ));
+    }
+
+    let stack_reconciliation = {
+        let mut transaction = memory.begin_transaction();
+        let reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[
+                request.heap_handle,
+                request.information_class,
+                request.information_address,
+                request.information_length,
+            ],
+        )?;
+        transaction.commit_transaction();
+        reconciliation
+    };
+
+    write_protocol_message(
+        &V86HeapSetInformationReturnReceipt {
+            schema: "vine.v86-heap-set-information-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            heap_policy_owner: request.heap_policy_owner,
+            policy_id: request.policy_id,
+            heap_handle: request.heap_handle,
+            information_class: request.information_class,
+            information_address: request.information_address,
+            information_length: request.information_length,
+            termination_on_corruption_enabled: true,
+            preserve_last_error: request.preserve_last_error,
+            result: 1,
+            stack_reconciliation,
             stats: memory.stats(),
         },
         message_limit,
@@ -2120,6 +2303,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut tick_count_return_session = false;
     let mut performance_counter_return_session = false;
     let mut startup_info_return_session = false;
+    let mut heap_set_information_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -2208,6 +2392,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             startup_info_return_session = true;
+        } else if argument == "--heap-set-information-return-session" {
+            if heap_set_information_return_session {
+                return Err(usage_error());
+            }
+            heap_set_information_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -2305,6 +2494,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if startup_info_return_session && !performance_counter_return_session {
         return Err(usage_error());
     }
+    if heap_set_information_return_session && !startup_info_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -2324,6 +2516,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         tick_count_return_session,
         performance_counter_return_session,
         startup_info_return_session,
+        heap_set_information_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -2406,7 +2599,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

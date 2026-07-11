@@ -87,6 +87,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bgi-sixth-win32-call` reconciles the next one-argument frame at generation `26`, writes a controlled 68-byte x86 `STARTUPINFOW` through a generation `27` delta, preserves EAX for the VOID return from exact thunk ID `83`, and stops at ID `84`／`KERNEL32.dll!HeapSetInformation`. The result is recorded in [v86-bgi-sixth-win32-call.md](../../docs/v86-bgi-sixth-win32-call.md).
 
+`npm run check:runtime:bgi-seventh-win32-call` reconciles the exact four-argument frame at generation `27`, accepts only `HeapSetInformation(NULL,1,NULL,0)`, returns BOOL success without a guest write, and stops at ID `102`／`KERNEL32.dll!HeapCreate`. The result is recorded in [v86-bgi-seventh-win32-call.md](../../docs/v86-bgi-seventh-win32-call.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.
