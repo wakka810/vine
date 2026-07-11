@@ -224,6 +224,7 @@ if (serveOnly) {
       chrome,
       [
         "--headless=new",
+        ...(process.platform === "linux" ? ["--no-sandbox"] : []),
         "--disable-background-networking",
         "--disable-breakpad",
         "--disable-component-update",
