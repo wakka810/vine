@@ -25,15 +25,18 @@ jobs:
           toolchain: 1.97.0
           components: rustfmt, clippy
 
-      - name: Install LLVM 22
+      - name: Install LLVM 22.1.8
         run: |
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
-            | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/apt.llvm.org.gpg
-          echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm-22.list
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends clang-22 lld-22 llvm-22
-          echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
+          archive="$RUNNER_TEMP/llvm-mingw.tar.xz"
+          root="$RUNNER_TEMP/llvm-mingw"
+          curl -fsSL \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260616/llvm-mingw-20260616-ucrt-ubuntu-22.04-x86_64.tar.xz \
+            -o "$archive"
+          echo "534b92e067b22a6b4441f48ae9240a3341b17825d04d577eab0cf85c44b4deda  $archive" \
+            | sha256sum --check
+          mkdir -p "$root"
+          tar -xJf "$archive" --strip-components=1 -C "$root"
+          echo "$root/bin" >> "$GITHUB_PATH"
 
       - id: chrome
         uses: browser-actions/setup-chrome@v2
