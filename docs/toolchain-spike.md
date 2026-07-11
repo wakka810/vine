@@ -61,6 +61,8 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 
 `fixtures/pe32/bootstrap-fs/`はimportなしのPE32 fixtureであり、`FS:[0x18]`のTEB self pointerと`FS:[0x30]`のPEB pointerを読み、TEB内の同じ2 fieldと一致することを自己検証する。Windowsではnative exit code `0`を要求し、source-v86ではTEB未実装時のexact first stopを別contractで固定する。
 
+`fixtures/pe32/bootstrap-params/`もimportなしのPE32 fixtureである。native i386の`PEB+0x10` process-parameters pointerから`+0x40` command-line `UNICODE_STRING`とbuffer `+0x04`を読み、32 KiB以内で`bootstrap-params.exe`をbounded matchする。Windowsではnative exit code `0`を要求し、source-v86ではzero guest pointerのexplicit result `2`を別contractで固定する。
+
 ## 5. Generated evidence
 
 `npm run check:toolchain` は `.work/toolchain-spike/` を作り直し、次を検証する。
@@ -72,8 +74,9 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - Windows では `abi-smoke.exe` を直接実行し、exit code が `0` である
 - window fixtureのPE32形式、3 DLL／13 symbol、関連message順、native exit code `0`を検証する
 - high-memory fixtureのPE32／LAA、image base、section flags、named probe exportを検証し、nativeでは起動しない
+- bootstrap FS／process-parameters fixturesがPE32／i386、import-free、required exportsを持ち、Windowsでexit code `0`になることを検証する
 - native processを10秒で打ち切り、paintに必要な通常のwindow表示を抑止しない
-- Wasm、EXE、DLL、import library、window／high-memory fixture の size と SHA-256 を `report.json` に記録する
+- Wasm、EXE、DLL、import library、window／high-memory／bootstrap fixtures の size と SHA-256 を `report.json` に記録する
 
 `.work/` は生成物なので Git 管理しない。
 
@@ -88,6 +91,7 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 | `window-pixel.exe` | 4,096 bytes | `ad8f4a0bddd759ac52b18119e60838c3ad13d29994449f38b0393fdedde454e9` |
 | `high-memory.exe` | 3,072 bytes | `084bca4dbd9c60a178f751e7c6a87e0b2865fd45cdff8d6135468886316a7aa7` |
 | `bootstrap-fs.exe` | 2,560 bytes | `5712377ff8a8bd2be292f8678902d19d3b4b2f1c1919922cce9d373f0696637c` |
+| `bootstrap-params.exe` | 2,560 bytes | `50a5f27f9ce65071f3d8668213eea67f67ccef7b09dc1a72d9192100de4f0c40` |
 
 旧文書のWasm値は319 bytes／`6e5218...`だったが、そのraw artifactは保持されておらず差の原因を再検証できない。現在のWindows canonical commandを複数回実行した結果は399 bytes／`d8e2fe...`で安定しているため、本表で旧観測を置き換える。source変化やcompiler regressionが確認できたという意味にはしない。
 
@@ -99,7 +103,8 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - Windows native で EXE -> DLL -> EXE callback の cdecl oracle が exit code `0` になる
 - Windows native でstdcall WndProc、queued message dispatch、paint、pixel、destroy／quit oracleがexit code `0`になる
 - Windows native でimport-free bootstrap fixtureのTEB self／PEB pointer oracleがexit code `0`になる
+- Windows native でseparate import-free fixtureのprocess-parameters／bounded command-line oracleがexit code `0`になる
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。production memory／entry completion／Rust-owned stackに続き、native FS oracle、zero-base first stop、typed Rust TEB／PEB reflectionまで進んだ。次はnative-oracled process parametersである。詳細は[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。production memory／entry completion／Rust-owned stack／minimum TEB・PEBに続き、native process-parameters oracleとzero-pointer first stopまで進んだ。次は測定済みcommand-line fieldのRust ownershipである。詳細は[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)を正とする。

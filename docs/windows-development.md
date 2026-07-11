@@ -30,8 +30,9 @@
 - Rust owner `4`のone-page stack region／bootstrap metadata、generation `8` reflection、adapter-local stack allocationなしのexact completion
 - import-free bootstrap fixtureのnative `FS:[0x18]` TEB self／`FS:[0x30]` PEB oracleと、FS base zeroのsource-v86 CR2 `0x18`／PFEC `4` first stop
 - typed Rust TEB／PEB regions、generation `10` reflection、CPU state FS-base restore、4 exact field observationとentry result `0`
+- separate import-free fixtureのnative `PEB+0x10` process-parameters／`+0x40` command-line oracleと、empty guest PEBのexplicit result `2`
 
-general process integration、DLL／export lifecycle、process parameters、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB fieldsからentry completionまで進んだ。BGIは`Direct3DCreate9` 1件だけbindした未seal／未実行imageである。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md) を正とする。
+general process integration、DLL／export lifecycle、process-parameters storage、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB fieldsとnative-oracled zero process-parameters pointerまで進んだ。BGIは`Direct3DCreate9` 1件だけbindした未seal／未実行imageである。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -92,6 +93,7 @@ npm run check:runtime:entry-return
 npm run check:runtime:stack-bootstrap
 npm run check:runtime:bootstrap-fs-first-stop
 npm run check:runtime:bootstrap-fs
+npm run check:runtime:bootstrap-params-first-stop
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -150,6 +152,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum TEB／PEB FS bootstrapまで固定した。BGIはruntime-owned `Direct3DCreate9` thunkをbindして次のunsupported importで停止している。次はnative-oracled process parametersである。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum TEB／PEB FS bootstrap、native process-parameters／command-line oracleとzero-pointer first stopまで固定した。BGIはruntime-owned `Direct3DCreate9` thunkをbindして次のunsupported importで停止している。次は測定済みprocess-parameters／command-line bytesのRust ownershipである。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

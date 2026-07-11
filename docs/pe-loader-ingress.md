@@ -106,4 +106,4 @@ valid planの次に返すstopは次である。
 
 このcheckpointは`REQ-IMP-07`、`REQ-PE-01`／`REQ-PE-02`／`REQ-PE-03`／`REQ-PE-06`、`P2-PE-01`／`P2-PE-02`／`P2-PE-03`／`P2-PE-04`／`P2-PE-10`、`P2-DIAG-01`、`P2-COR-01`へのpartial evidenceである。relocationをguest memoryへ適用せず、DLL graph／export resolution／forwarder／resource parser／TLS／delay import／module lifecycle／API binding／bootstrap／execution／malformed corpus／fuzzを完了しないため、`AC-P2-01`、`AC-P2-05`、`AC-P2-06`、`AC-P2-09`、`AC-P2-10`、`AC-P2-11`を含むacceptance criterionは一つも完了しない。
 
-このowned planをmemory ownerへ接続するcheckpoint、controlled entry／completion、Rust-owned stack、minimum TEB／PEB reflectionは[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)まで進んだ。このload-plan report自体のstopとnon-claimsは変更しない。次はnative-oracled process parametersへ進む。
+このowned planをmemory ownerへ接続するcheckpoint、controlled entry／completion、Rust-owned stack、minimum TEB／PEB reflection、native process-parameters first stopは[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)まで進んだ。このload-plan report自体のstopとnon-claimsは変更しない。次は測定済みprocess-parameters／command-line bytesのRust ownershipへ進む。

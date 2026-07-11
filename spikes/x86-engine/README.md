@@ -69,6 +69,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bootstrap-fs` adds typed Rust-owned TEB／PEB pages, restores the TEB as FS base through CPU state ABI version `1`, and verifies all four fixture observations plus exact entry completion. The result is recorded in [v86-bootstrap-fs-ingress.md](../../docs/v86-bootstrap-fs-ingress.md).
 
+`npm run check:runtime:bootstrap-params-first-stop` runs a separate import-free native command-line oracle, then executes it against the existing minimum TEB／PEB. It fixes the zero `PEB+0x10` observation, explicit result `2`, and exact entry return without pretending that process parameters exist. The result is recorded in [v86-bootstrap-params-first-stop.md](../../docs/v86-bootstrap-params-first-stop.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.

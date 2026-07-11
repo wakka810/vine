@@ -6,7 +6,7 @@
 - 基準日: 2026-07-10
 - 対象: PE32 / i386 のサクラノ詩 full-play runtime
 - 開発形態: 1 人、完全個人用
-- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack bootstrap、native TEB／PEB oracle、Rust-owned minimum TEB／PEB／FS-base ingressは完了済みである。general process integration、DLL／export graph、process parameters、general service dispatchは未実装である
+- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack bootstrap、native TEB／PEB oracle、Rust-owned minimum TEB／PEB／FS-base ingress、native process-parameters first stopは完了済みである。general process integration、DLL／export graph、process-parameters storage、general service dispatchは未実装である
 
 ## 2. 目的
 
@@ -158,7 +158,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | REQ-ABI-04 | SEH / unwind / vectored exception の必要範囲を corpus で決定し、未対応経路を明示停止する | Must |
 | REQ-ABI-05 | varargs は API ごとに format／argument contract と上限を定義して検証し、schema のない汎用 variadic bridge を暗黙に許可しない | Must |
 
-controlled bootstrapはproduction-owned image／control／stackにtyped one-page TEB／PEBを加え、CPU state ABIでFS baseをrestoreしてnative-oracled fieldsとentry returnを通した。general stack reserve／growth／guard、process lifecycle、process parameters、loader list、TLS、LastError、bidirectional dirty-page ownershipは未実装なので、`REQ-BOOT-01`／`REQ-BOOT-02`等はpartialである。詳細は[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。
+controlled bootstrapはproduction-owned image／control／stackにtyped one-page TEB／PEBを加え、CPU state ABIでFS baseをrestoreしてnative-oracled fieldsとentry returnを通した。separate native fixtureはprocess-parameters／command-line offsetをbounded matchで固定し、existing guest PEBのzero pointerをexplicit result `2`へ戻す。general stack reserve／growth／guard、process lifecycle、process-parameters ownership、loader list、TLS、LastError、bidirectional dirty-page ownershipは未実装なので、`REQ-BOOT-01`／`REQ-BOOT-02`等はpartialである。詳細は[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)を正とする。
 
 ### 7.4 Windows userspace compatibility
 

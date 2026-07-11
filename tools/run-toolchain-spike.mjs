@@ -143,6 +143,17 @@ const bootstrapFixtureDirectory = path.join(
 );
 const bootstrapObject = path.join(outputDirectory, "fixture-bootstrap.obj");
 const bootstrapExe = path.join(outputDirectory, "bootstrap-fs.exe");
+const bootstrapParamsFixtureDirectory = path.join(
+  root,
+  "fixtures",
+  "pe32",
+  "bootstrap-params",
+);
+const bootstrapParamsObject = path.join(
+  outputDirectory,
+  "fixture-bootstrap-params.obj",
+);
+const bootstrapParamsExe = path.join(outputDirectory, "bootstrap-params.exe");
 const windowImportLibraries = ["kernel32", "user32", "gdi32"].map(
   (name) => ({
     definition: path.join(windowFixtureDirectory, `${name}.def`),
@@ -180,6 +191,10 @@ compilePeObject(
 compilePeObject(
   path.join(bootstrapFixtureDirectory, "fixture-bootstrap.c"),
   bootstrapObject,
+);
+compilePeObject(
+  path.join(bootstrapParamsFixtureDirectory, "fixture-bootstrap-params.c"),
+  bootstrapParamsObject,
 );
 
 for (const { definition, library } of windowImportLibraries) {
@@ -257,9 +272,22 @@ run("lld-link", [
   bootstrapObject,
 ]);
 
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${bootstrapParamsExe}`,
+  bootstrapParamsObject,
+]);
+
 let nativeAbiExitCode = null;
 let windowPixelNativeExitCode = null;
 let bootstrapFsNativeExitCode = null;
+let bootstrapParamsNativeExitCode = null;
 if (process.platform === "win32") {
   run(exeFile, [], { timeoutMs: 10_000 });
   nativeAbiExitCode = 0;
@@ -267,6 +295,8 @@ if (process.platform === "win32") {
   windowPixelNativeExitCode = 0;
   run(bootstrapExe, [], { timeoutMs: 10_000 });
   bootstrapFsNativeExitCode = 0;
+  run(bootstrapParamsExe, [], { timeoutMs: 10_000 });
+  bootstrapParamsNativeExitCode = 0;
 }
 
 const exeInspection = run("llvm-readobj", [
@@ -291,6 +321,12 @@ const bootstrapInspection = run("llvm-readobj", [
   "--coff-imports",
   "--coff-exports",
   bootstrapExe,
+]);
+const bootstrapParamsInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  "--coff-exports",
+  bootstrapParamsExe,
 ]);
 
 const requiredExeEvidence = [
@@ -336,6 +372,25 @@ for (const expected of [
 }
 if (parseCoffImports(bootstrapInspection).length !== 0) {
   throw new Error("bootstrap FS fixture must remain import-free");
+}
+
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+  "Name: fixture_command_line_buffer",
+  "Name: fixture_command_line_length",
+  "Name: fixture_command_line_match_index",
+  "Name: fixture_command_line_maximum_length",
+  "Name: fixture_entry",
+  "Name: fixture_peb",
+  "Name: fixture_process_parameters",
+]) {
+  if (!bootstrapParamsInspection.includes(expected)) {
+    throw new Error(`bootstrap params inspection is missing: ${expected}`);
+  }
+}
+if (parseCoffImports(bootstrapParamsInspection).length !== 0) {
+  throw new Error("bootstrap params fixture must remain import-free");
 }
 
 for (const expected of [
@@ -402,6 +457,12 @@ const report = {
     bootstrapFsFormat: "PE32/i386",
     bootstrapFsOffsets: { tebSelf: "fs:[0x18]", peb: "fs:[0x30]" },
     bootstrapFsNativeExitCode,
+    bootstrapParamsFormat: "PE32/i386",
+    bootstrapParamsOffsets: {
+      pebProcessParameters: "peb+0x10",
+      commandLine: "process-parameters+0x40",
+    },
+    bootstrapParamsNativeExitCode,
   },
   artifacts: [
     wasmModule,
@@ -411,6 +472,7 @@ const report = {
     windowExe,
     memoryExe,
     bootstrapExe,
+    bootstrapParamsExe,
   ].map(artifact),
 };
 

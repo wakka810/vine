@@ -71,4 +71,4 @@ npm run check:runtime:bootstrap-fs
 
 This is not a general Windows PEB／TEB implementation. The PEB page remains empty, the TEB contains only offsets `0x18` and `0x30`, FS selector `0` is controlled adapter state rather than a Windows selector contract, and there are no process parameters, loader lists, TLS slots, LastError, client IDs, exception chain, stack bounds, multi-thread ownership, teardown, or adapter-to-Rust mutation synchronization.
 
-The next checkpoint should obtain a separate native oracle for the minimum process-parameters path before adding more internal fields. A candidate is the i386 PEB process-parameters pointer and one bounded command-line observation; its exact offsets and layout must be measured rather than inferred from this checkpoint.
+The separate native oracle is complete in [v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md). It measures the i386 PEB process-parameters pointer and a bounded command-line path, then records the existing guest's explicit zero-pointer result without changing this checkpoint's report.

@@ -9,15 +9,26 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
-const installProcessEnvironment = commandArguments.includes(
+const installProcessEnvironmentRequested = commandArguments.includes(
   "--install-process-environment",
 );
+const processParametersFirstStop = commandArguments.includes(
+  "--process-parameters-first-stop",
+);
+assert(
+  Number(installProcessEnvironmentRequested) + Number(processParametersFirstStop) <= 1,
+  "choose only one bootstrap mode",
+);
+const installProcessEnvironment =
+  installProcessEnvironmentRequested || processParametersFirstStop;
 const positionalArguments = commandArguments.filter(
-  (value) => value !== "--install-process-environment",
+  (value) =>
+    value !== "--install-process-environment" &&
+    value !== "--process-parameters-first-stop",
 );
 assert(
   positionalArguments.length <= 2,
-  "usage: run-runtime-v86-bootstrap-fs-slice.mjs [--install-process-environment] [WASM] [EXE]",
+  "usage: run-runtime-v86-bootstrap-fs-slice.mjs [--install-process-environment | --process-parameters-first-stop] [WASM] [EXE]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -25,12 +36,19 @@ const wasmPath = path.resolve(
 );
 const fixturePath = path.resolve(
   positionalArguments[1] ??
-    path.join(root, ".work", "toolchain-spike", "bootstrap-fs.exe"),
+    path.join(
+      root,
+      ".work",
+      "toolchain-spike",
+      processParametersFirstStop ? "bootstrap-params.exe" : "bootstrap-fs.exe",
+    ),
 );
 const outputDirectory = path.join(
   root,
   ".work",
-  installProcessEnvironment
+  processParametersFirstStop
+    ? "v86-bootstrap-params-first-stop"
+    : installProcessEnvironment
     ? "v86-bootstrap-fs-ingress"
     : "v86-bootstrap-fs-first-stop",
 );
@@ -40,6 +58,13 @@ const expected = {
   fixture: {
     bytes: 2_560,
     sha256: "5712377ff8a8bd2be292f8678902d19d3b4b2f1c1919922cce9d373f0696637c",
+    loadBase: 0x10000000,
+    entry: 0x10001000,
+    imageOwner: 1,
+  },
+  processParametersFixture: {
+    bytes: 2_560,
+    sha256: "50a5f27f9ce65071f3d8668213eea67f67ccef7b09dc1a72d9192100de4f0c40",
     loadBase: 0x10000000,
     entry: 0x10001000,
     imageOwner: 1,
@@ -90,6 +115,8 @@ const expected = {
     "bb476b06336e93654df562ce78054e0927d5b2527ac12b54241d84a1d50b0696",
   processEnvironmentReflectionContentSha256:
     "14a986f7f10229da07f54d11fd5eda29be02e0639f06aba6151307e35f0206f3",
+  processParametersFirstStopReflectionContentSha256:
+    "51357b546920ec78aa535488ce8d280a8027805e1d1d24e138b85264fbab9c39",
   report: {
     bytes: 5_982,
     sha256: "9bca668c33208fa1bc6a4e8253dafb247bd9520a106761a24fd06cf46364f7f9",
@@ -98,7 +125,14 @@ const expected = {
     bytes: 8_214,
     sha256: "4e2e951d53c9a51792767b0fc506c5d8162fb889960ee24dcce9c8333c9670f7",
   },
+  processParametersFirstStopReport: {
+    bytes: 8_351,
+    sha256: "263d07c36be0579973f6f6ecdf2c41a3e1eb9b76af21c8b9c66681498d20603e",
+  },
 };
+const activeFixture = processParametersFirstStop
+  ? expected.processParametersFixture
+  : expected.fixture;
 
 const page = {
   size: 0x1000,
@@ -208,7 +242,7 @@ function reflectionContentSha256(pages) {
 }
 
 function runNativeOracle() {
-  assert.equal(process.platform, "win32", "bootstrap FS native oracle requires Windows");
+  assert.equal(process.platform, "win32", "bootstrap native oracle requires Windows");
   const result = spawnSync(fixturePath, [], {
     cwd: path.dirname(fixturePath),
     encoding: "utf8",
@@ -222,7 +256,7 @@ function runNativeOracle() {
   assert.equal(
     result.status,
     0,
-    `native bootstrap FS oracle failed: ${result.stderr.trim()}`,
+    `native bootstrap oracle failed: ${result.stderr.trim()}`,
   );
   return { platform: "Windows i386 process", exitCode: result.status };
 }
@@ -231,8 +265,8 @@ async function run() {
   requireFile(wasmPath, "npm run prepare:engine");
   requireFile(fixturePath, "npm run check:toolchain");
   const fixtureBytes = fs.readFileSync(fixturePath);
-  assert.equal(fixtureBytes.byteLength, expected.fixture.bytes);
-  assert.equal(sha256(fixtureBytes), expected.fixture.sha256);
+  assert.equal(fixtureBytes.byteLength, activeFixture.bytes);
+  assert.equal(sha256(fixtureBytes), activeFixture.sha256);
   const nativeOracle = runNativeOracle();
 
   const probeArguments = [
@@ -244,7 +278,7 @@ async function run() {
     "--",
     "--v86-reflection-session",
     "--expect-sha256",
-    expected.fixture.sha256,
+    activeFixture.sha256,
     "--prepare-memory-pages",
     installProcessEnvironment ? "9" : "7",
     "--materialize-image-base",
@@ -316,21 +350,32 @@ async function run() {
     assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
     sessionCompleted = true;
 
-    const execution = installProcessEnvironment
-      ? executeWithProcessEnvironment(offer, context)
-      : executeFirstStop(offer, context);
+    const execution = processParametersFirstStop
+      ? executeProcessParametersFirstStop(offer, context)
+      : installProcessEnvironment
+        ? executeWithProcessEnvironment(offer, context)
+        : executeFirstStop(offer, context);
     const report = {
-      schema: installProcessEnvironment
-        ? "vine.v86-bootstrap-fs-ingress"
-        : "vine.v86-bootstrap-fs-first-stop",
+      schema: processParametersFirstStop
+        ? "vine.v86-bootstrap-params-first-stop"
+        : installProcessEnvironment
+          ? "vine.v86-bootstrap-fs-ingress"
+          : "vine.v86-bootstrap-fs-first-stop",
       schemaVersion: 1,
       source: offer.source,
       nativeOracle,
-      contract: {
-        tebSelf: "FS:[0x18]",
-        peb: "FS:[0x30]",
-        entryBytes: receipt.entryBytes,
-      },
+      contract: processParametersFirstStop
+        ? {
+            pebProcessParameters: "PEB+0x10",
+            commandLine: "ProcessParameters+0x40",
+            expectedBasename: "bootstrap-params.exe",
+            entryBytes: receipt.entryBytes,
+          }
+        : {
+            tebSelf: "FS:[0x18]",
+            peb: "FS:[0x30]",
+            entryBytes: receipt.entryBytes,
+          },
       bootstrap: {
         imageLoadBase: offer.imageLoadBase,
         entryPoint: offer.entryPointAddress,
@@ -370,32 +415,49 @@ async function run() {
         allocatedPages: context.allocations,
         hostImportCalls: context.hostImportCalls,
       },
-      ...(installProcessEnvironment ? { execution } : { firstStop: execution }),
-      stop: installProcessEnvironment
+      ...(processParametersFirstStop || !installProcessEnvironment
+        ? { firstStop: execution }
+        : { execution }),
+      stop: processParametersFirstStop
         ? {
+            stage: "process-bootstrap",
+            code: "process-parameters-pointer-unimplemented",
+            message:
+              "the native-oracled fixture returned its explicit missing-process-parameters result from PEB+0x10; process-parameters storage and command-line bytes were not installed",
+          }
+        : installProcessEnvironment
+          ? {
             stage: "process-bootstrap",
             code: "process-parameters-unimplemented",
             message:
               "the Rust-owned TEB/PEB fields and adopted FS base are verified through exact entry completion; process parameters, loader lists, TLS, LastError, and general lifecycle were not attempted",
           }
-        : {
-            stage: "process-bootstrap",
-            code: "fs-base-teb-unimplemented",
-            message:
-              "the import-free fixture reached its first FS-based TEB read with a flat zero FS base; Rust-owned TEB/PEB pages and the adopted FS base were not installed",
-          },
+          : {
+              stage: "process-bootstrap",
+              code: "fs-base-teb-unimplemented",
+              message:
+                "the import-free fixture reached its first FS-based TEB read with a flat zero FS base; Rust-owned TEB/PEB pages and the adopted FS base were not installed",
+            },
     };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = installProcessEnvironment
-      ? expected.processEnvironmentReport
-      : expected.report;
+    const expectedReport = processParametersFirstStop
+      ? expected.processParametersFirstStopReport
+      : installProcessEnvironment
+        ? expected.processEnvironmentReport
+        : expected.report;
     if (expectedReport.bytes !== null) {
       assert.equal(reportBytes.byteLength, expectedReport.bytes);
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (installProcessEnvironment) {
+    if (processParametersFirstStop) {
+      console.log(
+        `v86 bootstrap params first stop passed: native exit ${nativeOracle.exitCode}, ` +
+          `PEB 0x${execution.pebAddress.toString(16)}, process parameters ` +
+          `${execution.processParametersAddress}, entry result ${execution.entryResult}`,
+      );
+    } else if (installProcessEnvironment) {
       console.log(
         `v86 bootstrap FS ingress passed: native exit ${nativeOracle.exitCode}, ` +
           `TEB 0x${execution.tebAddress.toString(16)}, PEB ` +
@@ -425,12 +487,12 @@ function validateOffer(offer) {
   assert.equal(offer.schema, "vine.v86-memory-reflection");
   assert.equal(offer.schemaVersion, 1);
   assert.deepEqual(offer.source, {
-    bytes: expected.fixture.bytes,
-    sha256: expected.fixture.sha256,
+    bytes: activeFixture.bytes,
+    sha256: activeFixture.sha256,
   });
-  assert.equal(offer.imageLoadBase, expected.fixture.loadBase);
-  assert.equal(offer.entryPointAddress, expected.fixture.entry);
-  assert.equal(offer.imageOwner, expected.fixture.imageOwner);
+  assert.equal(offer.imageLoadBase, activeFixture.loadBase);
+  assert.equal(offer.entryPointAddress, activeFixture.entry);
+  assert.equal(offer.imageOwner, activeFixture.imageOwner);
   assert.equal(offer.firstThunk, undefined);
   assert.deepEqual(offer.thunks, []);
 
@@ -542,10 +604,14 @@ function validateOffer(offer) {
     reflectionContentSha256(offer.reflection.pages),
     offer.reflection.contentSha256,
   );
-  const expectedReflectionSha256 = installProcessEnvironment
-    ? expected.processEnvironmentReflectionContentSha256
-    : expected.reflectionContentSha256;
-  assert.equal(offer.reflection.contentSha256, expectedReflectionSha256);
+  const expectedReflectionSha256 = processParametersFirstStop
+    ? expected.processParametersFirstStopReflectionContentSha256
+    : installProcessEnvironment
+      ? expected.processEnvironmentReflectionContentSha256
+      : expected.reflectionContentSha256;
+  if (expectedReflectionSha256 !== null) {
+    assert.equal(offer.reflection.contentSha256, expectedReflectionSha256);
+  }
 }
 
 async function prepareV86(offer) {
@@ -772,12 +838,20 @@ function validateReceipt(receipt, offer, context) {
   assert.equal(receipt.thunkBytes, undefined);
   assert.deepEqual(
     receipt.entryBytes,
-    [...context.readVirtualBytes(expected.fixture.entry, 16, "entry bytes")],
+    [...context.readVirtualBytes(activeFixture.entry, 16, "entry bytes")],
   );
-  assert.deepEqual(receipt.entryBytes, [
-    0x64, 0x8b, 0x15, 0x18, 0x00, 0x00, 0x00, 0x64,
-    0x8b, 0x0d, 0x30, 0x00, 0x00, 0x00, 0x89, 0x15,
-  ]);
+  assert.deepEqual(
+    receipt.entryBytes,
+    processParametersFirstStop
+      ? [
+          0x55, 0x53, 0x57, 0x56, 0x50, 0x64, 0xa1, 0x30,
+          0x00, 0x00, 0x00, 0xa3, 0x00, 0x30, 0x00, 0x10,
+        ]
+      : [
+          0x64, 0x8b, 0x15, 0x18, 0x00, 0x00, 0x00, 0x64,
+          0x8b, 0x0d, 0x30, 0x00, 0x00, 0x00, 0x89, 0x15,
+        ],
+  );
   assert.deepEqual(receipt.callbackReturnBytes, [
     0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
     0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
@@ -839,7 +913,7 @@ function executeFirstStop(offer, context) {
       .filter(({ ownerSealed, protection }) => ownerSealed && protection.execute)
       .map(({ address }) => address),
   );
-  assert(executablePages.has(expected.fixture.entry & ~(page.size - 1)));
+  assert(executablePages.has(activeFixture.entry & ~(page.size - 1)));
   context.wasm.vine_cpu_state_save();
   let words = new Uint32Array(
     context.wasm.memory.buffer,
@@ -847,7 +921,7 @@ function executeFirstStop(offer, context) {
     context.wasm.vine_cpu_state_size() / 4,
   );
   assert.equal(words[stateWord.segmentOffsetBase + segmentIndex.fs], 0);
-  assert.equal(words[stateWord.instructionPointer], expected.fixture.entry);
+  assert.equal(words[stateWord.instructionPointer], activeFixture.entry);
   assert.equal(words[stateWord.esp], expected.stack.initialEsp);
 
   const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
@@ -874,8 +948,8 @@ function executeFirstStop(offer, context) {
   };
   assert.equal(result.errorCode, 4);
   assert.equal(result.faultAddress, guest.fsSelfOffset);
-  assert.equal(result.instructionPointer, expected.fixture.entry + 7);
-  assert.equal(result.previousInstructionPointer, expected.fixture.entry);
+  assert.equal(result.instructionPointer, activeFixture.entry + 7);
+  assert.equal(result.previousInstructionPointer, activeFixture.entry);
   assert.equal(result.esp, expected.stack.initialEsp);
   assert.equal(result.edx, 0);
   assert.equal(result.fsSelector, 0);
@@ -916,7 +990,7 @@ function executeWithProcessEnvironment(offer, context) {
   };
 
   const initial = saveState(0);
-  assert.equal(initial.instructionPointer, expected.fixture.entry);
+  assert.equal(initial.instructionPointer, activeFixture.entry);
   assert.equal(initial.esp, expected.stack.initialEsp);
   assert.equal(initial.fsSelector, 0);
   assert.equal(initial.fsBase, environment.tebAddress);
@@ -946,7 +1020,7 @@ function executeWithProcessEnvironment(offer, context) {
   }
   assert(completion, "bootstrap fixture did not reach the process-entry sentinel");
 
-  const fixtureTebAddress = expected.fixture.loadBase + 0x3000;
+  const fixtureTebAddress = activeFixture.loadBase + 0x3000;
   const fixturePebAddress = fixtureTebAddress + 4;
   const fixtureTebSelfAddress = fixtureTebAddress + 8;
   const fixtureTebPebAddress = fixtureTebAddress + 12;
@@ -1002,6 +1076,133 @@ function executeWithProcessEnvironment(offer, context) {
     peb: result.pebAddress,
     tebSelf: result.tebAddress,
     tebPeb: result.pebAddress,
+  });
+  assert.deepEqual(context.hostImportCalls, { microtick: 1 });
+  return result;
+}
+
+function executeProcessParametersFirstStop(offer, context) {
+  const environment = offer.initialProcessEnvironment;
+  const processEntry = offer.processEntryReturnSentinel;
+  assert(environment && processEntry);
+  const executablePages = new Set(
+    offer.reflection.pages
+      .filter(({ ownerSealed, protection }) => ownerSealed && protection.execute)
+      .map(({ address }) => address),
+  );
+  const saveState = (reason) => {
+    context.wasm.vine_cpu_state_save();
+    const words = Uint32Array.from(
+      new Uint32Array(
+        context.wasm.memory.buffer,
+        context.wasm.vine_cpu_state_ptr(),
+        context.wasm.vine_cpu_state_size() / 4,
+      ),
+    );
+    return {
+      reason,
+      errorCode: context.wasm.vine_get_stop_error_code(),
+      eax: words[stateWord.eax],
+      esp: words[stateWord.esp],
+      instructionPointer: words[stateWord.instructionPointer],
+      previousInstructionPointer: words[stateWord.previousInstructionPointer],
+      fsSelector: words[stateWord.segmentSelectorBase + segmentIndex.fs],
+      fsBase: words[stateWord.segmentOffsetBase + segmentIndex.fs],
+    };
+  };
+
+  const initial = saveState(0);
+  assert.equal(initial.instructionPointer, activeFixture.entry);
+  assert.equal(initial.esp, expected.stack.initialEsp);
+  assert.equal(initial.fsBase, environment.tebAddress);
+  let executeStops = 0;
+  let budgetStops = 0;
+  let completion = null;
+  for (let index = 0; index < 32; index += 1) {
+    const before = saveState(0);
+    const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
+    assert(
+      executablePages.has(currentPage),
+      `execute gate rejected EIP 0x${before.instructionPointer.toString(16)}`,
+    );
+    const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
+    executeStops += 1;
+    const state = saveState(reason);
+    if (reason === stopReason.budget) {
+      budgetStops += 1;
+      continue;
+    }
+    assert.equal(reason, stopReason.invalidOpcode);
+    assert.equal(state.errorCode, -1);
+    assert.equal(state.instructionPointer, processEntry.address);
+    assert.equal(state.previousInstructionPointer, processEntry.address);
+    completion = state;
+    break;
+  }
+  assert(completion, "process-parameters fixture did not reach the entry sentinel");
+
+  const resultBase = activeFixture.loadBase + 0x3000;
+  const fixtureObservations = {
+    peb: context.readVirtualU32(resultBase, "fixture PEB result"),
+    processParameters: context.readVirtualU32(
+      resultBase + 4,
+      "fixture process parameters result",
+    ),
+    commandLineLength: context.readVirtualU32(
+      resultBase + 8,
+      "fixture command line length result",
+    ),
+    commandLineMaximumLength: context.readVirtualU32(
+      resultBase + 12,
+      "fixture command line maximum length result",
+    ),
+    commandLineBuffer: context.readVirtualU32(
+      resultBase + 16,
+      "fixture command line buffer result",
+    ),
+    commandLineMatchIndex: context.readVirtualU32(
+      resultBase + 20,
+      "fixture command line match result",
+    ),
+  };
+  const processParametersAddress = context.readVirtualU32(
+    environment.pebAddress + 0x10,
+    "PEB process parameters field",
+  );
+  const result = {
+    reason: completion.reason,
+    errorCode: completion.errorCode,
+    instructionPointer: completion.instructionPointer,
+    previousInstructionPointer: completion.previousInstructionPointer,
+    entryResult: completion.eax,
+    finalEsp: completion.esp,
+    fsSelector: completion.fsSelector,
+    fsBase: completion.fsBase,
+    pebAddress: environment.pebAddress,
+    processParametersFieldOffset: 0x10,
+    processParametersAddress,
+    fixtureObservations,
+    processEntrySentinelId: processEntry.id,
+    processEntrySentinelAddress: processEntry.address,
+    instructionBudget: guest.instructionBudget,
+    executeStops,
+    budgetStops,
+  };
+  assert.equal(result.entryResult, 2);
+  assert.equal(result.finalEsp, expected.stack.top);
+  assert.equal(result.fsSelector, 0);
+  assert.equal(result.fsBase, expected.processEnvironment.tebBase);
+  assert.equal(result.pebAddress, expected.processEnvironment.pebBase);
+  assert.equal(result.processParametersAddress, 0);
+  assert.equal(result.executeStops, 8);
+  assert.equal(result.budgetStops, 7);
+  assert.deepEqual(result.fixtureObservations, {
+    peb: result.pebAddress,
+    processParameters: 0,
+    commandLineLength: 0,
+    commandLineMaximumLength: 0,
+    commandLineBuffer: 0,
+    commandLineMatchIndex: 0,
   });
   assert.deepEqual(context.hostImportCalls, { microtick: 1 });
   return result;

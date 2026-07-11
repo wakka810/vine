@@ -252,7 +252,13 @@ instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 bud
 
 これはminimum TEB／PEB field contractであり、process parameters、TLS、LastError、general selector／lifecycleを実装しない。詳細は[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。
 
-### B16. Browser Worker
+### B16. Process-parameters first stop: Verified ingress
+
+`npm run check:runtime:bootstrap-params-first-stop`はseparate import-free fixtureをnative Windowsでself-oracleし、i386の`PEB+0x10`、`ProcessParameters+0x40`、`UNICODE_STRING.Buffer+0x04`からbounded command-line matchまでをexit code `0`で固定する。同じfixtureはminimum guest PEBのzero pointerを観測し、8 execute stop／7 budget stop後にentry EAX `2`、ESP `0x00700000`でexact process-entry sentinelへ到達した。8,351-byte reportのSHA-256は`263d07c36be0579973f6f6ecdf2c41a3e1eb9b76af21c8b9c66681498d20603e`である。
+
+これはnative layoutとfirst unsupported pointのevidenceであり、process-parameters region、command-line bytes、broader PEB／process lifecycleを実装しない。詳細は[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)を正とする。
+
+### B17. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
@@ -262,7 +268,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust TEB／PEB pagesとFS-base restoreからentry completionまで進んだ。次のadapter sliceはnative-oracled process-parameters pathを固定する。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust TEB／PEB pages、FS-base entry completion、native-oracled process-parameters zero-pointer resultまで進んだ。次のadapter sliceは測定済みprocess-parameters／command-line bytesをRust ownershipへ移す。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -282,10 +288,11 @@ adapter fixture は次の順に増やす。
 8. [Verified] controlled initial stackとbootstrap recordをRust-owned reflectionへ移す。
 9. [Verified] separate fixtureでnative FS-based TEB self／PEB pointer contractとzero-base first stopを固定する。
 10. [Verified] Rust-owned TEB／PEB pagesとnonzero FS baseで同じfixtureをentry returnまで通す。
-11. native-oracled process-parameters pathをminimum Rust ownershipへ接続する。
-12. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-13. 同じfixtureをNodeとChromium Workerで実行する。
-14. adopted ISA fixtureとnormalized workloadを測定する。
+11. [Verified] separate native oracleでi386 process-parameters／command-line pathを固定し、empty guest PEBをexplicit resultへ戻す。
+12. 測定済みprocess-parameters／command-line bytesをminimum Rust ownershipへ接続する。
+13. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+14. 同じfixtureをNodeとChromium Workerで実行する。
+15. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 

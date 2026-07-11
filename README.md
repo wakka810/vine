@@ -27,6 +27,9 @@ separate import-free bootstrap fixture now passes a native Windows oracle for
 pre-implementation stop at CR2 `0x18` with PFEC `4` and FS base zero. Rust now
 owns the minimum TEB／PEB pages as well; restoring FS base `0x7FFDE000` lets the
 same fixture observe both fields and return entry result `0`.
+An additional native-oracled fixture fixes `PEB + 0x10` and the i386
+`ProcessParameters + 0x40` command-line layout; the current empty guest PEB
+returns its explicit unsupported result `2` instead of pretending success.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
@@ -34,9 +37,9 @@ edition label. The controlled fixture now binds both imports and seals its
 image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
 at `DINPUT8.dll!DirectInput8Create`. The controlled entry now returns result `0`
 to exact process-entry sentinel ID `2` with ESP `0x00700000`; arbitrary unmapped
-returns still fault. The next bootstrap task is a native-oracled minimum
-process-parameters path; see
-[docs/v86-bootstrap-fs-ingress.md](docs/v86-bootstrap-fs-ingress.md).
+returns still fault. The next bootstrap task installs Rust-owned
+process-parameters and command-line bytes; see
+[docs/v86-bootstrap-params-first-stop.md](docs/v86-bootstrap-params-first-stop.md).
 
 ## Requirements
 
@@ -80,6 +83,8 @@ page and verifies the same completion with no adapter-local stack allocation.
 verifies the exact zero-FS-base source-v86 page fault before TEB／PEB setup.
 `npm run check:runtime:bootstrap-fs` adds Rust-owned TEB／PEB pages, restores FS
 base through the CPU state ABI, and verifies exact entry completion.
+`npm run check:runtime:bootstrap-params-first-stop` compares the native
+command-line oracle with the explicit missing-pointer guest result.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

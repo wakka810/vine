@@ -123,4 +123,4 @@ host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 fac
 
 production ingressとcontrolled reflection checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、CPU-connected self-modifying code、PAE／NX、generated JIT、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはcontrolled sealed pagesだけv86へ反映でき、general process memory／mutation pathには未接続である。
 
-owned W7 plan、entry completion、initial stackに続き、native FS oracle／zero-base faultとtyped TEB／PEB reflectionは[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)まで進んだ。次はnative-oracled process parametersへ進むが、general mutation／stack growth／heap／snapshotが未完了であるためADR statusは変えない。
+owned W7 plan、entry completion、initial stack、native FS oracle／zero-base fault、typed TEB／PEB reflectionに続き、native process-parameters／command-line oracleとzero-pointer first stopは[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)まで進んだ。次は測定済みbytesのRust ownershipへ進むが、general mutation／stack growth／heap／snapshotが未完了であるためADR statusは変えない。
