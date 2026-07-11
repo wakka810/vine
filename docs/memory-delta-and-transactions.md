@@ -100,6 +100,12 @@ returns EAX and performs no host memory write, generation remains `25`, no page
 is dirty, and no delta is emitted. See
 [v86-bgi-second-win32-call.md](v86-bgi-second-win32-call.md).
 
+The following `GetCurrentThreadId` call repeats the generation `25` boundary
+for its zero-argument frame. Its return address changes one stack-page byte;
+reconciliation imports that byte, while the EAX-only return again leaves
+generation `25`, dirty pages zero, and no delta. See
+[v86-bgi-third-win32-call.md](v86-bgi-third-win32-call.md).
+
 ## Limits
 
 - Delta page payloads are still JSON numeric arrays; binary IPC is deferred.

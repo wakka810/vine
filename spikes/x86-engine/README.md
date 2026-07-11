@@ -79,6 +79,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bgi-second-win32-call` reconciles the next zero-argument frame at generation `25`, returns controlled process ID `4096` from exact thunk ID `103`, and stops after three more instructions at ID `149`／`KERNEL32.dll!GetCurrentThreadId`. The result is recorded in [v86-bgi-second-win32-call.md](../../docs/v86-bgi-second-win32-call.md).
 
+`npm run check:runtime:bgi-third-win32-call` reconciles the next zero-argument frame at generation `25`, returns controlled thread ID `8192` from exact thunk ID `149`, and stops after three more instructions at ID `13`／`KERNEL32.dll!GetTickCount`. The result is recorded in [v86-bgi-third-win32-call.md](../../docs/v86-bgi-third-win32-call.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.

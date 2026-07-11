@@ -20,7 +20,12 @@ if (!fs.existsSync(wasm)) {
     "private corpus is available but the source adapter is missing; run npm run check:adapter first",
   );
 }
-for (const modeArguments of [[], ["--dispatch-system-time"], ["--dispatch-process-id"]]) {
+for (const modeArguments of [
+  [],
+  ["--dispatch-system-time"],
+  ["--dispatch-process-id"],
+  ["--dispatch-thread-id"],
+]) {
   const result = spawnSync(
     process.execPath,
     [

@@ -35,6 +35,7 @@ struct Arguments {
     v86_reflection_session: bool,
     system_time_delta_session: bool,
     process_id_return_session: bool,
+    thread_id_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -263,6 +264,40 @@ struct V86ProcessIdReturnReceipt {
     return_address: GuestAddress,
     process_identity_owner: String,
     process_id: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86ThreadIdReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    thread_identity_owner: String,
+    thread_id: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86ThreadIdReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    thread_identity_owner: String,
+    thread_id: u32,
     stack_reconciliation: GuestPageReconciliation,
     stats: MemoryStats,
 }
@@ -727,6 +762,7 @@ fn run_v86_reflection_session(
             &binding,
             reflection_message_limit,
             arguments.process_id_return_session,
+            arguments.thread_id_return_session,
         )?;
     }
     Ok(())
@@ -779,6 +815,7 @@ fn run_v86_system_time_delta_session(
     binding: &ImportBinding,
     message_limit: usize,
     process_id_return_session: bool,
+    thread_id_return_session: bool,
 ) -> Result<(), LoaderError> {
     let request: V86SystemTimeWriteRequest = read_protocol_message(
         input,
@@ -935,7 +972,13 @@ fn run_v86_system_time_delta_session(
         message_limit,
     )?;
     if process_id_return_session {
-        run_v86_process_id_return_session(input, memory, binding, message_limit)?;
+        run_v86_process_id_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            thread_id_return_session,
+        )?;
     }
     Ok(())
 }
@@ -945,6 +988,7 @@ fn run_v86_process_id_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    thread_id_return_session: bool,
 ) -> Result<(), LoaderError> {
     let request: V86ProcessIdReturnRequest = read_protocol_message(
         input,
@@ -1033,6 +1077,110 @@ fn run_v86_process_id_return_session(
             return_address: GuestAddress(request.return_address),
             process_identity_owner: request.process_identity_owner,
             process_id: request.process_id,
+            stack_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
+    )?;
+    if thread_id_return_session {
+        run_v86_thread_id_return_session(input, memory, binding, message_limit)?;
+    }
+    Ok(())
+}
+
+fn run_v86_thread_id_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+) -> Result<(), LoaderError> {
+    let request: V86ThreadIdReturnRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-thread-identity",
+        "thread-id-return-request",
+        "controlled thread-ID return request",
+    )?;
+    if request.schema != "vine.v86-thread-id-return-request" || request.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "win32-thread-identity",
+            "thread-id-return-request-schema-unsupported",
+            "thread-ID request must use vine.v86-thread-id-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 0 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "thread-id-argument-width-mismatch",
+            "GetCurrentThreadId requires a zero-argument stdcall frame",
+        ));
+    }
+    if request.thread_identity_owner.is_empty() || request.thread_id == 0 {
+        return Err(LoaderError::invalid_input(
+            "win32-thread-identity",
+            "controlled-thread-identity-invalid",
+            "controlled thread identity requires a nonempty owner and nonzero thread ID",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "thread-id-thunk-id-unowned",
+                "thread-ID request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "GetCurrentThreadId"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "thread-id-thunk-identity-mismatch",
+            "thread-ID request does not match the declared GetCurrentThreadId thunk",
+        ));
+    }
+
+    let stack_reconciliation = {
+        let mut transaction = memory.begin_transaction();
+        let reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[],
+        )?;
+        transaction.commit_transaction();
+        reconciliation
+    };
+
+    write_protocol_message(
+        &V86ThreadIdReturnReceipt {
+            schema: "vine.v86-thread-id-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            thread_identity_owner: request.thread_identity_owner,
+            thread_id: request.thread_id,
             stack_reconciliation,
             stats: memory.stats(),
         },
@@ -1270,6 +1418,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut v86_reflection_session = false;
     let mut system_time_delta_session = false;
     let mut process_id_return_session = false;
+    let mut thread_id_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -1338,6 +1487,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             process_id_return_session = true;
+        } else if argument == "--thread-id-return-session" {
+            if thread_id_return_session {
+                return Err(usage_error());
+            }
+            thread_id_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -1423,6 +1577,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if process_id_return_session && !system_time_delta_session {
         return Err(usage_error());
     }
+    if thread_id_return_session && !process_id_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -1438,6 +1595,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         v86_reflection_session,
         system_time_delta_session,
         process_id_return_session,
+        thread_id_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -1520,7 +1678,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

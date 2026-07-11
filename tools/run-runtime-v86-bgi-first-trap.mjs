@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
 const dispatchSystemTimeOnly = commandArguments.includes("--dispatch-system-time");
-const dispatchProcessId = commandArguments.includes("--dispatch-process-id");
+const dispatchProcessIdOnly = commandArguments.includes("--dispatch-process-id");
+const dispatchThreadId = commandArguments.includes("--dispatch-thread-id");
+const dispatchProcessId = dispatchProcessIdOnly || dispatchThreadId;
 const dispatchSystemTime = dispatchSystemTimeOnly || dispatchProcessId;
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-system-time").length,
@@ -19,16 +21,27 @@ assert.equal(
 );
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-process-id").length,
-  Number(dispatchProcessId),
+  Number(dispatchProcessIdOnly),
   "--dispatch-process-id may be specified only once",
 );
-assert(!(dispatchSystemTimeOnly && dispatchProcessId), "dispatch modes are mutually exclusive");
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-thread-id").length,
+  Number(dispatchThreadId),
+  "--dispatch-thread-id may be specified only once",
+);
+assert(
+  Number(dispatchSystemTimeOnly) + Number(dispatchProcessIdOnly) + Number(dispatchThreadId) <= 1,
+  "dispatch modes are mutually exclusive",
+);
 const positionalArguments = commandArguments.filter(
-  (argument) => argument !== "--dispatch-system-time" && argument !== "--dispatch-process-id",
+  (argument) =>
+    argument !== "--dispatch-system-time" &&
+    argument !== "--dispatch-process-id" &&
+    argument !== "--dispatch-thread-id",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -41,11 +54,13 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchProcessId
-    ? "v86-bgi-second-win32-call"
-    : dispatchSystemTime
-      ? "v86-bgi-first-win32-call"
-      : "v86-bgi-first-trap",
+  dispatchThreadId
+    ? "v86-bgi-third-win32-call"
+    : dispatchProcessId
+      ? "v86-bgi-second-win32-call"
+      : dispatchSystemTime
+        ? "v86-bgi-first-win32-call"
+        : "v86-bgi-first-trap",
 );
 const reportPath = path.join(outputDirectory, "report.json");
 
@@ -60,6 +75,10 @@ const controlledClock = {
 const controlledProcess = {
   owner: "checkpoint-process-identity",
   processId: 4_096,
+};
+const controlledThread = {
+  owner: "checkpoint-thread-identity",
+  threadId: 8_192,
 };
 
 const expected = {
@@ -86,8 +105,8 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchProcessId ? 3 : dispatchSystemTime ? 2 : 1,
-    unsupported: dispatchProcessId ? 327 : dispatchSystemTime ? 328 : 329,
+    declared: dispatchThreadId ? 4 : dispatchProcessId ? 3 : dispatchSystemTime ? 2 : 1,
+    unsupported: dispatchThreadId ? 326 : dispatchProcessId ? 327 : dispatchSystemTime ? 328 : 329,
     first: {
       id: 1,
       address: 0x7f000000,
@@ -221,6 +240,30 @@ const expected = {
     budgetStops: 2,
     reportBytes: 18_472,
     reportSha256: "bbce0252bd7215b0643118c49bef61c724e3c8c0f80279ede1cd5c3ba1b94e67",
+  },
+  thirdCall: {
+    offerLineBytes: 4_904_503,
+    requestLineBytes: 8_548,
+    receiptLineBytes: 840,
+    stackPageContentSha256: "b22f529af561901c5156e388732e0e79954527b3650fc733ae5b780319791617",
+    reconciledChangedBytes: 1,
+    nextThunk: {
+      identity: {
+        id: 13,
+        address: 0x7f0000c0,
+        iatAddress: 0x100d10dc,
+        module: "KERNEL32.dll",
+        name: "GetTickCount",
+      },
+      unsupported: true,
+      returnAddress: 0x100a88ee,
+      stackWords: [0x100a88ee, 0, 0, 0, 0, 0, 929_513_472, 31_264_968],
+    },
+    instructionCount: 29,
+    executeStops: 3,
+    budgetStops: 2,
+    reportBytes: 22_383,
+    reportSha256: "d6bf15bec208ed1ced26970ff96a9d9f0faebbcec55da19cfbf27588b452d4fa",
   },
 };
 
@@ -410,6 +453,14 @@ async function run() {
           "--process-id-return-session",
         ]
       : []),
+    ...(dispatchThreadId
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "GetCurrentThreadId",
+          "--thread-id-return-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -505,6 +556,16 @@ async function run() {
           execution: systemTime.continuation,
           nextMessage,
           offer,
+          continueSession: dispatchThreadId,
+        })
+      : null;
+    const threadIdentity = dispatchThreadId
+      ? await dispatchThirdThreadIdCall({
+          child,
+          context,
+          execution: processIdentity.continuation,
+          nextMessage,
+          offer,
         })
       : null;
     const processExit = await exit;
@@ -514,8 +575,8 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchProcessId
-      ? buildSecondProcessIdReport({
+    const report = dispatchThreadId
+      ? buildThirdThreadIdReport({
           context,
           execution,
           invalidationCalls,
@@ -528,22 +589,38 @@ async function run() {
           sourceAfter,
           sourceBefore,
           systemTime,
+          threadIdentity,
         })
-      : dispatchSystemTime
-        ? buildFirstSystemTimeReport({
-          context,
-          execution,
-          invalidationCalls,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          receipt,
-          receiptMessage,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-        })
-        : {
+      : dispatchProcessId
+        ? buildSecondProcessIdReport({
+            context,
+            execution,
+            invalidationCalls,
+            offer,
+            offerMessage,
+            ownerSummaries,
+            processIdentity,
+            receipt,
+            receiptMessage,
+            sourceAfter,
+            sourceBefore,
+            systemTime,
+          })
+        : dispatchSystemTime
+          ? buildFirstSystemTimeReport({
+              context,
+              execution,
+              invalidationCalls,
+              offer,
+              offerMessage,
+              ownerSummaries,
+              receipt,
+              receiptMessage,
+              sourceAfter,
+              sourceBefore,
+              systemTime,
+            })
+          : {
       schema: "vine.v86-bgi-first-trap",
       schemaVersion: 1,
       source: offer.source,
@@ -614,17 +691,25 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchProcessId
-      ? { bytes: expected.secondCall.reportBytes, sha256: expected.secondCall.reportSha256 }
-      : dispatchSystemTime
-        ? { bytes: expected.firstCall.reportBytes, sha256: expected.firstCall.reportSha256 }
-        : expected.report;
+    const expectedReport = dispatchThreadId
+      ? { bytes: expected.thirdCall.reportBytes, sha256: expected.thirdCall.reportSha256 }
+      : dispatchProcessId
+        ? { bytes: expected.secondCall.reportBytes, sha256: expected.secondCall.reportSha256 }
+        : dispatchSystemTime
+          ? { bytes: expected.firstCall.reportBytes, sha256: expected.firstCall.reportSha256 }
+          : expected.report;
     if (expectedReport.bytes !== null) {
       assert.equal(reportBytes.byteLength, expectedReport.bytes);
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchProcessId) {
+    if (dispatchThreadId) {
+      console.log(
+        `v86 BGI third Win32 call passed: thread ID ${controlledThread.threadId}, ` +
+          `next thunk ID ${threadIdentity.continuation.terminal.thunk.id} after ` +
+          `${threadIdentity.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchProcessId) {
       console.log(
         `v86 BGI second Win32 call passed: process ID ${controlledProcess.processId}, ` +
           `next thunk ID ${processIdentity.continuation.terminal.thunk.id} after ` +
@@ -678,6 +763,11 @@ function validateOffer(offer, offerLineBytes) {
     offer.thunks[expected.firstCall.nextThunk.identity.id - 1],
     expected.firstCall.nextThunk.identity,
     !dispatchProcessId,
+  );
+  validateThunk(
+    offer.thunks[expected.secondCall.nextThunk.identity.id - 1],
+    expected.secondCall.nextThunk.identity,
+    !dispatchThreadId,
   );
   assert.equal(
     offer.thunks.filter(({ disposition }) => disposition === undefined).length,
@@ -765,11 +855,13 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchProcessId
-    ? expected.secondCall.offerLineBytes
-    : dispatchSystemTime
-      ? expected.firstCall.offerLineBytes
-      : expected.offerLineBytes;
+  const expectedOfferLineBytes = dispatchThreadId
+    ? expected.thirdCall.offerLineBytes
+    : dispatchProcessId
+      ? expected.secondCall.offerLineBytes
+      : dispatchSystemTime
+        ? expected.firstCall.offerLineBytes
+        : expected.offerLineBytes;
   if (expectedOfferLineBytes !== null) {
     assert.equal(offerLineBytes, expectedOfferLineBytes);
   }
@@ -1439,7 +1531,14 @@ async function dispatchFirstSystemTimeCall({
   };
 }
 
-async function dispatchSecondProcessIdCall({ child, context, execution, nextMessage, offer }) {
+async function dispatchSecondProcessIdCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+  continueSession,
+}) {
   const trapped = execution.finalState;
   const framePages = context.preflightVirtualRange(
     trapped.esp,
@@ -1499,7 +1598,11 @@ async function dispatchSecondProcessIdCall({ child, context, execution, nextMess
   if (expected.secondCall.requestLineBytes !== null) {
     assert.equal(Buffer.byteLength(requestLine) - 1, expected.secondCall.requestLineBytes);
   }
-  child.stdin.end(requestLine);
+  if (continueSession) {
+    child.stdin.write(requestLine);
+  } else {
+    child.stdin.end(requestLine);
+  }
 
   const receiptMessage = await nextMessage("GetCurrentProcessId return receipt");
   const receipt = receiptMessage.message;
@@ -1548,7 +1651,7 @@ async function dispatchSecondProcessIdCall({ child, context, execution, nextMess
     validateThunk(
       continuation.terminal.thunk,
       expected.secondCall.nextThunk.identity,
-      expected.secondCall.nextThunk.unsupported,
+      !dispatchThreadId,
     );
     assert.equal(continuation.instructionCount, expected.secondCall.instructionCount);
     assert.equal(continuation.executeStops, expected.secondCall.executeStops);
@@ -1578,6 +1681,152 @@ async function dispatchSecondProcessIdCall({ child, context, execution, nextMess
     identity: {
       owner: controlledProcess.owner,
       processId: controlledProcess.processId,
+    },
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
+async function dispatchThirdThreadIdCall({ child, context, execution, nextMessage, offer }) {
+  const trapped = execution.finalState;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4,
+    "read",
+    "GetCurrentThreadId stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "GetCurrentThreadId return address",
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  const callSite = returnAddress - 6;
+  const callBytes = context.readVirtualBytes(
+    callSite,
+    6,
+    "GetCurrentThreadId indirect IAT call",
+  );
+  assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
+  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
+  assert.equal(callView.getUint32(2, true), expected.secondCall.nextThunk.identity.iatAddress);
+  assert.equal(
+    context.readVirtualU32(
+      expected.secondCall.nextThunk.identity.iatAddress,
+      "GetCurrentThreadId bound IAT",
+    ),
+    expected.secondCall.nextThunk.identity.address,
+  );
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before thread-ID return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-thread-id-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.firstCall.deltaGeneration,
+    thunkId: expected.secondCall.nextThunk.identity.id,
+    thunkAddress: expected.secondCall.nextThunk.identity.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes: 0,
+    stackPageAddress,
+    stackPageOwner: framePages[0].owner,
+    stackPageBytes: [...stackPageBytes],
+    threadIdentityOwner: controlledThread.owner,
+    threadId: controlledThread.threadId,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 64 * 1024);
+  if (expected.thirdCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.thirdCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("GetCurrentThreadId return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-thread-id-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  validateThunk(receipt.thunk, expected.secondCall.nextThunk.identity, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, 0);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.equal(receipt.threadIdentityOwner, controlledThread.owner);
+  assert.equal(receipt.threadId, controlledThread.threadId);
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.firstCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(receipt.stackReconciliation.changedBytes > 0);
+  if (expected.thirdCall.reconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.thirdCall.reconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.thirdCall.stackPageContentSha256);
+  }
+  assert.equal(receipt.stats.generation, expected.firstCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.firstCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.thirdCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.thirdCall.receiptLineBytes);
+  }
+
+  const resume = resumeThreadIdStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    controlledThread.threadId,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  assert.equal(continuation.terminal.kind, "owned-import-thunk");
+  if (expected.thirdCall.nextThunk !== null) {
+    validateThunk(
+      continuation.terminal.thunk,
+      expected.thirdCall.nextThunk.identity,
+      expected.thirdCall.nextThunk.unsupported,
+    );
+    assert.equal(continuation.instructionCount, expected.thirdCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.thirdCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.thirdCall.budgetStops);
+    assert.equal(
+      continuation.terminal.returnAddress,
+      expected.thirdCall.nextThunk.returnAddress,
+    );
+    assert.deepEqual(continuation.terminal.stackWords, expected.thirdCall.nextThunk.stackWords);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      stackPageAddress: request.stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    identity: {
+      owner: controlledThread.owner,
+      threadId: controlledThread.threadId,
     },
     receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
     resume,
@@ -1658,6 +1907,29 @@ function resumeStdcallResult(context, trapped, returnAddress, argumentBytes, res
     eaxBefore: trapped.eax,
     eaxAfter: restored.resumed.eax,
     resultSource: controlledProcess.owner,
+  };
+}
+
+function resumeThreadIdStdcallResult(context, trapped, returnAddress, result) {
+  const argumentBytes = 0;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "GetCurrentThreadId",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: controlledThread.owner,
   };
 }
 
@@ -1876,6 +2148,47 @@ function buildSecondProcessIdReport({ processIdentity, ...firstCallArguments }) 
       code: "next-runtime-reachable-owned-import-trap",
       message:
         "BGI returned from checked GetSystemTimeAsFileTime and GetCurrentProcessId calls and reached the next exact runtime-owned import thunk without dispatching it",
+    },
+  };
+}
+
+function buildThirdThreadIdReport({ threadIdentity, ...secondCallArguments }) {
+  const secondCall = buildSecondProcessIdReport(secondCallArguments);
+  return {
+    schema: "vine.v86-bgi-third-win32-call",
+    schemaVersion: 1,
+    source: secondCall.source,
+    sourceSnapshot: secondCall.sourceSnapshot,
+    contract: {
+      ...secondCall.contract,
+      threadIdentityOwner: controlledThread.owner,
+      supportedServiceDispatches: 3,
+    },
+    bootstrap: secondCall.bootstrap,
+    imports: {
+      ...secondCall.imports,
+      supportedThreadId:
+        secondCallArguments.offer.thunks[expected.secondCall.nextThunk.identity.id - 1],
+    },
+    adapter: secondCall.adapter,
+    reflection: secondCall.reflection,
+    firstTrap: secondCall.firstTrap,
+    systemTime: secondCall.systemTime,
+    firstContinuation: secondCall.firstContinuation,
+    processId: secondCall.processId,
+    secondContinuation: secondCall.continuation,
+    threadId: {
+      request: threadIdentity.request,
+      identity: threadIdentity.identity,
+      receipt: threadIdentity.receipt,
+      resume: threadIdentity.resume,
+    },
+    continuation: threadIdentity.continuation,
+    stop: {
+      stage: "thunk-dispatch",
+      code: "next-runtime-reachable-owned-import-trap",
+      message:
+        "BGI returned from checked GetSystemTimeAsFileTime, GetCurrentProcessId, and GetCurrentThreadId calls and reached the next exact runtime-owned import thunk without dispatching it",
     },
   };
 }

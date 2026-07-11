@@ -38,6 +38,7 @@
     "check:runtime:bgi-first-trap": "node tools/run-runtime-v86-bgi-first-trap.mjs",
     "check:runtime:bgi-first-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-system-time",
     "check:runtime:bgi-second-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-process-id",
+    "check:runtime:bgi-third-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-thread-id",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",

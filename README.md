@@ -4,7 +4,7 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-second-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-third-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
 330 imports to deterministic runtime-owned `UD2` thunks, and reflects 388
 sealed pages into source-built v86. BGI executes 19 instructions from entry
@@ -14,8 +14,10 @@ through a generation `25` stack-page `MemoryDelta`; the checked stdcall return
 then executes four more instructions and stops at thunk ID `103`,
 `KERNEL32.dll!GetCurrentProcessId`. A second checked stdcall returns controlled
 process ID `4096`; three more instructions stop at thunk ID `149`,
-`KERNEL32.dll!GetCurrentThreadId`. Three endpoints are declared; the other 327
-retain exact identity as explicit unsupported traps.
+`KERNEL32.dll!GetCurrentThreadId`. A third checked stdcall returns controlled
+thread ID `8192`; three more instructions stop at thunk ID `13`,
+`KERNEL32.dll!GetTickCount`. Four endpoints are declared; the other 326 retain
+exact identity as explicit unsupported traps.
 
 The foundation below that checkpoint now has an incremental `MemoryDelta`
 protocol. The first transfer is a full snapshot; later generations carry only
@@ -34,7 +36,7 @@ reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
 The next endpoint checkpoint is a checked zero-argument stdcall return from
-thunk ID `149` using one explicit controlled thread ID.
+thunk ID `13` using one explicit controlled tick-count sample.
 
 ## Requirements
 
@@ -95,6 +97,9 @@ ID `104`, and stops at exact thunk ID `103` before a second dispatch.
 `npm run check:runtime:bgi-second-win32-call` reconciles the next live call
 frame at generation `25`, returns controlled process ID `4096` from exact thunk
 ID `103`, and stops at exact thunk ID `149` before a thread-ID dispatch.
+`npm run check:runtime:bgi-third-win32-call` reconciles the next live call frame,
+returns controlled thread ID `8192` from exact thunk ID `149`, and stops at
+exact thunk ID `13` before a tick-count dispatch.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.
