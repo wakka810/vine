@@ -12,7 +12,9 @@ const commandArguments = process.argv.slice(2);
 const dispatchSystemTimeOnly = commandArguments.includes("--dispatch-system-time");
 const dispatchProcessIdOnly = commandArguments.includes("--dispatch-process-id");
 const dispatchThreadIdOnly = commandArguments.includes("--dispatch-thread-id");
-const dispatchTickCount = commandArguments.includes("--dispatch-tick-count");
+const dispatchTickCountOnly = commandArguments.includes("--dispatch-tick-count");
+const dispatchPerformanceCounter = commandArguments.includes("--dispatch-performance-counter");
+const dispatchTickCount = dispatchTickCountOnly || dispatchPerformanceCounter;
 const dispatchThreadId = dispatchThreadIdOnly || dispatchTickCount;
 const dispatchProcessId = dispatchProcessIdOnly || dispatchThreadId;
 const dispatchSystemTime = dispatchSystemTimeOnly || dispatchProcessId;
@@ -33,14 +35,20 @@ assert.equal(
 );
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-tick-count").length,
-  Number(dispatchTickCount),
+  Number(dispatchTickCountOnly),
   "--dispatch-tick-count may be specified only once",
+);
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-performance-counter").length,
+  Number(dispatchPerformanceCounter),
+  "--dispatch-performance-counter may be specified only once",
 );
 assert(
   Number(dispatchSystemTimeOnly) +
     Number(dispatchProcessIdOnly) +
     Number(dispatchThreadIdOnly) +
-    Number(dispatchTickCount) <=
+    Number(dispatchTickCountOnly) +
+    Number(dispatchPerformanceCounter) <=
     1,
   "dispatch modes are mutually exclusive",
 );
@@ -49,11 +57,12 @@ const positionalArguments = commandArguments.filter(
     argument !== "--dispatch-system-time" &&
     argument !== "--dispatch-process-id" &&
     argument !== "--dispatch-thread-id" &&
-    argument !== "--dispatch-tick-count",
+    argument !== "--dispatch-tick-count" &&
+    argument !== "--dispatch-performance-counter",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -66,15 +75,17 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchTickCount
-    ? "v86-bgi-fourth-win32-call"
-    : dispatchThreadId
-      ? "v86-bgi-third-win32-call"
-      : dispatchProcessId
-        ? "v86-bgi-second-win32-call"
-        : dispatchSystemTime
-          ? "v86-bgi-first-win32-call"
-          : "v86-bgi-first-trap",
+  dispatchPerformanceCounter
+    ? "v86-bgi-fifth-win32-call"
+    : dispatchTickCount
+      ? "v86-bgi-fourth-win32-call"
+      : dispatchThreadId
+        ? "v86-bgi-third-win32-call"
+        : dispatchProcessId
+          ? "v86-bgi-second-win32-call"
+          : dispatchSystemTime
+            ? "v86-bgi-first-win32-call"
+            : "v86-bgi-first-trap",
 );
 const reportPath = path.join(outputDirectory, "report.json");
 
@@ -99,6 +110,14 @@ const controlledMonotonicClock = {
   sampleId: "uptime-ms-3600000",
   pairedWallClockSampleId: controlledClock.sampleId,
   tickCount: 3_600_000,
+};
+const controlledPerformanceCounter = {
+  owner: controlledMonotonicClock.owner,
+  sampleId: "qpc-ticks-12345678901",
+  pairedTickSampleId: controlledMonotonicClock.sampleId,
+  ticks: 12_345_678_901n,
+  low: 3_755_744_309,
+  high: 2,
 };
 
 const expected = {
@@ -125,8 +144,10 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchTickCount
-      ? 5
+    declared: dispatchPerformanceCounter
+      ? 6
+      : dispatchTickCount
+        ? 5
       : dispatchThreadId
         ? 4
         : dispatchProcessId
@@ -134,8 +155,10 @@ const expected = {
           : dispatchSystemTime
             ? 2
             : 1,
-    unsupported: dispatchTickCount
-      ? 325
+    unsupported: dispatchPerformanceCounter
+      ? 324
+      : dispatchTickCount
+        ? 325
       : dispatchThreadId
         ? 326
         : dispatchProcessId
@@ -324,6 +347,33 @@ const expected = {
     budgetStops: 4,
     reportBytes: 26_558,
     reportSha256: "79924bf3817104a9d2762b730534d8f74dc1ca1adfd17aa75c3855bcdf9bf111",
+  },
+  fifthCall: {
+    offerLineBytes: 4_904_437,
+    requestLineBytes: 8_681,
+    deltaLineBytes: 9_583,
+    deltaReceiptLineBytes: 366,
+    stackPageContentSha256: "a581c7ce28aa0c683d1b0489e93fbe29d24924e35cd2abe3e966d2fc7c65c4bc",
+    reconciledChangedBytes: 5,
+    deltaGeneration: 26,
+    deltaContentSha256: "e466741f272179ad06d4777d23b91fa11b4fa526a47063c0adfa62c842c3d951",
+    nextThunk: {
+      identity: {
+        id: 83,
+        address: 0x7f000520,
+        iatAddress: 0x100d11f4,
+        module: "KERNEL32.dll",
+        name: "GetStartupInfoW",
+      },
+      unsupported: true,
+      returnAddress: 0x100a36e7,
+      stackWords: [0x100a36e7, 0x006fff90, 0xe93f6d87, 0, 0, 0, 0, 0],
+    },
+    instructionCount: 78,
+    executeStops: 44,
+    budgetStops: 43,
+    reportBytes: 31_427,
+    reportSha256: "eb1e83e3a2a75483d2606ce7e92eca36acfdc8d15b69a8381813e8c738974ad1",
   },
 };
 
@@ -529,6 +579,14 @@ async function run() {
           "--tick-count-return-session",
         ]
       : []),
+    ...(dispatchPerformanceCounter
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "QueryPerformanceCounter",
+          "--performance-counter-return-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -644,6 +702,16 @@ async function run() {
           execution: threadIdentity.continuation,
           nextMessage,
           offer,
+          continueSession: dispatchPerformanceCounter,
+        })
+      : null;
+    const performanceCounter = dispatchPerformanceCounter
+      ? await dispatchFifthPerformanceCounterCall({
+          child,
+          context,
+          execution: monotonicClock.continuation,
+          nextMessage,
+          offer,
         })
       : null;
     const processExit = await exit;
@@ -653,8 +721,8 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchTickCount
-      ? buildFourthTickCountReport({
+    const report = dispatchPerformanceCounter
+      ? buildFifthPerformanceCounterReport({
           context,
           execution,
           invalidationCalls,
@@ -662,6 +730,7 @@ async function run() {
           offer,
           offerMessage,
           ownerSummaries,
+          performanceCounter,
           processIdentity,
           receipt,
           receiptMessage,
@@ -670,11 +739,12 @@ async function run() {
           systemTime,
           threadIdentity,
         })
-      : dispatchThreadId
-        ? buildThirdThreadIdReport({
+      : dispatchTickCount
+        ? buildFourthTickCountReport({
             context,
             execution,
             invalidationCalls,
+            monotonicClock,
             offer,
             offerMessage,
             ownerSummaries,
@@ -686,8 +756,8 @@ async function run() {
             systemTime,
             threadIdentity,
           })
-        : dispatchProcessId
-          ? buildSecondProcessIdReport({
+        : dispatchThreadId
+          ? buildThirdThreadIdReport({
               context,
               execution,
               invalidationCalls,
@@ -700,22 +770,38 @@ async function run() {
               sourceAfter,
               sourceBefore,
               systemTime,
+              threadIdentity,
             })
-          : dispatchSystemTime
-            ? buildFirstSystemTimeReport({
+          : dispatchProcessId
+            ? buildSecondProcessIdReport({
                 context,
                 execution,
                 invalidationCalls,
                 offer,
                 offerMessage,
                 ownerSummaries,
+                processIdentity,
                 receipt,
                 receiptMessage,
                 sourceAfter,
                 sourceBefore,
                 systemTime,
               })
-            : {
+            : dispatchSystemTime
+              ? buildFirstSystemTimeReport({
+                  context,
+                  execution,
+                  invalidationCalls,
+                  offer,
+                  offerMessage,
+                  ownerSummaries,
+                  receipt,
+                  receiptMessage,
+                  sourceAfter,
+                  sourceBefore,
+                  systemTime,
+                })
+              : {
       schema: "vine.v86-bgi-first-trap",
       schemaVersion: 1,
       source: offer.source,
@@ -786,21 +872,30 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchTickCount
-      ? { bytes: expected.fourthCall.reportBytes, sha256: expected.fourthCall.reportSha256 }
-      : dispatchThreadId
-        ? { bytes: expected.thirdCall.reportBytes, sha256: expected.thirdCall.reportSha256 }
-        : dispatchProcessId
-          ? { bytes: expected.secondCall.reportBytes, sha256: expected.secondCall.reportSha256 }
-          : dispatchSystemTime
-            ? { bytes: expected.firstCall.reportBytes, sha256: expected.firstCall.reportSha256 }
-            : expected.report;
+    const expectedReport = dispatchPerformanceCounter
+      ? { bytes: expected.fifthCall.reportBytes, sha256: expected.fifthCall.reportSha256 }
+      : dispatchTickCount
+        ? { bytes: expected.fourthCall.reportBytes, sha256: expected.fourthCall.reportSha256 }
+        : dispatchThreadId
+          ? { bytes: expected.thirdCall.reportBytes, sha256: expected.thirdCall.reportSha256 }
+          : dispatchProcessId
+            ? { bytes: expected.secondCall.reportBytes, sha256: expected.secondCall.reportSha256 }
+            : dispatchSystemTime
+              ? { bytes: expected.firstCall.reportBytes, sha256: expected.firstCall.reportSha256 }
+              : expected.report;
     if (expectedReport.bytes !== null) {
       assert.equal(reportBytes.byteLength, expectedReport.bytes);
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchTickCount) {
+    if (dispatchPerformanceCounter) {
+      console.log(
+        `v86 BGI fifth Win32 call passed: performance counter ` +
+          `${controlledPerformanceCounter.ticks}, next thunk ID ` +
+          `${performanceCounter.continuation.terminal.thunk.id} after ` +
+          `${performanceCounter.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchTickCount) {
       console.log(
         `v86 BGI fourth Win32 call passed: tick count ${controlledMonotonicClock.tickCount}, ` +
           `next thunk ID ${monotonicClock.continuation.terminal.thunk.id} after ` +
@@ -876,6 +971,11 @@ function validateOffer(offer, offerLineBytes) {
     offer.thunks[expected.thirdCall.nextThunk.identity.id - 1],
     expected.thirdCall.nextThunk.identity,
     !dispatchTickCount,
+  );
+  validateThunk(
+    offer.thunks[expected.fourthCall.nextThunk.identity.id - 1],
+    expected.fourthCall.nextThunk.identity,
+    !dispatchPerformanceCounter,
   );
   assert.equal(
     offer.thunks.filter(({ disposition }) => disposition === undefined).length,
@@ -963,15 +1063,17 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchTickCount
-    ? expected.fourthCall.offerLineBytes
-    : dispatchThreadId
-      ? expected.thirdCall.offerLineBytes
-      : dispatchProcessId
-        ? expected.secondCall.offerLineBytes
-        : dispatchSystemTime
-          ? expected.firstCall.offerLineBytes
-          : expected.offerLineBytes;
+  const expectedOfferLineBytes = dispatchPerformanceCounter
+    ? expected.fifthCall.offerLineBytes
+    : dispatchTickCount
+      ? expected.fourthCall.offerLineBytes
+      : dispatchThreadId
+        ? expected.thirdCall.offerLineBytes
+        : dispatchProcessId
+          ? expected.secondCall.offerLineBytes
+          : dispatchSystemTime
+            ? expected.firstCall.offerLineBytes
+            : expected.offerLineBytes;
   if (expectedOfferLineBytes !== null) {
     assert.equal(offerLineBytes, expectedOfferLineBytes);
   }
@@ -1955,7 +2057,14 @@ async function dispatchThirdThreadIdCall({
   };
 }
 
-async function dispatchFourthTickCountCall({ child, context, execution, nextMessage, offer }) {
+async function dispatchFourthTickCountCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+  continueSession,
+}) {
   const trapped = execution.finalState;
   const framePages = context.preflightVirtualRange(
     trapped.esp,
@@ -2014,7 +2123,11 @@ async function dispatchFourthTickCountCall({ child, context, execution, nextMess
   if (expected.fourthCall.requestLineBytes !== null) {
     assert.equal(Buffer.byteLength(requestLine) - 1, expected.fourthCall.requestLineBytes);
   }
-  child.stdin.end(requestLine);
+  if (continueSession) {
+    child.stdin.write(requestLine);
+  } else {
+    child.stdin.end(requestLine);
+  }
 
   const receiptMessage = await nextMessage("GetTickCount return receipt");
   const receipt = receiptMessage.message;
@@ -2068,7 +2181,7 @@ async function dispatchFourthTickCountCall({ child, context, execution, nextMess
     validateThunk(
       continuation.terminal.thunk,
       expected.fourthCall.nextThunk.identity,
-      expected.fourthCall.nextThunk.unsupported,
+      !dispatchPerformanceCounter,
     );
     assert.equal(continuation.instructionCount, expected.fourthCall.instructionCount);
     assert.equal(continuation.executeStops, expected.fourthCall.executeStops);
@@ -2100,6 +2213,283 @@ async function dispatchFourthTickCountCall({ child, context, execution, nextMess
       sampleId: controlledMonotonicClock.sampleId,
       pairedWallClockSampleId: controlledMonotonicClock.pairedWallClockSampleId,
       tickCount: controlledMonotonicClock.tickCount,
+    },
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
+async function dispatchFifthPerformanceCounterCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+}) {
+  const trapped = execution.finalState;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    8,
+    "read",
+    "QueryPerformanceCounter stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "QueryPerformanceCounter return address",
+  );
+  const outputAddress = context.readVirtualU32(
+    trapped.esp + 4,
+    "QueryPerformanceCounter output pointer",
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  assert.equal(outputAddress, execution.terminal.stackWords[1]);
+
+  const callSite = returnAddress - 6;
+  const callBytes = context.readVirtualBytes(
+    callSite,
+    6,
+    "QueryPerformanceCounter indirect IAT call",
+  );
+  assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
+  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
+  assert.equal(callView.getUint32(2, true), expected.fourthCall.nextThunk.identity.iatAddress);
+  assert.equal(
+    context.readVirtualU32(
+      expected.fourthCall.nextThunk.identity.iatAddress,
+      "QueryPerformanceCounter bound IAT",
+    ),
+    expected.fourthCall.nextThunk.identity.address,
+  );
+
+  const outputPages = context.preflightVirtualRange(
+    outputAddress,
+    8,
+    "write",
+    "QueryPerformanceCounter LARGE_INTEGER output",
+  );
+  assert.equal(outputPages.length, 1);
+  assert.equal(outputPages[0].owner, expected.stack.owner);
+  assert.equal(outputPages[0].protection.execute, false);
+  const stackPageAddress = (outputAddress & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const outputOffset = outputAddress - stackPageAddress;
+  const outputBefore = context.readVirtualBytes(
+    outputAddress,
+    8,
+    "performance-counter output before host write",
+  );
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before performance-counter write",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const counterBytes = Buffer.alloc(8);
+  counterBytes.writeBigUInt64LE(controlledPerformanceCounter.ticks);
+  assert.equal(
+    Number(controlledPerformanceCounter.ticks & 0xffff_ffffn),
+    controlledPerformanceCounter.low,
+  );
+  assert.equal(
+    Number((controlledPerformanceCounter.ticks >> 32n) & 0xffff_ffffn),
+    controlledPerformanceCounter.high,
+  );
+
+  const request = {
+    schema: "vine.v86-performance-counter-write-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.firstCall.deltaGeneration,
+    thunkId: expected.fourthCall.nextThunk.identity.id,
+    thunkAddress: expected.fourthCall.nextThunk.identity.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes: 4,
+    outputAddress,
+    stackPageAddress,
+    stackPageOwner: outputPages[0].owner,
+    stackPageBytes: [...stackPageBytes],
+    monotonicClockOwner: controlledPerformanceCounter.owner,
+    sampleId: controlledPerformanceCounter.sampleId,
+    pairedTickSampleId: controlledPerformanceCounter.pairedTickSampleId,
+    counterLow: controlledPerformanceCounter.low,
+    counterHigh: controlledPerformanceCounter.high,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 64 * 1024);
+  if (expected.fifthCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.fifthCall.requestLineBytes);
+  }
+  child.stdin.write(requestLine);
+
+  const deltaMessage = await nextMessage("QueryPerformanceCounter memory delta");
+  const delta = deltaMessage.message;
+  assert.equal(delta.schema, "vine.v86-performance-counter-delta");
+  assert.equal(delta.schemaVersion, 1);
+  validateThunk(delta.thunk, expected.fourthCall.nextThunk.identity, false);
+  assert.equal(delta.callingConvention, "stdcall");
+  assert.equal(delta.argumentBytes, 4);
+  assert.equal(delta.stackPointer, trapped.esp);
+  assert.equal(delta.returnAddress, returnAddress);
+  assert.equal(delta.outputAddress, outputAddress);
+  assert.equal(delta.monotonicClockOwner, controlledPerformanceCounter.owner);
+  assert.equal(delta.sampleId, controlledPerformanceCounter.sampleId);
+  assert.equal(delta.pairedTickSampleId, controlledPerformanceCounter.pairedTickSampleId);
+  assert.equal(delta.counterTicks, String(controlledPerformanceCounter.ticks));
+  assert.equal(delta.counterLow, controlledPerformanceCounter.low);
+  assert.equal(delta.counterHigh, controlledPerformanceCounter.high);
+  assert.deepEqual(delta.stackReconciliation, {
+    generation: expected.firstCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: delta.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(delta.stackReconciliation.changedBytes > 0);
+  if (expected.fifthCall.reconciledChangedBytes !== null) {
+    assert.equal(
+      delta.stackReconciliation.changedBytes,
+      expected.fifthCall.reconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.fifthCall.stackPageContentSha256);
+  }
+  assert.equal(delta.write.bytesWritten, 8);
+  assert.equal(delta.write.dirtyPages, 1);
+  assert.deepEqual(delta.write.invalidation, {
+    generation: expected.fifthCall.deltaGeneration,
+    dataTlb: false,
+    instructionFetch: false,
+    generatedCode: false,
+  });
+  assert.equal(delta.delta.fromGeneration, expected.firstCall.deltaGeneration);
+  assert.equal(delta.delta.generation, expected.fifthCall.deltaGeneration);
+  assert.equal(delta.delta.pageSize, page.size);
+  assert.deepEqual(delta.delta.mappingOperations, []);
+  assert.equal(delta.delta.dirtyPages.length, 1);
+  const dirty = delta.delta.dirtyPages[0];
+  assert.equal(dirty.address, stackPageAddress);
+  assert.equal(dirty.owner, expected.stack.owner);
+  assert.equal(dirty.ownerSealed, true);
+  assert.deepEqual(dirty.protection, { read: true, write: true, execute: false });
+  assert.equal(dirty.bytes.length, page.size);
+  const expectedStackPage = Uint8Array.from(stackPageBytes);
+  expectedStackPage.set(counterBytes, outputOffset);
+  assert.deepEqual(dirty.bytes, [...expectedStackPage]);
+  assert.equal(delta.delta.transferredBytes, page.size);
+  assert.deepEqual(delta.delta.cacheEffects, {
+    flushTlb: false,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  });
+  assert.match(delta.delta.contentSha256, /^[0-9a-f]{64}$/);
+  if (expected.fifthCall.deltaContentSha256 !== null) {
+    assert.equal(delta.delta.contentSha256, expected.fifthCall.deltaContentSha256);
+  }
+  if (expected.fifthCall.deltaLineBytes !== null) {
+    assert.equal(deltaMessage.lineBytes, expected.fifthCall.deltaLineBytes);
+  }
+
+  context.applyDirtyPage(dirty, "QueryPerformanceCounter stack delta");
+  assert.deepEqual(
+    [...context.readVirtualBytes(outputAddress, 8, "applied performance-counter output")],
+    [...counterBytes],
+  );
+  const deltaAcknowledgement = `${JSON.stringify({
+    schema: "vine.v86-memory-delta-ack",
+    schemaVersion: 1,
+    generation: delta.delta.generation,
+    dataTlb: false,
+    instructionFetch: false,
+    generatedCode: false,
+  })}\n`;
+  child.stdin.end(deltaAcknowledgement);
+
+  const receiptMessage = await nextMessage("QueryPerformanceCounter delta receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-performance-counter-delta-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  assert.equal(receipt.acknowledgedGeneration, delta.delta.generation);
+  assert.equal(receipt.outputAddress, outputAddress);
+  assert.deepEqual(receipt.outputBytes, [...counterBytes]);
+  assert.equal(receipt.stats.generation, delta.delta.generation);
+  assert.equal(receipt.stats.acknowledgedGeneration, delta.delta.generation);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.fifthCall.deltaReceiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.fifthCall.deltaReceiptLineBytes);
+  }
+
+  const resume = resumePerformanceCounterStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    1,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  assert.equal(continuation.terminal.kind, "owned-import-thunk");
+  if (expected.fifthCall.nextThunk !== null) {
+    validateThunk(
+      continuation.terminal.thunk,
+      expected.fifthCall.nextThunk.identity,
+      expected.fifthCall.nextThunk.unsupported,
+    );
+    assert.equal(continuation.instructionCount, expected.fifthCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.fifthCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.fifthCall.budgetStops);
+    assert.equal(
+      continuation.terminal.returnAddress,
+      expected.fifthCall.nextThunk.returnAddress,
+    );
+    assert.deepEqual(continuation.terminal.stackWords, expected.fifthCall.nextThunk.stackWords);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      outputAddress: request.outputAddress,
+      outputBefore: [...outputBefore],
+      stackPageAddress: request.stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    clock: {
+      owner: controlledPerformanceCounter.owner,
+      sampleId: controlledPerformanceCounter.sampleId,
+      pairedTickSampleId: controlledPerformanceCounter.pairedTickSampleId,
+      ticks: String(controlledPerformanceCounter.ticks),
+      low: controlledPerformanceCounter.low,
+      high: controlledPerformanceCounter.high,
+      bytes: [...counterBytes],
+    },
+    delta: {
+      lineBytes: deltaMessage.lineBytes,
+      callingConvention: delta.callingConvention,
+      argumentBytes: delta.argumentBytes,
+      stackReconciliation: delta.stackReconciliation,
+      write: delta.write,
+      delta: {
+        fromGeneration: delta.delta.fromGeneration,
+        generation: delta.delta.generation,
+        pageSize: delta.delta.pageSize,
+        mappingOperations: delta.delta.mappingOperations.length,
+        dirtyPages: delta.delta.dirtyPages.length,
+        dirtyPageAddress: dirty.address,
+        dirtyPageOwner: dirty.owner,
+        transferredBytes: delta.delta.transferredBytes,
+        cacheEffects: delta.delta.cacheEffects,
+        contentSha256: delta.delta.contentSha256,
+      },
     },
     receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
     resume,
@@ -2226,6 +2616,29 @@ function resumeTickCountStdcallResult(context, trapped, returnAddress, result) {
     eaxBefore: trapped.eax,
     eaxAfter: restored.resumed.eax,
     resultSource: controlledMonotonicClock.owner,
+  };
+}
+
+function resumePerformanceCounterStdcallResult(context, trapped, returnAddress, result) {
+  const argumentBytes = 4;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "QueryPerformanceCounter",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: "BOOL-success-after-controlled-counter-write",
   };
 }
 
@@ -2529,6 +2942,52 @@ function buildFourthTickCountReport({ monotonicClock, ...thirdCallArguments }) {
       code: "next-runtime-reachable-owned-import-trap",
       message:
         "BGI returned from checked GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, and GetTickCount calls and reached the next exact runtime-owned import thunk without dispatching it",
+    },
+  };
+}
+
+function buildFifthPerformanceCounterReport({ performanceCounter, ...fourthCallArguments }) {
+  const fourthCall = buildFourthTickCountReport(fourthCallArguments);
+  return {
+    schema: "vine.v86-bgi-fifth-win32-call",
+    schemaVersion: 1,
+    source: fourthCall.source,
+    sourceSnapshot: fourthCall.sourceSnapshot,
+    contract: {
+      ...fourthCall.contract,
+      performanceCounterSampleId: controlledPerformanceCounter.sampleId,
+      supportedServiceDispatches: 5,
+    },
+    bootstrap: fourthCall.bootstrap,
+    imports: {
+      ...fourthCall.imports,
+      supportedPerformanceCounter:
+        fourthCallArguments.offer.thunks[expected.fourthCall.nextThunk.identity.id - 1],
+    },
+    adapter: fourthCall.adapter,
+    reflection: fourthCall.reflection,
+    firstTrap: fourthCall.firstTrap,
+    systemTime: fourthCall.systemTime,
+    firstContinuation: fourthCall.firstContinuation,
+    processId: fourthCall.processId,
+    secondContinuation: fourthCall.secondContinuation,
+    threadId: fourthCall.threadId,
+    thirdContinuation: fourthCall.thirdContinuation,
+    tickCount: fourthCall.tickCount,
+    fourthContinuation: fourthCall.continuation,
+    performanceCounter: {
+      request: performanceCounter.request,
+      clock: performanceCounter.clock,
+      delta: performanceCounter.delta,
+      receipt: performanceCounter.receipt,
+      resume: performanceCounter.resume,
+    },
+    continuation: performanceCounter.continuation,
+    stop: {
+      stage: "thunk-dispatch",
+      code: "next-runtime-reachable-owned-import-trap",
+      message:
+        "BGI returned from checked GetSystemTimeAsFileTime, GetCurrentProcessId, GetCurrentThreadId, GetTickCount, and QueryPerformanceCounter calls and reached the next exact runtime-owned import thunk without dispatching it",
     },
   };
 }

@@ -37,6 +37,7 @@ struct Arguments {
     process_id_return_session: bool,
     thread_id_return_session: bool,
     tick_count_return_session: bool,
+    performance_counter_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -44,6 +45,14 @@ struct Arguments {
     install_controlled_process_environment: bool,
     install_controlled_process_parameters: bool,
     controlled_command_line: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct V86ReturnSessionOptions {
+    process_id: bool,
+    thread_id: bool,
+    tick_count: bool,
+    performance_counter: bool,
 }
 
 #[derive(Serialize)]
@@ -338,6 +347,61 @@ struct V86TickCountReturnReceipt {
     paired_wall_clock_sample_id: String,
     tick_count: u32,
     stack_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86PerformanceCounterWriteRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    output_address: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    monotonic_clock_owner: String,
+    sample_id: String,
+    paired_tick_sample_id: String,
+    counter_low: u32,
+    counter_high: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86PerformanceCounterDeltaOffer {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    output_address: GuestAddress,
+    monotonic_clock_owner: String,
+    sample_id: String,
+    paired_tick_sample_id: String,
+    counter_ticks: String,
+    counter_low: u32,
+    counter_high: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    write: GuestWriteResult,
+    delta: MemoryDelta,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86PerformanceCounterDeltaReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    acknowledged_generation: u64,
+    output_address: GuestAddress,
+    output_bytes: Vec<u8>,
     stats: MemoryStats,
 }
 
@@ -795,14 +859,18 @@ fn run_v86_reflection_session(
     };
     write_protocol_message(&receipt, reflection_message_limit)?;
     if arguments.system_time_delta_session {
+        let return_sessions = V86ReturnSessionOptions {
+            process_id: arguments.process_id_return_session,
+            thread_id: arguments.thread_id_return_session,
+            tick_count: arguments.tick_count_return_session,
+            performance_counter: arguments.performance_counter_return_session,
+        };
         run_v86_system_time_delta_session(
             &mut protocol_input,
             &mut memory,
             &binding,
             reflection_message_limit,
-            arguments.process_id_return_session,
-            arguments.thread_id_return_session,
-            arguments.tick_count_return_session,
+            return_sessions,
         )?;
     }
     Ok(())
@@ -854,9 +922,7 @@ fn run_v86_system_time_delta_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
-    process_id_return_session: bool,
-    thread_id_return_session: bool,
-    tick_count_return_session: bool,
+    return_sessions: V86ReturnSessionOptions,
 ) -> Result<(), LoaderError> {
     let request: V86SystemTimeWriteRequest = read_protocol_message(
         input,
@@ -1012,15 +1078,8 @@ fn run_v86_system_time_delta_session(
         },
         message_limit,
     )?;
-    if process_id_return_session {
-        run_v86_process_id_return_session(
-            input,
-            memory,
-            binding,
-            message_limit,
-            thread_id_return_session,
-            tick_count_return_session,
-        )?;
+    if return_sessions.process_id {
+        run_v86_process_id_return_session(input, memory, binding, message_limit, return_sessions)?;
     }
     Ok(())
 }
@@ -1030,8 +1089,7 @@ fn run_v86_process_id_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
-    thread_id_return_session: bool,
-    tick_count_return_session: bool,
+    return_sessions: V86ReturnSessionOptions,
 ) -> Result<(), LoaderError> {
     let request: V86ProcessIdReturnRequest = read_protocol_message(
         input,
@@ -1125,14 +1183,8 @@ fn run_v86_process_id_return_session(
         },
         message_limit,
     )?;
-    if thread_id_return_session {
-        run_v86_thread_id_return_session(
-            input,
-            memory,
-            binding,
-            message_limit,
-            tick_count_return_session,
-        )?;
+    if return_sessions.thread_id {
+        run_v86_thread_id_return_session(input, memory, binding, message_limit, return_sessions)?;
     }
     Ok(())
 }
@@ -1142,7 +1194,7 @@ fn run_v86_thread_id_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
-    tick_count_return_session: bool,
+    return_sessions: V86ReturnSessionOptions,
 ) -> Result<(), LoaderError> {
     let request: V86ThreadIdReturnRequest = read_protocol_message(
         input,
@@ -1236,8 +1288,8 @@ fn run_v86_thread_id_return_session(
         },
         message_limit,
     )?;
-    if tick_count_return_session {
-        run_v86_tick_count_return_session(input, memory, binding, message_limit)?;
+    if return_sessions.tick_count {
+        run_v86_tick_count_return_session(input, memory, binding, message_limit, return_sessions)?;
     }
     Ok(())
 }
@@ -1247,6 +1299,7 @@ fn run_v86_tick_count_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    return_sessions: V86ReturnSessionOptions,
 ) -> Result<(), LoaderError> {
     let request: V86TickCountReturnRequest = read_protocol_message(
         input,
@@ -1341,6 +1394,180 @@ fn run_v86_tick_count_return_session(
             paired_wall_clock_sample_id: request.paired_wall_clock_sample_id,
             tick_count: request.tick_count,
             stack_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
+    )?;
+    if return_sessions.performance_counter {
+        run_v86_performance_counter_return_session(input, memory, binding, message_limit)?;
+    }
+    Ok(())
+}
+
+fn run_v86_performance_counter_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+) -> Result<(), LoaderError> {
+    let request: V86PerformanceCounterWriteRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-performance-counter",
+        "performance-counter-write-request",
+        "controlled performance-counter write request",
+    )?;
+    if request.schema != "vine.v86-performance-counter-write-request" || request.schema_version != 1
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-performance-counter",
+            "performance-counter-write-request-schema-unsupported",
+            "performance-counter request must use vine.v86-performance-counter-write-request version 1",
+        ));
+    }
+    if request.argument_bytes != 4 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "performance-counter-argument-width-mismatch",
+            "QueryPerformanceCounter requires one four-byte stdcall argument",
+        ));
+    }
+    if request.monotonic_clock_owner.is_empty()
+        || request.sample_id.is_empty()
+        || request.paired_tick_sample_id.is_empty()
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-performance-counter",
+            "controlled-performance-counter-sample-invalid",
+            "controlled performance-counter sample requires nonempty clock ownership and sample identities",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "performance-counter-thunk-id-unowned",
+                "performance-counter request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "QueryPerformanceCounter"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "performance-counter-thunk-identity-mismatch",
+            "performance-counter request does not match the declared QueryPerformanceCounter thunk",
+        ));
+    }
+
+    let counter_ticks = (u64::from(request.counter_high) << 32) | u64::from(request.counter_low);
+    let counter_bytes = counter_ticks.to_le_bytes();
+    let (stack_reconciliation, write, delta) = {
+        let mut transaction = memory.begin_transaction();
+        let stack_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[request.output_address],
+        )?;
+        let write = transaction
+            .write(GuestAddress(request.output_address), &counter_bytes)
+            .map_err(memory_error)?;
+        let delta = transaction.pending_delta().map_err(memory_error)?;
+        if delta.from_generation != request.reflected_generation
+            || delta.dirty_pages.len() != 1
+            || delta.dirty_pages[0].address.0 != request.stack_page_address
+            || delta.dirty_pages[0].owner.0 != request.stack_page_owner
+            || !delta.mapping_operations.is_empty()
+            || delta.cache_effects.flush_tlb
+            || delta.cache_effects.invalidate_instruction_fetch
+            || delta.cache_effects.invalidate_generated_code
+        {
+            return Err(LoaderError::runtime_defect(
+                "memory-delta",
+                "performance-counter-delta-shape-invalid",
+                "checked performance-counter write did not produce one data-only stack-page delta",
+            ));
+        }
+        transaction.commit_transaction();
+        (stack_reconciliation, write, delta)
+    };
+
+    let delta_generation = delta.generation;
+    write_protocol_message(
+        &V86PerformanceCounterDeltaOffer {
+            schema: "vine.v86-performance-counter-delta",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            output_address: GuestAddress(request.output_address),
+            monotonic_clock_owner: request.monotonic_clock_owner,
+            sample_id: request.sample_id,
+            paired_tick_sample_id: request.paired_tick_sample_id,
+            counter_ticks: counter_ticks.to_string(),
+            counter_low: request.counter_low,
+            counter_high: request.counter_high,
+            stack_reconciliation,
+            write,
+            delta,
+        },
+        message_limit,
+    )?;
+
+    let ack: V86MemoryDeltaAck = read_protocol_message(
+        input,
+        4 * 1024,
+        "memory-delta",
+        "performance-counter-delta-ack",
+        "performance-counter memory-delta acknowledgement",
+    )?;
+    if ack.schema != "vine.v86-memory-delta-ack"
+        || ack.schema_version != 1
+        || ack.generation != delta_generation
+        || ack.data_tlb
+        || ack.instruction_fetch
+        || ack.generated_code
+    {
+        return Err(LoaderError::invalid_input(
+            "memory-delta",
+            "performance-counter-delta-ack-invalid",
+            "performance-counter delta acknowledgement does not match its generation and cache effects",
+        ));
+    }
+    memory
+        .acknowledge_invalidation(ack.generation)
+        .map_err(memory_error)?;
+    let output_bytes = memory
+        .read(GuestAddress(request.output_address), counter_bytes.len())
+        .map_err(memory_error)?;
+    write_protocol_message(
+        &V86PerformanceCounterDeltaReceipt {
+            schema: "vine.v86-performance-counter-delta-receipt",
+            schema_version: 1,
+            acknowledged_generation: ack.generation,
+            output_address: GuestAddress(request.output_address),
+            output_bytes,
             stats: memory.stats(),
         },
         message_limit,
@@ -1579,6 +1806,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut process_id_return_session = false;
     let mut thread_id_return_session = false;
     let mut tick_count_return_session = false;
+    let mut performance_counter_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -1657,6 +1885,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             tick_count_return_session = true;
+        } else if argument == "--performance-counter-return-session" {
+            if performance_counter_return_session {
+                return Err(usage_error());
+            }
+            performance_counter_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -1748,6 +1981,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if tick_count_return_session && !thread_id_return_session {
         return Err(usage_error());
     }
+    if performance_counter_return_session && !tick_count_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -1765,6 +2001,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         process_id_return_session,
         thread_id_return_session,
         tick_count_return_session,
+        performance_counter_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -1847,7 +2084,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

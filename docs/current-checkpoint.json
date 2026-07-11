@@ -1,17 +1,18 @@
 {
   "schema": "vine.current-checkpoint",
   "schemaVersion": 1,
-  "checkpoint": "bgi-fourth-win32-call",
-  "entryInstructionCount": 34,
-  "supportedCallCount": 4,
-  "lastSupportedCallId": 13,
-  "lastSupportedCall": "KERNEL32.dll!GetTickCount",
-  "memoryGeneration": 25,
+  "checkpoint": "bgi-fifth-win32-call",
+  "entryInstructionCount": 78,
+  "supportedCallCount": 5,
+  "lastSupportedCallId": 157,
+  "lastSupportedCall": "KERNEL32.dll!QueryPerformanceCounter",
+  "memoryGeneration": 26,
   "controlledProcessId": 4096,
   "controlledThreadId": 8192,
   "controlledTickCount": 3600000,
-  "ownedTrapId": 157,
-  "ownedTrap": "KERNEL32.dll!QueryPerformanceCounter",
+  "controlledPerformanceCounter": 12345678901,
+  "ownedTrapId": 83,
+  "ownedTrap": "KERNEL32.dll!GetStartupInfoW",
   "memoryProtocol": "memory-delta-v1",
-  "nextCheckpoint": "fifth-supported-win32-call-return"
+  "nextCheckpoint": "sixth-supported-win32-call-return"
 }

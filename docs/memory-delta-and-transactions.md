@@ -111,6 +111,12 @@ generation `25`. Its controlled result is returned only in EAX, so semantic
 generation and dirty-page state remain unchanged and no delta is emitted. See
 [v86-bgi-fourth-win32-call.md](v86-bgi-fourth-win32-call.md).
 
+`QueryPerformanceCounter` then reconciles five guest-changed stack bytes at
+generation `25`, writes one controlled 64-bit output, and emits generation `26`
+as one full-page data-only delta. The adapter applies and acknowledges it before
+BOOL success is returned. See
+[v86-bgi-fifth-win32-call.md](v86-bgi-fifth-win32-call.md).
+
 ## Limits
 
 - Delta page payloads are still JSON numeric arrays; binary IPC is deferred.

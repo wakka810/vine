@@ -83,6 +83,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bgi-fourth-win32-call` reconciles the next zero-argument frame at generation `25`, returns controlled tick count `3,600,000` from exact thunk ID `13`, and stops after five more instructions at ID `157`／`KERNEL32.dll!QueryPerformanceCounter`. The result is recorded in [v86-bgi-fourth-win32-call.md](../../docs/v86-bgi-fourth-win32-call.md).
 
+`npm run check:runtime:bgi-fifth-win32-call` reconciles a one-argument frame at generation `25`, writes controlled counter `12,345,678,901` through a generation `26` delta, returns BOOL success from exact thunk ID `157`, and stops at ID `83`／`KERNEL32.dll!GetStartupInfoW`. The result is recorded in [v86-bgi-fifth-win32-call.md](../../docs/v86-bgi-fifth-win32-call.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.

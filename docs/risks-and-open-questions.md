@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: 1 人の個人開発、primary corpus、full-play goal、Rust + TypeScript、static dependency inventory、LLVM baseline、Windows trace v1／v2、selected IDirect3D9 root、W1／W2／W3、high-address memory、Rust production memory／PE loader ingress、BGI first／second／third／fourth Win32 call returnは確定。TypeScript／Wasm browser boundary、device-level trace、general runtime／browser appは未確定
+- 現状: 1 人の個人開発、primary corpus、full-play goal、Rust + TypeScript、static dependency inventory、LLVM baseline、Windows trace v1／v2、selected IDirect3D9 root、W1／W2／W3、high-address memory、Rust production memory／PE loader ingress、BGI firstからfifth Win32 call returnは確定。TypeScript／Wasm browser boundary、device-level trace、general runtime／browser appは未確定
 
 この文書は、不確実性を TODO のまま埋め込まず、実装を進める条件と見直す条件を明確にする。所有者欄の role は別人を意味せず、単一 maintainer が判断時に切り替える責任観点を示す。
 

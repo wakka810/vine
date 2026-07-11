@@ -14,16 +14,17 @@ try {
   if (
     checkpoint.schema !== "vine.current-checkpoint" ||
     checkpoint.schemaVersion !== 1 ||
-    checkpoint.checkpoint !== "bgi-fourth-win32-call" ||
-    checkpoint.entryInstructionCount !== 34 ||
-    checkpoint.supportedCallCount !== 4 ||
-    checkpoint.lastSupportedCallId !== 13 ||
-    checkpoint.memoryGeneration !== 25 ||
+    checkpoint.checkpoint !== "bgi-fifth-win32-call" ||
+    checkpoint.entryInstructionCount !== 78 ||
+    checkpoint.supportedCallCount !== 5 ||
+    checkpoint.lastSupportedCallId !== 157 ||
+    checkpoint.memoryGeneration !== 26 ||
     checkpoint.controlledProcessId !== 4096 ||
     checkpoint.controlledThreadId !== 8192 ||
     checkpoint.controlledTickCount !== 3600000 ||
-    checkpoint.ownedTrapId !== 157 ||
-    checkpoint.nextCheckpoint !== "fifth-supported-win32-call-return"
+    checkpoint.controlledPerformanceCounter !== 12345678901 ||
+    checkpoint.ownedTrapId !== 83 ||
+    checkpoint.nextCheckpoint !== "sixth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
   }
