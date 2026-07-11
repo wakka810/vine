@@ -29,8 +29,8 @@ pub use environment::{
 };
 pub use imports::{
     IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, IMPORT_THUNK_SLOT_SIZE, ImportBinding,
-    ImportThunk, ImportThunkArena, ImportThunkId, RuntimeExport, RuntimeExportCatalog,
-    bind_pe32_imports,
+    ImportThunk, ImportThunkArena, ImportThunkDisposition, ImportThunkId, RuntimeExport,
+    RuntimeExportCatalog, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
 };
 pub use materialize::{ImageMaterialization, UnboundImport, materialize_pe32_image};
 pub use memory::{

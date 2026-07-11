@@ -33,7 +33,7 @@
 - separate import-free fixtureのnative `PEB+0x10` process-parameters／`+0x40` command-line oracleと、empty guest PEBのexplicit result `2`
 - typed process-parameters／command-line regions、generation `14` reflection、exact UTF-16 observationとentry result `0`
 
-general process integration／parameters、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEBとnative-oracled command-line bytesまで進んだ。BGIは`Direct3DCreate9` 1件だけbindした未seal／未実行imageである。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md) を正とする。
+general process integration／parameters、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEBとnative-oracled command-line bytesまで進んだ。BGIは全330 importsをowned trapsへbindしてsealしたが未実行である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -140,7 +140,7 @@ node tools/summarize-windows-trace.mjs `
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
-8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／import-binding ingress verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。native-reachable `d3d9.dll!Direct3DCreate9`をproduction thunkへbindし、次の`DINPUT8.dll!DirectInput8Create`で停止する。production CPU handoffはcontrolled fixtureだけfixed cdecl serviceとone-level callback returnまで通す。
+8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。`Direct3DCreate9` 1 declared endpointと329 explicit unsupported trapsを全IATへbindし、image／runtime ownerをsealする。production CPU handoffはcontrolled fixtureだけfixed cdecl serviceとone-level callback returnまで通す。
 
 各 checkpoint の automated test は原則 1 本にする。追加 test は、実際の regression、calling convention／fault ordering の曖昧さ、または title failure を最小化した場合だけ作る。
 
@@ -154,6 +154,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum TEB／PEB／process-parameters bootstrapまで固定した。BGIはruntime-owned `Direct3DCreate9` thunkをbindして次のunsupported importで停止している。次はremaining static importsのexplicit trap bindingである。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap bindingまで固定した。次はsealed BGI pagesのbounded source-v86 transferとfirst runtime-reachable trapである。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

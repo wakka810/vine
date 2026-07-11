@@ -274,7 +274,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust TEB／PEB／process-parameters pagesとentry completionまで進んだ。次のloader sliceはBGI remaining importsのexplicit trap bindingであり、large-image adapter transferはその後に測定する。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrapとentry completionまで進んだ。loaderはBGI全importsをidentity付きtrapsへbindしてimageをsealした。次のadapter sliceはsealed large-image transferとfirst runtime-reachable trap測定である。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -296,7 +296,7 @@ adapter fixture は次の順に増やす。
 10. [Verified] Rust-owned TEB／PEB pagesとnonzero FS baseで同じfixtureをentry returnまで通す。
 11. [Verified] separate native oracleでi386 process-parameters／command-line pathを固定し、empty guest PEBをexplicit resultへ戻す。
 12. [Verified] 測定済みprocess-parameters／command-line bytesをminimum Rust ownershipへ接続する。
-13. BGI static importsをidentity付きexplicit trap thunksへbindしてimageをsealする。
+13. [Verified] BGI static importsをidentity付きexplicit trap thunksへbindしてimageをsealする。
 14. sealed BGI imageをbounded large-image transferでadapterへ渡し、first reachable trapを測る。
 15. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
 16. 同じfixtureをNodeとChromium Workerで実行する。

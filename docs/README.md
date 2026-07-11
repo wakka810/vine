@@ -5,14 +5,14 @@
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 対象: current `main` worktree
-- 実装成熟度: Phase 0 discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap ingress。native oracle、zero-base fault、FS-base completion、typed command-line pathは存在するが、general process integration／parameters、DLL／export resolution、Win32 runtime、browser app、CIはまだない
+- 実装成熟度: Phase 0 discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps。BGI imageは全imports bind／seal済みだが未実行で、general process integration／parameters、DLL／export resolution、Win32 runtime、browser app、CIはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
 
 このディレクトリは、Vine を「Windows 向け VN/ADV 実行ファイルを、元の配布ファイルを原則として変更せずブラウザ上で再ホストする Windows userspace 互換ランタイム」として開発するための基準文書である。
 
-調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、再現生成するPE32 fixtures、固定したv86 source adapter、Windows trace、W1／W2／W3、high-address memory、Rust W7 load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingressがある。各checkpointは限定したevidenceであり、production Windows compatibility runtimeの完成を示さない。
+調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、再現生成するPE32 fixtures、固定したv86 source adapter、Windows trace、W1／W2／W3、high-address memory、Rust W7 load／memory／entry return／stack／bootstrap ingress、sealed BGI trap bindingがある。各checkpointは限定したevidenceであり、production Windows compatibility runtimeの完成を示さない。
 
 ## プロジェクトの位置づけ
 
@@ -58,6 +58,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [pe-loader-ingress.md](pe-loader-ingress.md) | immutable PE32 planをどこまで作れるか | Rust workspace、bounded parser／plan、fixture contract、BGI W7 stop |
 | [pe-materialization.md](pe-materialization.md) | PE image bytesをどこまで構築できるか | source copy、zero-fill、`HIGHLOW`、IAT-original verification、BGI stop |
 | [pe-import-binding.md](pe-import-binding.md) | runtime import endpointをどこまで所有できるか | thunk arena／ID、IAT prefix binding、owner seal、controlled fixture／BGI stop |
+| [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md) | 未実装static importをどうseal可能にするか | identity付きunsupported traps、controlled test、BGI full bind |
 | [v86-entry-ingress.md](v86-entry-ingress.md) | production memoryをCPUへどこまで渡せるか | semantic reflection、invalidation ack、bounded stack、entry-to-thunk evidence |
 | [v86-cdecl-ingress.md](v86-cdecl-ingress.md) | 最初のproduction serviceをどこまでreturnできるか | exact thunk metadata、fixed cdecl frame／return、guest cleanup、callback-service ingress |
 | [v86-callback-return-ingress.md](v86-callback-return-ingress.md) | production callbackをどこまで往復できるか | separate control owner／sentinel、frame ID、checked stack、exact callback return |

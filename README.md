@@ -10,12 +10,13 @@ W1/W2 execution slices, a one-pixel Chrome presentation boundary, a
 high-address memory measurement, and Rust PE32 load-plan, sparse-memory,
 materialization, and import-binding ingress for the fingerprinted BGI image.
 A production Rust boundary now owns the BGI image range, applies 18,199
-`HIGHLOW` relocations at a nonpreferred base, and can bind a supported import
-prefix to deterministic runtime-owned `UD2` thunks. General CPU memory/process
-integration, DLL/export resolution, general process bootstrap, the Win32
-runtime, and the browser application do not exist yet. The sealed controlled
-image now crosses
-a versioned Rust-to-v86 reflection boundary, dispatches fixed cdecl
+`HIGHLOW` relocations at a nonpreferred base, and binds all 330 imports to
+deterministic runtime-owned `UD2` thunks. One endpoint is declared; the other
+329 retain exact identity as explicit unsupported traps. General CPU
+memory/process integration, DLL/export resolution, general process bootstrap,
+the Win32 runtime, and the browser application do not exist yet. The sealed
+controlled image now crosses a versioned Rust-to-v86 reflection boundary,
+dispatches fixed cdecl
 `fixture_add(19, 23)`, and executes one guest callback to a separately owned
 exact return sentinel after real cache invalidation. The host now retires that
 callback frame, returns result `43` through the outer cdecl thunk, and runs the
@@ -36,12 +37,12 @@ process-parameters and UTF-16 command-line pages; the same fixture finds
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. The controlled fixture now binds both imports and seals its
-image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
-at `DINPUT8.dll!DirectInput8Create`. The controlled entry now returns result `0`
-to exact process-entry sentinel ID `2` with ESP `0x00700000`; arbitrary unmapped
-returns still fault. The next loader task binds BGI's remaining imports to
-explicit identity-preserving traps without claiming API behavior; see
-[docs/v86-bootstrap-params-ingress.md](docs/v86-bootstrap-params-ingress.md).
+image; BGI's image and runtime owners are sealed, but BGI has not executed.
+The controlled entry now returns result `0` to exact process-entry sentinel
+ID `2` with ESP `0x00700000`; arbitrary unmapped returns still fault. The next
+runtime task transfers the sealed BGI pages to
+source-v86 and stops at the first runtime-reachable owned trap; see
+[docs/pe-unsupported-trap-binding.md](docs/pe-unsupported-trap-binding.md).
 
 ## Requirements
 

@@ -78,4 +78,4 @@ The fixed addresses, one page per structure, exact command-line text, and zero-f
 
 The native oracle supports only the measured i386 offsets used here. It does not establish undocumented layout compatibility beyond those fields, and this controlled fixture is not evidence that BGI has entered guest execution.
 
-The next loader checkpoint should bind BGI's remaining static imports to identity-preserving explicit unsupported traps, never success stubs, so its image can be sealed without claiming API behavior. A following large-image reflection checkpoint can then execute BGI to the first runtime-reachable trap.
+The explicit binding continuation is complete in [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md). BGI's image is sealed with identity-preserving returnless traps, but remains unexecuted. The next checkpoint transfers that large sealed state and runs only to the first runtime-reachable trap.

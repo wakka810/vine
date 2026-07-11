@@ -25,6 +25,19 @@ const IMPORT_THUNK_CAPACITY: usize =
 #[serde(transparent)]
 pub struct ImportThunkId(pub u32);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ImportThunkDisposition {
+    DeclaredRuntimeExport,
+    UnsupportedTrap,
+}
+
+impl ImportThunkDisposition {
+    fn is_declared_runtime_export(&self) -> bool {
+        *self == Self::DeclaredRuntimeExport
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum RuntimeExport {
@@ -101,6 +114,8 @@ pub struct ImportThunk {
     pub iat_rva: Rva,
     pub iat_address: GuestAddress,
     pub original_iat_value: u32,
+    #[serde(skip_serializing_if = "ImportThunkDisposition::is_declared_runtime_export")]
+    pub disposition: ImportThunkDisposition,
     #[serde(flatten)]
     pub target: ImportTarget,
 }
@@ -126,6 +141,8 @@ pub struct ImportBinding {
     pub image_load_base: GuestAddress,
     pub total_imports: usize,
     pub bound_imports: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub unsupported_trap_imports: usize,
     pub remaining_imports: usize,
     pub complete: bool,
     pub image_owner_sealed: bool,
@@ -149,6 +166,37 @@ pub fn bind_pe32_imports(
     loader: &LoaderIngressReport,
     image: &ImageMaterialization,
     catalog: &RuntimeExportCatalog,
+) -> Result<ImportBinding, LoaderError> {
+    bind_pe32_imports_internal(memory, loader, image, catalog, MissingImportPolicy::Stop)
+}
+
+pub fn bind_pe32_imports_with_unsupported_traps(
+    memory: &mut GuestMemory,
+    loader: &LoaderIngressReport,
+    image: &ImageMaterialization,
+    catalog: &RuntimeExportCatalog,
+) -> Result<ImportBinding, LoaderError> {
+    bind_pe32_imports_internal(
+        memory,
+        loader,
+        image,
+        catalog,
+        MissingImportPolicy::BindUnsupportedTrap,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MissingImportPolicy {
+    Stop,
+    BindUnsupportedTrap,
+}
+
+fn bind_pe32_imports_internal(
+    memory: &mut GuestMemory,
+    loader: &LoaderIngressReport,
+    image: &ImageMaterialization,
+    catalog: &RuntimeExportCatalog,
+    missing_import_policy: MissingImportPolicy,
 ) -> Result<ImportBinding, LoaderError> {
     validate_binding_input(memory, loader, image)?;
     let total_imports = loader
@@ -178,12 +226,16 @@ pub fn bind_pe32_imports(
                     ),
                 ));
             }
-            if !catalog.supports(&module.name, &symbol.target) {
+            let disposition = if catalog.supports(&module.name, &symbol.target) {
+                ImportThunkDisposition::DeclaredRuntimeExport
+            } else if missing_import_policy == MissingImportPolicy::BindUnsupportedTrap {
+                ImportThunkDisposition::UnsupportedTrap
+            } else {
                 first_unresolved_import =
                     Some(unbound_import(&module.name, symbol, image.load_base)?);
                 break 'modules;
-            }
-            planned.push((module.name.as_str(), symbol, iat_address));
+            };
+            planned.push((module.name.as_str(), symbol, iat_address, disposition));
         }
     }
 
@@ -265,7 +317,7 @@ pub fn bind_pe32_imports(
             .map_err(memory_error)?;
 
         fill_thunk_pages(memory, arena_owner, committed_bytes)?;
-        for (index, (module, symbol, iat_address)) in planned.iter().enumerate() {
+        for (index, (module, symbol, iat_address, disposition)) in planned.iter().enumerate() {
             let id_value = u32::try_from(index + 1).map_err(|_| {
                 LoaderError::resource_limit(
                     "import-binding",
@@ -297,6 +349,7 @@ pub fn bind_pe32_imports(
                 iat_rva: symbol.iat_rva,
                 iat_address: *iat_address,
                 original_iat_value: symbol.original_iat_value,
+                disposition: *disposition,
                 target: symbol.target.clone(),
             });
         }
@@ -334,10 +387,20 @@ pub fn bind_pe32_imports(
         )
     })?;
     let bound_imports = thunks.len();
+    let unsupported_trap_imports = thunks
+        .iter()
+        .filter(|thunk| thunk.disposition == ImportThunkDisposition::UnsupportedTrap)
+        .count();
     let remaining_imports = total_imports
         .checked_sub(bound_imports)
         .ok_or_else(import_binding_accounting_overflow)?;
-    let stop = if complete {
+    let stop = if complete && unsupported_trap_imports != 0 {
+        UnsupportedPoint {
+            stage: "thunk-dispatch",
+            code: "unsupported-import-trap-dispatch-pending",
+            message: "all planned imports are bound and the image is sealed; catalog-missing imports point to identity-preserving UD2 traps that return no value, and guest execution has not been attempted",
+        }
+    } else if complete {
         UnsupportedPoint {
             stage: "process-bootstrap",
             code: "peb-teb-process-parameters-unimplemented",
@@ -357,6 +420,7 @@ pub fn bind_pe32_imports(
         image_load_base: image.load_base,
         total_imports,
         bound_imports,
+        unsupported_trap_imports,
         remaining_imports,
         complete,
         image_owner_sealed: complete,
@@ -366,6 +430,10 @@ pub fn bind_pe32_imports(
         invalidation: pending,
         stop,
     })
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 fn validate_binding_input(

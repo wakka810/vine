@@ -2,9 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use vine_core::{
-    GuestAddress, GuestMemory, GuestMemoryErrorClass, IMPORT_THUNK_ARENA_BASE, MemoryAccess,
-    MemoryFaultReason, MemoryLimits, ModuleSnapshot, Pe32Limits, RuntimeExport,
-    RuntimeExportCatalog, bind_pe32_imports, build_pe32_load_plan, materialize_pe32_image,
+    GuestAddress, GuestMemory, GuestMemoryErrorClass, IMPORT_THUNK_ARENA_BASE,
+    ImportThunkDisposition, MemoryAccess, MemoryFaultReason, MemoryLimits, ModuleSnapshot,
+    Pe32Limits, RuntimeExport, RuntimeExportCatalog, bind_pe32_imports,
+    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, materialize_pe32_image,
 };
 
 const FIXTURE_SHA256: &str = "60f882a22d7d44e0ebe734f284dc8676e29035207ff004ed0cdf6e97c629b9c7";
@@ -47,6 +48,7 @@ fn binds_owned_thunks_and_seals_the_controlled_image() {
     assert_eq!(catalog.len(), 2);
     assert_eq!(binding.total_imports, 2);
     assert_eq!(binding.bound_imports, 2);
+    assert_eq!(binding.unsupported_trap_imports, 0);
     assert_eq!(binding.remaining_imports, 0);
     assert!(binding.complete);
     assert!(binding.image_owner_sealed);
@@ -79,10 +81,18 @@ fn binds_owned_thunks_and_seals_the_controlled_image() {
     assert_eq!(first.address, GuestAddress(0x7f00_0000));
     assert_eq!(first.iat_rva.0, 0x2034);
     assert_eq!(first.iat_address, GuestAddress(0x1000_2034));
+    assert_eq!(
+        first.disposition,
+        ImportThunkDisposition::DeclaredRuntimeExport
+    );
     assert_eq!(second.id.0, 2);
     assert_eq!(second.address, GuestAddress(0x7f00_0010));
     assert_eq!(second.iat_rva.0, 0x2038);
     assert_eq!(second.iat_address, GuestAddress(0x1000_2038));
+    assert_eq!(
+        second.disposition,
+        ImportThunkDisposition::DeclaredRuntimeExport
+    );
     assert_eq!(binding.thunk_at(first.address), Some(first));
     assert_eq!(binding.thunk_at(GuestAddress(0x7f00_0020)), None);
 
@@ -141,6 +151,97 @@ fn binds_owned_thunks_and_seals_the_controlled_image() {
         first_json, second_json,
         "binding JSON must be deterministic"
     );
+    let json_text = String::from_utf8(first_json).expect("binding JSON UTF-8");
+    assert!(!json_text.contains("disposition"));
+    assert!(!json_text.contains("unsupportedTrapImports"));
+}
+
+#[test]
+fn binds_missing_import_to_an_identity_preserving_trap() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(".work/toolchain-spike/abi-smoke.exe");
+    let source = fs::read(&fixture).unwrap_or_else(|error| {
+        panic!(
+            "cannot read {} ({error}); run `npm run check:toolchain` first",
+            fixture.display()
+        )
+    });
+    let pe_limits = Pe32Limits::default();
+    let snapshot = ModuleSnapshot::from_bytes(source, &pe_limits).expect("fixture snapshot");
+    snapshot
+        .verify_expected_sha256(FIXTURE_SHA256)
+        .expect("fixed fixture fingerprint");
+    let loader = build_pe32_load_plan(&snapshot, pe_limits).expect("fixture load plan");
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 6,
+        max_regions: 2,
+        max_owners: 2,
+        max_access_bytes: 4_096,
+    })
+    .expect("guest memory");
+    let image = materialize_pe32_image(&mut memory, &snapshot, &loader, GuestAddress(LOAD_BASE))
+        .expect("materialized fixture");
+    let catalog = RuntimeExportCatalog::new(vec![RuntimeExport::named(
+        "vine_fixture.dll",
+        "fixture_add",
+    )])
+    .expect("one declared runtime export");
+
+    let binding = bind_pe32_imports_with_unsupported_traps(&mut memory, &loader, &image, &catalog)
+        .expect("explicit unsupported trap binding");
+    assert_eq!(binding.total_imports, 2);
+    assert_eq!(binding.bound_imports, 2);
+    assert_eq!(binding.unsupported_trap_imports, 1);
+    assert_eq!(binding.remaining_imports, 0);
+    assert!(binding.complete);
+    assert!(binding.image_owner_sealed);
+    assert_eq!(binding.first_unresolved_import, None);
+    assert_eq!(binding.stop.stage, "thunk-dispatch");
+    assert_eq!(
+        binding.stop.code,
+        "unsupported-import-trap-dispatch-pending"
+    );
+
+    let declared = &binding.thunks[0];
+    let unsupported = &binding.thunks[1];
+    assert_eq!(declared.id.0, 1);
+    assert_eq!(
+        declared.disposition,
+        ImportThunkDisposition::DeclaredRuntimeExport
+    );
+    assert_eq!(unsupported.id.0, 2);
+    assert_eq!(unsupported.address, GuestAddress(0x7f00_0010));
+    assert_eq!(unsupported.module, "vine_fixture.dll");
+    assert_eq!(unsupported.iat_rva.0, 0x2038);
+    assert_eq!(unsupported.iat_address, GuestAddress(0x1000_2038));
+    assert_eq!(
+        unsupported.disposition,
+        ImportThunkDisposition::UnsupportedTrap
+    );
+    assert_eq!(binding.thunk_at(unsupported.address), Some(unsupported));
+
+    memory
+        .acknowledge_invalidation(binding.invalidation.generation)
+        .expect("acknowledge trap binding");
+    assert_eq!(read_u32(&memory, declared.iat_address), declared.address.0);
+    assert_eq!(
+        read_u32(&memory, unsupported.iat_address),
+        unsupported.address.0
+    );
+    assert_eq!(
+        memory
+            .fetch(unsupported.address, 16)
+            .expect("unsupported trap bytes"),
+        [
+            0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+            0xf4, 0xf4
+        ]
+    );
+
+    let json = serde_json::to_string_pretty(&binding).expect("serialize trap binding");
+    assert!(json.contains("\"unsupportedTrapImports\": 1"));
+    assert!(json.contains("\"disposition\": \"unsupported-trap\""));
 }
 
 fn read_u32(memory: &GuestMemory, address: GuestAddress) -> u32 {

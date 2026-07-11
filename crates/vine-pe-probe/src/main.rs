@@ -13,10 +13,10 @@ use vine_core::{
     InitialThreadStack, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryInvalidation,
     MemoryLimits, MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
     ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog, UnsupportedPoint,
-    bind_pe32_imports, build_pe32_load_plan, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_controlled_process_environment,
-    install_controlled_process_environment_with_parameters, install_runtime_return_sentinels,
-    materialize_pe32_image,
+    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
+    install_callback_return_sentinel, install_controlled_initial_stack,
+    install_controlled_process_environment, install_controlled_process_environment_with_parameters,
+    install_runtime_return_sentinels, materialize_pe32_image,
 };
 
 #[derive(Debug)]
@@ -27,6 +27,7 @@ struct Arguments {
     prepare_memory_pages: Option<usize>,
     materialize_image_base: Option<u32>,
     runtime_exports: Vec<RuntimeExport>,
+    trap_unsupported_imports: bool,
     v86_reflection_session: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -88,6 +89,8 @@ struct ImportBindingIngressReport {
     loader_schema_version: u32,
     memory_limits: MemoryLimits,
     runtime_exports: Vec<RuntimeExport>,
+    #[serde(skip_serializing_if = "is_false")]
+    trap_unsupported_imports: bool,
     materialization: ImageMaterialization,
     binding: ImportBinding,
     stats: MemoryStats,
@@ -186,7 +189,7 @@ fn run() -> Result<(), LoaderError> {
     if arguments.v86_reflection_session {
         return run_v86_reflection_session(arguments, &snapshot, &loader_report);
     }
-    let mut json = if !arguments.runtime_exports.is_empty() {
+    let mut json = if !arguments.runtime_exports.is_empty() || arguments.trap_unsupported_imports {
         let load_base = arguments.materialize_image_base.ok_or_else(usage_error)?;
         let max_physical_pages = arguments.prepare_memory_pages.ok_or_else(usage_error)?;
         let memory_limits = MemoryLimits {
@@ -201,7 +204,16 @@ fn run() -> Result<(), LoaderError> {
             GuestAddress(load_base),
         )?;
         let catalog = RuntimeExportCatalog::new(arguments.runtime_exports.clone())?;
-        let binding = bind_pe32_imports(&mut memory, &loader_report, &materialization, &catalog)?;
+        let binding = if arguments.trap_unsupported_imports {
+            bind_pe32_imports_with_unsupported_traps(
+                &mut memory,
+                &loader_report,
+                &materialization,
+                &catalog,
+            )?
+        } else {
+            bind_pe32_imports(&mut memory, &loader_report, &materialization, &catalog)?
+        };
         let report = ImportBindingIngressReport {
             schema: "vine.pe32-import-binding",
             schema_version: 1,
@@ -209,6 +221,7 @@ fn run() -> Result<(), LoaderError> {
             loader_schema_version: loader_report.schema_version,
             memory_limits,
             runtime_exports: arguments.runtime_exports,
+            trap_unsupported_imports: arguments.trap_unsupported_imports,
             materialization,
             binding,
             stats: memory.stats(),
@@ -315,8 +328,18 @@ fn run_v86_reflection_session(
         loader_report,
         GuestAddress(load_base),
     )?;
+    let trap_unsupported_imports = arguments.trap_unsupported_imports;
     let catalog = RuntimeExportCatalog::new(arguments.runtime_exports)?;
-    let binding = bind_pe32_imports(&mut memory, loader_report, &materialization, &catalog)?;
+    let binding = if trap_unsupported_imports {
+        bind_pe32_imports_with_unsupported_traps(
+            &mut memory,
+            loader_report,
+            &materialization,
+            &catalog,
+        )?
+    } else {
+        bind_pe32_imports(&mut memory, loader_report, &materialization, &catalog)?
+    };
     if !binding.complete || !binding.image_owner_sealed {
         return Err(LoaderError::invalid_input(
             "memory-reflection",
@@ -712,6 +735,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut prepare_memory_pages = None;
     let mut materialize_image_base = None;
     let mut runtime_exports = Vec::new();
+    let mut trap_unsupported_imports = false;
     let mut v86_reflection_session = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -759,6 +783,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
             let ordinal = ordinal.into_string().map_err(|_| usage_error())?;
             let ordinal = ordinal.parse::<u16>().map_err(|_| usage_error())?;
             runtime_exports.push(RuntimeExport::ordinal(module, ordinal));
+        } else if argument == "--trap-unsupported-imports" {
+            if trap_unsupported_imports {
+                return Err(usage_error());
+            }
+            trap_unsupported_imports = true;
         } else if argument == "--v86-reflection-session" {
             if v86_reflection_session {
                 return Err(usage_error());
@@ -802,6 +831,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if !runtime_exports.is_empty() && materialize_image_base.is_none() {
         return Err(usage_error());
     }
+    if trap_unsupported_imports && materialize_image_base.is_none() {
+        return Err(usage_error());
+    }
     if v86_reflection_session
         && (output.is_some() || materialize_image_base.is_none() || prepare_memory_pages.is_none())
     {
@@ -834,6 +866,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         prepare_memory_pages,
         materialize_image_base,
         runtime_exports,
+        trap_unsupported_imports,
         v86_reflection_session,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -915,8 +948,12 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters]]]]]] | --output FILE] INPUT".to_owned(),
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn memory_error(error: GuestMemoryError) -> LoaderError {

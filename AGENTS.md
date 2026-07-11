@@ -199,6 +199,7 @@ Verified behavior:
 - production Rust sparse memoryでhigh imageの6 pagesとBGI planの380 pagesをbounded ownershipへ入れ、logical execute seal、cross-page preflight、generation-tagged invalidation requirementを通すCPU未接続のguest-memory ingress
 - owned W7 planだけからfixed T1とBGIを`0x10000000`へmaterializeし、source copy、explicit zero-fill／readback、`HIGHLOW` relocation、original IAT verification、mapped-content digestを通すCPU未接続のPE32 mapping layer
 - version 1 runtime export catalogと`[0x7F000000, 0x7F010000)`のowned `UD2` thunk arenaでsupported import prefixをIATへbindする。fixed T1の2 import／両owner sealと、BGIの`Direct3DCreate9` 1件／次のunsupported symbol stopを通すCPU未接続のimport-binding layer
+- optional explicit trap policyでcatalog-missing importにもidentity付きowned `UD2` slotを割り当てる。controlled fixtureの1 unsupported trapと、BGIの1 declared／329 unsupported importsを全bindしてimage／runtime ownerをsealするCPU未接続のtrap-binding layer
 - sealed fixed T1の6 production pagesをsemantic reflectionでprovisional v86 pagingへcopyし、actual TLB／fetch／generated-code invalidation後にgeneration `4`をacknowledgeする。harness-only 4 KiB stackからentry `0x10001000`を実行し、exact owned thunk ID `1`へ到達するv86 entry ingress
 - ordered production thunk metadataでexact thunk ID `1`を分類し、fixed cdecl frame `[return,19,23]`をchecked readしてEAX `42`を返す。guest側のargument cleanup後にexact thunk ID `2`へ到達し、callback target `0x10001030`／value `42`を構造化するcdecl service ingress
 - separate runtime ownerのRX control pageへcallback return sentinel ID `1`／`0x7F010000`を置き、frame ID `1`でchecked stackへ`[sentinel,42]`を積む。guest callback `0x10001030`を実行し、exact sentinelへEAX `43`で戻るcallback return ingress
@@ -262,6 +263,7 @@ Verified behavior:
 36. `thread-environment-block` owner `4`／`0x7FFDE000`と`process-environment-block` owner `5`／`0x7FFDF000`をRW／NXでcommitし、TEB `+0x18`／`+0x30`だけをself／PEB pointerへ初期化する。generation `10`の9-page reflectionとFS base restoreを通し、9 execute stop／8 budget stop後に4 observation一致、EAX `0`、ESP `0x00700000`でentry sentinelへ到達するbootstrap FS ingress contract。
 37. import-free `bootstrap-params.exe`でnative i386の`FS:[0x30] -> PEB`、`PEB+0x10 -> RTL_USER_PROCESS_PARAMETERS`、`+0x40 -> CommandLine`、`UNICODE_STRING+0x04 -> Buffer`をbounded self-oracleし、exit code `0`を得る。同じgeneration `10` minimum environmentでは`PEB+0x10 == 0`を観測してEAX `2`を返し、8 execute stop／7 budget stop後にentry sentinelへ到達するprocess-parameters first-stop contract。
 38. `process-parameters` owner `6`／`0x7FFDC000`と`command-line` owner `7`／`0x7FFDD000`をRW／NXでcommitし、PEB `+0x10`、parameters `+0x40`のLength `40`／MaximumLength `42`／Buffer、20-unit UTF-16 basename＋NULを初期化する。generation `14`の11-page reflectionを通し、94 execute stop／93 budget stop後にmatch index `0`、EAX `0`、ESP `0x00700000`でentry sentinelへ到達するprocess-parameters ingress contract。
+39. catalog-missing importだけへ`unsupported-trap` dispositionを付け、同じowned `UD2` slotへbindするoptional policyを追加する。controlled fixtureは1 declared／1 unsupportedで両owner sealを検証し、BGIは382-page quotaで330 importsを全bind、329 unsupported identities、2-page arena、generation `4`、image／runtime owner sealを得るexplicit trap-binding contract。
 
 2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
 
@@ -293,6 +295,8 @@ Verified behavior:
 
 続けてprocess-parameters／command-lineをRust ownershipへ移した。owner `6`／`7`のpagesへPEB pointer、Length `40`、MaximumLength `42`、buffer `0x7FFDD000`、UTF-16 `bootstrap-params.exe`＋NULを初期化した。PEB／parameters／command-line page SHA-256は`780207feb049a4c658816bf0c986bb386ec04214722a21c47936cdec01ee4d39`／`5fb4eed3eb10240c39a428c43621e7198ccf0c3089ffff6e6aea233759533f75`／`f6e0abfe79cb7fafa42be5f1450e91539b3d0386f7140523e44109249f1e19bd`である。generation `14`の11-page reflectionはSHA-256 `f9a59953a06999030e40e962a007f1ec5f0ecb73b077c4df760e212ba3d3acbb`となり、94 execute stop／93 budget stop後にmatch index `0`、EAX `0`、ESP `0x00700000`でentry sentinelへ到達した。version 1 reportは10,521 bytes／SHA-256 `9b12a10acf50841cd27636c3b1b35439dfa49e19190a9d34c809b0052021c109`で2回一致し、先行3 reportはbyte-identicalである。詳細は`docs/v86-bootstrap-params-ingress.md`を正とする。
 
+続けてexplicit unsupported trap bindingを追加した。旧supported-only probeは4,421 bytes／SHA-256 `04d6f001e157c0e0fc3f1878516fb913a131e5cfe187162cf265b375e949472d`のままである。controlled fixtureは`fixture_add`だけをdeclared endpointとし、`fixture_call_callback`をID `2`／`0x7F000010`のunsupported trapへbindして両ownerをsealした。BGIは`Direct3DCreate9`をID `1`に保ち、ID `2`の`DirectInput8Create`からID `330`の`DSOUND.dll` ordinal `11`まで329 identitiesをunsupported trapsへbindした。2-page arena SHA-256は`88f1b31a1ed2f724903f9ddaf16c789240b2010077537b9203faa44a63c20dde`、generation `4`でimage／runtime ownerはseal済みである。2回のreportは126,571 bytes／SHA-256 `c3b2b1d482e8397ade72380249bfe61ef78fddd7f36e9bbac0b346821c5924be`で一致し、BGI source hashは不変だった。guest execution／API returnはnot attemptedである。詳細は`docs/pe-unsupported-trap-binding.md`を正とする。
+
 まだ存在しないもの:
 
 - production TypeScript／Wasm browser workspaceとRust coreのWasm packaging
@@ -304,7 +308,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGI.exe をv86-connected Vine guest memoryでexecuteした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingressである。測定済みcommand-line pathだけを所有し、general process parametersとlifecycleは未実装で、BGIは1 importだけbindした未seal／未実行imageである。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingressとexplicit import trap bindingである。測定済みcommand-line pathだけを所有し、general process parametersとlifecycleは未実装である。BGI imageは全imports bind／seal済みだが未実行で、unsupported trapはAPI実装ではない。
 
 ## 8. Corpus
 
@@ -390,12 +394,11 @@ Generated output は `.work/` に置く。raw artifact は commit せず、重�
 
 ## 10. Active Queue
 
-Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS first-stop／FS ingress／process-parameters first stop／ingressは 2026-07-11 までに完了した。measured command-line pathはtyped owner `6`／`7`へ入り、source-v86でexact observationとentry result `0`まで到達した。BGIは`d3d9.dll!Direct3DCreate9`だけをbindし、次の`DINPUT8.dll!DirectInput8Create`で停止した未実行imageである。fixed addresses、command-line text、FS selector `0`、zero-filled unmeasured fields、2 MiB v86 poolはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshotの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS／process-parameters ingress／explicit unsupported trap bindingは 2026-07-11 までに完了した。BGIは1 declared／329 unsupported identitiesをowned thunksへ全bindし、image／runtime ownerをsealした未実行imageである。fixed addresses、command-line text、FS selector `0`、zero-filled unmeasured fields、trap policy、2 MiB v86 poolはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshot／API supportの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. BGIのremaining 329 static importsをmodule／symbol／ordinal identity付きのexplicit unsupported trap thunksへbindし、successを装わずimage ownerをsealするCPU未接続contractを作る。
-2. BGIのlarge sealed image／bootstrap pagesをbounded transferでsource-v86へ反映し、最初のruntime-reachable owned trapまで実行する。
+1. BGIのsealed 380-page image、2-page thunk arena、controlled bootstrap pagesをbounded large-image transferでsource-v86へ反映し、最初のruntime-reachable owned trapまで実行する。
 
-項目1が次の primary implementation checkpointである。unsupported trapのbindingをAPI実装、DLL lifecycle、successful returnと扱わない。項目2へ進む前にcontrolled fixtureでexact trap identityとowner sealを固定する。
+項目1が次の primary implementation checkpointである。static import orderをruntime reachabilityと扱わず、trapへ到達した時点でexact thunk metadataを報告して停止する。API dispatch／returnは次checkpointに含めない。
 
 ## 11. Major Open Questions
 
@@ -454,6 +457,7 @@ Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load�
 | `docs/pe-loader-ingress.md` | Rust workspace、immutable PE32 plan、W7 BGI result／structured stop |
 | `docs/pe-materialization.md` | source copy／zero-fill／`HIGHLOW`、fixture／BGI mapped-content evidence、IAT stop |
 | `docs/pe-import-binding.md` | runtime thunk arena／ID、IAT prefix binding、owner seal、unsupported stop |
+| `docs/pe-unsupported-trap-binding.md` | catalog-missing identity trap policy、controlled contract、sealed BGI image evidence |
 | `docs/v86-entry-ingress.md` | production page reflection／invalidation ack、bounded stack、entry-to-thunk evidence |
 | `docs/v86-cdecl-ingress.md` | exact thunk metadata、fixed cdecl return、guest cleanup、callback-service ingress |
 | `docs/v86-callback-return-ingress.md` | separate control owner／sentinel、frame ID、one-level guest callback return evidence |
