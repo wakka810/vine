@@ -6,8 +6,8 @@
 - Measurement date: 2026-07-11
 - Scope: `P0-ARCH-03` partial evidence for 4 GiB guest VA、page protection、page ownership
 - Working candidate: Vine region table + bounded physical page allocator reflected into v86 paging
-- Implemented ingress: Rust-owned sparse region／page API、bounded zeroed frames、logical execute gate、invalidation acknowledgement protocol、controlled／388-page semantic v86 reflection、actual invalidation
-- Not decided: general page-table mutation／dirty-page ownership、guard、snapshot、Worker memory ceiling
+- Implemented ingress: Rust-owned sparse region／page API、bounded zeroed frames、logical execute gate、generation-tagged MemoryDelta、controlled／388-page semantic v86 reflection、dirty-page v86 update、rollback transaction
+- Not decided: v86-to-Rust dirty ownership、guard、snapshot、binary IPC、Worker memory ceiling
 
 この文書はmemory architectureのaccepted decisionではない。fixed high-address fixtureで2候補を比較し、production Rust ingressでownership contractを実装した。CPU integrationとacceptance前に閉じるgateが残るため、working directionは引き続きprovisionalである。
 
@@ -103,18 +103,22 @@ RW PTEをread-onlyへ変更した直後はcached TLBによりwriteが通り、`f
 - image planから1 regionをreserveし、header／section pageをfinal R／W／X metadataでcommitするingress
 - instruction fetch前のlogical execute permission／owner sealとstructured fault address／PFEC
 - 全page preflightによるcross-page no-partial-write
-- mapping／protection／seal／write-to-codeに対するgeneration-tagged data TLB、fetch、generated-code invalidation requirement
-- 最新invalidationがacknowledgeされるまでguest accessを停止するprotocol
+- mapping operationとdirty page payloadをcache effectから分離するgeneration-tagged delta journal
+- ordinary RW data writeのdirty-only deltaとwrite-to-codeのfetch／generated-code invalidation
+- offered generationまでのdirty stateだけを消し、後続mutationを保持するexact acknowledgement
+- owner／region／frame／bytes／protection／seal／generation／pending deltaを復元するtransaction
 
 high-memory contractは6 image pagesと1 anonymous probe pageをexact quota内で扱い、BGI planは380 image pagesをexact quotaで所有した。詳細なfault sequence、report hash、structured stopは[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
 
-後続のcontrolled entry contractはsealed image 5 pagesとruntime thunk 1 pageをguest VA／owner／R／W／X／bytesだけのsemantic reflectionとしてv86へ渡した。同じRust memory objectはgeneration `4`をpendingに保ち、adapterのstate restore／`full_clear_tlb`／`jit_clear_cache_js`後のackだけを受理した。2 MiB poolのpage directory／3 tables／6 reflected pagesとharness stackからentryを実行し、owned thunk ID `1`へ到達した。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
+後続のcontrolled entry contractはsealed image 5 pagesとruntime thunk 1 pageをguest VA／owner／R／W／X／bytesだけのsemantic reflectionとしてv86へ渡した。同じRust memory objectはgeneration `6`をpendingに保ち、adapterのstate restore／`full_clear_tlb`／`jit_clear_cache_js`後のackだけを受理した。ack後はinitial dirty stateが0になる。2 MiB poolのpage directory／3 tables／6 reflected pagesとharness stackからentryを実行し、owned thunk ID `1`へ到達した。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
 
-BGI continuationは同じboundaryを388 semantic pages／generation `16`へ拡張し、4,904,601-byte offerを8 MiB protocol上限内で転送した。v86はphysical `[0x000A0000,0x000C0000)`をVGA MMIOとして扱うため、naive contiguous placementは`mmap_read32(0x000A883F)`へ入った。adapter allocatorはこの32-page holeを明示的に除外し、directory 1 page、tables 4 pages、reflected 388 pagesの393 allocationsを2 MiB内へ置いた。値をfabricateするMMIO handlerは使っていない。この配置でBGI entryは19命令後にowned thunk ID `104`へ到達した。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
+BGI continuationは同じboundaryを388 semantic pages／generation `24`へ拡張し、4,904,602-byte offerを8 MiB protocol上限内で転送した。v86はphysical `[0x000A0000,0x000C0000)`をVGA MMIOとして扱うため、naive contiguous placementは`mmap_read32(0x000A883F)`へ入った。adapter allocatorはこの32-page holeを明示的に除外し、directory 1 page、tables 4 pages、reflected 388 pagesの393 allocationsを2 MiB内へ置いた。値をfabricateするMMIO handlerは使っていない。この配置でBGI entryは19命令後にowned thunk ID `104`へ到達した。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
+
+`npm run check:runtime:memory-delta`は初回snapshotのack後にnon-executable RW pageへ8 bytesを書き、generation `11`の1-page／4 KiB deltaをlive v86 mappingへ適用する。cache effectsはすべてfalseで、guest x86はEDX:EAX `0x8877665544332211`を読む。mapping／write-to-code／partial ackとtransaction failpointのRust contractを含む詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)を正とする。
 
 次は未実装であり、このADRをAcceptedへ進める前に閉じる。
 
-- runtime mutationを反映するincremental PDE／PTE更新とbidirectional dirty-page ownership
+- v86側guest writeをRustへ戻すbidirectional dirty-page ownership
 - process-wide stack／heap／module mappingとexecute gate、fault classificationのgeneralization
 - region／page／CPU generationを揃えるsnapshot contract
 - guard、mapped file、copy-on-write、sharing、memory pressure、Worker ceiling
@@ -123,6 +127,6 @@ host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 fac
 
 ## 7. Non-Claims And Next Gate
 
-production ingressとcontrolled reflection checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、CPU-connected self-modifying code、PAE／NX、generated JIT、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはcontrolled sealed pagesだけv86へ反映でき、general process memory／mutation pathには未接続である。
+production ingressとcontrolled reflection checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、v86-originated dirty capture、PAE／NX、decode-aware cross-page execute permission、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはhost-originated dirty pagesをv86へ差分反映できるが、general heap／module lifecycleには未接続である。
 
-owned W7 plan、entry completion、initial stack、typed bootstrap reflection、BGI full trap bindingに続き、388-page transferとfirst runtime-reachable trapは[v86-bgi-first-trap.md](v86-bgi-first-trap.md)まで進んだ。general mutation／stack growth／heap／snapshotとAPI後のdirty-page synchronizationは未完了であるためADR statusは変えない。
+owned W7 plan、entry completion、initial stack、typed bootstrap reflection、atomic import binding、MemoryDelta、BGI first runtime-reachable trapまで進んだ。host API outputのdirty synchronizationは成立したが、v86-originated mutation、stack growth／heap／snapshotが未完了であるためADR statusは変えない。

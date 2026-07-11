@@ -7,13 +7,13 @@
 - Source: `V:\softs\サクラノ詩\BGI.exe`
 - Source size／SHA-256: 1,193,472 bytes／`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 - Report schema: `vine.v86-bgi-first-trap` version `1`
-- Report size／SHA-256: 9,591 bytes／`a74ed888aa95923a1bcb5c20ad5a58e945ab269419d834a19eefa10d6b33be3b`
+- Report size／SHA-256: 9,592 bytes／`4ed39b15de85c188b52dbafd0eda9c35e4d88f3c4aa8a9079c98f6d9d9f03840`
 
 This checkpoint continues [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md). It transfers the sealed BGI image, all import traps, and the controlled bootstrap state into source-built v86, acknowledges the real invalidation generation, starts the primary entry point, and stops at the first exact runtime-reachable owned thunk. It does not dispatch or return from that API.
 
 ## 2. Bounded transfer
 
-The existing reflection session remains limited to 16 semantic pages and 512 KiB protocol messages. BGI uses an explicit `--large-image-reflection` mode with hard Rust limits of 400 pages and 8 MiB per serialized JSONL message; the dedicated runner enforces the same line limit before parsing. The actual offer is 4,904,601 bytes excluding its newline; the receipt is 1,468 bytes.
+The existing reflection session remains limited to 16 semantic pages and 512 KiB protocol messages. BGI uses an explicit `--large-image-reflection` mode with hard Rust limits of 400 pages and 8 MiB per serialized JSONL message; the dedicated runner enforces the same line limit before parsing. The actual offer is 4,904,602 bytes excluding its newline; the receipt is 1,494 bytes.
 
 The probe also accepts an explicit controlled command line while preserving `bootstrap-params.exe` as the existing default. This run installs UTF-16 `BGI.exe` with `Length = 14` and `MaximumLength = 16`.
 
@@ -28,7 +28,7 @@ The probe also accepts an explicit controlled command line while preserving `boo
 | 7 | process parameters | 1 | 1／1／0 | `ac17565d250da1d27dc2429b2c81bd242fe26d67373495b2238eadbb762b6d33` |
 | 8 | command line | 1 | 1／1／0 | `c9b83dbe193708a3418517c43a4dadd26ca50a4006b00bd11701f3bb6ef0e6cc` |
 
-All 388 pages are sealed and dirty loader state. Rust reports 8 owners／regions, 417 reserved pages, 388 committed／physical pages, and pending generation `16`. The reflection content SHA-256 is `f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0`. Normal Rust reads after acknowledgement verify the first IAT, entry／thunk／sentinel bytes, stack top, TEB, PEB, process parameters, and command line.
+All 388 pages are sealed and dirty loader state before the first transfer. Rust reports 8 owners／regions, 417 reserved pages, 388 committed／physical pages, and pending generation `24`. The reflection content SHA-256 is `f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0`. Acknowledgement clears all 388 dirty markers. Normal Rust reads then verify the first IAT, entry／thunk／sentinel bytes, stack top, TEB, PEB, process parameters, and command line.
 
 ## 3. Adapter placement
 
@@ -43,7 +43,7 @@ The successful placement uses 393 allocated pages: one directory, four page tabl
 | 508 | `0x001A1000` |
 | 511 | `0x001A5000` |
 
-The highest allocation ends at `0x001AA000`, below the 2 MiB limit. CPU-state restore, explicit `full_clear_tlb`, and `jit_clear_cache_js` complete data-TLB, instruction-fetch, and generated-code invalidation before Rust accepts generation `16`.
+The highest allocation ends at `0x001AA000`, below the 2 MiB limit. CPU-state restore, explicit `full_clear_tlb`, and `jit_clear_cache_js` complete data-TLB, instruction-fetch, and generated-code invalidation before Rust accepts generation `24`.
 
 ## 4. Runtime-reachable stop
 

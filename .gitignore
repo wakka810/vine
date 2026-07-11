@@ -1,3 +1,5 @@
 .work/
 node_modules/
 target/
+fuzz/artifacts/
+fuzz/corpus/

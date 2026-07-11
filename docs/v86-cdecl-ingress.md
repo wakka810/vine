@@ -27,7 +27,7 @@ npm run prepare:engine
 npm run check:runtime:cdecl
 ```
 
-Both modes use the same Rust reflection／acknowledgement session, six production pages, 11 adapter physical pages, generation `4`, one harness stack page, state ABI, instruction budget, and slice-boundary execute gate.
+Both modes use the same Rust reflection／acknowledgement session, six production pages, 11 adapter physical pages, generation `6`, one harness stack page, state ABI, instruction budget, and conservative 15-byte execute gate.
 
 ## 3. Fixed cdecl return
 
@@ -67,7 +67,7 @@ The continuation takes four execute stops and two budget stops in total. The sec
 
 The callback target lies in the sealed executable image page. The runner does not infer a service from an address range or title-specific EIP; both traps must match exact `ImportThunk` records. Callee-saved EBX／EBP／ESI／EDI sentinels remain unchanged, and the only Wasm host import called is one `microtick`.
 
-The deterministic report is 5,501 bytes with SHA-256 `5ee8871673b667a097c2b25be4ca2f810555785ad4e4a563b9c43681c968d953`.
+The deterministic report is 5,501 bytes with SHA-256 `199923cb0e0b03e0fdc042db095a22f3ef697d78010834280dca1eb2b8116c7f`.
 
 ## 5. Non-claims and next checkpoint
 

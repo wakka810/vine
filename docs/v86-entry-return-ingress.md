@@ -22,9 +22,9 @@ Entry-return mode installs two typed sentinel slots before sealing the existing 
 | Slot bytes | `UD2`, then `HLT` padding | `UD2`, then `HLT` padding |
 | Slot size | `16` bytes | `16` bytes |
 
-Both slots are in the first RX page of reserved range `[0x7F010000, 0x7F020000)`. The combined page SHA-256 is `bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc`. Owner seal still produces generation `6`; adding the second initialization write does not add a commit or seal transition.
+Both slots are in the first RX page of reserved range `[0x7F010000, 0x7F020000)`. The combined page SHA-256 is `bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc`. Owner seal produces generation `9`; adding the second initialization write does not add a separate post-snapshot generation.
 
-The session reflects seven production pages with content SHA-256 `b184b076d28abbf59401e35113aaeb30ca1f29b8cee590ff1d71897313bfb9db`. The adapter keeps the same page directory, three page tables, seven reflected pages, and one harness stack page: 12 physical pages／48 KiB total. After state restore, `full_clear_tlb`, and `jit_clear_cache_js`, Rust acknowledges generation `6` and fetch-verifies both exact slots.
+The session reflects seven production pages with content SHA-256 `b184b076d28abbf59401e35113aaeb30ca1f29b8cee590ff1d71897313bfb9db`. The adapter keeps the same page directory, three page tables, seven reflected pages, and one harness stack page: 12 physical pages／48 KiB total. After state restore, `full_clear_tlb`, and `jit_clear_cache_js`, Rust acknowledges generation `9` and fetch-verifies both exact slots.
 
 Callback-only and outer-return modes continue to install only slot `1`. Their one-sentinel page SHA-256 `4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059` and previous reports remain unchanged.
 
@@ -59,7 +59,7 @@ The final measured state is:
 
 Only the exact process-entry metadata can classify this `#UD` as successful completion. The outer-return mode still places unmapped `0xDEADC0DE` on the same initial stack and verifies reason `0x10E`, PFEC `4`, and CR2／EIP `0xDEADC0DE`; arbitrary unmapped returns are not accepted as exits.
 
-The deterministic report is 8,674 bytes with SHA-256 `2619711263b918c419b61483499da1bcdc7d02ab9fe261ba57546a356b39756c`. Earlier entry, cdecl, callback-return, and outer-return reports remain byte-identical at 4,831, 5,501, 7,028, and 8,124 bytes.
+The deterministic report is 8,674 bytes with SHA-256 `c5edbb527fad5fc0907d8784cd22df9d0c5a93bd26aa63fd413c0a6c5b75ce59`. Earlier entry, cdecl, callback-return, and outer-return reports remain byte-identical at 4,831, 5,501, 7,028, and 8,124 bytes.
 
 The checkpoint command is:
 

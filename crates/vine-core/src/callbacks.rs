@@ -82,6 +82,34 @@ fn install_return_sentinels(
     memory: &mut GuestMemory,
     include_process_entry_return: bool,
 ) -> Result<(CallbackReturnSentinel, Option<ProcessEntryReturnSentinel>), GuestMemoryError> {
+    memory.preflight_growth(1, 1, 1, "callback-return")?;
+    memory.preflight_fixed_reservation(
+        CALLBACK_RETURN_ARENA_BASE,
+        CALLBACK_RETURN_ARENA_SIZE,
+        "callback-return",
+    )?;
+    if include_process_entry_return
+        && (PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS.0 < CALLBACK_RETURN_ARENA_BASE.0
+            || u64::from(PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS.0)
+                >= u64::from(CALLBACK_RETURN_ARENA_BASE.0) + GUEST_PAGE_SIZE)
+    {
+        return Err(GuestMemoryError::runtime_defect(
+            "process-entry-return",
+            "process-entry-return-sentinel-outside-committed-page",
+            "process-entry return sentinel does not fit the committed runtime control page",
+        ));
+    }
+    let mut transaction = memory.begin_transaction();
+    let sentinels =
+        install_return_sentinels_transaction(&mut transaction, include_process_entry_return)?;
+    transaction.commit_transaction();
+    Ok(sentinels)
+}
+
+fn install_return_sentinels_transaction(
+    memory: &mut GuestMemory,
+    include_process_entry_return: bool,
+) -> Result<(CallbackReturnSentinel, Option<ProcessEntryReturnSentinel>), GuestMemoryError> {
     let owner = memory.create_owner(MemoryOwnerKind::Runtime)?;
     let arena_range = match memory.reserve_fixed(
         owner,

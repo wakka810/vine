@@ -748,6 +748,13 @@ fn validate_alignment(file_alignment: u32, section_alignment: u32) -> Result<(),
                 "when SectionAlignment is below 4096, FileAlignment must match it",
             ));
         }
+        return Err(LoaderError::unsupported(
+            "image-layout",
+            "low-section-alignment-materialization-unimplemented",
+            format!(
+                "valid low-alignment PE uses FileAlignment {file_alignment:#x} and SectionAlignment {section_alignment:#x}; Vine's 4 KiB GuestMemory backing does not yet materialize sub-page section mappings"
+            ),
+        ));
     } else if !(0x200..=0x1_0000).contains(&file_alignment) {
         return Err(LoaderError::invalid_input(
             "image-layout",

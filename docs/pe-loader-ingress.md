@@ -29,6 +29,15 @@ PE headerとsection tableはstrict structured parserで読み、loader側で次�
 - `ABSOLUTE`と`HIGHLOW`だけのbounded base relocation block／target
 - PE32+、CLR、TLS bootstrap、delay import、未知relocation typeのstructured rejection
 
+Valid low-alignment images with `SectionAlignment < 0x1000` and matching
+`FileAlignment` are not malformed, but the 4 KiB `GuestMemory` materializer
+cannot represent their sub-page layout yet. Planning rejects them early with
+`image-layout / low-section-alignment-materialization-unimplemented` and
+includes both alignment values and the 4 KiB backing limitation. Mismatched,
+zero, non-power-of-two, or `SectionAlignment < FileAlignment` cases remain
+structured invalid input. The synthetic contract covers `0x200/0x200`,
+`0x400/0x400`, normal `0x200/0x1000`, and malformed variants.
+
 IATはloader phaseで書いた後にsectionのfinal protectionを適用する。BGIとcontrolled fixtureはいずれもIATをfinal read-only `.rdata`に置くため、final sectionがwritableであることは要求しない。planはoriginal IAT valueと各slot RVAを保持するが、runtime thunk addressを成功した値として書かない。
 
 ### 2.1 Resource limits
@@ -104,6 +113,6 @@ valid planの次に返すstopは次である。
 
 これは「all imports supported」または「image mapped」を意味しない。stop messageはguest memory materialization、import binding、PEB／TEB／process parameters、initial stack、entry executionをすべてnot attemptedとして記録する。silent API stub、title hash／EIPによるskip、source patchはない。
 
-このcheckpointは`REQ-IMP-07`、`REQ-PE-01`／`REQ-PE-02`／`REQ-PE-03`／`REQ-PE-06`、`P2-PE-01`／`P2-PE-02`／`P2-PE-03`／`P2-PE-04`／`P2-PE-10`、`P2-DIAG-01`、`P2-COR-01`へのpartial evidenceである。relocationをguest memoryへ適用せず、DLL graph／export resolution／forwarder／resource parser／TLS／delay import／module lifecycle／API binding／bootstrap／execution／malformed corpus／fuzzを完了しないため、`AC-P2-01`、`AC-P2-05`、`AC-P2-06`、`AC-P2-09`、`AC-P2-10`、`AC-P2-11`を含むacceptance criterionは一つも完了しない。
+このcheckpointは`REQ-IMP-07`、`REQ-PE-01`／`REQ-PE-02`／`REQ-PE-03`／`REQ-PE-06`、`P2-PE-01`／`P2-PE-02`／`P2-PE-03`／`P2-PE-04`／`P2-PE-10`、`P2-DIAG-01`、`P2-COR-01`へのpartial evidenceである。`cargo-fuzz` targetはarbitrary bytesを`ModuleSnapshot`とplannerへ通すが、長時間campaign／curated malformed corpusは未完了である。DLL graph／export resolution／forwarder／resource parser／TLS／delay import／module lifecycle／API binding／bootstrap／executionも未完了のため、`AC-P2-01`、`AC-P2-05`、`AC-P2-06`、`AC-P2-09`、`AC-P2-10`、`AC-P2-11`を含むacceptance criterionは一つも完了しない。
 
 このowned planをmemory ownerへ接続するcheckpoint、controlled entry／bootstrap reflection、BGI full trap binding、large-image transfer／first runtime trapは[v86-bgi-first-trap.md](v86-bgi-first-trap.md)まで進んだ。このload-plan report自体のstopとnon-claimsは変更しない。

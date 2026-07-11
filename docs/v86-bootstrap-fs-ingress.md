@@ -8,7 +8,7 @@
 - Fixture size／SHA-256: 2,560 bytes／`5712377ff8a8bd2be292f8678902d19d3b4b2f1c1919922cce9d373f0696637c`
 - Report schema: `vine.v86-bootstrap-fs-ingress` version `1`
 - Report size: 8,214 bytes
-- Report SHA-256: `4e2e951d53c9a51792767b0fc506c5d8162fb889960ee24dcce9c8333c9670f7`
+- Report SHA-256: `3567ff39474f72781010fdb810b793f58424483a7663b89f2cea4b73a28748b9`
 
 This checkpoint continues the exact zero-FS-base fault in [v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md). Rust now owns the minimum TEB／PEB pages, the adapter restores the TEB as FS base through CPU state ABI version `1`, and the same native-oracled fixture returns `0` to the existing process-entry sentinel.
 
@@ -27,7 +27,7 @@ The fixed addresses and owner IDs are version 1 checkpoint choices. They are not
 
 ## 3. Reflection and CPU state
 
-The two page commits and two owner seals advance the prior stack generation `6` to generation `10`. Reflection contains nine pages with content SHA-256 `14a986f7f10229da07f54d11fd5eda29be02e0639f06aba6151307e35f0206f3`:
+The two reserves, two page commits, and two owner seals advance the prior stack generation `9` to generation `15`. Reflection contains nine pages with content SHA-256 `14a986f7f10229da07f54d11fd5eda29be02e0639f06aba6151307e35f0206f3`:
 
 ```text
 five import-free image pages
@@ -39,7 +39,7 @@ one PEB page
 
 Rust reports five owners／regions, 24 reserved pages, and nine committed／physical／dirty pages. The adapter uses 14 pages／56 KiB: one page directory, page tables for directory indices `1`, `64`, `508`, and `511`, and the nine reflected pages.
 
-CPU state keeps the controlled selector value `0` but restores the FS segment base as `0x7FFDE000`. TLB and generated-code invalidation occur before Rust acknowledges generation `10`. The receipt re-reads the first 64 bytes of both environment pages and verifies the exact pointer fields before execution.
+CPU state keeps the controlled selector value `0` but restores the FS segment base as `0x7FFDE000`. TLB and generated-code invalidation occur before Rust acknowledges generation `15`. The receipt re-reads the first 64 bytes of both environment pages and verifies the exact pointer fields before execution.
 
 ## 4. Execution result
 
@@ -56,7 +56,7 @@ The fixture executes with instruction budget `3`. It reaches process-entry senti
 | `*(TEB + 0x18)` | `0x7FFDE000` |
 | `*(TEB + 0x30)` | `0x7FFDF000` |
 
-All four values are also written by the fixture to its reflected `.data` page and read back by the adapter. The prior first-stop command remains byte-identical at 5,982 bytes／SHA-256 `9bca668c33208fa1bc6a4e8253dafb247bd9520a106761a24fd06cf46364f7f9`.
+All four values are also written by the fixture to its reflected `.data` page and read back by the adapter. The prior first-stop command remains byte-identical at 5,982 bytes／SHA-256 `0276cc927a3d870b10a632cf95995e79ec96cd8af5558e964b7635d2d2b7941b`.
 
 The checkpoint command is:
 

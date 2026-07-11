@@ -20,7 +20,7 @@
 - [testing-and-acceptance.md](testing-and-acceptance.md): test 資産、証跡、`AC-*`
 - [windows-native-evidence.md](windows-native-evidence.md): Windows W0、BGI trace v1／v2、selected IDirect3D9 root、native ABI oracle、W1 runtime、W2 native window fixture／loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow、W3 browser first pixel
 - [adr-003-guest-memory.md](adr-003-guest-memory.md): high-address／protection測定、memory候補比較、provisional ownership boundary
-- [pe-import-binding.md](pe-import-binding.md): production thunk arena／ID、IAT prefix binding、owner seal、controlled fixture／BGI stop
+- [pe-import-binding.md](pe-import-binding.md): all-import read-only plan、atomic thunk／IAT commit、rollback、unresolved retry
 - [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md): optional identity trap policy、controlled fixture、BGI full binding／owner seal
 - [v86-entry-ingress.md](v86-entry-ingress.md): semantic page reflection、actual invalidation acknowledgement、controlled entry-to-thunk evidence
 - [v86-cdecl-ingress.md](v86-cdecl-ingress.md): exact thunk classification、fixed cdecl return、guest cleanup、callback-service ingress
@@ -909,7 +909,7 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit unsupported trap binding／BGI first runtime trapは完了した。BGIの388 sealed pagesをgeneration `16`でsource-v86へreflectし、entry `0x100A383E`から19命令でowned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`へ到達した。API dispatch／return、general DLL／export resolution、process lifecycle／parameters、loader list、TLS、LastError、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [v86-bgi-first-trap.md](v86-bgi-first-trap.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、transaction rollback、atomic import binding、public E2E／CI、low-alignment rejection、planner fuzz／randomized memory test、cross-page execute gateは完了した。BGIの388 sealed pagesをgeneration `24`でsource-v86へreflectし、entry `0x100A383E`から19命令でowned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`へ到達した。API dispatch／return、general DLL／export resolution、process lifecycle／parameters、loader list、TLS、LastError、v86-originated writeback、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [v86-bgi-first-trap.md](v86-bgi-first-trap.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
 1. exact thunk ID `104`のchecked one-argument stdcall frameへcontrolled `FILETIME` sampleを書き、`GetSystemTimeAsFileTime`からguestへreturnして次のexact owned trapまで実行する。
 

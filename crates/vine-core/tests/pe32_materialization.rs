@@ -173,7 +173,7 @@ fn materializes_relocated_abi_smoke_through_the_first_unbound_iat() {
     let stats = memory.stats();
     assert_eq!(stats.physical_pages, 5);
     assert_eq!(stats.dirty_pages, 5);
-    assert_eq!(stats.generation, 1);
+    assert_eq!(stats.generation, 2);
     assert_eq!(stats.pending_invalidation, Some(image.layout.invalidation));
     assert_eq!(snapshot.bytes(), source_before);
 

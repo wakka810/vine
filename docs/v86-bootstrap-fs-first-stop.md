@@ -9,7 +9,7 @@
 - Fixture SHA-256: `5712377ff8a8bd2be292f8678902d19d3b4b2f1c1919922cce9d373f0696637c`
 - Report schema: `vine.v86-bootstrap-fs-first-stop` version `1`
 - Report size: 5,982 bytes
-- Report SHA-256: `9bca668c33208fa1bc6a4e8253dafb247bd9520a106761a24fd06cf46364f7f9`
+- Report SHA-256: `0276cc927a3d870b10a632cf95995e79ec96cd8af5558e964b7635d2d2b7941b`
 
 This checkpoint fixes the minimum i386 thread/process environment access before Vine supplies that environment. It proves the fixture against native Windows, reflects its import-free image through production Rust memory, and records the exact source-built v86 failure with FS base zero.
 

@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  public-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+
+      - uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "22.1.0"
+
+      - id: chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+
+      - run: npm ci
+
+      - run: npm run check:fast
+        env:
+          VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      - run: npm run check:fixture-e2e
+        env:
+          VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}

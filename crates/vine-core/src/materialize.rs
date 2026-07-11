@@ -57,7 +57,19 @@ pub fn materialize_pe32_image(
     load_base: GuestAddress,
 ) -> Result<ImageMaterialization, LoaderError> {
     validate_materialization_input(snapshot, loader, load_base)?;
+    let mut transaction = memory.begin_transaction();
+    let materialization =
+        materialize_pe32_image_transaction(&mut transaction, snapshot, loader, load_base)?;
+    transaction.commit_transaction();
+    Ok(materialization)
+}
 
+fn materialize_pe32_image_transaction(
+    memory: &mut GuestMemory,
+    snapshot: &ModuleSnapshot,
+    loader: &LoaderIngressReport,
+    load_base: GuestAddress,
+) -> Result<ImageMaterialization, LoaderError> {
     let plan = &loader.load_plan;
     let relocation_delta = load_base.0.wrapping_sub(plan.image.preferred_image_base);
     let layout = memory

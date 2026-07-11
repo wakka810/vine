@@ -21,18 +21,22 @@
 - Rust `vine-core`のimmutable snapshot／bounded PE32 section・import・relocation planと、BGIのW7 process-bootstrap stop
 - Rust `vine-core`のsparse owner／region／page table、bounded zeroed frame allocator、logical execute seal／invalidation protocolと、BGIの380-page memory-ingress stop
 - Rust `vine-core`のsource copy／explicit zero-fill／`HIGHLOW` materializationと、BGIの330-slot original IAT verification／first unbound import stop
-- Rust `vine-core`の64 KiB runtime-owned thunk arena／stable ID／supported-prefix IAT bindingと、controlled fixtureのowner seal／BGIの次unsupported import stop
+- Rust `vine-core`のall-import read-only plan、64 KiB runtime-owned thunk arena／stable ID、transactional IAT commitと、controlled fixtureのowner seal／BGI 329 unresolved identityのmemory不変stop
 - Rust semantic reflection／ack sessionによるcontrolled 6 pagesのv86 mapping、actual invalidation、bounded stack／entry-to-thunk ID `1`
 - ordered production thunk metadataとversioned CPU stateによるfixed cdecl result `42`、guest cleanup、thunk ID `2`のcallback-service ingress
 - separate Rust runtime ownerのcallback return sentinel、frame ID `1`、checked stack、guest callback result `43`のexact return stop
 - frame ID `1`のretirement、outer cdecl result `43`、guest result／entry continuation、balanced ESPとharness-only unmapped returnのstructured `#PF`
 - 同じcontrol pageのtyped process-entry sentinel ID `2`、exact entry result `0`／ESP `0x00700000` completionとunmapped-fault regression
-- Rust owner `4`のone-page stack region／bootstrap metadata、generation `8` reflection、adapter-local stack allocationなしのexact completion
+- Rust owner `4`のone-page stack region／bootstrap metadata、generation `12` reflection、adapter-local stack allocationなしのexact completion
 - import-free bootstrap fixtureのnative `FS:[0x18]` TEB self／`FS:[0x30]` PEB oracleと、FS base zeroのsource-v86 CR2 `0x18`／PFEC `4` first stop
-- typed Rust TEB／PEB regions、generation `10` reflection、CPU state FS-base restore、4 exact field observationとentry result `0`
+- typed Rust TEB／PEB regions、generation `15` reflection、CPU state FS-base restore、4 exact field observationとentry result `0`
 - separate import-free fixtureのnative `PEB+0x10` process-parameters／`+0x40` command-line oracleと、empty guest PEBのexplicit result `2`
-- typed process-parameters／command-line regions、generation `14` reflection、exact UTF-16 observationとentry result `0`
-- BGIの388-page bounded reflection、v86 VGA MMIO physical hole回避、generation `16` acknowledgement、entryから19命令後のexact `KERNEL32.dll!GetSystemTimeAsFileTime` trap
+- typed process-parameters／command-line regions、generation `21` reflection、exact UTF-16 observationとentry result `0`
+- BGIの388-page bounded reflection、v86 VGA MMIO physical hole回避、generation `24` acknowledgement、entryから19命令後のexact `KERNEL32.dll!GetSystemTimeAsFileTime` trap
+- 初回full reflection後のdirty-page-only `MemoryDelta`、通常RW／NX 8-byte writeのlive v86 readback、generation単位acknowledgement
+- process environment／PE materialization／import bindingのsnapshot transaction、failpoint rollback、same-memory retry
+- `check:fast`／`check:fixture-e2e`／`check:adapter`／`check:private-corpus`、Linux public CI、PE planner fuzz／randomized memory contract
+- valid low-alignment PEのstructured unsupported stopと、cross-page NX instructionのconservative execute gate
 
 general process integration／parameters、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEBとnative-oracled command-line bytesまで進んだ。BGIは全330 importsをowned trapsへbindし、first runtime-reachable trapまで実行したがAPI dispatch／returnは未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-first-trap.md](v86-bgi-first-trap.md) を正とする。
 
@@ -69,6 +73,8 @@ PowerShell で repository root から実行する。
 
 ```powershell
 npm ci
+npm run check:fast
+npm run check:fixture-e2e
 npm run check
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/check-environment.ps1 -BgiExe "V:\softs\サクラノ詩\BGI.exe"
 ```
@@ -97,6 +103,7 @@ npm run check:runtime:bootstrap-fs-first-stop
 npm run check:runtime:bootstrap-fs
 npm run check:runtime:bootstrap-params-first-stop
 npm run check:runtime:bootstrap-params
+npm run check:runtime:memory-delta
 npm run check:runtime:bgi-first-trap
 ```
 

@@ -7,7 +7,7 @@
 - Fixture: `.work/toolchain-spike/bootstrap-params.exe`
 - Fixture size／SHA-256: 2,560 bytes／`50a5f27f9ce65071f3d8668213eea67f67ccef7b09dc1a72d9192100de4f0c40`
 - Report schema: `vine.v86-bootstrap-params-first-stop` version `1`
-- Report size／SHA-256: 8,351 bytes／`263d07c36be0579973f6f6ecdf2c41a3e1eb9b76af21c8b9c66681498d20603e`
+- Report size／SHA-256: 8,351 bytes／`b1c05c3e9df1529196276c8905f3b97aee306610c870461d458a857c80aadde5`
 
 This checkpoint fixes the minimum i386 process-parameters path before Vine supplies it. The fixture proves the selected x86 offsets against native Windows, then runs against the existing Rust-owned minimum TEB／PEB and returns an explicit failure result because Vine's PEB process-parameters pointer is still zero.
 
@@ -36,7 +36,7 @@ The selected offsets are a measured i386 support profile. They do not promise un
 - zero PEB owner `5` at `0x7FFDF000`
 - FS base `0x7FFDE000`
 
-The nine-page generation `10` reflection has SHA-256 `51357b546920ec78aa535488ce8d280a8027805e1d1d24e138b85264fbab9c39`. The adapter allocation remains 14 pages／56 KiB with directory indices `1`, `64`, `508`, and `511`.
+The nine-page generation `15` reflection has SHA-256 `51357b546920ec78aa535488ce8d280a8027805e1d1d24e138b85264fbab9c39`. The adapter allocation remains 14 pages／56 KiB with directory indices `1`, `64`, `508`, and `511`.
 
 The guest PEB's DWORD at `+0x10` is exactly zero. The fixture writes the PEB address and zero process-parameters pointer to its `.data` page, returns its defined result `2`, and reaches process-entry sentinel ID `2` cleanly:
 

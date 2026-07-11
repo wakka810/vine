@@ -73,10 +73,10 @@ npm run check:runtime:memory-core
 | Image | base `0xF1000000`, size `0x6000`, 6 reserved and committed pages |
 | Protection | 6 readable, 1 writable, 1 executable page |
 | Physical quota | 7 pages in the contract; 6 image pages plus 1 anonymous probe page |
-| Initial invalidation | generation `1`, all three invalidation classes pending |
-| Final state | 1 sealed image owner, 6 image pages, generation `7`, no pending invalidation |
+| Initial delta | generation `2`, reserve／commit journaled, all three cache effects pending |
+| Final state | 1 sealed image owner, 6 image pages, generation `13`, acknowledged, zero dirty pages |
 
-The sequence checks pending-invalidation blocking, owner sealing, executable and non-executable fetches, read-only writes, RW data access, a second-page unmapped write with no partial mutation, a protection transition, exact quota failure, decommit and frame reuse, region release, and owner teardown. It also verifies the expected PFEC values `21`, `7`, and `6` at the relevant stops.
+The sequence checks pending-delta blocking, owner sealing, executable and non-executable fetches, read-only writes, RW data deltas, a second-page unmapped write with no partial mutation, a protection transition, exact quota failure, decommit and frame reuse, region release, and owner teardown. It also verifies the expected PFEC values `21`, `7`, and `6` at the relevant stops. Incremental transfer and acknowledgement details are in [memory-delta-and-transactions.md](memory-delta-and-transactions.md).
 
 The standalone version 1 layout report is reproduced with an exact six-page image quota:
 
@@ -88,7 +88,7 @@ npm run probe:runtime:pe -- `
   .work\toolchain-spike\high-memory.exe
 ```
 
-The report is 1,775 bytes with SHA-256 `a328e8d53aa95b48ab3bcbaf4ad0025c440a1c68aa879b06924fdec3420a8f32`.
+Two reports were byte-identical at 1,808 bytes with SHA-256 `8d05d8cecd0bdb7fbecbc00850ca4c25dffbc64a47cb6686c36f6137983399b1`.
 
 ## 5. Primary BGI result
 
@@ -109,8 +109,8 @@ npm run probe:runtime:pe -- `
 | Layout | 380 reserved, committed, and physical pages |
 | Protection | 380 readable, 100 writable, 208 executable pages |
 | Ownership | owner `1`, unsealed, 1 image region |
-| Invalidation | generation `1`, all three classes pending |
-| Report | 1,796 bytes, SHA-256 `355b514d657bc7639bfd5f2b9eb2043dc94166a7944710c865b30c86c437947c` |
+| Initial delta | generation `2`, all three cache effects pending |
+| Report | 1,831 bytes, SHA-256 `c46e40fdeb0301de1d852b4532bc0be0c4033bc5fd5f79479ab695663f7a119e` |
 
 A 379-page quota fails with exit code `1`, reports `image-physical-page-quota-exceeded`, and creates no output file. The default W7 probe path remains byte-for-byte unchanged at 1,976,261 bytes and SHA-256 `692852dc3bdbb13e39202138e725a8c6a58a20ea1d3d9e5c20c5e21b33f658be`. The source BGI file retains its original size and SHA-256.
 

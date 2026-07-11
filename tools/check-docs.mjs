@@ -8,6 +8,30 @@ const docsDirectory = path.join(root, "docs");
 const tick = String.fromCharCode(96);
 const errors = [];
 
+const checkpointPath = path.join(docsDirectory, "current-checkpoint.json");
+try {
+  const checkpoint = JSON.parse(fs.readFileSync(checkpointPath, "utf8"));
+  if (
+    checkpoint.schema !== "vine.current-checkpoint" ||
+    checkpoint.schemaVersion !== 1 ||
+    checkpoint.checkpoint !== "bgi-first-owned-trap" ||
+    checkpoint.entryInstructionCount !== 19 ||
+    checkpoint.ownedTrapId !== 104 ||
+    checkpoint.nextCheckpoint !== "first-supported-win32-call-return"
+  ) {
+    errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
+  }
+  const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+  if (!readme.includes(`checkpoint is \`${checkpoint.checkpoint}\``)) {
+    errors.push("README.md: current checkpoint does not match the checkpoint manifest");
+  }
+  if (!readme.includes(`thunk ID \`${checkpoint.ownedTrapId}\``)) {
+    errors.push("README.md: owned trap ID does not match the checkpoint manifest");
+  }
+} catch (error) {
+  errors.push(`docs/current-checkpoint.json: ${error.message}`);
+}
+
 const files = fs
   .readdirSync(docsDirectory)
   .filter((file) => file.endsWith(".md"))

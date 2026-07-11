@@ -101,7 +101,7 @@ const expected = {
     committedPages: 1,
     slotSize: 0x10,
     contentSha256: "4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059",
-    generation: 6,
+    generation: 9,
   },
   processEntryReturnSentinel: {
     id: 2,
@@ -112,7 +112,7 @@ const expected = {
     committedPages: 1,
     slotSize: 0x10,
     contentSha256: "bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc",
-    generation: 6,
+    generation: 9,
   },
   initialThreadStack: {
     owner: 4,
@@ -124,39 +124,39 @@ const expected = {
     entryReturnSentinelId: 2,
     entryReturnAddress: 0x7f010010,
     contentSha256: "3e944a15f97096aba42964f3628826766b970bbaeb98d85962f679fd725de079",
-    generation: 8,
+    generation: 12,
   },
   reflectionContentSha256:
     "3a3510468616980e99ccf36ccba29083acd8edffb01f1bbfdfd60e3b4a1d297e",
   entryReport: {
     bytes: 4_831,
-    sha256: "9b32ed50a4fa53d60a2743267230d43acf754bb6bc490851dd754955e70cbcb8",
+    sha256: "c254b3be79eccbfd944dbae3d00376e9db81597eaccdec3488670408611a817c",
   },
   cdeclReport: {
     bytes: 5_501,
-    sha256: "5ee8871673b667a097c2b25be4ca2f810555785ad4e4a563b9c43681c968d953",
+    sha256: "199923cb0e0b03e0fdc042db095a22f3ef697d78010834280dca1eb2b8116c7f",
   },
   callbackReflectionContentSha256:
     "45d980f7ab5aa3c98942777693438a9c780f5d6a4f0e86f2f8db63211a3af406",
   callbackReport: {
     bytes: 7_028,
-    sha256: "4c176ba2358254a8d47c9bcc3040435977a19e4c6b495fb6f220a839e8869093",
+    sha256: "29ede77d61369e560197dedb35311e662e0d3c56a3c6ce5dadc9743c02c10771",
   },
   outerReturnReport: {
     bytes: 8_124,
-    sha256: "e8202c64fd7a184b8f01a194169f8b5632d7689e866e2588c26be158af587598",
+    sha256: "de6ce28c1aa6f990fe211abd81c71415a0c908fb7a47ba6651ad0aa355cdd841",
   },
   entryReturnReflectionContentSha256:
     "b184b076d28abbf59401e35113aaeb30ca1f29b8cee590ff1d71897313bfb9db",
   entryReturnReport: {
     bytes: 8_674,
-    sha256: "2619711263b918c419b61483499da1bcdc7d02ab9fe261ba57546a356b39756c",
+    sha256: "c5edbb527fad5fc0907d8784cd22df9d0c5a93bd26aa63fd413c0a6c5b75ce59",
   },
   stackBootstrapReflectionContentSha256:
     "d7471bcc744e2f769861e1a40cc5520f5c0d452f2ea8539233a8573315b6f1cd",
   stackBootstrapReport: {
-    bytes: 9_427,
-    sha256: "a1a66c7d98835289da2604217b72edfdbdd576eaad29dd442faea4097507b7de",
+    bytes: 9_430,
+    sha256: "a4e0fbb559f98e32218d5c49595ed47a113f6dd18b9f3bd4411e26efcc8592c2",
   },
 };
 
@@ -230,6 +230,19 @@ function checkedEnd(start, size, limit, label) {
   assert(Number.isSafeInteger(end) && end >= start, `${label} overflows`);
   assert(end <= limit, `${label} exceeds its containing range`);
   return end;
+}
+
+function assertExecutableFetchWindow(instructionPointer, executablePages) {
+  for (let offset = 0; offset < 15; offset += 1) {
+    const address = instructionPointer + offset;
+    assert(address <= 0xffff_ffff, "instruction fetch window crosses the guest address limit");
+    const virtualPage = (address & ~(page.size - 1)) >>> 0;
+    assert(
+      executablePages.has(virtualPage),
+      `execute gate rejected 15-byte fetch window at EIP 0x${instructionPointer.toString(16)}; ` +
+        `page 0x${virtualPage.toString(16)} is not executable`,
+    );
+  }
 }
 
 function checkedGuestEnd(address, size, label) {
@@ -669,7 +682,7 @@ function validateOffer(offer) {
       ? expected.initialThreadStack.generation
       : dispatchCallback
         ? expected.callbackReturnSentinel.generation
-        : 4,
+        : 6,
     dataTlb: true,
     instructionFetch: true,
     generatedCode: true,
@@ -987,7 +1000,7 @@ function validateReceipt(receipt, offer, context) {
       ? expected.initialThreadStack.generation
       : dispatchCallback
         ? expected.callbackReturnSentinel.generation
-        : 4,
+        : 6,
   );
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (dispatchStackBootstrap) {
@@ -997,7 +1010,7 @@ function validateReceipt(receipt, offer, context) {
     assert.equal(receipt.stats.reservedPages, 38);
     assert.equal(receipt.stats.committedPages, 8);
     assert.equal(receipt.stats.physicalPages, 8);
-    assert.equal(receipt.stats.dirtyPages, 8);
+    assert.equal(receipt.stats.dirtyPages, 0);
   } else if (dispatchCallback) {
     assert.equal(receipt.stats.owners, 3);
     assert.equal(receipt.stats.sealedOwners, 3);
@@ -1005,7 +1018,7 @@ function validateReceipt(receipt, offer, context) {
     assert.equal(receipt.stats.reservedPages, 37);
     assert.equal(receipt.stats.committedPages, 7);
     assert.equal(receipt.stats.physicalPages, 7);
-    assert.equal(receipt.stats.dirtyPages, 7);
+    assert.equal(receipt.stats.dirtyPages, 0);
   }
   assert.equal(receipt.iatValue, expected.firstThunk.address);
   assert.deepEqual(
@@ -1132,11 +1145,7 @@ function executeControlled(offer, context) {
   const runUntilExactTrap = (expectedAddress, label) => {
     for (let index = 0; index < 16; index += 1) {
       const before = saveState(0);
-      const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
-      assert(
-        executablePages.has(currentPage),
-        `execute gate rejected EIP 0x${before.instructionPointer.toString(16)}`,
-      );
+      assertExecutableFetchWindow(before.instructionPointer, executablePages);
       const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
       executeStops += 1;
       const state = saveState(reason);
@@ -1187,11 +1196,7 @@ function executeControlled(offer, context) {
   const runUntilPageFault = (expectedAddress, label) => {
     for (let index = 0; index < 16; index += 1) {
       const before = saveState(0);
-      const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
-      assert(
-        executablePages.has(currentPage),
-        `execute gate rejected EIP 0x${before.instructionPointer.toString(16)}`,
-      );
+      assertExecutableFetchWindow(before.instructionPointer, executablePages);
       const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
       executeStops += 1;
       const state = saveState(reason);
@@ -1281,11 +1286,7 @@ function executeControlled(offer, context) {
   assert.equal(callbackReturn, expected.secondThunk.returnAddress);
   assert.equal(callbackTarget, expected.secondThunk.callbackTarget);
   assert.equal(callbackValue, expected.secondThunk.value);
-  const callbackPage = (callbackTarget & ~(page.size - 1)) >>> 0;
-  assert(
-    executablePages.has(callbackPage),
-    `callback target 0x${callbackTarget.toString(16)} is not on a sealed executable page`,
-  );
+  assertExecutableFetchWindow(callbackTarget, executablePages);
   assert.equal(
     context.readVirtualU32(expected.secondThunk.iatAddress, "bound callback IAT"),
     expected.secondThunk.address,

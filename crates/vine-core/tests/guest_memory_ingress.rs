@@ -47,7 +47,7 @@ fn owns_high_image_pages_and_gates_guest_access() {
     assert_eq!(layout.executable_pages, 1);
     assert_eq!(layout.writable_pages, 1);
     assert!(!layout.owner_sealed);
-    assert_eq!(layout.invalidation.generation, 1);
+    assert_eq!(layout.invalidation.generation, 2);
     assert!(layout.invalidation.data_tlb);
     assert!(layout.invalidation.instruction_fetch);
     assert!(layout.invalidation.generated_code);
@@ -70,24 +70,19 @@ fn owns_high_image_pages_and_gates_guest_access() {
     memory
         .write_initialization(layout.owner, non_executable, &[0xc3])
         .expect("initialize NX probe page");
-    memory
-        .acknowledge_invalidation(layout.invalidation.generation)
-        .expect("acknowledge initial mappings");
-
-    assert_fault(
-        memory.fetch(text, 1).expect_err("owner is unsealed"),
-        text,
-        MemoryAccess::Execute,
-        MemoryFaultReason::OwnerUnsealed,
-        21,
-    );
+    let unsealed_reflection = memory
+        .pending_reflection()
+        .expect_err("executable owner must be sealed before reflection");
+    assert_eq!(unsealed_reflection.code, "executable-owner-unsealed");
     let seal = memory.seal_owner(layout.owner).expect("seal image owner");
-    assert_eq!(seal.generation, 2);
-    assert!(!seal.data_tlb);
+    assert_eq!(seal.generation, 3);
+    assert!(seal.data_tlb);
     assert!(seal.instruction_fetch);
     assert!(seal.generated_code);
+    let initial_reflection = memory.pending_reflection().expect("initial reflection");
+    assert_eq!(initial_reflection.invalidation, seal);
     memory
-        .acknowledge_invalidation(seal.generation)
+        .acknowledge_delta(seal.generation)
         .expect("acknowledge execute gate");
     assert_eq!(memory.fetch(text, 1).expect("fetch executable"), [0x90]);
     assert_fault(
@@ -109,7 +104,22 @@ fn owns_high_image_pages_and_gates_guest_access() {
         7,
     );
 
-    memory.write(data, &[1, 2, 3, 4]).expect("write data page");
+    let data_write = memory.write(data, &[1, 2, 3, 4]).expect("write data page");
+    assert_eq!(
+        data_write
+            .invalidation
+            .expect("ordinary writes produce a delta")
+            .generation,
+        4
+    );
+    let data_delta = memory.pending_delta().expect("ordinary data delta");
+    assert_eq!(data_delta.dirty_pages.len(), 1);
+    assert!(!data_delta.cache_effects.flush_tlb);
+    assert!(!data_delta.cache_effects.invalidate_instruction_fetch);
+    assert!(!data_delta.cache_effects.invalidate_generated_code);
+    memory
+        .acknowledge_delta(data_delta.generation)
+        .expect("acknowledge data delta");
     assert_eq!(memory.read(data, 4).expect("read data page"), [1, 2, 3, 4]);
 
     let cross_owner = memory
@@ -136,8 +146,10 @@ fn owns_high_image_pages_and_gates_guest_access() {
             },
         )
         .expect("commit first cross page");
+    assert_eq!(cross_mapping.generation, 6);
+    let cross_mapping_delta = memory.pending_delta().expect("cross mapping delta");
     memory
-        .acknowledge_invalidation(cross_mapping.generation)
+        .acknowledge_delta(cross_mapping_delta.generation)
         .expect("acknowledge cross mapping");
     let cross_address = GuestAddress(0xe200_0ffe);
     memory
@@ -152,6 +164,10 @@ fn owns_high_image_pages_and_gates_guest_access() {
         MemoryFaultReason::Unmapped,
         6,
     );
+    let cross_seed_delta = memory.pending_delta().expect("cross seed delta");
+    memory
+        .acknowledge_delta(cross_seed_delta.generation)
+        .expect("acknowledge cross seed");
     assert_eq!(
         memory.read(cross_address, 2).expect("no partial write"),
         [0xaa, 0xbb]
@@ -169,16 +185,17 @@ fn owns_high_image_pages_and_gates_guest_access() {
             },
         )
         .expect("protect data page");
-    assert_eq!(protection.generation, 4);
+    assert_eq!(protection.generation, 8);
     assert_eq!(
         memory
-            .write(data, &[9])
+            .read(data, 1)
             .expect_err("stale access must be blocked")
             .class,
         GuestMemoryErrorClass::SynchronizationRequired
     );
+    let protection_delta = memory.pending_delta().expect("protection delta");
     memory
-        .acknowledge_invalidation(protection.generation)
+        .acknowledge_delta(protection_delta.generation)
         .expect("acknowledge protect");
     assert_fault(
         memory.write(data, &[9]).expect_err("data is now read-only"),
@@ -213,7 +230,7 @@ fn owns_high_image_pages_and_gates_guest_access() {
     let decommit = memory
         .decommit(cross_owner, first_cross_page)
         .expect("decommit cross page");
-    assert_eq!(decommit.generation, 5);
+    assert_eq!(decommit.generation, 10);
     let reused = memory
         .commit(
             quota_owner,
@@ -225,24 +242,30 @@ fn owns_high_image_pages_and_gates_guest_access() {
             },
         )
         .expect("reuse released physical quota");
-    assert_eq!(reused.generation, 6);
+    assert_eq!(reused.generation, 11);
+    let reuse_delta = memory
+        .pending_delta()
+        .expect("merged decommit/commit delta");
     memory
-        .acknowledge_invalidation(reused.generation)
+        .acknowledge_delta(reuse_delta.generation)
         .expect("acknowledge merged decommit/commit");
     let release = memory
         .release_region(quota_owner, quota_base)
         .expect("release quota region")
         .expect("committed region requires invalidation");
-    assert_eq!(release.generation, 7);
+    assert_eq!(release.generation, 12);
+    let release_delta = memory.pending_delta().expect("release delta");
     memory
-        .acknowledge_invalidation(release.generation)
+        .acknowledge_delta(release_delta.generation)
         .expect("acknowledge release");
-    assert_eq!(
-        memory
-            .release_region(cross_owner, cross_region.start())
-            .expect("release empty cross region"),
-        None
-    );
+    memory
+        .release_region(cross_owner, cross_region.start())
+        .expect("release empty cross region")
+        .expect("reservation release produces a delta");
+    let empty_release_delta = memory.pending_delta().expect("empty release delta");
+    memory
+        .acknowledge_delta(empty_release_delta.generation)
+        .expect("acknowledge empty release");
     memory
         .destroy_owner(quota_owner)
         .expect("destroy quota owner");
@@ -259,8 +282,9 @@ fn owns_high_image_pages_and_gates_guest_access() {
     assert_eq!(stats.reserved_pages, 6);
     assert_eq!(stats.committed_pages, 6);
     assert_eq!(stats.physical_pages, 6);
-    assert_eq!(stats.dirty_pages, 3);
-    assert_eq!(stats.generation, 7);
+    assert_eq!(stats.dirty_pages, 0);
+    assert_eq!(stats.generation, 13);
+    assert_eq!(stats.acknowledged_generation, 13);
     assert_eq!(stats.pending_invalidation, None);
 }
 

@@ -68,7 +68,7 @@ The entry was initially called with stack value `0xDEADC0DE` at `0x006FFFFC`. It
 
 The continuation adds three execute stops and two budget stops to the callback-return checkpoint. The page fault is evidence that the guest completed its result path and consumed the harness return value; it is not being treated as a process exit.
 
-The deterministic report is 8,124 bytes with SHA-256 `e8202c64fd7a184b8f01a194169f8b5632d7689e866e2588c26be158af587598`. The entry-only, cdecl-only, and callback-return reports remain byte-identical at 4,831, 5,501, and 7,028 bytes respectively.
+The deterministic report is 8,124 bytes with SHA-256 `de6ce28c1aa6f990fe211abd81c71415a0c908fb7a47ba6651ad0aa355cdd841`. The entry-only, cdecl-only, and callback-return reports remain byte-identical at 4,831, 5,501, and 7,028 bytes respectively.
 
 The checkpoint command is:
 

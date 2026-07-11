@@ -30,13 +30,16 @@ pub use environment::{
 };
 pub use imports::{
     IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, IMPORT_THUNK_SLOT_SIZE, ImportBinding,
-    ImportThunk, ImportThunkArena, ImportThunkDisposition, ImportThunkId, RuntimeExport,
-    RuntimeExportCatalog, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
+    ImportBindingPlan, ImportBindingPolicy, ImportPlanDisposition, ImportThunk, ImportThunkArena,
+    ImportThunkDisposition, ImportThunkId, PlannedImport, RuntimeExport, RuntimeExportCatalog,
+    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, commit_pe32_import_binding,
+    plan_pe32_imports, plan_pe32_imports_with_unsupported_traps,
 };
 pub use materialize::{ImageMaterialization, UnboundImport, materialize_pe32_image};
 pub use memory::{
-    GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestRange, GuestWriteResult, ImageMemoryLayout, MemoryAccess, MemoryFault, MemoryFaultReason,
+    CacheEffects, DirtyPage, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError,
+    GuestMemoryErrorClass, GuestMemoryTransaction, GuestRange, GuestWriteResult, ImageMemoryLayout,
+    MappingOperation, MemoryAccess, MemoryDelta, MemoryFault, MemoryFaultReason,
     MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryReflection,
     MemoryReflectionPage, MemoryRegionKind, MemoryStats, PageProtection,
 };

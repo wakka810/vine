@@ -26,11 +26,11 @@ The version 1 controlled stack is:
 | Initial DWORD | process-entry sentinel ID `2` address `0x7F010010` |
 | Page SHA-256 | `3e944a15f97096aba42964f3628826766b970bbaeb98d85962f679fd725de079` |
 | Owner state | sealed |
-| Final invalidation generation | `8` |
+| Final delta generation | `12` |
 
 `install_controlled_initial_stack` uses `MemoryRegionKind::Stack`, commits one RW page, writes the entry return address through checked owner initialization, hashes the full initialized page, and seals the owner. The stack owner is separate from image owner `1`, import owner `2`, and control owner `3`.
 
-The process-entry sentinel is installed and sealed first at generation `6`. Stack commit advances generation to `7`, and stack seal advances it to `8`. The resulting memory stats are four owners／regions, four sealed owners, 38 reserved pages, eight committed／physical／dirty pages, and one pending generation `8` invalidation before acknowledgement.
+The process-entry sentinel is installed and sealed first at generation `9`. Stack reserve, commit, and seal advance generations to `10`, `11`, and `12`. The resulting memory stats are four owners／regions, four sealed owners, 38 reserved pages, eight committed／physical／dirty pages, and one pending generation `12` delta before acknowledgement.
 
 ## 3. Reflection and adapter mapping
 
@@ -46,7 +46,7 @@ eight reflected production pages
 
 There is no `harness-stack` allocation. Directory index `1` is allocated first, and the reflected owner `4` page receives the physical page that follows it. Physical addresses remain adapter-local and are not part of Rust bootstrap metadata.
 
-Before execution, the adapter verifies the reflected mapping is RW and non-executable, reads `0x7F010010` from initial ESP, and does not call its virtual-memory write helper for stack setup. After state restore／TLB／generated-code invalidation, Rust acknowledges generation `8` and normal-reads the top 16 stack bytes:
+Before execution, the adapter verifies the reflected mapping is RW and non-executable, reads `0x7F010010` from initial ESP, and does not call its virtual-memory write helper for stack setup. After state restore／TLB／generated-code invalidation, Rust acknowledges generation `12`, clears initial dirty state, and normal-reads the top 16 stack bytes:
 
 ```text
 00 00 00 00 00 00 00 00 00 00 00 00 10 00 01 7F
@@ -69,7 +69,7 @@ The execution contract is unchanged:
 | Callee-saved registers | unchanged |
 | Wasm host imports | `microtick` once |
 
-The deterministic report is 9,427 bytes with SHA-256 `a1a66c7d98835289da2604217b72edfdbdd576eaad29dd442faea4097507b7de`. The entry, cdecl, callback-return, outer-return, and adapter-stack entry-return reports remain byte-identical at 4,831, 5,501, 7,028, 8,124, and 8,674 bytes.
+The deterministic report is 9,430 bytes with SHA-256 `a4e0fbb559f98e32218d5c49595ed47a113f6dd18b9f3bd4411e26efcc8592c2`. The entry, cdecl, callback-return, outer-return, and adapter-stack entry-return reports remain byte-identical at 4,831, 5,501, 7,028, 8,124, and 8,674 bytes.
 
 The checkpoint command is:
 

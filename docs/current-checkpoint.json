@@ -1,0 +1,10 @@
+{
+  "schema": "vine.current-checkpoint",
+  "schemaVersion": 1,
+  "checkpoint": "bgi-first-owned-trap",
+  "entryInstructionCount": 19,
+  "ownedTrapId": 104,
+  "ownedTrap": "KERNEL32.dll!GetSystemTimeAsFileTime",
+  "memoryProtocol": "memory-delta-v1",
+  "nextCheckpoint": "first-supported-win32-call-return"
+}

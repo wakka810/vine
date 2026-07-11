@@ -90,9 +90,13 @@ impl RuntimeExportCatalog {
     }
 
     pub fn supports(&self, module: &str, target: &ImportTarget) -> bool {
+        self.resolve(module, target).is_some()
+    }
+
+    pub fn resolve(&self, module: &str, target: &ImportTarget) -> Option<&RuntimeExport> {
         self.exports
             .iter()
-            .any(|export| runtime_export_matches(export, module, target))
+            .find(|export| runtime_export_matches(export, module, target))
     }
 
     pub fn len(&self) -> usize {
@@ -102,6 +106,67 @@ impl RuntimeExportCatalog {
     pub fn is_empty(&self) -> bool {
         self.exports.is_empty()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ImportBindingPolicy {
+    RequireDeclaredExport,
+    BindUnsupportedTrap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ImportPlanDisposition {
+    DeclaredRuntimeExport,
+    UnsupportedTrap,
+    Unresolved,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedImport {
+    pub id: ImportThunkId,
+    pub thunk_address: GuestAddress,
+    pub requester_owner: MemoryOwnerId,
+    pub module: String,
+    pub iat_rva: Rva,
+    pub iat_address: GuestAddress,
+    pub original_iat_value: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_endpoint: Option<RuntimeExport>,
+    pub disposition: ImportPlanDisposition,
+    #[serde(flatten)]
+    pub target: ImportTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportBindingPlan {
+    pub source: ModuleIdentity,
+    pub image_owner: MemoryOwnerId,
+    pub image_load_base: GuestAddress,
+    pub memory_generation: u64,
+    pub policy: ImportBindingPolicy,
+    pub total_imports: usize,
+    pub committed_bytes: usize,
+    pub required_pages: usize,
+    pub imports: Vec<PlannedImport>,
+    pub unresolved_imports: Vec<UnboundImport>,
+    pub complete: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImportCommitStage {
+    ArenaOwnerCreated,
+    ArenaReserved,
+    ArenaCommitted,
+    ThunkPagesFilled,
+    ThunkWritten(usize),
+    IatWritten(usize),
+    IatVerified,
+    ArenaSealed,
+    ImageSealed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -149,6 +214,7 @@ pub struct ImportBinding {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arena: Option<ImportThunkArena>,
     pub thunks: Vec<ImportThunk>,
+    pub unresolved_imports: Vec<UnboundImport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_unresolved_import: Option<UnboundImport>,
     pub invalidation: MemoryInvalidation,
@@ -167,7 +233,8 @@ pub fn bind_pe32_imports(
     image: &ImageMaterialization,
     catalog: &RuntimeExportCatalog,
 ) -> Result<ImportBinding, LoaderError> {
-    bind_pe32_imports_internal(memory, loader, image, catalog, MissingImportPolicy::Stop)
+    let plan = plan_pe32_imports(memory, loader, image, catalog)?;
+    bind_or_report_unresolved(memory, loader, image, plan)
 }
 
 pub fn bind_pe32_imports_with_unsupported_traps(
@@ -176,28 +243,47 @@ pub fn bind_pe32_imports_with_unsupported_traps(
     image: &ImageMaterialization,
     catalog: &RuntimeExportCatalog,
 ) -> Result<ImportBinding, LoaderError> {
-    bind_pe32_imports_internal(
+    let plan = plan_pe32_imports_with_unsupported_traps(memory, loader, image, catalog)?;
+    commit_pe32_import_binding(memory, loader, image, &plan)
+}
+
+pub fn plan_pe32_imports(
+    memory: &GuestMemory,
+    loader: &LoaderIngressReport,
+    image: &ImageMaterialization,
+    catalog: &RuntimeExportCatalog,
+) -> Result<ImportBindingPlan, LoaderError> {
+    plan_pe32_imports_internal(
         memory,
         loader,
         image,
         catalog,
-        MissingImportPolicy::BindUnsupportedTrap,
+        ImportBindingPolicy::RequireDeclaredExport,
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MissingImportPolicy {
-    Stop,
-    BindUnsupportedTrap,
-}
-
-fn bind_pe32_imports_internal(
-    memory: &mut GuestMemory,
+pub fn plan_pe32_imports_with_unsupported_traps(
+    memory: &GuestMemory,
     loader: &LoaderIngressReport,
     image: &ImageMaterialization,
     catalog: &RuntimeExportCatalog,
-    missing_import_policy: MissingImportPolicy,
-) -> Result<ImportBinding, LoaderError> {
+) -> Result<ImportBindingPlan, LoaderError> {
+    plan_pe32_imports_internal(
+        memory,
+        loader,
+        image,
+        catalog,
+        ImportBindingPolicy::BindUnsupportedTrap,
+    )
+}
+
+fn plan_pe32_imports_internal(
+    memory: &GuestMemory,
+    loader: &LoaderIngressReport,
+    image: &ImageMaterialization,
+    catalog: &RuntimeExportCatalog,
+    policy: ImportBindingPolicy,
+) -> Result<ImportBindingPlan, LoaderError> {
     validate_binding_input(memory, loader, image)?;
     let total_imports = loader
         .load_plan
@@ -208,10 +294,19 @@ fn bind_pe32_imports_internal(
                 .checked_add(module.symbols.len())
                 .ok_or_else(import_binding_accounting_overflow)
         })?;
-    let mut planned = Vec::new();
-    let mut first_unresolved_import = None;
+    if total_imports > IMPORT_THUNK_CAPACITY {
+        return Err(LoaderError::resource_limit(
+            "import-binding",
+            "import-thunk-capacity-exceeded",
+            format!(
+                "{total_imports} planned imports exceed the version 1 thunk capacity {IMPORT_THUNK_CAPACITY}"
+            ),
+        ));
+    }
 
-    'modules: for module in &loader.load_plan.imports {
+    let mut imports = Vec::with_capacity(total_imports);
+    let mut unresolved_imports = Vec::new();
+    for module in &loader.load_plan.imports {
         for symbol in &module.symbols {
             let iat_address =
                 add_rva(image.load_base, symbol.iat_rva, "iat-slot-address-overflow")?;
@@ -226,76 +321,219 @@ fn bind_pe32_imports_internal(
                     ),
                 ));
             }
-            let disposition = if catalog.supports(&module.name, &symbol.target) {
-                ImportThunkDisposition::DeclaredRuntimeExport
-            } else if missing_import_policy == MissingImportPolicy::BindUnsupportedTrap {
-                ImportThunkDisposition::UnsupportedTrap
+            let id = ImportThunkId(u32::try_from(imports.len() + 1).map_err(|_| {
+                LoaderError::resource_limit(
+                    "import-binding",
+                    "import-thunk-id-not-representable",
+                    "import thunk identifier does not fit 32 bits",
+                )
+            })?);
+            let slot_offset = u32::try_from(imports.len())
+                .map_err(|_| import_binding_accounting_overflow())?
+                .checked_mul(IMPORT_THUNK_SLOT_SIZE)
+                .ok_or_else(import_binding_accounting_overflow)?;
+            let thunk_address = GuestAddress(
+                IMPORT_THUNK_ARENA_BASE
+                    .0
+                    .checked_add(slot_offset)
+                    .ok_or_else(import_binding_accounting_overflow)?,
+            );
+            let catalog_endpoint = catalog.resolve(&module.name, &symbol.target).cloned();
+            let disposition = if catalog_endpoint.is_some() {
+                ImportPlanDisposition::DeclaredRuntimeExport
+            } else if policy == ImportBindingPolicy::BindUnsupportedTrap {
+                ImportPlanDisposition::UnsupportedTrap
             } else {
-                first_unresolved_import =
-                    Some(unbound_import(&module.name, symbol, image.load_base)?);
-                break 'modules;
+                unresolved_imports.push(unbound_import(&module.name, symbol, image.load_base)?);
+                ImportPlanDisposition::Unresolved
             };
-            planned.push((module.name.as_str(), symbol, iat_address, disposition));
+            imports.push(PlannedImport {
+                id,
+                thunk_address,
+                requester_owner: image.layout.owner,
+                module: module.name.clone(),
+                iat_rva: symbol.iat_rva,
+                iat_address,
+                original_iat_value: symbol.original_iat_value,
+                catalog_endpoint,
+                disposition,
+                target: symbol.target.clone(),
+            });
         }
     }
 
-    if planned.len() > IMPORT_THUNK_CAPACITY {
-        return Err(LoaderError::resource_limit(
-            "import-binding",
-            "import-thunk-capacity-exceeded",
-            format!(
-                "{} bound imports exceed the version 1 thunk capacity {IMPORT_THUNK_CAPACITY}",
-                planned.len()
-            ),
-        ));
-    }
-    let committed_bytes = if planned.is_empty() {
+    let committed_bytes = if imports.is_empty() {
         0
     } else {
-        let used_bytes = planned
+        let used_bytes = imports
             .len()
             .checked_mul(IMPORT_THUNK_SLOT_SIZE as usize)
             .ok_or_else(import_binding_accounting_overflow)?;
         align_up_to_page(used_bytes)?
     };
     let required_pages = committed_bytes / GUEST_PAGE_SIZE as usize;
-    let stats_before_binding = memory.stats();
-    let available_pages = memory
-        .limits()
-        .max_physical_pages
-        .saturating_sub(stats_before_binding.physical_pages);
-    if required_pages > available_pages {
-        return Err(LoaderError::resource_limit(
-            "import-binding",
-            "import-thunk-physical-page-quota-exceeded",
-            format!(
-                "import thunk arena needs {required_pages} physical pages; {available_pages} remain under quota"
-            ),
-        ));
+    let complete = unresolved_imports.is_empty();
+    if complete && !imports.is_empty() {
+        memory
+            .preflight_growth(1, 1, required_pages, "import-binding")
+            .map_err(memory_error)?;
+        memory
+            .preflight_fixed_reservation(
+                IMPORT_THUNK_ARENA_BASE,
+                IMPORT_THUNK_ARENA_SIZE,
+                "import-binding",
+            )
+            .map_err(memory_error)?;
     }
 
-    let mut thunks = Vec::with_capacity(planned.len());
-    let arena = if planned.is_empty() {
+    Ok(ImportBindingPlan {
+        source: loader.source.clone(),
+        image_owner: image.layout.owner,
+        image_load_base: image.load_base,
+        memory_generation: memory.stats().generation,
+        policy,
+        total_imports,
+        committed_bytes,
+        required_pages,
+        imports,
+        unresolved_imports,
+        complete,
+    })
+}
+
+fn bind_or_report_unresolved(
+    memory: &mut GuestMemory,
+    loader: &LoaderIngressReport,
+    image: &ImageMaterialization,
+    plan: ImportBindingPlan,
+) -> Result<ImportBinding, LoaderError> {
+    if plan.complete {
+        return commit_pe32_import_binding(memory, loader, image, &plan);
+    }
+    let invalidation = memory.stats().pending_invalidation.ok_or_else(|| {
+        LoaderError::runtime_defect(
+            "import-binding",
+            "materialized-image-delta-missing",
+            "unresolved import planning lost the materialized image memory generation",
+        )
+    })?;
+    let first_unresolved_import = plan.unresolved_imports.first().cloned();
+    Ok(ImportBinding {
+        source: plan.source,
+        image_owner: plan.image_owner,
+        image_load_base: plan.image_load_base,
+        total_imports: plan.total_imports,
+        bound_imports: 0,
+        unsupported_trap_imports: 0,
+        remaining_imports: plan.total_imports,
+        complete: false,
+        image_owner_sealed: false,
+        arena: None,
+        thunks: Vec::new(),
+        unresolved_imports: plan.unresolved_imports,
+        first_unresolved_import,
+        invalidation,
+        stop: UnsupportedPoint {
+            stage: "import-resolution",
+            code: "import-symbols-unimplemented",
+            message: "one or more planned imports have no declared runtime endpoint; all unresolved identities were reported and guest memory was left unchanged",
+        },
+    })
+}
+
+pub fn commit_pe32_import_binding(
+    memory: &mut GuestMemory,
+    loader: &LoaderIngressReport,
+    image: &ImageMaterialization,
+    plan: &ImportBindingPlan,
+) -> Result<ImportBinding, LoaderError> {
+    let mut checkpoint = |_| Ok(());
+    commit_pe32_import_binding_with_checkpoint(memory, loader, image, plan, &mut checkpoint)
+}
+
+fn commit_pe32_import_binding_with_checkpoint<F>(
+    memory: &mut GuestMemory,
+    loader: &LoaderIngressReport,
+    image: &ImageMaterialization,
+    plan: &ImportBindingPlan,
+    checkpoint: &mut F,
+) -> Result<ImportBinding, LoaderError>
+where
+    F: FnMut(ImportCommitStage) -> Result<(), LoaderError>,
+{
+    validate_binding_input(memory, loader, image)?;
+    if !plan.complete || !plan.unresolved_imports.is_empty() {
+        return Err(LoaderError::invalid_input(
+            "import-binding",
+            "incomplete-import-plan-cannot-commit",
+            "an import plan with unresolved imports cannot mutate guest memory",
+        ));
+    }
+    if plan.source != loader.source
+        || plan.image_owner != image.layout.owner
+        || plan.image_load_base != image.load_base
+        || plan.total_imports != plan.imports.len()
+    {
+        return Err(LoaderError::invalid_input(
+            "import-binding",
+            "import-plan-image-mismatch",
+            "import plan identity or import count does not match the materialized image",
+        ));
+    }
+    if memory.stats().generation != plan.memory_generation {
+        return Err(LoaderError::invalid_input(
+            "import-binding",
+            "import-plan-memory-generation-stale",
+            "guest memory changed after import planning; build a new plan before commit",
+        ));
+    }
+    for planned in &plan.imports {
+        let current = read_initialization_u32(memory, image.layout.owner, planned.iat_address)?;
+        if current != planned.original_iat_value {
+            return Err(LoaderError::invalid_input(
+                "import-binding",
+                "iat-slot-changed-after-planning",
+                format!(
+                    "IAT slot {:#010x} changed after planning and before atomic commit",
+                    planned.iat_address.0
+                ),
+            ));
+        }
+    }
+    if !plan.imports.is_empty() {
+        memory
+            .preflight_growth(1, 1, plan.required_pages, "import-binding")
+            .map_err(memory_error)?;
+        memory
+            .preflight_fixed_reservation(
+                IMPORT_THUNK_ARENA_BASE,
+                IMPORT_THUNK_ARENA_SIZE,
+                "import-binding",
+            )
+            .map_err(memory_error)?;
+    }
+
+    let mut transaction = memory.begin_transaction();
+    let mut thunks = Vec::with_capacity(plan.imports.len());
+    let arena = if plan.imports.is_empty() {
         None
     } else {
-        let arena_owner = memory
+        let arena_owner = transaction
             .create_owner(MemoryOwnerKind::Runtime)
             .map_err(memory_error)?;
-        let arena_range = match memory.reserve_fixed(
-            arena_owner,
-            MemoryRegionKind::Runtime,
-            IMPORT_THUNK_ARENA_BASE,
-            IMPORT_THUNK_ARENA_SIZE,
-        ) {
-            Ok(range) => range,
-            Err(error) => {
-                memory.destroy_owner(arena_owner).map_err(memory_error)?;
-                return Err(memory_error(error));
-            }
-        };
+        checkpoint(ImportCommitStage::ArenaOwnerCreated)?;
+        let arena_range = transaction
+            .reserve_fixed(
+                arena_owner,
+                MemoryRegionKind::Runtime,
+                IMPORT_THUNK_ARENA_BASE,
+                IMPORT_THUNK_ARENA_SIZE,
+            )
+            .map_err(memory_error)?;
+        checkpoint(ImportCommitStage::ArenaReserved)?;
         let committed_range = GuestRange::new(
             IMPORT_THUNK_ARENA_BASE,
-            u64::try_from(committed_bytes).map_err(|_| {
+            u64::try_from(plan.committed_bytes).map_err(|_| {
                 LoaderError::resource_limit(
                     "import-binding",
                     "thunk-commit-size-not-representable",
@@ -304,7 +542,7 @@ fn bind_pe32_imports_internal(
             })?,
         )
         .map_err(memory_error)?;
-        memory
+        transaction
             .commit(
                 arena_owner,
                 committed_range,
@@ -315,56 +553,62 @@ fn bind_pe32_imports_internal(
                 },
             )
             .map_err(memory_error)?;
+        checkpoint(ImportCommitStage::ArenaCommitted)?;
 
-        fill_thunk_pages(memory, arena_owner, committed_bytes)?;
-        for (index, (module, symbol, iat_address, disposition)) in planned.iter().enumerate() {
-            let id_value = u32::try_from(index + 1).map_err(|_| {
-                LoaderError::resource_limit(
-                    "import-binding",
-                    "import-thunk-id-not-representable",
-                    "import thunk identifier does not fit 32 bits",
+        fill_thunk_pages(&mut transaction, arena_owner, plan.committed_bytes)?;
+        checkpoint(ImportCommitStage::ThunkPagesFilled)?;
+        for (index, planned) in plan.imports.iter().enumerate() {
+            let disposition = match planned.disposition {
+                ImportPlanDisposition::DeclaredRuntimeExport => {
+                    ImportThunkDisposition::DeclaredRuntimeExport
+                }
+                ImportPlanDisposition::UnsupportedTrap => ImportThunkDisposition::UnsupportedTrap,
+                ImportPlanDisposition::Unresolved => {
+                    return Err(LoaderError::runtime_defect(
+                        "import-binding",
+                        "complete-import-plan-contains-unresolved-entry",
+                        "a complete import plan contains an unresolved disposition",
+                    ));
+                }
+            };
+            transaction
+                .write_initialization(arena_owner, planned.thunk_address, &[0x0f, 0x0b])
+                .map_err(memory_error)?;
+            checkpoint(ImportCommitStage::ThunkWritten(index))?;
+            transaction
+                .write_initialization(
+                    image.layout.owner,
+                    planned.iat_address,
+                    &planned.thunk_address.0.to_le_bytes(),
                 )
-            })?;
-            let slot_offset = u32::try_from(index)
-                .map_err(|_| import_binding_accounting_overflow())?
-                .checked_mul(IMPORT_THUNK_SLOT_SIZE)
-                .ok_or_else(import_binding_accounting_overflow)?;
-            let address = GuestAddress(
-                IMPORT_THUNK_ARENA_BASE
-                    .0
-                    .checked_add(slot_offset)
-                    .ok_or_else(import_binding_accounting_overflow)?,
-            );
-            memory
-                .write_initialization(arena_owner, address, &[0x0f, 0x0b])
                 .map_err(memory_error)?;
-            memory
-                .write_initialization(image.layout.owner, *iat_address, &address.0.to_le_bytes())
-                .map_err(memory_error)?;
+            checkpoint(ImportCommitStage::IatWritten(index))?;
             thunks.push(ImportThunk {
-                id: ImportThunkId(id_value),
-                address,
-                requester_owner: image.layout.owner,
-                module: (*module).to_owned(),
-                iat_rva: symbol.iat_rva,
-                iat_address: *iat_address,
-                original_iat_value: symbol.original_iat_value,
-                disposition: *disposition,
-                target: symbol.target.clone(),
+                id: planned.id,
+                address: planned.thunk_address,
+                requester_owner: planned.requester_owner,
+                module: planned.module.clone(),
+                iat_rva: planned.iat_rva,
+                iat_address: planned.iat_address,
+                original_iat_value: planned.original_iat_value,
+                disposition,
+                target: planned.target.clone(),
             });
         }
-        verify_bound_iat(memory, image.layout.owner, &thunks)?;
+        verify_bound_iat(&transaction, image.layout.owner, &thunks)?;
+        checkpoint(ImportCommitStage::IatVerified)?;
         let content_sha256 = hash_initialization_range(
-            memory,
+            &transaction,
             arena_owner,
             IMPORT_THUNK_ARENA_BASE,
-            committed_bytes,
+            plan.committed_bytes,
         )?;
-        memory.seal_owner(arena_owner).map_err(memory_error)?;
+        transaction.seal_owner(arena_owner).map_err(memory_error)?;
+        checkpoint(ImportCommitStage::ArenaSealed)?;
         Some(ImportThunkArena {
             owner: arena_owner,
             range: arena_range,
-            committed_pages: committed_bytes / GUEST_PAGE_SIZE as usize,
+            committed_pages: plan.required_pages,
             slot_size: IMPORT_THUNK_SLOT_SIZE,
             slot_capacity: IMPORT_THUNK_CAPACITY,
             bound_slots: thunks.len(),
@@ -373,60 +617,55 @@ fn bind_pe32_imports_internal(
         })
     };
 
-    let complete = first_unresolved_import.is_none();
-    if complete {
-        memory
-            .seal_owner(image.layout.owner)
-            .map_err(memory_error)?;
-    }
-    let pending = memory.stats().pending_invalidation.ok_or_else(|| {
+    transaction
+        .seal_owner(image.layout.owner)
+        .map_err(memory_error)?;
+    checkpoint(ImportCommitStage::ImageSealed)?;
+    let pending = transaction.stats().pending_invalidation.ok_or_else(|| {
         LoaderError::runtime_defect(
             "import-binding",
             "binding-invalidation-missing",
             "import binding completed without a pending memory invalidation",
         )
     })?;
+    transaction.commit_transaction();
     let bound_imports = thunks.len();
     let unsupported_trap_imports = thunks
         .iter()
         .filter(|thunk| thunk.disposition == ImportThunkDisposition::UnsupportedTrap)
         .count();
-    let remaining_imports = total_imports
+    let remaining_imports = plan
+        .total_imports
         .checked_sub(bound_imports)
         .ok_or_else(import_binding_accounting_overflow)?;
-    let stop = if complete && unsupported_trap_imports != 0 {
+    let stop = if unsupported_trap_imports != 0 {
         UnsupportedPoint {
             stage: "thunk-dispatch",
             code: "unsupported-import-trap-dispatch-pending",
             message: "all planned imports are bound and the image is sealed; catalog-missing imports point to identity-preserving UD2 traps that return no value, and guest execution has not been attempted",
         }
-    } else if complete {
+    } else {
         UnsupportedPoint {
             stage: "process-bootstrap",
             code: "peb-teb-process-parameters-unimplemented",
             message: "all planned imports are bound to runtime-owned thunks and the image is sealed; PEB/TEB/process parameters, initial stack, thunk dispatch, and guest execution were not attempted",
         }
-    } else {
-        UnsupportedPoint {
-            stage: "import-resolution",
-            code: "import-symbol-unimplemented",
-            message: "a planned import has no runtime-owned export endpoint; later imports, image sealing, process bootstrap, thunk dispatch, and guest execution were not attempted",
-        }
     };
 
     Ok(ImportBinding {
-        source: loader.source.clone(),
-        image_owner: image.layout.owner,
-        image_load_base: image.load_base,
-        total_imports,
+        source: plan.source.clone(),
+        image_owner: plan.image_owner,
+        image_load_base: plan.image_load_base,
+        total_imports: plan.total_imports,
         bound_imports,
         unsupported_trap_imports,
         remaining_imports,
-        complete,
-        image_owner_sealed: complete,
+        complete: true,
+        image_owner_sealed: true,
         arena,
         thunks,
-        first_unresolved_import,
+        unresolved_imports: Vec::new(),
+        first_unresolved_import: None,
         invalidation: pending,
         stop,
     })
@@ -464,11 +703,15 @@ fn validate_binding_input(
             "materialized image load base and range do not match the load plan",
         ));
     }
-    if image.layout.owner_sealed {
+    if image.layout.owner_sealed
+        || memory
+            .owner_is_sealed(image.layout.owner)
+            .map_err(memory_error)?
+    {
         return Err(LoaderError::invalid_input(
             "import-binding",
-            "materialized-image-already-sealed",
-            "IAT binding requires an unsealed materialized image owner",
+            "imports-already-bound",
+            "the materialized image owner is sealed; successful import binding cannot be repeated",
         ));
     }
     if !loader.load_plan.imports.is_empty()
@@ -725,4 +968,109 @@ fn hex_digest(digest: &[u8]) -> String {
         value.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::{
+        MemoryLimits, ModuleSnapshot, Pe32Limits, build_pe32_load_plan, materialize_pe32_image,
+    };
+
+    const LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
+
+    #[test]
+    fn rolls_back_each_import_commit_checkpoint_and_allows_retry() {
+        let stages = [
+            ImportCommitStage::ArenaOwnerCreated,
+            ImportCommitStage::ArenaReserved,
+            ImportCommitStage::ArenaCommitted,
+            ImportCommitStage::ThunkPagesFilled,
+            ImportCommitStage::ThunkWritten(0),
+            ImportCommitStage::IatWritten(0),
+            ImportCommitStage::ThunkWritten(1),
+            ImportCommitStage::IatWritten(1),
+            ImportCommitStage::IatVerified,
+            ImportCommitStage::ArenaSealed,
+            ImportCommitStage::ImageSealed,
+        ];
+
+        for fail_at in stages {
+            let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(".work/toolchain-spike/abi-smoke.exe");
+            let source = fs::read(&fixture).unwrap_or_else(|error| {
+                panic!(
+                    "cannot read {} ({error}); run `npm run check:toolchain` first",
+                    fixture.display()
+                )
+            });
+            let limits = Pe32Limits::default();
+            let snapshot = ModuleSnapshot::from_bytes(source, &limits).expect("snapshot");
+            let loader = build_pe32_load_plan(&snapshot, limits).expect("load plan");
+            let mut memory = GuestMemory::new(MemoryLimits {
+                max_physical_pages: 6,
+                max_regions: 2,
+                max_owners: 2,
+                max_access_bytes: GUEST_PAGE_SIZE as usize,
+            })
+            .expect("memory");
+            let image = materialize_pe32_image(&mut memory, &snapshot, &loader, LOAD_BASE)
+                .expect("materialized image");
+            let catalog = RuntimeExportCatalog::new(vec![
+                RuntimeExport::named("vine_fixture.dll", "fixture_add"),
+                RuntimeExport::named("vine_fixture.dll", "fixture_call_callback"),
+            ])
+            .expect("catalog");
+            let plan = plan_pe32_imports(&memory, &loader, &image, &catalog).expect("plan");
+            let before = memory.stats();
+            let original_iat = plan
+                .imports
+                .iter()
+                .map(|planned| {
+                    read_initialization_u32(&memory, image.layout.owner, planned.iat_address)
+                        .expect("original IAT")
+                })
+                .collect::<Vec<_>>();
+            let mut checkpoint = |stage| {
+                if stage == fail_at {
+                    Err(LoaderError::invalid_input(
+                        "import-binding-test",
+                        "injected-import-commit-failure",
+                        format!("injected failure after {stage:?}"),
+                    ))
+                } else {
+                    Ok(())
+                }
+            };
+            let error = commit_pe32_import_binding_with_checkpoint(
+                &mut memory,
+                &loader,
+                &image,
+                &plan,
+                &mut checkpoint,
+            )
+            .expect_err("injected checkpoint must fail");
+            assert_eq!(error.code, "injected-import-commit-failure");
+            assert_eq!(memory.stats(), before, "rollback after {fail_at:?}");
+            assert!(
+                !memory
+                    .owner_is_sealed(image.layout.owner)
+                    .expect("image owner")
+            );
+            for (planned, original) in plan.imports.iter().zip(original_iat) {
+                assert_eq!(
+                    read_initialization_u32(&memory, image.layout.owner, planned.iat_address,)
+                        .expect("rolled-back IAT"),
+                    original,
+                    "IAT rollback after {fail_at:?}"
+                );
+            }
+            commit_pe32_import_binding(&mut memory, &loader, &image, &plan)
+                .unwrap_or_else(|error| panic!("retry after {fail_at:?} failed: {error}"));
+        }
+    }
 }

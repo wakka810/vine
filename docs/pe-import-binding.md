@@ -8,7 +8,7 @@
 - Schema: `vine.pe32-import-binding` version `1`
 - Primary fingerprint: `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
 
-This checkpoint gives materialized PE32 imports stable runtime ownership. It creates a bounded executable thunk arena, assigns deterministic IDs in load-plan order, writes owned thunk addresses into IAT slots, and seals a controlled image only when every import has a declared trap endpoint. An unsupported import binds only the supported prefix and returns module／symbol／IAT context without sealing the image or pretending the service succeeded.
+This checkpoint gives materialized PE32 imports stable runtime ownership. Planning is read-only across every import and assigns deterministic IDs／addresses in load-plan order. Commit creates the bounded executable thunk arena, rewrites every IAT slot, verifies it, and seals both owners inside one rollback transaction. If any import lacks an allowed endpoint, all unresolved identities are returned and guest memory is unchanged.
 
 ## 2. Production boundary
 
@@ -23,14 +23,14 @@ Version 1 thunk ownership is:
 | Slot stride | 16 bytes |
 | Capacity | 4,096 slots |
 | ID | 1-based, plan-order stable |
-| Committed backing | Only pages required by the supported prefix |
+| Committed backing | Only pages required by the complete plan |
 | Page protection | logical RX |
 | Default committed byte | `HLT` (`0xF4`) |
 | Owned slot prefix | `UD2` (`0x0F 0x0B`) |
 
-The binder first verifies the loader schema, image source, recorded load base／range, unsealed owner report, materialization stop, pending generation, and every candidate IAT DWORD before mutation. Owner-scoped memory access also requires the referenced owner and region to remain live. It computes the supported prefix and physical quota before creating the arena. For each prefix import it writes `UD2` at the owned slot and the slot address into the read-only image IAT through the owner-scoped initialization path. It verifies all writes, hashes committed arena bytes, and seals the runtime owner.
+Phase 1 verifies the loader schema, image source, load base／range, live unsealed owner, materialization stop, pending generation, thunk capacity, fixed arena availability, physical quota, and every original IAT DWORD without mutation. Each `PlannedImport` records module, name／ordinal, requester owner, IAT RVA／address／original value, optional catalog endpoint, disposition, stable ID, and thunk address. `RequireDeclaredExport` reports every unresolved import across every module. `BindUnsupportedTrap` changes those dispositions to identity-preserving returnless traps.
 
-If all imports bind, the image owner is also sealed. If one is unsupported, later imports are untouched and the image remains unsealed. Mapping, runtime-owner seal, and optional image seal merge into the existing pending invalidation generation. Guest access remains blocked until an actual adapter acknowledges that generation.
+Phase 2 revalidates the memory generation and every IAT value, then creates the arena, commits pages, writes thunk bytes and all IAT values, verifies IATs, hashes the arena, and seals runtime／image owners in one `GuestMemory` transaction. Any error restores owners, regions, frames, bytes, protection, seal state, generation, and pending delta. A successful bind is explicitly non-repeatable because the image owner is sealed; an incomplete plan can be retried on the same image after catalog extension.
 
 ## 3. Controlled fixture result
 
@@ -49,10 +49,10 @@ npm run check:runtime:imports
 | IAT | `0x10002034`／`0x10002038` rewritten and read back |
 | Arena digest | SHA-256 `bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc` |
 | Owners | image `1`, runtime `2`, both sealed |
-| Invalidation | generation `4`, data TLB／fetch／generated code |
+| Memory generation | `6`, data TLB／fetch／generated code pending before initial reflection |
 | Stop | `process-bootstrap`／`peb-teb-process-parameters-unimplemented` |
 
-After acknowledgement, the test reads both IAT pointers through normal guest access, fetches each `UD2`／`HLT` slot, verifies an unowned committed slot is all `HLT`, and confirms the sealed read-only IAT rejects guest writes with PFEC `7`. Address lookup maps only exact owned slot starts back to their IDs and symbols.
+After initial reflection acknowledgement, dirty state is zero. The test reads both IAT pointers through normal guest access, fetches each `UD2`／`HLT` slot, verifies an unowned committed slot is all `HLT`, and confirms the sealed read-only IAT rejects guest writes with PFEC `7`. Address lookup maps only exact owned slot starts back to their IDs and symbols.
 
 The deterministic probe command is:
 
@@ -67,16 +67,16 @@ npm run probe:runtime:pe -- `
   .work\toolchain-spike\abi-smoke.exe
 ```
 
-Two reports were byte-identical at 4,421 bytes with SHA-256 `04d6f001e157c0e0fc3f1878516fb913a131e5cfe187162cf265b375e949472d`.
+Two reports were byte-identical at 4,483 bytes with SHA-256 `bdcc35c73320d5c628cd917b6ab0b0c9a2d2c3aefad7673ca7dc03e169a9b661`.
 
 ## 4. Primary BGI result
 
-Native trace already proves that BGI reaches `Direct3DCreate9`, so the probe declares only that trap endpoint and does not bulk-bind unobserved APIs.
+Native trace proves that BGI reaches `Direct3DCreate9`, but a catalog containing only that endpoint is now a read-only incomplete plan. No prefix is committed.
 
 ```powershell
 npm run probe:runtime:pe -- `
   --expect-sha256 f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1 `
-  --prepare-memory-pages 381 `
+  --prepare-memory-pages 380 `
   --materialize-image-base 0x10000000 `
   --bind-name d3d9.dll Direct3DCreate9 `
   --output .work\import-binding\bgi.json `
@@ -86,23 +86,24 @@ npm run probe:runtime:pe -- `
 | Field | Result |
 |---|---|
 | Total imports | 330 |
-| Bound prefix | 1: `d3d9.dll!Direct3DCreate9` |
-| Bound IAT／thunk | `0x100D14F4` -> ID `1`／`0x7F000000` |
-| Runtime arena | 1 committed page, sealed, SHA-256 `4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059` |
-| Remaining imports | 329 |
+| Bound imports | 0; planning found an incomplete catalog |
+| Planned declared endpoint | ID `1`: `d3d9.dll!Direct3DCreate9` |
+| Runtime arena | not created |
+| Unresolved imports | all 329 identities across the remaining modules |
 | First unresolved | `DINPUT8.dll!DirectInput8Create`, IAT `0x100D1050` |
 | Image owner | unsealed |
-| Invalidation | generation `3` |
-| Stop | `import-resolution`／`import-symbol-unimplemented` |
+| Image owner／IAT | unsealed and byte-identical to pre-plan state |
+| Memory generation | unchanged materialization generation `2` |
+| Stop | `import-resolution`／`import-symbols-unimplemented` |
 
-Two reports were byte-identical at 4,258 bytes with SHA-256 `64217ed90cd86098396d27652ed41828ffeb6354f29f96bb7cc981daaab34fc0`. The original BGI file remained 1,193,472 bytes with its primary SHA-256.
+Two reports were byte-identical at 86,073 bytes with SHA-256 `6887944898fc8cecb132d63774573e6823e4ade25aba8aee6de98b31d4b6a69f`. The larger report preserves every unresolved identity rather than only the first stop. The original BGI file remained 1,193,472 bytes with its primary SHA-256.
 
 ## 5. Non-claims and next checkpoint
 
 This is partial evidence for `REQ-PE-03`, `REQ-PE-06`, `REQ-ABI-01`, `REQ-DIAG-03`, `P1-ABI-01`, `P2-PE-04`, `P2-DIAG-01`, `P2-COR-01`, `AC-P2-01`, and `AC-P2-06`. None is complete.
 
-Within this import-binding checkpoint no thunk is dispatched. The D3D9 endpoint does not implement `Direct3DCreate9`; reaching it must still stop as an unimplemented service until a typed frontend exists. The `0x7F000000` arena is a version 1 checkpoint allocation, not a final process-layout or ASLR decision. General DLL／export／forwarder resolution, API metadata generation, calling conventions, LastError, callbacks, SEH, PEB／TEB／production stack, and BGI execution remain unimplemented.
+Within this import-binding checkpoint no thunk is dispatched. A declared D3D9 endpoint does not implement `Direct3DCreate9`; reaching it must still stop until a typed frontend exists. The `0x7F000000` arena is a version 1 checkpoint allocation, not a final process-layout or ASLR decision. General DLL／export／forwarder resolution, API metadata generation, calling conventions, LastError, callbacks, and SEH remain unimplemented.
 
 The subsequent [v86 entry checkpoint](v86-entry-ingress.md) reflects the sealed controlled image and thunk arena into provisional v86 paging and reaches exact thunk ID `1`. Later continuations return one fixed service／callback, classify exact entry completion in [v86-entry-return-ingress.md](v86-entry-return-ingress.md), and reflect a Rust-owned stack in [v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md). General service／callback handling remains later work. This import-binding report and its stops remain unchanged.
 
-The optional continuation in [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md) leaves this prefix-stop behavior unchanged, but can bind catalog-missing identities to explicit returnless traps. It seals the BGI image only after all 330 IAT slots have owned metadata; it does not claim those APIs are implemented.
+The optional continuation in [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md) binds catalog-missing identities to explicit returnless traps. It seals the BGI image only after all 330 IAT slots have owned metadata; it does not claim those APIs are implemented.

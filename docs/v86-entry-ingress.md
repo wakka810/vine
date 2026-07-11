@@ -8,7 +8,7 @@
 - Report schema: `vine.v86-entry-ingress` version `1`
 - Primary fixture: `abi-smoke.exe`, 2,560 bytes, SHA-256 `60f882a22d7d44e0ebe734f284dc8676e29035207ff004ed0cdf6e97c629b9c7`
 
-This checkpoint connects the sealed controlled image and production import-thunk owner to the provisional v86 paging adapter. It keeps the same Rust `GuestMemory` alive while Node installs semantic pages into adapter-owned page tables, clears v86 translation and generated-code state, and acknowledges pending generation `4`. It then starts the relocated entry at `0x10001000` on a bounded harness stack and stops at exact production thunk ID `1`／`0x7F000000` before any host service behavior.
+This checkpoint connects the sealed controlled image and production import-thunk owner to the provisional v86 paging adapter. It keeps the same Rust `GuestMemory` alive while Node installs semantic pages into adapter-owned page tables, clears v86 translation and generated-code state, and acknowledges pending generation `6`. It then starts the relocated entry at `0x10001000` on a bounded harness stack and stops at exact production thunk ID `1`／`0x7F000000` before any host service behavior.
 
 ## 2. Reflection boundary
 
@@ -33,15 +33,15 @@ Rust probe                         Node v86 adapter
     |                                     | restore CPU state ABI
     |                                     | full_clear_tlb
     |                                     | jit_clear_cache_js
-    | reflection-ack v1, generation 4     |
+    | reflection-ack v1, generation 6     |
     |<------------------------------------|
-    | acknowledge_invalidation(4)         |
+    | acknowledge_delta(6)                |
     | normal read/fetch verification      |
     | reflection-receipt v1               |
     |------------------------------------>|
 ```
 
-An acknowledgement is rejected if its schema／generation is wrong or any required data-TLB, instruction-fetch, or generated-code class is incomplete. The default version 1 session rejects physical quotas above 16 pages and serialized protocol messages above 512 KiB, the Node runner enforces the same line limit, and the probe reads at most 4 KiB of acknowledgement input. After acceptance it verifies the bound IAT and fetches both entry and thunk bytes through normal Rust guest access; `pendingInvalidation` must then be absent. The explicit larger bound is documented separately in [v86-bgi-first-trap.md](v86-bgi-first-trap.md).
+An acknowledgement is rejected if its schema／generation is wrong or any required data-TLB, instruction-fetch, or generated-code class is incomplete. The default version 1 session rejects physical quotas above 16 pages and serialized protocol messages above 512 KiB, the Node runner enforces the same line limit, and the probe reads at most 4 KiB of acknowledgement input. After acceptance it verifies zero dirty pages, the bound IAT, and entry／thunk bytes through normal Rust guest access; `pendingInvalidation` must then be absent. Incremental transfers use [memory-delta-and-transactions.md](memory-delta-and-transactions.md). The explicit larger bound is documented separately in [v86-bgi-first-trap.md](v86-bgi-first-trap.md).
 
 ## 3. Representative contract
 
@@ -91,7 +91,7 @@ After the reflection receipt, the runner writes harness-only entry sentinel `0xD
 | Arguments | `[19, 23]` |
 | Bound IAT | `0x10002034` -> `0x7F000000` |
 
-The deterministic report is 4,831 bytes with SHA-256 `9b32ed50a4fa53d60a2743267230d43acf754bb6bc490851dd754955e70cbcb8`.
+The deterministic report is 4,831 bytes with SHA-256 `c254b3be79eccbfd944dbae3d00376e9db81597eaccdec3488670408611a817c`.
 
 ## 5. Non-claims and next checkpoint
 

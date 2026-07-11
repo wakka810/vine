@@ -1,5 +1,6 @@
 [package]
 name = "vine-pe-probe"
+default-run = "vine-pe-probe"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

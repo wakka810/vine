@@ -174,7 +174,7 @@ v86 の通常 RAM は contiguous guest physical memory である。一方、Vine
 
 一方、fixed v86はinstruction fetchをread translationとして扱い、PEのnon-executable `.nxprobe`を実行した。unmapped fetchもPFEC `4`でinstruction-fetch bitを持たない。checked sparse referenceは同じpage metadataからnon-executable／unmapped fetchを`21`／`20`として拒否したがCPU未接続である。この結果から、Vine region table＋bounded physical allocatorをv86 pagingへ反映し、adapter-owned execute gateを追加する案をprovisional candidateとする。snapshot、guard、generated-code invalidation、Worker ceilingを閉じるまで`ADR-003`はAcceptedではない。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)を正とする。
 
-続くproduction Rust ingressはsparse owner／region／page state、bounded zeroed frames、logical execute seal、cross-page preflight、generation-tagged invalidation requirementを実装した。high fixtureの6 image pagesとBGI planの380 pagesを所有し、controlled imageの2 IATを`0x7F000000` arenaへbindして両ownerをsealした。optional entry-return modeはseparate ownerのRX control pageへcallback／process-entry sentinelを置いた7 pagesをgeneration `6`でreflectし、actual invalidation後にone-level callback、outer cdecl return、exact entry completionまで進めたが、production stack／general process mapping／mutation／snapshotは未接続である。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[pe-import-binding.md](pe-import-binding.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)、[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を正とする。
+続くproduction Rust ingressはsparse owner／region／page state、bounded zeroed frames、logical execute seal、cross-page preflight、generation-tagged `MemoryDelta`を実装した。high fixtureの6 image pagesとBGI planの380 pagesを所有し、controlled imageの2 IATを`0x7F000000` arenaへatomic bindして両ownerをsealした。optional entry-return modeはseparate ownerのRX control pageへcallback／process-entry sentinelを置いた7 pagesをgeneration `9`でreflectし、actual invalidation後にone-level callback、outer cdecl return、exact entry completionまで進めた。初回snapshot後の通常data writeはdirty 1 pageだけをlive v86へ適用できるが、v86-originated writeback／general process mapping／snapshotは未接続である。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[pe-import-binding.md](pe-import-binding.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)、[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を正とする。
 
 ### B5. Stable state ABI: Verified baseline
 
@@ -206,7 +206,7 @@ fixed `destroywindow-synchronous-wm-destroy`はDispatch API `3` -> `WM_PAINT` ca
 
 ### B8. Production-memory entry: Verified ingress
 
-`npm run check:runtime:entry`は同じlive Rust `GuestMemory`をprobe sessionに保持し、guest VA／owner／seal／R／W／X／4 KiB bytesだけをNode adapterへ渡す。Rust physical frame、v86 physical placement、private offsetはprotocolに含めない。Nodeは2 MiB poolの11 pagesへpage directory、3 tables、6 reflected pages、1 harness stackを配置し、state ABI restore、explicit TLB／generated-code clear後にgeneration `4`をacknowledgeする。
+`npm run check:runtime:entry`は同じlive Rust `GuestMemory`をprobe sessionに保持し、guest VA／owner／seal／R／W／X／4 KiB bytesだけをNode adapterへ渡す。Rust physical frame、v86 physical placement、private offsetはprotocolに含めない。Nodeは2 MiB poolの11 pagesへpage directory、3 tables、6 reflected pages、1 harness stackを配置し、state ABI restore、explicit TLB／generated-code clear後にgeneration `6`をacknowledgeする。
 
 instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 budget stopでproduction thunk ID `1`／`0x7F000000`のstructured `#UD`へ到達した。ESP `0x006FFFF0`、return `0x1000100A`、arguments `[19,23]`、bound IATを検証した。このentry-only reportではservice dispatch／resumeを行わない。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
 
@@ -218,7 +218,7 @@ instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 bud
 
 ### B10. Production callback return: Verified ingress
 
-`npm run check:runtime:callback`はseparate runtime owner `3`のRX control pageへsentinel ID `1`／`0x7F010000`を置き、generation `6`の7 production pagesをreflectする。frame ID `1`はparent thunk ID `2`、outer ESP／return、target／value、sentinel identityを保持する。checked stack ESP `0x006FFFE8`へ`[sentinel,42]`を積み、guest `add_one`を実行して6 execute stop／3 budget stop後にEAX `43`、ESP `0x006FFFEC`でexact sentinelへ戻った。
+`npm run check:runtime:callback`はseparate runtime owner `3`のRX control pageへsentinel ID `1`／`0x7F010000`を置き、generation `9`の7 production pagesをreflectする。frame ID `1`はparent thunk ID `2`、outer ESP／return、target／value、sentinel identityを保持する。checked stack ESP `0x006FFFE8`へ`[sentinel,42]`を積み、guest `add_one`を実行して6 execute stop／3 budget stop後にEAX `43`、ESP `0x006FFFEC`でexact sentinelへ戻った。
 
 これはone-level callback entry／return trapのevidenceである。frame retirement、outer service return、general frame stack、nested／reentrant callback、adapter-to-Rust dirty synchronizationは未実装である。詳細は[v86-callback-return-ingress.md](v86-callback-return-ingress.md)を正とする。
 
@@ -230,49 +230,55 @@ instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 bud
 
 ### B12. Production entry return: Verified ingress
 
-`npm run check:runtime:entry-return`はcontrol owner `3`のslot `2`へprocess-entry sentinel ID `2`／`0x7F010010`を追加し、combined page SHA-256 `bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc`をgeneration `6`でsealする。initial ESP `0x006FFFFC`へexact addressを置き、9 execute stop／5 budget stop後にreason `0x106`、EIP／previous EIP `0x7F010010`、EAX `0`、ESP `0x00700000`、fixture result `43`でentry completionを分類した。outer modeのunmapped PFEC `4`は不変である。
+`npm run check:runtime:entry-return`はcontrol owner `3`のslot `2`へprocess-entry sentinel ID `2`／`0x7F010010`を追加し、combined page SHA-256 `bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc`をgeneration `9`でsealする。initial ESP `0x006FFFFC`へexact addressを置き、9 execute stop／5 budget stop後にreason `0x106`、EIP／previous EIP `0x7F010010`、EAX `0`、ESP `0x00700000`、fixture result `43`でentry completionを分類した。outer modeのunmapped PFEC `4`は不変である。
 
 これはtyped process-entry returnとbalanced fixed stackのevidenceである。initial stackはadapter-localで、Windows process／thread exit lifecycle、PEB／TEB、process parameters、general stack growth／guardは未実装である。詳細は[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を正とする。
 
 ### B13. Production stack bootstrap: Verified ingress
 
-`npm run check:runtime:stack-bootstrap`はanonymous owner `4`の`[0x006FF000,0x00700000)`をstack regionとしてRW commitし、initial ESPへentry sentinelをchecked writeしてgeneration `8`でsealする。8 reflected pagesのcontent SHA-256は`d7471bcc744e2f769861e1a40cc5520f5c0d452f2ea8539233a8573315b6f1cd`である。adapterは`harness-stack`をallocate／writeせず、page directory／3 tables／8 reflected pagesの12 pages／48 KiBで同じ9 execute stop／5 budget stop、EAX `0`、ESP `0x00700000`を通した。
+`npm run check:runtime:stack-bootstrap`はanonymous owner `4`の`[0x006FF000,0x00700000)`をstack regionとしてRW commitし、initial ESPへentry sentinelをchecked writeしてgeneration `12`でsealする。8 reflected pagesのcontent SHA-256は`d7471bcc744e2f769861e1a40cc5520f5c0d452f2ea8539233a8573315b6f1cd`である。adapterは`harness-stack`をallocate／writeせず、page directory／3 tables／8 reflected pagesの12 pages／48 KiBで同じ9 execute stop／5 budget stop、EAX `0`、ESP `0x00700000`を通した。
 
-これはcontrolled stack ownership handoffのevidenceである。fixed one-page stackはPE stack reserve／commit、guard／growth、multi-thread、teardown、mutation sync、PEB／TEBの代用ではない。詳細は[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)を正とする。
+これはcontrolled stack ownership handoffのevidenceである。fixed one-page stackはPE stack reserve／commit、guard／growth、multi-thread、teardown、v86-originated writeback、PEB／TEBの代用ではない。詳細は[v86-stack-bootstrap-ingress.md](v86-stack-bootstrap-ingress.md)を正とする。
 
 ### B14. Bootstrap FS first stop: Verified ingress
 
-`npm run check:runtime:bootstrap-fs-first-stop`はnative WindowsでTEB self／PEB pointerを自己検証するimport-free fixtureをproduction Rustの7-page reflectionから実行する。FS selector／base `0`／`0`の最初の`FS:[0x18]`はreason `0x10E`、PFEC `4`、CR2 `0x18`で止まり、current／previous EIPは`0x10001007`／`0x10001000`となった。5,982-byte reportのSHA-256は`9bca668c33208fa1bc6a4e8253dafb247bd9520a106761a24fd06cf46364f7f9`である。
+`npm run check:runtime:bootstrap-fs-first-stop`はnative WindowsでTEB self／PEB pointerを自己検証するimport-free fixtureをproduction Rustの7-page reflectionから実行する。FS selector／base `0`／`0`の最初の`FS:[0x18]`はreason `0x10E`、PFEC `4`、CR2 `0x18`で止まり、current／previous EIPは`0x10001007`／`0x10001000`となった。5,982-byte reportのSHA-256は`0276cc927a3d870b10a632cf95995e79ec96cd8af5558e964b7635d2d2b7941b`である。
 
 これはnative FS offset contractとTEB未実装境界のevidenceであり、guest TEB／PEB、nonzero FS base、process parameters、TLS、LastErrorを実装しない。詳細は[v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md)を正とする。
 
 ### B15. Bootstrap FS completion: Verified ingress
 
-`npm run check:runtime:bootstrap-fs`はtyped Rust TEB／PEB pagesをgeneration `10`でreflectし、versioned CPU stateのFS baseを`0x7FFDE000`へrestoreする。native-oracled 4 fieldsは一致し、9 execute stop／8 budget stop後にentry EAX `0`、ESP `0x00700000`でexact process-entry sentinelへ到達した。8,214-byte reportのSHA-256は`4e2e951d53c9a51792767b0fc506c5d8162fb889960ee24dcce9c8333c9670f7`である。
+`npm run check:runtime:bootstrap-fs`はtyped Rust TEB／PEB pagesをgeneration `15`でreflectし、versioned CPU stateのFS baseを`0x7FFDE000`へrestoreする。native-oracled 4 fieldsは一致し、9 execute stop／8 budget stop後にentry EAX `0`、ESP `0x00700000`でexact process-entry sentinelへ到達した。8,214-byte reportのSHA-256は`3567ff39474f72781010fdb810b793f58424483a7663b89f2cea4b73a28748b9`である。
 
 これはminimum TEB／PEB field contractであり、process parameters、TLS、LastError、general selector／lifecycleを実装しない。詳細は[v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)を正とする。
 
 ### B16. Process-parameters first stop: Verified ingress
 
-`npm run check:runtime:bootstrap-params-first-stop`はseparate import-free fixtureをnative Windowsでself-oracleし、i386の`PEB+0x10`、`ProcessParameters+0x40`、`UNICODE_STRING.Buffer+0x04`からbounded command-line matchまでをexit code `0`で固定する。同じfixtureはminimum guest PEBのzero pointerを観測し、8 execute stop／7 budget stop後にentry EAX `2`、ESP `0x00700000`でexact process-entry sentinelへ到達した。8,351-byte reportのSHA-256は`263d07c36be0579973f6f6ecdf2c41a3e1eb9b76af21c8b9c66681498d20603e`である。
+`npm run check:runtime:bootstrap-params-first-stop`はseparate import-free fixtureをnative Windowsでself-oracleし、i386の`PEB+0x10`、`ProcessParameters+0x40`、`UNICODE_STRING.Buffer+0x04`からbounded command-line matchまでをexit code `0`で固定する。同じfixtureはminimum guest PEBのzero pointerを観測し、8 execute stop／7 budget stop後にentry EAX `2`、ESP `0x00700000`でexact process-entry sentinelへ到達した。8,351-byte reportのSHA-256は`b1c05c3e9df1529196276c8905f3b97aee306610c870461d458a857c80aadde5`である。
 
 これはnative layoutとfirst unsupported pointのevidenceであり、process-parameters region、command-line bytes、broader PEB／process lifecycleを実装しない。詳細は[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)を正とする。
 
 ### B17. Process-parameters completion: Verified ingress
 
-`npm run check:runtime:bootstrap-params`はtyped process-parameters／command-line pagesをgeneration `14`でreflectし、PEB pointer、Length `40`、MaximumLength `42`、Buffer、UTF-16 basename＋NULをack後にnormal readする。同じfixtureは94 execute stop／93 budget stop後にmatch index `0`、entry EAX `0`、ESP `0x00700000`でexact process-entry sentinelへ到達した。10,521-byte reportのSHA-256は`9b12a10acf50841cd27636c3b1b35439dfa49e19190a9d34c809b0052021c109`である。
+`npm run check:runtime:bootstrap-params`はtyped process-parameters／command-line pagesをgeneration `21`でreflectし、PEB pointer、Length `40`、MaximumLength `42`、Buffer、UTF-16 basename＋NULをack後にnormal readする。同じfixtureは94 execute stop／93 budget stop後にmatch index `0`、entry EAX `0`、ESP `0x00700000`でexact process-entry sentinelへ到達した。10,521-byte reportのSHA-256は`c1e76294d4bba6760cbc8d022e022ef66b557d370b567d9a498798b8b2f7ac66`である。
 
 これはmeasured command-line support bandであり、general process parameters、loader／thread lifecycleを実装しない。BGI execution continuationは[v86-bgi-first-trap.md](v86-bgi-first-trap.md)で別に固定した。
 
-`npm run check:runtime:bgi-first-trap`はopt-in 400-page Rust limit／8 MiB protocol-line limitでBGIの388 sealed pagesをgeneration `16`へreflectする。2 MiB adapter poolはv86のVGA MMIO hole `[0xA0000,0xC0000)`を除外し、directory 1、tables 4、reflected pages 388の393 allocationsを使う。4,904,601-byte offerのcontent SHA-256は`f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0`である。
+`npm run check:runtime:bgi-first-trap`はopt-in 400-page Rust limit／8 MiB protocol-line limitでBGIの388 sealed pagesをgeneration `24`へreflectする。2 MiB adapter poolはv86のVGA MMIO hole `[0xA0000,0xC0000)`を除外し、directory 1、tables 4、reflected pages 388の393 allocationsを使う。4,904,602-byte offerのcontent SHA-256は`f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0`である。
 
-entry `0x100A383E`はinstruction budget `1`で全境界のlogical execute permissionを検査し、19 execute stop／18 budget stop／19命令でexact owned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`／`0x7F000670`へ到達した。runnerはESP `0x006FFFD0`、return `0x100A88D2`、raw stack wordsを記録し、API dispatch／returnを行わない。9,591-byte reportのSHA-256は`a74ed888aa95923a1bcb5c20ad5a58e945ab269419d834a19eefa10d6b33be3b`である。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
+entry `0x100A383E`はinstruction budget `1`で全境界のlogical execute permissionを検査し、19 execute stop／18 budget stop／19命令でexact owned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`／`0x7F000670`へ到達した。runnerはESP `0x006FFFD0`、return `0x100A88D2`、raw stack wordsを記録し、API dispatch／returnを行わない。9,592-byte reportのSHA-256は`4ed39b15de85c188b52dbafd0eda9c35e4d88f3c4aa8a9079c98f6d9d9f03840`である。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
 
-### B18. Browser Worker
+### B18. MemoryDelta data roundtrip: Verified ingress
+
+`npm run check:runtime:memory-delta`は初回4-page reflectionをacknowledgeした後、RustのRW／NX pageへ8 bytesを書き、generation `11`の1-page／4 KiB deltaだけを既存v86 mappingへ適用する。cache effectsは全てfalseで、guest x86はEDX:EAX `0x8877665544332211`を読んでexact `UD2`へ停止する。ack後のRust dirty pagesは0である。同じfixtureは実行可能page末尾からNX pageへ跨るinstructionを15-byte conservative gateで実行前に停止する。
+
+これはhost-originated data outputを全snapshot再送なしでCPUへ返せるevidenceである。v86-originated writeback、binary IPC、decode-aware execute span、general mapping lifecycleは未実装である。詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)を正とする。
+
+### B19. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B17. Correctness と performance
+### B20. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
@@ -323,7 +329,7 @@ adapter fixture は次の順に増やす。
 
 `ADR-002` の採用前に残る gate:
 
-- general mutation／dirty-page ownershipとsnapshotをv86 paging／fetchへ接続する
+- v86-originated dirty-page ownership、general heap／stack mutation、snapshotをv86 paging／fetchへ接続する
 - Chromium Worker で correctness smoke と provisional benchmark が通る
 - target workloadに必要なISA／ABI／exception bandを説明できる
 - fork の変更範囲と upstream追従手順を説明できる

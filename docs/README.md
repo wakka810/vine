@@ -5,7 +5,7 @@
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 対象: current `main` worktree
-- 実装成熟度: Phase 0 discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI first runtime trap。BGI entryは`GetSystemTimeAsFileTime`へ到達したがAPI未実装で、general process integration／parameters、DLL／export resolution、Win32 runtime、browser app、CIはまだない
+- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI first runtime trap。MemoryDelta、rollback transaction、atomic import binding、public Linux CIを追加済み。BGI entryは`GetSystemTimeAsFileTime`へ到達したがAPI未実装で、general process lifecycle、DLL／export resolution、Win32 runtime、browser appはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
@@ -55,9 +55,10 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [x86-engine-scorecard.md](x86-engine-scorecard.md) | どの x86 engine を先に試すか | 4 候補の比較、v86 実行 evidence、adapter blocker と採用 gate |
 | [adr-003-guest-memory.md](adr-003-guest-memory.md) | guest memoryをどこが所有するか | high-address／R／W／X測定、候補比較、provisional CPU integration boundary |
 | [guest-memory-ingress.md](guest-memory-ingress.md) | production memory ingressが何を所有するか | sparse region／page API、fault／invalidation、fixture／BGI layout evidence |
+| [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | incremental dirty pages、cache effects、generation ack、rollback、v86 data roundtrip |
 | [pe-loader-ingress.md](pe-loader-ingress.md) | immutable PE32 planをどこまで作れるか | Rust workspace、bounded parser／plan、fixture contract、BGI W7 stop |
 | [pe-materialization.md](pe-materialization.md) | PE image bytesをどこまで構築できるか | source copy、zero-fill、`HIGHLOW`、IAT-original verification、BGI stop |
-| [pe-import-binding.md](pe-import-binding.md) | runtime import endpointをどこまで所有できるか | thunk arena／ID、IAT prefix binding、owner seal、controlled fixture／BGI stop |
+| [pe-import-binding.md](pe-import-binding.md) | runtime import endpointをどこまで所有できるか | all-import planning、atomic IAT commit／rollback、unresolved retry、thunk arena／ID |
 | [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md) | 未実装static importをどうseal可能にするか | identity付きunsupported traps、controlled test、BGI full bind |
 | [v86-entry-ingress.md](v86-entry-ingress.md) | production memoryをCPUへどこまで渡せるか | semantic reflection、invalidation ack、bounded stack、entry-to-thunk evidence |
 | [v86-cdecl-ingress.md](v86-cdecl-ingress.md) | 最初のproduction serviceをどこまでreturnできるか | exact thunk metadata、fixed cdecl frame／return、guest cleanup、callback-service ingress |
@@ -76,6 +77,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [target-architecture.md](target-architecture.md) | どの境界で作るか | コンポーネント、実行モデル、同期・非同期境界、runtime robustness |
 | [risks-and-open-questions.md](risks-and-open-questions.md) | 何が未確定で、何が失敗要因か | 意思決定待ち、リスク台帳、停止条件、ADR 候補 |
 | [testing-and-acceptance.md](testing-and-acceptance.md) | 何をもって動作したと判定するか | テスト階層、fixture、品質指標、リリース判定 |
+| [checks-and-ci.md](checks-and-ci.md) | canonical gateをどう実行するか | fast／fixture E2E／adapter／private corpus、Linux GitHub Actions、fuzz |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 
 推奨する読み順は、corpus 台帳、要件、目標アーキテクチャ、リスク、検証、ロードマップの順である。ロードマップ内の `REQ-*`、`NFR-*`、`R-*`、`Q-*`、`AC-*` は各文書の識別子を参照する。

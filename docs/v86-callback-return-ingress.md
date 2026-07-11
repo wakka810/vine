@@ -26,9 +26,9 @@ The callback mode adds one region without changing the existing import-thunk are
 | Slot bytes | `UD2`, then `HLT` padding |
 | Page SHA-256 | `4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059` |
 
-The import arena remains `[0x7F000000, 0x7F010000)`, owner `2`, with thunk IDs `1` and `2`. The separate control region prevents a callback return trap from being classified as an import service. Installing and sealing owner `3` advances the pending invalidation from generation `4` to `6`.
+The import arena remains `[0x7F000000, 0x7F010000)`, owner `2`, with thunk IDs `1` and `2`. The separate control region prevents a callback return trap from being classified as an import service. Reserving, committing, and sealing owner `3` advances the pending generation from `6` to `9`.
 
-Callback mode reflects seven production pages with content SHA-256 `45d980f7ab5aa3c98942777693438a9c780f5d6a4f0e86f2f8db63211a3af406`. The adapter uses the same 2 MiB physical pool with one page directory, three page tables, seven reflected pages, and one harness stack: 12 pages／48 KiB total. After state restore, `full_clear_tlb`, and `jit_clear_cache_js`, Rust acknowledges generation `6` and fetch-verifies the sentinel bytes through normal guest access.
+Callback mode reflects seven production pages with content SHA-256 `45d980f7ab5aa3c98942777693438a9c780f5d6a4f0e86f2f8db63211a3af406`. The adapter uses the same 2 MiB physical pool with one page directory, three page tables, seven reflected pages, and one harness stack: 12 pages／48 KiB total. After state restore, `full_clear_tlb`, and `jit_clear_cache_js`, Rust acknowledges generation `9`, clears initial dirty state, and fetch-verifies the sentinel bytes through normal guest access.
 
 The callback-specific mode is:
 
@@ -68,7 +68,7 @@ The target page is sealed and executable. Adapter stack writes require a mapped 
 
 The four-byte ESP increase is the guest callback's `RET` consuming only the callback return sentinel. Its cdecl argument remains at the current ESP. Frame ID `1` and parent thunk ID `2` remain active at the stop.
 
-The deterministic report is 7,028 bytes with SHA-256 `4c176ba2358254a8d47c9bcc3040435977a19e4c6b495fb6f220a839e8869093`.
+The deterministic report is 7,028 bytes with SHA-256 `29ede77d61369e560197dedb35311e662e0d3c56a3c6ce5dadc9743c02c10771`.
 
 ## 4. Non-claims and next checkpoint
 

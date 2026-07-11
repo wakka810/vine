@@ -99,7 +99,7 @@ const expected = {
     committedPages: 1,
     slotSize: 0x10,
     contentSha256: "bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc",
-    generation: 4,
+    generation: 6,
   },
   stack: {
     owner: 3,
@@ -109,7 +109,7 @@ const expected = {
     top: 0x00700000,
     initialEsp: 0x006ffffc,
     contentSha256: "3e944a15f97096aba42964f3628826766b970bbaeb98d85962f679fd725de079",
-    generation: 6,
+    generation: 9,
   },
   processEnvironment: {
     tebOwner: 4,
@@ -122,7 +122,7 @@ const expected = {
     tebPebPointerOffset: 0x30,
     tebContentSha256: "5d4ad643f294d6976304f87d2912ec4a0b1f774fae1fd9a94de59749bfdcd67e",
     pebContentSha256: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
-    generation: 10,
+    generation: 15,
   },
   processParameters: {
     processParametersOwner: 6,
@@ -143,7 +143,7 @@ const expected = {
       "5fb4eed3eb10240c39a428c43621e7198ccf0c3089ffff6e6aea233759533f75",
     commandLineContentSha256:
       "f6e0abfe79cb7fafa42be5f1450e91539b3d0386f7140523e44109249f1e19bd",
-    generation: 14,
+    generation: 21,
     executeStops: 94,
     budgetStops: 93,
   },
@@ -157,19 +157,19 @@ const expected = {
     "f9a59953a06999030e40e962a007f1ec5f0ecb73b077c4df760e212ba3d3acbb",
   report: {
     bytes: 5_982,
-    sha256: "9bca668c33208fa1bc6a4e8253dafb247bd9520a106761a24fd06cf46364f7f9",
+    sha256: "0276cc927a3d870b10a632cf95995e79ec96cd8af5558e964b7635d2d2b7941b",
   },
   processEnvironmentReport: {
     bytes: 8_214,
-    sha256: "4e2e951d53c9a51792767b0fc506c5d8162fb889960ee24dcce9c8333c9670f7",
+    sha256: "3567ff39474f72781010fdb810b793f58424483a7663b89f2cea4b73a28748b9",
   },
   processParametersFirstStopReport: {
     bytes: 8_351,
-    sha256: "263d07c36be0579973f6f6ecdf2c41a3e1eb9b76af21c8b9c66681498d20603e",
+    sha256: "b1c05c3e9df1529196276c8905f3b97aee306610c870461d458a857c80aadde5",
   },
   processParametersReport: {
     bytes: 10_521,
-    sha256: "9b12a10acf50841cd27636c3b1b35439dfa49e19190a9d34c809b0052021c109",
+    sha256: "c1e76294d4bba6760cbc8d022e022ef66b557d370b567d9a498798b8b2f7ac66",
   },
 };
 const activeFixture = useProcessParametersFixture
@@ -240,6 +240,19 @@ function checkedEnd(start, size, limit, label) {
   assert(Number.isSafeInteger(end) && end >= start, `${label} overflows`);
   assert(end <= limit, `${label} exceeds its containing range`);
   return end;
+}
+
+function assertExecutableFetchWindow(instructionPointer, executablePages) {
+  for (let offset = 0; offset < 15; offset += 1) {
+    const address = instructionPointer + offset;
+    assert(address <= 0xffff_ffff, "instruction fetch window crosses the guest address limit");
+    const virtualPage = (address & ~(page.size - 1)) >>> 0;
+    assert(
+      executablePages.has(virtualPage),
+      `execute gate rejected 15-byte fetch window at EIP 0x${instructionPointer.toString(16)}; ` +
+        `page 0x${virtualPage.toString(16)} is not executable`,
+    );
+  }
 }
 
 function checkedGuestEnd(address, size, label) {
@@ -1011,7 +1024,7 @@ function validateReceipt(receipt, offer, context) {
   );
   assert.equal(
     receipt.stats.dirtyPages,
-    installProcessParameters ? 11 : installProcessEnvironment ? 9 : 7,
+    0,
   );
   assert.equal(receipt.stats.generation, generation);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
@@ -1223,11 +1236,7 @@ function executeWithProcessEnvironment(offer, context) {
   let completion = null;
   for (let index = 0; index < 32; index += 1) {
     const before = saveState(0);
-    const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
-    assert(
-      executablePages.has(currentPage),
-      `execute gate rejected EIP 0x${before.instructionPointer.toString(16)}`,
-    );
+    assertExecutableFetchWindow(before.instructionPointer, executablePages);
     const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
     executeStops += 1;
     const state = saveState(reason);
@@ -1345,11 +1354,7 @@ function executeProcessParameters(offer, context) {
   const maximumExecuteStops = installProcessParameters ? 512 : 32;
   for (let index = 0; index < maximumExecuteStops; index += 1) {
     const before = saveState(0);
-    const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
-    assert(
-      executablePages.has(currentPage),
-      `execute gate rejected EIP 0x${before.instructionPointer.toString(16)}`,
-    );
+    assertExecutableFetchWindow(before.instructionPointer, executablePages);
     const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
     executeStops += 1;
     const state = saveState(reason);

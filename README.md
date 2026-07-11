@@ -4,45 +4,32 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The repository is in Phase 0 discovery. Current evidence includes reproducible
-PE32 fixtures, a bounded v86 adapter, native Windows trace attribution, fixed
-W1/W2 execution slices, a one-pixel Chrome presentation boundary, a
-high-address memory measurement, and Rust PE32 load-plan, sparse-memory,
-materialization, and import-binding ingress for the fingerprinted BGI image.
-A production Rust boundary now owns the BGI image range, applies 18,199
-`HIGHLOW` relocations at a nonpreferred base, and binds all 330 imports to
-deterministic runtime-owned `UD2` thunks. One endpoint is declared; the other
-329 retain exact identity as explicit unsupported traps. General CPU
-memory/process integration, DLL/export resolution, general process bootstrap,
-the Win32 runtime, and the browser application do not exist yet. The sealed
-controlled image now crosses a versioned Rust-to-v86 reflection boundary,
-dispatches fixed cdecl
-`fixture_add(19, 23)`, and executes one guest callback to a separately owned
-exact return sentinel after real cache invalidation. The host now retires that
-callback frame, returns result `43` through the outer cdecl thunk, and runs the
-guest entry continuation through result `43`, entry result `0`, and balanced
-stack state. A second typed runtime-control slot now classifies that entry
-return at an exact production-owned sentinel. The controlled initial stack is
-also Rust-owned and reflected instead of being allocated by the adapter. A
-separate import-free bootstrap fixture now passes a native Windows oracle for
-`FS:[0x18]` TEB self and `FS:[0x30]` PEB access; source-v86 reaches its exact
-pre-implementation stop at CR2 `0x18` with PFEC `4` and FS base zero. Rust now
-owns the minimum TEB／PEB pages as well; restoring FS base `0x7FFDE000` lets the
-same fixture observe both fields and return entry result `0`.
-An additional native-oracled fixture fixes `PEB + 0x10` and the i386
-`ProcessParameters + 0x40` command-line layout. Rust now owns typed
-process-parameters and UTF-16 command-line pages; the same fixture finds
-`bootstrap-params.exe` and returns entry result `0`.
+The current checkpoint is `bgi-first-owned-trap`. Rust owns and materializes
+the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
+330 imports to deterministic runtime-owned `UD2` thunks, and reflects 388
+sealed pages into source-built v86. BGI executes 19 instructions from entry
+`0x100A383E` and stops at exact thunk ID `104`,
+`KERNEL32.dll!GetSystemTimeAsFileTime`, before dispatch. One endpoint is
+declared; the other 329 retain exact identity as explicit unsupported traps.
+
+The foundation below that checkpoint now has an incremental `MemoryDelta`
+protocol. The first transfer is a full snapshot; later generations carry only
+mapping operations and dirty pages, with data transfer separated from TLB,
+instruction-fetch, and generated-code effects. A public fixture writes eight
+bytes to a non-executable data page, transfers one 4 KiB delta to v86, and has
+guest x86 read back `0x8877665544332211`. A conservative 15-byte execute window
+also stops cross-page instruction fetch when the next page is non-executable.
+Multi-owner bootstrap, PE materialization, and import commit paths use rollback
+transactions. Import planning is read-only and reports every unresolved import;
+IAT and thunk changes are all-or-nothing, so extending a catalog and retrying on
+the same image is supported before the first successful bind.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
-edition label. The controlled fixture now binds both imports and seals its
-image; BGI's image and runtime owners are sealed, but BGI has not executed.
-The controlled entry now returns result `0` to exact process-entry sentinel
-ID `2` with ESP `0x00700000`; arbitrary unmapped returns still fault. The next
-runtime task transfers the sealed BGI pages to
-source-v86 and stops at the first runtime-reachable owned trap; see
-[docs/pe-unsupported-trap-binding.md](docs/pe-unsupported-trap-binding.md).
+edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
+runtime, graphics, audio, storage, and full title play remain unimplemented.
+The next endpoint checkpoint is a checked stdcall return from thunk ID `104`
+after writing an eight-byte `FILETIME` sample through `MemoryDelta`.
 
 ## Requirements
 
@@ -60,11 +47,14 @@ npm ci
 npm run check
 ```
 
-The canonical check validates documentation, rebuilds the LLVM PE/Wasm
-fixtures, runs the native Windows fixture oracles, tests the Rust PE32 loader,
-sparse guest-memory, image-materialization, and import-binding boundaries,
-verifies the pinned v86 artifacts and instruction smokes, and checks the
-Windows trace summarizer contract.
+`check:fast` validates docs, rebuilds public fixtures, runs Rust format/tests/
+clippy with warnings denied, checks JavaScript syntax, runs the small v86 smoke,
+and checks the Windows trace summarizer. `check:fixture-e2e` prepares the pinned
+source adapter and runs the public entry, ABI callback/return, stack, TEB/PEB,
+process-parameters, MemoryDelta, window, and browser-presentation paths.
+`check:adapter` holds the broader adapter checks. `check:private-corpus` runs BGI
+only when `VINE_BGI_EXE` or the documented local path exists; absence is an
+explicit skip. GitHub Actions runs the two public check groups on Linux.
 Generated reports are written under `.work/` and are not tracked by Git.
 
 `npm run prepare:engine` reproduces the source adapter and its single CPU state
@@ -90,6 +80,8 @@ base through the CPU state ABI, and verifies exact entry completion.
 command-line oracle with the explicit missing-pointer guest result.
 `npm run check:runtime:bootstrap-params` installs the measured Rust-owned
 parameters and UTF-16 bytes and verifies exact guest completion.
+`npm run check:runtime:memory-delta` applies one dirty data page to live v86
+mapping and verifies the updated eight-byte value from guest code.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

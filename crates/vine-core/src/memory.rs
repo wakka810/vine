@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::ops::Range;
+use std::ops::{Deref, DerefMut, Range};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -176,6 +176,87 @@ pub struct MemoryInvalidation {
     pub generated_code: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheEffects {
+    pub flush_tlb: bool,
+    pub invalidate_instruction_fetch: bool,
+    pub invalidate_generated_code: bool,
+}
+
+impl CacheEffects {
+    fn merge(self, other: Self) -> Self {
+        Self {
+            flush_tlb: self.flush_tlb || other.flush_tlb,
+            invalidate_instruction_fetch: self.invalidate_instruction_fetch
+                || other.invalidate_instruction_fetch,
+            invalidate_generated_code: self.invalidate_generated_code
+                || other.invalidate_generated_code,
+        }
+    }
+}
+
+impl From<MemoryInvalidation> for CacheEffects {
+    fn from(value: MemoryInvalidation) -> Self {
+        Self {
+            flush_tlb: value.data_tlb,
+            invalidate_instruction_fetch: value.instruction_fetch,
+            invalidate_generated_code: value.generated_code,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "operation", rename_all = "kebab-case")]
+pub enum MappingOperation {
+    Reserve {
+        owner: MemoryOwnerId,
+        kind: MemoryRegionKind,
+        range: GuestRange,
+    },
+    Commit {
+        owner: MemoryOwnerId,
+        range: GuestRange,
+        protection: PageProtection,
+    },
+    Protect {
+        owner: MemoryOwnerId,
+        range: GuestRange,
+        protection: PageProtection,
+    },
+    Decommit {
+        owner: MemoryOwnerId,
+        range: GuestRange,
+    },
+    Release {
+        owner: MemoryOwnerId,
+        range: GuestRange,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirtyPage {
+    pub address: GuestAddress,
+    pub owner: MemoryOwnerId,
+    pub owner_sealed: bool,
+    pub protection: PageProtection,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryDelta {
+    pub from_generation: u64,
+    pub generation: u64,
+    pub page_size: u64,
+    pub mapping_operations: Vec<MappingOperation>,
+    pub dirty_pages: Vec<DirtyPage>,
+    pub cache_effects: CacheEffects,
+    pub transferred_bytes: usize,
+    pub content_sha256: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GuestWriteResult {
@@ -214,6 +295,7 @@ pub struct MemoryStats {
     pub physical_pages: usize,
     pub dirty_pages: usize,
     pub generation: u64,
+    pub acknowledged_generation: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_invalidation: Option<MemoryInvalidation>,
 }
@@ -263,7 +345,7 @@ pub struct GuestMemoryError {
 }
 
 impl GuestMemoryError {
-    fn invalid_request(
+    pub(crate) fn invalid_request(
         stage: &'static str,
         code: &'static str,
         message: impl Into<String>,
@@ -271,11 +353,19 @@ impl GuestMemoryError {
         Self::new(GuestMemoryErrorClass::InvalidRequest, stage, code, message)
     }
 
-    fn resource_limit(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn resource_limit(
+        stage: &'static str,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(GuestMemoryErrorClass::ResourceLimit, stage, code, message)
     }
 
-    fn conflict(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn conflict(
+        stage: &'static str,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(GuestMemoryErrorClass::Conflict, stage, code, message)
     }
 
@@ -345,13 +435,13 @@ impl fmt::Display for GuestMemoryError {
 
 impl std::error::Error for GuestMemoryError {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct OwnerState {
     kind: MemoryOwnerKind,
     sealed: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct MemoryRegion {
     range: GuestRange,
     owner: MemoryOwnerId,
@@ -361,20 +451,27 @@ struct MemoryRegion {
 #[derive(Debug, Clone, Copy)]
 struct FrameId(usize);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PageState {
     owner: MemoryOwnerId,
     frame: FrameId,
     protection: PageProtection,
-    dirty: bool,
+    dirty_generation: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PhysicalFrames {
     limit: usize,
     frames: Vec<Option<Box<[u8; GUEST_PAGE_SIZE_USIZE]>>>,
     free: Vec<usize>,
     in_use: usize,
+}
+
+#[derive(Debug, Clone)]
+struct MemoryChange {
+    generation: u64,
+    mapping_operations: Vec<MappingOperation>,
+    cache_effects: CacheEffects,
 }
 
 impl PhysicalFrames {
@@ -489,7 +586,7 @@ struct AccessSegment {
     fault_address: GuestAddress,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GuestMemory {
     limits: MemoryLimits,
     owners: BTreeMap<MemoryOwnerId, OwnerState>,
@@ -498,7 +595,44 @@ pub struct GuestMemory {
     frames: PhysicalFrames,
     next_owner: u32,
     generation: u64,
-    pending_invalidation: Option<MemoryInvalidation>,
+    acknowledged_generation: u64,
+    pending_changes: Vec<MemoryChange>,
+    offered_generations: BTreeSet<u64>,
+    offered_full_reflections: BTreeSet<u64>,
+    initial_reflection_acknowledged: bool,
+}
+
+pub struct GuestMemoryTransaction<'a> {
+    memory: &'a mut GuestMemory,
+    rollback: Option<Box<GuestMemory>>,
+}
+
+impl Deref for GuestMemoryTransaction<'_> {
+    type Target = GuestMemory;
+
+    fn deref(&self) -> &Self::Target {
+        self.memory
+    }
+}
+
+impl DerefMut for GuestMemoryTransaction<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.memory
+    }
+}
+
+impl GuestMemoryTransaction<'_> {
+    pub fn commit_transaction(mut self) {
+        self.rollback = None;
+    }
+}
+
+impl Drop for GuestMemoryTransaction<'_> {
+    fn drop(&mut self) {
+        if let Some(rollback) = self.rollback.take() {
+            *self.memory = *rollback;
+        }
+    }
 }
 
 impl GuestMemory {
@@ -522,12 +656,118 @@ impl GuestMemory {
             frames: PhysicalFrames::new(limits.max_physical_pages),
             next_owner: 1,
             generation: 0,
-            pending_invalidation: None,
+            acknowledged_generation: 0,
+            pending_changes: Vec::new(),
+            offered_generations: BTreeSet::new(),
+            offered_full_reflections: BTreeSet::new(),
+            initial_reflection_acknowledged: false,
         })
+    }
+
+    pub fn begin_transaction(&mut self) -> GuestMemoryTransaction<'_> {
+        let rollback = Box::new(self.clone());
+        GuestMemoryTransaction {
+            memory: self,
+            rollback: Some(rollback),
+        }
     }
 
     pub fn limits(&self) -> MemoryLimits {
         self.limits
+    }
+
+    pub(crate) fn owner_is_sealed(&self, owner: MemoryOwnerId) -> Result<bool, GuestMemoryError> {
+        Ok(self.require_owner(owner)?.sealed)
+    }
+
+    pub(crate) fn preflight_growth(
+        &self,
+        additional_owners: usize,
+        additional_regions: usize,
+        additional_physical_pages: usize,
+        stage: &'static str,
+    ) -> Result<(), GuestMemoryError> {
+        let owners = self
+            .owners
+            .len()
+            .checked_add(additional_owners)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    stage,
+                    "memory-owner-count-overflow",
+                    "required memory owner count overflowed host accounting",
+                )
+            })?;
+        if owners > self.limits.max_owners {
+            return Err(GuestMemoryError::resource_limit(
+                stage,
+                "memory-owner-limit-exceeded",
+                format!(
+                    "operation needs {additional_owners} additional owners; {} of {} are live",
+                    self.owners.len(),
+                    self.limits.max_owners
+                ),
+            ));
+        }
+        let regions = self
+            .regions
+            .len()
+            .checked_add(additional_regions)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    stage,
+                    "memory-region-count-overflow",
+                    "required memory region count overflowed host accounting",
+                )
+            })?;
+        if regions > self.limits.max_regions {
+            return Err(GuestMemoryError::resource_limit(
+                stage,
+                "memory-region-limit-exceeded",
+                format!(
+                    "operation needs {additional_regions} additional regions; {} of {} are live",
+                    self.regions.len(),
+                    self.limits.max_regions
+                ),
+            ));
+        }
+        if additional_physical_pages > self.frames.available() {
+            return Err(GuestMemoryError::resource_limit(
+                stage,
+                "physical-page-quota-exceeded",
+                format!(
+                    "operation needs {additional_physical_pages} physical pages; {} remain under quota",
+                    self.frames.available()
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn preflight_fixed_reservation(
+        &self,
+        start: GuestAddress,
+        byte_length: u64,
+        stage: &'static str,
+    ) -> Result<GuestRange, GuestMemoryError> {
+        let range = GuestRange::new(start, byte_length)?;
+        require_page_aligned(range, "reserve-range-not-page-aligned")?;
+        if self
+            .regions
+            .values()
+            .any(|region| ranges_overlap(region.range, range))
+        {
+            return Err(GuestMemoryError::conflict(
+                stage,
+                "memory-region-overlap",
+                format!(
+                    "requested range [{:#010x}, {:#010x}) overlaps an existing region",
+                    range.start().0,
+                    range.end()
+                ),
+            ));
+        }
+        Ok(range)
     }
 
     pub fn create_owner(
@@ -590,8 +830,13 @@ impl GuestMemory {
                 "reserved guest range overlaps an existing region",
             ));
         }
+        self.ensure_generation_available()?;
         self.regions
             .insert(start.0, MemoryRegion { range, owner, kind });
+        self.record_change(
+            vec![MappingOperation::Reserve { owner, kind, range }],
+            CacheEffects::default(),
+        )?;
         Ok(range)
     }
 
@@ -649,6 +894,7 @@ impl GuestMemory {
                 ),
             ));
         }
+        let generation = self.next_generation()?;
 
         let mut allocated = Vec::with_capacity(page_count);
         for virtual_page in pages {
@@ -669,11 +915,22 @@ impl GuestMemory {
                     owner,
                     frame,
                     protection,
-                    dirty: false,
+                    dirty_generation: Some(generation),
                 },
             );
         }
-        self.record_invalidation(true, true, true)
+        self.record_change(
+            vec![MappingOperation::Commit {
+                owner,
+                range,
+                protection,
+            }],
+            CacheEffects {
+                flush_tlb: true,
+                invalidate_instruction_fetch: true,
+                invalidate_generated_code: true,
+            },
+        )
     }
 
     pub fn protect(
@@ -687,6 +944,7 @@ impl GuestMemory {
         self.require_region_contains(owner, range)?;
         let pages: Vec<u32> = virtual_pages(range)?.collect();
         self.require_committed_owner(owner, &pages)?;
+        self.ensure_generation_available()?;
         for virtual_page in pages {
             let page = self.pages.get_mut(&virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
@@ -697,7 +955,18 @@ impl GuestMemory {
             })?;
             page.protection = protection;
         }
-        self.record_invalidation(true, true, true)
+        self.record_change(
+            vec![MappingOperation::Protect {
+                owner,
+                range,
+                protection,
+            }],
+            CacheEffects {
+                flush_tlb: true,
+                invalidate_instruction_fetch: true,
+                invalidate_generated_code: true,
+            },
+        )
     }
 
     pub fn decommit(
@@ -710,6 +979,7 @@ impl GuestMemory {
         self.require_region_contains(owner, range)?;
         let pages: Vec<u32> = virtual_pages(range)?.collect();
         self.require_committed_owner(owner, &pages)?;
+        self.ensure_generation_available()?;
         for virtual_page in pages {
             let page = self.pages.remove(&virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
@@ -720,7 +990,14 @@ impl GuestMemory {
             })?;
             self.frames.release(page.frame)?;
         }
-        self.record_invalidation(true, true, true)
+        self.record_change(
+            vec![MappingOperation::Decommit { owner, range }],
+            CacheEffects {
+                flush_tlb: true,
+                invalidate_instruction_fetch: true,
+                invalidate_generated_code: true,
+            },
+        )
     }
 
     pub fn release_region(
@@ -748,6 +1025,7 @@ impl GuestMemory {
             .filter(|page| self.pages.contains_key(page))
             .collect();
         self.require_committed_owner(owner, &pages)?;
+        self.ensure_generation_available()?;
         for virtual_page in &pages {
             let page = self.pages.remove(virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
@@ -759,11 +1037,15 @@ impl GuestMemory {
             self.frames.release(page.frame)?;
         }
         self.regions.remove(&start.0);
-        if pages.is_empty() {
-            Ok(None)
-        } else {
-            self.record_invalidation(true, true, true).map(Some)
-        }
+        self.record_change(
+            vec![MappingOperation::Release { owner, range }],
+            CacheEffects {
+                flush_tlb: !pages.is_empty(),
+                invalidate_instruction_fetch: !pages.is_empty(),
+                invalidate_generated_code: !pages.is_empty(),
+            },
+        )
+        .map(Some)
     }
 
     pub fn prepare_image_layout(
@@ -775,6 +1057,18 @@ impl GuestMemory {
     }
 
     pub fn prepare_image_layout_at(
+        &mut self,
+        source: &ModuleIdentity,
+        plan: &Pe32LoadPlan,
+        load_base: GuestAddress,
+    ) -> Result<ImageMemoryLayout, GuestMemoryError> {
+        let mut transaction = self.begin_transaction();
+        let layout = transaction.prepare_image_layout_at_transaction(source, plan, load_base)?;
+        transaction.commit_transaction();
+        Ok(layout)
+    }
+
+    fn prepare_image_layout_at_transaction(
         &mut self,
         source: &ModuleIdentity,
         plan: &Pe32LoadPlan,
@@ -839,6 +1133,8 @@ impl GuestMemory {
             ));
         }
 
+        self.ensure_generation_available()?;
+
         let owner = self.create_owner(MemoryOwnerKind::Image {
             source_sha256: source.sha256.clone(),
         })?;
@@ -868,6 +1164,8 @@ impl GuestMemory {
         }
 
         let committed_pages = allocated.len();
+        let generation = self.next_generation()?;
+        let mut mapping_operations = Vec::with_capacity(committed_pages);
         let mut readable_pages = 0;
         let mut writable_pages = 0;
         let mut executable_pages = 0;
@@ -881,11 +1179,36 @@ impl GuestMemory {
                     owner,
                     frame,
                     protection,
-                    dirty: false,
+                    dirty_generation: Some(generation),
                 },
             );
+            mapping_operations.push(MappingOperation::Commit {
+                owner,
+                range: GuestRange::new(
+                    GuestAddress(
+                        virtual_page
+                            .checked_mul(GUEST_PAGE_SIZE as u32)
+                            .ok_or_else(|| {
+                                GuestMemoryError::runtime_defect(
+                                    "image-layout",
+                                    "virtual-page-address-overflow",
+                                    "planned image virtual page does not fit a guest address",
+                                )
+                            })?,
+                    ),
+                    GUEST_PAGE_SIZE,
+                )?,
+                protection,
+            });
         }
-        let invalidation = self.record_invalidation(true, true, true)?;
+        let invalidation = self.record_change(
+            mapping_operations,
+            CacheEffects {
+                flush_tlb: true,
+                invalidate_instruction_fetch: true,
+                invalidate_generated_code: true,
+            },
+        )?;
         Ok(ImageMemoryLayout {
             source: source.clone(),
             owner,
@@ -934,12 +1257,27 @@ impl GuestMemory {
             ));
         }
         let segments = self.preflight_owner_access(owner, address, bytes.len())?;
-        self.write_segments(&segments, bytes)?;
+        let touches_executable = self.segments_touch_executable(&segments);
+        let invalidation = if self.initial_reflection_acknowledged {
+            let generation = self.next_generation()?;
+            self.write_segments(&segments, bytes, generation)?;
+            Some(self.record_change(
+                Vec::new(),
+                CacheEffects {
+                    flush_tlb: false,
+                    invalidate_instruction_fetch: touches_executable,
+                    invalidate_generated_code: touches_executable,
+                },
+            )?)
+        } else {
+            self.write_segments(&segments, bytes, self.generation)?;
+            None
+        };
         let dirty_pages = unique_segment_pages(&segments);
         Ok(GuestWriteResult {
             bytes_written: bytes.len(),
             dirty_pages,
-            invalidation: None,
+            invalidation,
         })
     }
 
@@ -958,6 +1296,12 @@ impl GuestMemory {
             ));
         }
         let segments = self.preflight_owner_access(owner, address, byte_length)?;
+        let touches_executable = self.segments_touch_executable(&segments);
+        let generation = if self.initial_reflection_acknowledged {
+            self.next_generation()?
+        } else {
+            self.generation
+        };
         for segment in &segments {
             let page = self.pages.get_mut(&segment.virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
@@ -975,12 +1319,24 @@ impl GuestMemory {
                 .get_mut(segment.page_offset..end)
                 .ok_or_else(segment_bounds_error)?;
             destination.fill(0);
-            page.dirty = true;
+            page.dirty_generation = Some(generation);
         }
+        let invalidation = if self.initial_reflection_acknowledged {
+            Some(self.record_change(
+                Vec::new(),
+                CacheEffects {
+                    flush_tlb: false,
+                    invalidate_instruction_fetch: touches_executable,
+                    invalidate_generated_code: touches_executable,
+                },
+            )?)
+        } else {
+            None
+        };
         Ok(GuestWriteResult {
             bytes_written: byte_length,
             dirty_pages: unique_segment_pages(&segments),
-            invalidation: None,
+            invalidation,
         })
     }
 
@@ -988,44 +1344,164 @@ impl GuestMemory {
         &mut self,
         owner: MemoryOwnerId,
     ) -> Result<MemoryInvalidation, GuestMemoryError> {
-        let state = self.owners.get_mut(&owner).ok_or_else(|| {
-            GuestMemoryError::invalid_request(
-                "memory-owner",
-                "memory-owner-not-found",
-                "memory owner identifier is not live",
-            )
-        })?;
-        if state.sealed {
+        if self.require_owner(owner)?.sealed {
             return Err(GuestMemoryError::conflict(
                 "memory-owner",
                 "memory-owner-already-sealed",
                 "memory owner was sealed more than once",
             ));
         }
+        self.ensure_generation_available()?;
+        let has_executable_pages = self
+            .pages
+            .values()
+            .any(|page| page.owner == owner && page.protection.execute);
+        let state = self.owners.get_mut(&owner).ok_or_else(|| {
+            GuestMemoryError::runtime_defect(
+                "memory-owner",
+                "preflighted-owner-missing",
+                "owner liveness preflight succeeded but owner disappeared",
+            )
+        })?;
         state.sealed = true;
-        self.record_invalidation(false, true, true)
+        self.record_change(
+            Vec::new(),
+            CacheEffects {
+                flush_tlb: false,
+                invalidate_instruction_fetch: has_executable_pages,
+                invalidate_generated_code: has_executable_pages,
+            },
+        )
     }
 
     pub fn acknowledge_invalidation(&mut self, generation: u64) -> Result<(), GuestMemoryError> {
-        let pending = self.pending_invalidation.ok_or_else(|| {
-            GuestMemoryError::invalid_request(
-                "memory-invalidation",
-                "no-memory-invalidation-pending",
-                "there is no pending memory invalidation to acknowledge",
-            )
-        })?;
-        if pending.generation != generation {
-            return Err(GuestMemoryError::synchronization(
-                "memory-invalidation-generation-mismatch",
+        self.acknowledge_delta(generation)
+    }
+
+    pub fn acknowledge_delta(&mut self, generation: u64) -> Result<(), GuestMemoryError> {
+        if generation > self.generation {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-delta",
+                "memory-delta-acknowledgement-future",
                 format!(
-                    "acknowledged generation {generation}, pending generation is {}",
-                    pending.generation
+                    "acknowledged generation {generation}, current generation is {}",
+                    self.generation
                 ),
-                pending,
             ));
         }
-        self.pending_invalidation = None;
+        if generation <= self.acknowledged_generation {
+            let code = if generation == self.acknowledged_generation {
+                "memory-delta-acknowledgement-duplicate"
+            } else {
+                "memory-delta-acknowledgement-stale"
+            };
+            return Err(GuestMemoryError::invalid_request(
+                "memory-delta",
+                code,
+                format!(
+                    "acknowledged generation {generation}, last acknowledged generation is {}",
+                    self.acknowledged_generation
+                ),
+            ));
+        }
+        if !self.offered_generations.contains(&generation) {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-delta",
+                "memory-delta-generation-not-offered",
+                "memory generation must be obtained from a reflection or delta before acknowledgement",
+            ));
+        }
+        if self.pending_changes.is_empty() {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-delta",
+                "no-memory-delta-pending",
+                "there is no pending memory delta to acknowledge",
+            ));
+        }
+
+        for page in self.pages.values_mut() {
+            if page
+                .dirty_generation
+                .is_some_and(|dirty_generation| dirty_generation <= generation)
+            {
+                page.dirty_generation = None;
+            }
+        }
+        self.pending_changes
+            .retain(|change| change.generation > generation);
+        self.acknowledged_generation = generation;
+        if self.offered_full_reflections.contains(&generation) {
+            self.initial_reflection_acknowledged = true;
+        }
+        self.offered_generations
+            .retain(|offered| *offered > generation);
+        self.offered_full_reflections
+            .retain(|offered| *offered > generation);
         Ok(())
+    }
+
+    pub fn pending_delta(&mut self) -> Result<MemoryDelta, GuestMemoryError> {
+        if !self.initial_reflection_acknowledged {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-delta",
+                "initial-memory-reflection-required",
+                "a full memory reflection must be acknowledged before incremental deltas",
+            ));
+        }
+        let invalidation = self.pending_invalidation().ok_or_else(|| {
+            GuestMemoryError::invalid_request(
+                "memory-delta",
+                "no-memory-delta-pending",
+                "there is no pending memory delta to transfer",
+            )
+        })?;
+
+        let mapping_operations = self
+            .pending_changes
+            .iter()
+            .flat_map(|change| change.mapping_operations.iter().cloned())
+            .collect::<Vec<_>>();
+        let dirty_pages = self.collect_dirty_pages()?;
+        let transferred_bytes = dirty_pages.iter().try_fold(0usize, |total, page| {
+            total.checked_add(page.bytes.len()).ok_or_else(|| {
+                GuestMemoryError::runtime_defect(
+                    "memory-delta",
+                    "memory-delta-byte-count-overflow",
+                    "dirty page transfer size overflowed host accounting",
+                )
+            })
+        })?;
+        let content_sha256 = hash_delta_content(&mapping_operations, &dirty_pages);
+        self.offered_generations.insert(invalidation.generation);
+        Ok(MemoryDelta {
+            from_generation: self.acknowledged_generation,
+            generation: invalidation.generation,
+            page_size: GUEST_PAGE_SIZE,
+            mapping_operations,
+            dirty_pages,
+            cache_effects: invalidation.into(),
+            transferred_bytes,
+            content_sha256,
+        })
+    }
+
+    fn collect_dirty_pages(&self) -> Result<Vec<DirtyPage>, GuestMemoryError> {
+        let mut dirty_pages = Vec::new();
+        for (&virtual_page, page) in &self.pages {
+            if page.dirty_generation.is_none() {
+                continue;
+            }
+            let address = virtual_page_address(virtual_page, "memory-delta")?;
+            let owner = self.require_owner(page.owner)?;
+            dirty_pages.push(DirtyPage {
+                address,
+                owner: page.owner,
+                owner_sealed: owner.sealed,
+                protection: page.protection,
+                bytes: self.frames.bytes(page.frame)?.to_vec(),
+            });
+        }
+        Ok(dirty_pages)
     }
 
     pub fn read(
@@ -1051,18 +1527,22 @@ impl GuestMemory {
         address: GuestAddress,
         bytes: &[u8],
     ) -> Result<GuestWriteResult, GuestMemoryError> {
-        let segments = self.preflight_guest_access(address, bytes.len(), MemoryAccess::Write)?;
-        let touches_executable = segments.iter().any(|segment| {
-            self.pages
-                .get(&segment.virtual_page)
-                .is_some_and(|page| page.protection.execute)
-        });
-        self.write_segments(&segments, bytes)?;
-        let invalidation = if touches_executable {
-            Some(self.record_invalidation(false, true, true)?)
-        } else {
-            None
-        };
+        let segments = self.preflight_guest_access_without_synchronization(
+            address,
+            bytes.len(),
+            MemoryAccess::Write,
+        )?;
+        let touches_executable = self.segments_touch_executable(&segments);
+        let generation = self.next_generation()?;
+        self.write_segments(&segments, bytes, generation)?;
+        let invalidation = Some(self.record_change(
+            Vec::new(),
+            CacheEffects {
+                flush_tlb: false,
+                invalidate_instruction_fetch: touches_executable,
+                invalidate_generated_code: touches_executable,
+            },
+        )?);
         Ok(GuestWriteResult {
             bytes_written: bytes.len(),
             dirty_pages: unique_segment_pages(&segments),
@@ -1093,34 +1573,36 @@ impl GuestMemory {
             reserved_pages,
             committed_pages: self.pages.len(),
             physical_pages: self.frames.in_use,
-            dirty_pages: self.pages.values().filter(|page| page.dirty).count(),
+            dirty_pages: self
+                .pages
+                .values()
+                .filter(|page| page.dirty_generation.is_some())
+                .count(),
             generation: self.generation,
-            pending_invalidation: self.pending_invalidation,
+            acknowledged_generation: self.acknowledged_generation,
+            pending_invalidation: self.pending_invalidation(),
         }
     }
 
-    pub fn pending_reflection(&self) -> Result<MemoryReflection, GuestMemoryError> {
-        let invalidation = self.pending_invalidation.ok_or_else(|| {
+    pub fn pending_reflection(&mut self) -> Result<MemoryReflection, GuestMemoryError> {
+        if self.initial_reflection_acknowledged {
+            return Err(GuestMemoryError::conflict(
+                "memory-reflection",
+                "full-memory-reflection-already-acknowledged",
+                "incremental memory deltas must be used after the initial full reflection",
+            ));
+        }
+        let invalidation = self.pending_invalidation().ok_or_else(|| {
             GuestMemoryError::invalid_request(
                 "memory-reflection",
-                "no-memory-invalidation-pending",
-                "memory reflection requires a pending invalidation generation",
+                "no-memory-delta-pending",
+                "memory reflection requires a pending memory generation",
             )
         })?;
         let mut pages = Vec::with_capacity(self.pages.len());
         let mut hasher = Sha256::new();
         for (&virtual_page, page) in &self.pages {
-            let address = GuestAddress(
-                virtual_page
-                    .checked_mul(GUEST_PAGE_SIZE as u32)
-                    .ok_or_else(|| {
-                        GuestMemoryError::runtime_defect(
-                            "memory-reflection",
-                            "virtual-page-address-overflow",
-                            "committed virtual page does not fit the 32-bit guest address space",
-                        )
-                    })?,
-            );
+            let address = virtual_page_address(virtual_page, "memory-reflection")?;
             let owner = self.require_owner(page.owner)?;
             if page.protection.execute && !owner.sealed {
                 return Err(GuestMemoryError::conflict(
@@ -1138,7 +1620,7 @@ impl GuestMemory {
             hasher.update([
                 protection_bits,
                 u8::from(owner.sealed),
-                u8::from(page.dirty),
+                u8::from(page.dirty_generation.is_some()),
             ]);
             hasher.update(&bytes);
             pages.push(MemoryReflectionPage {
@@ -1146,10 +1628,13 @@ impl GuestMemory {
                 owner: page.owner,
                 owner_sealed: owner.sealed,
                 protection: page.protection,
-                dirty: page.dirty,
+                dirty: page.dirty_generation.is_some(),
                 bytes,
             });
         }
+        self.offered_generations.insert(invalidation.generation);
+        self.offered_full_reflections
+            .insert(invalidation.generation);
         Ok(MemoryReflection {
             invalidation,
             page_size: GUEST_PAGE_SIZE,
@@ -1212,10 +1697,10 @@ impl GuestMemory {
     }
 
     fn ensure_synchronized(&self) -> Result<(), GuestMemoryError> {
-        if let Some(pending) = self.pending_invalidation {
+        if let Some(pending) = self.pending_invalidation() {
             return Err(GuestMemoryError::synchronization(
                 "memory-invalidation-unacknowledged",
-                "guest access is blocked until TLB/fetch/generated-code invalidation is acknowledged",
+                "guest access is blocked until the pending memory delta is applied and acknowledged",
                 pending,
             ));
         }
@@ -1229,6 +1714,15 @@ impl GuestMemory {
         access: MemoryAccess,
     ) -> Result<Vec<AccessSegment>, GuestMemoryError> {
         self.ensure_synchronized()?;
+        self.preflight_guest_access_without_synchronization(address, byte_length, access)
+    }
+
+    fn preflight_guest_access_without_synchronization(
+        &self,
+        address: GuestAddress,
+        byte_length: usize,
+        access: MemoryAccess,
+    ) -> Result<Vec<AccessSegment>, GuestMemoryError> {
         let segments = access_segments(address, byte_length, self.limits.max_access_bytes)?;
         for segment in &segments {
             let Some(page) = self.pages.get(&segment.virtual_page) else {
@@ -1327,6 +1821,7 @@ impl GuestMemory {
         &mut self,
         segments: &[AccessSegment],
         input: &[u8],
+        dirty_generation: u64,
     ) -> Result<(), GuestMemoryError> {
         let mut input_offset = 0usize;
         for segment in segments {
@@ -1352,36 +1847,150 @@ impl GuestMemory {
                 .get(input_offset..input_end)
                 .ok_or_else(segment_bounds_error)?;
             destination.copy_from_slice(source);
-            page.dirty = true;
+            page.dirty_generation = Some(dirty_generation);
             input_offset = input_end;
         }
         Ok(())
     }
 
-    fn record_invalidation(
-        &mut self,
-        data_tlb: bool,
-        instruction_fetch: bool,
-        generated_code: bool,
-    ) -> Result<MemoryInvalidation, GuestMemoryError> {
-        self.generation = self.generation.checked_add(1).ok_or_else(|| {
+    fn segments_touch_executable(&self, segments: &[AccessSegment]) -> bool {
+        segments.iter().any(|segment| {
+            self.pages
+                .get(&segment.virtual_page)
+                .is_some_and(|page| page.protection.execute)
+        })
+    }
+
+    fn next_generation(&self) -> Result<u64, GuestMemoryError> {
+        self.generation.checked_add(1).ok_or_else(|| {
             GuestMemoryError::runtime_defect(
-                "memory-invalidation",
+                "memory-delta",
                 "memory-generation-overflow",
                 "memory generation counter overflowed",
             )
-        })?;
-        let previous = self.pending_invalidation;
-        let invalidation = MemoryInvalidation {
-            generation: self.generation,
-            data_tlb: data_tlb || previous.is_some_and(|value| value.data_tlb),
-            instruction_fetch: instruction_fetch
-                || previous.is_some_and(|value| value.instruction_fetch),
-            generated_code: generated_code || previous.is_some_and(|value| value.generated_code),
-        };
-        self.pending_invalidation = Some(invalidation);
-        Ok(invalidation)
+        })
     }
+
+    fn ensure_generation_available(&self) -> Result<(), GuestMemoryError> {
+        self.next_generation().map(|_| ())
+    }
+
+    fn record_change(
+        &mut self,
+        mapping_operations: Vec<MappingOperation>,
+        cache_effects: CacheEffects,
+    ) -> Result<MemoryInvalidation, GuestMemoryError> {
+        self.generation = self.next_generation()?;
+        self.pending_changes.push(MemoryChange {
+            generation: self.generation,
+            mapping_operations,
+            cache_effects,
+        });
+        self.pending_invalidation().ok_or_else(|| {
+            GuestMemoryError::runtime_defect(
+                "memory-delta",
+                "recorded-memory-delta-missing",
+                "recorded memory change did not produce a pending delta",
+            )
+        })
+    }
+
+    fn pending_invalidation(&self) -> Option<MemoryInvalidation> {
+        let latest = self.pending_changes.last()?;
+        let effects = self
+            .pending_changes
+            .iter()
+            .fold(CacheEffects::default(), |effects, change| {
+                effects.merge(change.cache_effects)
+            });
+        let invalidation = MemoryInvalidation {
+            generation: latest.generation,
+            data_tlb: effects.flush_tlb,
+            instruction_fetch: effects.invalidate_instruction_fetch,
+            generated_code: effects.invalidate_generated_code,
+        };
+        Some(invalidation)
+    }
+}
+
+fn virtual_page_address(
+    virtual_page: u32,
+    stage: &'static str,
+) -> Result<GuestAddress, GuestMemoryError> {
+    virtual_page
+        .checked_mul(GUEST_PAGE_SIZE as u32)
+        .map(GuestAddress)
+        .ok_or_else(|| {
+            GuestMemoryError::runtime_defect(
+                stage,
+                "virtual-page-address-overflow",
+                "committed virtual page does not fit the 32-bit guest address space",
+            )
+        })
+}
+
+fn hash_delta_content(
+    mapping_operations: &[MappingOperation],
+    dirty_pages: &[DirtyPage],
+) -> String {
+    let mut hasher = Sha256::new();
+    for operation in mapping_operations {
+        match operation {
+            MappingOperation::Reserve { owner, kind, range } => {
+                hasher.update([0]);
+                hash_mapping_fields(&mut hasher, *owner, *range);
+                hasher.update([*kind as u8]);
+            }
+            MappingOperation::Commit {
+                owner,
+                range,
+                protection,
+            } => {
+                hasher.update([1]);
+                hash_mapping_fields(&mut hasher, *owner, *range);
+                hash_protection(&mut hasher, *protection);
+            }
+            MappingOperation::Protect {
+                owner,
+                range,
+                protection,
+            } => {
+                hasher.update([2]);
+                hash_mapping_fields(&mut hasher, *owner, *range);
+                hash_protection(&mut hasher, *protection);
+            }
+            MappingOperation::Decommit { owner, range } => {
+                hasher.update([3]);
+                hash_mapping_fields(&mut hasher, *owner, *range);
+            }
+            MappingOperation::Release { owner, range } => {
+                hasher.update([4]);
+                hash_mapping_fields(&mut hasher, *owner, *range);
+            }
+        }
+    }
+    for page in dirty_pages {
+        hasher.update(page.address.0.to_le_bytes());
+        hasher.update(page.owner.0.to_le_bytes());
+        hasher.update([u8::from(page.owner_sealed)]);
+        hash_protection(&mut hasher, page.protection);
+        hasher.update(&page.bytes);
+    }
+    hex_digest(&hasher.finalize())
+}
+
+fn hash_mapping_fields(hasher: &mut Sha256, owner: MemoryOwnerId, range: GuestRange) {
+    hasher.update(owner.0.to_le_bytes());
+    hasher.update(range.start().0.to_le_bytes());
+    hasher.update(range.byte_length().to_le_bytes());
+}
+
+fn hash_protection(hasher: &mut Sha256, protection: PageProtection) {
+    hasher.update([
+        u8::from(protection.read),
+        u8::from(protection.write),
+        u8::from(protection.execute),
+    ]);
 }
 
 fn require_page_aligned(range: GuestRange, code: &'static str) -> Result<(), GuestMemoryError> {

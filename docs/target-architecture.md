@@ -155,7 +155,7 @@ background tab、debugger pause、audio suspend 後に catch-up するか freeze
 
 Wasm32 linear memory の offset と guest virtual address を同一と仮定しない。推奨案は sparse page table または region table を介し、CPU と marshaller が共通の checked memory interface を使う方式である。hot path の TLB/cache は profile 後に追加する。
 
-現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装する。typed TEB／PEB／process-parameters／command-lineを加えたgeneration `14`の11 pagesをreflectし、measured command-line observationとentry completionまで実行した。guest mutationはadapter bytesからRustへ戻らず、unmeasured bootstrap fieldsはzeroのままである。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
+現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装する。typed TEB／PEB／process-parameters／command-lineを加えたgeneration `21`の11 pagesをreflectし、measured command-line observationとentry completionまで実行した。guest mutationはadapter bytesからRustへ戻らず、unmeasured bootstrap fieldsはzeroのままである。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
 
 ### 6.2 Page state
 
@@ -168,7 +168,7 @@ UNMAPPED -> RESERVED -> COMMITTED
 
 host の実行権限とは無関係に、guest `EXECUTE` を論理検査する。write-to-code が発生した場合は decode/cache を無効化し、policy によって継続または診断停止する。
 
-current ingressはpage R／W／Xとowner sealをfetch前に検査し、mapping／protection／seal／write-to-codeをgeneration-tagged invalidationへ変換する。guest accessはlatest generationのacknowledgementまで停止する。base sessionはgeneration `4`、optional callback-control ownerを含むsessionはgeneration `6`をv86 state restore／TLB／generated-code cacheの実flush後だけacknowledgeした。general runtime mutation、range-specific invalidation、bidirectional dirty-page ownership、snapshot generationは未接続である。
+current ingressはpage R／W／Xとowner sealをfetch前に検査し、mapping／protection／seal／writeをgeneration-tagged `MemoryDelta`へ変換する。初回だけfull snapshotを送り、以後はmapping operationとdirty pageだけを転送し、data bytesとTLB／instruction-fetch／generated-code effectsを分離する。base sessionはgeneration `6`、optional callback-control ownerを含むsessionはgeneration `9`をv86 state restore／TLB／generated-code cacheの実flush後だけacknowledgeした。host-originated通常data writeのlive v86 roundtripは成立したが、v86-originated dirty ownership、general heap／stack lifecycle、decode-aware execute gate、snapshot generationは未接続である。
 
 ### 6.3 Heap と mapped file
 
@@ -223,7 +223,7 @@ Interpreter、threaded interpreter、IR interpreter、DBT、generated Wasm modul
 
 Loader は file parse、image mapping、module lifecycle、symbol resolution を分離する。
 
-version 1 loader ingressは、owned source bytesをmap-timeに再hashし、PE32 section／import／`HIGHLOW` relocationのchecked planを作る。memory ingressは`SizeOfImage`を1 sparse regionへreserveし、planned pagesをfinal R／W／X metadataでcommitする。materialization layerは同じplanからsource copy、explicit zero-fill／readback、wrapping `HIGHLOW`、original IAT verification、mapped-range digestを行う。import-binding layerは`[0x7F000000, 0x7F010000)`の16-byte owned `UD2` slotsをplan orderで割り当てる。明示catalogのendpointとoptional identity-preserving unsupported trapsを区別し、全IATがbindした場合だけruntime／image ownersをsealする。BGIは1 declared／329 unsupported dispositionsで全330 importsをbindし、388-page bounded reflection後にentryからfirst runtime-owned trapまで実行済みである。module graphとtrap dispatch／returnはnot attemptedである。parse detailsは[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、mapped-byte resultは[pe-materialization.md](pe-materialization.md)、prefix ownershipは[pe-import-binding.md](pe-import-binding.md)、full trap bindingは[pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md)、entry executionは[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
+version 1 loader ingressは、owned source bytesをmap-timeに再hashし、PE32 section／import／`HIGHLOW` relocationのchecked planを作る。memory ingressは`SizeOfImage`を1 sparse regionへreserveし、planned pagesをfinal R／W／X metadataでcommitする。materialization layerは同じplanからsource copy、explicit zero-fill／readback、wrapping `HIGHLOW`、original IAT verification、mapped-range digestを行う。import-binding layerは全importをmemory mutationなしで検査し、`[0x7F000000, 0x7F010000)`の16-byte owned `UD2` slotsをplan orderで割り当てる。明示catalogのendpointとoptional identity-preserving unsupported trapsを区別し、complete planだけをtransaction内でcommitしてruntime／image ownersをsealする。BGIはdeclared-only policyで329 unresolved identitiesとmemory不変を保持し、explicit policyでは1 declared／329 unsupported dispositionsで全330 importsをbindする。388-page bounded reflection後にentryからfirst runtime-owned trapまで実行済みである。module graphとtrap dispatch／returnはnot attemptedである。parse detailsは[pe-loader-ingress.md](pe-loader-ingress.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、mapped-byte resultは[pe-materialization.md](pe-materialization.md)、atomic ownershipは[pe-import-binding.md](pe-import-binding.md)、full trap bindingは[pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md)、entry executionは[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
 
 ### 8.1 Parse layer
 

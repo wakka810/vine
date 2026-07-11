@@ -31,7 +31,7 @@ The write sequence is:
 5. Read every IAT slot and verify it still contains the planned original RVA／ordinal thunk value.
 6. SHA-256 hash all mapped ranges in ascending plan order after relocation and before IAT binding.
 
-Mapping creates generation `1` data-TLB／fetch／generated-code invalidation. Initialization writes do not acknowledge it. The owner remains unsealed because IAT writes are still pending; normal guest read, write, and fetch remain blocked.
+Reserve and commit create pending generation `2` mapping operations with data-TLB／fetch／generated-code effects. Initialization writes join that initial snapshot generation. The owner remains unsealed because IAT writes are still pending; normal guest read and fetch remain blocked until transfer.
 
 ## 3. Representative fixture
 
@@ -54,7 +54,7 @@ npm run check:runtime:materialization
 | Mapped content | SHA-256 `1cfa1ba4ef560433b38e2598ba291ae6cbd0f8139408274c2192c30e4a185110` |
 | Stop | `import-binding`／`iat-binding-unimplemented` |
 
-The test independently applies the relocation delta to a source-derived expected section buffer and checks all five fixed target values: `0x10002034`, `0x10001030`, `0x10002038`, and two references to `0x10003000`. It also verifies header／section copy, all zero tails, both unchanged IAT values, source immutability, all five dirty pages, pending generation `1`, deterministic result JSON, and an unsealed owner.
+The test independently applies the relocation delta to a source-derived expected section buffer and checks all five fixed target values: `0x10002034`, `0x10001030`, `0x10002038`, and two references to `0x10003000`. It also verifies header／section copy, all zero tails, both unchanged IAT values, source immutability, all five dirty pages, pending generation `2`, deterministic result JSON, and an unsealed owner. Any later failure rolls the complete materialization transaction back.
 
 The standalone report is reproduced with:
 
@@ -67,7 +67,7 @@ npm run probe:runtime:pe -- `
   .work\toolchain-spike\abi-smoke.exe
 ```
 
-Two reports were byte-identical at 2,403 bytes with SHA-256 `f66b1dcf4d6a008c672b807c1e6acaf35348eaf1d37e3ad22d8c62011774407c`.
+Two reports were byte-identical at 2,436 bytes with SHA-256 `5ad5e461d0de7c40578239ee875fc84eed69ccc88af50c266706b75e4b552c68`.
 
 ## 4. Primary BGI result
 
@@ -94,7 +94,7 @@ npm run probe:runtime:pe -- `
 | Mapped content | 6 ranges／1,556,480 bytes, SHA-256 `d9dc33d121ea2da6ba5e459a9da13b70bf8bfc1c668593a80c6b3689d841199b` |
 | Stop | `import-binding`／`iat-binding-unimplemented` |
 
-Two local reports were byte-identical at 2,448 bytes with SHA-256 `e6ce8d5599922c7ea11470475313907e6732c1c9e4a2ca0ecd4457cd0d502019`. The original BGI file remained 1,193,472 bytes with its primary SHA-256. Reports, mapped bytes, game data, and absolute local paths remain under `.work/` or outside Git.
+Two local reports were byte-identical at 2,481 bytes with SHA-256 `862a57027a5e009ecef86f701c6edf13b173fb242dea4df3c629ebe0575426ee`. The original BGI file remained 1,193,472 bytes with its primary SHA-256. Reports, mapped bytes, game data, and absolute local paths remain under `.work/` or outside Git.
 
 ## 5. Non-claims and next checkpoint
 
@@ -102,4 +102,4 @@ This checkpoint is partial evidence for `REQ-PE-02`, `REQ-PE-03`, `REQ-PE-06`, `
 
 Within this materialization checkpoint, no DLL or synthetic system module is resolved, no runtime-owned thunk address is allocated or written to an IAT slot, and the image owner is not sealed. Invalidation is not connected to v86, discardable sections remain mapped, and PEB／TEB／process parameters／stack／TLS／DLL lifecycle／entry execution are not attempted. The mapped-content digest proves this deterministic loader boundary, not Windows-equivalent execution or BGI startup.
 
-The subsequent [import-binding checkpoint](pe-import-binding.md) defines production runtime-owned thunk addresses and import ownership. It binds both controlled fixture imports, then binds the first BGI import selected by the existing plan and native reachability evidence. Unsupported symbols stop with module／symbol／IAT context; they do not receive silent-success stubs. This materialization report and its stop remain unchanged.
+The subsequent [import-binding checkpoint](pe-import-binding.md) defines production runtime-owned thunk addresses and import ownership. It binds both controlled fixture imports atomically. A BGI catalog containing only the native-reachable `Direct3DCreate9` endpoint reports all 329 unresolved identities without creating an arena or changing any IAT; the explicit unsupported-trap policy can instead bind all identities in one transaction. This materialization report and its stop remain unchanged.

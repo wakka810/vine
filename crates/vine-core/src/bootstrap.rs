@@ -37,6 +37,34 @@ pub fn install_controlled_initial_stack(
             "initial stack requires a sealed process-entry return sentinel",
         ));
     }
+    memory.preflight_growth(1, 1, 1, "process-bootstrap")?;
+    memory.preflight_fixed_reservation(
+        CONTROLLED_INITIAL_STACK_BASE,
+        CONTROLLED_INITIAL_STACK_SIZE,
+        "process-bootstrap",
+    )?;
+    let initial_esp = GuestAddress(CONTROLLED_INITIAL_STACK_TOP.0.checked_sub(4).ok_or_else(
+        || {
+            GuestMemoryError::runtime_defect(
+                "process-bootstrap",
+                "initial-stack-pointer-underflow",
+                "controlled initial stack cannot hold its entry return address",
+            )
+        },
+    )?);
+
+    let mut transaction = memory.begin_transaction();
+    let stack =
+        install_controlled_initial_stack_transaction(&mut transaction, entry_return, initial_esp)?;
+    transaction.commit_transaction();
+    Ok(stack)
+}
+
+fn install_controlled_initial_stack_transaction(
+    memory: &mut GuestMemory,
+    entry_return: &ProcessEntryReturnSentinel,
+    initial_esp: GuestAddress,
+) -> Result<InitialThreadStack, GuestMemoryError> {
     let owner = memory.create_owner(MemoryOwnerKind::Anonymous)?;
     let stack_range = match memory.reserve_fixed(
         owner,
@@ -59,15 +87,6 @@ pub fn install_controlled_initial_stack(
             execute: false,
         },
     )?;
-    let initial_esp = GuestAddress(CONTROLLED_INITIAL_STACK_TOP.0.checked_sub(4).ok_or_else(
-        || {
-            GuestMemoryError::runtime_defect(
-                "process-bootstrap",
-                "initial-stack-pointer-underflow",
-                "controlled initial stack cannot hold its entry return address",
-            )
-        },
-    )?);
     memory.write_initialization(owner, initial_esp, &entry_return.address.0.to_le_bytes())?;
     let content_sha256 = hash_initialization_page(memory, owner)?;
     let invalidation = memory.seal_owner(owner)?;

@@ -7,7 +7,7 @@
 - Fixture: `.work/toolchain-spike/bootstrap-params.exe`
 - Fixture size／SHA-256: 2,560 bytes／`50a5f27f9ce65071f3d8668213eea67f67ccef7b09dc1a72d9192100de4f0c40`
 - Report schema: `vine.v86-bootstrap-params-ingress` version `1`
-- Report size／SHA-256: 10,521 bytes／`9b12a10acf50841cd27636c3b1b35439dfa49e19190a9d34c809b0052021c109`
+- Report size／SHA-256: 10,521 bytes／`c1e76294d4bba6760cbc8d022e022ef66b557d370b567d9a498798b8b2f7ac66`
 
 This checkpoint continues [v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md). Rust now owns the two pages needed for the measured command-line path, connects them to the existing PEB, and runs the same native-oracled fixture to result `0` and the exact process-entry sentinel.
 
@@ -44,7 +44,7 @@ All four bootstrap owners are sealed after initialization. The pages remain logi
 
 ## 3. Reflection and execution
 
-`npm run check:runtime:bootstrap-params` reflects 11 production pages at generation `14`. The combined content SHA-256 is `f9a59953a06999030e40e962a007f1ec5f0ecb73b077c4df760e212ba3d3acbb`.
+`npm run check:runtime:bootstrap-params` reflects 11 production pages at generation `21`. The combined content SHA-256 is `f9a59953a06999030e40e962a007f1ec5f0ecb73b077c4df760e212ba3d3acbb`.
 
 Rust reports 7 owners／regions, 26 reserved pages, and 11 committed／physical／dirty pages. The adapter uses one page directory, four page tables, and 11 reflected pages: 16 physical pages／64 KiB total. Both new virtual pages remain in directory index `511`; no new page-table class is introduced.
 
@@ -72,7 +72,22 @@ npm run prepare:engine
 npm run check:runtime:bootstrap-params
 ```
 
-## 4. Non-claims and next checkpoint
+## 4. Transaction and preflight
+
+Command-line UTF-16 conversion, embedded NUL, `UNICODE_STRING.Length` and
+`MaximumLength`, one-page capacity, four fixed ranges, field-address arithmetic,
+owner／region quotas, and four physical pages are validated before creating the
+TEB owner. The measured layout explicitly rejects multi-page command lines as
+`multi-page-command-line-unimplemented`.
+
+TEB, PEB, process-parameters, and command-line owners are then created inside a
+single `GuestMemory` transaction. Failpoints after each reserve, commit, zero,
+pointer／length／buffer write, command-line copy, and owner seal restore owners,
+regions, frames, page bytes／protection, seal state, generation, dirty state, and
+pending delta. Every injected failure is followed by a successful retry on the
+same `GuestMemory`.
+
+## 5. Non-claims and next checkpoint
 
 The fixed addresses, one page per structure, exact command-line text, and zero-filled unmeasured bytes are version 1 checkpoint choices. This is not a general `RTL_USER_PROCESS_PARAMETERS` implementation. Vine does not yet provide image path, current directory, DLL path, environment, standard handles, console／window fields, loader lists, TLS, LastError, process heap, multi-thread lifecycle, or mutation writeback from adapter pages.
 

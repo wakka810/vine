@@ -109,12 +109,12 @@ const expected = {
     owners: 8,
     reservedPages: 417,
     reflectedPages: 388,
-    generation: 16,
+    generation: 24,
   },
   reflectionContentSha256:
     "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
-  offerLineBytes: 4_904_601,
-  receiptLineBytes: 1_468,
+  offerLineBytes: 4_904_602,
+  receiptLineBytes: 1_494,
   terminal: {
     thunk: {
       id: 104,
@@ -130,8 +130,8 @@ const expected = {
     stackWords: [0x100a88d2, 0x006fffec, 0, 0, 0, 0, 0, 0],
   },
   report: {
-    bytes: 9_591,
-    sha256: "a74ed888aa95923a1bcb5c20ad5a58e945ab269419d834a19eefa10d6b33be3b",
+    bytes: 9_592,
+    sha256: "4ed39b15de85c188b52dbafd0eda9c35e4d88f3c4aa8a9079c98f6d9d9f03840",
   },
 };
 
@@ -208,6 +208,20 @@ function checkedEnd(start, size, limit, label) {
   assert(Number.isSafeInteger(end) && end >= start, `${label} overflows`);
   assert(end <= limit, `${label} exceeds its containing range`);
   return end;
+}
+
+function executableFetchWindow(instructionPointer, executablePages) {
+  for (let offset = 0; offset < 15; offset += 1) {
+    const address = instructionPointer + offset;
+    if (address > 0xffff_ffff) {
+      return { allowed: false, deniedPage: null };
+    }
+    const virtualPage = (address & ~(page.size - 1)) >>> 0;
+    if (!executablePages.has(virtualPage)) {
+      return { allowed: false, deniedPage: virtualPage };
+    }
+  }
+  return { allowed: true, deniedPage: null };
 }
 
 function checkedGuestEnd(address, size, label) {
@@ -877,7 +891,7 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   assert.equal(receipt.stats.reservedPages, expected.memory.reservedPages);
   assert.equal(receipt.stats.committedPages, expected.memory.reflectedPages);
   assert.equal(receipt.stats.physicalPages, expected.memory.reflectedPages);
-  assert.equal(receipt.stats.dirtyPages, expected.memory.reflectedPages);
+  assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.generation, expected.memory.generation);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   assert.equal(receipt.iatValue, expected.imports.first.address);
@@ -993,11 +1007,15 @@ function executeToFirstOwnedTrap(offer, context) {
   let finalState = initial;
   for (let index = 0; index < guest.maximumExecuteStops; index += 1) {
     const before = saveState(0);
-    const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
-    if (!executablePages.has(currentPage)) {
+    const fetchWindow = executableFetchWindow(before.instructionPointer, executablePages);
+    if (!fetchWindow.allowed) {
       terminal = {
         kind: "logical-execute-gate",
+        stage: "instruction-fetch",
+        code: "cross-page-execute-permission-unimplemented",
         instructionPointer: before.instructionPointer,
+        deniedPage: fetchWindow.deniedPage,
+        checkedBytes: 15,
       };
       finalState = before;
       break;
