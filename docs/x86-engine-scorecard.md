@@ -304,17 +304,23 @@ return後5命令、entryから累計34命令でID `157`／`KERNEL32.dll!QueryPer
 
 return後44命令、entryから累計78命令でID `83`／`KERNEL32.dll!GetStartupInfoW`へ到達する。31,427-byte reportのSHA-256は`eb1e83e3a2a75483d2606ce7e92eca36acfdc8d15b69a8381813e8c738974ad1`である。これはone controlled performance-counter sample／API returnであり、frequency、general clock／timer／scheduler／snapshot modelを実装しない。詳細は[v86-bgi-fifth-win32-call.md](v86-bgi-fifth-win32-call.md)を正とする。
 
-### B24. Browser Worker
+### B24. Sixth BGI Win32 call return: Verified ingress
+
+`npm run check:runtime:bgi-sixth-win32-call`はnative BGIのtarget caller RVA `0xA36E7`で68-byte x86 `STARTUPINFOW`が全書込されることをfocused traceで確認する。runtime側はID `83`のone-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-process-startup`のprofile `startupinfow-v68-zero-optional-fields`を書き込む。generation `26`のlive pageから31 changed bytesをreconcileし、generation `27`のone-page delta／ack後にVOID policyでEAXを保持する。
+
+return後9命令、entryから累計87命令でID `84`／`KERNEL32.dll!HeapSetInformation`へ到達する。39,031-byte reportのSHA-256は`208e5930bdb17da0242fd4567dd8900467eb512992a1930a7e8ede7107c8232c`である。これはone controlled startup-info profile／API returnであり、general process creation、desktop、image path、console／standard handlesを実装しない。詳細は[v86-bgi-sixth-win32-call.md](v86-bgi-sixth-win32-call.md)を正とする。
+
+### B25. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B25. Correctness と performance
+### B26. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transfer、first five checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `83`のone-argument stdcall／controlled x86 `STARTUPINFOW` writeである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transfer、first six checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `84`のfour-argument `HeapSetInformation(NULL,1,NULL,0)` stdcall returnである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -343,10 +349,11 @@ adapter fixture は次の順に増やす。
 17. [Verified] exact `GetCurrentThreadId` frameへcontrolled thread IDを返し、next trapを測る。
 18. [Verified] exact `GetTickCount` frameへcontrolled tick-count sampleを返し、next trapを測る。
 19. [Verified] exact `QueryPerformanceCounter` frameへcontrolled 64-bit sampleを書き、next trapを測る。
-20. exact `GetStartupInfoW` frameへcontrolled x86 structを書き、next trapを測る。
-21. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-22. 同じfixtureをNodeとChromium Workerで実行する。
-23. adopted ISA fixtureとnormalized workloadを測定する。
+20. [Verified] exact `GetStartupInfoW` frameへcontrolled x86 structを書き、next trapを測る。
+21. exact `HeapSetInformation` frameの到達variantをreturnし、next trapを測る。
+22. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+23. 同じfixtureをNodeとChromium Workerで実行する。
+24. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 

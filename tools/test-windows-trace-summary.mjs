@@ -20,7 +20,12 @@ const events = [
     python: "3.14.6",
     frida: "17.15.4",
     platform: "Windows-11-test",
-    arguments: { seconds: 1.25, killAfter: true, vtables: ["idirect3d9"] },
+    arguments: {
+      seconds: 1.25,
+      killAfter: true,
+      vtables: ["idirect3d9"],
+      observations: [],
+    },
   },
   {
     schema,
@@ -44,6 +49,7 @@ const events = [
     pointerSize: 4,
     processId: 123,
     selectedVtables: ["idirect3d9"],
+    selectedObservations: [],
   },
   {
     schema,
@@ -387,6 +393,7 @@ assert.deepEqual(summary.trace.captureArguments, {
   seconds: 1.25,
   killAfter: true,
   vtables: ["idirect3d9"],
+  observations: [],
 });
 assert.deepEqual(summary.trace.selectedVtables, ["idirect3d9"]);
 assert.deepEqual(summary.trace.sequence, {
@@ -535,6 +542,15 @@ invalidLeaveMetadata.find((event) => event.sequence === 8).durationMs = -1;
 assert.throws(
   () => summarizeTrace(encode(invalidLeaveMetadata)),
   /api-leave call 3 has invalid durationMs/,
+);
+
+const wrongObservationSelection = structuredClone(events);
+wrongObservationSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["startup-info"];
+assert.throws(
+  () => summarizeTrace(encode(wrongObservationSelection)),
+  /trace-start and agent-ready selected observations differ/,
 );
 
 const legacyEvents = structuredClone(events);

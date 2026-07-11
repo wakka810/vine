@@ -117,6 +117,11 @@ as one full-page data-only delta. The adapter applies and acknowledges it before
 BOOL success is returned. See
 [v86-bgi-fifth-win32-call.md](v86-bgi-fifth-win32-call.md).
 
+The sixth BGI call reconciles 31 additional stack-byte changes at generation
+`26`, overwrites one full 68-byte x86 `STARTUPINFOW`, and transfers generation
+`27` as another one-page data-only delta before the VOID return. See
+[v86-bgi-sixth-win32-call.md](v86-bgi-sixth-win32-call.md).
+
 ## Limits
 
 - Delta page payloads are still JSON numeric arrays; binary IPC is deferred.

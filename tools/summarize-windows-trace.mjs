@@ -317,6 +317,21 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     if (JSON.stringify(requestedVtables) !== JSON.stringify(selectedVtables)) {
       throw new Error("trace-start and agent-ready selected vtables differ");
     }
+    const requestedObservations = traceStart.arguments?.observations ?? [];
+    const selectedObservations = agentReady.selectedObservations ?? [];
+    if (
+      !Array.isArray(requestedObservations) ||
+      !requestedObservations.every((item) => typeof item === "string") ||
+      !Array.isArray(selectedObservations) ||
+      !selectedObservations.every((item) => typeof item === "string") ||
+      new Set(selectedObservations).size !== selectedObservations.length ||
+      selectedObservations.some((item) => item !== "startup-info")
+    ) {
+      throw new Error("trace v2 has unsupported or duplicate selected observation");
+    }
+    if (JSON.stringify(requestedObservations) !== JSON.stringify(selectedObservations)) {
+      throw new Error("trace-start and agent-ready selected observations differ");
+    }
     for (const event of events) {
       if (event.kind === "api-enter" || event.kind === "api-leave") {
         validateCallTarget(event, selectedVtables);

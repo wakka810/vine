@@ -1,8 +1,12 @@
 "use strict";
 
 const schema = "vine.win32-trace.v2";
-const agentOptions = globalThis.__vineTraceOptions ?? { vtables: [] };
+const agentOptions = globalThis.__vineTraceOptions ?? {
+  vtables: [],
+  observations: [],
+};
 const selectedVtables = new Set(agentOptions.vtables ?? []);
+const selectedObservations = new Set(agentOptions.observations ?? []);
 let sequence = 0;
 let nextCallId = 1;
 const attached = new Set();
@@ -46,6 +50,73 @@ function decodeArgument(argument, decoder) {
     return value <= 0xffff ? `#${value}` : readString(argument, "ansi");
   }
   return argument.toString();
+}
+
+function readOptionalUtf16Address(address) {
+  if (address === 0) {
+    return null;
+  }
+  try {
+    return ptr(address).readUtf16String();
+  } catch (error) {
+    return `<unreadable:${error.message}>`;
+  }
+}
+
+function snapshotStartupInfoW(pointer, decodeStrings = false) {
+  const size = 68;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 STARTUPINFOW observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    const bytes = [...new Uint8Array(buffer)];
+    const view = new DataView(buffer);
+    const fields = {
+      cb: view.getUint32(0, true),
+      lpReserved: view.getUint32(4, true),
+      lpDesktop: view.getUint32(8, true),
+      lpTitle: view.getUint32(12, true),
+      dwX: view.getUint32(16, true),
+      dwY: view.getUint32(20, true),
+      dwXSize: view.getUint32(24, true),
+      dwYSize: view.getUint32(28, true),
+      dwXCountChars: view.getUint32(32, true),
+      dwYCountChars: view.getUint32(36, true),
+      dwFillAttribute: view.getUint32(40, true),
+      dwFlags: view.getUint32(44, true),
+      wShowWindow: view.getUint16(48, true),
+      cbReserved2: view.getUint16(50, true),
+      lpReserved2: view.getUint32(52, true),
+      hStdInput: view.getUint32(56, true),
+      hStdOutput: view.getUint32(60, true),
+      hStdError: view.getUint32(64, true),
+    };
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes,
+      fields,
+      ...(decodeStrings
+        ? {
+            strings: {
+              reserved: readOptionalUtf16Address(fields.lpReserved),
+              desktop: readOptionalUtf16Address(fields.lpDesktop),
+              title: readOptionalUtf16Address(fields.lpTitle),
+            },
+          }
+        : {}),
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
 }
 
 function describeCaller(address) {
@@ -144,6 +215,10 @@ const hooks = {
     ["CoCreateInstance", []],
   ],
 };
+
+if (selectedObservations.has("startup-info")) {
+  hooks["kernel32.dll"].push(["GetStartupInfoW", [null]]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -263,23 +338,40 @@ function attachHook(module, name, decoders) {
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
+      const observation =
+        name === "GetStartupInfoW"
+          ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
+          : {};
+      this.traceStartupInfoPointer =
+        name === "GetStartupInfoW" ? args[0] : null;
       this.traceFrame = beginCall(
         {
           module: module.name,
           api: name,
           arguments: arguments_,
+          ...observation,
         },
         this.returnAddress,
       );
     },
     onLeave(result) {
       const lastError = this.lastError;
+      const observation =
+        this.traceStartupInfoPointer === null
+          ? {}
+          : {
+              startupInfoAfter: snapshotStartupInfoW(
+                this.traceStartupInfoPointer,
+                true,
+              ),
+            };
       finishCall(
         this.traceFrame,
         {
           module: module.name,
           api: name,
           result: result.toString(),
+          ...observation,
         },
         lastError,
       );
@@ -318,4 +410,5 @@ emit("agent-ready", {
   pointerSize: Process.pointerSize,
   processId: Process.id,
   selectedVtables: [...selectedVtables],
+  selectedObservations: [...selectedObservations],
 });

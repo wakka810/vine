@@ -13,6 +13,7 @@ import frida
 
 TRACE_SCHEMA = "vine.win32-trace.v2"
 SUPPORTED_VTABLES = ("idirect3d9",)
+SUPPORTED_OBSERVATIONS = ("startup-info",)
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +31,13 @@ def parse_args() -> argparse.Namespace:
         choices=SUPPORTED_VTABLES,
         default=[],
         help="Observe one explicitly selected COM vtable (repeatable).",
+    )
+    parser.add_argument(
+        "--observe",
+        action="append",
+        choices=SUPPORTED_OBSERVATIONS,
+        default=[],
+        help="Capture one explicitly selected API data contract (repeatable).",
     )
     return parser.parse_args()
 
@@ -86,6 +94,7 @@ def main() -> int:
                     "seconds": args.seconds,
                     "killAfter": args.kill_after,
                     "vtables": list(dict.fromkeys(args.vtable)),
+                    "observations": list(dict.fromkeys(args.observe)),
                 },
             },
         )
@@ -104,7 +113,10 @@ def main() -> int:
                 detached.set()
 
             session.on("detached", on_detached)
-            agent_options = {"vtables": list(dict.fromkeys(args.vtable))}
+            agent_options = {
+                "vtables": list(dict.fromkeys(args.vtable)),
+                "observations": list(dict.fromkeys(args.observe)),
+            }
             agent_source = (
                 f'"use strict";\n'
                 f"globalThis.__vineTraceOptions = {json.dumps(agent_options)};\n"

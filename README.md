@@ -4,7 +4,7 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-fifth-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-sixth-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
 330 imports to deterministic runtime-owned `UD2` thunks, and reflects 388
 sealed pages into source-built v86. BGI executes 19 instructions from entry
@@ -20,8 +20,12 @@ thread ID `8192`; three more instructions stop at thunk ID `13`,
 count `3,600,000`; five more instructions stop at thunk ID `157`,
 `KERNEL32.dll!QueryPerformanceCounter`. A fifth checked stdcall writes counter
 `12,345,678,901` through generation `26`, returns BOOL success, and runs 44
-more instructions to thunk ID `83`, `KERNEL32.dll!GetStartupInfoW`. Six
-endpoints are declared; the other 324 retain exact identity as explicit traps.
+more instructions to thunk ID `83`, `KERNEL32.dll!GetStartupInfoW`. A sixth
+checked VOID stdcall writes controlled 68-byte x86 `STARTUPINFOW` profile
+`startupinfow-v68-zero-optional-fields` through generation `27`, preserves
+EAX, and runs nine more instructions to thunk ID `84`,
+`KERNEL32.dll!HeapSetInformation`. Seven endpoints are declared; the other 323
+retain exact identity as explicit traps.
 
 The foundation below that checkpoint now has an incremental `MemoryDelta`
 protocol. The first transfer is a full snapshot; later generations carry only
@@ -39,8 +43,8 @@ The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next endpoint checkpoint is a checked one-argument VOID stdcall return from
-thunk ID `83` with one controlled x86 `STARTUPINFOW` output.
+The next endpoint checkpoint is the checked four-argument stdcall at thunk ID
+`84` for `HeapSetInformation(NULL, 1, NULL, 0)`.
 
 ## Requirements
 
@@ -110,6 +114,10 @@ performance-counter dispatch.
 `npm run check:runtime:bgi-fifth-win32-call` writes controlled counter
 `12,345,678,901` through a generation `26` delta, returns from exact thunk ID
 `157`, and stops at exact thunk ID `83` before a startup-info dispatch.
+`npm run check:runtime:bgi-sixth-win32-call` writes the controlled 68-byte x86
+startup profile through generation `27`, preserves EAX for the VOID return from
+exact thunk ID `83`, and stops at exact thunk ID `84` before a heap-information
+dispatch.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

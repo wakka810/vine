@@ -38,6 +38,7 @@ struct Arguments {
     thread_id_return_session: bool,
     tick_count_return_session: bool,
     performance_counter_return_session: bool,
+    startup_info_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -53,6 +54,7 @@ struct V86ReturnSessionOptions {
     thread_id: bool,
     tick_count: bool,
     performance_counter: bool,
+    startup_info: bool,
 }
 
 #[derive(Serialize)]
@@ -397,6 +399,133 @@ struct V86PerformanceCounterDeltaOffer {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct V86PerformanceCounterDeltaReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    acknowledged_generation: u64,
+    output_address: GuestAddress,
+    output_bytes: Vec<u8>,
+    stats: MemoryStats,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86StartupInfoWriteRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    output_address: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    process_startup_owner: String,
+    profile_id: String,
+    structure_size: u32,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct X86StartupInfoW {
+    cb: u32,
+    lp_reserved: u32,
+    lp_desktop: u32,
+    lp_title: u32,
+    dw_x: u32,
+    dw_y: u32,
+    dw_x_size: u32,
+    dw_y_size: u32,
+    dw_x_count_chars: u32,
+    dw_y_count_chars: u32,
+    dw_fill_attribute: u32,
+    dw_flags: u32,
+    w_show_window: u16,
+    cb_reserved2: u16,
+    lp_reserved2: u32,
+    h_std_input: u32,
+    h_std_output: u32,
+    h_std_error: u32,
+}
+
+impl X86StartupInfoW {
+    const SIZE: u32 = 68;
+    const PROFILE_ID: &'static str = "startupinfow-v68-zero-optional-fields";
+
+    fn controlled() -> Self {
+        Self {
+            cb: Self::SIZE,
+            lp_reserved: 0,
+            lp_desktop: 0,
+            lp_title: 0,
+            dw_x: 0,
+            dw_y: 0,
+            dw_x_size: 0,
+            dw_y_size: 0,
+            dw_x_count_chars: 0,
+            dw_y_count_chars: 0,
+            dw_fill_attribute: 0,
+            dw_flags: 0,
+            w_show_window: 0,
+            cb_reserved2: 0,
+            lp_reserved2: 0,
+            h_std_input: 0,
+            h_std_output: 0,
+            h_std_error: 0,
+        }
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(Self::SIZE as usize);
+        bytes.extend_from_slice(&self.cb.to_le_bytes());
+        bytes.extend_from_slice(&self.lp_reserved.to_le_bytes());
+        bytes.extend_from_slice(&self.lp_desktop.to_le_bytes());
+        bytes.extend_from_slice(&self.lp_title.to_le_bytes());
+        bytes.extend_from_slice(&self.dw_x.to_le_bytes());
+        bytes.extend_from_slice(&self.dw_y.to_le_bytes());
+        bytes.extend_from_slice(&self.dw_x_size.to_le_bytes());
+        bytes.extend_from_slice(&self.dw_y_size.to_le_bytes());
+        bytes.extend_from_slice(&self.dw_x_count_chars.to_le_bytes());
+        bytes.extend_from_slice(&self.dw_y_count_chars.to_le_bytes());
+        bytes.extend_from_slice(&self.dw_fill_attribute.to_le_bytes());
+        bytes.extend_from_slice(&self.dw_flags.to_le_bytes());
+        bytes.extend_from_slice(&self.w_show_window.to_le_bytes());
+        bytes.extend_from_slice(&self.cb_reserved2.to_le_bytes());
+        bytes.extend_from_slice(&self.lp_reserved2.to_le_bytes());
+        bytes.extend_from_slice(&self.h_std_input.to_le_bytes());
+        bytes.extend_from_slice(&self.h_std_output.to_le_bytes());
+        bytes.extend_from_slice(&self.h_std_error.to_le_bytes());
+        debug_assert_eq!(bytes.len(), Self::SIZE as usize);
+        bytes
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86StartupInfoDeltaOffer {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    output_address: GuestAddress,
+    process_startup_owner: String,
+    profile_id: String,
+    structure_size: u32,
+    startup_info: X86StartupInfoW,
+    output_bytes: Vec<u8>,
+    stack_reconciliation: GuestPageReconciliation,
+    write: GuestWriteResult,
+    delta: MemoryDelta,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86StartupInfoDeltaReceipt {
     schema: &'static str,
     schema_version: u32,
     acknowledged_generation: u64,
@@ -864,6 +993,7 @@ fn run_v86_reflection_session(
             thread_id: arguments.thread_id_return_session,
             tick_count: arguments.tick_count_return_session,
             performance_counter: arguments.performance_counter_return_session,
+            startup_info: arguments.startup_info_return_session,
         };
         run_v86_system_time_delta_session(
             &mut protocol_input,
@@ -1399,7 +1529,13 @@ fn run_v86_tick_count_return_session(
         message_limit,
     )?;
     if return_sessions.performance_counter {
-        run_v86_performance_counter_return_session(input, memory, binding, message_limit)?;
+        run_v86_performance_counter_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
     }
     Ok(())
 }
@@ -1409,6 +1545,7 @@ fn run_v86_performance_counter_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    return_sessions: V86ReturnSessionOptions,
 ) -> Result<(), LoaderError> {
     let request: V86PerformanceCounterWriteRequest = read_protocol_message(
         input,
@@ -1564,6 +1701,181 @@ fn run_v86_performance_counter_return_session(
     write_protocol_message(
         &V86PerformanceCounterDeltaReceipt {
             schema: "vine.v86-performance-counter-delta-receipt",
+            schema_version: 1,
+            acknowledged_generation: ack.generation,
+            output_address: GuestAddress(request.output_address),
+            output_bytes,
+            stats: memory.stats(),
+        },
+        message_limit,
+    )?;
+    if return_sessions.startup_info {
+        run_v86_startup_info_return_session(input, memory, binding, message_limit)?;
+    }
+    Ok(())
+}
+
+fn run_v86_startup_info_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+) -> Result<(), LoaderError> {
+    let request: V86StartupInfoWriteRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-process-startup",
+        "startup-info-write-request",
+        "controlled STARTUPINFOW write request",
+    )?;
+    if request.schema != "vine.v86-startup-info-write-request" || request.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "win32-process-startup",
+            "startup-info-write-request-schema-unsupported",
+            "startup-info request must use vine.v86-startup-info-write-request version 1",
+        ));
+    }
+    if request.argument_bytes != 4 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "startup-info-argument-width-mismatch",
+            "GetStartupInfoW requires one four-byte stdcall argument",
+        ));
+    }
+    if request.process_startup_owner.is_empty()
+        || request.profile_id != X86StartupInfoW::PROFILE_ID
+        || request.structure_size != X86StartupInfoW::SIZE
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-process-startup",
+            "controlled-startup-info-profile-invalid",
+            "controlled startup info requires its nonempty owner and exact x86 profile identity",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "startup-info-thunk-id-unowned",
+                "startup-info write request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "GetStartupInfoW"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "startup-info-thunk-identity-mismatch",
+            "startup-info write request does not match the declared GetStartupInfoW thunk",
+        ));
+    }
+
+    let startup_info = X86StartupInfoW::controlled();
+    let output_bytes = startup_info.to_bytes();
+    let (stack_reconciliation, write, delta) = {
+        let mut transaction = memory.begin_transaction();
+        let stack_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[request.output_address],
+        )?;
+        let write = transaction
+            .write(GuestAddress(request.output_address), &output_bytes)
+            .map_err(memory_error)?;
+        let delta = transaction.pending_delta().map_err(memory_error)?;
+        if delta.from_generation != request.reflected_generation
+            || delta.dirty_pages.len() != 1
+            || delta.dirty_pages[0].address.0 != request.stack_page_address
+            || delta.dirty_pages[0].owner.0 != request.stack_page_owner
+            || !delta.mapping_operations.is_empty()
+            || delta.cache_effects.flush_tlb
+            || delta.cache_effects.invalidate_instruction_fetch
+            || delta.cache_effects.invalidate_generated_code
+        {
+            return Err(LoaderError::runtime_defect(
+                "memory-delta",
+                "startup-info-delta-shape-invalid",
+                "checked startup-info write did not produce one data-only stack-page delta",
+            ));
+        }
+        transaction.commit_transaction();
+        (stack_reconciliation, write, delta)
+    };
+
+    let delta_generation = delta.generation;
+    write_protocol_message(
+        &V86StartupInfoDeltaOffer {
+            schema: "vine.v86-startup-info-delta",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            output_address: GuestAddress(request.output_address),
+            process_startup_owner: request.process_startup_owner,
+            profile_id: request.profile_id,
+            structure_size: request.structure_size,
+            startup_info,
+            output_bytes,
+            stack_reconciliation,
+            write,
+            delta,
+        },
+        message_limit,
+    )?;
+
+    let ack: V86MemoryDeltaAck = read_protocol_message(
+        input,
+        4 * 1024,
+        "memory-delta",
+        "startup-info-delta-ack",
+        "startup-info memory-delta acknowledgement",
+    )?;
+    if ack.schema != "vine.v86-memory-delta-ack"
+        || ack.schema_version != 1
+        || ack.generation != delta_generation
+        || ack.data_tlb
+        || ack.instruction_fetch
+        || ack.generated_code
+    {
+        return Err(LoaderError::invalid_input(
+            "memory-delta",
+            "startup-info-delta-ack-invalid",
+            "startup-info delta acknowledgement does not match its generation and cache effects",
+        ));
+    }
+    memory
+        .acknowledge_invalidation(ack.generation)
+        .map_err(memory_error)?;
+    let output_bytes = memory
+        .read(
+            GuestAddress(request.output_address),
+            X86StartupInfoW::SIZE as usize,
+        )
+        .map_err(memory_error)?;
+    write_protocol_message(
+        &V86StartupInfoDeltaReceipt {
+            schema: "vine.v86-startup-info-delta-receipt",
             schema_version: 1,
             acknowledged_generation: ack.generation,
             output_address: GuestAddress(request.output_address),
@@ -1807,6 +2119,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut thread_id_return_session = false;
     let mut tick_count_return_session = false;
     let mut performance_counter_return_session = false;
+    let mut startup_info_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -1890,6 +2203,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             performance_counter_return_session = true;
+        } else if argument == "--startup-info-return-session" {
+            if startup_info_return_session {
+                return Err(usage_error());
+            }
+            startup_info_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -1984,6 +2302,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if performance_counter_return_session && !tick_count_return_session {
         return Err(usage_error());
     }
+    if startup_info_return_session && !performance_counter_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -2002,6 +2323,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         thread_id_return_session,
         tick_count_return_session,
         performance_counter_return_session,
+        startup_info_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -2084,7 +2406,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 
