@@ -208,6 +208,7 @@ Verified behavior:
 - import-free PE32 bootstrap fixtureをnative Windowsでself-oracleし、production Rustの7 pagesをreflectしたsource-v86へFS base `0`で渡す。最初の`FS:[0x18]`をprevious EIP `0x10001000`、CR2 `0x18`、PFEC `4`で止めるbootstrap FS first-stop ingress
 - separate owner `4`／`5`のtyped TEB／PEB pagesへself `+0x18`とPEB `+0x30`だけをchecked initializationし、generation `10`の9 pagesをreflectする。CPU state ABIでFS base `0x7FFDE000`をrestoreし、同じfixtureをentry result `0`／sentinel `0x7F010010`まで通すbootstrap FS ingress
 - separate import-free fixtureでnative i386の`PEB+0x10` process-parameters pointer、`ProcessParameters+0x40` command-line `UNICODE_STRING`、buffer `+0x04`をself-oracleする。同じminimum TEB／PEBでzero pointerを観測し、silent successせずentry result `2`へ戻すprocess-parameters first-stop ingress
+- typed owner `6`／`7`のprocess-parameters／command-line pagesへ測定済みpointerと`UNICODE_STRING`、UTF-16 `bootstrap-params.exe`をchecked initializationする。generation `14`の11 pagesをreflectし、同じfixtureをmatch index `0`／entry result `0`まで通すprocess-parameters ingress
 
 未検証または未実装:
 
@@ -260,6 +261,7 @@ Verified behavior:
 35. import-free `bootstrap-fs.exe`で`FS:[0x18]` TEB selfと`FS:[0x30]` PEB pointerをnative exit code `0`へself-verifyする。5 image pages、control owner `2`、stack owner `3`のgeneration `6`／7-page reflectionをsource-v86へ渡し、FS base `0`の最初のreadをreason `0x10E`、PFEC `4`、CR2 `0x18`、current／previous EIP `0x10001007`／`0x10001000`で構造化するbootstrap FS first-stop contract。
 36. `thread-environment-block` owner `4`／`0x7FFDE000`と`process-environment-block` owner `5`／`0x7FFDF000`をRW／NXでcommitし、TEB `+0x18`／`+0x30`だけをself／PEB pointerへ初期化する。generation `10`の9-page reflectionとFS base restoreを通し、9 execute stop／8 budget stop後に4 observation一致、EAX `0`、ESP `0x00700000`でentry sentinelへ到達するbootstrap FS ingress contract。
 37. import-free `bootstrap-params.exe`でnative i386の`FS:[0x30] -> PEB`、`PEB+0x10 -> RTL_USER_PROCESS_PARAMETERS`、`+0x40 -> CommandLine`、`UNICODE_STRING+0x04 -> Buffer`をbounded self-oracleし、exit code `0`を得る。同じgeneration `10` minimum environmentでは`PEB+0x10 == 0`を観測してEAX `2`を返し、8 execute stop／7 budget stop後にentry sentinelへ到達するprocess-parameters first-stop contract。
+38. `process-parameters` owner `6`／`0x7FFDC000`と`command-line` owner `7`／`0x7FFDD000`をRW／NXでcommitし、PEB `+0x10`、parameters `+0x40`のLength `40`／MaximumLength `42`／Buffer、20-unit UTF-16 basename＋NULを初期化する。generation `14`の11-page reflectionを通し、94 execute stop／93 budget stop後にmatch index `0`、EAX `0`、ESP `0x00700000`でentry sentinelへ到達するprocess-parameters ingress contract。
 
 2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
 
@@ -289,6 +291,8 @@ Verified behavior:
 
 続けて`bootstrap-params.exe`をnative Windowsで実行し、PEB process-parameters pointerとcommand-line layoutをexit code `0`へself-oracleした。2,560-byte fixtureのSHA-256は`50a5f27f9ce65071f3d8668213eea67f67ccef7b09dc1a72d9192100de4f0c40`である。同じfixtureをexisting minimum TEB／PEBへ渡すと`PEB+0x10`はzeroのままであり、explicit result EAX `2`、ESP `0x00700000`でentry sentinelへ戻った。generation `10`の9-page reflectionはSHA-256 `51357b546920ec78aa535488ce8d280a8027805e1d1d24e138b85264fbab9c39`、8 execute stop／7 budget stop、version 1 reportは8,351 bytes／SHA-256 `263d07c36be0579973f6f6ecdf2c41a3e1eb9b76af21c8b9c66681498d20603e`である。process-parameters regionとcommand-line bytesはまだ未実装である。詳細は`docs/v86-bootstrap-params-first-stop.md`を正とする。
 
+続けてprocess-parameters／command-lineをRust ownershipへ移した。owner `6`／`7`のpagesへPEB pointer、Length `40`、MaximumLength `42`、buffer `0x7FFDD000`、UTF-16 `bootstrap-params.exe`＋NULを初期化した。PEB／parameters／command-line page SHA-256は`780207feb049a4c658816bf0c986bb386ec04214722a21c47936cdec01ee4d39`／`5fb4eed3eb10240c39a428c43621e7198ccf0c3089ffff6e6aea233759533f75`／`f6e0abfe79cb7fafa42be5f1450e91539b3d0386f7140523e44109249f1e19bd`である。generation `14`の11-page reflectionはSHA-256 `f9a59953a06999030e40e962a007f1ec5f0ecb73b077c4df760e212ba3d3acbb`となり、94 execute stop／93 budget stop後にmatch index `0`、EAX `0`、ESP `0x00700000`でentry sentinelへ到達した。version 1 reportは10,521 bytes／SHA-256 `9b12a10acf50841cd27636c3b1b35439dfa49e19190a9d34c809b0052021c109`で2回一致し、先行3 reportはbyte-identicalである。詳細は`docs/v86-bootstrap-params-ingress.md`を正とする。
+
 まだ存在しないもの:
 
 - production TypeScript／Wasm browser workspaceとRust coreのWasm packaging
@@ -300,7 +304,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGI.exe をv86-connected Vine guest memoryでexecuteした evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB ingressとprocess-parameters first stopである。native i386 layoutは測定したがprocess-parameters storageとgeneral process lifecycleは未実装で、BGIは1 importだけbindした未seal／未実行imageである。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingressである。測定済みcommand-line pathだけを所有し、general process parametersとlifecycleは未実装で、BGIは1 importだけbindした未seal／未実行imageである。
 
 ## 8. Corpus
 
@@ -377,19 +381,21 @@ npm run check:runtime:stack-bootstrap
 npm run check:runtime:bootstrap-fs-first-stop
 npm run check:runtime:bootstrap-fs
 npm run check:runtime:bootstrap-params-first-stop
+npm run check:runtime:bootstrap-params
 ```
 
-`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とする。`check:runtime:entry`から`check:runtime:entry-return`はproduction reflectionとfixed ABI returnを段階的に固定し、`check:runtime:stack-bootstrap`はcontrolled stackをRust ownershipへ移す。`check:runtime:bootstrap-fs-first-stop`はnative FS oracleとzero-base fault、`check:runtime:bootstrap-fs`はRust-owned TEB／PEBとFS-base restore後のentry completion、`check:runtime:bootstrap-params-first-stop`はnative command-line oracleとzero process-parameters pointerの明示resultを固定する。`check:runtime:core`はroot Rust workspace checksをcanonical checkへ入れる。source adapterを使うcheckpointは通常の`npm run check`には含めない。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とする。`check:runtime:entry`から`check:runtime:entry-return`はproduction reflectionとfixed ABI returnを段階的に固定し、`check:runtime:stack-bootstrap`はcontrolled stackをRust ownershipへ移す。`check:runtime:bootstrap-fs-first-stop`はnative FS oracleとzero-base fault、`check:runtime:bootstrap-fs`はRust-owned TEB／PEBとFS-base restore後のentry completion、`check:runtime:bootstrap-params-first-stop`はnative command-line oracleとzero process-parameters pointer、`check:runtime:bootstrap-params`は測定済みparameters／UTF-16 bytesのRust ownershipとentry completionを固定する。`check:runtime:core`はroot Rust workspace checksをcanonical checkへ入れる。source adapterを使うcheckpointは通常の`npm run check`には含めない。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS first-stop／FS ingress／process-parameters first stopは 2026-07-11 までに完了した。separate native oracleはi386の`PEB+0x10`、`ProcessParameters+0x40`、`UNICODE_STRING.Buffer+0x04`をbounded command-line matchで固定した。source-v86のexisting minimum PEBではpointer zeroを観測し、silent successせずentry result `2`へ到達した。BGIは`d3d9.dll!Direct3DCreate9`だけをbindし、次の`DINPUT8.dll!DirectInput8Create`で停止した未実行imageである。fixed addresses、FS selector `0`、empty PEB、2 MiB v86 poolはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshotの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
+Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS first-stop／FS ingress／process-parameters first stop／ingressは 2026-07-11 までに完了した。measured command-line pathはtyped owner `6`／`7`へ入り、source-v86でexact observationとentry result `0`まで到達した。BGIは`d3d9.dll!Direct3DCreate9`だけをbindし、次の`DINPUT8.dll!DirectInput8Create`で停止した未実行imageである。fixed addresses、command-line text、FS selector `0`、zero-filled unmeasured fields、2 MiB v86 poolはcheckpoint上のversion 1選択であり、final process layout／bootstrap／snapshotの決定ではない。長期 roadmap の全 task を日常の checklist にせず、現在は次を一つずつ進める。
 
-1. Rust-owned process-parameters regionとUTF-16 command-line bufferをPEBへ接続し、同じfixtureをsource-v86でexact observation／entry returnまで通す。
+1. BGIのremaining 329 static importsをmodule／symbol／ordinal identity付きのexplicit unsupported trap thunksへbindし、successを装わずimage ownerをsealするCPU未接続contractを作る。
+2. BGIのlarge sealed image／bootstrap pagesをbounded transferでsource-v86へ反映し、最初のruntime-reachable owned trapまで実行する。
 
-項目1が次の primary implementation checkpointである。native offset oracleをPEB／TEB全体、general process parameters、current directory／environment、loader list、TLS、LastError、process lifecycle、`AC-P1`／`AC-P2`の完成と扱わない。次checkpointも測定済みcommand-line fieldだけに限定する。
+項目1が次の primary implementation checkpointである。unsupported trapのbindingをAPI実装、DLL lifecycle、successful returnと扱わない。項目2へ進む前にcontrolled fixtureでexact trap identityとowner sealを固定する。
 
 ## 11. Major Open Questions
 
@@ -457,6 +463,7 @@ Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load�
 | `docs/v86-bootstrap-fs-first-stop.md` | native TEB／PEB FS contract、import-free reflection、zero-base exact fault evidence |
 | `docs/v86-bootstrap-fs-ingress.md` | typed Rust TEB／PEB regions、FS-base restore、exact field／entry completion evidence |
 | `docs/v86-bootstrap-params-first-stop.md` | native process-parameters／command-line contract、zero PEB pointer、explicit unsupported result evidence |
+| `docs/v86-bootstrap-params-ingress.md` | typed process-parameters／command-line regions、exact UTF-16 bytes、entry completion evidence |
 | `docs/roadmap.md` | long-term phase、task、dependency、acceptance mapping |
 | `docs/risks-and-open-questions.md` | unresolved decisions、risk、go／no-go |
 | `docs/testing-and-acceptance.md` | test candidate、evidence、phase acceptance |

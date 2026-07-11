@@ -4,8 +4,8 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap FS ingress／process-parameters first stop。native offset oracle、zero-base fault、Rust-owned minimum TEB／PEB、FS-base restore、entry completion、native command-line layoutとzero-pointer guest resultまで完了。visual critical scenario、device-level COM trace、general process integration、process-parameters ownership、engine最終選定は未完了
-- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／minimum TEB・PEB ingress、process-parameters first stopがあり、general process integration、DLL lifecycle、process-parameters storage／Win32 runtime、browser app、CIは未実装
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap FS／process-parameters ingress。native offset oracle、zero-base fault、Rust-owned minimum TEB／PEB／command-line path、entry completionまで完了。visual critical scenario、device-level COM trace、general process integration／parameters、engine最終選定は未完了
+- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／minimum TEB・PEB／process-parameters ingressがあり、general process integration、DLL lifecycle／export resolution、Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
 このロードマップは、広範な Windows 互換を一度に実装する計画ではない。Windows native trace を根拠に、headless 実行、startup、first frame、input、audio、persistence の短い vertical checkpoint を広く浅く通す。各 subsystem の全面実装は後回しにし、各 phase は日付ではなく受け入れ条件を満たした時点で完了する。
@@ -30,6 +30,7 @@
 - [v86-bootstrap-fs-first-stop.md](v86-bootstrap-fs-first-stop.md): native TEB／PEB offset oracle、import-free production reflection、zero-FS-base exact fault evidence
 - [v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md): typed Rust TEB／PEB regions、FS-base restore、exact field／entry completion evidence
 - [v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md): native process-parameters／command-line oracle、zero guest pointer、explicit result `2` evidence
+- [v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md): typed process-parameters／command-line ownership、exact bytes、source-v86 completion evidence
 
 ## 2. 計画上の前提
 
@@ -907,9 +908,10 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS ingress／process-parameters first stopは完了した。separate native fixtureはi386の`PEB+0x10` process-parameters pointer、`ProcessParameters+0x40` command-line `UNICODE_STRING`、buffer `+0x04`をbounded basename matchで固定した。source-v86のminimum PEBはpointer zeroを返し、fixtureはexplicit result `2`でentry sentinelへ到達した。BGIは`Direct3DCreate9`だけをbindして`DirectInput8Create`で停止した未実行imageである。general DLL／export resolution、process lifecycle、process-parameters storage、loader list、TLS、LastError、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS／process-parameters ingressは完了した。typed owner `6`／`7`は測定済みPEB pointer、command-line `UNICODE_STRING`、UTF-16 bytesを保持し、same fixtureはmatch index `0`／entry result `0`へ到達した。BGIは`Direct3DCreate9`だけをbindして`DirectInput8Create`で停止した未実行imageである。general DLL／export resolution、process lifecycle／parameters、loader list、TLS、LastError、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)、[pe-import-binding.md](pe-import-binding.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. Rust-owned process-parameters regionとUTF-16 command-line bufferをPEBへ接続し、同じfixtureをsource-v86でexact observation／entry returnまで通す。
+1. BGIのremaining 329 static importsをidentity付きexplicit unsupported trap thunksへbindし、successを返さずimage ownerをsealするCPU未接続contractを作る。
+2. sealed BGI imageとbootstrap pagesをbounded large-image transferでsource-v86へ反映し、最初のruntime-reachable owned trapまで実行する。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 

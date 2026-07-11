@@ -65,4 +65,4 @@ npm run check:runtime:bootstrap-params-first-stop
 
 Vine does not yet own an `RTL_USER_PROCESS_PARAMETERS` region or UTF-16 command-line buffer. It does not initialize `PEB + 0x10`, current directory, image path, DLL path, environment, standard handles, console fields, loader lists, TLS, or LastError. The fixture's 32 KiB observation bound is a test limit, not a final command-line policy.
 
-The next checkpoint adds Rust-owned process-parameters and UTF-16 command-line regions, initializes only the measured `PEB + 0x10` pointer and `CommandLine` `UNICODE_STRING`, reflects those pages, and requires the same fixture to find `bootstrap-params.exe` and return `0`.
+The Rust-owned continuation is complete in [v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md). It initializes only the measured `PEB + 0x10` pointer, command-line `UNICODE_STRING`, and UTF-16 bytes, then requires the same fixture to find `bootstrap-params.exe` and return `0` without changing this first-stop report.

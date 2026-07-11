@@ -26,6 +26,7 @@
     "check:runtime:bootstrap-fs-first-stop": "node tools/run-runtime-v86-bootstrap-fs-slice.mjs",
     "check:runtime:bootstrap-fs": "node tools/run-runtime-v86-bootstrap-fs-slice.mjs --install-process-environment",
     "check:runtime:bootstrap-params-first-stop": "node tools/run-runtime-v86-bootstrap-fs-slice.mjs --process-parameters-first-stop",
+    "check:runtime:bootstrap-params": "node tools/run-runtime-v86-bootstrap-fs-slice.mjs --install-process-parameters",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",

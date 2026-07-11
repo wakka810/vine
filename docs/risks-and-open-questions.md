@@ -60,7 +60,7 @@
 | Q-016 | Open | SharedArrayBuffer と cross-origin isolation を必須にするか | optional fast path として検証。必要なら Tier 1 の deployment requirement にする | audio ring、thread、copy overhead、embed 制約、header smoke | Phase 1 gate | Web platform |
 | Q-017 | Open | SEH、VEH、APC、TLS／TEB をどこまで実装するか | corpus と compiler fixture の使用経路を inventory 化し、silent stub はしない | Windows differential traces、title startup traces | Phase 1-2 | Windows ABI owner |
 | Q-018 | Open | x87／MMX／SSE／SSE2 の初期範囲は何か | corpus binary scan と runtime trace の union を最低範囲にする | compiler 別 fixture、FPU precision／rounding oracle | Phase 1 | CPU lead |
-| Q-019 | Investigating | PE32 bootstrap の PEB／TEB／FS／process parameters layout をどこまで保証するか | measured i386 profileとしてTEB self `+0x18`、PEB `FS:[0x30]`、process parameters `PEB+0x10`、command line `+0x40`、buffer `+0x04`だけを採用候補にする。supported compiler／CRT fixtureをsupport bandとし、内部 layout の全面互換を約束しない | [v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)、[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)、compiler／CRT startup fixture | Phase 1 | Loader + Windows ABI |
+| Q-019 | Investigating | PE32 bootstrap の PEB／TEB／FS／process parameters layout をどこまで保証するか | measured i386 profileとしてTEB self `+0x18`、PEB `FS:[0x30]`、process parameters `PEB+0x10`、command line `+0x40`、buffer `+0x04`だけをtyped ownershipへ採用した。supported compiler／CRT fixtureをsupport bandとし、内部 layout の全面互換を約束しない | [v86-bootstrap-fs-ingress.md](v86-bootstrap-fs-ingress.md)、[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)、compiler／CRT startup fixture | Phase 1 | Loader + Windows ABI |
 
 ### 3.4 PE、ABI、Windows API
 

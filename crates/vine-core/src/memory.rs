@@ -115,6 +115,8 @@ pub enum MemoryRegionKind {
     Stack,
     ThreadEnvironmentBlock,
     ProcessEnvironmentBlock,
+    ProcessParameters,
+    CommandLine,
     Heap,
     Anonymous,
     Runtime,

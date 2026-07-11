@@ -15,20 +15,31 @@ const installProcessEnvironmentRequested = commandArguments.includes(
 const processParametersFirstStop = commandArguments.includes(
   "--process-parameters-first-stop",
 );
+const installProcessParameters = commandArguments.includes(
+  "--install-process-parameters",
+);
 assert(
-  Number(installProcessEnvironmentRequested) + Number(processParametersFirstStop) <= 1,
+  Number(installProcessEnvironmentRequested) +
+    Number(processParametersFirstStop) +
+    Number(installProcessParameters) <=
+    1,
   "choose only one bootstrap mode",
 );
 const installProcessEnvironment =
-  installProcessEnvironmentRequested || processParametersFirstStop;
+  installProcessEnvironmentRequested ||
+  processParametersFirstStop ||
+  installProcessParameters;
+const useProcessParametersFixture =
+  processParametersFirstStop || installProcessParameters;
 const positionalArguments = commandArguments.filter(
   (value) =>
     value !== "--install-process-environment" &&
-    value !== "--process-parameters-first-stop",
+    value !== "--process-parameters-first-stop" &&
+    value !== "--install-process-parameters",
 );
 assert(
   positionalArguments.length <= 2,
-  "usage: run-runtime-v86-bootstrap-fs-slice.mjs [--install-process-environment | --process-parameters-first-stop] [WASM] [EXE]",
+  "usage: run-runtime-v86-bootstrap-fs-slice.mjs [--install-process-environment | --process-parameters-first-stop | --install-process-parameters] [WASM] [EXE]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -40,14 +51,16 @@ const fixturePath = path.resolve(
       root,
       ".work",
       "toolchain-spike",
-      processParametersFirstStop ? "bootstrap-params.exe" : "bootstrap-fs.exe",
+      useProcessParametersFixture ? "bootstrap-params.exe" : "bootstrap-fs.exe",
     ),
 );
 const outputDirectory = path.join(
   root,
   ".work",
-  processParametersFirstStop
-    ? "v86-bootstrap-params-first-stop"
+  useProcessParametersFixture
+    ? installProcessParameters
+      ? "v86-bootstrap-params-ingress"
+      : "v86-bootstrap-params-first-stop"
     : installProcessEnvironment
     ? "v86-bootstrap-fs-ingress"
     : "v86-bootstrap-fs-first-stop",
@@ -111,12 +124,37 @@ const expected = {
     pebContentSha256: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
     generation: 10,
   },
+  processParameters: {
+    processParametersOwner: 6,
+    commandLineOwner: 7,
+    processParametersBase: 0x7ffdc000,
+    commandLineBase: 0x7ffdd000,
+    pageBytes: 0x1000,
+    committedPages: 2,
+    pebProcessParametersPointerOffset: 0x10,
+    processParametersCommandLineOffset: 0x40,
+    unicodeStringBufferOffset: 0x04,
+    commandLine: "bootstrap-params.exe",
+    commandLineUtf16Units: 20,
+    commandLineLengthBytes: 40,
+    commandLineMaximumLengthBytes: 42,
+    pebContentSha256: "780207feb049a4c658816bf0c986bb386ec04214722a21c47936cdec01ee4d39",
+    processParametersContentSha256:
+      "5fb4eed3eb10240c39a428c43621e7198ccf0c3089ffff6e6aea233759533f75",
+    commandLineContentSha256:
+      "f6e0abfe79cb7fafa42be5f1450e91539b3d0386f7140523e44109249f1e19bd",
+    generation: 14,
+    executeStops: 94,
+    budgetStops: 93,
+  },
   reflectionContentSha256:
     "bb476b06336e93654df562ce78054e0927d5b2527ac12b54241d84a1d50b0696",
   processEnvironmentReflectionContentSha256:
     "14a986f7f10229da07f54d11fd5eda29be02e0639f06aba6151307e35f0206f3",
   processParametersFirstStopReflectionContentSha256:
     "51357b546920ec78aa535488ce8d280a8027805e1d1d24e138b85264fbab9c39",
+  processParametersReflectionContentSha256:
+    "f9a59953a06999030e40e962a007f1ec5f0ecb73b077c4df760e212ba3d3acbb",
   report: {
     bytes: 5_982,
     sha256: "9bca668c33208fa1bc6a4e8253dafb247bd9520a106761a24fd06cf46364f7f9",
@@ -129,8 +167,12 @@ const expected = {
     bytes: 8_351,
     sha256: "263d07c36be0579973f6f6ecdf2c41a3e1eb9b76af21c8b9c66681498d20603e",
   },
+  processParametersReport: {
+    bytes: 10_521,
+    sha256: "9b12a10acf50841cd27636c3b1b35439dfa49e19190a9d34c809b0052021c109",
+  },
 };
-const activeFixture = processParametersFirstStop
+const activeFixture = useProcessParametersFixture
   ? expected.processParametersFixture
   : expected.fixture;
 
@@ -214,7 +256,14 @@ function expectedReflectedPages() {
     [0x10004000, 1, { read: true, write: false, execute: false }],
     [0x7f010000, 2, { read: true, write: false, execute: true }],
   ];
-  if (installProcessEnvironment) {
+  if (installProcessParameters) {
+    pages.push(
+      [0x7ffdc000, 6, { read: true, write: true, execute: false }],
+      [0x7ffdd000, 7, { read: true, write: true, execute: false }],
+      [0x7ffde000, 4, { read: true, write: true, execute: false }],
+      [0x7ffdf000, 5, { read: true, write: true, execute: false }],
+    );
+  } else if (installProcessEnvironment) {
     pages.push(
       [0x7ffde000, 4, { read: true, write: true, execute: false }],
       [0x7ffdf000, 5, { read: true, write: true, execute: false }],
@@ -280,7 +329,7 @@ async function run() {
     "--expect-sha256",
     activeFixture.sha256,
     "--prepare-memory-pages",
-    installProcessEnvironment ? "9" : "7",
+    installProcessParameters ? "11" : installProcessEnvironment ? "9" : "7",
     "--materialize-image-base",
     "0x10000000",
     "--install-callback-return-sentinel",
@@ -289,6 +338,9 @@ async function run() {
   ];
   if (installProcessEnvironment) {
     probeArguments.push("--install-controlled-process-environment");
+  }
+  if (installProcessParameters) {
+    probeArguments.push("--install-controlled-process-parameters");
   }
   probeArguments.push(fixturePath);
   const child = spawn(
@@ -350,21 +402,23 @@ async function run() {
     assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
     sessionCompleted = true;
 
-    const execution = processParametersFirstStop
-      ? executeProcessParametersFirstStop(offer, context)
+    const execution = useProcessParametersFixture
+      ? executeProcessParameters(offer, context)
       : installProcessEnvironment
         ? executeWithProcessEnvironment(offer, context)
         : executeFirstStop(offer, context);
     const report = {
-      schema: processParametersFirstStop
-        ? "vine.v86-bootstrap-params-first-stop"
+      schema: useProcessParametersFixture
+        ? installProcessParameters
+          ? "vine.v86-bootstrap-params-ingress"
+          : "vine.v86-bootstrap-params-first-stop"
         : installProcessEnvironment
           ? "vine.v86-bootstrap-fs-ingress"
           : "vine.v86-bootstrap-fs-first-stop",
       schemaVersion: 1,
       source: offer.source,
       nativeOracle,
-      contract: processParametersFirstStop
+      contract: useProcessParametersFixture
         ? {
             pebProcessParameters: "PEB+0x10",
             commandLine: "ProcessParameters+0x40",
@@ -418,7 +472,14 @@ async function run() {
       ...(processParametersFirstStop || !installProcessEnvironment
         ? { firstStop: execution }
         : { execution }),
-      stop: processParametersFirstStop
+      stop: installProcessParameters
+        ? {
+            stage: "process-bootstrap",
+            code: "broader-process-parameters-unimplemented",
+            message:
+              "the measured process-parameters pointer and command-line UNICODE_STRING are Rust-owned and verified through exact entry completion; current directory, environment, image path, loader lists, TLS, LastError, and general lifecycle were not attempted",
+          }
+        : processParametersFirstStop
         ? {
             stage: "process-bootstrap",
             code: "process-parameters-pointer-unimplemented",
@@ -441,8 +502,10 @@ async function run() {
     };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = processParametersFirstStop
-      ? expected.processParametersFirstStopReport
+    const expectedReport = useProcessParametersFixture
+      ? installProcessParameters
+        ? expected.processParametersReport
+        : expected.processParametersFirstStopReport
       : installProcessEnvironment
         ? expected.processEnvironmentReport
         : expected.report;
@@ -451,7 +514,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (processParametersFirstStop) {
+    if (installProcessParameters) {
+      console.log(
+        `v86 bootstrap params ingress passed: native exit ${nativeOracle.exitCode}, ` +
+          `process parameters 0x${execution.processParametersAddress.toString(16)}, ` +
+          `command line 0x${execution.fixtureObservations.commandLineBuffer.toString(16)}, ` +
+          `entry result ${execution.entryResult}`,
+      );
+    } else if (processParametersFirstStop) {
       console.log(
         `v86 bootstrap params first stop passed: native exit ${nativeOracle.exitCode}, ` +
           `PEB 0x${execution.pebAddress.toString(16)}, process parameters ` +
@@ -567,13 +637,97 @@ function validateOffer(offer) {
       environment.tebContentSha256,
       expected.processEnvironment.tebContentSha256,
     );
-    assert.equal(
-      environment.pebContentSha256,
-      expected.processEnvironment.pebContentSha256,
-    );
+    const expectedPebContentSha256 = installProcessParameters
+      ? expected.processParameters.pebContentSha256
+      : expected.processEnvironment.pebContentSha256;
+    if (expectedPebContentSha256 !== null) {
+      assert.equal(environment.pebContentSha256, expectedPebContentSha256);
+    }
+    const parameters = environment.processParameters;
+    if (installProcessParameters) {
+      assert(parameters, "process-parameters mode requires owned metadata");
+      assert.equal(
+        parameters.processParametersOwner,
+        expected.processParameters.processParametersOwner,
+      );
+      assert.equal(
+        parameters.commandLineOwner,
+        expected.processParameters.commandLineOwner,
+      );
+      assert.equal(parameters.processParametersRegionKind, "process-parameters");
+      assert.equal(parameters.commandLineRegionKind, "command-line");
+      assert.equal(
+        parameters.processParametersRange.start,
+        expected.processParameters.processParametersBase,
+      );
+      assert.equal(
+        parameters.processParametersRange.byteLength,
+        expected.processParameters.pageBytes,
+      );
+      assert.equal(
+        parameters.commandLineRange.start,
+        expected.processParameters.commandLineBase,
+      );
+      assert.equal(
+        parameters.commandLineRange.byteLength,
+        expected.processParameters.pageBytes,
+      );
+      assert.equal(parameters.committedPages, expected.processParameters.committedPages);
+      assert.equal(
+        parameters.processParametersAddress,
+        expected.processParameters.processParametersBase,
+      );
+      assert.equal(
+        parameters.commandLineBufferAddress,
+        expected.processParameters.commandLineBase,
+      );
+      assert.equal(
+        parameters.pebProcessParametersPointerOffset,
+        expected.processParameters.pebProcessParametersPointerOffset,
+      );
+      assert.equal(
+        parameters.processParametersCommandLineOffset,
+        expected.processParameters.processParametersCommandLineOffset,
+      );
+      assert.equal(
+        parameters.unicodeStringBufferOffset,
+        expected.processParameters.unicodeStringBufferOffset,
+      );
+      assert.equal(parameters.commandLine, expected.processParameters.commandLine);
+      assert.equal(
+        parameters.commandLineUtf16Units,
+        expected.processParameters.commandLineUtf16Units,
+      );
+      assert.equal(
+        parameters.commandLineLengthBytes,
+        expected.processParameters.commandLineLengthBytes,
+      );
+      assert.equal(
+        parameters.commandLineMaximumLengthBytes,
+        expected.processParameters.commandLineMaximumLengthBytes,
+      );
+      if (expected.processParameters.processParametersContentSha256 !== null) {
+        assert.equal(
+          parameters.processParametersContentSha256,
+          expected.processParameters.processParametersContentSha256,
+        );
+      }
+      if (expected.processParameters.commandLineContentSha256 !== null) {
+        assert.equal(
+          parameters.commandLineContentSha256,
+          expected.processParameters.commandLineContentSha256,
+        );
+      }
+      assert.equal(parameters.ownersSealed, true);
+      assert.deepEqual(parameters.invalidation, environment.invalidation);
+    } else {
+      assert.equal(parameters, undefined);
+    }
     assert.equal(environment.ownersSealed, true);
     assert.deepEqual(environment.invalidation, {
-      generation: expected.processEnvironment.generation,
+      generation: installProcessParameters
+        ? expected.processParameters.generation
+        : expected.processEnvironment.generation,
       dataTlb: true,
       instructionFetch: true,
       generatedCode: true,
@@ -604,8 +758,10 @@ function validateOffer(offer) {
     reflectionContentSha256(offer.reflection.pages),
     offer.reflection.contentSha256,
   );
-  const expectedReflectionSha256 = processParametersFirstStop
-    ? expected.processParametersFirstStopReflectionContentSha256
+  const expectedReflectionSha256 = useProcessParametersFixture
+    ? installProcessParameters
+      ? expected.processParametersReflectionContentSha256
+      : expected.processParametersFirstStopReflectionContentSha256
     : installProcessEnvironment
       ? expected.processEnvironmentReflectionContentSha256
       : expected.reflectionContentSha256;
@@ -759,6 +915,10 @@ async function prepareV86(offer) {
       (bytes[3] << 24)
     ) >>> 0;
   };
+  const readVirtualU16 = (address, label) => {
+    const bytes = readVirtualBytes(address, 2, label);
+    return bytes[0] | (bytes[1] << 8);
+  };
 
   assert.equal(
     readVirtualU32(offer.initialThreadStack.initialEsp, "entry return sentinel"),
@@ -800,7 +960,10 @@ async function prepareV86(offer) {
   words[stateWord.controlRegisterBase + 3] = pageDirectory;
   words[stateWord.controlRegisterBase + 4] |= 0x200;
   assert.equal(wasm.vine_cpu_state_restore(), 0);
-  assert.equal(allocations.length, installProcessEnvironment ? 14 : 11);
+  assert.equal(
+    allocations.length,
+    installProcessParameters ? 16 : installProcessEnvironment ? 14 : 11,
+  );
   assert.deepEqual(
     [...pageTables.keys()],
     installProcessEnvironment ? [1, 64, 508, 511] : [1, 64, 508],
@@ -813,6 +976,7 @@ async function prepareV86(offer) {
     pageDirectory,
     pageTables,
     readVirtualBytes,
+    readVirtualU16,
     readVirtualU32,
     wasm,
   };
@@ -821,17 +985,34 @@ async function prepareV86(offer) {
 function validateReceipt(receipt, offer, context) {
   assert.equal(receipt.schema, "vine.v86-memory-reflection-receipt");
   assert.equal(receipt.schemaVersion, 1);
-  const generation = installProcessEnvironment
-    ? expected.processEnvironment.generation
+  const generation = installProcessParameters
+    ? expected.processParameters.generation
+    : installProcessEnvironment
+      ? expected.processEnvironment.generation
     : expected.stack.generation;
   assert.equal(receipt.acknowledgedGeneration, generation);
-  assert.equal(receipt.stats.owners, installProcessEnvironment ? 5 : 3);
-  assert.equal(receipt.stats.sealedOwners, installProcessEnvironment ? 5 : 3);
-  assert.equal(receipt.stats.regions, installProcessEnvironment ? 5 : 3);
-  assert.equal(receipt.stats.reservedPages, installProcessEnvironment ? 24 : 22);
-  assert.equal(receipt.stats.committedPages, installProcessEnvironment ? 9 : 7);
-  assert.equal(receipt.stats.physicalPages, installProcessEnvironment ? 9 : 7);
-  assert.equal(receipt.stats.dirtyPages, installProcessEnvironment ? 9 : 7);
+  assert.equal(receipt.stats.owners, installProcessParameters ? 7 : installProcessEnvironment ? 5 : 3);
+  assert.equal(
+    receipt.stats.sealedOwners,
+    installProcessParameters ? 7 : installProcessEnvironment ? 5 : 3,
+  );
+  assert.equal(receipt.stats.regions, installProcessParameters ? 7 : installProcessEnvironment ? 5 : 3);
+  assert.equal(
+    receipt.stats.reservedPages,
+    installProcessParameters ? 26 : installProcessEnvironment ? 24 : 22,
+  );
+  assert.equal(
+    receipt.stats.committedPages,
+    installProcessParameters ? 11 : installProcessEnvironment ? 9 : 7,
+  );
+  assert.equal(
+    receipt.stats.physicalPages,
+    installProcessParameters ? 11 : installProcessEnvironment ? 9 : 7,
+  );
+  assert.equal(
+    receipt.stats.dirtyPages,
+    installProcessParameters ? 11 : installProcessEnvironment ? 9 : 7,
+  );
   assert.equal(receipt.stats.generation, generation);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   assert.equal(receipt.iatValue, undefined);
@@ -842,7 +1023,7 @@ function validateReceipt(receipt, offer, context) {
   );
   assert.deepEqual(
     receipt.entryBytes,
-    processParametersFirstStop
+    useProcessParametersFixture
       ? [
           0x55, 0x53, 0x57, 0x56, 0x50, 0x64, 0xa1, 0x30,
           0x00, 0x00, 0x00, 0xa3, 0x00, 0x30, 0x00, 0x10,
@@ -897,10 +1078,53 @@ function validateReceipt(receipt, offer, context) {
       ),
       expected.processEnvironment.pebBase,
     );
-    assert(receipt.pebBytes.every((byte) => byte === 0));
+    const expectedPebBytes = new Uint8Array(64);
+    if (installProcessParameters) {
+      new DataView(expectedPebBytes.buffer).setUint32(
+        expected.processParameters.pebProcessParametersPointerOffset,
+        expected.processParameters.processParametersBase,
+        true,
+      );
+    }
+    assert.deepEqual(receipt.pebBytes, [...expectedPebBytes]);
   } else {
     assert.equal(receipt.tebBytes, undefined);
     assert.equal(receipt.pebBytes, undefined);
+  }
+  if (installProcessParameters) {
+    const expectedProcessParametersBytes = new Uint8Array(0x48);
+    const processParametersView = new DataView(expectedProcessParametersBytes.buffer);
+    processParametersView.setUint16(
+      expected.processParameters.processParametersCommandLineOffset,
+      expected.processParameters.commandLineLengthBytes,
+      true,
+    );
+    processParametersView.setUint16(
+      expected.processParameters.processParametersCommandLineOffset + 2,
+      expected.processParameters.commandLineMaximumLengthBytes,
+      true,
+    );
+    processParametersView.setUint32(
+      expected.processParameters.processParametersCommandLineOffset +
+        expected.processParameters.unicodeStringBufferOffset,
+      expected.processParameters.commandLineBase,
+      true,
+    );
+    assert.deepEqual(receipt.processParametersBytes, [
+      ...expectedProcessParametersBytes,
+    ]);
+    const expectedCommandLineBytes = Buffer.concat([
+      Buffer.from(expected.processParameters.commandLine, "utf16le"),
+      Buffer.from([0, 0]),
+    ]);
+    assert.equal(
+      expectedCommandLineBytes.byteLength,
+      expected.processParameters.commandLineMaximumLengthBytes,
+    );
+    assert.deepEqual(receipt.commandLineBytes, [...expectedCommandLineBytes]);
+  } else {
+    assert.equal(receipt.processParametersBytes, undefined);
+    assert.equal(receipt.commandLineBytes, undefined);
   }
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-execution-pending");
@@ -1081,7 +1305,7 @@ function executeWithProcessEnvironment(offer, context) {
   return result;
 }
 
-function executeProcessParametersFirstStop(offer, context) {
+function executeProcessParameters(offer, context) {
   const environment = offer.initialProcessEnvironment;
   const processEntry = offer.processEntryReturnSentinel;
   assert(environment && processEntry);
@@ -1118,7 +1342,8 @@ function executeProcessParametersFirstStop(offer, context) {
   let executeStops = 0;
   let budgetStops = 0;
   let completion = null;
-  for (let index = 0; index < 32; index += 1) {
+  const maximumExecuteStops = installProcessParameters ? 512 : 32;
+  for (let index = 0; index < maximumExecuteStops; index += 1) {
     const before = saveState(0);
     const currentPage = (before.instructionPointer & ~(page.size - 1)) >>> 0;
     assert(
@@ -1166,7 +1391,7 @@ function executeProcessParametersFirstStop(offer, context) {
     ),
   };
   const processParametersAddress = context.readVirtualU32(
-    environment.pebAddress + 0x10,
+    environment.pebAddress + expected.processParameters.pebProcessParametersPointerOffset,
     "PEB process parameters field",
   );
   const result = {
@@ -1179,7 +1404,8 @@ function executeProcessParametersFirstStop(offer, context) {
     fsSelector: completion.fsSelector,
     fsBase: completion.fsBase,
     pebAddress: environment.pebAddress,
-    processParametersFieldOffset: 0x10,
+    processParametersFieldOffset:
+      expected.processParameters.pebProcessParametersPointerOffset,
     processParametersAddress,
     fixtureObservations,
     processEntrySentinelId: processEntry.id,
@@ -1188,22 +1414,63 @@ function executeProcessParametersFirstStop(offer, context) {
     executeStops,
     budgetStops,
   };
-  assert.equal(result.entryResult, 2);
   assert.equal(result.finalEsp, expected.stack.top);
   assert.equal(result.fsSelector, 0);
   assert.equal(result.fsBase, expected.processEnvironment.tebBase);
   assert.equal(result.pebAddress, expected.processEnvironment.pebBase);
-  assert.equal(result.processParametersAddress, 0);
-  assert.equal(result.executeStops, 8);
-  assert.equal(result.budgetStops, 7);
-  assert.deepEqual(result.fixtureObservations, {
-    peb: result.pebAddress,
-    processParameters: 0,
-    commandLineLength: 0,
-    commandLineMaximumLength: 0,
-    commandLineBuffer: 0,
-    commandLineMatchIndex: 0,
-  });
+  if (installProcessParameters) {
+    const parameters = environment.processParameters;
+    assert(parameters);
+    assert.equal(result.entryResult, 0);
+    assert.equal(
+      result.processParametersAddress,
+      expected.processParameters.processParametersBase,
+    );
+    if (expected.processParameters.executeStops !== null) {
+      assert.equal(result.executeStops, expected.processParameters.executeStops);
+      assert.equal(result.budgetStops, expected.processParameters.budgetStops);
+    }
+    assert.deepEqual(result.fixtureObservations, {
+      peb: result.pebAddress,
+      processParameters: expected.processParameters.processParametersBase,
+      commandLineLength: expected.processParameters.commandLineLengthBytes,
+      commandLineMaximumLength:
+        expected.processParameters.commandLineMaximumLengthBytes,
+      commandLineBuffer: expected.processParameters.commandLineBase,
+      commandLineMatchIndex: 0,
+    });
+    const commandLineAddress =
+      expected.processParameters.processParametersBase +
+      expected.processParameters.processParametersCommandLineOffset;
+    assert.equal(
+      context.readVirtualU16(commandLineAddress, "command-line Length"),
+      expected.processParameters.commandLineLengthBytes,
+    );
+    assert.equal(
+      context.readVirtualU16(commandLineAddress + 2, "command-line MaximumLength"),
+      expected.processParameters.commandLineMaximumLengthBytes,
+    );
+    assert.equal(
+      context.readVirtualU32(
+        commandLineAddress + expected.processParameters.unicodeStringBufferOffset,
+        "command-line Buffer",
+      ),
+      expected.processParameters.commandLineBase,
+    );
+  } else {
+    assert.equal(result.entryResult, 2);
+    assert.equal(result.processParametersAddress, 0);
+    assert.equal(result.executeStops, 8);
+    assert.equal(result.budgetStops, 7);
+    assert.deepEqual(result.fixtureObservations, {
+      peb: result.pebAddress,
+      processParameters: 0,
+      commandLineLength: 0,
+      commandLineMaximumLength: 0,
+      commandLineBuffer: 0,
+      commandLineMatchIndex: 0,
+    });
+  }
   assert.deepEqual(context.hostImportCalls, { microtick: 1 });
   return result;
 }

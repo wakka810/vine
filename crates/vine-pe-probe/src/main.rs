@@ -15,7 +15,8 @@ use vine_core::{
     ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog, UnsupportedPoint,
     bind_pe32_imports, build_pe32_load_plan, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
-    install_runtime_return_sentinels, materialize_pe32_image,
+    install_controlled_process_environment_with_parameters, install_runtime_return_sentinels,
+    materialize_pe32_image,
 };
 
 #[derive(Debug)]
@@ -31,6 +32,7 @@ struct Arguments {
     install_process_entry_return_sentinel: bool,
     install_controlled_initial_stack: bool,
     install_controlled_process_environment: bool,
+    install_controlled_process_parameters: bool,
 }
 
 #[derive(Serialize)]
@@ -147,6 +149,10 @@ struct V86ReflectionReceipt {
     teb_bytes: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     peb_bytes: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process_parameters_bytes: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command_line_bytes: Option<Vec<u8>>,
     stop: UnsupportedPoint,
 }
 
@@ -354,10 +360,17 @@ fn run_v86_reflection_session(
     } else {
         None
     };
-    let initial_process_environment = arguments
-        .install_controlled_process_environment
-        .then(|| install_controlled_process_environment(&mut memory).map_err(memory_error))
-        .transpose()?;
+    let initial_process_environment = if arguments.install_controlled_process_parameters {
+        Some(
+            install_controlled_process_environment_with_parameters(&mut memory)
+                .map_err(memory_error)?,
+        )
+    } else {
+        arguments
+            .install_controlled_process_environment
+            .then(|| install_controlled_process_environment(&mut memory).map_err(memory_error))
+            .transpose()?
+    };
     let expected_invalidation = initial_process_environment
         .as_ref()
         .map(|environment| environment.invalidation)
@@ -472,9 +485,38 @@ fn run_v86_reflection_session(
                 .map_err(memory_error)
         })
         .transpose()?;
+    let process_parameters_bytes = initial_process_environment
+        .as_ref()
+        .and_then(|environment| environment.process_parameters.as_ref())
+        .map(|parameters| {
+            memory
+                .read(parameters.process_parameters_address, 0x48)
+                .map_err(memory_error)
+        })
+        .transpose()?;
+    let command_line_bytes = initial_process_environment
+        .as_ref()
+        .and_then(|environment| environment.process_parameters.as_ref())
+        .map(|parameters| {
+            memory
+                .read(
+                    parameters.command_line_buffer_address,
+                    usize::from(parameters.command_line_maximum_length_bytes),
+                )
+                .map_err(memory_error)
+        })
+        .transpose()?;
+    let process_parameters_installed = initial_process_environment
+        .as_ref()
+        .is_some_and(|environment| environment.process_parameters.is_some());
     let (reflection_stop_code, reflection_stop_message) = if first_thunk.is_none()
-        && initial_process_environment.is_some()
+        && process_parameters_installed
     {
+        (
+            "entry-execution-pending",
+            "the sealed import-free image, control page, initial stack, TEB, PEB, process parameters, and command-line pages are synchronized for adapter execution; guest entry execution has not yet been attempted",
+        )
+    } else if first_thunk.is_none() && initial_process_environment.is_some() {
         (
             "entry-execution-pending",
             "the sealed import-free image, control page, initial stack, TEB, and PEB are synchronized for adapter execution; guest entry execution has not yet been attempted",
@@ -513,6 +555,8 @@ fn run_v86_reflection_session(
         initial_stack_top_bytes,
         teb_bytes,
         peb_bytes,
+        process_parameters_bytes,
+        command_line_bytes,
         stop: UnsupportedPoint {
             stage: "adapter-execution",
             code: reflection_stop_code,
@@ -673,6 +717,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut install_process_entry_return_sentinel = false;
     let mut install_controlled_initial_stack = false;
     let mut install_controlled_process_environment = false;
+    let mut install_controlled_process_parameters = false;
     let mut arguments = env::args_os().skip(1);
 
     while let Some(argument) = arguments.next() {
@@ -739,6 +784,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             install_controlled_process_environment = true;
+        } else if argument == "--install-controlled-process-parameters" {
+            if install_controlled_process_parameters {
+                return Err(usage_error());
+            }
+            install_controlled_process_parameters = true;
         } else if argument.to_string_lossy().starts_with('-') || input.is_some() {
             return Err(usage_error());
         } else {
@@ -773,6 +823,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if install_controlled_process_environment && !install_controlled_initial_stack {
         return Err(usage_error());
     }
+    if install_controlled_process_parameters && !install_controlled_process_environment {
+        return Err(usage_error());
+    }
 
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
@@ -786,6 +839,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         install_process_entry_return_sentinel,
         install_controlled_initial_stack,
         install_controlled_process_environment,
+        install_controlled_process_parameters,
     })
 }
 
@@ -861,7 +915,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

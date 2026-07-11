@@ -12,8 +12,9 @@ materialization, and import-binding ingress for the fingerprinted BGI image.
 A production Rust boundary now owns the BGI image range, applies 18,199
 `HIGHLOW` relocations at a nonpreferred base, and can bind a supported import
 prefix to deterministic runtime-owned `UD2` thunks. General CPU memory/process
-integration, DLL/export resolution, process bootstrap, the Win32 runtime, and the
-browser application do not exist yet. The sealed controlled image now crosses
+integration, DLL/export resolution, general process bootstrap, the Win32
+runtime, and the browser application do not exist yet. The sealed controlled
+image now crosses
 a versioned Rust-to-v86 reflection boundary, dispatches fixed cdecl
 `fixture_add(19, 23)`, and executes one guest callback to a separately owned
 exact return sentinel after real cache invalidation. The host now retires that
@@ -28,8 +29,9 @@ pre-implementation stop at CR2 `0x18` with PFEC `4` and FS base zero. Rust now
 owns the minimum TEB／PEB pages as well; restoring FS base `0x7FFDE000` lets the
 same fixture observe both fields and return entry result `0`.
 An additional native-oracled fixture fixes `PEB + 0x10` and the i386
-`ProcessParameters + 0x40` command-line layout; the current empty guest PEB
-returns its explicit unsupported result `2` instead of pretending success.
+`ProcessParameters + 0x40` command-line layout. Rust now owns typed
+process-parameters and UTF-16 command-line pages; the same fixture finds
+`bootstrap-params.exe` and returns entry result `0`.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
@@ -37,9 +39,9 @@ edition label. The controlled fixture now binds both imports and seals its
 image; BGI binds only the native-reachable `Direct3DCreate9` prefix and stops
 at `DINPUT8.dll!DirectInput8Create`. The controlled entry now returns result `0`
 to exact process-entry sentinel ID `2` with ESP `0x00700000`; arbitrary unmapped
-returns still fault. The next bootstrap task installs Rust-owned
-process-parameters and command-line bytes; see
-[docs/v86-bootstrap-params-first-stop.md](docs/v86-bootstrap-params-first-stop.md).
+returns still fault. The next loader task binds BGI's remaining imports to
+explicit identity-preserving traps without claiming API behavior; see
+[docs/v86-bootstrap-params-ingress.md](docs/v86-bootstrap-params-ingress.md).
 
 ## Requirements
 
@@ -85,6 +87,8 @@ verifies the exact zero-FS-base source-v86 page fault before TEB／PEB setup.
 base through the CPU state ABI, and verifies exact entry completion.
 `npm run check:runtime:bootstrap-params-first-stop` compares the native
 command-line oracle with the explicit missing-pointer guest result.
+`npm run check:runtime:bootstrap-params` installs the measured Rust-owned
+parameters and UTF-16 bytes and verifies exact guest completion.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

@@ -20,9 +20,12 @@ pub use callbacks::{
     install_callback_return_sentinel, install_runtime_return_sentinels,
 };
 pub use environment::{
-    CONTROLLED_ENVIRONMENT_PAGE_SIZE, CONTROLLED_PEB_BASE, CONTROLLED_TEB_BASE,
-    InitialProcessEnvironment, TEB_PEB_POINTER_OFFSET, TEB_SELF_POINTER_OFFSET,
-    install_controlled_process_environment,
+    CONTROLLED_COMMAND_LINE, CONTROLLED_COMMAND_LINE_BASE, CONTROLLED_ENVIRONMENT_PAGE_SIZE,
+    CONTROLLED_PEB_BASE, CONTROLLED_PROCESS_PARAMETERS_BASE, CONTROLLED_TEB_BASE,
+    InitialProcessEnvironment, InitialProcessParameters, PEB_PROCESS_PARAMETERS_POINTER_OFFSET,
+    PROCESS_PARAMETERS_COMMAND_LINE_OFFSET, TEB_PEB_POINTER_OFFSET, TEB_SELF_POINTER_OFFSET,
+    UNICODE_STRING_BUFFER_OFFSET, install_controlled_process_environment,
+    install_controlled_process_environment_with_parameters,
 };
 pub use imports::{
     IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, IMPORT_THUNK_SLOT_SIZE, ImportBinding,

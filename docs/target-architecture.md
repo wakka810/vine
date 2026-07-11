@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB bootstrapがあり、native-oracled process-parameters first stopまで到達した。general process integration、DLL／export lifecycle、process-parameters storage、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB／process-parameters bootstrapがある。general process integration／parameters、DLL／export lifecycle、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -87,7 +87,7 @@ guest CALL / JMP import thunk
 
 API implementation は `Promise` を guest へ見せない。deferred operation の途中でも、別 guest thread、message、cancel、timeout を scheduler が扱える設計にする。
 
-現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEBを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてentry completionまで実行した。separate native oracleでprocess-parameters／command-line offsetを測り、existing guest PEBのzero pointerをexplicit result `2`へ戻した。general ABI schema、LastError、deferred service、stack growth／guard、process-parameters storage、process lifecycleは未実装である。詳細は[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)を正とする。
+現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEB／process-parameters／command-lineを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてmeasured command-line observationとentry completionまで実行した。general ABI schema、LastError、deferred service、stack growth／guard、general process parameters／lifecycleは未実装である。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
 
 ### 4.3 Host から guest callback
 
@@ -155,7 +155,7 @@ background tab、debugger pause、audio suspend 後に catch-up するか freeze
 
 Wasm32 linear memory の offset と guest virtual address を同一と仮定しない。推奨案は sparse page table または region table を介し、CPU と marshaller が共通の checked memory interface を使う方式である。hot path の TLB/cache は profile 後に追加する。
 
-現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装する。typed TEB／PEB pagesを加えたgeneration `10`の9 pagesをreflectし、FS-base entry completionとzero process-parameters pointerのexplicit observationまで実行した。guest mutationはadapter bytesからRustへ戻らず、PEBはminimum fields以外zeroのままである。詳細は[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)を正とする。
+現在の`vine-core` ingressは4 KiB sparse owner／region／page tableとbounded zeroed frame allocatorを実装する。typed TEB／PEB／process-parameters／command-lineを加えたgeneration `14`の11 pagesをreflectし、measured command-line observationとentry completionまで実行した。guest mutationはadapter bytesからRustへ戻らず、unmeasured bootstrap fieldsはzeroのままである。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
 
 ### 6.2 Page state
 
@@ -194,7 +194,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsを実行し、native-oracled process-parameters pointerのzero guest resultまで固定した。v86のexecute-permission gapにはslice-boundary gateを保持する。process-parameters ownership、stack growth、general mutation、snapshot、broad ABI、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)と[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)を正とする。
+固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsとnative-oracled command-line bytesを実行した。v86のexecute-permission gapにはslice-boundary gateを保持する。large BGI transfer、general process parameters、stack growth、mutation、snapshot、broad ABI、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)と[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 
