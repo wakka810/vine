@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = path.join(root, ".work", "toolchain-spike");
+const wasmClang = process.env.VINE_WASM_CLANG || "clang";
 
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, {
@@ -85,6 +86,7 @@ fs.mkdirSync(outputDirectory, { recursive: true });
 
 const tools = {
   clang: versionLine(run("clang", ["--version"])),
+  wasmClang: versionLine(run(wasmClang, ["--version"])),
   lldLink: versionLine(run("lld-link", ["--version"])),
   llvmReadobj: versionLine(run("llvm-readobj", ["--version"])),
   node: process.version,
@@ -92,7 +94,7 @@ const tools = {
 
 const wasmSource = path.join(root, "spikes", "toolchain", "wasm-smoke.c");
 const wasmModule = path.join(outputDirectory, "wasm-smoke.wasm");
-run("clang", [
+run(wasmClang, [
   "--target=wasm32-unknown-unknown",
   "-O2",
   "-Wall",

@@ -48,6 +48,7 @@ jobs:
       - run: npm run check:fast
         env:
           VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          VINE_WASM_CLANG: /usr/bin/clang
 
       - run: npm run check:fixture-e2e
         env:
