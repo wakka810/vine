@@ -262,7 +262,11 @@ instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 bud
 
 `npm run check:runtime:bootstrap-params`はtyped process-parameters／command-line pagesをgeneration `14`でreflectし、PEB pointer、Length `40`、MaximumLength `42`、Buffer、UTF-16 basename＋NULをack後にnormal readする。同じfixtureは94 execute stop／93 budget stop後にmatch index `0`、entry EAX `0`、ESP `0x00700000`でexact process-entry sentinelへ到達した。10,521-byte reportのSHA-256は`9b12a10acf50841cd27636c3b1b35439dfa49e19190a9d34c809b0052021c109`である。
 
-これはmeasured command-line support bandであり、general process parameters、loader／thread lifecycle、BGI executionを実装しない。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
+これはmeasured command-line support bandであり、general process parameters、loader／thread lifecycleを実装しない。BGI execution continuationは[v86-bgi-first-trap.md](v86-bgi-first-trap.md)で別に固定した。
+
+`npm run check:runtime:bgi-first-trap`はopt-in 400-page Rust limit／8 MiB protocol-line limitでBGIの388 sealed pagesをgeneration `16`へreflectする。2 MiB adapter poolはv86のVGA MMIO hole `[0xA0000,0xC0000)`を除外し、directory 1、tables 4、reflected pages 388の393 allocationsを使う。4,904,601-byte offerのcontent SHA-256は`f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0`である。
+
+entry `0x100A383E`はinstruction budget `1`で全境界のlogical execute permissionを検査し、19 execute stop／18 budget stop／19命令でexact owned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`／`0x7F000670`へ到達した。runnerはESP `0x006FFFD0`、return `0x100A88D2`、raw stack wordsを記録し、API dispatch／returnを行わない。9,591-byte reportのSHA-256は`a74ed888aa95923a1bcb5c20ad5a58e945ab269419d834a19eefa10d6b33be3b`である。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
 
 ### B18. Browser Worker
 
@@ -274,7 +278,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrapとentry completionまで進んだ。loaderはBGI全importsをidentity付きtrapsへbindしてimageをsealした。次のadapter sliceはsealed large-image transferとfirst runtime-reachable trap測定である。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの388-page transferとfirst runtime-reachable trapまで進んだ。次のadapter sliceはexact thunk ID `104`のchecked stdcall／`FILETIME` write／guest returnである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -297,7 +301,8 @@ adapter fixture は次の順に増やす。
 11. [Verified] separate native oracleでi386 process-parameters／command-line pathを固定し、empty guest PEBをexplicit resultへ戻す。
 12. [Verified] 測定済みprocess-parameters／command-line bytesをminimum Rust ownershipへ接続する。
 13. [Verified] BGI static importsをidentity付きexplicit trap thunksへbindしてimageをsealする。
-14. sealed BGI imageをbounded large-image transferでadapterへ渡し、first reachable trapを測る。
+14. [Verified] sealed BGI imageをbounded large-image transferでadapterへ渡し、first reachable trapを測る。
+15. exact `GetSystemTimeAsFileTime` frameへcontrolled `FILETIME`を書き、guestへreturnしてnext trapを測る。
 15. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
 16. 同じfixtureをNodeとChromium Workerで実行する。
 17. adopted ISA fixtureとnormalized workloadを測定する。

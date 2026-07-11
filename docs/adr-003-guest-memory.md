@@ -6,7 +6,7 @@
 - Measurement date: 2026-07-11
 - Scope: `P0-ARCH-03` partial evidence for 4 GiB guest VA、page protection、page ownership
 - Working candidate: Vine region table + bounded physical page allocator reflected into v86 paging
-- Implemented ingress: Rust-owned sparse region／page API、bounded zeroed frames、logical execute gate、invalidation acknowledgement protocol、controlled semantic v86 reflection／actual invalidation
+- Implemented ingress: Rust-owned sparse region／page API、bounded zeroed frames、logical execute gate、invalidation acknowledgement protocol、controlled／388-page semantic v86 reflection、actual invalidation
 - Not decided: general page-table mutation／dirty-page ownership、guard、snapshot、Worker memory ceiling
 
 この文書はmemory architectureのaccepted decisionではない。fixed high-address fixtureで2候補を比較し、production Rust ingressでownership contractを実装した。CPU integrationとacceptance前に閉じるgateが残るため、working directionは引き続きprovisionalである。
@@ -110,6 +110,8 @@ high-memory contractは6 image pagesと1 anonymous probe pageをexact quota内�
 
 後続のcontrolled entry contractはsealed image 5 pagesとruntime thunk 1 pageをguest VA／owner／R／W／X／bytesだけのsemantic reflectionとしてv86へ渡した。同じRust memory objectはgeneration `4`をpendingに保ち、adapterのstate restore／`full_clear_tlb`／`jit_clear_cache_js`後のackだけを受理した。2 MiB poolのpage directory／3 tables／6 reflected pagesとharness stackからentryを実行し、owned thunk ID `1`へ到達した。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
 
+BGI continuationは同じboundaryを388 semantic pages／generation `16`へ拡張し、4,904,601-byte offerを8 MiB protocol上限内で転送した。v86はphysical `[0x000A0000,0x000C0000)`をVGA MMIOとして扱うため、naive contiguous placementは`mmap_read32(0x000A883F)`へ入った。adapter allocatorはこの32-page holeを明示的に除外し、directory 1 page、tables 4 pages、reflected 388 pagesの393 allocationsを2 MiB内へ置いた。値をfabricateするMMIO handlerは使っていない。この配置でBGI entryは19命令後にowned thunk ID `104`へ到達した。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
+
 次は未実装であり、このADRをAcceptedへ進める前に閉じる。
 
 - runtime mutationを反映するincremental PDE／PTE更新とbidirectional dirty-page ownership
@@ -123,4 +125,4 @@ host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 fac
 
 production ingressとcontrolled reflection checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、CPU-connected self-modifying code、PAE／NX、generated JIT、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはcontrolled sealed pagesだけv86へ反映でき、general process memory／mutation pathには未接続である。
 
-owned W7 plan、entry completion、initial stack、typed bootstrap reflectionに続き、BGIのfull trap binding／owner sealは[pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md)まで進んだ。次は382超のsealed pagesを扱うbounded large-image transferへ進むが、general mutation／stack growth／heap／snapshotが未完了であるためADR statusは変えない。
+owned W7 plan、entry completion、initial stack、typed bootstrap reflection、BGI full trap bindingに続き、388-page transferとfirst runtime-reachable trapは[v86-bgi-first-trap.md](v86-bgi-first-trap.md)まで進んだ。general mutation／stack growth／heap／snapshotとAPI後のdirty-page synchronizationは未完了であるためADR statusは変えない。

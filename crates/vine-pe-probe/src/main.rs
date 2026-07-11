@@ -15,8 +15,10 @@ use vine_core::{
     ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog, UnsupportedPoint,
     bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
     install_callback_return_sentinel, install_controlled_initial_stack,
-    install_controlled_process_environment, install_controlled_process_environment_with_parameters,
-    install_runtime_return_sentinels, materialize_pe32_image,
+    install_controlled_process_environment,
+    install_controlled_process_environment_with_command_line,
+    install_controlled_process_environment_with_parameters, install_runtime_return_sentinels,
+    materialize_pe32_image,
 };
 
 #[derive(Debug)]
@@ -29,11 +31,13 @@ struct Arguments {
     runtime_exports: Vec<RuntimeExport>,
     trap_unsupported_imports: bool,
     v86_reflection_session: bool,
+    large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
     install_controlled_initial_stack: bool,
     install_controlled_process_environment: bool,
     install_controlled_process_parameters: bool,
+    controlled_command_line: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -308,15 +312,33 @@ fn run_v86_reflection_session(
     loader_report: &LoaderIngressReport,
 ) -> Result<(), LoaderError> {
     const MAX_REFLECTION_PAGES: usize = 16;
+    const MAX_LARGE_IMAGE_REFLECTION_PAGES: usize = 400;
+    const MAX_REFLECTION_MESSAGE_BYTES: usize = 512 * 1024;
+    const MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
     let load_base = arguments.materialize_image_base.ok_or_else(usage_error)?;
     let max_physical_pages = arguments.prepare_memory_pages.ok_or_else(usage_error)?;
-    if max_physical_pages > MAX_REFLECTION_PAGES {
+    let reflection_page_limit = if arguments.large_image_reflection {
+        MAX_LARGE_IMAGE_REFLECTION_PAGES
+    } else {
+        MAX_REFLECTION_PAGES
+    };
+    if max_physical_pages > reflection_page_limit {
+        let message = if arguments.large_image_reflection {
+            "the version 1 large-image reflection session is limited to 400 physical pages"
+        } else {
+            "the version 1 reflection session is limited to 16 physical pages"
+        };
         return Err(LoaderError::resource_limit(
             "memory-reflection",
             "reflection-page-limit-exceeded",
-            "the version 1 reflection session is limited to 16 physical pages",
+            message,
         ));
     }
+    let reflection_message_limit = if arguments.large_image_reflection {
+        MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES
+    } else {
+        MAX_REFLECTION_MESSAGE_BYTES
+    };
     let memory_limits = MemoryLimits {
         max_physical_pages,
         ..MemoryLimits::default()
@@ -385,8 +407,13 @@ fn run_v86_reflection_session(
     };
     let initial_process_environment = if arguments.install_controlled_process_parameters {
         Some(
-            install_controlled_process_environment_with_parameters(&mut memory)
-                .map_err(memory_error)?,
+            if let Some(command_line) = arguments.controlled_command_line.as_deref() {
+                install_controlled_process_environment_with_command_line(&mut memory, command_line)
+                    .map_err(memory_error)?
+            } else {
+                install_controlled_process_environment_with_parameters(&mut memory)
+                    .map_err(memory_error)?
+            },
         )
     } else {
         arguments
@@ -436,7 +463,7 @@ fn run_v86_reflection_session(
         initial_process_environment: initial_process_environment.clone(),
         reflection,
     };
-    write_protocol_message(&offer)?;
+    write_protocol_message(&offer, reflection_message_limit)?;
 
     let ack = read_v86_reflection_ack()?;
     validate_v86_reflection_ack(&ack, offer.reflection.invalidation)?;
@@ -586,7 +613,7 @@ fn run_v86_reflection_session(
             message: reflection_stop_message,
         },
     };
-    write_protocol_message(&receipt)
+    write_protocol_message(&receipt, reflection_message_limit)
 }
 
 fn read_v86_reflection_ack() -> Result<V86ReflectionAck, LoaderError> {
@@ -650,13 +677,34 @@ fn validate_v86_reflection_ack(
     Ok(())
 }
 
-fn write_protocol_message(message: &impl Serialize) -> Result<(), LoaderError> {
-    let mut stdout = io::stdout().lock();
-    serde_json::to_writer(&mut stdout, message).map_err(|error| {
+fn write_protocol_message(
+    message: &impl Serialize,
+    maximum_bytes: usize,
+) -> Result<(), LoaderError> {
+    let bytes = serde_json::to_vec(message).map_err(|error| {
         LoaderError::runtime_defect(
             "memory-reflection",
             "reflection-message-serialization-failed",
             format!("could not serialize the reflection protocol message: {error}"),
+        )
+    })?;
+    if bytes.len() > maximum_bytes {
+        return Err(LoaderError::resource_limit(
+            "memory-reflection",
+            "reflection-message-size-exceeded",
+            format!(
+                "reflection protocol message has {} bytes; limit is {maximum_bytes} bytes",
+                bytes.len()
+            ),
+        ));
+    }
+    let mut stdout = io::stdout().lock();
+    stdout.write_all(&bytes).map_err(|error| {
+        io_error(
+            "memory-reflection",
+            "reflection-message-write-failed",
+            "could not write the reflection protocol message",
+            error,
         )
     })?;
     stdout.write_all(b"\n").map_err(|error| {
@@ -737,11 +785,13 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut runtime_exports = Vec::new();
     let mut trap_unsupported_imports = false;
     let mut v86_reflection_session = false;
+    let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
     let mut install_controlled_initial_stack = false;
     let mut install_controlled_process_environment = false;
     let mut install_controlled_process_parameters = false;
+    let mut controlled_command_line = None;
     let mut arguments = env::args_os().skip(1);
 
     while let Some(argument) = arguments.next() {
@@ -793,6 +843,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             v86_reflection_session = true;
+        } else if argument == "--large-image-reflection" {
+            if large_image_reflection {
+                return Err(usage_error());
+            }
+            large_image_reflection = true;
         } else if argument == "--install-callback-return-sentinel" {
             if install_callback_return_sentinel {
                 return Err(usage_error());
@@ -818,6 +873,12 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             install_controlled_process_parameters = true;
+        } else if argument == "--controlled-command-line" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            let value = value.into_string().map_err(|_| usage_error())?;
+            if controlled_command_line.replace(value).is_some() {
+                return Err(usage_error());
+            }
         } else if argument.to_string_lossy().starts_with('-') || input.is_some() {
             return Err(usage_error());
         } else {
@@ -858,6 +919,12 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if install_controlled_process_parameters && !install_controlled_process_environment {
         return Err(usage_error());
     }
+    if large_image_reflection && !v86_reflection_session {
+        return Err(usage_error());
+    }
+    if controlled_command_line.is_some() && !install_controlled_process_parameters {
+        return Err(usage_error());
+    }
 
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
@@ -868,11 +935,13 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         runtime_exports,
         trap_unsupported_imports,
         v86_reflection_session,
+        large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
         install_controlled_initial_stack,
         install_controlled_process_environment,
         install_controlled_process_parameters,
+        controlled_command_line,
     })
 }
 
@@ -948,7 +1017,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

@@ -25,6 +25,7 @@ pub use environment::{
     InitialProcessEnvironment, InitialProcessParameters, PEB_PROCESS_PARAMETERS_POINTER_OFFSET,
     PROCESS_PARAMETERS_COMMAND_LINE_OFFSET, TEB_PEB_POINTER_OFFSET, TEB_SELF_POINTER_OFFSET,
     UNICODE_STRING_BUFFER_OFFSET, install_controlled_process_environment,
+    install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_parameters,
 };
 pub use imports::{

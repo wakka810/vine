@@ -32,8 +32,9 @@
 - typed Rust TEB／PEB regions、generation `10` reflection、CPU state FS-base restore、4 exact field observationとentry result `0`
 - separate import-free fixtureのnative `PEB+0x10` process-parameters／`+0x40` command-line oracleと、empty guest PEBのexplicit result `2`
 - typed process-parameters／command-line regions、generation `14` reflection、exact UTF-16 observationとentry result `0`
+- BGIの388-page bounded reflection、v86 VGA MMIO physical hole回避、generation `16` acknowledgement、entryから19命令後のexact `KERNEL32.dll!GetSystemTimeAsFileTime` trap
 
-general process integration／parameters、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEBとnative-oracled command-line bytesまで進んだ。BGIは全330 importsをowned trapsへbindしてsealしたが未実行である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md) を正とする。
+general process integration／parameters、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEBとnative-oracled command-line bytesまで進んだ。BGIは全330 importsをowned trapsへbindし、first runtime-reachable trapまで実行したがAPI dispatch／returnは未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-first-trap.md](v86-bgi-first-trap.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -96,6 +97,7 @@ npm run check:runtime:bootstrap-fs-first-stop
 npm run check:runtime:bootstrap-fs
 npm run check:runtime:bootstrap-params-first-stop
 npm run check:runtime:bootstrap-params
+npm run check:runtime:bgi-first-trap
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -140,7 +142,7 @@ node tools/summarize-windows-trace.mjs `
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
-8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。`Direct3DCreate9` 1 declared endpointと329 explicit unsupported trapsを全IATへbindし、image／runtime ownerをsealする。production CPU handoffはcontrolled fixtureだけfixed cdecl serviceとone-level callback returnまで通す。
+8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding／BGI first runtime trap verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。`Direct3DCreate9` 1 declared endpointと329 explicit unsupported trapsを全IATへbindし、388-page bootstrap stateをsource-v86へ渡してentryから`GetSystemTimeAsFileTime` trapまで実行する。API returnは未実装である。
 
 各 checkpoint の automated test は原則 1 本にする。追加 test は、実際の regression、calling convention／fault ordering の曖昧さ、または title failure を最小化した場合だけ作る。
 
@@ -154,6 +156,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap bindingまで固定した。次はsealed BGI pagesのbounded source-v86 transferとfirst runtime-reachable trapである。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、388-page transfer、first `GetSystemTimeAsFileTime` trapまで固定した。次はこのexact one-argument stdcallだけをchecked returnしてnext trapを測る。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

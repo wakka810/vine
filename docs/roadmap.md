@@ -4,8 +4,8 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps。BGIは全330 importsをowned thunksへbindしてimageをsealしたが未実行。visual critical scenario、device-level COM trace、general process integration／parameters、engine最終選定は未完了
-- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap bindingがあり、general process integration、DLL lifecycle／export resolution、Win32 runtime、browser app、CIは未実装
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI first runtime trap。BGIはentryから`GetSystemTimeAsFileTime`へ到達したがAPI未実装。visual critical scenario、device-level COM trace、general process integration／parameters、engine最終選定は未完了
+- repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap executionがあり、general process integration、DLL lifecycle／export resolution、Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
 このロードマップは、広範な Windows 互換を一度に実装する計画ではない。Windows native trace を根拠に、headless 実行、startup、first frame、input、audio、persistence の短い vertical checkpoint を広く浅く通す。各 subsystem の全面実装は後回しにし、各 phase は日付ではなく受け入れ条件を満たした時点で完了する。
@@ -909,9 +909,9 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit unsupported trap bindingは完了した。BGIは1 declared／329 unsupported identitiesをowned thunksへbindし、image／runtime ownerをgeneration `4`でsealした。unsupported trapはreturn valueを持たず、BGI instructionは未実行である。general DLL／export resolution、process lifecycle／parameters、loader list、TLS、LastError、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit unsupported trap binding／BGI first runtime trapは完了した。BGIの388 sealed pagesをgeneration `16`でsource-v86へreflectし、entry `0x100A383E`から19命令でowned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`へ到達した。API dispatch／return、general DLL／export resolution、process lifecycle／parameters、loader list、TLS、LastError、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [v86-bgi-first-trap.md](v86-bgi-first-trap.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. sealed BGI image／thunk arena／bootstrap pagesをbounded large-image transferでsource-v86へ反映し、最初のruntime-reachable owned trapまで実行する。
+1. exact thunk ID `104`のchecked one-argument stdcall frameへcontrolled `FILETIME` sampleを書き、`GetSystemTimeAsFileTime`からguestへreturnして次のexact owned trapまで実行する。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 

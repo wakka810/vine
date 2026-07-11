@@ -78,4 +78,4 @@ The fixed addresses, one page per structure, exact command-line text, and zero-f
 
 The native oracle supports only the measured i386 offsets used here. It does not establish undocumented layout compatibility beyond those fields, and this controlled fixture is not evidence that BGI has entered guest execution.
 
-The explicit binding continuation is complete in [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md). BGI's image is sealed with identity-preserving returnless traps, but remains unexecuted. The next checkpoint transfers that large sealed state and runs only to the first runtime-reachable trap.
+The explicit binding and BGI execution continuations are complete in [pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md) and [v86-bgi-first-trap.md](v86-bgi-first-trap.md). The primary run uses the same measured fields with controlled command line `BGI.exe` and reaches exact thunk ID `104` without expanding this minimum process-parameters claim.

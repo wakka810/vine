@@ -81,18 +81,25 @@ struct ProcessParameterPages {
 pub fn install_controlled_process_environment(
     memory: &mut GuestMemory,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_internal(memory, false)
+    install_controlled_process_environment_internal(memory, None)
 }
 
 pub fn install_controlled_process_environment_with_parameters(
     memory: &mut GuestMemory,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_internal(memory, true)
+    install_controlled_process_environment_with_command_line(memory, CONTROLLED_COMMAND_LINE)
+}
+
+pub fn install_controlled_process_environment_with_command_line(
+    memory: &mut GuestMemory,
+    command_line: &str,
+) -> Result<InitialProcessEnvironment, GuestMemoryError> {
+    install_controlled_process_environment_internal(memory, Some(command_line))
 }
 
 fn install_controlled_process_environment_internal(
     memory: &mut GuestMemory,
-    include_process_parameters: bool,
+    command_line: Option<&str>,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
     let (teb_owner, teb_range) = reserve_environment_page(
         memory,
@@ -104,7 +111,8 @@ fn install_controlled_process_environment_internal(
         MemoryRegionKind::ProcessEnvironmentBlock,
         CONTROLLED_PEB_BASE,
     )?;
-    let parameter_regions = include_process_parameters
+    let parameter_regions = command_line
+        .is_some()
         .then(|| {
             let (process_parameters_owner, process_parameters_range) = reserve_environment_page(
                 memory,
@@ -184,6 +192,7 @@ fn install_controlled_process_environment_internal(
                     command_line_owner,
                     process_parameters_range,
                     command_line_range,
+                    command_line.expect("parameter regions require a command line"),
                 )
             },
         )
@@ -210,7 +219,9 @@ fn install_controlled_process_environment_internal(
         peb_process_parameters_pointer_offset: PEB_PROCESS_PARAMETERS_POINTER_OFFSET,
         process_parameters_command_line_offset: PROCESS_PARAMETERS_COMMAND_LINE_OFFSET,
         unicode_string_buffer_offset: UNICODE_STRING_BUFFER_OFFSET,
-        command_line: CONTROLLED_COMMAND_LINE.to_owned(),
+        command_line: command_line
+            .expect("initialized process parameters require a command line")
+            .to_owned(),
         command_line_utf16_units: parameters.command_line_utf16_units,
         command_line_length_bytes: parameters.command_line_length_bytes,
         command_line_maximum_length_bytes: parameters.command_line_maximum_length_bytes,
@@ -247,9 +258,10 @@ fn initialize_process_parameters(
     command_line_owner: MemoryOwnerId,
     process_parameters_range: GuestRange,
     command_line_range: GuestRange,
+    command_line: &str,
 ) -> Result<ProcessParameterPages, GuestMemoryError> {
     let mut command_line_bytes = Vec::new();
-    let command_line_utf16: Vec<u16> = CONTROLLED_COMMAND_LINE.encode_utf16().collect();
+    let command_line_utf16: Vec<u16> = command_line.encode_utf16().collect();
     if command_line_utf16.contains(&0) {
         return Err(GuestMemoryError::runtime_defect(
             "process-bootstrap",

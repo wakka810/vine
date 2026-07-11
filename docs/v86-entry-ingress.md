@@ -41,7 +41,7 @@ Rust probe                         Node v86 adapter
     |------------------------------------>|
 ```
 
-An acknowledgement is rejected if its schema／generation is wrong or any required data-TLB, instruction-fetch, or generated-code class is incomplete. The version 1 session rejects physical quotas above 16 pages, the Node runner rejects protocol lines above 512 KiB, and the probe reads at most 4 KiB of acknowledgement input. After acceptance it verifies the bound IAT and fetches both entry and thunk bytes through normal Rust guest access; `pendingInvalidation` must then be absent.
+An acknowledgement is rejected if its schema／generation is wrong or any required data-TLB, instruction-fetch, or generated-code class is incomplete. The default version 1 session rejects physical quotas above 16 pages and serialized protocol messages above 512 KiB, the Node runner enforces the same line limit, and the probe reads at most 4 KiB of acknowledgement input. After acceptance it verifies the bound IAT and fetches both entry and thunk bytes through normal Rust guest access; `pendingInvalidation` must then be absent. The explicit larger bound is documented separately in [v86-bgi-first-trap.md](v86-bgi-first-trap.md).
 
 ## 3. Representative contract
 

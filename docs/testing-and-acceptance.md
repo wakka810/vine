@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、BGI first runtime trap、Windows trace v1／v2 contractsは存在する。production runtime test framework、CI、benchmark、対応browserは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、source adapter の再現確認は必要な checkpoint だけ `npm run prepare:engine` を使う。
 
@@ -149,6 +149,8 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 `npm run check:runtime:bootstrap-params-first-stop`はseparate import-free fixtureをnative実行し、i386の`PEB+0x10`、`ProcessParameters+0x40`、`UNICODE_STRING.Buffer+0x04`からbounded `bootstrap-params.exe` matchまでをexit code `0`で検査する。同じfixtureをexisting minimum TEB／PEBへ渡し、zero process-parameters pointer、explicit entry result `2`、ESP `0x00700000`、8 execute stop／7 budget stop、8,351-byte reportを固定する。process-parameters region／command-line bytesは実装しない。詳細は[v86-bootstrap-params-first-stop.md](v86-bootstrap-params-first-stop.md)を正とする。
 
 `npm run check:runtime:bootstrap-params`はtyped owner `6`／`7`、RW／NX commit、PEB `+0x10` pointer、parameters `+0x40`のLength `40`／MaximumLength `42`／Buffer、20 UTF-16 units＋NUL、3 page digests、generation `14`の11-page reflectionを検査する。ack後のnormal read、match index `0`、entry EAX `0`、ESP `0x00700000`、94 execute stop／93 budget stop、10,521-byte reportを固定し、先行3 reportsのbyte identityも保持する。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
+
+`npm run check:runtime:bgi-first-trap`はprimary fingerprintを前後照合し、explicit 400-page Rust limit／8 MiB protocol limit内で388 pagesをreflectする。generation `16`、reflection digest、owner別page digest、VGA MMIO holeを除外した2 MiB physical placement、PDE indices `[1,64,508,511]`、actual invalidation acknowledgementを検査する。entryから19命令でexact thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`へ到達し、EIP／ESP／return／raw stack wordsを固定する。API dispatch、output write、stdcall return、guest resumeは行わない。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
 
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
@@ -449,7 +451,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはnative-oracled command-line bytesまで進むが、general process lifecycle／parameters、broader PEB・TEB、callback service、pixel／audio／persistence、mutation sync、guard／heap／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／BGI first-trap ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleのfirst owned trapまで進むが、API return、general process lifecycle／parameters、broader PEB・TEB、callback service、pixel／audio／persistence、mutation sync、guard／heap／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
@@ -465,7 +467,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
-現在のimport-binding ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。controlled named importsとBGIの最初のunsupported symbolは処理するが、ordinal fixture、export／forwarder／DLL graph、requesting guest call chain、bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+現在のimport-binding／BGI first-trap ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainからruntime-reachable `GetSystemTimeAsFileTime` identityまで処理するが、API dispatch／return、ordinal fixture、export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 
 ### AC-P3: Win32 substrate and persistence complete
 

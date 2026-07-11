@@ -81,4 +81,4 @@ Binding an unsupported trap is not export implementation, DLL loading, API-set r
 
 The fixed arena address, plan-order IDs, and 382-page quota remain version 1 checkpoint choices. The report is not a snapshot format, and the binder still does not model forwarded exports, module objects, DLL lifecycle, TLS, or delayed imports.
 
-The next checkpoint must transfer the sealed BGI image, two-page thunk arena, and controlled bootstrap pages through a bounded large-image protocol, acknowledge the actual invalidation generation, and execute only until the first exact owned trap. That runtime stop, rather than static import order, will select the next API implementation slice.
+That continuation is complete in [v86-bgi-first-trap.md](v86-bgi-first-trap.md). The bounded 388-page state reaches exact thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime` after 19 instructions, confirming that static ID `1` is not the first runtime call. This binding report and its non-execution claim remain unchanged.

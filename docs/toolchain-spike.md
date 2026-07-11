@@ -107,4 +107,4 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。production memory／bootstrapに続き、BGI full trap binding／owner sealまで進んだ。次はsealed large-image transferとfirst runtime trapである。詳細は[pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md)を正とする。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。production memory／bootstrap、BGI full trap binding／owner seal、388-page transfer、first runtime trapまで進んだ。次はexact `GetSystemTimeAsFileTime` returnである。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
