@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -226,7 +227,10 @@ const rustcVersion = capture(rustc, ["--version"], {
   env: rustEnvironment,
 });
 const clangVersion = capture("clang", ["--version"]).split("\n", 1)[0];
+const wasmBytes = fs.readFileSync(wasmPath);
+const wasmSha256 = crypto.createHash("sha256").update(wasmBytes).digest("hex");
 console.log(
   `v86 adapter ready: ${path.relative(root, wasmPath)}\n` +
+    `${wasmBytes.byteLength} bytes; sha256 ${wasmSha256}\n` +
     `${rustcVersion}; ${clangVersion}`,
 );
