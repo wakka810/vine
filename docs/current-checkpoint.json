@@ -7,7 +7,7 @@
   "lastSupportedCallId": 89,
   "lastSupportedCall": "KERNEL32.dll!EncodePointer",
   "memoryGeneration": 30,
-  "runtimeKernelCheckpoint": "runtime-object-model-foundation",
+  "runtimeKernelCheckpoint": "runtime-module-graph-foundation",
   "runtimeStateAuthority": "rust",
   "runtimeStateScope": "single-process-controlled-initial-thread",
   "runtimeStateOwns": [
@@ -17,7 +17,8 @@
     "heap-module-endpoint-registries",
     "tls-encoded-pointers",
     "callback-scheduler-host-events",
-    "typed-object-handle-lifetimes"
+    "typed-object-handle-lifetimes",
+    "process-module-graph"
   ],
   "callbackFrameStack": true,
   "hostCompletionModel": "scheduler-event",
@@ -213,6 +214,28 @@
     "browserBenchmarkDecision": "go",
     "browserBenchmarkThresholdFailures": 0
   },
-  "nextCheckpoint": "runtime-module-graph-foundation",
+  "runtimeModuleGraph": {
+    "schema": "vine.runtime-module-graph.v1",
+    "canonicalIdentity": "ascii-case-insensitive-basename",
+    "moduleClasses": ["main-executable", "guest-dynamic-library", "runtime-system-module"],
+    "loadStates": ["registered", "ready", "process-attached", "process-detached"],
+    "referenceOwners": ["process-root", "runtime-service", "static-import", "dynamic-load-thread"],
+    "moduleLimit": 4096,
+    "referenceOwnerLimitPerModule": 4096,
+    "controlledModuleCount": 4,
+    "controlledDependencyEdgeCount": 4,
+    "controlledAttachOrder": ["codec.dll", "kernel32.dll", "engine.dll", "game.exe"],
+    "controlledDetachOrder": ["game.exe", "engine.dll", "kernel32.dll", "codec.dll"],
+    "runtimeCoreWasmBytes": 690816,
+    "runtimeCoreWasmSha256": "5bfa7b7141a3f0a30acd1c58e6a28afe2c5fc1e8f8b5e5859c97e3068a11cac0",
+    "browserWorkerGuestInstructions": 46,
+    "browserWorkerExitCode": 0,
+    "browserBenchmarkDecision": "go",
+    "browserBenchmarkThresholdFailures": 0,
+    "bgiSupportedCallCount": 17,
+    "bgiInstructionCount": 238,
+    "bgiReportSha256": "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4"
+  },
+  "nextCheckpoint": "runtime-process-thread-lifecycle-foundation",
   "pausedBgiCheckpoint": "eighteenth-supported-win32-call-return"
 }

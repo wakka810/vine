@@ -10,6 +10,10 @@ use crate::dynamic_exports::{
 };
 use crate::imports::{IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE};
 use crate::memory::GuestAddress;
+use crate::module_graph::{
+    RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleGraphError, RuntimeModuleGraphErrorClass,
+    RuntimeModuleId, RuntimeModuleRegistration,
+};
 
 pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
 pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1";
@@ -850,6 +854,7 @@ pub struct RuntimeState {
     threads: BTreeMap<RuntimeThreadId, RuntimeThreadState>,
     scheduler: RuntimeScheduler,
     objects: RuntimeObjectTable,
+    module_graph: RuntimeModuleGraph,
     registries: RuntimeRegistries,
     encoded_pointer_namespace: String,
     encoded_pointer_token_prefix: u32,
@@ -930,6 +935,7 @@ impl RuntimeState {
                 events: VecDeque::new(),
             },
             objects,
+            module_graph: RuntimeModuleGraph::default(),
             registries: RuntimeRegistries {
                 dynamic_endpoints: BTreeMap::new(),
                 encoded_pointers: BTreeMap::new(),
@@ -968,6 +974,10 @@ impl RuntimeState {
 
     pub fn objects(&self) -> &RuntimeObjectTable {
         &self.objects
+    }
+
+    pub fn module_graph(&self) -> &RuntimeModuleGraph {
+        &self.module_graph
     }
 
     pub fn process_handle(&self) -> Result<RuntimeHandle, RuntimeStateError> {
@@ -1140,6 +1150,33 @@ impl RuntimeState {
         &mut self,
         module: RuntimeModule,
     ) -> Result<&RuntimeModule, RuntimeStateError> {
+        let class = if module.runtime_system_module {
+            RuntimeModuleClass::RuntimeSystemModule
+        } else {
+            RuntimeModuleClass::GuestDynamicLibrary
+        };
+        self.register_module_record(module, class)
+    }
+
+    pub fn register_main_module(
+        &mut self,
+        module: RuntimeModule,
+    ) -> Result<&RuntimeModule, RuntimeStateError> {
+        if module.runtime_system_module {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-module",
+                "main-module-class-invalid",
+                "main executable cannot be registered as a runtime system module",
+            ));
+        }
+        self.register_module_record(module, RuntimeModuleClass::MainExecutable)
+    }
+
+    fn register_module_record(
+        &mut self,
+        module: RuntimeModule,
+        class: RuntimeModuleClass,
+    ) -> Result<&RuntimeModule, RuntimeStateError> {
         if module.owner.is_empty()
             || module.variant_id.is_empty()
             || module.namespace != LOGICAL_LOADED_MODULE_NAMESPACE
@@ -1166,10 +1203,24 @@ impl RuntimeState {
             ));
         }
         let handle = module.handle;
-        self.objects.register_object_with_handle(
-            RuntimeObjectKey::Module { handle },
-            RuntimeHandle(handle),
-        )?;
+        let graph_id = self
+            .module_graph
+            .register_module(RuntimeModuleRegistration {
+                handle,
+                requested_name: module.requested_name.clone(),
+                canonical_name: module.canonical_name.clone(),
+                class,
+            })
+            .map_err(runtime_module_graph_error)?;
+        if let Err(error) = self
+            .objects
+            .register_object_with_handle(RuntimeObjectKey::Module { handle }, RuntimeHandle(handle))
+        {
+            self.module_graph
+                .rollback_registration(graph_id)
+                .map_err(runtime_module_graph_error)?;
+            return Err(error);
+        }
         self.process.modules.insert(handle, module);
         self.process.modules.get(&handle).ok_or_else(|| {
             RuntimeStateError::runtime_defect(
@@ -1193,17 +1244,88 @@ impl RuntimeState {
     }
 
     pub fn module_by_name(&self, name: &str) -> Result<&RuntimeModule, RuntimeStateError> {
-        self.process
-            .modules
-            .values()
-            .find(|module| module.canonical_name.eq_ignore_ascii_case(name))
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-module",
-                    "module-name-unknown",
-                    format!("module {name:?} is not loaded"),
-                )
-            })
+        let handle = self
+            .module_graph
+            .module_by_name(name)
+            .map_err(runtime_module_graph_error)?
+            .handle;
+        self.module(handle)
+    }
+
+    pub fn add_module_dependency(
+        &mut self,
+        requester_handle: u32,
+        dependency_handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        self.module(requester_handle)?;
+        self.module(dependency_handle)?;
+        let requester = self
+            .module_graph
+            .module_by_handle(requester_handle)
+            .map_err(runtime_module_graph_error)?
+            .id;
+        let dependency = self
+            .module_graph
+            .module_by_handle(dependency_handle)
+            .map_err(runtime_module_graph_error)?
+            .id;
+        self.module_graph
+            .add_dependency(requester, dependency)
+            .map_err(runtime_module_graph_error)
+    }
+
+    pub fn add_current_thread_module_reference(
+        &mut self,
+        handle: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        self.module(handle)?;
+        let module = self
+            .module_graph
+            .module_by_handle(handle)
+            .map_err(runtime_module_graph_error)?
+            .id;
+        self.module_graph
+            .add_dynamic_reference(module, self.current_thread_id().0)
+            .map_err(runtime_module_graph_error)
+    }
+
+    pub fn release_current_thread_module_reference(
+        &mut self,
+        handle: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        self.module(handle)?;
+        let module = self
+            .module_graph
+            .module_by_handle(handle)
+            .map_err(runtime_module_graph_error)?
+            .id;
+        self.module_graph
+            .release_dynamic_reference(module, self.current_thread_id().0)
+            .map_err(runtime_module_graph_error)
+    }
+
+    pub fn mark_module_ready(&mut self, handle: u32) -> Result<(), RuntimeStateError> {
+        self.module(handle)?;
+        let module = self
+            .module_graph
+            .module_by_handle(handle)
+            .map_err(runtime_module_graph_error)?
+            .id;
+        self.module_graph
+            .mark_ready(module)
+            .map_err(runtime_module_graph_error)
+    }
+
+    pub fn attach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+        self.module_graph
+            .attach_all()
+            .map_err(runtime_module_graph_error)
+    }
+
+    pub fn detach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+        self.module_graph
+            .detach_all()
+            .map_err(runtime_module_graph_error)
     }
 
     pub fn register_dynamic_endpoint(
@@ -1799,6 +1921,26 @@ fn validate_address_space(layout: ProcessAddressSpaceLayout) -> Result<(), Runti
         }
     }
     Ok(())
+}
+
+fn runtime_module_graph_error(error: RuntimeModuleGraphError) -> RuntimeStateError {
+    match error.class {
+        RuntimeModuleGraphErrorClass::InvalidInput => {
+            RuntimeStateError::invalid_input("runtime-module-graph", error.code, error.message)
+        }
+        RuntimeModuleGraphErrorClass::NotFound => {
+            RuntimeStateError::not_found("runtime-module-graph", error.code, error.message)
+        }
+        RuntimeModuleGraphErrorClass::Conflict => {
+            RuntimeStateError::conflict("runtime-module-graph", error.code, error.message)
+        }
+        RuntimeModuleGraphErrorClass::ResourceLimit => {
+            RuntimeStateError::resource_limit("runtime-module-graph", error.code, error.message)
+        }
+        RuntimeModuleGraphErrorClass::RuntimeDefect => {
+            RuntimeStateError::runtime_defect("runtime-module-graph", error.code, error.message)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

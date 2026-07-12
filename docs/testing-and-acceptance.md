@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle contract、Windows trace v1／v2 contracts、Linux public CIは存在する。production title Runtime Workerと対応browser matrixは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。production title Runtime Workerと対応browser matrixは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -213,6 +213,14 @@ message-dispatch checkpointの既存deltaは`P1-ABI-01`／`P1-ABI-02`／`P1-ABI-
 general BeginPaint client geometry／region／clip／erase／background／nesting、invalid／stale／wrong HWND／HDC／PAINTSTRUCT、general DC state、SetPixelの別座標／clip／color／failure、paint中のreinvalidation、mismatched／double EndPaintは未検証である。DestroyWindowのchild／owner／focus／capture／timer／cross-thread／repeat、`WM_CLOSE`／`WM_NCDESTROY`／class／resource cleanup、arbitrary callback depth／SendMessage reentrancy／SEH／LastErrorも未検証である。PostQuitの別code／multiple／ordering／wake、GetMessageのfilter／block／error／他message／nonzero metadata、process teardown／DLL detach、DOM／Canvas presentation、production object／surface／queue layoutも未実装または未検証である。
 
 `P1-SCH-01`について示すのは、instruction budget下で同じguest threadをresumeし、fixed synchronous nested callbackをunwindして既にposted済みのquit slotをconsumeできる範囲だけである。run queue、virtual clock、empty-queue wait／wakeは未実装である。
+
+process-owned module graphの代表Rust contractはbounded ASCII basename／class、unique main、
+mirrored dependency、cycle rejection時のmemory不変、static／dynamic reference、ready gate、
+dependency-first attach、strict reverse detach、object-table registration rollbackを1 graphで
+固定する。`RuntimeState` contractはexisting typed handleを通す2-module orderを追加する。
+これはmodule metadata orderのevidenceであり、DLL image mapping、export／forwarder、TLS／
+`DllMain` callback、unloadを実装済みとしない。詳細は
+[runtime-module-graph.md](runtime-module-graph.md)を正とする。
 
 ### 5.4 CPU と ABI tests
 

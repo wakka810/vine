@@ -110,10 +110,10 @@ Production regression on the same implementation:
 
 This checkpoint does not implement access masks, duplicate-handle inheritance, pseudo handles,
 cross-process handle tables, object destruction/refcount, thread creation, wait queues, message
-queues, heap allocation backing, module dependency/reference order, exports／forwarders, or DLL
-attach／detach. It is partial evidence for `REQ-API-02`／`REQ-API-03` and `P3-WIN-01`, not their
-completion.
+queues, heap allocation backing, exports／forwarders, or guest DLL callbacks. It is partial evidence
+for `REQ-API-02`／`REQ-API-03` and `P3-WIN-01`, not their completion.
 
-The next dependency is a process-owned module graph with canonical identity, dependency edges,
-load state, reference ownership, and deterministic attach／detach order. It will reuse module
-object IDs and subsystem-owned handles from this table.
+The process-owned module graph dependency is now implemented in
+[runtime-module-graph.md](runtime-module-graph.md). The next dependency is an explicit
+process／thread lifecycle state machine connecting termination, scheduler state, and these waitable
+objects before wait queues or guest thread creation.

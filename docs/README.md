@@ -5,7 +5,7 @@
 - ステータス: Proposed
 - 基準日: 2026-07-12
 - 対象: current `main` worktree
-- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call manifest／generic runner、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser go gate、generation付きtyped object／handle foundationを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、general module graph／process／thread／DLL lifecycleとBGI browser executionはまだない
+- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call manifest／generic runner、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser go gate、generation付きtyped object／handle、process-owned module graph foundationを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、process／thread lifecycle、guest DLL mapping／callback、BGI browser executionはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
@@ -100,6 +100,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [checks-and-ci.md](checks-and-ci.md) | canonical gateをどう実行するか | fast／fixture E2E／benchmark／adapter／private corpus、Linux GitHub Actions、fuzz |
 | [v86-browser-benchmark.md](v86-browser-benchmark.md) | v86を継続するか | Chrome Worker CPU／ABI／memory／audio／background／steady-memory gate |
 | [runtime-object-model.md](runtime-object-model.md) | runtime object identityをどう所有するか | typed handle、generation、close／stale、waitable process／thread lifetime |
+| [runtime-module-graph.md](runtime-module-graph.md) | process module identityと順序をどう所有するか | canonical identity、dependency／reference、attach／detach order |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 
 推奨する読み順は、corpus 台帳、要件、目標アーキテクチャ、リスク、検証、ロードマップの順である。ロードマップ内の `REQ-*`、`NFR-*`、`R-*`、`Q-*`、`AC-*` は各文書の識別子を参照する。

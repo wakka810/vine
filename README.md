@@ -128,8 +128,11 @@ active steady memory, a 0.985 hidden-tab throughput ratio, and a 51.315 ms
 maximum AudioWorklet delivery gap. A generation-tagged typed object／handle
 table now separates process／thread object lifetime from closable handles,
 rejects stale generations and type aliases, preserves wait signals across
-reopen, and validates the existing heap／module handles. The next runtime-kernel
-checkpoint builds the process-owned module graph used by loader and DLL work.
+reopen, and validates the existing heap／module handles. A process-owned module
+graph now adds canonical basename identity, main／guest／runtime classes,
+dependency and reference ownership, and deterministic dependency-first attach／
+reverse detach metadata. The next runtime-kernel checkpoint makes process／
+thread lifecycle transitions explicit before wait queues are added.
 The third thunk ID `89` call for
 `KERNEL32.dll!EncodePointer(0x7F020000)` remains the next BGI trap, but bespoke
 API checkpoint expansion is paused until the P0 runtime-kernel gates are met.

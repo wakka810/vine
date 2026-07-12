@@ -199,6 +199,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first seventeen Kernel32 returns、automatic binary multi-page writeback、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser gate、generation付きtyped object／handle lifetimeまで固定した。benchmarkは全thresholdを満たして継続`go`である。BGIのexact `EncodePointer(0x7F020000)` continuationは保持して凍結し、次はprocess-owned module graphを実装する。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first seventeen Kernel32 returns、automatic binary multi-page writeback、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser gate、generation付きtyped object／handle、process-owned module graph foundationsまで固定した。benchmarkは全thresholdを満たして継続`go`である。BGIのexact `EncodePointer(0x7F020000)` continuationは保持して凍結し、次はprocess／thread lifecycle foundationを実装する。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

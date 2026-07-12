@@ -8,6 +8,7 @@ mod environment;
 mod imports;
 mod materialize;
 mod memory;
+mod module_graph;
 mod pe32;
 mod runtime;
 mod snapshot;
@@ -65,6 +66,12 @@ pub use memory::{
     MemoryDeltaBuffers, MemoryFault, MemoryFaultReason, MemoryInvalidation, MemoryLimits,
     MemoryOwnerId, MemoryOwnerKind, MemoryReflection, MemoryReflectionBuffers,
     MemoryReflectionPage, MemoryRegionKind, MemoryStats, MemoryTransactionStats, PageProtection,
+};
+pub use module_graph::{
+    RUNTIME_MODULE_GRAPH_MAX_MODULES, RUNTIME_MODULE_REFERENCE_OWNER_LIMIT, RuntimeModuleClass,
+    RuntimeModuleGraph, RuntimeModuleGraphError, RuntimeModuleGraphErrorClass, RuntimeModuleId,
+    RuntimeModuleLoadState, RuntimeModuleNode, RuntimeModuleReference, RuntimeModuleReferenceOwner,
+    RuntimeModuleRegistration,
 };
 pub use pe32::{
     DataDirectoryAddressKind, DataDirectoryPlan, FeatureInventory, HeaderMappingPlan, ImageKind,

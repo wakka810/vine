@@ -20,7 +20,7 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "runtime-object-model-foundation" ||
+    checkpoint.runtimeKernelCheckpoint !== "runtime-module-graph-foundation" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !== "single-process-controlled-initial-thread" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
@@ -32,6 +32,7 @@ try {
         "tls-encoded-pointers",
         "callback-scheduler-host-events",
         "typed-object-handle-lifetimes",
+        "process-module-graph",
       ]) ||
     checkpoint.callbackFrameStack !== true ||
     checkpoint.hostCompletionModel !== "scheduler-event" ||
@@ -242,7 +243,56 @@ try {
         browserBenchmarkDecision: "go",
         browserBenchmarkThresholdFailures: 0,
       }) ||
-    checkpoint.nextCheckpoint !== "runtime-module-graph-foundation" ||
+    JSON.stringify(checkpoint.runtimeModuleGraph) !==
+      JSON.stringify({
+        schema: "vine.runtime-module-graph.v1",
+        canonicalIdentity: "ascii-case-insensitive-basename",
+        moduleClasses: [
+          "main-executable",
+          "guest-dynamic-library",
+          "runtime-system-module",
+        ],
+        loadStates: [
+          "registered",
+          "ready",
+          "process-attached",
+          "process-detached",
+        ],
+        referenceOwners: [
+          "process-root",
+          "runtime-service",
+          "static-import",
+          "dynamic-load-thread",
+        ],
+        moduleLimit: 4096,
+        referenceOwnerLimitPerModule: 4096,
+        controlledModuleCount: 4,
+        controlledDependencyEdgeCount: 4,
+        controlledAttachOrder: [
+          "codec.dll",
+          "kernel32.dll",
+          "engine.dll",
+          "game.exe",
+        ],
+        controlledDetachOrder: [
+          "game.exe",
+          "engine.dll",
+          "kernel32.dll",
+          "codec.dll",
+        ],
+        runtimeCoreWasmBytes: 690816,
+        runtimeCoreWasmSha256:
+          "5bfa7b7141a3f0a30acd1c58e6a28afe2c5fc1e8f8b5e5859c97e3068a11cac0",
+        browserWorkerGuestInstructions: 46,
+        browserWorkerExitCode: 0,
+        browserBenchmarkDecision: "go",
+        browserBenchmarkThresholdFailures: 0,
+        bgiSupportedCallCount: 17,
+        bgiInstructionCount: 238,
+        bgiReportSha256:
+          "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+      }) ||
+    checkpoint.nextCheckpoint !== "runtime-process-thread-lifecycle-foundation" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

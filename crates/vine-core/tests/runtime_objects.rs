@@ -1,9 +1,10 @@
 use vine_core::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, ProcessAddressSpaceLayout, RUNTIME_PROCESS_OBJECT_NAMESPACE,
-    RuntimeBootstrap, RuntimeClockState, RuntimeHandle, RuntimeModule, RuntimeObjectKey,
-    RuntimeObjectKind, RuntimeProcessId, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeWaitState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeBootstrap, RuntimeClockState, RuntimeHandle, RuntimeModule, RuntimeModuleClass,
+    RuntimeModuleLoadState, RuntimeModuleReferenceOwner, RuntimeObjectKey, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeWaitState,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -128,6 +129,125 @@ fn typed_runtime_handles_preserve_object_lifetime_and_reject_stale_generations()
         RuntimeObjectKey::Module {
             handle: module_handle
         }
+    );
+    let module_graph_node = runtime
+        .module_graph()
+        .module_by_name("KERNEL32.dll")
+        .expect("module graph registration");
+    assert_eq!(module_graph_node.handle, module_handle);
+    assert_eq!(
+        module_graph_node.class,
+        RuntimeModuleClass::RuntimeSystemModule
+    );
+    assert_eq!(module_graph_node.reference_count(), 1);
+    let system_module_id = module_graph_node.id;
+    let main_handle = 0x4d01_0002;
+    runtime
+        .register_main_module(RuntimeModule {
+            owner: "runtime-object-test".to_owned(),
+            variant_id: "controlled-main".to_owned(),
+            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            handle: main_handle,
+            requested_name: "CONTROLLED.EXE".to_owned(),
+            canonical_name: "controlled.exe".to_owned(),
+            runtime_system_module: false,
+        })
+        .expect("register main executable");
+    let main_graph_node = runtime
+        .module_graph()
+        .module_by_name("controlled.exe")
+        .expect("main graph node");
+    assert_eq!(
+        runtime.module_graph().main_module(),
+        Some(main_graph_node.id)
+    );
+    assert_eq!(main_graph_node.class, RuntimeModuleClass::MainExecutable);
+    assert_eq!(main_graph_node.reference_count(), 1);
+    let main_module_id = main_graph_node.id;
+    runtime
+        .add_module_dependency(main_handle, module_handle)
+        .expect("main imports runtime system module");
+    assert_eq!(
+        runtime
+            .module_graph()
+            .module(system_module_id)
+            .expect("system module after dependency")
+            .reference_count_for(&RuntimeModuleReferenceOwner::StaticImport {
+                requester: main_module_id,
+            }),
+        1
+    );
+    assert_eq!(
+        runtime
+            .add_current_thread_module_reference(module_handle)
+            .expect("current thread dynamic module reference"),
+        1
+    );
+    assert_eq!(
+        runtime
+            .release_current_thread_module_reference(module_handle)
+            .expect("release current thread module reference"),
+        0
+    );
+    runtime
+        .mark_module_ready(module_handle)
+        .expect("system module ready");
+    runtime
+        .mark_module_ready(main_handle)
+        .expect("main module ready");
+    assert_eq!(
+        runtime.attach_modules().expect("dependency-first attach"),
+        vec![system_module_id, main_module_id]
+    );
+    assert_eq!(
+        runtime
+            .module_graph()
+            .module(system_module_id)
+            .expect("attached system module")
+            .state,
+        RuntimeModuleLoadState::ProcessAttached { sequence: 1 }
+    );
+    assert_eq!(
+        runtime.detach_modules().expect("strict reverse detach"),
+        vec![main_module_id, system_module_id]
+    );
+    assert_eq!(
+        runtime
+            .module_graph()
+            .module(system_module_id)
+            .expect("detached system module")
+            .state,
+        RuntimeModuleLoadState::ProcessDetached { sequence: 2 }
+    );
+    let module_graph_before_failed_registration = runtime.module_graph().clone();
+    let object_count = runtime.objects().objects().len();
+    assert_eq!(
+        runtime
+            .load_module(RuntimeModule {
+                owner: "runtime-object-test".to_owned(),
+                variant_id: "wrong-handle-type".to_owned(),
+                namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+                handle: 0x6801_0002,
+                requested_name: "BROKEN.DLL".to_owned(),
+                canonical_name: "broken.dll".to_owned(),
+                runtime_system_module: false,
+            })
+            .expect_err("module graph rolls back when object registration fails")
+            .code,
+        "runtime-handle-type-mismatch"
+    );
+    assert_eq!(
+        runtime.module_graph(),
+        &module_graph_before_failed_registration
+    );
+    assert_eq!(runtime.objects().objects().len(), object_count);
+    assert_eq!(
+        runtime
+            .module_graph()
+            .module_by_name("broken.dll")
+            .expect_err("rolled-back graph node is absent")
+            .code,
+        "module-name-unknown"
     );
     assert_eq!(
         runtime

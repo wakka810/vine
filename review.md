@@ -910,6 +910,13 @@ stale／double-close／type mismatch、process／thread wait signal、subsystem-
 module／heap policyをRust contractで固定した。既存`0x4D010001`／`0x68010001`と
 BGI 17-call digestを維持し、Chrome Worker／benchmarkも回帰なしである。
 
+**Foundation 2完了（2026-07-12）:** process-owned `RuntimeModuleGraph`を
+`RuntimeState`へ導入した。bounded ASCII canonical basename、main EXE／guest DLL／
+runtime system module class、dependency cycle rejection、process／runtime／static import／
+dynamic thread reference ownership、registered／ready／attached／detached state、
+dependency-first attach／strict reverse detachをatomic Rust contractで固定した。guest DLL
+mapping／export／forwarder／`DllMain`は未実装のまま、Worker／BGI／benchmarkを維持した。
+
 - module graph
 - process／thread lifecycle
 - handles
