@@ -903,6 +903,13 @@ screenshot／artifact manifestを保存する。
 
 ### Step 9 — loader／scheduler／object model
 
+**Foundation 1完了（2026-07-12）:** `RuntimeState`へversion 1
+`RuntimeObjectTable`を導入した。type 8／generation 8／slot 16のhandle encoding、
+separate object／handle lifetime、multiple process／thread handles、close／slot reuse、
+stale／double-close／type mismatch、process／thread wait signal、subsystem-owned
+module／heap policyをRust contractで固定した。既存`0x4D010001`／`0x68010001`と
+BGI 17-call digestを維持し、Chrome Worker／benchmarkも回帰なしである。
+
 - module graph
 - process／thread lifecycle
 - handles

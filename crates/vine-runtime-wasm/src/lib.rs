@@ -448,7 +448,7 @@ impl BrowserRuntime {
         self.callbacks.clear();
         let cancellation = self
             .runtime
-            .cancel_current_thread(exit_code)
+            .terminate_current_process(exit_code)
             .map_err(error_string)?;
         Ok(json!({
             "kind": "cancelled",
@@ -464,7 +464,7 @@ impl BrowserRuntime {
         }
         let termination = self
             .runtime
-            .cancel_current_thread(exit_code)
+            .terminate_current_process(exit_code)
             .map_err(error_string)?;
         if termination.host_requests_cancelled != 0 || termination.callback_frames_cancelled != 0 {
             return Err("clean process exit discarded runtime work".to_owned());

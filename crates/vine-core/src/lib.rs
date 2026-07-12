@@ -76,12 +76,15 @@ pub use pe32::{
 pub use runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE, ProcessAddressSpaceLayout,
-    RuntimeAddressRange, RuntimeBootstrap, RuntimeCallbackFrame, RuntimeCallbackFrameId,
-    RuntimeCancellation, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeEncodedPointer,
-    RuntimeHeap, RuntimeHostCompletion, RuntimeHostRequest, RuntimeModule, RuntimeProcessId,
-    RuntimeProcessState, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
-    RuntimeThreadState, RuntimeTlsValue, SchedulerThreadState, TLS_OUT_OF_INDEXES,
+    RUNTIME_PROCESS_OBJECT_NAMESPACE, RUNTIME_THREAD_OBJECT_NAMESPACE, RuntimeAddressRange,
+    RuntimeBootstrap, RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCancellation,
+    RuntimeClockState, RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeHandle,
+    RuntimeHandleClosePolicy, RuntimeHandleEntry, RuntimeHeap, RuntimeHostCompletion,
+    RuntimeHostRequest, RuntimeModule, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind,
+    RuntimeObjectRecord, RuntimeObjectTable, RuntimeProcessId, RuntimeProcessState,
+    RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadState,
+    RuntimeTlsValue, RuntimeWaitState, SchedulerThreadState, TLS_OUT_OF_INDEXES,
     X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};

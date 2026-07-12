@@ -20,7 +20,7 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "v86-browser-engine-gate" ||
+    checkpoint.runtimeKernelCheckpoint !== "runtime-object-model-foundation" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !== "single-process-controlled-initial-thread" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
@@ -31,6 +31,7 @@ try {
         "heap-module-endpoint-registries",
         "tls-encoded-pointers",
         "callback-scheduler-host-events",
+        "typed-object-handle-lifetimes",
       ]) ||
     checkpoint.callbackFrameStack !== true ||
     checkpoint.hostCompletionModel !== "scheduler-event" ||
@@ -221,7 +222,27 @@ try {
         reportBytes: 18161,
         reportSha256: "e50ad355361f91e01baae1dcb6f62fb813b2ddc1202466682c60eda7e959a1e7",
       }) ||
-    checkpoint.nextCheckpoint !== "runtime-object-model-foundation" ||
+    JSON.stringify(checkpoint.runtimeObjectModel) !==
+      JSON.stringify({
+        schema: "vine.runtime-object-table.v1",
+        handleEncoding: "type8-generation8-slot16",
+        objectKinds: ["process", "thread", "private-heap", "module"],
+        initialObjectCount: 2,
+        initialHandleCount: 2,
+        initialProcessHandle: 0x5001_0001,
+        initialThreadHandle: 0x5401_0001,
+        firstReusedThreadHandle: 0x5402_0001,
+        staleHandleError: "runtime-handle-stale",
+        typeMismatchError: "runtime-handle-type-mismatch",
+        subsystemCloseError: "runtime-handle-close-policy",
+        waitableKinds: ["process", "thread"],
+        runtimeCoreWasmBytes: 687523,
+        runtimeCoreWasmSha256:
+          "ad1941f95e96577f2e84462d534b95ca9e09f39d1e39e9f4f922ba0fac00b633",
+        browserBenchmarkDecision: "go",
+        browserBenchmarkThresholdFailures: 0,
+      }) ||
+    checkpoint.nextCheckpoint !== "runtime-module-graph-foundation" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

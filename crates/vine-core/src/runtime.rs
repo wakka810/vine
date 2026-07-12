@@ -15,6 +15,8 @@ pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
 pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1";
 pub const LOGICAL_TLS_INDEX_NAMESPACE: &str = "vine.logical-tls-index.v1";
 pub const LOGICAL_ENCODED_POINTER_NAMESPACE: &str = "vine.logical-encoded-pointer.v1";
+pub const RUNTIME_PROCESS_OBJECT_NAMESPACE: &str = "vine.runtime-process-object.v1";
+pub const RUNTIME_THREAD_OBJECT_NAMESPACE: &str = "vine.runtime-thread-object.v1";
 pub const TLS_OUT_OF_INDEXES: u32 = u32::MAX;
 pub const X86_STARTUP_INFO_W_BYTE_LENGTH: usize = 68;
 
@@ -29,6 +31,580 @@ pub struct RuntimeProcessId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct RuntimeThreadId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeObjectKind {
+    Process,
+    Thread,
+    PrivateHeap,
+    Module,
+}
+
+impl RuntimeObjectKind {
+    const fn handle_tag(self) -> u8 {
+        match self {
+            Self::Process => 0x50,
+            Self::Thread => 0x54,
+            Self::PrivateHeap => 0x68,
+            Self::Module => 0x4d,
+        }
+    }
+
+    fn from_handle_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0x50 => Some(Self::Process),
+            0x54 => Some(Self::Thread),
+            0x68 => Some(Self::PrivateHeap),
+            0x4d => Some(Self::Module),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeHandle(pub u32);
+
+impl RuntimeHandle {
+    pub fn from_parts(
+        kind: RuntimeObjectKind,
+        generation: u8,
+        slot: u16,
+    ) -> Result<Self, RuntimeStateError> {
+        if generation == 0 || slot == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-handle-parts-invalid",
+                "runtime handles require nonzero generation and slot fields",
+            ));
+        }
+        Ok(Self(
+            (u32::from(kind.handle_tag()) << 24) | (u32::from(generation) << 16) | u32::from(slot),
+        ))
+    }
+
+    pub fn kind(self) -> Result<RuntimeObjectKind, RuntimeStateError> {
+        let tag = (self.0 >> 24) as u8;
+        RuntimeObjectKind::from_handle_tag(tag).ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-handle-type-unknown",
+                format!(
+                    "runtime handle {:#010x} has unknown type tag {tag:#04x}",
+                    self.0
+                ),
+            )
+        })
+    }
+
+    pub const fn generation(self) -> u8 {
+        ((self.0 >> 16) & 0xff) as u8
+    }
+
+    pub const fn slot(self) -> u16 {
+        (self.0 & 0xffff) as u16
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RuntimeObjectKey {
+    Process { process_id: u32 },
+    Thread { thread_id: u32 },
+    PrivateHeap { handle: u32 },
+    Module { handle: u32 },
+}
+
+impl RuntimeObjectKey {
+    pub const fn kind(&self) -> RuntimeObjectKind {
+        match self {
+            Self::Process { .. } => RuntimeObjectKind::Process,
+            Self::Thread { .. } => RuntimeObjectKind::Thread,
+            Self::PrivateHeap { .. } => RuntimeObjectKind::PrivateHeap,
+            Self::Module { .. } => RuntimeObjectKind::Module,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeObjectId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeHandleClosePolicy {
+    CloseHandle,
+    SubsystemOwned,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum RuntimeWaitState {
+    Nonsignaled,
+    Signaled { exit_code: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeObjectRecord {
+    pub id: RuntimeObjectId,
+    pub key: RuntimeObjectKey,
+    pub kind: RuntimeObjectKind,
+    pub namespace: String,
+    pub close_policy: RuntimeHandleClosePolicy,
+    pub wait_state: Option<RuntimeWaitState>,
+    pub open_handles: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHandleEntry {
+    pub handle: RuntimeHandle,
+    pub object_id: RuntimeObjectId,
+    pub kind: RuntimeObjectKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeHandleSlot {
+    generation: u8,
+    live: bool,
+    retired: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeObjectTable {
+    objects: BTreeMap<RuntimeObjectId, RuntimeObjectRecord>,
+    handles: BTreeMap<u32, RuntimeHandleEntry>,
+    slots: BTreeMap<u32, RuntimeHandleSlot>,
+    #[serde(skip)]
+    identity_index: BTreeMap<RuntimeObjectKey, RuntimeObjectId>,
+    next_object_id: u64,
+}
+
+impl Default for RuntimeObjectTable {
+    fn default() -> Self {
+        Self {
+            objects: BTreeMap::new(),
+            handles: BTreeMap::new(),
+            slots: BTreeMap::new(),
+            identity_index: BTreeMap::new(),
+            next_object_id: 1,
+        }
+    }
+}
+
+impl RuntimeObjectTable {
+    pub fn register_object(
+        &mut self,
+        key: RuntimeObjectKey,
+    ) -> Result<RuntimeObjectId, RuntimeStateError> {
+        if self.identity_index.contains_key(&key) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-object",
+                "runtime-object-identity-duplicate",
+                "runtime object identity is already registered",
+            ));
+        }
+        let id = RuntimeObjectId(self.next_object_id);
+        self.next_object_id = self.next_object_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-object",
+                "runtime-object-id-space-exhausted",
+                "runtime object ID space is exhausted",
+            )
+        })?;
+        let kind = key.kind();
+        let (namespace, close_policy, wait_state) = match kind {
+            RuntimeObjectKind::Process | RuntimeObjectKind::Thread => (
+                if kind == RuntimeObjectKind::Process {
+                    RUNTIME_PROCESS_OBJECT_NAMESPACE
+                } else {
+                    RUNTIME_THREAD_OBJECT_NAMESPACE
+                },
+                RuntimeHandleClosePolicy::CloseHandle,
+                Some(RuntimeWaitState::Nonsignaled),
+            ),
+            RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => (
+                if kind == RuntimeObjectKind::PrivateHeap {
+                    LOGICAL_PRIVATE_HEAP_NAMESPACE
+                } else {
+                    LOGICAL_LOADED_MODULE_NAMESPACE
+                },
+                RuntimeHandleClosePolicy::SubsystemOwned,
+                None,
+            ),
+        };
+        let record = RuntimeObjectRecord {
+            id,
+            key: key.clone(),
+            kind,
+            namespace: namespace.to_owned(),
+            close_policy,
+            wait_state,
+            open_handles: 0,
+        };
+        self.objects.insert(id, record);
+        self.identity_index.insert(key, id);
+        Ok(id)
+    }
+
+    pub fn register_object_with_handle(
+        &mut self,
+        key: RuntimeObjectKey,
+        handle: RuntimeHandle,
+    ) -> Result<RuntimeObjectId, RuntimeStateError> {
+        self.preflight_exact_handle(key.kind(), handle)?;
+        let id = self.register_object(key.clone())?;
+        if let Err(error) = self.insert_exact_handle(id, handle) {
+            self.objects.remove(&id);
+            self.identity_index.remove(&key);
+            return Err(error);
+        }
+        Ok(id)
+    }
+
+    pub fn open_handle(
+        &mut self,
+        key: &RuntimeObjectKey,
+    ) -> Result<RuntimeHandle, RuntimeStateError> {
+        let object_id = self.identity_index.get(key).copied().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-object",
+                "runtime-object-identity-unknown",
+                "runtime object identity is not registered",
+            )
+        })?;
+        let kind = key.kind();
+        for slot in 1..=u16::MAX {
+            let slot_key = runtime_handle_slot_key(kind, slot);
+            let generation = match self.slots.get(&slot_key) {
+                Some(state) if !state.live && !state.retired => state.generation,
+                Some(_) => continue,
+                None => 1,
+            };
+            let handle = RuntimeHandle::from_parts(kind, generation, slot)?;
+            self.insert_exact_handle(object_id, handle)?;
+            return Ok(handle);
+        }
+        Err(RuntimeStateError::resource_limit(
+            "runtime-object",
+            "runtime-handle-slot-space-exhausted",
+            "runtime handle slot space is exhausted for this object type",
+        ))
+    }
+
+    pub fn handle_for_object(
+        &self,
+        key: &RuntimeObjectKey,
+    ) -> Result<RuntimeHandle, RuntimeStateError> {
+        let object_id = self.identity_index.get(key).copied().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-object",
+                "runtime-object-identity-unknown",
+                "runtime object identity is not registered",
+            )
+        })?;
+        self.handles
+            .values()
+            .find(|entry| entry.object_id == object_id)
+            .map(|entry| entry.handle)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-object",
+                    "runtime-object-handle-closed",
+                    "runtime object has no open handle",
+                )
+            })
+    }
+
+    pub fn object_for_handle(
+        &self,
+        handle: RuntimeHandle,
+        expected_kind: RuntimeObjectKind,
+    ) -> Result<&RuntimeObjectRecord, RuntimeStateError> {
+        let entry = self.lookup_entry(handle, expected_kind)?;
+        self.objects.get(&entry.object_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-handle-object-dangling",
+                "live runtime handle references a missing object",
+            )
+        })
+    }
+
+    pub fn close_handle(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<RuntimeHandleEntry, RuntimeStateError> {
+        let kind = handle.kind()?;
+        let entry = *self.lookup_entry(handle, kind)?;
+        let record = self.objects.get(&entry.object_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-handle-object-dangling",
+                "live runtime handle references a missing object",
+            )
+        })?;
+        if record.close_policy != RuntimeHandleClosePolicy::CloseHandle {
+            return Err(RuntimeStateError::conflict(
+                "runtime-object",
+                "runtime-handle-close-policy",
+                "runtime handle must be retired by its owning subsystem",
+            ));
+        }
+        if record.open_handles == 0 {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-object-handle-count-underflow",
+                "runtime object has a live handle but zero handle count",
+            ));
+        }
+        let slot_key = runtime_handle_slot_key(kind, handle.slot());
+        let slot = self.slots.get_mut(&slot_key).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-handle-slot-missing",
+                "live runtime handle has no slot state",
+            )
+        })?;
+        let record = self.objects.get_mut(&entry.object_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-handle-object-dangling",
+                "closed runtime handle references a missing object",
+            )
+        })?;
+        let removed = self.handles.remove(&handle.0).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-handle-entry-missing",
+                "live runtime handle disappeared during close",
+            )
+        })?;
+        record.open_handles -= 1;
+        slot.live = false;
+        if slot.generation == u8::MAX {
+            slot.retired = true;
+        } else {
+            slot.generation += 1;
+        }
+        Ok(removed)
+    }
+
+    pub fn wait_state(
+        &self,
+        handle: RuntimeHandle,
+        expected_kind: RuntimeObjectKind,
+    ) -> Result<RuntimeWaitState, RuntimeStateError> {
+        self.object_for_handle(handle, expected_kind)?
+            .wait_state
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-object",
+                    "runtime-object-not-waitable",
+                    "runtime object type does not expose a wait state",
+                )
+            })
+    }
+
+    pub fn set_wait_state(
+        &mut self,
+        key: &RuntimeObjectKey,
+        state: RuntimeWaitState,
+    ) -> Result<(), RuntimeStateError> {
+        let id = self.identity_index.get(key).copied().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-wait-object-missing",
+                "runtime wait state targets an unregistered object",
+            )
+        })?;
+        let record = self.objects.get_mut(&id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-object-index-dangling",
+                "runtime object identity index references a missing object",
+            )
+        })?;
+        if record.wait_state.is_none() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-object-not-waitable",
+                "runtime object type does not expose a wait state",
+            ));
+        }
+        record.wait_state = Some(state);
+        Ok(())
+    }
+
+    pub fn objects(&self) -> &BTreeMap<RuntimeObjectId, RuntimeObjectRecord> {
+        &self.objects
+    }
+
+    pub fn handles(&self) -> &BTreeMap<u32, RuntimeHandleEntry> {
+        &self.handles
+    }
+
+    fn preflight_exact_handle(
+        &self,
+        expected_kind: RuntimeObjectKind,
+        handle: RuntimeHandle,
+    ) -> Result<(), RuntimeStateError> {
+        let kind = handle.kind()?;
+        if kind != expected_kind {
+            return Err(runtime_handle_type_mismatch(handle, expected_kind, kind));
+        }
+        if handle.generation() == 0 || handle.slot() == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-handle-parts-invalid",
+                "runtime handles require nonzero generation and slot fields",
+            ));
+        }
+        let slot_key = runtime_handle_slot_key(kind, handle.slot());
+        match self.slots.get(&slot_key) {
+            Some(state) if state.live => Err(RuntimeStateError::conflict(
+                "runtime-object",
+                "runtime-handle-slot-live",
+                "runtime handle slot is already live",
+            )),
+            Some(state) if state.retired || state.generation != handle.generation() => {
+                Err(RuntimeStateError::not_found(
+                    "runtime-object",
+                    "runtime-handle-stale",
+                    "runtime handle generation does not match the current slot generation",
+                ))
+            }
+            None if handle.generation() != 1 => Err(RuntimeStateError::not_found(
+                "runtime-object",
+                "runtime-handle-stale",
+                "a new runtime handle slot must begin at generation one",
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    fn insert_exact_handle(
+        &mut self,
+        object_id: RuntimeObjectId,
+        handle: RuntimeHandle,
+    ) -> Result<(), RuntimeStateError> {
+        let kind = self
+            .objects
+            .get(&object_id)
+            .map(|record| record.kind)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-object",
+                    "runtime-object-id-unknown",
+                    "handle insertion targets an unknown runtime object",
+                )
+            })?;
+        self.preflight_exact_handle(kind, handle)?;
+        if self.handles.contains_key(&handle.0) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-handle-entry-collision",
+                "free runtime handle slot still has a table entry",
+            ));
+        }
+        let record = self.objects.get_mut(&object_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-object-id-unknown",
+                "inserted handle targets an unknown runtime object",
+            )
+        })?;
+        if record.open_handles == usize::MAX {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-object",
+                "runtime-object-handle-count-overflow",
+                "runtime object handle count overflowed",
+            ));
+        }
+        let slot_key = runtime_handle_slot_key(kind, handle.slot());
+        self.slots.insert(
+            slot_key,
+            RuntimeHandleSlot {
+                generation: handle.generation(),
+                live: true,
+                retired: false,
+            },
+        );
+        self.handles.insert(
+            handle.0,
+            RuntimeHandleEntry {
+                handle,
+                object_id,
+                kind,
+            },
+        );
+        record.open_handles += 1;
+        Ok(())
+    }
+
+    fn lookup_entry(
+        &self,
+        handle: RuntimeHandle,
+        expected_kind: RuntimeObjectKind,
+    ) -> Result<&RuntimeHandleEntry, RuntimeStateError> {
+        let kind = handle.kind()?;
+        if kind != expected_kind {
+            return Err(runtime_handle_type_mismatch(handle, expected_kind, kind));
+        }
+        if handle.generation() == 0 || handle.slot() == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-handle-parts-invalid",
+                "runtime handles require nonzero generation and slot fields",
+            ));
+        }
+        let slot_key = runtime_handle_slot_key(kind, handle.slot());
+        let slot = self.slots.get(&slot_key).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-object",
+                "runtime-handle-unknown",
+                format!("runtime handle {:#010x} was never allocated", handle.0),
+            )
+        })?;
+        if slot.retired || slot.generation != handle.generation() || !slot.live {
+            return Err(RuntimeStateError::not_found(
+                "runtime-object",
+                "runtime-handle-stale",
+                format!("runtime handle {:#010x} is closed or stale", handle.0),
+            ));
+        }
+        self.handles.get(&handle.0).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-handle-entry-missing",
+                "live runtime handle slot has no table entry",
+            )
+        })
+    }
+}
+
+const fn runtime_handle_slot_key(kind: RuntimeObjectKind, slot: u16) -> u32 {
+    (kind.handle_tag() as u32) << 16 | slot as u32
+}
+
+fn runtime_handle_type_mismatch(
+    handle: RuntimeHandle,
+    expected: RuntimeObjectKind,
+    actual: RuntimeObjectKind,
+) -> RuntimeStateError {
+    RuntimeStateError::invalid_input(
+        "runtime-object",
+        "runtime-handle-type-mismatch",
+        format!(
+            "runtime handle {:#010x} has type {actual:?}, expected {expected:?}",
+            handle.0
+        ),
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -273,6 +849,7 @@ pub struct RuntimeState {
     process: RuntimeProcessState,
     threads: BTreeMap<RuntimeThreadId, RuntimeThreadState>,
     scheduler: RuntimeScheduler,
+    objects: RuntimeObjectTable,
     registries: RuntimeRegistries,
     encoded_pointer_namespace: String,
     encoded_pointer_token_prefix: u32,
@@ -314,6 +891,18 @@ impl RuntimeState {
             ));
         }
 
+        let process_key = RuntimeObjectKey::Process {
+            process_id: bootstrap.process_id.0,
+        };
+        let thread_key = RuntimeObjectKey::Thread {
+            thread_id: bootstrap.initial_thread_id.0,
+        };
+        let mut objects = RuntimeObjectTable::default();
+        objects.register_object(process_key.clone())?;
+        objects.open_handle(&process_key)?;
+        objects.register_object(thread_key.clone())?;
+        objects.open_handle(&thread_key)?;
+
         let initial_thread = RuntimeThreadState {
             id: bootstrap.initial_thread_id,
             last_error: bootstrap.initial_last_error,
@@ -340,6 +929,7 @@ impl RuntimeState {
                 )]),
                 events: VecDeque::new(),
             },
+            objects,
             registries: RuntimeRegistries {
                 dynamic_endpoints: BTreeMap::new(),
                 encoded_pointers: BTreeMap::new(),
@@ -374,6 +964,57 @@ impl RuntimeState {
 
     pub fn scheduler(&self) -> &RuntimeScheduler {
         &self.scheduler
+    }
+
+    pub fn objects(&self) -> &RuntimeObjectTable {
+        &self.objects
+    }
+
+    pub fn process_handle(&self) -> Result<RuntimeHandle, RuntimeStateError> {
+        self.objects.handle_for_object(&RuntimeObjectKey::Process {
+            process_id: self.process.id.0,
+        })
+    }
+
+    pub fn current_thread_handle(&self) -> Result<RuntimeHandle, RuntimeStateError> {
+        self.objects.handle_for_object(&RuntimeObjectKey::Thread {
+            thread_id: self.current_thread_id().0,
+        })
+    }
+
+    pub fn open_process_handle(&mut self) -> Result<RuntimeHandle, RuntimeStateError> {
+        self.objects.open_handle(&RuntimeObjectKey::Process {
+            process_id: self.process.id.0,
+        })
+    }
+
+    pub fn open_current_thread_handle(&mut self) -> Result<RuntimeHandle, RuntimeStateError> {
+        self.objects.open_handle(&RuntimeObjectKey::Thread {
+            thread_id: self.current_thread_id().0,
+        })
+    }
+
+    pub fn object_for_handle(
+        &self,
+        handle: RuntimeHandle,
+        expected_kind: RuntimeObjectKind,
+    ) -> Result<&RuntimeObjectRecord, RuntimeStateError> {
+        self.objects.object_for_handle(handle, expected_kind)
+    }
+
+    pub fn close_handle(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<RuntimeHandleEntry, RuntimeStateError> {
+        self.objects.close_handle(handle)
+    }
+
+    pub fn object_wait_state(
+        &self,
+        handle: RuntimeHandle,
+        expected_kind: RuntimeObjectKind,
+    ) -> Result<RuntimeWaitState, RuntimeStateError> {
+        self.objects.wait_state(handle, expected_kind)
     }
 
     pub fn registries(&self) -> &RuntimeRegistries {
@@ -435,6 +1076,10 @@ impl RuntimeState {
             ));
         }
         let handle = heap.handle;
+        self.objects.register_object_with_handle(
+            RuntimeObjectKey::PrivateHeap { handle },
+            RuntimeHandle(handle),
+        )?;
         self.process.heaps.insert(handle, heap);
         self.process.heaps.get(&handle).ok_or_else(|| {
             RuntimeStateError::runtime_defect(
@@ -480,6 +1125,8 @@ impl RuntimeState {
     }
 
     pub fn heap(&self, handle: u32) -> Result<&RuntimeHeap, RuntimeStateError> {
+        self.objects
+            .object_for_handle(RuntimeHandle(handle), RuntimeObjectKind::PrivateHeap)?;
         self.process.heaps.get(&handle).ok_or_else(|| {
             RuntimeStateError::not_found(
                 "runtime-heap",
@@ -519,6 +1166,10 @@ impl RuntimeState {
             ));
         }
         let handle = module.handle;
+        self.objects.register_object_with_handle(
+            RuntimeObjectKey::Module { handle },
+            RuntimeHandle(handle),
+        )?;
         self.process.modules.insert(handle, module);
         self.process.modules.get(&handle).ok_or_else(|| {
             RuntimeStateError::runtime_defect(
@@ -530,6 +1181,8 @@ impl RuntimeState {
     }
 
     pub fn module(&self, handle: u32) -> Result<&RuntimeModule, RuntimeStateError> {
+        self.objects
+            .object_for_handle(RuntimeHandle(handle), RuntimeObjectKind::Module)?;
         self.process.modules.get(&handle).ok_or_else(|| {
             RuntimeStateError::not_found(
                 "runtime-module",
@@ -1031,6 +1684,12 @@ impl RuntimeState {
         let scheduler_events_discarded =
             scheduler_events_before.saturating_sub(self.scheduler.events.len());
         self.set_scheduler_state(SchedulerThreadState::Terminated { exit_code })?;
+        self.objects.set_wait_state(
+            &RuntimeObjectKey::Thread {
+                thread_id: thread_id.0,
+            },
+            RuntimeWaitState::Signaled { exit_code },
+        )?;
         Ok(RuntimeCancellation {
             thread_id,
             exit_code,
@@ -1038,6 +1697,20 @@ impl RuntimeState {
             callback_frames_cancelled,
             scheduler_events_discarded,
         })
+    }
+
+    pub fn terminate_current_process(
+        &mut self,
+        exit_code: u32,
+    ) -> Result<RuntimeCancellation, RuntimeStateError> {
+        let cancellation = self.cancel_current_thread(exit_code)?;
+        self.objects.set_wait_state(
+            &RuntimeObjectKey::Process {
+                process_id: self.process.id.0,
+            },
+            RuntimeWaitState::Signaled { exit_code },
+        )?;
+        Ok(cancellation)
     }
 
     fn current_thread(&self) -> Result<&RuntimeThreadState, RuntimeStateError> {
