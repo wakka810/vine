@@ -45,6 +45,7 @@ struct Arguments {
     get_module_handle_w_return_session: bool,
     get_proc_address_return_session: bool,
     get_proc_address_second_return_session: bool,
+    get_proc_address_third_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -66,6 +67,7 @@ struct V86ReturnSessionOptions<'a> {
     get_module_handle_w: bool,
     get_proc_address: bool,
     get_proc_address_second: bool,
+    get_proc_address_third: bool,
     dynamic_export_thunks: &'a [DynamicExportThunk],
 }
 
@@ -889,6 +891,68 @@ struct V86GetProcAddressSecondReturnReceipt {
     stats: MemoryStats,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86GetProcAddressThirdReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    endpoint_store_page_address: u32,
+    endpoint_store_page_owner: u32,
+    endpoint_store_page_bytes: Vec<u8>,
+    dynamic_export_owner: String,
+    variant_id: String,
+    module_handle: u32,
+    lookup_kind: String,
+    call_variant: String,
+    indirect_call_register: String,
+    indirect_call_target: u32,
+    procedure_name_address: u32,
+    procedure_name: String,
+    first_endpoint_address: u32,
+    second_endpoint_address: u32,
+    first_endpoint_store_address: u32,
+    second_endpoint_store_address: u32,
+    preserve_last_error: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86GetProcAddressThirdReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    procedure_name_address: GuestAddress,
+    procedure_name_bytes: Vec<u8>,
+    indirect_call_register: &'static str,
+    indirect_call_target: GuestAddress,
+    resolution: X86DynamicExportResolution,
+    first_endpoint: DynamicExportThunk,
+    first_endpoint_store_address: GuestAddress,
+    first_endpoint_store_value: u32,
+    second_endpoint: DynamicExportThunk,
+    second_endpoint_store_address: GuestAddress,
+    second_endpoint_store_value: u32,
+    endpoint: DynamicExportThunk,
+    preserve_last_error: bool,
+    result: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    endpoint_store_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -1147,7 +1211,17 @@ fn run_v86_reflection_session(
             .then(|| install_controlled_process_environment(&mut memory).map_err(memory_error))
             .transpose()?
     };
-    let dynamic_export_thunks = if arguments.get_proc_address_second_return_session {
+    let dynamic_export_thunks = if arguments.get_proc_address_third_return_session {
+        install_dynamic_export_thunks(
+            &mut memory,
+            &[
+                ("kernel32.dll", "FlsAlloc"),
+                ("kernel32.dll", "FlsGetValue"),
+                ("kernel32.dll", "FlsSetValue"),
+            ],
+        )
+        .map_err(memory_error)?
+    } else if arguments.get_proc_address_second_return_session {
         install_dynamic_export_thunks(
             &mut memory,
             &[
@@ -1211,7 +1285,9 @@ fn run_v86_reflection_session(
         initial_thread_stack: initial_thread_stack.clone(),
         initial_process_environment: initial_process_environment.clone(),
         dynamic_export_thunk: dynamic_export_thunk.clone(),
-        dynamic_export_thunks: if arguments.get_proc_address_second_return_session {
+        dynamic_export_thunks: if arguments.get_proc_address_second_return_session
+            || arguments.get_proc_address_third_return_session
+        {
             dynamic_export_thunks.clone()
         } else {
             Vec::new()
@@ -1317,11 +1393,18 @@ fn run_v86_reflection_session(
         .as_ref()
         .map(|thunk| memory.fetch(thunk.address, 16).map_err(memory_error))
         .transpose()?;
-    let dynamic_export_page_prefix_bytes = arguments
-        .get_proc_address_second_return_session
+    let dynamic_export_page_prefix_bytes = (arguments.get_proc_address_second_return_session
+        || arguments.get_proc_address_third_return_session)
         .then(|| {
             memory
-                .fetch(vine_core::DYNAMIC_EXPORT_ARENA_BASE, 32)
+                .fetch(
+                    vine_core::DYNAMIC_EXPORT_ARENA_BASE,
+                    if arguments.get_proc_address_third_return_session {
+                        48
+                    } else {
+                        32
+                    },
+                )
                 .map_err(memory_error)
         })
         .transpose()?;
@@ -1397,6 +1480,7 @@ fn run_v86_reflection_session(
             get_module_handle_w: arguments.get_module_handle_w_return_session,
             get_proc_address: arguments.get_proc_address_return_session,
             get_proc_address_second: arguments.get_proc_address_second_return_session,
+            get_proc_address_third: arguments.get_proc_address_third_return_session,
             dynamic_export_thunks: &dynamic_export_thunks,
         };
         run_v86_system_time_delta_session(
@@ -2935,7 +3019,8 @@ fn run_v86_get_proc_address_second_return_session(
                 "second GetProcAddress return session has no second callable endpoint",
             )
         })?;
-    if return_sessions.dynamic_export_thunks.len() != 2
+    let expected_endpoint_count = 2 + usize::from(return_sessions.get_proc_address_third);
+    if return_sessions.dynamic_export_thunks.len() != expected_endpoint_count
         || first_endpoint.id.0 != 1
         || first_endpoint.address.0 != 0x7f02_0000
         || !first_endpoint.module.eq_ignore_ascii_case(CANONICAL_MODULE)
@@ -3140,6 +3225,291 @@ fn run_v86_get_proc_address_second_return_session(
             stats: memory.stats(),
         },
         message_limit,
+    )?;
+    if return_sessions.get_proc_address_third {
+        run_v86_get_proc_address_third_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
+    }
+    Ok(())
+}
+
+fn run_v86_get_proc_address_third_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+    return_sessions: V86ReturnSessionOptions<'_>,
+) -> Result<(), LoaderError> {
+    const OWNER_ID: &str = "checkpoint-dynamic-exports";
+    const VARIANT_ID: &str = "getprocaddress-kernel32-flssetvalue-runtime-endpoint";
+    const CANONICAL_MODULE: &str = "kernel32.dll";
+    const PROCEDURE_NAME: &str = "FlsSetValue";
+    const CALL_VARIANT: &str = "push-name-push-edi-store-prior-result-call-esi";
+    const FIRST_ENDPOINT_STORE_ADDRESS: u32 = 0x100f_eebc;
+    const SECOND_ENDPOINT_STORE_ADDRESS: u32 = 0x100f_eec0;
+    const ENDPOINT_STORE_PAGE_ADDRESS: u32 = 0x100f_e000;
+    let first_endpoint = return_sessions
+        .dynamic_export_thunks
+        .first()
+        .ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "win32-dynamic-export",
+                "first-dynamic-export-endpoint-missing",
+                "third GetProcAddress return session has no first callable endpoint",
+            )
+        })?;
+    let second_endpoint = return_sessions
+        .dynamic_export_thunks
+        .get(1)
+        .ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "win32-dynamic-export",
+                "second-dynamic-export-endpoint-missing",
+                "third GetProcAddress return session has no second callable endpoint",
+            )
+        })?;
+    let endpoint = return_sessions
+        .dynamic_export_thunks
+        .get(2)
+        .ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "win32-dynamic-export",
+                "third-dynamic-export-endpoint-missing",
+                "third GetProcAddress return session has no third callable endpoint",
+            )
+        })?;
+    let expected_endpoints = [
+        (1, 0x7f02_0000, "FlsAlloc"),
+        (2, 0x7f02_0010, "FlsGetValue"),
+        (3, 0x7f02_0020, PROCEDURE_NAME),
+    ];
+    if return_sessions.dynamic_export_thunks.len() != expected_endpoints.len()
+        || return_sessions
+            .dynamic_export_thunks
+            .iter()
+            .zip(expected_endpoints)
+            .any(|(observed, (id, address, name))| {
+                observed.id.0 != id
+                    || observed.address.0 != address
+                    || !observed.module.eq_ignore_ascii_case(CANONICAL_MODULE)
+                    || observed.name != name
+                    || observed.owner != first_endpoint.owner
+                    || observed.arena_range != first_endpoint.arena_range
+                    || observed.content_sha256 != first_endpoint.content_sha256
+                    || observed.invalidation != first_endpoint.invalidation
+                    || observed.lifetime != "process-runtime"
+                    || !observed.owner_sealed
+            })
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-dynamic-export",
+            "dynamic-export-endpoint-triple-mismatch",
+            "installed dynamic-export endpoints do not preserve the controlled FLS identity triple",
+        ));
+    }
+
+    let request: V86GetProcAddressThirdReturnRequest = read_protocol_message(
+        input,
+        96 * 1024,
+        "win32-dynamic-export",
+        "get-proc-address-third-return-request",
+        "controlled third dynamic-export lookup request",
+    )?;
+    if request.schema != "vine.v86-get-proc-address-third-return-request"
+        || request.schema_version != 1
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-dynamic-export",
+            "get-proc-address-third-return-request-schema-unsupported",
+            "third dynamic-export request must use vine.v86-get-proc-address-third-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 8 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "get-proc-address-third-argument-width-mismatch",
+            "GetProcAddress requires two four-byte stdcall arguments",
+        ));
+    }
+    let logical_module_handle = X86LogicalLoadedModuleHandle::kernel32();
+    if request.dynamic_export_owner != OWNER_ID
+        || request.variant_id != VARIANT_ID
+        || request.module_handle != logical_module_handle.value
+        || request.lookup_kind != "name"
+        || request.call_variant != CALL_VARIANT
+        || request.indirect_call_register != "esi"
+        || request.procedure_name_address <= u32::from(u16::MAX)
+        || request.procedure_name != PROCEDURE_NAME
+        || request.first_endpoint_address != first_endpoint.address.0
+        || request.second_endpoint_address != second_endpoint.address.0
+        || request.first_endpoint_store_address != FIRST_ENDPOINT_STORE_ADDRESS
+        || request.second_endpoint_store_address != SECOND_ENDPOINT_STORE_ADDRESS
+        || request.endpoint_store_page_address != ENDPOINT_STORE_PAGE_ADDRESS
+        || request.endpoint_store_page_owner != binding.image_owner.0
+        || !request.preserve_last_error
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-dynamic-export",
+            "get-proc-address-third-variant-unsupported",
+            "controlled third export lookup supports only GetProcAddress(logical KERNEL32, \"FlsSetValue\") with the preserved first two FLS endpoints",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "get-proc-address-third-thunk-id-unowned",
+                "third dynamic-export request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || request.indirect_call_target != thunk.address.0
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "GetProcAddress"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "get-proc-address-third-thunk-identity-mismatch",
+            "third dynamic-export request does not match the declared GetProcAddress thunk or live ESI target",
+        ));
+    }
+
+    let (
+        stack_reconciliation,
+        endpoint_store_reconciliation,
+        observed_name,
+        procedure_name_bytes,
+        first_endpoint_store_value,
+        second_endpoint_store_value,
+    ) = {
+        let mut transaction = memory.begin_transaction();
+        let stack_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        let endpoint_store_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.endpoint_store_page_owner),
+                GuestAddress(request.endpoint_store_page_address),
+                &request.endpoint_store_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_third_persistent_register_iat_frame(
+            &transaction,
+            &thunk,
+            &request,
+            &[request.module_handle, request.procedure_name_address],
+        )?;
+        let (observed_name, ascii_bytes) = read_bounded_ascii_nul(
+            &transaction,
+            GuestAddress(request.procedure_name_address),
+            64,
+        )?;
+        if observed_name != request.procedure_name || observed_name != PROCEDURE_NAME {
+            return Err(LoaderError::invalid_input(
+                "win32-dynamic-export",
+                "get-proc-address-third-name-mismatch",
+                "guest ASCII export name does not identify the controlled FlsSetValue endpoint",
+            ));
+        }
+        let read_stored_endpoint =
+            |address: u32, label: &'static str| -> Result<u32, LoaderError> {
+                let stored_bytes = transaction
+                    .read(GuestAddress(address), 4)
+                    .map_err(memory_error)?;
+                Ok(u32::from_le_bytes(
+                    stored_bytes.as_slice().try_into().map_err(|_| {
+                        LoaderError::runtime_defect(
+                            "win32-dynamic-export",
+                            "endpoint-store-width-invalid",
+                            format!("checked {label} endpoint store did not contain four bytes"),
+                        )
+                    })?,
+                ))
+            };
+        let first_endpoint_store_value =
+            read_stored_endpoint(request.first_endpoint_store_address, "first")?;
+        let second_endpoint_store_value =
+            read_stored_endpoint(request.second_endpoint_store_address, "second")?;
+        if first_endpoint_store_value != first_endpoint.address.0
+            || second_endpoint_store_value != second_endpoint.address.0
+        {
+            return Err(LoaderError::invalid_input(
+                "win32-dynamic-export",
+                "prior-endpoint-store-value-mismatch",
+                "BGI did not preserve the first two dynamic-export endpoints before the third lookup",
+            ));
+        }
+        transaction.commit_transaction();
+        (
+            stack_reconciliation,
+            endpoint_store_reconciliation,
+            observed_name,
+            ascii_bytes,
+            first_endpoint_store_value,
+            second_endpoint_store_value,
+        )
+    };
+
+    let result = endpoint.address.0;
+    write_protocol_message(
+        &V86GetProcAddressThirdReturnReceipt {
+            schema: "vine.v86-get-proc-address-third-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            procedure_name_address: GuestAddress(request.procedure_name_address),
+            procedure_name_bytes,
+            indirect_call_register: "esi",
+            indirect_call_target: GuestAddress(request.indirect_call_target),
+            resolution: X86DynamicExportResolution {
+                owner: request.dynamic_export_owner,
+                variant_id: request.variant_id,
+                module_handle: logical_module_handle,
+                canonical_module: CANONICAL_MODULE,
+                lookup_kind: "name",
+                call_variant: CALL_VARIANT,
+                requested_name: observed_name,
+                resolved_name: PROCEDURE_NAME,
+                endpoint_namespace: endpoint.namespace,
+                endpoint_lifetime: endpoint.lifetime,
+                host_address_imported: false,
+            },
+            first_endpoint: first_endpoint.clone(),
+            first_endpoint_store_address: GuestAddress(request.first_endpoint_store_address),
+            first_endpoint_store_value,
+            second_endpoint: second_endpoint.clone(),
+            second_endpoint_store_address: GuestAddress(request.second_endpoint_store_address),
+            second_endpoint_store_value,
+            endpoint: endpoint.clone(),
+            preserve_last_error: request.preserve_last_error,
+            result,
+            stack_reconciliation,
+            endpoint_store_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
     )
 }
 
@@ -3281,6 +3651,65 @@ fn validate_stdcall_persistent_register_iat_frame(
             "abi-gateway",
             "persistent-register-callsite-mismatch",
             "second GetProcAddress return does not follow the controlled PUSH name / PUSH EDI / STORE prior result / CALL ESI sequence",
+        ));
+    }
+    validate_bound_iat(memory, thunk)
+}
+
+fn validate_stdcall_third_persistent_register_iat_frame(
+    memory: &GuestMemory,
+    thunk: &ImportThunk,
+    request: &V86GetProcAddressThirdReturnRequest,
+    expected_arguments: &[u32],
+) -> Result<(), LoaderError> {
+    validate_stdcall_frame(
+        memory,
+        request.stack_pointer,
+        request.return_address,
+        expected_arguments,
+    )?;
+    if request.indirect_call_register != "esi" || request.indirect_call_target != thunk.address.0 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "third-persistent-register-call-target-mismatch",
+            "third GetProcAddress call requires live ESI to retain the owned import thunk",
+        ));
+    }
+    let sequence_address = request.return_address.checked_sub(13).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "abi-gateway",
+            "third-persistent-register-call-address-underflow",
+            "third GetProcAddress return cannot identify its register-indirect sequence",
+        )
+    })?;
+    let sequence = memory
+        .fetch(GuestAddress(sequence_address), 13)
+        .map_err(memory_error)?;
+    let name_operand = u32::from_le_bytes(sequence[1..5].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "abi-gateway",
+            "third-persistent-register-name-width-invalid",
+            "register-indirect sequence has a partial procedure-name operand",
+        )
+    })?);
+    let store_operand = u32::from_le_bytes(sequence[7..11].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "abi-gateway",
+            "third-persistent-register-store-width-invalid",
+            "register-indirect sequence has a partial prior-result store operand",
+        )
+    })?);
+    if sequence[0] != 0x68
+        || name_operand != request.procedure_name_address
+        || sequence[5] != 0x57
+        || sequence[6] != 0xa3
+        || store_operand != request.second_endpoint_store_address
+        || sequence[11..13] != [0xff, 0xd6]
+    {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "third-persistent-register-callsite-mismatch",
+            "third GetProcAddress return does not follow the controlled PUSH name / PUSH EDI / STORE prior result / CALL ESI sequence",
         ));
     }
     validate_bound_iat(memory, thunk)
@@ -3622,6 +4051,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut get_module_handle_w_return_session = false;
     let mut get_proc_address_return_session = false;
     let mut get_proc_address_second_return_session = false;
+    let mut get_proc_address_third_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -3735,6 +4165,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             get_proc_address_second_return_session = true;
+        } else if argument == "--get-proc-address-third-return-session" {
+            if get_proc_address_third_return_session {
+                return Err(usage_error());
+            }
+            get_proc_address_third_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -3847,6 +4282,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if get_proc_address_second_return_session && !get_proc_address_return_session {
         return Err(usage_error());
     }
+    if get_proc_address_third_return_session && !get_proc_address_second_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -3871,6 +4309,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         get_module_handle_w_return_session,
         get_proc_address_return_session,
         get_proc_address_second_return_session,
+        get_proc_address_third_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,

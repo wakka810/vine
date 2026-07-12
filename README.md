@@ -4,9 +4,9 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-eleventh-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-twelfth-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
-330 imports to deterministic runtime-owned `UD2` thunks, installs two ordered
+330 imports to deterministic runtime-owned `UD2` thunks, installs three ordered
 dynamic-export endpoints, and reflects 389 sealed pages into source-built v86.
 BGI executes 19 instructions from entry
 `0x100A383E` and reaches exact thunk ID `104`,
@@ -46,9 +46,12 @@ ID `150` again for `FlsGetValue`. An eleventh checked stdcall preserves the
 first endpoint at BGI slot `0x100FEEBC`, validates persistent ESI call
 provenance and bounded ASCII `FlsGetValue`, and returns distinct endpoint
 `0x7F020010`. BGI stores it at `0x100FEEC0`; five instructions later the same
-thunk is reached for `FlsSetValue`. Eleven static endpoints are declared; the
+thunk is reached for `FlsSetValue`. A twelfth checked stdcall preserves both
+prior endpoint stores, validates bounded ASCII `FlsSetValue`, and returns
+endpoint `0x7F020020`. BGI stores it at `0x100FEEC4`; five instructions later
+the same thunk is reached for `FlsFree`. Eleven static endpoints are declared; the
 other 319 retain exact identity as explicit traps. Memory generation remains
-`30` after both generation-preserving lookups.
+`30` after all three generation-preserving lookups.
 
 The foundation below that checkpoint now has an incremental `MemoryDelta`
 protocol. The first transfer is a full snapshot; later generations carry only
@@ -66,8 +69,8 @@ The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next endpoint checkpoint is the third checked two-argument stdcall at
-thunk ID `150` for `GetProcAddress(logicalKernel32, "FlsSetValue")`.
+The next endpoint checkpoint is the fourth checked two-argument stdcall at
+thunk ID `150` for `GetProcAddress(logicalKernel32, "FlsFree")`.
 
 ## Requirements
 
@@ -156,6 +159,9 @@ dynamic endpoint `0x7F020000`, and stops at ID `150` for `FlsGetValue`.
 `npm run check:runtime:bgi-eleventh-win32-call` reconciles BGI's first endpoint
 store, validates the persistent ESI call and bounded ASCII `FlsGetValue`,
 returns endpoint `0x7F020010`, and stops at ID `150` for `FlsSetValue`.
+`npm run check:runtime:bgi-twelfth-win32-call` reconciles both prior endpoint
+stores, validates the next persistent ESI call and bounded ASCII `FlsSetValue`,
+returns endpoint `0x7F020020`, and stops at ID `150` for `FlsFree`.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

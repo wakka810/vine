@@ -5,14 +5,14 @@
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 対象: current `main` worktree
-- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI eleventh Win32 call。MemoryDelta、bounded CPU page reconciliation、rollback transaction、atomic import binding、public Linux CIを追加済み。BGIは最初の11 APIをreturnし、`FlsAlloc`／`FlsGetValue`のordered callable endpointsを保持してthird `GetProcAddress`へ到達したが、general process／thread lifecycle、DLL／export resolution、Win32 runtime、browser appはまだない
+- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI twelfth Win32 call。MemoryDelta、bounded CPU page reconciliation、rollback transaction、atomic import binding、public Linux CIを追加済み。BGIは最初の12 APIをreturnし、`FlsAlloc`／`FlsGetValue`／`FlsSetValue`のordered callable endpointsを保持してfourth `GetProcAddress`へ到達したが、general process／thread lifecycle、DLL／export resolution、Win32 runtime、browser appはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
 
 このディレクトリは、Vine を「Windows 向け VN/ADV 実行ファイルを、元の配布ファイルを原則として変更せずブラウザ上で再ホストする Windows userspace 互換ランタイム」として開発するための基準文書である。
 
-調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、再現生成するPE32 fixtures、固定したv86 source adapter、Windows trace、W1／W2／W3、high-address memory、Rust W7 load／memory／entry return／stack／bootstrap ingress、sealed BGI trap binding、BGI firstからeleventh Win32 call returnがある。各checkpointは限定したevidenceであり、production Windows compatibility runtimeの完成を示さない。
+調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、再現生成するPE32 fixtures、固定したv86 source adapter、Windows trace、W1／W2／W3、high-address memory、Rust W7 load／memory／entry return／stack／bootstrap ingress、sealed BGI trap binding、BGI firstからtwelfth Win32 call returnがある。各checkpointは限定したevidenceであり、production Windows compatibility runtimeの完成を示さない。
 
 ## プロジェクトの位置づけ
 
@@ -82,6 +82,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [v86-bgi-ninth-win32-call.md](v86-bgi-ninth-win32-call.md) | ninth reachable APIをどこまでreturnできるか | native module-handle observation、bounded UTF-16 lookup、typed logical loaded-module handle、next trap |
 | [v86-bgi-tenth-win32-call.md](v86-bgi-tenth-win32-call.md) | tenth reachable APIをどこまでreturnできるか | native dynamic-export observation、register-indirect IAT provenance、callable `FlsAlloc` endpoint、next lookup |
 | [v86-bgi-eleventh-win32-call.md](v86-bgi-eleventh-win32-call.md) | eleventh reachable APIをどこまでreturnできるか | ordered endpoint pair、persistent ESI provenance、first endpoint guest store、`FlsGetValue` return／next lookup |
+| [v86-bgi-twelfth-win32-call.md](v86-bgi-twelfth-win32-call.md) | twelfth reachable APIをどこまでreturnできるか | ordered endpoint triple、prior endpoint guest stores、`FlsSetValue` return／next lookup |
 | [windows-development.md](windows-development.md) | Windows で何から始めるか | toolchain、Frida trace、最初の縦断 checkpoint、test 方針 |
 | [windows-native-evidence.md](windows-native-evidence.md) | Windows で何が実測済みか | W0 version、BGI trace v1／v2、selected IDirect3D9 root、W1／W2／W3、W7 loader／memory／entry／stack／FS ingress |
 | [requirements.md](requirements.md) | 何を、どこまで作るか | 目的、スコープ、機能要件、非機能要件、personal target 定義 |
