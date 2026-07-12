@@ -249,6 +249,13 @@ first messageだけのwake event、owner FIFO dequeue、reblock後ID `3`によ�
 Peek／Get、WM_QUIT、paint、input、timer、Send／dispatch、guest APIの代用ではない。詳細は
 [runtime-message-queue.md](runtime-message-queue.md)を正とする。
 
+Controlled private-heap backingの代表Rust contractはfixed arena collision時のowner／region／runtime
+rollback、8-byte aligned IDs `1,2,3`、zero／`0xA5` initialization、`0xDD` free poison、exact
+double-free／interior invalid-free rejection、lowest-address reuse、typed heap destroy、exit-request中の
+backed／metadata-only heap teardown、final memory generation／ack `13`を1 testで固定する。これはguest
+`HeapAlloc`／`HeapFree`／`HeapDestroy` dispatch、zero-size／realloc、concurrent allocator、LFH、title
+capacity profileの代用ではない。詳細は[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
+
 ### 5.4 CPU と ABI tests
 
 CPU test vector は instruction encoding、initial register／flags／memory、expected result／fault を持つ。
@@ -524,7 +531,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの17 API return、two pointer tokens、one observed guest storeまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／heap backing／system-DLL image／snapshot、title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの17 API return、two pointer tokens、one observed guest storeまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／guest heap APIとtitle capacity／system-DLL image／snapshot、title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 

@@ -20,9 +20,10 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "runtime-message-queue-foundation" ||
+    checkpoint.runtimeKernelCheckpoint !== "runtime-heap-backing-foundation" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
-    checkpoint.runtimeStateScope !== "single-process-controlled-two-thread-wait-message-queues" ||
+    checkpoint.runtimeStateScope !==
+      "single-process-controlled-two-thread-wait-message-heap-backing" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
       JSON.stringify([
         "process",
@@ -37,6 +38,7 @@ try {
         "controlled-thread-registry",
         "controlled-wait-queue",
         "controlled-message-queue",
+        "controlled-private-heap-backing",
       ]) ||
     checkpoint.callbackFrameStack !== true ||
     checkpoint.hostCompletionModel !== "scheduler-event" ||
@@ -419,7 +421,54 @@ try {
         bgiReportSha256:
           "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
       }) ||
-    checkpoint.nextCheckpoint !== "runtime-heap-backing-foundation" ||
+    JSON.stringify(checkpoint.runtimeHeapBacking) !==
+      JSON.stringify({
+        schema: "vine.runtime-private-heap-backing.v1",
+        arenaBase: "0x20000000",
+        arenaEndExclusive: "0x40000000",
+        backingLimit: 32,
+        capacityBytesPerHeap: 16777216,
+        allocationAlignmentBytes: 8,
+        maximumLiveAllocationsPerHeap: 65536,
+        allocationIds: [1, 2, 3],
+        allocationAddresses: ["0x20000000", "0x20000218", "0x20000000"],
+        firstRequestedBytes: 532,
+        firstReservedBytes: 536,
+        secondRequestedBytes: 2048,
+        initializationBytes: {
+          zeroed: 0,
+          deterministicUninitialized: 165,
+          freed: 221,
+        },
+        allocationPolicy: "lowest-address-first-fit",
+        allocationIdentityOnReuse: "monotonic-new-id",
+        memoryAuthority: "rust-guest-memory",
+        memoryOwnerKind: "anonymous",
+        memoryRegionKind: "heap",
+        memoryProtection: "rw-nx",
+        memoryMutation: "guest-memory-transaction-before-targeted-runtime-commit",
+        collisionRollbackError: "memory-region-overlap",
+        doubleFreeError: "heap-allocation-double-free",
+        invalidFreeError: "heap-allocation-pointer-invalid",
+        processExitCleanupBoundary: "exit-request-to-completion",
+        processExitCompletionGate: "process-heaps-live-at-exit-completion",
+        directTerminationGate: "process-heaps-live-at-direct-termination",
+        controlledFinalMemoryGeneration: 13,
+        controlledFinalAcknowledgedGeneration: 13,
+        guestHeapAllocDispatch: false,
+        runtimeCoreWasmBytes: 772038,
+        runtimeCoreWasmSha256:
+          "aa0d5d69da04fd9a9b6678d8e034e525f81b191351a1603b7fc5fe0f5420d85c",
+        browserWorkerGuestInstructions: 46,
+        browserWorkerExitCode: 0,
+        browserBenchmarkDecision: "go",
+        browserBenchmarkThresholdFailures: 0,
+        bgiSupportedCallCount: 17,
+        bgiInstructionCount: 238,
+        bgiReportSha256:
+          "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+      }) ||
+    checkpoint.nextCheckpoint !== "runtime-dll-lifecycle-foundation" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

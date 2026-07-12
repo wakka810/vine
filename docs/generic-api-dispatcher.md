@@ -130,7 +130,8 @@ and clean exit. The Step 8 versioned benchmark passed every threshold and kept
 v86 as the exchangeable baseline. `RuntimeState` now owns generation-tagged
 object／handle lifetime, a process module graph, controlled lifecycle, and a
 two-thread logical registry with one-object wait/wake and a bounded raw message FIFO.
-The next proof is controlled private-heap backing. Existing import, bootstrap,
+Controlled private-heap backing is now implemented in
+[runtime-heap-backing.md](runtime-heap-backing.md). The next proof is controlled DLL lifecycle. Existing import, bootstrap,
 bidirectional memory sync, 13-contract／
 17-call semantic checks, 238 instructions, and both private evidence digests
 remain the regression boundary.

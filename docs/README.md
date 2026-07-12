@@ -5,7 +5,7 @@
 - ステータス: Proposed
 - 基準日: 2026-07-12
 - 対象: current `main` worktree
-- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call manifest／generic runner、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser go gate、generation付きtyped object／handle、process-owned module graph、controlled process／initial-thread lifecycle、controlled two-thread registry／one-object wait／raw message-queue foundationsを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、per-thread CPU bootstrap／general multi-thread／wait-any／wait-all／timeout、User32 message semantics、heap backing、guest DLL mapping／callback、BGI browser executionはまだない
+- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call manifest／generic runner、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser go gate、generation付きtyped object／handle、process-owned module graph、controlled process／initial-thread lifecycle、controlled two-thread registry／one-object wait／raw message queue／private-heap backing foundationsを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、per-thread CPU bootstrap／general multi-thread／wait-any／wait-all／timeout、User32 message semantics、guest HeapAlloc dispatch、guest DLL mapping／callback、BGI browser executionはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
@@ -105,6 +105,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [runtime-thread-registry.md](runtime-thread-registry.md) | logical thread stateをどう分離するか | controlled second thread、selection／exit、deterministic all-lane termination |
 | [runtime-wait-queue.md](runtime-wait-queue.md) | waitable objectとschedulerをどう接続するか | one-object registration、signal／wake event、already-signaled／exit cancellation |
 | [runtime-message-queue.md](runtime-message-queue.md) | thread messageをどこが所有するか | bounded raw FIFO、empty block／first-message wake、ordered dequeue／exit cleanup |
+| [runtime-heap-backing.md](runtime-heap-backing.md) | private heap bytes／lifetimeをどこが所有するか | bounded guest arena、allocation ID／alignment／initialization、free／reuse、heap／process teardown |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 
 推奨する読み順は、corpus 台帳、要件、目標アーキテクチャ、リスク、検証、ロードマップの順である。ロードマップ内の `REQ-*`、`NFR-*`、`R-*`、`Q-*`、`AC-*` は各文書の識別子を参照する。

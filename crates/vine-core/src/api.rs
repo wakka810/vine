@@ -8,7 +8,10 @@ use crate::memory::{
     MemoryAccess,
 };
 use crate::pe32::ImportTarget;
-use crate::runtime::{RuntimeState, RuntimeStateError, RuntimeStateErrorClass};
+use crate::runtime::{
+    RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -531,6 +534,40 @@ impl<'a> ExecutionSession<'a> {
 
     pub fn runtime_mut(&mut self) -> &mut RuntimeState {
         self.runtime
+    }
+
+    pub fn allocate_private_heap_block(
+        &mut self,
+        handle: u32,
+        byte_length: u32,
+        initialization: RuntimeHeapInitialization,
+    ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
+        crate::heap::allocate_private_heap_block(
+            self.memory,
+            self.runtime,
+            handle,
+            byte_length,
+            initialization,
+        )
+    }
+
+    pub fn free_private_heap_block(
+        &mut self,
+        handle: u32,
+        address: GuestAddress,
+    ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
+        crate::heap::free_private_heap_block(self.memory, self.runtime, handle, address)
+    }
+
+    pub fn destroy_private_heap(
+        &mut self,
+        handle: u32,
+    ) -> Result<RuntimeHeapTeardown, RuntimeStateError> {
+        crate::heap::destroy_private_heap(self.memory, self.runtime, handle)
+    }
+
+    pub fn teardown_process_heaps(&mut self) -> Result<RuntimeHeapTeardown, RuntimeStateError> {
+        crate::heap::teardown_process_heaps(self.memory, self.runtime)
     }
 
     pub fn last_error(&self) -> Result<u32, RuntimeStateError> {

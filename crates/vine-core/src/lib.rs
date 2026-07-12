@@ -5,6 +5,7 @@ mod bootstrap;
 mod callbacks;
 mod dynamic_exports;
 mod environment;
+mod heap;
 mod imports;
 mod materialize;
 mod memory;
@@ -83,13 +84,18 @@ pub use pe32::{
 pub use runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE, ProcessAddressSpaceLayout,
-    RUNTIME_PROCESS_OBJECT_NAMESPACE, RUNTIME_THREAD_OBJECT_NAMESPACE, RuntimeAddressRange,
-    RuntimeBootstrap, RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCancellation,
-    RuntimeClockState, RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeHandle,
-    RuntimeHandleClosePolicy, RuntimeHandleEntry, RuntimeHeap, RuntimeHostCompletion,
-    RuntimeHostRequest, RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake,
-    RuntimeModule, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
-    RuntimeObjectTable, RuntimeProcessCancellation, RuntimeProcessId, RuntimeProcessLifecycleState,
+    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PRIVATE_HEAP_ARENA_BASE,
+    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
+    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS,
+    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_PROCESS_OBJECT_NAMESPACE,
+    RUNTIME_THREAD_OBJECT_NAMESPACE, RuntimeAddressRange, RuntimeBootstrap, RuntimeCallbackFrame,
+    RuntimeCallbackFrameId, RuntimeCancellation, RuntimeClockState, RuntimeDynamicEndpoint,
+    RuntimeEncodedPointer, RuntimeHandle, RuntimeHandleClosePolicy, RuntimeHandleEntry,
+    RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationId, RuntimeHeapBacking,
+    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeHostCompletion, RuntimeHostRequest,
+    RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeModule,
+    RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectTable,
+    RuntimeProcessCancellation, RuntimeProcessId, RuntimeProcessLifecycleState,
     RuntimeProcessState, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
     RuntimeThreadLifecycleState, RuntimeThreadMessage, RuntimeThreadState, RuntimeTlsValue,

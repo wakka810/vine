@@ -939,6 +939,13 @@ process-global sequence、opaque payload、empty receiveの`WaitingMessage`、fi
 runnable wake／exact event、owner FIFO dequeue、reblock／rewake、exit cleanupをatomic Rust
 contractで固定した。User32 filter／WM_QUIT／Send／dispatchは未実装である。
 
+**Foundation 7完了（2026-07-12）:** existing typed logical private heapをbounded Rust
+`GuestMemory` backingへ接続した。32 x 16 MiB controlled arena、8-byte first-fit、monotonic
+allocation ID、zero／deterministic nonzero initialization、free poison／coalesce／reuse、invalid／
+double free、typed heap retirement、exit-request中のbacked／metadata-only process teardownを一つの
+`ExecutionSession` transactionで固定した。Guest `HeapAlloc` dispatchとbroad allocator policyは
+未実装である。
+
 - module graph
 - process／thread lifecycle
 - handles

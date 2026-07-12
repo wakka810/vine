@@ -92,6 +92,7 @@ reentrancy, dispatch callback, cross-process post, broadcast, quota parity, gues
 or CPU context switching. Existing W2 message／paint flow remains a separate fixed JavaScript harness.
 This is partial evidence for `P1-SCH-01`／`REQ-UI-02`, not their completion.
 
-The next Step 9 dependency is controlled private-heap backing: connect existing typed logical heap
-metadata to bounded Rust guest-memory allocations with allocation identity, alignment, free／reuse,
-and process-exit teardown before implementing broad HeapAlloc semantics.
+The controlled private-heap dependency is now implemented in
+[runtime-heap-backing.md](runtime-heap-backing.md): typed logical heaps own bounded Rust guest-memory
+allocations, deterministic free／reuse, and exit-request teardown. The next Step 9 dependency is
+controlled DLL lifecycle.

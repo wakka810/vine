@@ -91,4 +91,5 @@ It is partial evidence for `P1-SCH-01`／`REQ-API-03`, not their completion.
 
 The controlled per-thread message queue dependency is now implemented in
 [runtime-message-queue.md](runtime-message-queue.md): ordered enqueue／owner dequeue and empty-queue
-wake share the scheduler metadata. The next Step 9 dependency is controlled private-heap backing.
+wake share the scheduler metadata. Controlled private-heap backing is implemented in
+[runtime-heap-backing.md](runtime-heap-backing.md). The next Step 9 dependency is DLL lifecycle.
