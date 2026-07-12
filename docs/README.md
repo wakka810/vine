@@ -5,7 +5,7 @@
 - ステータス: Proposed
 - 基準日: 2026-07-12
 - 対象: current `main` worktree
-- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call manifest／generic runner、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser go gate、generation付きtyped object／handle、process-owned module graph、controlled process／initial-thread lifecycle、controlled two-thread registry／one-object wait／raw message queue／private-heap backing foundationsを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、per-thread CPU bootstrap／general multi-thread／wait-any／wait-all／timeout、User32 message semantics、guest HeapAlloc dispatch、guest DLL mapping／callback、BGI browser executionはまだない
+- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call manifest／generic runner、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser go gate、generation付きtyped object／handle、process-owned module graph、controlled process／initial-thread lifecycle、controlled two-thread registry／one-object wait／raw message queue／private-heap backing、mapped module／bounded PE32 export foundationsを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、per-thread CPU bootstrap／general multi-thread／wait-any／wait-all／timeout、User32 message semantics、guest HeapAlloc dispatch、guest import binding／`DllMain` callback、BGI browser executionはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
@@ -101,6 +101,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [v86-browser-benchmark.md](v86-browser-benchmark.md) | v86を継続するか | Chrome Worker CPU／ABI／memory／audio／background／steady-memory gate |
 | [runtime-object-model.md](runtime-object-model.md) | runtime object identityをどう所有するか | typed handle、generation、close／stale、waitable process／thread lifetime |
 | [runtime-module-graph.md](runtime-module-graph.md) | process module identityと順序をどう所有するか | canonical identity、dependency／reference、attach／detach order |
+| [runtime-module-images.md](runtime-module-images.md) | mapped guest module／exportをどう所有するか | sealed image identity、name／ordinal／forwarder resolution、failure atomicity |
 | [runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md) | process／thread terminationをどう所有するか | bootstrap／running、exit request／completion、atomic signal order |
 | [runtime-thread-registry.md](runtime-thread-registry.md) | logical thread stateをどう分離するか | controlled second thread、selection／exit、deterministic all-lane termination |
 | [runtime-wait-queue.md](runtime-wait-queue.md) | waitable objectとschedulerをどう接続するか | one-object registration、signal／wake event、already-signaled／exit cancellation |

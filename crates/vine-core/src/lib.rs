@@ -10,6 +10,7 @@ mod imports;
 mod materialize;
 mod memory;
 mod module_graph;
+mod module_images;
 mod pe32;
 mod runtime;
 mod snapshot;
@@ -74,9 +75,16 @@ pub use module_graph::{
     RuntimeModuleLoadState, RuntimeModuleNode, RuntimeModuleReference, RuntimeModuleReferenceOwner,
     RuntimeModuleRegistration,
 };
+pub use module_images::{
+    RUNTIME_EXPORT_FORWARDER_DEPTH_LIMIT, RUNTIME_EXPORT_LOOKUP_NAME_LIMIT,
+    RUNTIME_MODULE_IMAGE_LIMIT, RuntimeExportForwarderHop, RuntimeModuleImage,
+    RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleImageRegistry,
+    RuntimeResolvedExport,
+};
 pub use pe32::{
-    DataDirectoryAddressKind, DataDirectoryPlan, FeatureInventory, HeaderMappingPlan, ImageKind,
-    ImagePlan, ImportModulePlan, ImportSymbolPlan, ImportTarget, LoaderError, LoaderErrorClass,
+    DataDirectoryAddressKind, DataDirectoryPlan, ExportDirectoryPlan, ExportLookup,
+    ExportSymbolPlan, ExportTarget, FeatureInventory, HeaderMappingPlan, ImageKind, ImagePlan,
+    ImportModulePlan, ImportSymbolPlan, ImportTarget, LoaderError, LoaderErrorClass,
     LoaderIngressReport, MappingProtection, Pe32Limits, Pe32LoadPlan, RelocationBlockPlan,
     RelocationOperation, RelocationPlan, Rva, SectionMappingPlan, UnsupportedPoint,
     build_pe32_load_plan,

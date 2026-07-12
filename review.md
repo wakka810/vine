@@ -946,6 +946,13 @@ double free、typed heap retirement、exit-request中のbacked／metadata-only p
 `ExecutionSession` transactionで固定した。Guest `HeapAlloc` dispatchとbroad allocator policyは
 未実装である。
 
+**Foundation 8完了（2026-07-12）:** bounded PE32 export planとprocess graph-keyed mapped
+module registryを導入した。sealed image owner／source／range／pages、module／handle／load
+identity、zero entrypointをchecked登録し、direct name／ordinalとname／ordinal forwarderをguest
+addressへ解決する。32-hop bound、unsealed retry、duplicate／overlap registration、unknown target／
+cycle resolution failure時のregistry不変をrepresentative Rust contractで固定した。Guest import
+binding、dependency discovery、`DllMain` callback lifecycleは未実装である。
+
 - module graph
 - process／thread lifecycle
 - handles

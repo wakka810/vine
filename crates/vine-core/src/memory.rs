@@ -1530,6 +1530,73 @@ impl GuestMemory {
         Ok(self.require_owner(owner)?.sealed)
     }
 
+    pub(crate) fn validate_sealed_image_owner(
+        &self,
+        owner: MemoryOwnerId,
+        source: &ModuleIdentity,
+        image_range: GuestRange,
+    ) -> Result<(), GuestMemoryError> {
+        if !image_range.is_page_aligned() {
+            return Err(GuestMemoryError::invalid_request(
+                "module-image-registration",
+                "module-image-range-not-page-aligned",
+                "registered module image range must use whole guest pages",
+            ));
+        }
+        let owner_state = self.require_owner(owner)?;
+        let MemoryOwnerKind::Image { source_sha256 } = &owner_state.kind else {
+            return Err(GuestMemoryError::conflict(
+                "module-image-registration",
+                "module-image-owner-kind-mismatch",
+                "registered module image owner is not an image owner",
+            ));
+        };
+        if source_sha256 != &source.sha256 {
+            return Err(GuestMemoryError::conflict(
+                "module-image-registration",
+                "module-image-owner-source-mismatch",
+                "registered module source does not match the guest-memory image owner",
+            ));
+        }
+        if !owner_state.sealed {
+            return Err(GuestMemoryError::conflict(
+                "module-image-registration",
+                "module-image-owner-unsealed",
+                "registered module image owner must be sealed",
+            ));
+        }
+
+        let mut owner_regions = self.regions.values().filter(|region| region.owner == owner);
+        let exact_region = owner_regions.next().is_some_and(|region| {
+            region.kind == MemoryRegionKind::Image && region.range == image_range
+        });
+        if !exact_region || owner_regions.next().is_some() {
+            return Err(GuestMemoryError::conflict(
+                "module-image-registration",
+                "module-image-owner-range-mismatch",
+                "registered module image owner does not own exactly the recorded image range",
+            ));
+        }
+
+        let owned_pages = self
+            .pages
+            .iter()
+            .filter(|(_, page)| page.owner == owner)
+            .collect::<Vec<_>>();
+        let all_pages_in_range = owned_pages.iter().all(|(virtual_page, _)| {
+            let address = u64::from(**virtual_page) * GUEST_PAGE_SIZE;
+            address >= u64::from(image_range.start().0) && address < image_range.end()
+        });
+        if owned_pages.len() != image_range.page_count() || !all_pages_in_range {
+            return Err(GuestMemoryError::conflict(
+                "module-image-registration",
+                "module-image-owner-pages-mismatch",
+                "registered module image owner does not own every page in exactly its recorded range",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn preflight_growth(
         &self,
         additional_owners: usize,

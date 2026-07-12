@@ -9,14 +9,20 @@ use crate::dynamic_exports::{
     DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
 };
 use crate::imports::{IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE};
+use crate::materialize::ImageMaterialization;
 use crate::memory::{
-    GUEST_PAGE_SIZE, GuestAddress, GuestMemoryError, GuestMemoryErrorClass, GuestRange,
-    MemoryOwnerId,
+    GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
+    GuestRange, MemoryOwnerId,
 };
 use crate::module_graph::{
     RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleGraphError, RuntimeModuleGraphErrorClass,
     RuntimeModuleId, RuntimeModuleRegistration,
 };
+use crate::module_images::{
+    RuntimeModuleImage, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
+    RuntimeModuleImageRegistry, RuntimeResolvedExport,
+};
+use crate::pe32::{ExportLookup, LoaderIngressReport};
 
 pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
 pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1";
@@ -1278,6 +1284,8 @@ pub struct RuntimeState {
     scheduler: RuntimeScheduler,
     objects: RuntimeObjectTable,
     module_graph: RuntimeModuleGraph,
+    #[serde(skip)]
+    module_images: RuntimeModuleImageRegistry,
     registries: RuntimeRegistries,
     #[serde(skip)]
     heap_backings: BTreeMap<u32, RuntimeHeapBacking>,
@@ -1366,6 +1374,7 @@ impl RuntimeState {
             },
             objects,
             module_graph: RuntimeModuleGraph::default(),
+            module_images: RuntimeModuleImageRegistry::default(),
             registries: RuntimeRegistries {
                 dynamic_endpoints: BTreeMap::new(),
                 encoded_pointers: BTreeMap::new(),
@@ -1424,6 +1433,36 @@ impl RuntimeState {
 
     pub fn module_graph(&self) -> &RuntimeModuleGraph {
         &self.module_graph
+    }
+
+    pub fn module_images(&self) -> &RuntimeModuleImageRegistry {
+        &self.module_images
+    }
+
+    pub fn resolve_guest_export(
+        &self,
+        module: &str,
+        symbol: ExportLookup,
+    ) -> Result<RuntimeResolvedExport, RuntimeModuleImageError> {
+        self.module_images.resolve(module, symbol)
+    }
+
+    pub(crate) fn register_module_image(
+        &mut self,
+        memory: &GuestMemory,
+        handle: u32,
+        loader: &LoaderIngressReport,
+        materialization: &ImageMaterialization,
+    ) -> Result<&RuntimeModuleImage, RuntimeModuleImageError> {
+        self.module(handle)
+            .map_err(runtime_module_image_state_error)?;
+        let node = self
+            .module_graph
+            .module_by_handle(handle)
+            .map_err(RuntimeModuleImageError::from_module_graph)?
+            .clone();
+        self.module_images
+            .register(memory, &node, loader, materialization)
     }
 
     pub fn process_handle(&self) -> Result<RuntimeHandle, RuntimeStateError> {
@@ -4169,6 +4208,21 @@ fn runtime_module_graph_error(error: RuntimeModuleGraphError) -> RuntimeStateErr
         RuntimeModuleGraphErrorClass::RuntimeDefect => {
             RuntimeStateError::runtime_defect("runtime-module-graph", error.code, error.message)
         }
+    }
+}
+
+fn runtime_module_image_state_error(error: RuntimeStateError) -> RuntimeModuleImageError {
+    let class = match error.class {
+        RuntimeStateErrorClass::InvalidInput => RuntimeModuleImageErrorClass::InvalidInput,
+        RuntimeStateErrorClass::NotFound => RuntimeModuleImageErrorClass::NotFound,
+        RuntimeStateErrorClass::Conflict => RuntimeModuleImageErrorClass::Conflict,
+        RuntimeStateErrorClass::ResourceLimit => RuntimeModuleImageErrorClass::ResourceLimit,
+        RuntimeStateErrorClass::RuntimeDefect => RuntimeModuleImageErrorClass::RuntimeDefect,
+    };
+    RuntimeModuleImageError {
+        class,
+        code: error.code,
+        message: error.message,
     }
 }
 

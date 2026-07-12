@@ -125,6 +125,6 @@ serialization, concurrent allocation, corruption termination, guard pages, per-b
 full-title capacity profile. It is partial evidence for `REQ-MEM-01`／`REQ-API-02` and `P3-WIN-01`,
 not their completion.
 
-The next Step 9 dependency is controlled DLL lifecycle: connect the existing process-owned module
-graph to guest DLL mapping／export identity and dependency-ordered process attach／detach callbacks,
-while keeping broad system-DLL coverage and title-specific continuation deferred.
+Mapped guest-module／export identity is now implemented in
+[runtime-module-images.md](runtime-module-images.md). The next Step 9 dependency binds controlled
+guest imports through that registry and drives dependency-ordered `DllMain` attach／detach callbacks.

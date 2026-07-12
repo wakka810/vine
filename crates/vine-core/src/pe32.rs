@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt;
 use std::ops::Range;
 
@@ -35,6 +36,7 @@ const IMAGE_DIRECTORY_ENTRY_RESERVED: usize = 15;
 const IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE: u16 = 0x0040;
 const IMAGE_DLLCHARACTERISTICS_NX_COMPAT: u16 = 0x0100;
 const IMPORT_DESCRIPTOR_SIZE: u32 = 20;
+const EXPORT_DIRECTORY_SIZE: u32 = 40;
 const PE32_THUNK_SIZE: u32 = 4;
 const RELOCATION_BLOCK_HEADER_SIZE: usize = 8;
 const IMAGE_REL_BASED_ABSOLUTE: u8 = 0;
@@ -72,6 +74,14 @@ pub struct Pe32Limits {
     pub max_import_modules: usize,
     pub max_imports: usize,
     pub max_import_name_bytes: usize,
+    #[serde(skip)]
+    pub max_exports: usize,
+    #[serde(skip)]
+    pub max_export_names: usize,
+    #[serde(skip)]
+    pub max_export_name_bytes: usize,
+    #[serde(skip)]
+    pub max_forwarder_bytes: usize,
     pub max_relocation_blocks: usize,
     pub max_relocations: usize,
 }
@@ -85,6 +95,10 @@ impl Default for Pe32Limits {
             max_import_modules: 512,
             max_imports: 65_536,
             max_import_name_bytes: 1_024,
+            max_exports: 65_536,
+            max_export_names: 65_536,
+            max_export_name_bytes: 1_024,
+            max_forwarder_bytes: 1_024,
             max_relocation_blocks: 65_536,
             max_relocations: 1_000_000,
         }
@@ -195,6 +209,8 @@ pub struct Pe32LoadPlan {
     pub header_mapping: HeaderMappingPlan,
     pub sections: Vec<SectionMappingPlan>,
     pub data_directories: Vec<DataDirectoryPlan>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exports: Option<ExportDirectoryPlan>,
     pub imports: Vec<ImportModulePlan>,
     pub relocations: RelocationPlan,
     pub features: FeatureInventory,
@@ -284,6 +300,65 @@ pub struct DataDirectoryPlan {
     pub address_kind: DataDirectoryAddressKind,
     pub address: u32,
     pub size: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportDirectoryPlan {
+    pub module_name: String,
+    pub directory_rva: Rva,
+    pub directory_size: u32,
+    pub time_date_stamp: u32,
+    pub major_version: u16,
+    pub minor_version: u16,
+    pub ordinal_base: u32,
+    pub address_table_rva: Rva,
+    pub name_pointer_table_rva: Rva,
+    pub ordinal_table_rva: Rva,
+    pub function_count: u32,
+    pub name_count: u32,
+    pub symbols: Vec<ExportSymbolPlan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSymbolPlan {
+    pub ordinal: u32,
+    pub names: Vec<String>,
+    #[serde(flatten)]
+    pub target: ExportTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExportLookup {
+    Name { name: String },
+    Ordinal { ordinal: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExportTarget {
+    Address {
+        rva: Rva,
+    },
+    Forwarder {
+        raw: String,
+        module: String,
+        symbol: ExportLookup,
+    },
+}
+
+impl ExportDirectoryPlan {
+    pub fn symbol_by_name(&self, name: &str) -> Option<&ExportSymbolPlan> {
+        self.symbols
+            .iter()
+            .find(|symbol| symbol.names.iter().any(|candidate| candidate == name))
+    }
+
+    pub fn symbol_by_ordinal(&self, ordinal: u32) -> Option<&ExportSymbolPlan> {
+        self.symbols.iter().find(|symbol| symbol.ordinal == ordinal)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -604,6 +679,7 @@ pub fn build_pe32_load_plan(
         ));
     }
 
+    let exports = parse_exports(optional, &layout, &limits)?;
     let imports = parse_imports(optional, &layout, &limits)?;
     let relocations = parse_relocations(optional, &layout, &limits)?;
     if features.relocations_stripped && relocations.entry_count != 0 {
@@ -701,6 +777,7 @@ pub fn build_pe32_load_plan(
         header_mapping,
         sections,
         data_directories: directories,
+        exports,
         imports,
         relocations,
         features,
@@ -1043,6 +1120,348 @@ fn feature_inventory(
         clr: present(IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR),
         relocations_stripped: coff_characteristics & IMAGE_FILE_RELOCS_STRIPPED != 0,
     }
+}
+
+fn parse_exports(
+    optional: &goblin::pe::optional_header::OptionalHeader,
+    layout: &ValidatedLayout<'_>,
+    limits: &Pe32Limits,
+) -> Result<Option<ExportDirectoryPlan>, LoaderError> {
+    let Some((_, directory)) =
+        optional.data_directories.data_directories[IMAGE_DIRECTORY_ENTRY_EXPORT]
+    else {
+        return Ok(None);
+    };
+    if directory.size < EXPORT_DIRECTORY_SIZE {
+        return Err(LoaderError::invalid_input(
+            "exports",
+            "export-directory-too-small",
+            "export directory is smaller than IMAGE_EXPORT_DIRECTORY",
+        ));
+    }
+    let directory_end = directory
+        .virtual_address
+        .checked_add(directory.size)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "exports",
+                "export-directory-range-overflow",
+                "export directory RVA range overflowed x86 accounting",
+            )
+        })?;
+    let header = layout.file_span(
+        directory.virtual_address,
+        EXPORT_DIRECTORY_SIZE,
+        "export-directory-not-file-backed",
+    )?;
+    let characteristics = read_u32(header, 0)?;
+    if characteristics != 0 {
+        return Err(LoaderError::invalid_input(
+            "exports",
+            "export-directory-characteristics-nonzero",
+            "reserved export directory Characteristics field is nonzero",
+        ));
+    }
+    let time_date_stamp = read_u32(header, 4)?;
+    let major_version = read_u16(header, 8)?;
+    let minor_version = read_u16(header, 10)?;
+    let module_name_rva = read_u32(header, 12)?;
+    let ordinal_base = read_u32(header, 16)?;
+    let function_count = read_u32(header, 20)?;
+    let name_count = read_u32(header, 24)?;
+    let address_table_rva = read_u32(header, 28)?;
+    let name_pointer_table_rva = read_u32(header, 32)?;
+    let ordinal_table_rva = read_u32(header, 36)?;
+
+    let function_count_usize = usize::try_from(function_count).map_err(|_| {
+        LoaderError::resource_limit(
+            "exports",
+            "export-function-count-not-representable",
+            "export function count does not fit host accounting",
+        )
+    })?;
+    let name_count_usize = usize::try_from(name_count).map_err(|_| {
+        LoaderError::resource_limit(
+            "exports",
+            "export-name-count-not-representable",
+            "export name count does not fit host accounting",
+        )
+    })?;
+    if function_count_usize > limits.max_exports {
+        return Err(LoaderError::resource_limit(
+            "exports",
+            "export-function-limit-exceeded",
+            format!(
+                "image declares {function_count} export address slots; limit is {}",
+                limits.max_exports
+            ),
+        ));
+    }
+    if name_count_usize > limits.max_export_names {
+        return Err(LoaderError::resource_limit(
+            "exports",
+            "export-name-limit-exceeded",
+            format!(
+                "image declares {name_count} export names; limit is {}",
+                limits.max_export_names
+            ),
+        ));
+    }
+    if name_count != 0 && function_count == 0 {
+        return Err(LoaderError::invalid_input(
+            "exports",
+            "export-names-without-functions",
+            "export name table is nonempty while the address table is empty",
+        ));
+    }
+    if function_count != 0 {
+        ordinal_base
+            .checked_add(function_count - 1)
+            .ok_or_else(|| {
+                LoaderError::invalid_input(
+                    "exports",
+                    "export-ordinal-range-overflow",
+                    "export ordinal base plus declared function range overflowed",
+                )
+            })?;
+    }
+    if module_name_rva == 0
+        || (function_count != 0 && address_table_rva == 0)
+        || (name_count != 0 && (name_pointer_table_rva == 0 || ordinal_table_rva == 0))
+    {
+        return Err(LoaderError::invalid_input(
+            "exports",
+            "export-required-rva-missing",
+            "export directory has a zero module or required table RVA",
+        ));
+    }
+    if function_count != 0 {
+        let bytes = function_count.checked_mul(4).ok_or_else(|| {
+            LoaderError::resource_limit(
+                "exports",
+                "export-address-table-size-overflow",
+                "export address table size overflowed x86 accounting",
+            )
+        })?;
+        layout.file_span(
+            address_table_rva,
+            bytes,
+            "export-address-table-not-file-backed",
+        )?;
+    }
+    if name_count != 0 {
+        let pointer_bytes = name_count.checked_mul(4).ok_or_else(|| {
+            LoaderError::resource_limit(
+                "exports",
+                "export-name-pointer-table-size-overflow",
+                "export name pointer table size overflowed x86 accounting",
+            )
+        })?;
+        let ordinal_bytes = name_count.checked_mul(2).ok_or_else(|| {
+            LoaderError::resource_limit(
+                "exports",
+                "export-ordinal-table-size-overflow",
+                "export ordinal table size overflowed x86 accounting",
+            )
+        })?;
+        layout.file_span(
+            name_pointer_table_rva,
+            pointer_bytes,
+            "export-name-pointer-table-not-file-backed",
+        )?;
+        layout.file_span(
+            ordinal_table_rva,
+            ordinal_bytes,
+            "export-ordinal-table-not-file-backed",
+        )?;
+    }
+
+    let module_name = layout.read_export_ascii_z(
+        module_name_rva,
+        limits.max_export_name_bytes,
+        None,
+        "export-module-name-invalid",
+    )?;
+    let mut function_rvas = Vec::with_capacity(function_count_usize);
+    for index in 0..function_count {
+        let rva = checked_add_mul(
+            address_table_rva,
+            index,
+            4,
+            "export-address-entry-rva-overflow",
+        )?;
+        function_rvas.push(layout.read_u32_rva(rva, "export-address-entry-not-file-backed")?);
+    }
+
+    let mut names_by_function = vec![Vec::new(); function_count_usize];
+    let mut unique_names = BTreeSet::new();
+    for index in 0..name_count {
+        let pointer_rva = checked_add_mul(
+            name_pointer_table_rva,
+            index,
+            4,
+            "export-name-pointer-rva-overflow",
+        )?;
+        let name_rva =
+            layout.read_u32_rva(pointer_rva, "export-name-pointer-entry-not-file-backed")?;
+        let ordinal_rva = checked_add_mul(
+            ordinal_table_rva,
+            index,
+            2,
+            "export-name-ordinal-rva-overflow",
+        )?;
+        let function_index =
+            u32::from(layout.read_u16_rva(ordinal_rva, "export-name-ordinal-not-file-backed")?);
+        if function_index >= function_count {
+            return Err(LoaderError::invalid_input(
+                "exports",
+                "export-name-ordinal-out-of-range",
+                format!(
+                    "export name {index} refers to function index {function_index}, but function count is {function_count}"
+                ),
+            ));
+        }
+        let name = layout.read_export_ascii_z(
+            name_rva,
+            limits.max_export_name_bytes,
+            None,
+            "export-name-invalid",
+        )?;
+        if !unique_names.insert(name.clone()) {
+            return Err(LoaderError::invalid_input(
+                "exports",
+                "export-name-duplicate",
+                format!("export name {name} appears more than once"),
+            ));
+        }
+        let function_index = usize::try_from(function_index).map_err(|_| {
+            LoaderError::resource_limit(
+                "exports",
+                "export-function-index-not-representable",
+                "export function index does not fit host accounting",
+            )
+        })?;
+        names_by_function[function_index].push(name);
+    }
+
+    let mut symbols = Vec::with_capacity(function_count_usize);
+    for (index, function_rva) in function_rvas.into_iter().enumerate() {
+        let names = std::mem::take(&mut names_by_function[index]);
+        if function_rva == 0 {
+            if !names.is_empty() {
+                return Err(LoaderError::invalid_input(
+                    "exports",
+                    "named-export-address-missing",
+                    "named export refers to a zero address-table slot",
+                ));
+            }
+            continue;
+        }
+        let index_u32 = u32::try_from(index).map_err(|_| {
+            LoaderError::resource_limit(
+                "exports",
+                "export-function-index-not-representable",
+                "export function index does not fit x86 accounting",
+            )
+        })?;
+        let ordinal = ordinal_base.checked_add(index_u32).ok_or_else(|| {
+            LoaderError::invalid_input(
+                "exports",
+                "export-ordinal-overflow",
+                "export ordinal base plus function index overflowed",
+            )
+        })?;
+        let target = if (directory.virtual_address..directory_end).contains(&function_rva) {
+            let raw = layout.read_export_ascii_z(
+                function_rva,
+                limits.max_forwarder_bytes,
+                Some(directory_end),
+                "export-forwarder-invalid",
+            )?;
+            parse_export_forwarder(raw)?
+        } else {
+            if !layout.mapped_contains(function_rva, 1) {
+                return Err(LoaderError::invalid_input(
+                    "exports",
+                    "export-target-not-mapped",
+                    format!("export ordinal {ordinal} targets unmapped RVA {function_rva:#010x}"),
+                ));
+            }
+            ExportTarget::Address {
+                rva: Rva(function_rva),
+            }
+        };
+        symbols.push(ExportSymbolPlan {
+            ordinal,
+            names,
+            target,
+        });
+    }
+
+    Ok(Some(ExportDirectoryPlan {
+        module_name,
+        directory_rva: Rva(directory.virtual_address),
+        directory_size: directory.size,
+        time_date_stamp,
+        major_version,
+        minor_version,
+        ordinal_base,
+        address_table_rva: Rva(address_table_rva),
+        name_pointer_table_rva: Rva(name_pointer_table_rva),
+        ordinal_table_rva: Rva(ordinal_table_rva),
+        function_count,
+        name_count,
+        symbols,
+    }))
+}
+
+fn parse_export_forwarder(raw: String) -> Result<ExportTarget, LoaderError> {
+    let Some((module, target)) = raw.rsplit_once('.') else {
+        return Err(LoaderError::invalid_input(
+            "exports",
+            "export-forwarder-syntax-invalid",
+            "export forwarder must contain module and target separated by a period",
+        ));
+    };
+    if module.is_empty()
+        || target.is_empty()
+        || module
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || matches!(byte, b'/' | b'\\' | b':'))
+    {
+        return Err(LoaderError::invalid_input(
+            "exports",
+            "export-forwarder-syntax-invalid",
+            "export forwarder module and target must be bounded ASCII identities",
+        ));
+    }
+    let module = module.to_owned();
+    let symbol = if let Some(ordinal) = target.strip_prefix('#') {
+        let ordinal = ordinal.parse::<u32>().map_err(|_| {
+            LoaderError::invalid_input(
+                "exports",
+                "export-forwarder-ordinal-invalid",
+                "export forwarder ordinal is not a decimal integer",
+            )
+        })?;
+        if ordinal > u32::from(u16::MAX) {
+            return Err(LoaderError::invalid_input(
+                "exports",
+                "export-forwarder-ordinal-invalid",
+                "export forwarder ordinal exceeds the PE32 import ordinal range",
+            ));
+        }
+        ExportLookup::Ordinal { ordinal }
+    } else {
+        ExportLookup::Name {
+            name: target.to_owned(),
+        }
+    };
+    Ok(ExportTarget::Forwarder {
+        raw,
+        module,
+        symbol,
+    })
 }
 
 fn parse_imports(
@@ -1588,6 +2007,56 @@ impl ValidatedLayout<'_> {
         if bytes.is_empty() || !bytes.iter().all(|byte| (0x20..=0x7e).contains(byte)) {
             return Err(LoaderError::invalid_input(
                 "imports",
+                code,
+                format!("string at RVA {rva:#010x} is empty or not printable ASCII"),
+            ));
+        }
+        Ok(bytes.iter().copied().map(char::from).collect())
+    }
+
+    fn read_export_ascii_z(
+        &self,
+        rva: u32,
+        max_bytes: usize,
+        exclusive_rva_end: Option<u32>,
+        code: &'static str,
+    ) -> Result<String, LoaderError> {
+        let tail = self.file_tail(rva, code)?;
+        let boundary_bytes = match exclusive_rva_end {
+            Some(end) => {
+                let length = end.checked_sub(rva).ok_or_else(|| {
+                    LoaderError::invalid_input(
+                        "exports",
+                        "export-string-boundary-invalid",
+                        "export string starts outside its containing directory",
+                    )
+                })?;
+                Some(usize::try_from(length).map_err(|_| {
+                    LoaderError::resource_limit(
+                        "exports",
+                        "export-string-boundary-not-representable",
+                        "export string boundary does not fit host accounting",
+                    )
+                })?)
+            }
+            None => None,
+        };
+        let bounded_length = tail
+            .len()
+            .min(max_bytes.saturating_add(1))
+            .min(boundary_bytes.unwrap_or(usize::MAX));
+        let bounded = &tail[..bounded_length];
+        let Some(length) = bounded.iter().position(|byte| *byte == 0) else {
+            return Err(LoaderError::resource_limit(
+                "exports",
+                "export-string-limit-or-terminator-missing",
+                format!("string at RVA {rva:#010x} has no terminator within its bounded range"),
+            ));
+        };
+        let bytes = &bounded[..length];
+        if bytes.is_empty() || !bytes.iter().all(|byte| (0x20..=0x7e).contains(byte)) {
+            return Err(LoaderError::invalid_input(
+                "exports",
                 code,
                 format!("string at RVA {rva:#010x} is empty or not printable ASCII"),
             ));

@@ -120,15 +120,17 @@ manifest, whose assets contain that checkpoint file, so pinning it there would c
 
 ## Non-claims and next dependency
 
-This checkpoint does not implement module search policy, immutable DLL source registration, guest
-DLL mapping, relocations across modules, exports by name／ordinal, forwarders, delay loading,
-`LoadLibrary`／`FreeLibrary`, TLS callbacks, guest `DllMain`, unload eligibility, stale endpoint
-invalidation, or module object retirement. It is partial evidence for `REQ-PE-05`／`P2-PE-05`, not
-their completion.
+This checkpoint does not implement module search policy, guest import binding, relocations across
+modules, delay loading, `LoadLibrary`／`FreeLibrary`, TLS callbacks, guest `DllMain`, unload
+eligibility, stale endpoint invalidation, or module object retirement. It is partial evidence for
+`REQ-PE-05`／`P2-PE-05`, not their completion. Immutable mapped image identity and bounded
+name／ordinal／forwarder resolution are now implemented in
+[runtime-module-images.md](runtime-module-images.md).
 
 The controlled process／initial-thread lifecycle dependency is now implemented in
 [runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md), and the additional
 controlled thread registry is implemented in [runtime-thread-registry.md](runtime-thread-registry.md).
-The wait queue is implemented in [runtime-wait-queue.md](runtime-wait-queue.md), and the message queue
-is implemented in [runtime-message-queue.md](runtime-message-queue.md). The next dependency is
-controlled private-heap backing; DLL thread callbacks remain later work.
+The wait queue is implemented in [runtime-wait-queue.md](runtime-wait-queue.md), the message queue is
+implemented in [runtime-message-queue.md](runtime-message-queue.md), and private-heap backing is
+implemented in [runtime-heap-backing.md](runtime-heap-backing.md). The next dependency is guest
+import binding plus dependency-ordered `DllMain` process attach／detach callbacks.

@@ -3,11 +3,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::materialize::ImageMaterialization;
 use crate::memory::{
     GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestWriteResult,
     MemoryAccess,
 };
-use crate::pe32::ImportTarget;
+use crate::module_images::{RuntimeModuleImage, RuntimeModuleImageError};
+use crate::pe32::{ImportTarget, LoaderIngressReport};
 use crate::runtime::{
     RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeState,
     RuntimeStateError, RuntimeStateErrorClass,
@@ -534,6 +536,16 @@ impl<'a> ExecutionSession<'a> {
 
     pub fn runtime_mut(&mut self) -> &mut RuntimeState {
         self.runtime
+    }
+
+    pub fn register_module_image(
+        &mut self,
+        handle: u32,
+        loader: &LoaderIngressReport,
+        materialization: &ImageMaterialization,
+    ) -> Result<&RuntimeModuleImage, RuntimeModuleImageError> {
+        self.runtime
+            .register_module_image(self.memory, handle, loader, materialization)
     }
 
     pub fn allocate_private_heap_block(

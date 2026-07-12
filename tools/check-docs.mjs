@@ -20,10 +20,10 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "runtime-heap-backing-foundation" ||
+    checkpoint.runtimeKernelCheckpoint !== "runtime-module-image-export-foundation" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !==
-      "single-process-controlled-two-thread-wait-message-heap-backing" ||
+      "single-process-controlled-two-thread-wait-message-heap-module-image" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
       JSON.stringify([
         "process",
@@ -39,6 +39,7 @@ try {
         "controlled-wait-queue",
         "controlled-message-queue",
         "controlled-private-heap-backing",
+        "mapped-module-image-export-registry",
       ]) ||
     checkpoint.callbackFrameStack !== true ||
     checkpoint.hostCompletionModel !== "scheduler-event" ||
@@ -468,7 +469,48 @@ try {
         bgiReportSha256:
           "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
       }) ||
-    checkpoint.nextCheckpoint !== "runtime-dll-lifecycle-foundation" ||
+    JSON.stringify(checkpoint.runtimeModuleImages) !==
+      JSON.stringify({
+        schema: "vine.runtime-module-image-registry.v1",
+        fixtureBytes: 2048,
+        fixtureSha256:
+          "a9c2530df2a89317048ae9380e4202c8bd41994d1ff0e14b43fa578bb32c4878",
+        moduleLimit: 4096,
+        forwarderDepthLimit: 32,
+        lookupNameBytesLimit: 1024,
+        controlledMappedModuleCount: 5,
+        directNameAddress: "0x10001000",
+        directOrdinalAddress: "0x10001010",
+        bridgeModule: "bridge.dll",
+        nameForwarder: "vine_fixture.fixture_add",
+        ordinalForwarder: "vine_fixture.#2",
+        zeroEntryPointRepresentation: "none",
+        memoryIdentity: "sealed-image-owner-source-range-pages",
+        registrationFailureCodes: [
+          "module-image-owner-unsealed",
+          "module-image-identity-duplicate",
+          "module-image-range-overlap",
+        ],
+        resolutionFailureCodes: [
+          "export-forwarder-target-module-unknown",
+          "export-forwarder-cycle",
+        ],
+        registryStatePreservedOnFailure: true,
+        guestImportBinding: false,
+        dllMainCallbacks: false,
+        runtimeCoreWasmBytes: 791970,
+        runtimeCoreWasmSha256:
+          "94b0a39b7c862016f02a2af6c050cb196dab4a4badfe40bad48070827b60ca23",
+        browserWorkerGuestInstructions: 46,
+        browserWorkerExitCode: 0,
+        browserBenchmarkDecision: "go",
+        browserBenchmarkThresholdFailures: 0,
+        bgiSupportedCallCount: 17,
+        bgiInstructionCount: 238,
+        bgiReportSha256:
+          "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+      }) ||
+    checkpoint.nextCheckpoint !== "runtime-guest-import-dllmain-lifecycle" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
