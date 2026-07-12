@@ -45,6 +45,7 @@
     "check:runtime:bgi-seventh-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-heap-set-information",
     "check:runtime:bgi-eighth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-heap-create",
     "check:runtime:bgi-ninth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-module-handle",
+    "check:runtime:bgi-tenth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-get-proc-address",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",

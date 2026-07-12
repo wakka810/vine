@@ -18,6 +18,7 @@ SUPPORTED_OBSERVATIONS = (
     "heap-set-information",
     "heap-lifecycle",
     "module-handle",
+    "dynamic-export",
 )
 
 

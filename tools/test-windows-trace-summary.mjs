@@ -567,6 +567,13 @@ moduleHandleSelection.find(
 ).selectedObservations = ["module-handle"];
 assert.doesNotThrow(() => summarizeTrace(encode(moduleHandleSelection)));
 
+const dynamicExportSelection = structuredClone(events);
+dynamicExportSelection[0].arguments.observations = ["dynamic-export"];
+dynamicExportSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["dynamic-export"];
+assert.doesNotThrow(() => summarizeTrace(encode(dynamicExportSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

@@ -9,18 +9,19 @@ use std::process::ExitCode;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use vine_core::{
-    CallbackReturnSentinel, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestPageReconciliation, GuestWriteResult, ImageMaterialization, ImageMemoryLayout,
-    ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition, InitialProcessEnvironment,
-    InitialThreadStack, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
-    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
-    ModuleSnapshot, Pe32Limits, ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog,
-    UnsupportedPoint, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, install_callback_return_sentinel, install_controlled_initial_stack,
+    CallbackReturnSentinel, DynamicExportThunk, GuestAddress, GuestMemory, GuestMemoryError,
+    GuestMemoryErrorClass, GuestPageReconciliation, GuestWriteResult, ImageMaterialization,
+    ImageMemoryLayout, ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition,
+    InitialProcessEnvironment, InitialThreadStack, LoaderError, LoaderErrorClass,
+    LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
+    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog, UnsupportedPoint,
+    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
+    install_callback_return_sentinel, install_controlled_initial_stack,
     install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
-    install_controlled_process_environment_with_parameters, install_runtime_return_sentinels,
-    materialize_pe32_image,
+    install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
+    install_runtime_return_sentinels, materialize_pe32_image,
 };
 
 #[derive(Debug)]
@@ -42,6 +43,7 @@ struct Arguments {
     heap_set_information_return_session: bool,
     heap_create_return_session: bool,
     get_module_handle_w_return_session: bool,
+    get_proc_address_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -52,7 +54,7 @@ struct Arguments {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct V86ReturnSessionOptions {
+struct V86ReturnSessionOptions<'a> {
     process_id: bool,
     thread_id: bool,
     tick_count: bool,
@@ -61,6 +63,8 @@ struct V86ReturnSessionOptions {
     heap_set_information: bool,
     heap_create: bool,
     get_module_handle_w: bool,
+    get_proc_address: bool,
+    dynamic_export_thunk: Option<&'a DynamicExportThunk>,
 }
 
 #[derive(Serialize)]
@@ -143,6 +147,8 @@ struct V86ReflectionOffer {
     initial_thread_stack: Option<InitialThreadStack>,
     #[serde(skip_serializing_if = "Option::is_none")]
     initial_process_environment: Option<InitialProcessEnvironment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dynamic_export_thunk: Option<DynamicExportThunk>,
     reflection: MemoryReflection,
 }
 
@@ -183,6 +189,8 @@ struct V86ReflectionReceipt {
     process_parameters_bytes: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     command_line_bytes: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dynamic_export_bytes: Option<Vec<u8>>,
     stop: UnsupportedPoint,
 }
 
@@ -758,6 +766,66 @@ struct V86GetModuleHandleWReturnReceipt {
     stats: MemoryStats,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86GetProcAddressReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    dynamic_export_owner: String,
+    variant_id: String,
+    module_handle: u32,
+    lookup_kind: String,
+    call_variant: String,
+    procedure_name_address: u32,
+    procedure_name: String,
+    preserve_last_error: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct X86DynamicExportResolution {
+    owner: String,
+    variant_id: String,
+    module_handle: X86LogicalLoadedModuleHandle,
+    canonical_module: &'static str,
+    lookup_kind: &'static str,
+    call_variant: &'static str,
+    requested_name: String,
+    resolved_name: &'static str,
+    endpoint_namespace: &'static str,
+    endpoint_lifetime: &'static str,
+    host_address_imported: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86GetProcAddressReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    procedure_name_address: GuestAddress,
+    procedure_name_bytes: Vec<u8>,
+    resolution: X86DynamicExportResolution,
+    endpoint: DynamicExportThunk,
+    preserve_last_error: bool,
+    result: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -1016,9 +1084,21 @@ fn run_v86_reflection_session(
             .then(|| install_controlled_process_environment(&mut memory).map_err(memory_error))
             .transpose()?
     };
-    let expected_invalidation = initial_process_environment
+    let dynamic_export_thunk = arguments
+        .get_proc_address_return_session
+        .then(|| {
+            install_dynamic_export_thunk(&mut memory, "kernel32.dll", "FlsAlloc")
+                .map_err(memory_error)
+        })
+        .transpose()?;
+    let expected_invalidation = dynamic_export_thunk
         .as_ref()
-        .map(|environment| environment.invalidation)
+        .map(|thunk| thunk.invalidation)
+        .or_else(|| {
+            initial_process_environment
+                .as_ref()
+                .map(|environment| environment.invalidation)
+        })
         .or_else(|| {
             initial_thread_stack
                 .as_ref()
@@ -1056,6 +1136,7 @@ fn run_v86_reflection_session(
         process_entry_return_sentinel: process_entry_return_sentinel.clone(),
         initial_thread_stack: initial_thread_stack.clone(),
         initial_process_environment: initial_process_environment.clone(),
+        dynamic_export_thunk: dynamic_export_thunk.clone(),
         reflection,
     };
     write_protocol_message(&offer, reflection_message_limit)?;
@@ -1153,6 +1234,10 @@ fn run_v86_reflection_session(
                 .map_err(memory_error)
         })
         .transpose()?;
+    let dynamic_export_bytes = dynamic_export_thunk
+        .as_ref()
+        .map(|thunk| memory.fetch(thunk.address, 16).map_err(memory_error))
+        .transpose()?;
     let process_parameters_installed = initial_process_environment
         .as_ref()
         .is_some_and(|environment| environment.process_parameters.is_some());
@@ -1204,6 +1289,7 @@ fn run_v86_reflection_session(
         peb_bytes,
         process_parameters_bytes,
         command_line_bytes,
+        dynamic_export_bytes,
         stop: UnsupportedPoint {
             stage: "adapter-execution",
             code: reflection_stop_code,
@@ -1221,6 +1307,8 @@ fn run_v86_reflection_session(
             heap_set_information: arguments.heap_set_information_return_session,
             heap_create: arguments.heap_create_return_session,
             get_module_handle_w: arguments.get_module_handle_w_return_session,
+            get_proc_address: arguments.get_proc_address_return_session,
+            dynamic_export_thunk: dynamic_export_thunk.as_ref(),
         };
         run_v86_system_time_delta_session(
             &mut protocol_input,
@@ -2386,7 +2474,13 @@ fn run_v86_heap_create_return_session(
         message_limit,
     )?;
     if return_sessions.get_module_handle_w {
-        run_v86_get_module_handle_w_return_session(input, memory, binding, message_limit)?;
+        run_v86_get_module_handle_w_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
     }
     Ok(())
 }
@@ -2396,6 +2490,7 @@ fn run_v86_get_module_handle_w_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    return_sessions: V86ReturnSessionOptions<'_>,
 ) -> Result<(), LoaderError> {
     const OWNER_ID: &str = "checkpoint-loaded-modules";
     const VARIANT_ID: &str = "getmodulehandlew-kernel32-loaded-runtime-module";
@@ -2527,12 +2622,269 @@ fn run_v86_get_module_handle_w_return_session(
             stats: memory.stats(),
         },
         message_limit,
+    )?;
+    if return_sessions.get_proc_address {
+        run_v86_get_proc_address_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
+    }
+    Ok(())
+}
+
+fn run_v86_get_proc_address_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+    return_sessions: V86ReturnSessionOptions<'_>,
+) -> Result<(), LoaderError> {
+    const OWNER_ID: &str = "checkpoint-dynamic-exports";
+    const VARIANT_ID: &str = "getprocaddress-kernel32-flsalloc-runtime-endpoint";
+    const CANONICAL_MODULE: &str = "kernel32.dll";
+    const PROCEDURE_NAME: &str = "FlsAlloc";
+    let endpoint = return_sessions.dynamic_export_thunk.ok_or_else(|| {
+        LoaderError::runtime_defect(
+            "win32-dynamic-export",
+            "dynamic-export-endpoint-missing",
+            "GetProcAddress return session has no installed callable endpoint",
+        )
+    })?;
+    let request: V86GetProcAddressReturnRequest = read_protocol_message(
+        input,
+        64 * 1024,
+        "win32-dynamic-export",
+        "get-proc-address-return-request",
+        "controlled dynamic-export lookup request",
+    )?;
+    if request.schema != "vine.v86-get-proc-address-return-request" || request.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "win32-dynamic-export",
+            "get-proc-address-return-request-schema-unsupported",
+            "dynamic-export request must use vine.v86-get-proc-address-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 8 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "get-proc-address-argument-width-mismatch",
+            "GetProcAddress requires two four-byte stdcall arguments",
+        ));
+    }
+    let logical_module_handle = X86LogicalLoadedModuleHandle::kernel32();
+    if request.dynamic_export_owner != OWNER_ID
+        || request.variant_id != VARIANT_ID
+        || request.module_handle != logical_module_handle.value
+        || request.lookup_kind != "name"
+        || request.call_variant != "mov-esi-iat-push-name-push-edi-call-esi"
+        || request.procedure_name_address <= u32::from(u16::MAX)
+        || request.procedure_name != PROCEDURE_NAME
+        || !request.preserve_last_error
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-dynamic-export",
+            "get-proc-address-variant-unsupported",
+            "controlled export lookup supports only GetProcAddress(logical KERNEL32, \"FlsAlloc\") by name with unchanged LastError",
+        ));
+    }
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "get-proc-address-thunk-id-unowned",
+                "dynamic-export request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(
+            &thunk.target,
+            ImportTarget::Name { name, .. } if name == "GetProcAddress"
+        )
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "get-proc-address-thunk-identity-mismatch",
+            "dynamic-export request does not match the declared GetProcAddress thunk",
+        ));
+    }
+    if endpoint.id.0 != 1
+        || endpoint.address.0 != 0x7f02_0000
+        || !endpoint.module.eq_ignore_ascii_case(CANONICAL_MODULE)
+        || endpoint.name != PROCEDURE_NAME
+        || endpoint.lifetime != "process-runtime"
+        || !endpoint.owner_sealed
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-dynamic-export",
+            "dynamic-export-endpoint-identity-mismatch",
+            "installed dynamic-export endpoint does not match the controlled FlsAlloc identity",
+        ));
+    }
+
+    let (stack_reconciliation, observed_name, procedure_name_bytes) = {
+        let mut transaction = memory.begin_transaction();
+        let reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_register_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[request.module_handle, request.procedure_name_address],
+            request.procedure_name_address,
+        )?;
+        let (observed_name, ascii_bytes) = read_bounded_ascii_nul(
+            &transaction,
+            GuestAddress(request.procedure_name_address),
+            64,
+        )?;
+        if observed_name != request.procedure_name || observed_name != PROCEDURE_NAME {
+            return Err(LoaderError::invalid_input(
+                "win32-dynamic-export",
+                "get-proc-address-name-mismatch",
+                "guest ASCII export name does not identify the controlled FlsAlloc endpoint",
+            ));
+        }
+        transaction.commit_transaction();
+        (reconciliation, observed_name, ascii_bytes)
+    };
+
+    let result = endpoint.address.0;
+    write_protocol_message(
+        &V86GetProcAddressReturnReceipt {
+            schema: "vine.v86-get-proc-address-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            procedure_name_address: GuestAddress(request.procedure_name_address),
+            procedure_name_bytes,
+            resolution: X86DynamicExportResolution {
+                owner: request.dynamic_export_owner,
+                variant_id: request.variant_id,
+                module_handle: logical_module_handle,
+                canonical_module: CANONICAL_MODULE,
+                lookup_kind: "name",
+                call_variant: "mov-esi-iat-push-name-push-edi-call-esi",
+                requested_name: observed_name,
+                resolved_name: PROCEDURE_NAME,
+                endpoint_namespace: endpoint.namespace,
+                endpoint_lifetime: endpoint.lifetime,
+                host_address_imported: false,
+            },
+            endpoint: endpoint.clone(),
+            preserve_last_error: request.preserve_last_error,
+            result,
+            stack_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
     )
 }
 
 fn validate_stdcall_iat_frame(
     memory: &GuestMemory,
     thunk: &ImportThunk,
+    stack_pointer: u32,
+    return_address: u32,
+    expected_arguments: &[u32],
+) -> Result<(), LoaderError> {
+    validate_stdcall_frame(memory, stack_pointer, return_address, expected_arguments)?;
+    let call_site = return_address.checked_sub(6).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "abi-gateway",
+            "stdcall-return-address-underflow",
+            "stdcall return address cannot identify a six-byte indirect call",
+        )
+    })?;
+    let call = memory
+        .fetch(GuestAddress(call_site), 6)
+        .map_err(memory_error)?;
+    let iat_operand = u32::from_le_bytes(call[2..6].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "abi-gateway",
+            "stdcall-call-width-invalid",
+            "checked import call did not contain a four-byte IAT operand",
+        )
+    })?);
+    if call[0..2] != [0xff, 0x15] || iat_operand != thunk.iat_address.0 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "stdcall-callsite-mismatch",
+            "stdcall return address does not follow its expected indirect IAT call",
+        ));
+    }
+    validate_bound_iat(memory, thunk)
+}
+
+fn validate_stdcall_register_iat_frame(
+    memory: &GuestMemory,
+    thunk: &ImportThunk,
+    stack_pointer: u32,
+    return_address: u32,
+    expected_arguments: &[u32],
+    procedure_name_address: u32,
+) -> Result<(), LoaderError> {
+    validate_stdcall_frame(memory, stack_pointer, return_address, expected_arguments)?;
+    let sequence_address = return_address.checked_sub(14).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "abi-gateway",
+            "register-iat-call-address-underflow",
+            "GetProcAddress return cannot identify its register-indirect IAT sequence",
+        )
+    })?;
+    let sequence = memory
+        .fetch(GuestAddress(sequence_address), 14)
+        .map_err(memory_error)?;
+    let iat_operand = u32::from_le_bytes(sequence[2..6].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "abi-gateway",
+            "register-iat-operand-width-invalid",
+            "register-indirect import sequence has a partial IAT operand",
+        )
+    })?);
+    let name_operand = u32::from_le_bytes(sequence[7..11].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "abi-gateway",
+            "register-iat-name-width-invalid",
+            "register-indirect import sequence has a partial procedure-name operand",
+        )
+    })?);
+    if sequence[0..2] != [0x8b, 0x35]
+        || iat_operand != thunk.iat_address.0
+        || sequence[6] != 0x68
+        || name_operand != procedure_name_address
+        || sequence[11] != 0x57
+        || sequence[12..14] != [0xff, 0xd6]
+    {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "register-iat-callsite-mismatch",
+            "GetProcAddress return does not follow the controlled MOV ESI,[IAT] / PUSH name / PUSH EDI / CALL ESI sequence",
+        ));
+    }
+    validate_bound_iat(memory, thunk)
+}
+
+fn validate_stdcall_frame(
+    memory: &GuestMemory,
     stack_pointer: u32,
     return_address: u32,
     expected_arguments: &[u32],
@@ -2577,30 +2929,10 @@ fn validate_stdcall_iat_frame(
         ));
     }
 
-    let call_site = return_address.checked_sub(6).ok_or_else(|| {
-        LoaderError::invalid_input(
-            "abi-gateway",
-            "stdcall-return-address-underflow",
-            "stdcall return address cannot identify a six-byte indirect call",
-        )
-    })?;
-    let call = memory
-        .fetch(GuestAddress(call_site), 6)
-        .map_err(memory_error)?;
-    let iat_operand = u32::from_le_bytes(call[2..6].try_into().map_err(|_| {
-        LoaderError::runtime_defect(
-            "abi-gateway",
-            "stdcall-call-width-invalid",
-            "checked import call did not contain a four-byte IAT operand",
-        )
-    })?);
-    if call[0..2] != [0xff, 0x15] || iat_operand != thunk.iat_address.0 {
-        return Err(LoaderError::invalid_input(
-            "abi-gateway",
-            "stdcall-callsite-mismatch",
-            "stdcall return address does not follow its expected indirect IAT call",
-        ));
-    }
+    Ok(())
+}
+
+fn validate_bound_iat(memory: &GuestMemory, thunk: &ImportThunk) -> Result<(), LoaderError> {
     let iat = memory.read(thunk.iat_address, 4).map_err(memory_error)?;
     let iat_value = u32::from_le_bytes(iat.try_into().map_err(|_| {
         LoaderError::runtime_defect(
@@ -2675,6 +3007,65 @@ fn read_bounded_utf16_nul(
         "win32-loaded-module",
         "utf16-name-unterminated",
         "loaded-module name has no NUL terminator within the controlled bound",
+    ))
+}
+
+fn read_bounded_ascii_nul(
+    memory: &GuestMemory,
+    address: GuestAddress,
+    maximum_bytes: usize,
+) -> Result<(String, Vec<u8>), LoaderError> {
+    let mut bytes = Vec::new();
+    for index in 0..maximum_bytes {
+        let byte_offset = u32::try_from(index).map_err(|_| {
+            LoaderError::resource_limit(
+                "win32-dynamic-export",
+                "ascii-offset-unrepresentable",
+                "bounded ASCII offset does not fit the guest address width",
+            )
+        })?;
+        let byte_address = address.0.checked_add(byte_offset).ok_or_else(|| {
+            LoaderError::invalid_input(
+                "win32-dynamic-export",
+                "ascii-address-overflow",
+                "bounded ASCII read crosses the guest address limit",
+            )
+        })?;
+        let byte = memory
+            .read(GuestAddress(byte_address), 1)
+            .map_err(memory_error)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "win32-dynamic-export",
+                    "ascii-byte-width-invalid",
+                    "checked ASCII read did not return one byte",
+                )
+            })?;
+        bytes.push(byte);
+        if byte == 0 {
+            let text = std::str::from_utf8(&bytes[..bytes.len() - 1]).map_err(|_| {
+                LoaderError::invalid_input(
+                    "win32-dynamic-export",
+                    "ascii-name-invalid",
+                    "dynamic-export name is not ASCII",
+                )
+            })?;
+            if !text.is_ascii() {
+                return Err(LoaderError::invalid_input(
+                    "win32-dynamic-export",
+                    "ascii-name-invalid",
+                    "dynamic-export name is not ASCII",
+                ));
+            }
+            return Ok((text.to_owned(), bytes));
+        }
+    }
+    Err(LoaderError::invalid_input(
+        "win32-dynamic-export",
+        "ascii-name-unterminated",
+        "dynamic-export name has no NUL terminator within the controlled bound",
     ))
 }
 
@@ -2826,6 +3217,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut heap_set_information_return_session = false;
     let mut heap_create_return_session = false;
     let mut get_module_handle_w_return_session = false;
+    let mut get_proc_address_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -2929,6 +3321,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             get_module_handle_w_return_session = true;
+        } else if argument == "--get-proc-address-return-session" {
+            if get_proc_address_return_session {
+                return Err(usage_error());
+            }
+            get_proc_address_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -3035,6 +3432,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if get_module_handle_w_return_session && !heap_create_return_session {
         return Err(usage_error());
     }
+    if get_proc_address_return_session && !get_module_handle_w_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -3057,6 +3457,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         heap_set_information_return_session,
         heap_create_return_session,
         get_module_handle_w_return_session,
+        get_proc_address_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,

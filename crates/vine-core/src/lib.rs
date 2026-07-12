@@ -2,6 +2,7 @@
 
 mod bootstrap;
 mod callbacks;
+mod dynamic_exports;
 mod environment;
 mod imports;
 mod materialize;
@@ -18,6 +19,11 @@ pub use callbacks::{
     CallbackReturnSentinel, CallbackReturnSentinelId, PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS,
     ProcessEntryReturnSentinel, ProcessEntryReturnSentinelId, RuntimeReturnSentinels,
     install_callback_return_sentinel, install_runtime_return_sentinels,
+};
+pub use dynamic_exports::{
+    DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
+    DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk, DynamicExportThunkId,
+    install_dynamic_export_thunk,
 };
 pub use environment::{
     CONTROLLED_COMMAND_LINE, CONTROLLED_COMMAND_LINE_BASE, CONTROLLED_ENVIRONMENT_PAGE_SIZE,

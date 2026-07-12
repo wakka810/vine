@@ -14,12 +14,12 @@ try {
   if (
     checkpoint.schema !== "vine.current-checkpoint" ||
     checkpoint.schemaVersion !== 1 ||
-    checkpoint.checkpoint !== "bgi-ninth-win32-call" ||
-    checkpoint.entryInstructionCount !== 131 ||
-    checkpoint.supportedCallCount !== 9 ||
-    checkpoint.lastSupportedCallId !== 72 ||
-    checkpoint.lastSupportedCall !== "KERNEL32.dll!GetModuleHandleW" ||
-    checkpoint.memoryGeneration !== 27 ||
+    checkpoint.checkpoint !== "bgi-tenth-win32-call" ||
+    checkpoint.entryInstructionCount !== 136 ||
+    checkpoint.supportedCallCount !== 10 ||
+    checkpoint.lastSupportedCallId !== 150 ||
+    checkpoint.lastSupportedCall !== "KERNEL32.dll!GetProcAddress" ||
+    checkpoint.memoryGeneration !== 30 ||
     checkpoint.controlledProcessId !== 4096 ||
     checkpoint.controlledThreadId !== 8192 ||
     checkpoint.controlledTickCount !== 3600000 ||
@@ -34,9 +34,15 @@ try {
       "getmodulehandlew-kernel32-loaded-runtime-module" ||
     checkpoint.logicalLoadedModuleHandleNamespace !== "vine.logical-loaded-module.v1" ||
     checkpoint.logicalLoadedModuleHandle !== 0x4d010001 ||
+    checkpoint.controlledDynamicExportVariant !==
+      "getprocaddress-kernel32-flsalloc-runtime-endpoint" ||
+    checkpoint.dynamicExportEndpointNamespace !== "vine.dynamic-export-endpoint.v1" ||
+    checkpoint.dynamicExportEndpointId !== 1 ||
+    checkpoint.dynamicExportEndpoint !== 0x7f020000 ||
     checkpoint.ownedTrapId !== 150 ||
     checkpoint.ownedTrap !== "KERNEL32.dll!GetProcAddress" ||
-    checkpoint.nextCheckpoint !== "tenth-supported-win32-call-return"
+    checkpoint.ownedTrapSymbol !== "FlsGetValue" ||
+    checkpoint.nextCheckpoint !== "eleventh-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
   }

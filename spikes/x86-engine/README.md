@@ -93,6 +93,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bgi-ninth-win32-call` reconciles the exact one-argument frame at generation `27`, validates bounded guest UTF-16 `KERNEL32.DLL`, returns Rust-owned logical loaded-module handle `0x4D010001` without copying the native HMODULE, and stops at ID `150`／`KERNEL32.dll!GetProcAddress`. The result is recorded in [v86-bgi-ninth-win32-call.md](../../docs/v86-bgi-ninth-win32-call.md).
 
+`npm run check:runtime:bgi-tenth-win32-call` adds a separate sealed dynamic-export page, validates the register-indirect `GetProcAddress` IAT sequence and bounded ASCII `FlsAlloc`, returns guest endpoint `0x7F020000` without copying the native function address, and stops at the same ID `150` for `FlsGetValue`. The result is recorded in [v86-bgi-tenth-win32-call.md](../../docs/v86-bgi-tenth-win32-call.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.

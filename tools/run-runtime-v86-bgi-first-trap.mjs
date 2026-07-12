@@ -21,7 +21,9 @@ const dispatchHeapSetInformationOnly = commandArguments.includes(
   "--dispatch-heap-set-information",
 );
 const dispatchHeapCreateOnly = commandArguments.includes("--dispatch-heap-create");
-const dispatchModuleHandle = commandArguments.includes("--dispatch-module-handle");
+const dispatchModuleHandleOnly = commandArguments.includes("--dispatch-module-handle");
+const dispatchGetProcAddress = commandArguments.includes("--dispatch-get-proc-address");
+const dispatchModuleHandle = dispatchModuleHandleOnly || dispatchGetProcAddress;
 const dispatchHeapCreate = dispatchHeapCreateOnly || dispatchModuleHandle;
 const dispatchHeapSetInformation = dispatchHeapSetInformationOnly || dispatchHeapCreate;
 const dispatchStartupInfo = dispatchStartupInfoOnly || dispatchHeapSetInformation;
@@ -73,8 +75,13 @@ assert.equal(
 );
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-module-handle").length,
-  Number(dispatchModuleHandle),
+  Number(dispatchModuleHandleOnly),
   "--dispatch-module-handle may be specified only once",
+);
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-get-proc-address").length,
+  Number(dispatchGetProcAddress),
+  "--dispatch-get-proc-address may be specified only once",
 );
 assert(
   Number(dispatchSystemTimeOnly) +
@@ -85,7 +92,8 @@ assert(
     Number(dispatchStartupInfoOnly) +
     Number(dispatchHeapSetInformationOnly) +
     Number(dispatchHeapCreateOnly) +
-    Number(dispatchModuleHandle) <=
+    Number(dispatchModuleHandleOnly) +
+    Number(dispatchGetProcAddress) <=
     1,
   "dispatch modes are mutually exclusive",
 );
@@ -99,11 +107,12 @@ const positionalArguments = commandArguments.filter(
     argument !== "--dispatch-startup-info" &&
     argument !== "--dispatch-heap-set-information" &&
     argument !== "--dispatch-heap-create" &&
-    argument !== "--dispatch-module-handle",
+    argument !== "--dispatch-module-handle" &&
+    argument !== "--dispatch-get-proc-address",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -116,7 +125,9 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchModuleHandle
+  dispatchGetProcAddress
+    ? "v86-bgi-tenth-win32-call"
+    : dispatchModuleHandle
     ? "v86-bgi-ninth-win32-call"
     : dispatchHeapCreate
       ? "v86-bgi-eighth-win32-call"
@@ -294,6 +305,54 @@ const controlledLoadedModule = {
     },
   },
 };
+const controlledDynamicExport = {
+  owner: "checkpoint-dynamic-exports",
+  variantId: "getprocaddress-kernel32-flsalloc-runtime-endpoint",
+  moduleHandle: controlledLoadedModule.handle,
+  canonicalModule: "kernel32.dll",
+  lookupKind: "name",
+  callVariant: "mov-esi-iat-push-name-push-edi-call-esi",
+  requestedName: "FlsAlloc",
+  resolvedName: "FlsAlloc",
+  endpoint: {
+    namespace: "vine.dynamic-export-endpoint.v1",
+    id: 1,
+    address: 0x7f020000,
+    owner: 9,
+    arenaRange: { start: 0x7f020000, byteLength: 0x10000 },
+    committedPages: 1,
+    slotSize: 0x10,
+    module: "kernel32.dll",
+    name: "FlsAlloc",
+    lifetime: "process-runtime",
+    contentSha256: "4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059",
+    ownerSealed: true,
+    invalidation: {
+      generation: 27,
+      dataTlb: true,
+      instructionFetch: true,
+      generatedCode: true,
+    },
+  },
+  preserveLastError: true,
+  hostAddressImported: false,
+  nativeObservation: {
+    source: "focused-frida-dynamic-export-2026-07-12",
+    traceBytes: 320_917,
+    traceSha256: "5b94c823da26761172ff7cc2e8b867b7fc8661046bbc6612ddbaff613161cdfe",
+    callerRva: 0x000a582f,
+    module: "KERNEL32.DLL",
+    symbol: "FlsAlloc",
+    resultRole: "host-function-address-observed-and-discarded",
+    lastErrorBefore: 87,
+    lastErrorAfter: 87,
+    followingLookups: [
+      { callerRva: 0x000a583c, symbol: "FlsGetValue" },
+      { callerRva: 0x000a5849, symbol: "FlsSetValue" },
+      { callerRva: 0x000a5856, symbol: "FlsFree" },
+    ],
+  },
+};
 
 const expected = {
   source: {
@@ -319,7 +378,9 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchModuleHandle
+    declared: dispatchGetProcAddress
+      ? 11
+      : dispatchModuleHandle
       ? 10
       : dispatchHeapCreate
         ? 9
@@ -338,7 +399,9 @@ const expected = {
           : dispatchSystemTime
             ? 2
             : 1,
-    unsupported: dispatchModuleHandle
+    unsupported: dispatchGetProcAddress
+      ? 319
+      : dispatchModuleHandle
       ? 320
       : dispatchHeapCreate
         ? 321
@@ -411,15 +474,18 @@ const expected = {
       "ac17565d250da1d27dc2429b2c81bd242fe26d67373495b2238eadbb762b6d33",
     commandLineContentSha256:
       "c9b83dbe193708a3418517c43a4dadd26ca50a4006b00bd11701f3bb6ef0e6cc",
-  },
-  memory: {
-    owners: 8,
-    reservedPages: 417,
-    reflectedPages: 388,
     generation: 24,
   },
-  reflectionContentSha256:
-    "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+  dynamicExport: controlledDynamicExport.endpoint,
+  memory: {
+    owners: dispatchGetProcAddress ? 9 : 8,
+    reservedPages: dispatchGetProcAddress ? 433 : 417,
+    reflectedPages: dispatchGetProcAddress ? 389 : 388,
+    generation: dispatchGetProcAddress ? 27 : 24,
+  },
+  reflectionContentSha256: dispatchGetProcAddress
+    ? "e7a3cc956e167db7e078feefb30eb1d9f2204c8e17ca008f72c4359cce752456"
+    : "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
   offerLineBytes: 4_904_602,
   receiptLineBytes: 1_494,
   terminal: {
@@ -445,7 +511,7 @@ const expected = {
     requestLineBytes: 8_670,
     deltaLineBytes: 9_584,
     deltaReceiptLineBytes: 361,
-    deltaGeneration: 25,
+    deltaGeneration: dispatchGetProcAddress ? 28 : 25,
     stackPageContentSha256: "46d99e572b1fb4f18aeb340362f31a5264cfc745cb01d22e32bc00bbb19dc785",
     reconciledChangedBytes: 11,
     deltaContentSha256: "dfad2cdbcc57bb6c05b66962dc185dbb6139a458f4da3e725536168474653840",
@@ -546,7 +612,7 @@ const expected = {
     deltaReceiptLineBytes: 366,
     stackPageContentSha256: "a581c7ce28aa0c683d1b0489e93fbe29d24924e35cd2abe3e966d2fc7c65c4bc",
     reconciledChangedBytes: 5,
-    deltaGeneration: 26,
+    deltaGeneration: dispatchGetProcAddress ? 29 : 26,
     deltaContentSha256: "e466741f272179ad06d4777d23b91fa11b4fa526a47063c0adfa62c842c3d951",
     nextThunk: {
       identity: {
@@ -575,7 +641,7 @@ const expected = {
     outputBytesSha256: "9a577f8dadf13d9197f2f83feebcf47567472ab68625099b4e7bcde0fef18653",
     stackPageContentSha256: "75e2211e3e9a79f92313319d9897bb1e868d74bb15f0dc513cc9cb393c9bb843",
     reconciledChangedBytes: 31,
-    deltaGeneration: 27,
+    deltaGeneration: dispatchGetProcAddress ? 30 : 27,
     deltaContentSha256: "a2c82c133e41916b0b9af10314376ece9a281a8503db4b811031e5ce52919de8",
     nextThunk: {
       identity: {
@@ -658,7 +724,7 @@ const expected = {
         module: "KERNEL32.dll",
         name: "GetProcAddress",
       },
-      unsupported: true,
+      unsupported: !dispatchGetProcAddress,
       returnAddress: 0x100a582f,
       stackWords: [0x100a582f, 0x4d010001, 0x100d250c, 0, 0, 0x100a375b, 0xe93f6d87, 0],
     },
@@ -667,6 +733,32 @@ const expected = {
     budgetStops: 8,
     reportBytes: 56_729,
     reportSha256: "147a3599cf942af03034c7f410d333b35c0360812936e39a7473c43008d8d5be",
+  },
+  tenthCall: {
+    offerLineBytes: 4_921_244,
+    reflectionReceiptLineBytes: 1_579,
+    requestLineBytes: 8_821,
+    receiptLineBytes: 1_872,
+    procedureNameBytesSha256: "574f9b2cb1c509be66aa90427c3250a3249a19c7a243b86f4ab13b4040abbd1e",
+    stackPageContentSha256: "0ec9e7bed9bb310bdab5ae447581656314c744cf4d8fe2104a36d9fe297215c7",
+    reconciledChangedBytes: 15,
+    nextThunk: {
+      identity: {
+        id: 150,
+        address: 0x7f000950,
+        iatAddress: 0x100d1300,
+        module: "KERNEL32.dll",
+        name: "GetProcAddress",
+      },
+      unsupported: false,
+      returnAddress: 0x100a583c,
+      stackWords: [0x100a583c, 0x4d010001, 0x100d2500, 0, 0, 0x100a375b, 0xe93f6d87, 0],
+    },
+    instructionCount: 136,
+    executeStops: 5,
+    budgetStops: 4,
+    reportBytes: 65_858,
+    reportSha256: "54bcc15a033dbe870b81d1c2637949d71568d048202d8f3cc355097ca76332cf",
   },
 };
 
@@ -912,6 +1004,14 @@ async function run() {
           "--get-module-handle-w-return-session",
         ]
       : []),
+    ...(dispatchGetProcAddress
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "GetProcAddress",
+          "--get-proc-address-return-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -1077,6 +1177,16 @@ async function run() {
           execution: privateHeap.continuation,
           nextMessage,
           offer,
+          continueSession: dispatchGetProcAddress,
+        })
+      : null;
+    const dynamicExport = dispatchGetProcAddress
+      ? await dispatchTenthGetProcAddressCall({
+          child,
+          context,
+          execution: loadedModule.continuation,
+          nextMessage,
+          offer,
         })
       : null;
     const processExit = await exit;
@@ -1086,7 +1196,30 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchModuleHandle
+    const report = dispatchGetProcAddress
+      ? buildTenthGetProcAddressReport({
+          context,
+          dynamicExport,
+          execution,
+          heapPolicy,
+          invalidationCalls,
+          loadedModule,
+          monotonicClock,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          performanceCounter,
+          privateHeap,
+          processIdentity,
+          processStartup,
+          receipt,
+          receiptMessage,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+          threadIdentity,
+        })
+      : dispatchModuleHandle
       ? buildNinthGetModuleHandleWReport({
           context,
           execution,
@@ -1319,7 +1452,9 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchModuleHandle
+    const expectedReport = dispatchGetProcAddress
+      ? { bytes: expected.tenthCall.reportBytes, sha256: expected.tenthCall.reportSha256 }
+      : dispatchModuleHandle
       ? { bytes: expected.ninthCall.reportBytes, sha256: expected.ninthCall.reportSha256 }
       : dispatchHeapCreate
         ? { bytes: expected.eighthCall.reportBytes, sha256: expected.eighthCall.reportSha256 }
@@ -1343,7 +1478,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchModuleHandle) {
+    if (dispatchGetProcAddress) {
+      console.log(
+        `v86 BGI tenth Win32 call passed: dynamic export endpoint ` +
+          `0x${dynamicExport.endpoint.address.toString(16)}, next thunk ID ` +
+          `${dynamicExport.continuation.terminal.thunk.id} after ` +
+          `${dynamicExport.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchModuleHandle) {
       console.log(
         `v86 BGI ninth Win32 call passed: logical loaded module ` +
           `0x${loadedModule.module.handle.value.toString(16)}, next thunk ID ` +
@@ -1483,7 +1625,7 @@ function validateOffer(offer, offerLineBytes) {
   validateThunk(
     offer.thunks[expected.ninthCall.nextThunk.identity.id - 1],
     expected.ninthCall.nextThunk.identity,
-    true,
+    !dispatchGetProcAddress,
   );
   assert.equal(
     offer.thunks.filter(({ disposition }) => disposition === undefined).length,
@@ -1556,22 +1698,32 @@ function validateOffer(offer, offerLineBytes) {
     expected.processEnvironment.commandLineContentSha256,
   );
   assert.deepEqual(environment.invalidation, {
-    generation: expected.memory.generation,
+    generation: expected.processEnvironment.generation,
     dataTlb: true,
     instructionFetch: true,
     generatedCode: true,
   });
+  if (dispatchGetProcAddress) {
+    assert.deepEqual(offer.dynamicExportThunk, expected.dynamicExport);
+  } else {
+    assert.equal(offer.dynamicExportThunk, undefined);
+  }
 
   const reflected = offer.reflection;
   assert.equal(reflected.pageSize, page.size);
   assert(reflected.pages.length <= protocol.maximumReflectionPages);
   assert.equal(reflected.pages.length, expected.memory.reflectedPages);
-  assert.deepEqual(reflected.invalidation, environment.invalidation);
+  assert.deepEqual(
+    reflected.invalidation,
+    dispatchGetProcAddress ? expected.dynamicExport.invalidation : environment.invalidation,
+  );
   assert.equal(reflectionContentSha256(reflected.pages), reflected.contentSha256);
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchModuleHandle
+  const expectedOfferLineBytes = dispatchGetProcAddress
+    ? expected.tenthCall.offerLineBytes
+    : dispatchModuleHandle
     ? expected.ninthCall.offerLineBytes
     : dispatchHeapCreate
       ? expected.eighthCall.offerLineBytes
@@ -1634,6 +1786,16 @@ function validateReflectedLayout(pages) {
   index += 1;
   assertReflectedPage(pages[index], expected.control.page, expected.control.owner, false, true);
   index += 1;
+  if (dispatchGetProcAddress) {
+    assertReflectedPage(
+      pages[index],
+      expected.dynamicExport.address,
+      expected.dynamicExport.owner,
+      false,
+      true,
+    );
+    index += 1;
+  }
   assertReflectedPage(
     pages[index],
     expected.processEnvironment.processParametersBase,
@@ -1894,7 +2056,7 @@ async function prepareV86(offer) {
   words[stateWord.controlRegisterBase + 3] = pageDirectory;
   words[stateWord.controlRegisterBase + 4] |= 0x200;
   assert.equal(wasm.vine_cpu_state_restore(), 0);
-  assert.equal(allocations.length, 393);
+  assert.equal(allocations.length, dispatchGetProcAddress ? 394 : 393);
   assert.deepEqual([...pageTables.keys()], [1, 64, 508, 511]);
   for (const allocation of allocations) {
     for (const excluded of guest.excludedPhysicalRanges) {
@@ -1943,6 +2105,15 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   ]);
   assert.deepEqual(receipt.callbackReturnBytes, receipt.thunkBytes);
   assert.deepEqual(receipt.processEntryReturnBytes, receipt.thunkBytes);
+  if (dispatchGetProcAddress) {
+    assert.deepEqual(receipt.dynamicExportBytes, receipt.thunkBytes);
+    assert.deepEqual(
+      receipt.dynamicExportBytes,
+      [...context.readVirtualBytes(expected.dynamicExport.address, 16, "dynamic export bytes")],
+    );
+  } else {
+    assert.equal(receipt.dynamicExportBytes, undefined);
+  }
   assert.deepEqual(receipt.initialStackTopBytes, [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x00, 0x01, 0x7f,
   ]);
@@ -1984,8 +2155,11 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
   assert.equal(offer.reflection.invalidation.generation, receipt.acknowledgedGeneration);
-  if (expected.receiptLineBytes !== null) {
-    assert.equal(receiptLineBytes, expected.receiptLineBytes);
+  const expectedReceiptLineBytes = dispatchGetProcAddress
+    ? expected.tenthCall.reflectionReceiptLineBytes
+    : expected.receiptLineBytes;
+  if (expectedReceiptLineBytes !== null) {
+    assert.equal(receiptLineBytes, expectedReceiptLineBytes);
   }
 }
 
@@ -2151,7 +2325,9 @@ async function dispatchFirstSystemTimeCall({
     invalidateGeneratedCode: false,
   });
   assert.match(delta.delta.contentSha256, /^[0-9a-f]{64}$/);
-  assert.equal(delta.delta.contentSha256, expected.firstCall.deltaContentSha256);
+  if (expected.firstCall.deltaContentSha256 !== null) {
+    assert.equal(delta.delta.contentSha256, expected.firstCall.deltaContentSha256);
+  }
   if (expected.firstCall.deltaLineBytes !== null) {
     assert.equal(deltaMessage.lineBytes, expected.firstCall.deltaLineBytes);
   }
@@ -3706,6 +3882,7 @@ async function dispatchNinthGetModuleHandleWCall({
   execution,
   nextMessage,
   offer,
+  continueSession,
 }) {
   const trapped = execution.finalState;
   const argumentBytes = 4;
@@ -3793,7 +3970,11 @@ async function dispatchNinthGetModuleHandleWCall({
   if (expected.ninthCall.requestLineBytes !== null) {
     assert.equal(Buffer.byteLength(requestLine) - 1, expected.ninthCall.requestLineBytes);
   }
-  child.stdin.end(requestLine);
+  if (continueSession) {
+    child.stdin.write(requestLine);
+  } else {
+    child.stdin.end(requestLine);
+  }
 
   const receiptMessage = await nextMessage("GetModuleHandleW return receipt");
   const receipt = receiptMessage.message;
@@ -3893,6 +4074,222 @@ async function dispatchNinthGetModuleHandleWCall({
       preserveLastError: receipt.preserveLastError,
       nativeObservation: controlledLoadedModule.nativeObservation,
     },
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
+async function dispatchTenthGetProcAddressCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+}) {
+  const trapped = execution.finalState;
+  const argumentBytes = 8;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4 + argumentBytes,
+    "read",
+    "GetProcAddress stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(trapped.esp, "GetProcAddress return address");
+  const moduleHandle = context.readVirtualU32(
+    trapped.esp + 4,
+    "GetProcAddress module handle",
+  );
+  const procedureNameAddress = context.readVirtualU32(
+    trapped.esp + 8,
+    "GetProcAddress procedure name address",
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  assert.equal(moduleHandle, controlledDynamicExport.moduleHandle.value);
+  assert(procedureNameAddress > 0xffff, "controlled GetProcAddress lookup must be by name");
+  const procedureNameByteLength = controlledDynamicExport.requestedName.length + 1;
+  const procedureNamePages = context.preflightVirtualRange(
+    procedureNameAddress,
+    procedureNameByteLength,
+    "read",
+    "GetProcAddress ASCII procedure name",
+  );
+  assert.equal(procedureNamePages.length, 1);
+  assert.equal(procedureNamePages[0].owner, expected.image.owner);
+  const procedureNameBytes = context.readVirtualBytes(
+    procedureNameAddress,
+    procedureNameByteLength,
+    "GetProcAddress ASCII procedure name bytes",
+  );
+  assert.equal(procedureNameBytes.at(-1), 0);
+  const procedureName = Buffer.from(procedureNameBytes.subarray(0, -1)).toString("ascii");
+  assert.equal(procedureName, controlledDynamicExport.requestedName);
+  const procedureNameBytesSha256 = sha256(procedureNameBytes);
+
+  const callSequenceAddress = returnAddress - 14;
+  const callSequence = context.readVirtualBytes(
+    callSequenceAddress,
+    14,
+    "GetProcAddress register-indirect IAT call sequence",
+  );
+  const callView = new DataView(
+    callSequence.buffer,
+    callSequence.byteOffset,
+    callSequence.byteLength,
+  );
+  assert.deepEqual([...callSequence.subarray(0, 2)], [0x8b, 0x35]);
+  assert.equal(callView.getUint32(2, true), expected.ninthCall.nextThunk.identity.iatAddress);
+  assert.equal(callSequence[6], 0x68);
+  assert.equal(callView.getUint32(7, true), procedureNameAddress);
+  assert.equal(callSequence[11], 0x57);
+  assert.deepEqual([...callSequence.subarray(12, 14)], [0xff, 0xd6]);
+  assert.equal(
+    context.readVirtualU32(
+      expected.ninthCall.nextThunk.identity.iatAddress,
+      "GetProcAddress bound IAT",
+    ),
+    expected.ninthCall.nextThunk.identity.address,
+  );
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before GetProcAddress return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-get-proc-address-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.sixthCall.deltaGeneration,
+    thunkId: expected.ninthCall.nextThunk.identity.id,
+    thunkAddress: expected.ninthCall.nextThunk.identity.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes,
+    stackPageAddress,
+    stackPageOwner: expected.stack.owner,
+    stackPageBytes: [...stackPageBytes],
+    dynamicExportOwner: controlledDynamicExport.owner,
+    variantId: controlledDynamicExport.variantId,
+    moduleHandle,
+    lookupKind: controlledDynamicExport.lookupKind,
+    callVariant: controlledDynamicExport.callVariant,
+    procedureNameAddress,
+    procedureName,
+    preserveLastError: controlledDynamicExport.preserveLastError,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 64 * 1024);
+  if (expected.tenthCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.tenthCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("GetProcAddress return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-get-proc-address-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  validateThunk(receipt.thunk, expected.ninthCall.nextThunk.identity, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, argumentBytes);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.equal(receipt.procedureNameAddress, procedureNameAddress);
+  assert.deepEqual(receipt.procedureNameBytes, [...procedureNameBytes]);
+  assert.deepEqual(receipt.resolution, {
+    owner: controlledDynamicExport.owner,
+    variantId: controlledDynamicExport.variantId,
+    moduleHandle: controlledDynamicExport.moduleHandle,
+    canonicalModule: controlledDynamicExport.canonicalModule,
+    lookupKind: controlledDynamicExport.lookupKind,
+    callVariant: controlledDynamicExport.callVariant,
+    requestedName: controlledDynamicExport.requestedName,
+    resolvedName: controlledDynamicExport.resolvedName,
+    endpointNamespace: controlledDynamicExport.endpoint.namespace,
+    endpointLifetime: controlledDynamicExport.endpoint.lifetime,
+    hostAddressImported: controlledDynamicExport.hostAddressImported,
+  });
+  assert.deepEqual(receipt.endpoint, offer.dynamicExportThunk);
+  assert.equal(receipt.preserveLastError, controlledDynamicExport.preserveLastError);
+  assert.equal(receipt.result, controlledDynamicExport.endpoint.address);
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(receipt.stackReconciliation.changedBytes > 0);
+  if (expected.tenthCall.reconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.tenthCall.reconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.tenthCall.stackPageContentSha256);
+    assert.equal(procedureNameBytesSha256, expected.tenthCall.procedureNameBytesSha256);
+  }
+  assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.tenthCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.tenthCall.receiptLineBytes);
+  }
+
+  const resume = resumeGetProcAddressStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    receipt.result,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  assert.equal(continuation.terminal.kind, "owned-import-thunk");
+  validateThunk(
+    continuation.terminal.thunk,
+    expected.tenthCall.nextThunk.identity,
+    expected.tenthCall.nextThunk.unsupported,
+  );
+  if (expected.tenthCall.instructionCount !== null) {
+    assert.equal(continuation.instructionCount, expected.tenthCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.tenthCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.tenthCall.budgetStops);
+    assert.equal(continuation.terminal.returnAddress, expected.tenthCall.nextThunk.returnAddress);
+    assert.deepEqual(continuation.terminal.stackWords, expected.tenthCall.nextThunk.stackWords);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      arguments: [moduleHandle, procedureNameAddress],
+      stackPageAddress: request.stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      lookupKind: request.lookupKind,
+      callVariant: request.callVariant,
+      procedureNameAddress,
+      procedureName,
+      procedureNameBytes: [...procedureNameBytes],
+      procedureNameBytesSha256,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    resolution: {
+      ...receipt.resolution,
+      preserveLastError: receipt.preserveLastError,
+      nativeObservation: controlledDynamicExport.nativeObservation,
+    },
+    endpoint: receipt.endpoint,
     receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
     resume,
     continuation,
@@ -4123,6 +4520,31 @@ function resumeGetModuleHandleWStdcallResult(context, trapped, returnAddress, re
   };
 }
 
+function resumeGetProcAddressStdcallResult(context, trapped, returnAddress, result) {
+  const argumentBytes = 8;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "GetProcAddress",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: controlledDynamicExport.owner,
+    endpointNamespace: controlledDynamicExport.endpoint.namespace,
+    lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
+  };
+}
+
 function restoreStdcall(context, trapped, returnAddress, argumentBytes, eax, label) {
   context.wasm.vine_cpu_state_save();
   const words = new Uint32Array(
@@ -4155,6 +4577,11 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
       .map(({ address }) => address),
   );
   const thunksByAddress = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
+  const dynamicExportsByAddress = new Map(
+    offer.dynamicExportThunk === undefined
+      ? []
+      : [[offer.dynamicExportThunk.address, offer.dynamicExportThunk]],
+  );
   const sentinelsByAddress = new Map([
     [offer.callbackReturnSentinel.address, "callback-return-sentinel"],
     [offer.processEntryReturnSentinel.address, "process-entry-return-sentinel"],
@@ -4187,7 +4614,13 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
       budgetStops += 1;
       continue;
     }
-    terminal = classifyTerminal(state, thunksByAddress, sentinelsByAddress, context);
+    terminal = classifyTerminal(
+      state,
+      thunksByAddress,
+      dynamicExportsByAddress,
+      sentinelsByAddress,
+      context,
+    );
     break;
   }
   assert(terminal, "BGI continuation exhausted its bounded window without a terminal stop");
@@ -4678,6 +5111,65 @@ function buildNinthGetModuleHandleWReport({ loadedModule, ...eighthCallArguments
   };
 }
 
+function buildTenthGetProcAddressReport({ dynamicExport, ...ninthCallArguments }) {
+  const ninthCall = buildNinthGetModuleHandleWReport(ninthCallArguments);
+  return {
+    schema: "vine.v86-bgi-tenth-win32-call",
+    schemaVersion: 1,
+    source: ninthCall.source,
+    sourceSnapshot: ninthCall.sourceSnapshot,
+    contract: {
+      ...ninthCall.contract,
+      dynamicExportOwner: controlledDynamicExport.owner,
+      dynamicExportEndpointNamespace: controlledDynamicExport.endpoint.namespace,
+      hostFunctionAddressImported: false,
+      supportedServiceDispatches: 10,
+    },
+    bootstrap: ninthCall.bootstrap,
+    imports: {
+      ...ninthCall.imports,
+      supportedGetProcAddress:
+        ninthCallArguments.offer.thunks[expected.ninthCall.nextThunk.identity.id - 1],
+    },
+    dynamicExportEndpoint: ninthCallArguments.offer.dynamicExportThunk,
+    adapter: ninthCall.adapter,
+    reflection: ninthCall.reflection,
+    firstTrap: ninthCall.firstTrap,
+    systemTime: ninthCall.systemTime,
+    firstContinuation: ninthCall.firstContinuation,
+    processId: ninthCall.processId,
+    secondContinuation: ninthCall.secondContinuation,
+    threadId: ninthCall.threadId,
+    thirdContinuation: ninthCall.thirdContinuation,
+    tickCount: ninthCall.tickCount,
+    fourthContinuation: ninthCall.fourthContinuation,
+    performanceCounter: ninthCall.performanceCounter,
+    fifthContinuation: ninthCall.fifthContinuation,
+    startupInfo: ninthCall.startupInfo,
+    sixthContinuation: ninthCall.sixthContinuation,
+    heapSetInformation: ninthCall.heapSetInformation,
+    seventhContinuation: ninthCall.seventhContinuation,
+    heapCreate: ninthCall.heapCreate,
+    eighthContinuation: ninthCall.eighthContinuation,
+    getModuleHandleW: ninthCall.getModuleHandleW,
+    ninthContinuation: ninthCall.continuation,
+    getProcAddress: {
+      request: dynamicExport.request,
+      resolution: dynamicExport.resolution,
+      endpoint: dynamicExport.endpoint,
+      receipt: dynamicExport.receipt,
+      resume: dynamicExport.resume,
+    },
+    continuation: dynamicExport.continuation,
+    stop: {
+      stage: "thunk-dispatch",
+      code: "next-runtime-reachable-owned-import-trap",
+      message:
+        "BGI returned from ten checked Kernel32 calls through GetProcAddress(FlsAlloc) and reached the next exact runtime-owned import thunk without dispatching it",
+    },
+  };
+}
+
 function executeToFirstOwnedTrap(offer, context) {
   const executablePages = new Set(
     offer.reflection.pages
@@ -4685,6 +5177,11 @@ function executeToFirstOwnedTrap(offer, context) {
       .map(({ address }) => address),
   );
   const thunksByAddress = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
+  const dynamicExportsByAddress = new Map(
+    offer.dynamicExportThunk === undefined
+      ? []
+      : [[offer.dynamicExportThunk.address, offer.dynamicExportThunk]],
+  );
   const sentinelsByAddress = new Map([
     [offer.callbackReturnSentinel.address, "callback-return-sentinel"],
     [offer.processEntryReturnSentinel.address, "process-entry-return-sentinel"],
@@ -4755,7 +5252,13 @@ function executeToFirstOwnedTrap(offer, context) {
       budgetStops += 1;
       continue;
     }
-    terminal = classifyTerminal(state, thunksByAddress, sentinelsByAddress, context);
+    terminal = classifyTerminal(
+      state,
+      thunksByAddress,
+      dynamicExportsByAddress,
+      sentinelsByAddress,
+      context,
+    );
     break;
   }
   assert(terminal, "BGI exhausted its bounded execution window without a terminal stop");
@@ -4789,7 +5292,13 @@ function executeToFirstOwnedTrap(offer, context) {
   };
 }
 
-function classifyTerminal(state, thunksByAddress, sentinelsByAddress, context) {
+function classifyTerminal(
+  state,
+  thunksByAddress,
+  dynamicExportsByAddress,
+  sentinelsByAddress,
+  context,
+) {
   if (state.reason === stopReason.invalidOpcode) {
     const thunk = thunksByAddress.get(state.instructionPointer);
     if (thunk !== undefined && state.previousInstructionPointer === thunk.address) {
@@ -4802,6 +5311,21 @@ function classifyTerminal(state, thunksByAddress, sentinelsByAddress, context) {
       return {
         kind: "owned-import-thunk",
         thunk,
+        returnAddress: stackWords[0],
+        stackWords,
+      };
+    }
+    const endpoint = dynamicExportsByAddress.get(state.instructionPointer);
+    if (endpoint !== undefined && state.previousInstructionPointer === endpoint.address) {
+      const stackWords = [];
+      for (let index = 0; index < 8; index += 1) {
+        stackWords.push(
+          context.readVirtualU32(state.esp + index * 4, `dynamic trap stack word ${index}`),
+        );
+      }
+      return {
+        kind: "owned-dynamic-export-thunk",
+        endpoint,
         returnAddress: stackWords[0],
         stackWords,
       };

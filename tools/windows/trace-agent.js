@@ -363,7 +363,9 @@ function attachHook(module, name, decoders) {
       const observation =
         name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
-          : name.startsWith("Heap") || name.startsWith("GetModuleHandle")
+          : name.startsWith("Heap") ||
+              name.startsWith("GetModuleHandle") ||
+              (name === "GetProcAddress" && selectedObservations.has("dynamic-export"))
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
             : {};
       this.traceStartupInfoPointer =

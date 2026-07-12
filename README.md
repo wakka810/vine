@@ -4,13 +4,15 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-ninth-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-tenth-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
-330 imports to deterministic runtime-owned `UD2` thunks, and reflects 388
-sealed pages into source-built v86. BGI executes 19 instructions from entry
+330 imports to deterministic runtime-owned `UD2` thunks, installs one separate
+dynamic-export endpoint, and reflects 389 sealed pages into source-built v86.
+BGI executes 19 instructions from entry
 `0x100A383E` and reaches exact thunk ID `104`,
-`KERNEL32.dll!GetSystemTimeAsFileTime`. A controlled clock sample is written
-through a generation `25` stack-page `MemoryDelta`; the checked stdcall return
+`KERNEL32.dll!GetSystemTimeAsFileTime`. In this cumulative mode, a controlled
+clock sample is written through a generation `28` stack-page `MemoryDelta`;
+the checked stdcall return
 then executes four more instructions and stops at thunk ID `103`,
 `KERNEL32.dll!GetCurrentProcessId`. A second checked stdcall returns controlled
 process ID `4096`; three more instructions stop at thunk ID `149`,
@@ -19,25 +21,30 @@ thread ID `8192`; three more instructions stop at thunk ID `13`,
 `KERNEL32.dll!GetTickCount`. A fourth checked stdcall returns controlled tick
 count `3,600,000`; five more instructions stop at thunk ID `157`,
 `KERNEL32.dll!QueryPerformanceCounter`. A fifth checked stdcall writes counter
-`12,345,678,901` through generation `26`, returns BOOL success, and runs 44
+`12,345,678,901` through generation `29`, returns BOOL success, and runs 44
 more instructions to thunk ID `83`, `KERNEL32.dll!GetStartupInfoW`. A sixth
 checked VOID stdcall writes controlled 68-byte x86 `STARTUPINFOW` profile
-`startupinfow-v68-zero-optional-fields` through generation `27`, preserves
+`startupinfow-v68-zero-optional-fields` through generation `30`, preserves
 EAX, and runs nine more instructions to thunk ID `84`,
 `KERNEL32.dll!HeapSetInformation`. A seventh checked stdcall accepts only
 `HeapSetInformation(NULL, 1, NULL, 0)`, records the controlled process heap
-policy, returns BOOL success without changing generation `27`, and runs 21
-more instructions to thunk ID `102`, `KERNEL32.dll!HeapCreate`. Eight
-endpoints are declared at that stage. An eighth checked stdcall validates
+policy, returns BOOL success without changing generation `30`, and runs 21
+more instructions to thunk ID `102`, `KERNEL32.dll!HeapCreate`. An eighth
+checked stdcall validates
 `HeapCreate(0, 0x1000, 0)`, creates Rust-owned metadata for logical private
 heap handle `0x68010001` without copying the native host pointer, and runs 14
-more instructions to thunk ID `72`, `KERNEL32.dll!GetModuleHandleW`. Nine
-endpoints are declared at that stage. A ninth checked stdcall reads bounded
+more instructions to thunk ID `72`, `KERNEL32.dll!GetModuleHandleW`. A ninth
+checked stdcall reads bounded
 UTF-16 `KERNEL32.DLL`, returns Rust-owned logical loaded-module handle
 `0x4D010001` without copying the native HMODULE, and runs nine more
-instructions to thunk ID `150`, `KERNEL32.dll!GetProcAddress`. Ten endpoints
-are now declared; the other 320 retain exact identity as explicit traps.
-Memory generation remains `27`.
+instructions to thunk ID `150`, `KERNEL32.dll!GetProcAddress`. A tenth checked
+stdcall validates logical KERNEL32
+handle `0x4D010001`, bounded ASCII `FlsAlloc`, and the register-indirect IAT
+call sequence; it returns identity-preserving guest endpoint `0x7F020000`
+without copying the host function address. Five more instructions reach thunk
+ID `150` again for `FlsGetValue`. Eleven static endpoints are declared; the
+other 319 retain exact identity as explicit traps. Memory generation remains
+`30` after the generation-preserving lookup.
 
 The foundation below that checkpoint now has an incremental `MemoryDelta`
 protocol. The first transfer is a full snapshot; later generations carry only
@@ -55,8 +62,8 @@ The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next endpoint checkpoint is the checked two-argument stdcall at thunk ID
-`150` for `GetProcAddress(logicalKernel32, "FlsAlloc")`.
+The next endpoint checkpoint is the second checked two-argument stdcall at
+thunk ID `150` for `GetProcAddress(logicalKernel32, "FlsGetValue")`.
 
 ## Requirements
 
@@ -139,6 +146,9 @@ without a guest write, and stops at exact thunk ID `72` before module lookup.
 `npm run check:runtime:bgi-ninth-win32-call` validates bounded UTF-16 module
 lookup, returns typed logical KERNEL32 handle `0x4D010001` from ID `72`, and
 stops at exact thunk ID `150` before dynamic export lookup.
+`npm run check:runtime:bgi-tenth-win32-call` validates the register-indirect
+`GetProcAddress` IAT sequence and bounded ASCII `FlsAlloc`, returns sealed
+dynamic endpoint `0x7F020000`, and stops at ID `150` for `FlsGetValue`.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.
