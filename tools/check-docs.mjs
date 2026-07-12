@@ -14,9 +14,9 @@ try {
   if (
     checkpoint.schema !== "vine.current-checkpoint" ||
     checkpoint.schemaVersion !== 1 ||
-    checkpoint.checkpoint !== "bgi-twelfth-win32-call" ||
-    checkpoint.entryInstructionCount !== 146 ||
-    checkpoint.supportedCallCount !== 12 ||
+    checkpoint.checkpoint !== "bgi-thirteenth-win32-call" ||
+    checkpoint.entryInstructionCount !== 158 ||
+    checkpoint.supportedCallCount !== 13 ||
     checkpoint.lastSupportedCallId !== 150 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!GetProcAddress" ||
     checkpoint.memoryGeneration !== 30 ||
@@ -43,17 +43,23 @@ try {
       "getprocaddress-kernel32-flsgetvalue-runtime-endpoint" ||
     checkpoint.controlledThirdDynamicExportVariant !==
       "getprocaddress-kernel32-flssetvalue-runtime-endpoint" ||
-    checkpoint.dynamicExportEndpointCount !== 3 ||
     checkpoint.secondDynamicExportEndpointId !== 2 ||
     checkpoint.secondDynamicExportEndpoint !== 0x7f020010 ||
     checkpoint.firstDynamicExportStoreAddress !== 0x100feebc ||
     checkpoint.thirdDynamicExportEndpointId !== 3 ||
     checkpoint.thirdDynamicExportEndpoint !== 0x7f020020 ||
     checkpoint.secondDynamicExportStoreAddress !== 0x100feec0 ||
-    checkpoint.ownedTrapId !== 150 ||
-    checkpoint.ownedTrap !== "KERNEL32.dll!GetProcAddress" ||
-    checkpoint.ownedTrapSymbol !== "FlsFree" ||
-    checkpoint.nextCheckpoint !== "thirteenth-supported-win32-call-return"
+    checkpoint.controlledFourthDynamicExportVariant !==
+      "getprocaddress-kernel32-flsfree-runtime-endpoint" ||
+    checkpoint.dynamicExportEndpointCount !== 4 ||
+    checkpoint.fourthDynamicExportEndpointId !== 4 ||
+    checkpoint.fourthDynamicExportEndpoint !== 0x7f020030 ||
+    checkpoint.thirdDynamicExportStoreAddress !== 0x100feec4 ||
+    checkpoint.fourthDynamicExportStoreAddress !== 0x100feec8 ||
+    checkpoint.ownedTrapId !== 70 ||
+    checkpoint.ownedTrap !== "KERNEL32.dll!TlsAlloc" ||
+    checkpoint.ownedTrapSymbol !== "TlsAlloc" ||
+    checkpoint.nextCheckpoint !== "fourteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
   }

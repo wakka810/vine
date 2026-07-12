@@ -4,9 +4,9 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-twelfth-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-thirteenth-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
-330 imports to deterministic runtime-owned `UD2` thunks, installs three ordered
+330 imports to deterministic runtime-owned `UD2` thunks, installs four ordered
 dynamic-export endpoints, and reflects 389 sealed pages into source-built v86.
 BGI executes 19 instructions from entry
 `0x100A383E` and reaches exact thunk ID `104`,
@@ -49,9 +49,12 @@ provenance and bounded ASCII `FlsGetValue`, and returns distinct endpoint
 thunk is reached for `FlsSetValue`. A twelfth checked stdcall preserves both
 prior endpoint stores, validates bounded ASCII `FlsSetValue`, and returns
 endpoint `0x7F020020`. BGI stores it at `0x100FEEC4`; five instructions later
-the same thunk is reached for `FlsFree`. Eleven static endpoints are declared; the
+the same thunk is reached for `FlsFree`. A thirteenth checked stdcall preserves
+all three prior stores and returns endpoint `0x7F020030`. BGI stores it at
+`0x100FEEC8`; twelve instructions later static thunk ID `70` is reached for
+`KERNEL32.dll!TlsAlloc`. Eleven static endpoints are declared; the
 other 319 retain exact identity as explicit traps. Memory generation remains
-`30` after all three generation-preserving lookups.
+`30` after all four generation-preserving lookups.
 
 The foundation below that checkpoint now has an incremental `MemoryDelta`
 protocol. The first transfer is a full snapshot; later generations carry only
@@ -69,8 +72,8 @@ The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next endpoint checkpoint is the fourth checked two-argument stdcall at
-thunk ID `150` for `GetProcAddress(logicalKernel32, "FlsFree")`.
+The next API checkpoint is zero-argument stdcall thunk ID `70` for
+`KERNEL32.dll!TlsAlloc`, after focused native result and first-consumer evidence.
 
 ## Requirements
 
@@ -162,6 +165,9 @@ returns endpoint `0x7F020010`, and stops at ID `150` for `FlsSetValue`.
 `npm run check:runtime:bgi-twelfth-win32-call` reconciles both prior endpoint
 stores, validates the next persistent ESI call and bounded ASCII `FlsSetValue`,
 returns endpoint `0x7F020020`, and stops at ID `150` for `FlsFree`.
+`npm run check:runtime:bgi-thirteenth-win32-call` verifies all three prior
+stores, returns `FlsFree` endpoint `0x7F020030`, observes its guest store, and
+stops at unsupported static thunk ID `70` for `TlsAlloc`.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

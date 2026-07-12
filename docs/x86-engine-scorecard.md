@@ -346,17 +346,23 @@ ID `2`／`0x7F020010`を返し、BGIのsecond store後5命令、entryから累�
 
 ID `3`／`0x7F020020`を返し、BGIのthird store後5命令、entryから累計146命令でsame ID `150`／`GetProcAddress(...,"FlsFree")`へ到達する。89,289-byte reportのSHA-256は`28aa2899a7e4fb403c5d839b21e0bb19c05563b9bd19604372bbf1a16a39fbb4`である。これはthird controlled dynamic lookup／two-page reconciliationであり、general dirty discovery、endpoint dispatch、FLS semanticsを実装しない。詳細は[v86-bgi-twelfth-win32-call.md](v86-bgi-twelfth-win32-call.md)を正とする。
 
-### B31. Browser Worker
+### B31. Thirteenth BGI Win32 call return: Verified ingress
+
+`npm run check:runtime:bgi-thirteenth-win32-call`はordered pageへID `4`／`FlsFree`を追加し、first three endpoints／storesを保持する。fourth ID `150`のpersistent ESI target、13-byte sequence、bounded ASCII name、generation `30`のstack／image pagesをadapterとRustで検査する。
+
+ID `4`／`0x7F020030`を返してBGI storeを観測し、12命令後、entryから累計158命令でstatic unsupported ID `70`／`TlsAlloc`へ到達する。103,179-byte reportのSHA-256は`1cfe9d56fd5c5f9494ffdcc017c6ad189e2900b70125f0eda67d3839326230d4`である。これはfourth controlled lookupであり、TLS／FLS semanticsを実装しない。詳細は[v86-bgi-thirteenth-win32-call.md](v86-bgi-thirteenth-win32-call.md)を正とする。
+
+### B32. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B32. Correctness と performance
+### B33. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first twelve checked stdcall returnsまで進んだ。次のadapter sliceはfourth exact thunk ID `150`のtwo-argument `GetProcAddress(logicalKernel32,"FlsFree")` stdcall returnである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first thirteen checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `70`のzero-argument `TlsAlloc` stdcall returnである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -392,10 +398,11 @@ adapter fixture は次の順に増やす。
 24. [Verified] exact `GetProcAddress` frameへidentity-preserving callable `FlsAlloc` endpointを返し、next trapを測る。
 25. [Verified] second `GetProcAddress` frameへdistinct `FlsGetValue` endpointを返し、next trapを測る。
 26. [Verified] third `GetProcAddress` frameへdistinct `FlsSetValue` endpointを返し、fourth lookupを測る。
-27. fourth `GetProcAddress` frameへdistinct `FlsFree` endpointを返し、next trapを測る。
-28. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-29. 同じfixtureをNodeとChromium Workerで実行する。
-30. adopted ISA fixtureとnormalized workloadを測定する。
+27. [Verified] fourth `GetProcAddress` frameへdistinct `FlsFree` endpointを返し、next trapを測る。
+28. `TlsAlloc`のnative result／first consumerを測定し、typed logical TLS indexを返してnext trapを測る。
+29. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
+30. 同じfixtureをNodeとChromium Workerで実行する。
+31. adopted ISA fixtureとnormalized workloadを測定する。
 
 ## 9. 採用 gate
 

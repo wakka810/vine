@@ -99,6 +99,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 
 `npm run check:runtime:bgi-twelfth-win32-call` adds the ordered `FlsSetValue` endpoint, verifies both prior guest stores, returns `0x7F020020`, and stops at ID `150` for `FlsFree`. The result is recorded in [v86-bgi-twelfth-win32-call.md](../../docs/v86-bgi-twelfth-win32-call.md).
 
+`npm run check:runtime:bgi-thirteenth-win32-call` adds the ordered `FlsFree` endpoint, verifies all prior guest stores, returns `0x7F020030`, and stops at static ID `70` for `TlsAlloc`. The result is recorded in [v86-bgi-thirteenth-win32-call.md](../../docs/v86-bgi-thirteenth-win32-call.md).
+
 ## Observed artifact
 
 The 2026-07-10 local build produced the following evidence. Compiler output hashes are observations, not a cross-platform reproducibility promise.

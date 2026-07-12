@@ -26,9 +26,14 @@ const dispatchGetProcAddressOnly = commandArguments.includes("--dispatch-get-pro
 const dispatchGetProcAddressSecondOnly = commandArguments.includes(
   "--dispatch-get-proc-address-second",
 );
-const dispatchGetProcAddressThird = commandArguments.includes(
+const dispatchGetProcAddressThirdOnly = commandArguments.includes(
   "--dispatch-get-proc-address-third",
 );
+const dispatchGetProcAddressFourth = commandArguments.includes(
+  "--dispatch-get-proc-address-fourth",
+);
+const dispatchGetProcAddressThird =
+  dispatchGetProcAddressThirdOnly || dispatchGetProcAddressFourth;
 const dispatchGetProcAddressSecond =
   dispatchGetProcAddressSecondOnly || dispatchGetProcAddressThird;
 const dispatchGetProcAddress = dispatchGetProcAddressOnly || dispatchGetProcAddressSecond;
@@ -101,8 +106,14 @@ assert.equal(
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-get-proc-address-third")
     .length,
-  Number(dispatchGetProcAddressThird),
+  Number(dispatchGetProcAddressThirdOnly),
   "--dispatch-get-proc-address-third may be specified only once",
+);
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-get-proc-address-fourth")
+    .length,
+  Number(dispatchGetProcAddressFourth),
+  "--dispatch-get-proc-address-fourth may be specified only once",
 );
 assert(
   Number(dispatchSystemTimeOnly) +
@@ -116,7 +127,8 @@ assert(
     Number(dispatchModuleHandleOnly) +
     Number(dispatchGetProcAddressOnly) +
     Number(dispatchGetProcAddressSecondOnly) +
-    Number(dispatchGetProcAddressThird) <=
+    Number(dispatchGetProcAddressThirdOnly) +
+    Number(dispatchGetProcAddressFourth) <=
     1,
   "dispatch modes are mutually exclusive",
 );
@@ -133,11 +145,12 @@ const positionalArguments = commandArguments.filter(
     argument !== "--dispatch-module-handle" &&
     argument !== "--dispatch-get-proc-address" &&
     argument !== "--dispatch-get-proc-address-second" &&
-    argument !== "--dispatch-get-proc-address-third",
+    argument !== "--dispatch-get-proc-address-third" &&
+    argument !== "--dispatch-get-proc-address-fourth",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address | --dispatch-get-proc-address-second | --dispatch-get-proc-address-third] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address | --dispatch-get-proc-address-second | --dispatch-get-proc-address-third | --dispatch-get-proc-address-fourth] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -150,7 +163,9 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchGetProcAddressThird
+  dispatchGetProcAddressFourth
+    ? "v86-bgi-thirteenth-win32-call"
+    : dispatchGetProcAddressThird
     ? "v86-bgi-twelfth-win32-call"
     : dispatchGetProcAddressSecond
     ? "v86-bgi-eleventh-win32-call"
@@ -354,7 +369,9 @@ const controlledDynamicExport = {
     module: "kernel32.dll",
     name: "FlsAlloc",
     lifetime: "process-runtime",
-    contentSha256: dispatchGetProcAddressThird
+    contentSha256: dispatchGetProcAddressFourth
+      ? "82ff4f595efb66795e9086158d940bdfb0f8e30a73d6d16879d599eb5afab615"
+      : dispatchGetProcAddressThird
       ? "3b6345284f0929d025fc45cb9ae5f1d720c7575ec110cb41e7fbcaaa2fad2439"
       : dispatchGetProcAddressSecond
       ? "bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc"
@@ -447,6 +464,40 @@ const controlledThirdDynamicExport = {
       { callerRva: 0x000a583c, symbol: "FlsGetValue" },
     ],
     followingLookups: [{ callerRva: 0x000a5856, symbol: "FlsFree" }],
+  },
+};
+const controlledFourthDynamicExport = {
+  owner: controlledDynamicExport.owner,
+  variantId: "getprocaddress-kernel32-flsfree-runtime-endpoint",
+  moduleHandle: controlledLoadedModule.handle,
+  canonicalModule: "kernel32.dll",
+  lookupKind: "name",
+  callVariant: "push-name-push-edi-store-prior-result-call-esi",
+  indirectCallRegister: "esi",
+  requestedName: "FlsFree",
+  resolvedName: "FlsFree",
+  firstEndpointStoreAddress: controlledThirdDynamicExport.firstEndpointStoreAddress,
+  secondEndpointStoreAddress: controlledThirdDynamicExport.secondEndpointStoreAddress,
+  thirdEndpointStoreAddress: controlledThirdDynamicExport.endpointStoreAddress,
+  endpointStoreAddress: 0x100feec8,
+  endpoint: {
+    ...controlledDynamicExport.endpoint,
+    id: 4,
+    address: 0x7f020030,
+    name: "FlsFree",
+  },
+  preserveLastError: true,
+  hostAddressImported: false,
+  nativeObservation: {
+    ...controlledDynamicExport.nativeObservation,
+    callerRva: 0x000a5856,
+    symbol: "FlsFree",
+    priorLookups: [
+      { callerRva: 0x000a582f, symbol: "FlsAlloc" },
+      { callerRva: 0x000a583c, symbol: "FlsGetValue" },
+      { callerRva: 0x000a5849, symbol: "FlsSetValue" },
+    ],
+    followingLookups: [],
   },
 };
 
@@ -573,7 +624,14 @@ const expected = {
     generation: 24,
   },
   dynamicExport: controlledDynamicExport.endpoint,
-  dynamicExports: dispatchGetProcAddressThird
+  dynamicExports: dispatchGetProcAddressFourth
+    ? [
+        controlledDynamicExport.endpoint,
+        controlledSecondDynamicExport.endpoint,
+        controlledThirdDynamicExport.endpoint,
+        controlledFourthDynamicExport.endpoint,
+      ]
+    : dispatchGetProcAddressThird
     ? [
         controlledDynamicExport.endpoint,
         controlledSecondDynamicExport.endpoint,
@@ -586,7 +644,9 @@ const expected = {
     reflectedPages: dispatchGetProcAddress ? 389 : 388,
     generation: dispatchGetProcAddress ? 27 : 24,
   },
-  reflectionContentSha256: dispatchGetProcAddressThird
+  reflectionContentSha256: dispatchGetProcAddressFourth
+    ? "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a"
+    : dispatchGetProcAddressThird
     ? "8025131a9a8687ec01f68969f6cda2c102eaff9258a45bfcd29c5c5c3ae4b344"
     : dispatchGetProcAddressSecond
     ? "de382ad25a1487a1c8b038f48eace933d0270cf745820419b776689c87a50eeb"
@@ -923,6 +983,41 @@ const expected = {
     reportBytes: 89_289,
     reportSha256: "28aa2899a7e4fb403c5d839b21e0bb19c05563b9bd19604372bbf1a16a39fbb4",
   },
+  thirteenthCall: {
+    offerLineBytes: 4_923_019,
+    reflectionReceiptLineBytes: 1_860,
+    requestLineBytes: 17_404,
+    receiptLineBytes: 3_736,
+    procedureNameBytesSha256: "b25da59ca0b82d9b4b8ddb0a22566cbce73af231e364ed982046c841b26c8dd8",
+    stackPageContentSha256: "ecbad1e057c0e424b1bdc8c863bd9a4ae85d77f6bee312ce7ea02704160dedf8",
+    stackReconciledChangedBytes: 2,
+    endpointStorePageContentSha256: "c166a29b61c167001046de381b7dd5ba238ef5e5694021a152d626c9024ca7d0",
+    endpointStoreReconciledChangedBytes: 3,
+    nextTerminal: {
+      kind: "owned-import-thunk",
+      thunk: {
+        id: 70,
+        address: 0x7f000450,
+        requesterOwner: 1,
+        module: "KERNEL32.dll",
+        iatRva: 0x000d11c0,
+        iatAddress: 0x100d11c0,
+        originalIatValue: 0x000efb12,
+        disposition: "unsupported-trap",
+        kind: "name",
+        name: "TlsAlloc",
+        hint: 1221,
+        nameRva: 0x000efb12,
+      },
+      returnAddress: 0x100a58aa,
+      stackWords: [0x100a58aa, 0, 0, 0x100a375b, 0xe93f6d87, 0, 0, 0],
+    },
+    instructionCount: 158,
+    executeStops: 12,
+    budgetStops: 11,
+    reportBytes: 103_179,
+    reportSha256: "1cfe9d56fd5c5f9494ffdcc017c6ad189e2900b70125f0eda67d3839326230d4",
+  },
 };
 
 const page = {
@@ -1181,6 +1276,9 @@ async function run() {
     ...(dispatchGetProcAddressThird
       ? ["--get-proc-address-third-return-session"]
       : []),
+    ...(dispatchGetProcAddressFourth
+      ? ["--get-proc-address-fourth-return-session"]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -1376,6 +1474,16 @@ async function run() {
           execution: secondDynamicExport.continuation,
           nextMessage,
           offer,
+          continueSession: dispatchGetProcAddressFourth,
+        })
+      : null;
+    const fourthDynamicExport = dispatchGetProcAddressFourth
+      ? await dispatchThirteenthGetProcAddressCall({
+          child,
+          context,
+          execution: thirdDynamicExport.continuation,
+          nextMessage,
+          offer,
         })
       : null;
     const processExit = await exit;
@@ -1385,7 +1493,33 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchGetProcAddressThird
+    const report = dispatchGetProcAddressFourth
+      ? buildThirteenthGetProcAddressReport({
+          context,
+          dynamicExport,
+          execution,
+          fourthDynamicExport,
+          heapPolicy,
+          invalidationCalls,
+          loadedModule,
+          monotonicClock,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          performanceCounter,
+          privateHeap,
+          processIdentity,
+          processStartup,
+          receipt,
+          receiptMessage,
+          secondDynamicExport,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+          thirdDynamicExport,
+          threadIdentity,
+        })
+      : dispatchGetProcAddressThird
       ? buildTwelfthGetProcAddressReport({
           context,
           dynamicExport,
@@ -1690,7 +1824,9 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchGetProcAddressThird
+    const expectedReport = dispatchGetProcAddressFourth
+      ? { bytes: expected.thirteenthCall.reportBytes, sha256: expected.thirteenthCall.reportSha256 }
+      : dispatchGetProcAddressThird
       ? { bytes: expected.twelfthCall.reportBytes, sha256: expected.twelfthCall.reportSha256 }
       : dispatchGetProcAddressSecond
       ? { bytes: expected.eleventhCall.reportBytes, sha256: expected.eleventhCall.reportSha256 }
@@ -1720,7 +1856,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchGetProcAddressThird) {
+    if (dispatchGetProcAddressFourth) {
+      console.log(
+        `v86 BGI thirteenth Win32 call passed: dynamic export endpoint ` +
+          `0x${fourthDynamicExport.endpoint.address.toString(16)}, next terminal ` +
+          `${fourthDynamicExport.continuation.terminal.kind} after ` +
+          `${fourthDynamicExport.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchGetProcAddressThird) {
       console.log(
         `v86 BGI twelfth Win32 call passed: dynamic export endpoint ` +
           `0x${thirdDynamicExport.endpoint.address.toString(16)}, next thunk ID ` +
@@ -1982,7 +2125,9 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchGetProcAddressThird
+  const expectedOfferLineBytes = dispatchGetProcAddressFourth
+    ? expected.thirteenthCall.offerLineBytes
+    : dispatchGetProcAddressThird
     ? expected.twelfthCall.offerLineBytes
     : dispatchGetProcAddressSecond
     ? expected.eleventhCall.offerLineBytes
@@ -2392,6 +2537,12 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
         0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
       );
     }
+    if (dispatchGetProcAddressFourth) {
+      expectedPrefix.push(
+        0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+        0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+      );
+    }
     assert.deepEqual(receipt.dynamicExportPagePrefixBytes, expectedPrefix);
   } else {
     assert.equal(receipt.dynamicExportPagePrefixBytes, undefined);
@@ -2437,7 +2588,9 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
   assert.equal(offer.reflection.invalidation.generation, receipt.acknowledgedGeneration);
-  const expectedReceiptLineBytes = dispatchGetProcAddressThird
+  const expectedReceiptLineBytes = dispatchGetProcAddressFourth
+    ? expected.thirteenthCall.reflectionReceiptLineBytes
+    : dispatchGetProcAddressThird
     ? expected.twelfthCall.reflectionReceiptLineBytes
     : dispatchGetProcAddressSecond
     ? expected.eleventhCall.reflectionReceiptLineBytes
@@ -4901,6 +5054,7 @@ async function dispatchTwelfthGetProcAddressCall({
   execution,
   nextMessage,
   offer,
+  continueSession,
 }) {
   const trapped = execution.finalState;
   const argumentBytes = 8;
@@ -5047,7 +5201,11 @@ async function dispatchTwelfthGetProcAddressCall({
   if (expected.twelfthCall.requestLineBytes !== null) {
     assert.equal(Buffer.byteLength(requestLine) - 1, expected.twelfthCall.requestLineBytes);
   }
-  child.stdin.end(requestLine);
+  if (continueSession) {
+    child.stdin.write(requestLine);
+  } else {
+    child.stdin.end(requestLine);
+  }
 
   const receiptMessage = await nextMessage("third GetProcAddress return receipt");
   const receipt = receiptMessage.message;
@@ -5200,6 +5358,332 @@ async function dispatchTwelfthGetProcAddressCall({
     resume,
     endpointStore: {
       address: controlledThirdDynamicExport.endpointStoreAddress,
+      value: endpointStoreValue,
+    },
+    continuation,
+  };
+}
+
+async function dispatchThirteenthGetProcAddressCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+}) {
+  const trapped = execution.finalState;
+  const argumentBytes = 8;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4 + argumentBytes,
+    "read",
+    "fourth GetProcAddress stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "fourth GetProcAddress return address",
+  );
+  const moduleHandle = context.readVirtualU32(
+    trapped.esp + 4,
+    "fourth GetProcAddress module handle",
+  );
+  const procedureNameAddress = context.readVirtualU32(
+    trapped.esp + 8,
+    "fourth GetProcAddress procedure name address",
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  assert.equal(moduleHandle, controlledFourthDynamicExport.moduleHandle.value);
+  assert(procedureNameAddress > 0xffff, "fourth GetProcAddress lookup must be by name");
+  const procedureNameByteLength = controlledFourthDynamicExport.requestedName.length + 1;
+  const procedureNamePages = context.preflightVirtualRange(
+    procedureNameAddress,
+    procedureNameByteLength,
+    "read",
+    "fourth GetProcAddress ASCII procedure name",
+  );
+  assert.equal(procedureNamePages.length, 1);
+  assert.equal(procedureNamePages[0].owner, expected.image.owner);
+  const procedureNameBytes = context.readVirtualBytes(
+    procedureNameAddress,
+    procedureNameByteLength,
+    "fourth GetProcAddress ASCII procedure name bytes",
+  );
+  assert.equal(procedureNameBytes.at(-1), 0);
+  const procedureName = Buffer.from(procedureNameBytes.subarray(0, -1)).toString("ascii");
+  assert.equal(procedureName, controlledFourthDynamicExport.requestedName);
+  const procedureNameBytesSha256 = sha256(procedureNameBytes);
+
+  const callSequenceAddress = returnAddress - 13;
+  const callSequence = context.readVirtualBytes(
+    callSequenceAddress,
+    13,
+    "fourth GetProcAddress persistent-register call sequence",
+  );
+  const callView = new DataView(
+    callSequence.buffer,
+    callSequence.byteOffset,
+    callSequence.byteLength,
+  );
+  assert.equal(callSequence[0], 0x68);
+  assert.equal(callView.getUint32(1, true), procedureNameAddress);
+  assert.equal(callSequence[5], 0x57);
+  assert.equal(callSequence[6], 0xa3);
+  const thirdEndpointStoreAddress = callView.getUint32(7, true);
+  assert.equal(
+    thirdEndpointStoreAddress,
+    controlledFourthDynamicExport.thirdEndpointStoreAddress,
+  );
+  assert.deepEqual([...callSequence.subarray(11, 13)], [0xff, 0xd6]);
+  assert.equal(trapped.esi, expected.twelfthCall.nextThunk.identity.address);
+  assert.equal(
+    context.readVirtualU32(
+      expected.twelfthCall.nextThunk.identity.iatAddress,
+      "fourth GetProcAddress bound IAT",
+    ),
+    expected.twelfthCall.nextThunk.identity.address,
+  );
+
+  const endpointStorePages = context.preflightVirtualRange(
+    controlledFourthDynamicExport.firstEndpointStoreAddress,
+    12,
+    "write",
+    "BGI prior dynamic endpoint stores",
+  );
+  assert.equal(endpointStorePages.length, 1);
+  assert.equal(endpointStorePages[0].owner, expected.image.owner);
+  assert.equal(endpointStorePages[0].protection.execute, false);
+  const firstEndpointStoreValue = context.readVirtualU32(
+    controlledFourthDynamicExport.firstEndpointStoreAddress,
+    "stored first dynamic endpoint before fourth lookup",
+  );
+  const secondEndpointStoreValue = context.readVirtualU32(
+    controlledFourthDynamicExport.secondEndpointStoreAddress,
+    "stored second dynamic endpoint before fourth lookup",
+  );
+  const thirdEndpointStoreValue = context.readVirtualU32(
+    controlledFourthDynamicExport.thirdEndpointStoreAddress,
+    "stored third dynamic endpoint before fourth lookup",
+  );
+  assert.equal(firstEndpointStoreValue, controlledDynamicExport.endpoint.address);
+  assert.equal(secondEndpointStoreValue, controlledSecondDynamicExport.endpoint.address);
+  assert.equal(thirdEndpointStoreValue, controlledThirdDynamicExport.endpoint.address);
+  const endpointStorePageAddress =
+    (controlledFourthDynamicExport.firstEndpointStoreAddress & ~(page.size - 1)) >>> 0;
+  const endpointStorePageBytes = context.readVirtualBytes(
+    endpointStorePageAddress,
+    page.size,
+    "current v86 prior endpoint store page",
+  );
+  const endpointStorePageContentSha256 = sha256(endpointStorePageBytes);
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before fourth GetProcAddress return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-get-proc-address-fourth-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.sixthCall.deltaGeneration,
+    thunkId: expected.twelfthCall.nextThunk.identity.id,
+    thunkAddress: expected.twelfthCall.nextThunk.identity.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes,
+    stackPageAddress,
+    stackPageOwner: expected.stack.owner,
+    stackPageBytes: [...stackPageBytes],
+    endpointStorePageAddress,
+    endpointStorePageOwner: endpointStorePages[0].owner,
+    endpointStorePageBytes: [...endpointStorePageBytes],
+    dynamicExportOwner: controlledFourthDynamicExport.owner,
+    variantId: controlledFourthDynamicExport.variantId,
+    moduleHandle,
+    lookupKind: controlledFourthDynamicExport.lookupKind,
+    callVariant: controlledFourthDynamicExport.callVariant,
+    indirectCallRegister: controlledFourthDynamicExport.indirectCallRegister,
+    indirectCallTarget: trapped.esi,
+    procedureNameAddress,
+    procedureName,
+    firstEndpointAddress: controlledDynamicExport.endpoint.address,
+    secondEndpointAddress: controlledSecondDynamicExport.endpoint.address,
+    thirdEndpointAddress: controlledThirdDynamicExport.endpoint.address,
+    firstEndpointStoreAddress: controlledFourthDynamicExport.firstEndpointStoreAddress,
+    secondEndpointStoreAddress: controlledFourthDynamicExport.secondEndpointStoreAddress,
+    thirdEndpointStoreAddress,
+    preserveLastError: controlledFourthDynamicExport.preserveLastError,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 96 * 1024);
+  if (expected.thirteenthCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.thirteenthCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("fourth GetProcAddress return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-get-proc-address-fourth-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  validateThunk(receipt.thunk, expected.twelfthCall.nextThunk.identity, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, argumentBytes);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.equal(receipt.procedureNameAddress, procedureNameAddress);
+  assert.deepEqual(receipt.procedureNameBytes, [...procedureNameBytes]);
+  assert.equal(receipt.indirectCallRegister, controlledFourthDynamicExport.indirectCallRegister);
+  assert.equal(receipt.indirectCallTarget, trapped.esi);
+  assert.deepEqual(receipt.resolution, {
+    owner: controlledFourthDynamicExport.owner,
+    variantId: controlledFourthDynamicExport.variantId,
+    moduleHandle: controlledFourthDynamicExport.moduleHandle,
+    canonicalModule: controlledFourthDynamicExport.canonicalModule,
+    lookupKind: controlledFourthDynamicExport.lookupKind,
+    callVariant: controlledFourthDynamicExport.callVariant,
+    requestedName: controlledFourthDynamicExport.requestedName,
+    resolvedName: controlledFourthDynamicExport.resolvedName,
+    endpointNamespace: controlledFourthDynamicExport.endpoint.namespace,
+    endpointLifetime: controlledFourthDynamicExport.endpoint.lifetime,
+    hostAddressImported: controlledFourthDynamicExport.hostAddressImported,
+  });
+  assert.deepEqual(receipt.firstEndpoint, controlledDynamicExport.endpoint);
+  assert.equal(
+    receipt.firstEndpointStoreAddress,
+    controlledFourthDynamicExport.firstEndpointStoreAddress,
+  );
+  assert.equal(receipt.firstEndpointStoreValue, firstEndpointStoreValue);
+  assert.deepEqual(receipt.secondEndpoint, controlledSecondDynamicExport.endpoint);
+  assert.equal(
+    receipt.secondEndpointStoreAddress,
+    controlledFourthDynamicExport.secondEndpointStoreAddress,
+  );
+  assert.equal(receipt.secondEndpointStoreValue, secondEndpointStoreValue);
+  assert.deepEqual(receipt.thirdEndpoint, controlledThirdDynamicExport.endpoint);
+  assert.equal(receipt.thirdEndpointStoreAddress, thirdEndpointStoreAddress);
+  assert.equal(receipt.thirdEndpointStoreValue, thirdEndpointStoreValue);
+  assert.deepEqual(receipt.endpoint, controlledFourthDynamicExport.endpoint);
+  assert.equal(receipt.preserveLastError, controlledFourthDynamicExport.preserveLastError);
+  assert.equal(receipt.result, controlledFourthDynamicExport.endpoint.address);
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(receipt.stackReconciliation.changedBytes > 0);
+  assert.deepEqual(receipt.endpointStoreReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: endpointStorePageAddress,
+    owner: expected.image.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.endpointStoreReconciliation.changedBytes,
+    contentSha256: endpointStorePageContentSha256,
+  });
+  assert(receipt.endpointStoreReconciliation.changedBytes > 0);
+  if (expected.thirteenthCall.stackReconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.thirteenthCall.stackReconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.thirteenthCall.stackPageContentSha256);
+    assert.equal(
+      receipt.endpointStoreReconciliation.changedBytes,
+      expected.thirteenthCall.endpointStoreReconciledChangedBytes,
+    );
+    assert.equal(
+      endpointStorePageContentSha256,
+      expected.thirteenthCall.endpointStorePageContentSha256,
+    );
+    assert.equal(
+      procedureNameBytesSha256,
+      expected.thirteenthCall.procedureNameBytesSha256,
+    );
+  }
+  assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.thirteenthCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.thirteenthCall.receiptLineBytes);
+  }
+
+  const resume = resumeFourthGetProcAddressStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    receipt.result,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const endpointStoreValue = context.readVirtualU32(
+    controlledFourthDynamicExport.endpointStoreAddress,
+    "stored fourth dynamic endpoint",
+  );
+  assert.equal(endpointStoreValue, controlledFourthDynamicExport.endpoint.address);
+  if (expected.thirteenthCall.nextTerminal !== null) {
+    assert.deepEqual(continuation.terminal, expected.thirteenthCall.nextTerminal);
+  }
+  if (expected.thirteenthCall.instructionCount !== null) {
+    assert.equal(continuation.instructionCount, expected.thirteenthCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.thirteenthCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.thirteenthCall.budgetStops);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      arguments: [moduleHandle, procedureNameAddress],
+      stackPageAddress: request.stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      endpointStorePageAddress,
+      endpointStorePageOwner: request.endpointStorePageOwner,
+      endpointStorePageContentSha256,
+      lookupKind: request.lookupKind,
+      callVariant: request.callVariant,
+      indirectCallRegister: request.indirectCallRegister,
+      indirectCallTarget: request.indirectCallTarget,
+      procedureNameAddress,
+      procedureName,
+      procedureNameBytes: [...procedureNameBytes],
+      procedureNameBytesSha256,
+      firstEndpointAddress: request.firstEndpointAddress,
+      firstEndpointStoreAddress: request.firstEndpointStoreAddress,
+      firstEndpointStoreValue,
+      secondEndpointAddress: request.secondEndpointAddress,
+      secondEndpointStoreAddress: request.secondEndpointStoreAddress,
+      secondEndpointStoreValue,
+      thirdEndpointAddress: request.thirdEndpointAddress,
+      thirdEndpointStoreAddress,
+      thirdEndpointStoreValue,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    resolution: {
+      ...receipt.resolution,
+      preserveLastError: receipt.preserveLastError,
+      nativeObservation: controlledFourthDynamicExport.nativeObservation,
+    },
+    firstEndpoint: receipt.firstEndpoint,
+    secondEndpoint: receipt.secondEndpoint,
+    thirdEndpoint: receipt.thirdEndpoint,
+    endpoint: receipt.endpoint,
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    endpointStore: {
+      address: controlledFourthDynamicExport.endpointStoreAddress,
       value: endpointStoreValue,
     },
     continuation,
@@ -5515,6 +5999,36 @@ function resumeThirdGetProcAddressStdcallResult(
   };
 }
 
+function resumeFourthGetProcAddressStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  result,
+) {
+  const argumentBytes = 8;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "fourth GetProcAddress",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: controlledFourthDynamicExport.owner,
+    endpointNamespace: controlledFourthDynamicExport.endpoint.namespace,
+    lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
+  };
+}
+
 function restoreStdcall(context, trapped, returnAddress, argumentBytes, eax, label) {
   context.wasm.vine_cpu_state_save();
   const words = new Uint32Array(
@@ -5595,7 +6109,6 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
     break;
   }
   assert(terminal, "BGI continuation exhausted its bounded window without a terminal stop");
-  assert.equal(terminal.kind, "owned-import-thunk", "BGI continuation did not reach an import");
   return {
     instructionBudget: guest.instructionBudget,
     maximumExecuteStops: guest.maximumExecuteStops,
@@ -6262,6 +6775,73 @@ function buildTwelfthGetProcAddressReport({
       code: "next-runtime-reachable-owned-import-trap",
       message:
         "BGI returned from twelve checked Kernel32 calls through GetProcAddress(FlsSetValue), preserved all three dynamic endpoints, and reached GetProcAddress(FlsFree) without dispatching it",
+    },
+  };
+}
+
+function buildThirteenthGetProcAddressReport({
+  fourthDynamicExport,
+  ...twelfthCallArguments
+}) {
+  const twelfthCall = buildTwelfthGetProcAddressReport(twelfthCallArguments);
+  return {
+    schema: "vine.v86-bgi-thirteenth-win32-call",
+    schemaVersion: 1,
+    source: twelfthCall.source,
+    sourceSnapshot: twelfthCall.sourceSnapshot,
+    contract: {
+      ...twelfthCall.contract,
+      dynamicExportEndpoints: 4,
+      firstThreeDynamicExportsPreservedInGuestMemory: true,
+      supportedServiceDispatches: 13,
+    },
+    bootstrap: twelfthCall.bootstrap,
+    imports: twelfthCall.imports,
+    dynamicExportEndpoints: twelfthCallArguments.offer.dynamicExportThunks,
+    adapter: twelfthCall.adapter,
+    reflection: twelfthCall.reflection,
+    firstTrap: twelfthCall.firstTrap,
+    systemTime: twelfthCall.systemTime,
+    firstContinuation: twelfthCall.firstContinuation,
+    processId: twelfthCall.processId,
+    secondContinuation: twelfthCall.secondContinuation,
+    threadId: twelfthCall.threadId,
+    thirdContinuation: twelfthCall.thirdContinuation,
+    tickCount: twelfthCall.tickCount,
+    fourthContinuation: twelfthCall.fourthContinuation,
+    performanceCounter: twelfthCall.performanceCounter,
+    fifthContinuation: twelfthCall.fifthContinuation,
+    startupInfo: twelfthCall.startupInfo,
+    sixthContinuation: twelfthCall.sixthContinuation,
+    heapSetInformation: twelfthCall.heapSetInformation,
+    seventhContinuation: twelfthCall.seventhContinuation,
+    heapCreate: twelfthCall.heapCreate,
+    eighthContinuation: twelfthCall.eighthContinuation,
+    getModuleHandleW: twelfthCall.getModuleHandleW,
+    ninthContinuation: twelfthCall.ninthContinuation,
+    firstGetProcAddress: twelfthCall.firstGetProcAddress,
+    tenthContinuation: twelfthCall.tenthContinuation,
+    secondGetProcAddress: twelfthCall.secondGetProcAddress,
+    eleventhContinuation: twelfthCall.eleventhContinuation,
+    thirdGetProcAddress: twelfthCall.thirdGetProcAddress,
+    twelfthContinuation: twelfthCall.continuation,
+    fourthGetProcAddress: {
+      request: fourthDynamicExport.request,
+      resolution: fourthDynamicExport.resolution,
+      firstEndpoint: fourthDynamicExport.firstEndpoint,
+      secondEndpoint: fourthDynamicExport.secondEndpoint,
+      thirdEndpoint: fourthDynamicExport.thirdEndpoint,
+      endpoint: fourthDynamicExport.endpoint,
+      receipt: fourthDynamicExport.receipt,
+      resume: fourthDynamicExport.resume,
+      endpointStore: fourthDynamicExport.endpointStore,
+    },
+    continuation: fourthDynamicExport.continuation,
+    stop: {
+      stage: "runtime-trap",
+      code: "next-runtime-reachable-owned-trap",
+      message:
+        "BGI returned from thirteen checked Kernel32 calls through GetProcAddress(FlsFree), preserved all four dynamic endpoints, and reached the next identity-owned runtime trap without dispatching it",
     },
   };
 }

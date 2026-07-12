@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: 1 人の個人開発、primary corpus、full-play goal、Rust + TypeScript、static dependency inventory、LLVM baseline、Windows trace v1／v2、selected IDirect3D9 root、W1／W2／W3、high-address memory、Rust production memory／PE loader ingress、BGI firstからtwelfth Win32 call returnは確定。TypeScript／Wasm browser boundary、device-level trace、general runtime／browser appは未確定
+- 現状: 1 人の個人開発、primary corpus、full-play goal、Rust + TypeScript、static dependency inventory、LLVM baseline、Windows trace v1／v2、selected IDirect3D9 root、W1／W2／W3、high-address memory、Rust production memory／PE loader ingress、BGI firstからthirteenth Win32 call returnは確定。TypeScript／Wasm browser boundary、device-level trace、general runtime／browser appは未確定
 
 この文書は、不確実性を TODO のまま埋め込まず、実装を進める条件と見直す条件を明確にする。所有者欄の role は別人を意味せず、単一 maintainer が判断時に切り替える責任観点を示す。
 
@@ -52,7 +52,7 @@
 | ID | Status | 問い | 暫定方針 | 解決に必要な証拠 | 期限 | Owner role |
 |---|---|---|---|---|---|---|
 | Q-010 | Investigating | core の言語 ownership、workspace、Wasm toolchain は何か | Rust は CPU／memory／PE／ABI core、TypeScript は Windows API facade／browser backend／UI／toolingを担当する。root Rust workspaceは成立済みだが、Rust coreのWasm packagingとTypeScript／Worker boundaryは未固定 | [toolchain-spike.md](toolchain-spike.md)、最初のRust Wasm／TypeScript workspace build | Phase 0 | Runtime lead |
-| Q-011 | Investigating | x86 engine は既存 engine、独自 interpreter、hybrid のどれか | v86を交換可能なworking baselineとして使う。fixed T1のcdecl／callback、BGI 388-page first nine returns、389-page twelfth returnは通った。具体的なblockerがない限り他候補の比較や自作をactive workにせず、最終固定はgeneral memory、browser Worker、ISA／performance spike後 | [x86-engine-scorecard.md](x86-engine-scorecard.md)、W1／BGI result、ISA tests、browser benchmark | Phase 0 | CPU lead |
+| Q-011 | Investigating | x86 engine は既存 engine、独自 interpreter、hybrid のどれか | v86を交換可能なworking baselineとして使う。fixed T1のcdecl／callback、BGI 388-page first nine returns、389-page thirteenth returnは通った。具体的なblockerがない限り他候補の比較や自作をactive workにせず、最終固定はgeneral memory、browser Worker、ISA／performance spike後 | [x86-engine-scorecard.md](x86-engine-scorecard.md)、W1／BGI result、ISA tests、browser benchmark | Phase 0 | CPU lead |
 | Q-012 | Open | optimized execution は threaded interpreter、IR、DBT、generated Wasm のどれか | Phase 1 は baseline interpreter。性能不足が測定された hot path だけを最適化 | cold／warm benchmark、CSP、cache invalidation、differential trace | Phase 1 gate | CPU lead |
 | Q-013 | Investigating | 4 GiB guest VA をどう表現するか | high-address spike、controlled reflection、dirty-page `MemoryDelta` roundtrip、VGA MMIO holeを除外したBGI 388-page transfer、generation／owner付きone-page reconciliationにより、Vine region table＋bounded physical allocatorをv86 pagingへ反映する案をprovisional candidateとした。Wasm offsetとの1:1 mappingは避ける | [adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md)、automatic v86 writeback、mapped file、memory pressure／Worker spike | Phase 0 | Runtime lead |
 | Q-014 | Investigating | page size、protection、guard、self-modifying code policy は何か | 4 KiB region／page metadataとtransactional invalidationをbaseline候補とする。controlled TLB／generated-code ackは成立したがcurrent v86にnative execute protectionがないためadapter fetch gateが必須 | [adr-003-guest-memory.md](adr-003-guest-memory.md)、execute／guard／write-to-code／snapshot fixture | Phase 1 | CPU + Memory owners |
