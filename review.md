@@ -1135,6 +1135,28 @@ instruction 1395のID `94`／`GetStdHandle(STD_INPUT_HANDLE)`でstructured
 先行8 reportsはbyte-identicalである。次はreached standard input handleだけをnative
 測定／logical process stateへ接続し、host handleやfile I/Oを先取りしない。
 
+### Step 18 — reached standard input handle
+
+**完了（2026-07-13）:** focused `standard-handle` trace 2件でBGI caller return RVA
+`0xA87B6`の`GetStdHandle(STD_INPUT_HANDLE)`がnonnull native result `0x208`を返し、
+LastError `87 -> 87`を保持することを固定した。Static 17-byte consumerはresultをEDIへ
+保持し、`INVALID_HANDLE_VALUE`／NULLを排除して`GetFileType`へ渡す。Native handle値は
+process固有なのでdiscardする。
+
+`kernel32.get-std-handle-input.v1`はselector `0xFFFFFFF6`だけをacceptし、process-owned
+namespace `vine.logical-standard-handle.v1`へstable logical stdin `0x53010001`を遅延登録する。
+Representative public testはidentity reuse、one-argument stdcall、LastError preserve、memory
+不変、standard output selectorのmutation-free rejectionを固定する。Empty registryはserialize
+しないため先行reportsを変えない。
+
+same generic sessionは22 contracts／52 calls、53 writeback batches／90 dirty pages／911
+changed bytes、27 host deltas、final generation `109`を通した。API自身のguest write／host
+deltaは0である。instruction 1403のID `101`／`GetFileType(0x53010001)`でstructured
+`endpoint-contract-missing`停止した。243,749-byte reportのSHA-256は
+`5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e`である。
+先行9 reportsはbyte-identicalである。次はreached stdin file typeだけをnative測定／logical
+classificationへ接続し、read／write、console、output／error variantsを先取りしない。
+
 ---
 
 ## 8. P0完了のDefinition of Done

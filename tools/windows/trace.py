@@ -24,6 +24,7 @@ SUPPORTED_OBSERVATIONS = (
     "pointer-encoding",
     "critical-section",
     "interlocked-increment",
+    "standard-handle",
 )
 
 

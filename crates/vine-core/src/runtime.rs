@@ -33,6 +33,7 @@ pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1
 pub const LOGICAL_TLS_INDEX_NAMESPACE: &str = "vine.logical-tls-index.v1";
 pub const LOGICAL_FLS_INDEX_NAMESPACE: &str = "vine.logical-fls-index.v1";
 pub const LOGICAL_ENCODED_POINTER_NAMESPACE: &str = "vine.logical-encoded-pointer.v1";
+pub const LOGICAL_STANDARD_HANDLE_NAMESPACE: &str = "vine.logical-standard-handle.v1";
 pub const RUNTIME_PROCESS_OBJECT_NAMESPACE: &str = "vine.runtime-process-object.v1";
 pub const RUNTIME_THREAD_OBJECT_NAMESPACE: &str = "vine.runtime-thread-object.v1";
 pub const RUNTIME_PRIVATE_HEAP_ARENA_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -48,10 +49,14 @@ pub const RUNTIME_FLS_INDEX_LIMIT: u32 = 128;
 pub const X86_STARTUP_INFO_W_BYTE_LENGTH: usize = 68;
 pub const X86_CRITICAL_SECTION_BYTE_LENGTH: usize = 24;
 pub const RUNTIME_CRITICAL_SECTION_LIMIT: usize = 4096;
+pub const RUNTIME_STANDARD_INPUT_SELECTOR: u32 = 0xffff_fff6;
+pub const RUNTIME_STANDARD_INPUT_HANDLE: u32 = 0x5301_0001;
 
 const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
 const RUNTIME_PRIVATE_HEAP_OWNER: &str = "runtime-process-private-heaps";
 const RUNTIME_PRIVATE_HEAP_VARIANT: &str = "heap-create-metadata-v1";
+const RUNTIME_STANDARD_HANDLE_OWNER: &str = "runtime-process-standard-handles";
+const RUNTIME_STANDARD_INPUT_VARIANT: &str = "standard-input-logical-v1";
 const MAX_RUNTIME_THREAD_MESSAGES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -938,6 +943,16 @@ pub struct RuntimeHeap {
     pub live_allocations: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeStandardHandle {
+    pub owner: String,
+    pub variant_id: String,
+    pub namespace: String,
+    pub handle: u32,
+    pub selector: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct RuntimeHeapAllocationId(pub u64);
@@ -1478,6 +1493,8 @@ pub struct RuntimeProcessState {
     pub allocated_tls_indices: BTreeSet<u32>,
     pub fls_slots: BTreeMap<u32, RuntimeFlsSlot>,
     pub critical_sections: BTreeMap<GuestAddress, RuntimeCriticalSection>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub standard_handles: BTreeMap<u32, RuntimeStandardHandle>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1594,6 +1611,7 @@ impl RuntimeState {
                 allocated_tls_indices: BTreeSet::new(),
                 fls_slots: BTreeMap::new(),
                 critical_sections: BTreeMap::new(),
+                standard_handles: BTreeMap::new(),
             },
             threads: BTreeMap::from([(bootstrap.initial_thread_id, initial_thread)]),
             scheduler: RuntimeScheduler {
@@ -2356,6 +2374,56 @@ impl RuntimeState {
 
     pub fn set_heap_termination_on_corruption(&mut self, enabled: bool) {
         self.process.heap_termination_on_corruption = enabled;
+    }
+
+    pub fn ensure_standard_input_handle(
+        &mut self,
+        selector: u32,
+    ) -> Result<&RuntimeStandardHandle, RuntimeStateError> {
+        if selector != RUNTIME_STANDARD_INPUT_SELECTOR {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-standard-handle",
+                "standard-handle-selector-unsupported",
+                "only the reached standard input selector is supported",
+            ));
+        }
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-standard-handle",
+                "standard-handle-lifecycle-state-invalid",
+                "standard handle lookup requires a running process and thread",
+            ));
+        }
+        Ok(self
+            .process
+            .standard_handles
+            .entry(selector)
+            .or_insert_with(|| RuntimeStandardHandle {
+                owner: RUNTIME_STANDARD_HANDLE_OWNER.to_owned(),
+                variant_id: RUNTIME_STANDARD_INPUT_VARIANT.to_owned(),
+                namespace: LOGICAL_STANDARD_HANDLE_NAMESPACE.to_owned(),
+                handle: RUNTIME_STANDARD_INPUT_HANDLE,
+                selector,
+            }))
+    }
+
+    pub fn standard_handle_by_value(
+        &self,
+        handle: u32,
+    ) -> Result<&RuntimeStandardHandle, RuntimeStateError> {
+        self.process
+            .standard_handles
+            .values()
+            .find(|standard_handle| standard_handle.handle == handle)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-standard-handle",
+                    "standard-handle-unknown",
+                    format!("logical standard handle {handle:#010x} is not registered"),
+                )
+            })
     }
 
     pub fn create_heap(&mut self, heap: RuntimeHeap) -> Result<&RuntimeHeap, RuntimeStateError> {

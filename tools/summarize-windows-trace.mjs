@@ -20,6 +20,7 @@ const supportedObservations = new Set([
   "pointer-encoding",
   "critical-section",
   "interlocked-increment",
+  "standard-handle",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

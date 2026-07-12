@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, and second private-heap allocation capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, and standard-input-handle capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-private-heap-second-allocation`
-- Scope: frozen 17-call equivalence plus 51 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-standard-input-handle`
+- Scope: frozen 17-call equivalence plus 52 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -57,13 +57,14 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `FlsSetValue` | 1 | stores an opaque value in the selected thread's allocated FLS slot |
 | `HeapAlloc` | 2 | allocates the first two reached zeroed blocks through transactional guest-memory backing |
 | `InterlockedIncrement` | 3 | performs a checked wrapping LONG update in guest memory |
+| `GetStdHandle` | 1 | returns the process-owned logical standard input identity |
 
-All 21 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 22 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-51 BGI calls, including six `EncodePointer` occurrences, 14 critical-section
+52 BGI calls, including six `EncodePointer` occurrences, 14 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
 two `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
-critical-section／thread／startup occurrences.
+critical-section／thread／startup occurrences plus one `GetStdHandle`.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The title harness still performs callsite provenance checks, automatic
 v86 dirty-page synchronization, and evidence serialization around the common
@@ -111,6 +112,7 @@ npm run check:runtime:bgi-private-heap-allocation
 npm run check:runtime:bgi-fiber-local-storage-value
 npm run check:runtime:bgi-interlocked-increment
 npm run check:runtime:bgi-private-heap-second-allocation
+npm run check:runtime:bgi-standard-input-handle
 ```
 
 ## RuntimeState authority
@@ -126,6 +128,7 @@ One `RuntimeState` is created at cumulative-session start. It owns:
   guest cleanup callbacks.
 - bounded private-heap backing and reached guest allocation metadata, with
   `GuestMemory` as byte and mapping authority.
+- the reached process standard input identity, without importing a host handle.
 
 The Rust profile preloads the logical runtime KERNEL32 module and installed FLS endpoints. `HeapCreate` and `TlsAlloc` allocate through runtime-owned deterministic allocators. `GetModuleHandleW` and `GetProcAddress` resolve state by canonical module and exact export name. No handler receives a result value from the JSON protocol.
 
@@ -133,7 +136,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 21 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 22 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -145,14 +148,15 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The nine tests cover all 21 APIs, the five original shapes, output writes,
+The ten tests cover all 22 APIs, the five original shapes, output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
 bytes, same-thread recursion, release, structured contention, dynamic/static ID
 collision, executable FLS callbacks, bounded FLS allocation, selected-thread
 FLS value isolation, the reached transactional private-heap allocation, and
 wrapping checked LONG updates, and versioned two-block heap allocation with
-mutation-free later-variant rejection.
+mutation-free later-variant rejection, plus the process-owned standard input
+identity and unreached-selector rejection.
 
 The cumulative private-corpus command is:
 
@@ -288,6 +292,20 @@ pages／906 changed bytes and 27 host deltas, and ends at generation `108`. Its
 and stops at instruction 1395 on `GetStdHandle(STD_INPUT_HANDLE)`. Full evidence
 is in [bgi-private-heap-second-allocation.md](bgi-private-heap-second-allocation.md).
 
+The standard-input-handle profile is:
+
+```powershell
+npm run check:runtime:bgi-standard-input-handle
+```
+
+It accepts only `STD_INPUT_HANDLE`, returns logical handle `0x53010001`,
+preserves LastError, and emits no API guest write or host delta. The profile
+completes 52 calls, uses 53 writeback batches／90 dirty pages／911 changed bytes
+and 27 host deltas, and ends at generation `109`. Its 243,749-byte report has
+SHA-256 `5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e`
+and stops at instruction 1403 on `GetFileType(0x53010001)`. Full evidence is in
+[bgi-standard-input-handle.md](bgi-standard-input-handle.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -306,19 +324,21 @@ is in [bgi-private-heap-second-allocation.md](bgi-private-heap-second-allocation
 - `InterlockedIncrement` is implemented only for the checked 32-bit LONG shape
   in the single cooperative Runtime Worker. Adjacent interlocked APIs and
   cross-worker shared-memory atomicity are absent.
-- The generic session has passed the second reached heap allocation. Its first
-  unsupported operation is `GetStdHandle(STD_INPUT_HANDLE)`; bespoke checkpoint
-  expansion stays paused.
+- The generic session owns only the reached standard input identity. Output,
+  error, `SetStdHandle`, close behavior, file type, console semantics, and file
+  I/O remain absent. Its first unsupported operation is `GetFileType(stdin)`;
+  bespoke checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-standard-handles` at
-`GetStdHandle(STD_INPUT_HANDLE)`. It must measure the native result／LastError and
-immediate consumer, then define a process-owned logical handle without exposing
-a host OS handle or adding file I/O behavior prematurely.
+The next proof is `kernel32-file-type` at `GetFileType(0x53010001)`. It must
+measure the native result／LastError and immediate consumer, then classify only
+the reached logical stdin identity without adding read/write, console, or broad
+file behavior prematurely.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
 FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
-195,821-byte report, InterlockedIncrement 234,775-byte report, and second-heap
-239,789-byte report remain the regression boundary.
+195,821-byte report, InterlockedIncrement 234,775-byte report, second-heap
+239,789-byte report, and standard-input 243,749-byte report remain the regression
+boundary.

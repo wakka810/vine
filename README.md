@@ -143,10 +143,17 @@ pages／906 changed bytes and 27 host deltas, finishing at generation `108`. The
 `fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8`
 and stops at `GetStdHandle(STD_INPUT_HANDLE)` at instruction 1395.
 
-Twenty-one Kernel32 contracts now use the generic Rust dispatcher. This includes
+The cumulative standard-input profile returns process-owned logical handle
+`0x53010001` without exposing native handle `0x208`. It completes 52 calls
+through 53 writeback batches／90 dirty pages／911 changed bytes and 27 host
+deltas, finishing at generation `109`. The 243,749-byte report has SHA-256
+`5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e`
+and stops at `GetFileType(0x53010001)` at instruction 1403.
+
+Twenty-two Kernel32 contracts now use the generic Rust dispatcher. This includes
 clock／identity, startup, heap, module／export, TLS, pointer encoding／decoding,
 critical-section, dynamic FLS allocation／value storage, two reached private-heap
-allocation, and checked `InterlockedIncrement`.
+allocations, checked `InterlockedIncrement`, and logical standard input lookup.
 The dispatcher owns endpoint lookup, checked frame decoding,
 pointer and name／ordinal validation, guest writes, return cleanup, LastError
 policy, and identity-preserving faults.
@@ -222,9 +229,9 @@ owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. Private heaps now
 have bounded guest-memory backing; mapped images, bounded PE32 export resolution,
 guest／runtime import binding, and DLL process attach failure unwind／retry／detach
 are also process-owned foundations. The next runtime-kernel checkpoint measures
-`GetStdHandle(STD_INPUT_HANDLE)` and defines its process-owned logical handle
-without importing the host OS handle. Bespoke numbered BGI checkpoint expansion
-remains paused.
+`GetFileType` for the logical standard input handle without adding read/write,
+console, or broad file behavior. Bespoke numbered BGI checkpoint expansion remains
+paused.
 
 ## Requirements
 
@@ -368,6 +375,9 @@ measured second `HeapAlloc(0x68010001, 8, 0x800)` after 50 completed calls.
 `npm run check:runtime:bgi-private-heap-second-allocation` returns zeroed
 allocation ID `2`, preserves all eight earlier reports, and stops fail-closed at
 `GetStdHandle(STD_INPUT_HANDLE)` after 51 completed calls.
+`npm run check:runtime:bgi-standard-input-handle` returns logical stdin handle
+`0x53010001`, preserves all nine earlier reports, and stops fail-closed at
+`GetFileType(0x53010001)` after 52 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

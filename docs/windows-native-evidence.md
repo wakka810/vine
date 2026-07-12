@@ -1065,3 +1065,26 @@ writeback batches／89 dirty pages／906 changed bytes、27 host deltas、final 
 239,789-byte reportのSHA-256は
 `fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8`
 である。詳細は[bgi-private-heap-second-allocation.md](bgi-private-heap-second-allocation.md)を正とする。
+
+## 51. BGI standard input handle
+
+opt-in `standard-handle` tracesは279,633 bytes／928 lines／SHA-256
+`ececb814fe84a5f1495f3c6fa1fd41801fed12deee8b2699f961db4418f36de9`と
+246,261 bytes／820 lines／SHA-256
+`e5979f91d1f77977fc93d9785679190bafefd9afb3b82ec83c27eba9fa42766e`
+である。両captureでBGI caller return RVA `0xA87B6`の
+`GetStdHandle(STD_INPUT_HANDLE)`はnative result `0x208`、LastError `87 -> 87`を返す。
+Resultは`INVALID_HANDLE_VALUE`／NULL check後、unchangedのままIAT `0x004D123C`／
+`GetFileType`へ渡される。Native handle値はprocess-specificなのでdiscardする。
+
+Rust common dispatcherはselector `0xFFFFFFF6`だけを受け、process-owned namespace
+`vine.logical-standard-handle.v1`へlogical stdin `0x53010001`を遅延登録する。One-argument
+stdcall、LastError preserve、guest write／host delta 0でreturnする。Standard output／errorは
+mutation前にstructured unsupportedとなる。
+
+`npm run check:runtime:bgi-standard-input-handle`は22 contracts／52 calls、53 writeback
+batches／90 dirty pages／911 changed bytes、27 host deltas、final generation `109`を通す。
+instruction `1403`でID `101`／`GetFileType(0x53010001)`へ到達する。243,749-byte
+reportのSHA-256は
+`5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e`
+である。詳細は[bgi-standard-input-handle.md](bgi-standard-input-handle.md)を正とする。

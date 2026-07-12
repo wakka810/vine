@@ -56,6 +56,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-fiber-local-storage-value",
         "kernel32-interlocked-increment",
         "kernel32-private-heap-second-allocation",
+        "kernel32-standard-input-handle",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -67,7 +68,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment|kernel32-private-heap-second-allocation]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment|kernel32-private-heap-second-allocation|kernel32-standard-input-handle]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
@@ -93,7 +94,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const standardInputHandleEnabled =
+  genericRuntimeCapability === "kernel32-standard-input-handle";
 const privateHeapSecondAllocationEnabled =
+  standardInputHandleEnabled ||
   genericRuntimeCapability === "kernel32-private-heap-second-allocation";
 const interlockedIncrementEnabled =
   privateHeapSecondAllocationEnabled ||
@@ -119,7 +123,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? privateHeapSecondAllocationEnabled
+    ? standardInputHandleEnabled
+      ? "v86-bgi-standard-input-handle"
+      : privateHeapSecondAllocationEnabled
       ? "v86-bgi-private-heap-second-allocation"
       : interlockedIncrementEnabled
       ? "v86-bgi-interlocked-increment"
@@ -1459,6 +1465,32 @@ const privateHeapSecondAllocationExpected = {
   reportBytes: 239_789,
   reportSha256: "fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8",
 };
+const standardInputHandleExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 52,
+  selector: 0xfffffff6,
+  handle: 0x53010001,
+  instructionCount: 1395,
+  returnAddress: 0x100a87b6,
+  writebackBatches: 53,
+  dirtyPages: 90,
+  changedBytes: 911,
+  hostDeltaBatches: 27,
+  finalGeneration: 109,
+  firstUnsupported: {
+    endpointId: 101,
+    endpointAddress: 0x7f000640,
+    module: "kernel32.dll",
+    symbol: "GetFileType",
+    iatAddress: 0x100d123c,
+    arguments: [0x53010001],
+    returnAddress: 0x100a87c8,
+    instructionCount: 1403,
+    faultCode: "endpoint-contract-missing",
+  },
+  reportBytes: 243_749,
+  reportSha256: "5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -1920,6 +1952,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (standardInputHandleEnabled) {
+        validateStandardInputHandleResult(genericResult);
       } else if (privateHeapSecondAllocationEnabled) {
         validatePrivateHeapSecondAllocationResult(genericResult);
       } else if (interlockedIncrementEnabled) {
@@ -1938,7 +1972,9 @@ async function run() {
         assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
       } else {
         const capabilityExpected =
-          privateHeapSecondAllocationEnabled
+          standardInputHandleEnabled
+            ? standardInputHandleExpected
+            : privateHeapSecondAllocationEnabled
             ? privateHeapSecondAllocationExpected
             : interlockedIncrementEnabled
             ? interlockedIncrementExpected
@@ -1958,7 +1994,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : privateHeapSecondAllocationEnabled
+          : standardInputHandleEnabled
+            ? "bgi standard input handle"
+            : privateHeapSecondAllocationEnabled
             ? "bgi private-heap second allocation"
             : interlockedIncrementEnabled
             ? "bgi interlocked increment"
@@ -2262,6 +2300,9 @@ async function runGenericRuntimeReentry({
       ...(completionFrame.heapAllocation === undefined
         ? {}
         : { heapAllocation: completionFrame.heapAllocation }),
+      ...(completionFrame.standardHandle === undefined
+        ? {}
+        : { standardHandle: completionFrame.standardHandle }),
     };
 
     const manifestCheckpoint =
@@ -2319,7 +2360,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : privateHeapSecondAllocationEnabled
+        : standardInputHandleEnabled
+          ? 9
+          : privateHeapSecondAllocationEnabled
           ? 8
           : interlockedIncrementEnabled
           ? 8
@@ -3311,6 +3354,64 @@ function validatePrivateHeapSecondAllocationResult(result) {
   );
 }
 
+function validateStandardInputHandleResult(result) {
+  const expected = standardInputHandleExpected;
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetStdHandle");
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].arguments, [expected.selector]);
+  assert.deepEqual(calls[0].result, { action: "set", value: expected.handle });
+  assert.equal(calls[0].implementationId, "kernel32.get-std-handle-input.v1");
+  assert.equal(calls[0].lastError, 87);
+  assert.deepEqual(calls[0].guestWrites, []);
+  assert.equal(calls[0].stackPointerAfter, calls[0].stackPointerBefore + 8);
+  assert.equal(calls[0].trapInstructionCount, expected.instructionCount);
+  assert.equal(calls[0].returnAddress, expected.returnAddress);
+  assert.deepEqual(calls[0].standardHandle, {
+    owner: "runtime-process-standard-handles",
+    variantId: "standard-input-logical-v1",
+    namespace: "vine.logical-standard-handle.v1",
+    handle: expected.handle,
+    selector: expected.selector,
+  });
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -3332,7 +3433,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : privateHeapSecondAllocationEnabled
+        : standardInputHandleEnabled
+          ? "vine.v86-bgi-standard-input-handle"
+          : privateHeapSecondAllocationEnabled
           ? "vine.v86-bgi-private-heap-second-allocation"
           : interlockedIncrementEnabled
           ? "vine.v86-bgi-interlocked-increment"

@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは21 contracts／51 callsをcommon dispatcherからreturnして`GetStdHandle(STD_INPUT_HANDLE)`へ到達した。17-call checkpoint manifest／generic runner、changed-state memory transaction、Chrome Worker vertical、v86 browser go gateは成立し、visual critical scenarioとdevice-level COM continuationは未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは22 contracts／52 callsをcommon dispatcherからreturnして`GetFileType(0x53010001)`へ到達した。17-call checkpoint manifest／generic runner、changed-state memory transaction、Chrome Worker vertical、v86 browser go gateは成立し、visual critical scenarioとdevice-level COM continuationは未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -946,9 +946,17 @@ final generation `108`を通した。instruction 1395の`GetStdHandle(0xFFFFFFF6
 239,789-byte report／SHA-256
 `fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8`を固定した。
 
-1. exact endpoint ID `94`／`KERNEL32.dll!GetStdHandle(STD_INPUT_HANDLE)`のnative result／LastError／immediate consumerを測定し、process-owned logical standard-handle identityへone-argument stdcall contractを接続してsame generic sessionの次のexact stopまで進める。Host OS handle、unreached standard-handle variants、file I/Oを同時に追加しない。
+Step 18はfocused `standard-handle` trace 2件でBGI caller RVA `0xA87B6`のnonnull
+`GetStdHandle(STD_INPUT_HANDLE)` result `0x208`／LastError `87 -> 87`を固定した。Immediate
+consumerはINVALID／NULL check後にsame handleを`GetFileType`へ渡す。Native handleを破棄し、
+process-owned logical stdin `0x53010001`をone-argument stdcall contractから返す。22 contracts／
+52 calls、53 writeback batches／90 dirty pages／911 changed bytes、27 host deltas、final
+generation `109`を通した。instruction 1403の`GetFileType(0x53010001)`へ進み、243,749-byte
+report／SHA-256 `5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e`を固定した。
 
-frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated eighteenth-call expansionはpauseを続ける。Second private-heap allocationは完了し、現在はreached standard input handle lookupを進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
+1. exact endpoint ID `101`／`KERNEL32.dll!GetFileType(0x53010001)`のnative result／LastError／immediate consumerを測定し、reached logical stdin classificationだけをone-argument stdcall contractへ接続してsame generic sessionの次のexact stopまで進める。Read／write、console semantics、standard output／error、broad file variantsを同時に追加しない。
+
+frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated eighteenth-call expansionはpauseを続ける。Standard input handleは完了し、現在はreached stdin file-type lookupを進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
 
 ## 23. 完了の定義
 

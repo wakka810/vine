@@ -333,6 +333,9 @@ if (selectedObservations.has("critical-section")) {
 if (selectedObservations.has("interlocked-increment")) {
   hooks["kernel32.dll"].push(["InterlockedIncrement", [null]]);
 }
+if (selectedObservations.has("standard-handle")) {
+  hooks["kernel32.dll"].push(["GetStdHandle", [null]]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -476,6 +479,9 @@ function attachHook(module, name, decoders) {
                 lastErrorBefore: Number(this.lastError) >>> 0,
                 interlockedTargetBefore: snapshotLong(args[0]),
               }
+          : name === "GetStdHandle" &&
+              selectedObservations.has("standard-handle")
+            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||
               (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||

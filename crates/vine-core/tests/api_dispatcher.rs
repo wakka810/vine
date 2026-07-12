@@ -8,13 +8,15 @@ use vine_core::{
     GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest,
     ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
-    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE, LastErrorPolicy, MemoryLimits,
-    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
-    RUNTIME_FLS_INDEX_LIMIT, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
-    RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId, RuntimeModule, RuntimeProcessId,
-    RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva,
-    SchedulerThreadState, StackCleanup, dispatch_kernel32_api,
-    heap_alloc_first_two_reached_contract, kernel32_contract_for_endpoint,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
+    LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MemoryLimits, MemoryOwnerId,
+    MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
+    RUNTIME_FLS_INDEX_LIMIT, RUNTIME_STANDARD_INPUT_HANDLE, RUNTIME_STANDARD_INPUT_SELECTOR,
+    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint,
+    RuntimeHeap, RuntimeHeapAllocationId, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState,
+    StackCleanup, dispatch_kernel32_api, heap_alloc_first_two_reached_contract,
+    kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -700,6 +702,107 @@ fn heap_alloc_contract_versions_preserve_first_profile_and_add_second_block() {
     assert_eq!(runtime, runtime_before_later_rejection);
     assert_eq!(memory.stats(), memory_before_later_rejection);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+}
+
+#[test]
+fn get_std_handle_contract_owns_only_reached_standard_input_identity() {
+    const FRAME_BASE: u32 = STACK_BASE;
+    const TEST_IAT_BASE: u32 = IAT_BASE;
+
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (
+            FRAME_BASE,
+            vec![0x1000_0801, RUNTIME_STANDARD_INPUT_SELECTOR],
+        ),
+        (
+            FRAME_BASE + 0x20,
+            vec![0x1000_0802, RUNTIME_STANDARD_INPUT_SELECTOR],
+        ),
+        (FRAME_BASE + 0x40, vec![0x1000_0803, 0xffff_fff5]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x80);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(TEST_IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetStdHandle IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(TEST_IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetStdHandle".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetStdHandle endpoint");
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let memory_before = memory.stats();
+
+    for frame in &frames[..2] {
+        let completion = dispatch_owned(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoint,
+            frame.0,
+            frame.1[0],
+        );
+        assert_eq!(
+            completion.eax,
+            RegisterUpdate::Set(RUNTIME_STANDARD_INPUT_HANDLE)
+        );
+        assert_eq!(completion.stack_pointer, GuestAddress(frame.0 + 8));
+        assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+        assert!(completion.guest_writes.is_empty());
+    }
+    assert_eq!(runtime.process().standard_handles.len(), 1);
+    let standard_handle = runtime
+        .standard_handle_by_value(RUNTIME_STANDARD_INPUT_HANDLE)
+        .expect("logical standard input handle");
+    assert_eq!(standard_handle.owner, "runtime-process-standard-handles");
+    assert_eq!(standard_handle.variant_id, "standard-input-logical-v1");
+    assert_eq!(standard_handle.namespace, LOGICAL_STANDARD_HANDLE_NAMESPACE);
+    assert_eq!(standard_handle.selector, RUNTIME_STANDARD_INPUT_SELECTOR);
+    assert_eq!(memory.stats(), memory_before);
+
+    let runtime_before_rejection = runtime.clone();
+    let rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[2].0, frames[2].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "standard-handle-selector-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before_rejection);
+    assert_eq!(memory.stats(), memory_before);
 }
 
 #[test]

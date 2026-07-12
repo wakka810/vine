@@ -24,15 +24,16 @@ use vine_core::{
     RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
     RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeModule, RuntimeModuleId,
     RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeProcessId,
-    RuntimeProcessLifecycleState, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue, SchedulerThreadState,
-    UnsupportedPoint, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, dispatch_kernel32_api, encode_pointer_contract,
-    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
-    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
-    get_tick_count_contract, heap_alloc_first_two_reached_contract, heap_create_contract,
-    heap_set_information_contract, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_controlled_process_environment,
+    RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue,
+    SchedulerThreadState, UnsupportedPoint, bind_pe32_imports,
+    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
+    encode_pointer_contract, get_current_process_id_contract, get_current_thread_id_contract,
+    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
+    get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_alloc_first_two_reached_contract, heap_create_contract, heap_set_information_contract,
+    install_callback_return_sentinel, install_controlled_initial_stack,
+    install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
     install_dynamic_export_thunks, install_runtime_return_sentinels,
@@ -87,6 +88,7 @@ enum GenericRuntimeCapability {
     FiberLocalStorageValue,
     InterlockedIncrement,
     PrivateHeapSecondAllocation,
+    StandardInputHandle,
 }
 
 struct GenericRuntimeProcess {
@@ -162,6 +164,8 @@ struct GenericRuntimeCompletion {
     interlocked_increment: Option<GenericRuntimeLongUpdate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     heap_allocation: Option<GenericRuntimeHeapAllocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    standard_handle: Option<RuntimeStandardHandle>,
     memory: MemoryStats,
 }
 
@@ -2388,14 +2392,18 @@ fn run_v86_generic_runtime_session(
         else {
             continue;
         };
-        if enabled_capability == Some(GenericRuntimeCapability::PrivateHeapSecondAllocation)
-            && endpoint.matches(
-                "kernel32.dll",
-                &ApiSymbol::Name {
-                    name: "HeapAlloc".to_owned(),
-                },
+        if matches!(
+            enabled_capability,
+            Some(
+                GenericRuntimeCapability::PrivateHeapSecondAllocation
+                    | GenericRuntimeCapability::StandardInputHandle
             )
-        {
+        ) && endpoint.matches(
+            "kernel32.dll",
+            &ApiSymbol::Name {
+                name: "HeapAlloc".to_owned(),
+            },
+        ) {
             contract =
                 heap_alloc_first_two_reached_contract(endpoint.clone()).map_err(api_fault)?;
         }
@@ -2411,6 +2419,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FiberLocalStorageValue
                 | GenericRuntimeCapability::InterlockedIncrement
                 | GenericRuntimeCapability::PrivateHeapSecondAllocation
+                | GenericRuntimeCapability::StandardInputHandle
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2437,6 +2446,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::FiberLocalStorageValue
                 | GenericRuntimeCapability::InterlockedIncrement
                 | GenericRuntimeCapability::PrivateHeapSecondAllocation
+                | GenericRuntimeCapability::StandardInputHandle
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2544,6 +2554,7 @@ fn run_v86_generic_runtime_session(
                     Some(
                         GenericRuntimeCapability::InterlockedIncrement
                             | GenericRuntimeCapability::PrivateHeapSecondAllocation
+                            | GenericRuntimeCapability::StandardInputHandle
                     )
                 ) && endpoint.matches(
                     "kernel32.dll",
@@ -2573,15 +2584,31 @@ fn run_v86_generic_runtime_session(
                         let interlocked_increment = interlocked_before
                             .map(|before| generic_runtime_long_update(&completion, before))
                             .transpose()?;
-                        let heap_allocation = if enabled_capability
-                            == Some(GenericRuntimeCapability::PrivateHeapSecondAllocation)
+                        let heap_allocation = if matches!(
+                            enabled_capability,
+                            Some(
+                                GenericRuntimeCapability::PrivateHeapSecondAllocation
+                                    | GenericRuntimeCapability::StandardInputHandle
+                            )
+                        ) && endpoint.matches(
+                            "kernel32.dll",
+                            &ApiSymbol::Name {
+                                name: "HeapAlloc".to_owned(),
+                            },
+                        ) {
+                            Some(generic_runtime_heap_allocation(&session, &completion)?)
+                        } else {
+                            None
+                        };
+                        let standard_handle = if enabled_capability
+                            == Some(GenericRuntimeCapability::StandardInputHandle)
                             && endpoint.matches(
                                 "kernel32.dll",
                                 &ApiSymbol::Name {
-                                    name: "HeapAlloc".to_owned(),
+                                    name: "GetStdHandle".to_owned(),
                                 },
                             ) {
-                            Some(generic_runtime_heap_allocation(&session, &completion)?)
+                            Some(generic_runtime_standard_handle(&session, &completion)?)
                         } else {
                             None
                         };
@@ -2596,6 +2623,7 @@ fn run_v86_generic_runtime_session(
                                 fls_value: None,
                                 interlocked_increment,
                                 heap_allocation,
+                                standard_handle,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -2690,6 +2718,7 @@ fn run_v86_generic_runtime_session(
                                 fls_value,
                                 interlocked_increment: None,
                                 heap_allocation: None,
+                                standard_handle: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -2745,6 +2774,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::FiberLocalStorageValue
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
+                    | GenericRuntimeCapability::StandardInputHandle
             )
         ),
         "DecodePointer" => matches!(
@@ -2756,6 +2786,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::FiberLocalStorageValue
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
+                    | GenericRuntimeCapability::StandardInputHandle
             )
         ),
         "FlsAlloc" => matches!(
@@ -2766,6 +2797,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::FiberLocalStorageValue
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
+                    | GenericRuntimeCapability::StandardInputHandle
             )
         ),
         "HeapAlloc" => matches!(
@@ -2775,6 +2807,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::FiberLocalStorageValue
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
+                    | GenericRuntimeCapability::StandardInputHandle
             )
         ),
         "FlsSetValue" => matches!(
@@ -2783,6 +2816,7 @@ fn runtime_capability_enables_endpoint(
                 GenericRuntimeCapability::FiberLocalStorageValue
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
+                    | GenericRuntimeCapability::StandardInputHandle
             )
         ),
         "InterlockedIncrement" => matches!(
@@ -2790,8 +2824,10 @@ fn runtime_capability_enables_endpoint(
             Some(
                 GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
+                    | GenericRuntimeCapability::StandardInputHandle
             )
         ),
+        "GetStdHandle" => matches!(enabled, Some(GenericRuntimeCapability::StandardInputHandle)),
         _ => true,
     }
 }
@@ -2811,7 +2847,8 @@ fn runtime_capability_enables_dynamic_endpoint(
         Some(
             GenericRuntimeCapability::FiberLocalStorageValue
             | GenericRuntimeCapability::InterlockedIncrement
-            | GenericRuntimeCapability::PrivateHeapSecondAllocation,
+            | GenericRuntimeCapability::PrivateHeapSecondAllocation
+            | GenericRuntimeCapability::StandardInputHandle,
         ) => {
             matches!(endpoint.name.as_str(), "FlsAlloc" | "FlsSetValue")
         }
@@ -2944,6 +2981,24 @@ fn generic_runtime_heap_allocation(
         allocation,
         live_allocations: backing.allocations.len(),
     })
+}
+
+fn generic_runtime_standard_handle(
+    session: &ExecutionSession<'_>,
+    completion: &ApiImmediateCompletion,
+) -> Result<RuntimeStandardHandle, LoaderError> {
+    let RegisterUpdate::Set(handle) = completion.eax else {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "standard-handle-result-missing",
+            "completed GetStdHandle did not return a logical handle",
+        ));
+    };
+    session
+        .runtime()
+        .standard_handle_by_value(handle)
+        .cloned()
+        .map_err(runtime_state_error)
 }
 
 fn send_pending_runtime_delta(
@@ -8087,6 +8142,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-private-heap-second-allocation" => {
                     GenericRuntimeCapability::PrivateHeapSecondAllocation
                 }
+                "kernel32-standard-input-handle" => GenericRuntimeCapability::StandardInputHandle,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
@@ -8297,7 +8353,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment|kernel32-private-heap-second-allocation]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment|kernel32-private-heap-second-allocation|kernel32-standard-input-handle]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

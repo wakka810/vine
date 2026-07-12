@@ -11,7 +11,8 @@ use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
-    LOGICAL_PRIVATE_HEAP_NAMESPACE, RuntimeCriticalSection, RuntimeHeapInitialization,
+    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
+    RUNTIME_STANDARD_INPUT_SELECTOR, RuntimeCriticalSection, RuntimeHeapInitialization,
     X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
@@ -20,6 +21,7 @@ pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
 pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
+pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle-input.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
@@ -60,6 +62,7 @@ pub fn dispatch_kernel32_api(
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
+        GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(contract, frame, session),
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
         }
@@ -120,6 +123,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetTickCount" => get_tick_count_contract(endpoint)?,
+        "GetStdHandle" => get_std_handle_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
@@ -177,6 +181,30 @@ fn handle_get_tick_count(session: &ExecutionSession<'_>) -> Result<ApiImmediate,
     Ok(ApiImmediate::new(ApiReturnValue::U32(
         session.runtime().clock().tick_count,
     )))
+}
+
+fn handle_get_std_handle(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let selector = required_argument(contract, frame, 0, "standard handle selector")?;
+    if selector != RUNTIME_STANDARD_INPUT_SELECTOR {
+        return Err(ApiFault::unsupported(
+            "win32-standard-handle",
+            "standard-handle-selector-unsupported",
+            "only the reached STD_INPUT_HANDLE selector is implemented",
+        ));
+    }
+    let standard_handle = session
+        .runtime_mut()
+        .ensure_standard_input_handle(selector)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .clone();
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: standard_handle.namespace,
+        value: standard_handle.handle,
+    }))
 }
 
 fn handle_query_performance_counter(
@@ -740,6 +768,19 @@ pub fn get_tick_count_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         Vec::new(),
         ApiReturnSchema::U32,
         GET_TICK_COUNT_IMPLEMENTATION,
+    )
+}
+
+pub fn get_std_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetStdHandle",
+        vec![u32_argument("standardHandle")],
+        ApiReturnSchema::LogicalHandle {
+            namespace: LOGICAL_STANDARD_HANDLE_NAMESPACE.to_owned(),
+            nullable: false,
+        },
+        GET_STD_HANDLE_IMPLEMENTATION,
     )
 }
 

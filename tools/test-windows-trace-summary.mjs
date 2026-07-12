@@ -595,6 +595,13 @@ interlockedIncrementSelection.find(
 ).selectedObservations = ["interlocked-increment"];
 assert.doesNotThrow(() => summarizeTrace(encode(interlockedIncrementSelection)));
 
+const standardHandleSelection = structuredClone(events);
+standardHandleSelection[0].arguments.observations = ["standard-handle"];
+standardHandleSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["standard-handle"];
+assert.doesNotThrow(() => summarizeTrace(encode(standardHandleSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";
