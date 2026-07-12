@@ -8,21 +8,25 @@ use crate::dynamic_exports::{
     DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
     DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
 };
-use crate::imports::{IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE};
+use crate::imports::{
+    IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, ImportThunkArena, ImportThunkId,
+    RuntimeExport,
+};
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestRange, MemoryOwnerId,
+    GuestRange, MemoryInvalidation, MemoryOwnerId,
 };
 use crate::module_graph::{
     RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleGraphError, RuntimeModuleGraphErrorClass,
-    RuntimeModuleId, RuntimeModuleRegistration,
+    RuntimeModuleId, RuntimeModuleLoadState, RuntimeModuleRegistration,
 };
 use crate::module_images::{
     RuntimeModuleImage, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
     RuntimeModuleImageRegistry, RuntimeResolvedExport,
 };
-use crate::pe32::{ExportLookup, LoaderIngressReport};
+use crate::pe32::{ExportLookup, ImportTarget, LoaderIngressReport};
+use crate::snapshot::ModuleIdentity;
 
 pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
 pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1";
@@ -995,6 +999,199 @@ pub struct RuntimeModule {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeGuestImport {
+    pub requested_module_id: RuntimeModuleId,
+    pub requested_module: String,
+    #[serde(flatten)]
+    pub target: ImportTarget,
+    pub iat_address: GuestAddress,
+    pub original_iat_value: u32,
+    pub resolution: RuntimeGuestImportResolution,
+}
+
+impl RuntimeGuestImport {
+    pub fn resolved_address(&self) -> GuestAddress {
+        match &self.resolution {
+            RuntimeGuestImportResolution::GuestExport { export } => export.address,
+            RuntimeGuestImportResolution::RuntimeExport { endpoint } => endpoint.address,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RuntimeGuestImportResolution {
+    GuestExport {
+        export: RuntimeResolvedExport,
+    },
+    RuntimeExport {
+        endpoint: RuntimeSystemExportEndpoint,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSystemExportEndpoint {
+    pub id: ImportThunkId,
+    pub address: GuestAddress,
+    pub export: RuntimeExport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSystemExportTable {
+    pub arena: ImportThunkArena,
+    pub endpoints: Vec<RuntimeSystemExportEndpoint>,
+}
+
+impl RuntimeSystemExportTable {
+    pub fn endpoint(
+        &self,
+        module: &str,
+        target: &ImportTarget,
+    ) -> Option<&RuntimeSystemExportEndpoint> {
+        self.endpoints
+            .iter()
+            .find(|endpoint| runtime_export_matches_import(&endpoint.export, module, target))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeModuleDependencyEdge {
+    pub requester: RuntimeModuleId,
+    pub dependency: RuntimeModuleId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGuestImportBinding {
+    pub requester_module_id: RuntimeModuleId,
+    pub requester_handle: u32,
+    pub source: ModuleIdentity,
+    pub image_owner: MemoryOwnerId,
+    pub image_load_base: GuestAddress,
+    pub imports: Vec<RuntimeGuestImport>,
+    pub dependency_edges: Vec<RuntimeModuleDependencyEdge>,
+    pub image_owner_sealed: bool,
+    pub invalidation: MemoryInvalidation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGuestImportBindingPlan {
+    pub(crate) requester_module_id: RuntimeModuleId,
+    pub(crate) requester_handle: u32,
+    pub(crate) source: ModuleIdentity,
+    pub(crate) image_owner: MemoryOwnerId,
+    pub(crate) image_load_base: GuestAddress,
+    pub(crate) imports: Vec<RuntimeGuestImport>,
+    pub(crate) dependency_edges: Vec<RuntimeModuleDependencyEdge>,
+    pub(crate) previous_graph: RuntimeModuleGraph,
+    pub(crate) next_graph: RuntimeModuleGraph,
+    pub(crate) previous_runtime_system_exports: Option<RuntimeSystemExportTable>,
+}
+
+pub const DLL_PROCESS_DETACH: u32 = 0;
+pub const DLL_PROCESS_ATTACH: u32 = 1;
+pub const DLL_PROCESS_STATIC_RESERVED: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeDllLifecyclePhase {
+    Idle,
+    ProcessAttaching,
+    AttachUnwinding,
+    ProcessAttached,
+    ProcessDetaching,
+    ProcessDetached,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeDllCallbackReason {
+    ProcessAttach,
+    ProcessDetach,
+}
+
+impl RuntimeDllCallbackReason {
+    pub const fn value(self) -> u32 {
+        match self {
+            Self::ProcessAttach => DLL_PROCESS_ATTACH,
+            Self::ProcessDetach => DLL_PROCESS_DETACH,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDllCallbackRequest {
+    pub frame: RuntimeCallbackFrame,
+    pub module_id: RuntimeModuleId,
+    pub module_handle: u32,
+    pub module_name: String,
+    pub module_base: GuestAddress,
+    pub entry_point: GuestAddress,
+    pub reason: RuntimeDllCallbackReason,
+    pub reserved: u32,
+}
+
+impl RuntimeDllCallbackRequest {
+    pub fn arguments(&self) -> [u32; 3] {
+        [self.module_base.0, self.reason.value(), self.reserved]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDllLifecycleCompletion {
+    pub phase: RuntimeDllLifecyclePhase,
+    pub graph_order: Vec<RuntimeModuleId>,
+    pub callback_order: Vec<RuntimeModuleId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDllAttachFailure {
+    pub failed_module_id: RuntimeModuleId,
+    pub failed_module: String,
+    pub unwound_modules: Vec<RuntimeModuleId>,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+pub enum RuntimeDllLifecycleAction {
+    Callback {
+        request: RuntimeDllCallbackRequest,
+    },
+    Complete {
+        completion: RuntimeDllLifecycleCompletion,
+    },
+    AttachFailed {
+        failure: RuntimeDllAttachFailure,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeDllOperationKind {
+    Attach,
+    AttachUnwind,
+    Detach,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeDllOperation {
+    kind: RuntimeDllOperationKind,
+    graph_order: Vec<RuntimeModuleId>,
+    remaining: VecDeque<RuntimeModuleId>,
+    completed: Vec<RuntimeModuleId>,
+    pending: Option<RuntimeDllCallbackRequest>,
+    attach_failure: Option<(RuntimeModuleId, String)>,
+    return_sentinel: GuestAddress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeDynamicEndpoint {
     pub namespace: String,
     pub id: u32,
@@ -1286,6 +1483,14 @@ pub struct RuntimeState {
     module_graph: RuntimeModuleGraph,
     #[serde(skip)]
     module_images: RuntimeModuleImageRegistry,
+    #[serde(skip)]
+    module_import_bindings: BTreeMap<RuntimeModuleId, RuntimeGuestImportBinding>,
+    #[serde(skip)]
+    runtime_system_exports: Option<RuntimeSystemExportTable>,
+    #[serde(skip)]
+    dll_lifecycle_phase: RuntimeDllLifecyclePhase,
+    #[serde(skip)]
+    dll_operation: Option<RuntimeDllOperation>,
     registries: RuntimeRegistries,
     #[serde(skip)]
     heap_backings: BTreeMap<u32, RuntimeHeapBacking>,
@@ -1375,6 +1580,10 @@ impl RuntimeState {
             objects,
             module_graph: RuntimeModuleGraph::default(),
             module_images: RuntimeModuleImageRegistry::default(),
+            module_import_bindings: BTreeMap::new(),
+            runtime_system_exports: None,
+            dll_lifecycle_phase: RuntimeDllLifecyclePhase::Idle,
+            dll_operation: None,
             registries: RuntimeRegistries {
                 dynamic_endpoints: BTreeMap::new(),
                 encoded_pointers: BTreeMap::new(),
@@ -1463,6 +1672,219 @@ impl RuntimeState {
             .clone();
         self.module_images
             .register(memory, &node, loader, materialization)
+    }
+
+    pub fn module_import_bindings(&self) -> &BTreeMap<RuntimeModuleId, RuntimeGuestImportBinding> {
+        &self.module_import_bindings
+    }
+
+    pub fn runtime_system_exports(&self) -> Option<&RuntimeSystemExportTable> {
+        self.runtime_system_exports.as_ref()
+    }
+
+    pub fn guest_import_binding(
+        &self,
+        handle: u32,
+    ) -> Result<&RuntimeGuestImportBinding, RuntimeStateError> {
+        self.module(handle)?;
+        let module_id = self
+            .module_graph
+            .module_by_handle(handle)
+            .map_err(runtime_module_graph_error)?
+            .id;
+        self.module_import_bindings.get(&module_id).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-guest-imports",
+                "guest-import-binding-missing",
+                format!("module handle {handle:#010x} has no committed guest import binding"),
+            )
+        })
+    }
+
+    pub(crate) fn plan_guest_import_binding(
+        &self,
+        requester_handle: u32,
+        source: ModuleIdentity,
+        image_owner: MemoryOwnerId,
+        image_load_base: GuestAddress,
+        imports: Vec<RuntimeGuestImport>,
+        dependency_edges: Vec<RuntimeModuleDependencyEdge>,
+    ) -> Result<RuntimeGuestImportBindingPlan, RuntimeStateError> {
+        self.module(requester_handle)?;
+        let requester = self
+            .module_graph
+            .module_by_handle(requester_handle)
+            .map_err(runtime_module_graph_error)?;
+        if requester.state != RuntimeModuleLoadState::Registered {
+            return Err(RuntimeStateError::conflict(
+                "runtime-guest-imports",
+                "guest-import-requester-state-invalid",
+                "guest imports can only bind while the requester module is registered",
+            ));
+        }
+        if self.module_import_bindings.contains_key(&requester.id) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-guest-imports",
+                "guest-import-binding-duplicate",
+                "requester module already has a committed guest import binding",
+            ));
+        }
+        if self.module_images.images().contains_key(&requester.id) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-guest-imports",
+                "guest-import-requester-image-already-registered",
+                "requester image must bind imports before mapped image registration",
+            ));
+        }
+        if imports
+            .iter()
+            .any(|import| import.resolved_address().0 == 0)
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-guest-imports",
+                "guest-import-target-address-null",
+                "resolved guest import address cannot be null",
+            ));
+        }
+
+        let dependency_edges = dependency_edges
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let previous_graph = self.module_graph.clone();
+        let mut next_graph = previous_graph.clone();
+        for edge in &dependency_edges {
+            let requester_node = next_graph
+                .module(edge.requester)
+                .map_err(runtime_module_graph_error)?;
+            next_graph
+                .module(edge.dependency)
+                .map_err(runtime_module_graph_error)?;
+            if !requester_node.dependencies.contains(&edge.dependency) {
+                next_graph
+                    .add_dependency(edge.requester, edge.dependency)
+                    .map_err(runtime_module_graph_error)?;
+            }
+        }
+        Ok(RuntimeGuestImportBindingPlan {
+            requester_module_id: requester.id,
+            requester_handle,
+            source,
+            image_owner,
+            image_load_base,
+            imports,
+            dependency_edges,
+            previous_graph,
+            next_graph,
+            previous_runtime_system_exports: self.runtime_system_exports.clone(),
+        })
+    }
+
+    pub(crate) fn commit_guest_import_binding(
+        &mut self,
+        plan: RuntimeGuestImportBindingPlan,
+        invalidation: MemoryInvalidation,
+        runtime_system_exports: Option<RuntimeSystemExportTable>,
+    ) -> Result<&RuntimeGuestImportBinding, RuntimeStateError> {
+        if self.module_graph != plan.previous_graph {
+            return Err(RuntimeStateError::conflict(
+                "runtime-guest-imports",
+                "guest-import-plan-graph-stale",
+                "module graph changed after guest import planning",
+            ));
+        }
+        if self
+            .module_import_bindings
+            .contains_key(&plan.requester_module_id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-guest-imports",
+                "guest-import-binding-duplicate",
+                "requester module already has a committed guest import binding",
+            ));
+        }
+        if self.runtime_system_exports != plan.previous_runtime_system_exports {
+            return Err(RuntimeStateError::conflict(
+                "runtime-guest-imports",
+                "guest-import-runtime-export-table-stale",
+                "runtime system export table changed after guest import planning",
+            ));
+        }
+        let imports_runtime_exports = plan.imports.iter().any(|import| {
+            matches!(
+                &import.resolution,
+                RuntimeGuestImportResolution::RuntimeExport { .. }
+            )
+        });
+        match (
+            plan.previous_runtime_system_exports.as_ref(),
+            runtime_system_exports.as_ref(),
+            imports_runtime_exports,
+        ) {
+            (None, Some(table), true)
+                if plan.imports.iter().all(|import| match &import.resolution {
+                    RuntimeGuestImportResolution::RuntimeExport { endpoint } => {
+                        table.endpoints.contains(endpoint)
+                    }
+                    RuntimeGuestImportResolution::GuestExport { .. } => true,
+                }) => {}
+            (Some(_), None, _) | (None, None, false) => {}
+            (None, Some(_), false) => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-guest-imports",
+                    "guest-import-runtime-export-table-unneeded",
+                    "a runtime export table cannot be installed without a runtime-system import",
+                ));
+            }
+            (None, None, true) => {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-guest-imports",
+                    "guest-import-runtime-export-table-missing",
+                    "runtime-system imports require an installed runtime export table",
+                ));
+            }
+            (None, Some(_), true) => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-guest-imports",
+                    "guest-import-runtime-export-endpoint-missing",
+                    "new runtime export table does not own every planned runtime endpoint",
+                ));
+            }
+            (Some(_), Some(_), _) => {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-guest-imports",
+                    "guest-import-runtime-export-table-duplicate",
+                    "runtime export table is already installed",
+                ));
+            }
+        }
+        let binding = RuntimeGuestImportBinding {
+            requester_module_id: plan.requester_module_id,
+            requester_handle: plan.requester_handle,
+            source: plan.source,
+            image_owner: plan.image_owner,
+            image_load_base: plan.image_load_base,
+            imports: plan.imports,
+            dependency_edges: plan.dependency_edges,
+            image_owner_sealed: true,
+            invalidation,
+        };
+        self.module_graph = plan.next_graph;
+        if let Some(runtime_system_exports) = runtime_system_exports {
+            self.runtime_system_exports = Some(runtime_system_exports);
+        }
+        self.module_import_bindings
+            .insert(plan.requester_module_id, binding);
+        self.module_import_bindings
+            .get(&plan.requester_module_id)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-guest-imports",
+                    "committed-guest-import-binding-missing",
+                    "guest import binding disappeared after commit",
+                )
+            })
     }
 
     pub fn process_handle(&self) -> Result<RuntimeHandle, RuntimeStateError> {
@@ -2685,6 +3107,7 @@ impl RuntimeState {
         module: RuntimeModule,
         class: RuntimeModuleClass,
     ) -> Result<&RuntimeModule, RuntimeStateError> {
+        self.require_dll_operation_inactive_for_module_graph_mutation()?;
         if module.owner.is_empty()
             || module.variant_id.is_empty()
             || module.namespace != LOGICAL_LOADED_MODULE_NAMESPACE
@@ -2765,6 +3188,7 @@ impl RuntimeState {
         requester_handle: u32,
         dependency_handle: u32,
     ) -> Result<(), RuntimeStateError> {
+        self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module(requester_handle)?;
         self.module(dependency_handle)?;
         let requester = self
@@ -2786,6 +3210,7 @@ impl RuntimeState {
         &mut self,
         handle: u32,
     ) -> Result<u32, RuntimeStateError> {
+        self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module(handle)?;
         let module = self
             .module_graph
@@ -2801,6 +3226,7 @@ impl RuntimeState {
         &mut self,
         handle: u32,
     ) -> Result<u32, RuntimeStateError> {
+        self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module(handle)?;
         let module = self
             .module_graph
@@ -2813,6 +3239,7 @@ impl RuntimeState {
     }
 
     pub fn mark_module_ready(&mut self, handle: u32) -> Result<(), RuntimeStateError> {
+        self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module(handle)?;
         let module = self
             .module_graph
@@ -2825,15 +3252,417 @@ impl RuntimeState {
     }
 
     pub fn attach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+        if self.dll_lifecycle_phase != RuntimeDllLifecyclePhase::Idle {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "direct-module-attach-after-dll-lifecycle-forbidden",
+                "direct module attach cannot bypass the active DLL lifecycle coordinator",
+            ));
+        }
+        self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module_graph
             .attach_all()
             .map_err(runtime_module_graph_error)
     }
 
     pub fn detach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+        if self.dll_lifecycle_phase != RuntimeDllLifecyclePhase::Idle {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "direct-module-detach-after-dll-lifecycle-forbidden",
+                "direct module detach cannot bypass the active DLL lifecycle coordinator",
+            ));
+        }
+        self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module_graph
             .detach_all()
             .map_err(runtime_module_graph_error)
+    }
+
+    fn require_dll_operation_inactive_for_module_graph_mutation(
+        &self,
+    ) -> Result<(), RuntimeStateError> {
+        if self.dll_operation.is_some() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "module-graph-mutation-during-dll-callback-forbidden",
+                "module graph mutation is not supported while DLL callbacks are in progress",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn dll_lifecycle_phase(&self) -> RuntimeDllLifecyclePhase {
+        self.dll_lifecycle_phase
+    }
+
+    pub fn begin_dll_process_attach(
+        &mut self,
+        return_sentinel: GuestAddress,
+    ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
+        if self.dll_lifecycle_phase != RuntimeDllLifecyclePhase::Idle
+            || self.dll_operation.is_some()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-process-attach-state-invalid",
+                "DLL process attach requires an idle lifecycle coordinator",
+            ));
+        }
+        self.require_dll_callback_thread_state()?;
+        validate_dll_return_sentinel(return_sentinel)?;
+        let graph_order = self
+            .module_graph
+            .planned_attach_order()
+            .map_err(runtime_module_graph_error)?;
+        let callback_order = self.dll_callback_order(&graph_order)?;
+        self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessAttaching;
+        self.dll_operation = Some(RuntimeDllOperation {
+            kind: RuntimeDllOperationKind::Attach,
+            graph_order,
+            remaining: callback_order.into(),
+            completed: Vec::new(),
+            pending: None,
+            attach_failure: None,
+            return_sentinel,
+        });
+        match self.schedule_next_dll_callback() {
+            Ok(action) => Ok(action),
+            Err(error) => {
+                self.dll_operation = None;
+                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::Idle;
+                Err(error)
+            }
+        }
+    }
+
+    pub fn begin_dll_process_detach(
+        &mut self,
+        return_sentinel: GuestAddress,
+    ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
+        if self.dll_lifecycle_phase != RuntimeDllLifecyclePhase::ProcessAttached
+            || self.dll_operation.is_some()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-process-detach-state-invalid",
+                "DLL process detach requires a completed process attach",
+            ));
+        }
+        self.require_dll_callback_thread_state()?;
+        validate_dll_return_sentinel(return_sentinel)?;
+        let graph_order = self
+            .module_graph
+            .planned_detach_order()
+            .map_err(runtime_module_graph_error)?;
+        let callback_order = self.dll_callback_order(&graph_order)?;
+        self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessDetaching;
+        self.dll_operation = Some(RuntimeDllOperation {
+            kind: RuntimeDllOperationKind::Detach,
+            graph_order,
+            remaining: callback_order.into(),
+            completed: Vec::new(),
+            pending: None,
+            attach_failure: None,
+            return_sentinel,
+        });
+        match self.schedule_next_dll_callback() {
+            Ok(action) => Ok(action),
+            Err(error) => {
+                self.dll_operation = None;
+                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessAttached;
+                Err(error)
+            }
+        }
+    }
+
+    pub fn complete_dll_callback(
+        &mut self,
+        frame_id: RuntimeCallbackFrameId,
+        result: u32,
+    ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
+        let pending = self
+            .dll_operation
+            .as_ref()
+            .and_then(|operation| operation.pending.as_ref())
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-dll-lifecycle",
+                    "dll-callback-not-pending",
+                    "DLL lifecycle coordinator has no pending callback",
+                )
+            })?;
+        if pending.frame.id != frame_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-callback-frame-mismatch",
+                "DLL callback completion does not identify the pending callback frame",
+            ));
+        }
+        self.preflight_dll_callback_completion(result)?;
+        self.pop_callback_frame(frame_id)?;
+        let mut operation = self.dll_operation.take().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-dll-lifecycle",
+                "dll-operation-disappeared",
+                "validated DLL lifecycle operation disappeared before completion",
+            )
+        })?;
+        let pending = operation.pending.take().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-dll-lifecycle",
+                "dll-pending-callback-disappeared",
+                "validated DLL callback disappeared before completion",
+            )
+        })?;
+        match operation.kind {
+            RuntimeDllOperationKind::Attach if result == 0 => {
+                operation.kind = RuntimeDllOperationKind::AttachUnwind;
+                operation.attach_failure = Some((pending.module_id, pending.module_name));
+                operation.remaining = operation.completed.iter().rev().copied().collect();
+                operation.completed.clear();
+                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::AttachUnwinding;
+            }
+            RuntimeDllOperationKind::Attach
+            | RuntimeDllOperationKind::AttachUnwind
+            | RuntimeDllOperationKind::Detach => {
+                operation.completed.push(pending.module_id);
+            }
+        }
+        self.dll_operation = Some(operation);
+        self.schedule_next_dll_callback()
+    }
+
+    fn preflight_dll_callback_completion(&self, result: u32) -> Result<(), RuntimeStateError> {
+        let operation = self.dll_operation.as_ref().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-dll-lifecycle",
+                "dll-operation-disappeared",
+                "validated DLL lifecycle operation disappeared before completion preflight",
+            )
+        })?;
+        if !operation.remaining.is_empty()
+            || (operation.kind == RuntimeDllOperationKind::Attach && result == 0)
+            || operation.kind == RuntimeDllOperationKind::AttachUnwind
+        {
+            return Ok(());
+        }
+        let current_order = match operation.kind {
+            RuntimeDllOperationKind::Attach => self
+                .module_graph
+                .planned_attach_order()
+                .map_err(runtime_module_graph_error)?,
+            RuntimeDllOperationKind::Detach => self
+                .module_graph
+                .planned_detach_order()
+                .map_err(runtime_module_graph_error)?,
+            RuntimeDllOperationKind::AttachUnwind => {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-dll-lifecycle",
+                    "dll-attach-unwind-finalization-preflight-invalid",
+                    "attach unwind cannot commit module graph lifecycle state",
+                ));
+            }
+        };
+        if current_order != operation.graph_order {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-lifecycle-graph-order-changed",
+                "module graph order changed while DLL callbacks were in progress",
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_dll_callback_thread_state(&self) -> Result<(), RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || self.scheduler_state()? != SchedulerThreadState::Runnable
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-callback-thread-state-invalid",
+                "DLL process callbacks require a running process and runnable selected thread",
+            ));
+        }
+        Ok(())
+    }
+
+    fn dll_callback_order(
+        &self,
+        graph_order: &[RuntimeModuleId],
+    ) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+        let mut callbacks = Vec::new();
+        for module_id in graph_order {
+            let node = self
+                .module_graph
+                .module(*module_id)
+                .map_err(runtime_module_graph_error)?;
+            if matches!(
+                node.class,
+                RuntimeModuleClass::MainExecutable | RuntimeModuleClass::GuestDynamicLibrary
+            ) {
+                if !self.module_import_bindings.contains_key(module_id) {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-dll-lifecycle",
+                        "dll-module-import-binding-missing",
+                        format!(
+                            "module {} has no committed import binding",
+                            node.canonical_name
+                        ),
+                    ));
+                }
+                let image = self
+                    .module_images
+                    .image(*module_id)
+                    .map_err(runtime_module_image_error)?;
+                if node.class == RuntimeModuleClass::GuestDynamicLibrary
+                    && image.entry_point.is_some()
+                {
+                    callbacks.push(*module_id);
+                }
+            }
+        }
+        Ok(callbacks)
+    }
+
+    fn schedule_next_dll_callback(
+        &mut self,
+    ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
+        let mut operation = self.dll_operation.take().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-dll-lifecycle",
+                "dll-operation-missing",
+                "DLL lifecycle scheduling requires an active operation",
+            )
+        })?;
+        if operation.pending.is_some() {
+            self.dll_operation = Some(operation);
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-callback-already-pending",
+                "DLL lifecycle operation already has a pending callback",
+            ));
+        }
+        let Some(module_id) = operation.remaining.pop_front() else {
+            return self.finish_dll_operation(operation);
+        };
+        let reason = match operation.kind {
+            RuntimeDllOperationKind::Attach => RuntimeDllCallbackReason::ProcessAttach,
+            RuntimeDllOperationKind::AttachUnwind | RuntimeDllOperationKind::Detach => {
+                RuntimeDllCallbackReason::ProcessDetach
+            }
+        };
+        let request =
+            match self.create_dll_callback_request(module_id, reason, operation.return_sentinel) {
+                Ok(request) => request,
+                Err(error) => {
+                    operation.remaining.push_front(module_id);
+                    self.dll_operation = Some(operation);
+                    return Err(error);
+                }
+            };
+        operation.pending = Some(request.clone());
+        self.dll_operation = Some(operation);
+        Ok(RuntimeDllLifecycleAction::Callback { request })
+    }
+
+    fn create_dll_callback_request(
+        &mut self,
+        module_id: RuntimeModuleId,
+        reason: RuntimeDllCallbackReason,
+        return_sentinel: GuestAddress,
+    ) -> Result<RuntimeDllCallbackRequest, RuntimeStateError> {
+        let node = self
+            .module_graph
+            .module(module_id)
+            .map_err(runtime_module_graph_error)?;
+        let image = self
+            .module_images
+            .image(module_id)
+            .map_err(runtime_module_image_error)?;
+        let entry_point = image.entry_point.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-dll-lifecycle",
+                "dll-callback-entry-point-missing",
+                "DLL callback order includes a module without an entry point",
+            )
+        })?;
+        let module_handle = node.handle;
+        let module_name = node.canonical_name.clone();
+        let module_base = image.load_base;
+        let frame = self.push_callback_frame(entry_point, return_sentinel)?;
+        Ok(RuntimeDllCallbackRequest {
+            frame,
+            module_id,
+            module_handle,
+            module_name,
+            module_base,
+            entry_point,
+            reason,
+            reserved: DLL_PROCESS_STATIC_RESERVED,
+        })
+    }
+
+    fn finish_dll_operation(
+        &mut self,
+        operation: RuntimeDllOperation,
+    ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
+        match operation.kind {
+            RuntimeDllOperationKind::Attach => {
+                let graph_order = match self.module_graph.attach_all() {
+                    Ok(graph_order) => graph_order,
+                    Err(error) => {
+                        self.dll_operation = Some(operation);
+                        return Err(runtime_module_graph_error(error));
+                    }
+                };
+                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessAttached;
+                Ok(RuntimeDllLifecycleAction::Complete {
+                    completion: RuntimeDllLifecycleCompletion {
+                        phase: self.dll_lifecycle_phase,
+                        graph_order,
+                        callback_order: operation.completed,
+                    },
+                })
+            }
+            RuntimeDllOperationKind::AttachUnwind => {
+                let (failed_module_id, failed_module) =
+                    operation.attach_failure.ok_or_else(|| {
+                        RuntimeStateError::runtime_defect(
+                            "runtime-dll-lifecycle",
+                            "dll-attach-failure-identity-missing",
+                            "DLL attach unwind lost the failing module identity",
+                        )
+                    })?;
+                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::Idle;
+                Ok(RuntimeDllLifecycleAction::AttachFailed {
+                    failure: RuntimeDllAttachFailure {
+                        failed_module_id,
+                        failed_module,
+                        unwound_modules: operation.completed,
+                        retryable: true,
+                    },
+                })
+            }
+            RuntimeDllOperationKind::Detach => {
+                let graph_order = match self.module_graph.detach_all() {
+                    Ok(graph_order) => graph_order,
+                    Err(error) => {
+                        self.dll_operation = Some(operation);
+                        return Err(runtime_module_graph_error(error));
+                    }
+                };
+                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessDetached;
+                Ok(RuntimeDllLifecycleAction::Complete {
+                    completion: RuntimeDllLifecycleCompletion {
+                        phase: self.dll_lifecycle_phase,
+                        graph_order,
+                        callback_order: operation.completed,
+                    },
+                })
+            }
+        }
     }
 
     pub fn register_dynamic_endpoint(
@@ -4226,6 +5055,62 @@ fn runtime_module_image_state_error(error: RuntimeStateError) -> RuntimeModuleIm
     }
 }
 
+fn runtime_module_image_error(error: RuntimeModuleImageError) -> RuntimeStateError {
+    match error.class {
+        RuntimeModuleImageErrorClass::InvalidInput => {
+            RuntimeStateError::invalid_input("runtime-module-image", error.code, error.message)
+        }
+        RuntimeModuleImageErrorClass::NotFound => {
+            RuntimeStateError::not_found("runtime-module-image", error.code, error.message)
+        }
+        RuntimeModuleImageErrorClass::Conflict => {
+            RuntimeStateError::conflict("runtime-module-image", error.code, error.message)
+        }
+        RuntimeModuleImageErrorClass::ResourceLimit => {
+            RuntimeStateError::resource_limit("runtime-module-image", error.code, error.message)
+        }
+        RuntimeModuleImageErrorClass::RuntimeDefect => {
+            RuntimeStateError::runtime_defect("runtime-module-image", error.code, error.message)
+        }
+    }
+}
+
+fn runtime_export_matches_import(
+    export: &RuntimeExport,
+    module: &str,
+    target: &ImportTarget,
+) -> bool {
+    match (export, target) {
+        (
+            RuntimeExport::Name {
+                module: export_module,
+                name: export_name,
+            },
+            ImportTarget::Name { name, .. },
+        ) => export_module.eq_ignore_ascii_case(module) && export_name == name,
+        (
+            RuntimeExport::Ordinal {
+                module: export_module,
+                ordinal: export_ordinal,
+            },
+            ImportTarget::Ordinal { ordinal },
+        ) => export_module.eq_ignore_ascii_case(module) && export_ordinal == ordinal,
+        _ => false,
+    }
+}
+
+fn validate_dll_return_sentinel(return_sentinel: GuestAddress) -> Result<(), RuntimeStateError> {
+    let end = u64::from(CALLBACK_RETURN_ARENA_BASE.0) + CALLBACK_RETURN_ARENA_SIZE;
+    if return_sentinel.0 < CALLBACK_RETURN_ARENA_BASE.0 || u64::from(return_sentinel.0) >= end {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-dll-lifecycle",
+            "dll-return-sentinel-unowned",
+            "DLL callback return sentinel is outside the runtime callback-control arena",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeStateErrorClass {
@@ -4260,19 +5145,35 @@ impl RuntimeStateError {
         Self::new(class, error.stage, error.code, error.message)
     }
 
-    fn invalid_input(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn invalid_input(
+        stage: &'static str,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(RuntimeStateErrorClass::InvalidInput, stage, code, message)
     }
 
-    fn not_found(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn not_found(
+        stage: &'static str,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(RuntimeStateErrorClass::NotFound, stage, code, message)
     }
 
-    fn conflict(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn conflict(
+        stage: &'static str,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(RuntimeStateErrorClass::Conflict, stage, code, message)
     }
 
-    fn resource_limit(stage: &'static str, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn resource_limit(
+        stage: &'static str,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(RuntimeStateErrorClass::ResourceLimit, stage, code, message)
     }
 

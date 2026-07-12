@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
-use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId, RuntimeExportCatalog};
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
     GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestWriteResult,
@@ -11,8 +11,8 @@ use crate::memory::{
 use crate::module_images::{RuntimeModuleImage, RuntimeModuleImageError};
 use crate::pe32::{ImportTarget, LoaderIngressReport};
 use crate::runtime::{
-    RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeGuestImportBinding, RuntimeHeapAllocation, RuntimeHeapInitialization,
+    RuntimeHeapTeardown, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -546,6 +546,23 @@ impl<'a> ExecutionSession<'a> {
     ) -> Result<&RuntimeModuleImage, RuntimeModuleImageError> {
         self.runtime
             .register_module_image(self.memory, handle, loader, materialization)
+    }
+
+    pub fn bind_guest_module_imports(
+        &mut self,
+        handle: u32,
+        loader: &LoaderIngressReport,
+        materialization: &ImageMaterialization,
+        runtime_catalog: &RuntimeExportCatalog,
+    ) -> Result<RuntimeGuestImportBinding, RuntimeStateError> {
+        crate::dll::bind_guest_module_imports(
+            self.memory,
+            self.runtime,
+            handle,
+            loader,
+            materialization,
+            runtime_catalog,
+        )
     }
 
     pub fn allocate_private_heap_block(

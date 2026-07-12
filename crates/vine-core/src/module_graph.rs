@@ -346,6 +346,27 @@ impl RuntimeModuleGraph {
     }
 
     pub fn attach_all(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeModuleGraphError> {
+        let order = self.planned_attach_order()?;
+        let transitions = order
+            .iter()
+            .enumerate()
+            .map(|(index, id)| {
+                let sequence = u32::try_from(index + 1).map_err(|_| {
+                    RuntimeModuleGraphError::resource_limit(
+                        "module-attach-sequence-overflow",
+                        "module attach sequence does not fit 32-bit accounting",
+                    )
+                })?;
+                Ok((*id, RuntimeModuleLoadState::ProcessAttached { sequence }))
+            })
+            .collect::<Result<Vec<_>, RuntimeModuleGraphError>>()?;
+        let mut next_nodes = self.nodes.clone();
+        apply_state_transitions(&mut next_nodes, &transitions)?;
+        self.nodes = next_nodes;
+        Ok(order)
+    }
+
+    pub fn planned_attach_order(&self) -> Result<Vec<RuntimeModuleId>, RuntimeModuleGraphError> {
         if self.main_module.is_none() {
             return Err(RuntimeModuleGraphError::conflict(
                 "main-module-missing",
@@ -366,40 +387,11 @@ impl RuntimeModuleGraph {
                 ));
             }
         }
-        let order = self.dependency_first_order()?;
-        let transitions = order
-            .iter()
-            .enumerate()
-            .map(|(index, id)| {
-                let sequence = u32::try_from(index + 1).map_err(|_| {
-                    RuntimeModuleGraphError::resource_limit(
-                        "module-attach-sequence-overflow",
-                        "module attach sequence does not fit 32-bit accounting",
-                    )
-                })?;
-                Ok((*id, RuntimeModuleLoadState::ProcessAttached { sequence }))
-            })
-            .collect::<Result<Vec<_>, RuntimeModuleGraphError>>()?;
-        let mut next_nodes = self.nodes.clone();
-        apply_state_transitions(&mut next_nodes, &transitions)?;
-        self.nodes = next_nodes;
-        Ok(order)
+        self.dependency_first_order()
     }
 
     pub fn detach_all(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeModuleGraphError> {
-        let mut attached = self
-            .nodes
-            .values()
-            .map(|node| match node.state {
-                RuntimeModuleLoadState::ProcessAttached { sequence } => Ok((sequence, node.id)),
-                _ => Err(RuntimeModuleGraphError::conflict(
-                    "module-detach-state-invalid",
-                    "all modules must be attached before process detach ordering",
-                )),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        attached.sort_by(|left, right| right.cmp(left));
-        let order = attached.iter().map(|(_, id)| *id).collect::<Vec<_>>();
+        let order = self.planned_detach_order()?;
         let transitions = order
             .iter()
             .enumerate()
@@ -417,6 +409,22 @@ impl RuntimeModuleGraph {
         apply_state_transitions(&mut next_nodes, &transitions)?;
         self.nodes = next_nodes;
         Ok(order)
+    }
+
+    pub fn planned_detach_order(&self) -> Result<Vec<RuntimeModuleId>, RuntimeModuleGraphError> {
+        let mut attached = self
+            .nodes
+            .values()
+            .map(|node| match node.state {
+                RuntimeModuleLoadState::ProcessAttached { sequence } => Ok((sequence, node.id)),
+                _ => Err(RuntimeModuleGraphError::conflict(
+                    "module-detach-state-invalid",
+                    "all modules must be attached before process detach ordering",
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        attached.sort_by(|left, right| right.cmp(left));
+        Ok(attached.iter().map(|(_, id)| *id).collect())
     }
 
     pub fn module(

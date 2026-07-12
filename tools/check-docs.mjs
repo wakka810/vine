@@ -20,10 +20,10 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "runtime-module-image-export-foundation" ||
+    checkpoint.runtimeKernelCheckpoint !== "runtime-guest-import-dllmain-lifecycle" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !==
-      "single-process-controlled-two-thread-wait-message-heap-module-image" ||
+      "single-process-controlled-two-thread-wait-message-heap-module-dll-lifecycle" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
       JSON.stringify([
         "process",
@@ -40,6 +40,8 @@ try {
         "controlled-message-queue",
         "controlled-private-heap-backing",
         "mapped-module-image-export-registry",
+        "guest-import-runtime-export-binding",
+        "dll-process-callback-lifecycle",
       ]) ||
     checkpoint.callbackFrameStack !== true ||
     checkpoint.hostCompletionModel !== "scheduler-event" ||
@@ -510,7 +512,80 @@ try {
         bgiReportSha256:
           "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
       }) ||
-    checkpoint.nextCheckpoint !== "runtime-guest-import-dllmain-lifecycle" ||
+    JSON.stringify(checkpoint.runtimeDllLifecycle) !==
+      JSON.stringify({
+        schema: "vine.runtime-dll-lifecycle.v1",
+        mainFixtureBytes: 2560,
+        mainFixtureSha256:
+          "df9553bc5c10dae44d0b6f25f0a96c2a6fcda903895b7ffecebade641bff980a",
+        engineFixtureBytes: 2560,
+        engineFixtureSha256:
+          "7154f24bec58d4e080de8bb98b512f53b425a54dcde273679c193cb1daaaf90b",
+        codecFixtureBytes: 2560,
+        codecFixtureSha256:
+          "6e872f31dddb4932f06e0908c0cbe536a552dca24f338d174fa7e538a21c3d55",
+        nativeExitCode: 0,
+        controlledModuleCount: 4,
+        controlledDependencyEdgeCount: 3,
+        mappedGuestImportCount: 3,
+        runtimeSystemImportCount: 1,
+        runtimeExportEndpointId: 1,
+        runtimeExportEndpointAddress: "0x7f000000",
+        runtimeExportArenaPages: 1,
+        runtimeExportArenaSha256:
+          "4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059",
+        controlledIatTargets: [
+          "0x30001000",
+          "0x30001010",
+          "0x31001000",
+          "0x7f000000",
+        ],
+        controlledReflectionPages: 15,
+        controlledReflectionGeneration: 12,
+        graphAttachOrder: [
+          "kernel32.dll",
+          "lifecycle_codec.dll",
+          "lifecycle_engine.dll",
+          "dll-lifecycle.exe",
+        ],
+        callbackAttachOrder: [
+          "lifecycle_codec.dll",
+          "lifecycle_engine.dll",
+        ],
+        attachFailureModule: "lifecycle_engine.dll",
+        attachFailureUnwindOrder: ["lifecycle_codec.dll"],
+        attachFailureRetryable: true,
+        callbackFrameIds: [1, 2, 3, 4, 5, 6, 7],
+        callbackDetachOrder: [
+          "lifecycle_engine.dll",
+          "lifecycle_codec.dll",
+        ],
+        graphDetachOrder: [
+          "dll-lifecycle.exe",
+          "lifecycle_engine.dll",
+          "lifecycle_codec.dll",
+          "kernel32.dll",
+        ],
+        missingDependencyError: "module-image-name-unknown",
+        wrongFrameError: "dll-callback-frame-mismatch",
+        callbackGraphMutationError:
+          "module-graph-mutation-during-dll-callback-forbidden",
+        loadLibraryFreeLibrary: false,
+        tlsCallbacks: false,
+        moduleRetirement: false,
+        runtimeCoreWasmBytes: 794331,
+        runtimeCoreWasmSha256:
+          "bbc24294dbd5acf79d9cff0a753193dda1dd5e8c6dfc4026cd811d86c9b2e05d",
+        browserWorkerGuestInstructions: 46,
+        browserWorkerExitCode: 0,
+        browserBenchmarkDecision: "go",
+        browserBenchmarkThresholdFailures: 0,
+        bgiSupportedCallCount: 17,
+        bgiInstructionCount: 238,
+        bgiReportSha256:
+          "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+      }) ||
+    checkpoint.nextCheckpoint !== "bgi-generic-runtime-reentry" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

@@ -132,5 +132,6 @@ The controlled process／initial-thread lifecycle dependency is now implemented 
 controlled thread registry is implemented in [runtime-thread-registry.md](runtime-thread-registry.md).
 The wait queue is implemented in [runtime-wait-queue.md](runtime-wait-queue.md), the message queue is
 implemented in [runtime-message-queue.md](runtime-message-queue.md), and private-heap backing is
-implemented in [runtime-heap-backing.md](runtime-heap-backing.md). The next dependency is guest
-import binding plus dependency-ordered `DllMain` process attach／detach callbacks.
+implemented in [runtime-heap-backing.md](runtime-heap-backing.md). Guest import binding plus
+dependency-ordered `DllMain` process attach／detach callbacks are implemented in
+[runtime-dll-lifecycle.md](runtime-dll-lifecycle.md).

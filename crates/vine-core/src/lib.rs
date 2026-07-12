@@ -3,6 +3,7 @@
 mod api;
 mod bootstrap;
 mod callbacks;
+mod dll;
 mod dynamic_exports;
 mod environment;
 mod heap;
@@ -90,6 +91,7 @@ pub use pe32::{
     build_pe32_load_plan,
 };
 pub use runtime::{
+    DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_PROCESS_STATIC_RESERVED,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE, ProcessAddressSpaceLayout,
     RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PRIVATE_HEAP_ARENA_BASE,
@@ -97,15 +99,19 @@ pub use runtime::{
     RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS,
     RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_PROCESS_OBJECT_NAMESPACE,
     RUNTIME_THREAD_OBJECT_NAMESPACE, RuntimeAddressRange, RuntimeBootstrap, RuntimeCallbackFrame,
-    RuntimeCallbackFrameId, RuntimeCancellation, RuntimeClockState, RuntimeDynamicEndpoint,
-    RuntimeEncodedPointer, RuntimeHandle, RuntimeHandleClosePolicy, RuntimeHandleEntry,
+    RuntimeCallbackFrameId, RuntimeCancellation, RuntimeClockState, RuntimeDllAttachFailure,
+    RuntimeDllCallbackReason, RuntimeDllCallbackRequest, RuntimeDllLifecycleAction,
+    RuntimeDllLifecycleCompletion, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,
+    RuntimeEncodedPointer, RuntimeGuestImport, RuntimeGuestImportBinding,
+    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHandleClosePolicy, RuntimeHandleEntry,
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationId, RuntimeHeapBacking,
     RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeHostCompletion, RuntimeHostRequest,
     RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeModule,
-    RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectTable,
-    RuntimeProcessCancellation, RuntimeProcessId, RuntimeProcessLifecycleState,
-    RuntimeProcessState, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
+    RuntimeModuleDependencyEdge, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind,
+    RuntimeObjectRecord, RuntimeObjectTable, RuntimeProcessCancellation, RuntimeProcessId,
+    RuntimeProcessLifecycleState, RuntimeProcessState, RuntimeRegistries, RuntimeScheduler,
+    RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
+    RuntimeStateErrorClass, RuntimeSystemExportEndpoint, RuntimeSystemExportTable, RuntimeThreadId,
     RuntimeThreadLifecycleState, RuntimeThreadMessage, RuntimeThreadState, RuntimeTlsValue,
     RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,
     RuntimeWaitRegistrationId, RuntimeWaitState, SchedulerThreadState, TLS_OUT_OF_INDEXES,

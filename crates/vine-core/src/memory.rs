@@ -1536,6 +1536,25 @@ impl GuestMemory {
         source: &ModuleIdentity,
         image_range: GuestRange,
     ) -> Result<(), GuestMemoryError> {
+        self.validate_image_owner(owner, source, image_range, true)
+    }
+
+    pub(crate) fn validate_unsealed_image_owner(
+        &self,
+        owner: MemoryOwnerId,
+        source: &ModuleIdentity,
+        image_range: GuestRange,
+    ) -> Result<(), GuestMemoryError> {
+        self.validate_image_owner(owner, source, image_range, false)
+    }
+
+    fn validate_image_owner(
+        &self,
+        owner: MemoryOwnerId,
+        source: &ModuleIdentity,
+        image_range: GuestRange,
+        expected_sealed: bool,
+    ) -> Result<(), GuestMemoryError> {
         if !image_range.is_page_aligned() {
             return Err(GuestMemoryError::invalid_request(
                 "module-image-registration",
@@ -1558,11 +1577,18 @@ impl GuestMemory {
                 "registered module source does not match the guest-memory image owner",
             ));
         }
-        if !owner_state.sealed {
+        if expected_sealed && !owner_state.sealed {
             return Err(GuestMemoryError::conflict(
                 "module-image-registration",
                 "module-image-owner-unsealed",
                 "registered module image owner must be sealed",
+            ));
+        }
+        if !expected_sealed && owner_state.sealed {
+            return Err(GuestMemoryError::conflict(
+                "module-image-registration",
+                "module-image-owner-already-sealed",
+                "guest import binding requires an unsealed module image owner",
             ));
         }
 

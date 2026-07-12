@@ -99,6 +99,21 @@ impl RuntimeExportCatalog {
             .find(|export| runtime_export_matches(export, module, target))
     }
 
+    pub fn resolve_with_index(
+        &self,
+        module: &str,
+        target: &ImportTarget,
+    ) -> Option<(usize, &RuntimeExport)> {
+        self.exports
+            .iter()
+            .enumerate()
+            .find(|(_, export)| runtime_export_matches(export, module, target))
+    }
+
+    pub fn exports(&self) -> &[RuntimeExport] {
+        &self.exports
+    }
+
     pub fn len(&self) -> usize {
         self.exports.len()
     }

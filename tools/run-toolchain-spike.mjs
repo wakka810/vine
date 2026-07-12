@@ -132,6 +132,28 @@ const browserExeObject = path.join(outputDirectory, "browser-fixture-exe.obj");
 const browserDllFile = path.join(outputDirectory, "vine_browser_fixture.dll");
 const browserImportLibrary = path.join(outputDirectory, "vine_browser_fixture.lib");
 const browserExeFile = path.join(outputDirectory, "browser-vertical.exe");
+const lifecycleFixtureDirectory = path.join(
+  root,
+  "fixtures",
+  "pe32",
+  "dll-lifecycle",
+);
+const lifecycleCodecObject = path.join(outputDirectory, "lifecycle-codec.obj");
+const lifecycleCodecDll = path.join(outputDirectory, "lifecycle_codec.dll");
+const lifecycleCodecLibrary = path.join(outputDirectory, "lifecycle_codec.lib");
+const lifecycleEngineObject = path.join(outputDirectory, "lifecycle-engine.obj");
+const lifecycleEngineDll = path.join(outputDirectory, "lifecycle_engine.dll");
+const lifecycleEngineLibrary = path.join(outputDirectory, "lifecycle_engine.lib");
+const lifecycleMainObject = path.join(outputDirectory, "lifecycle-main.obj");
+const lifecycleExe = path.join(outputDirectory, "dll-lifecycle.exe");
+const lifecycleKernel32Definition = path.join(
+  lifecycleFixtureDirectory,
+  "kernel32.def",
+);
+const lifecycleKernel32Library = path.join(
+  outputDirectory,
+  "lifecycle-kernel32.lib",
+);
 const windowFixtureDirectory = path.join(
   root,
   "fixtures",
@@ -202,6 +224,18 @@ compilePeObject(
   browserExeObject,
 );
 compilePeObject(
+  path.join(lifecycleFixtureDirectory, "codec.c"),
+  lifecycleCodecObject,
+);
+compilePeObject(
+  path.join(lifecycleFixtureDirectory, "engine.c"),
+  lifecycleEngineObject,
+);
+compilePeObject(
+  path.join(lifecycleFixtureDirectory, "main.c"),
+  lifecycleMainObject,
+);
+compilePeObject(
   path.join(windowFixtureDirectory, "fixture-window.c"),
   windowObject,
 );
@@ -230,6 +264,16 @@ for (const { definition, library } of windowImportLibraries) {
   ]);
 }
 
+run("llvm-dlltool", [
+  "-m",
+  "i386",
+  "-k",
+  "-d",
+  lifecycleKernel32Definition,
+  "-l",
+  lifecycleKernel32Library,
+]);
+
 run("lld-link", [
   "/dll",
   "/noentry",
@@ -252,6 +296,50 @@ run("lld-link", [
   `/out:${exeFile}`,
   exeObject,
   importLibrary,
+]);
+
+run("lld-link", [
+  "/dll",
+  "/nodefaultlib",
+  "/machine:x86",
+  "/entry:fixture_dll_entry@12",
+  "/base:0x30000000",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${lifecycleCodecDll}`,
+  `/implib:${lifecycleCodecLibrary}`,
+  lifecycleCodecObject,
+]);
+
+run("lld-link", [
+  "/dll",
+  "/nodefaultlib",
+  "/machine:x86",
+  "/entry:fixture_dll_entry@12",
+  "/base:0x31000000",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${lifecycleEngineDll}`,
+  `/implib:${lifecycleEngineLibrary}`,
+  lifecycleEngineObject,
+  lifecycleCodecLibrary,
+]);
+
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/base:0x32000000",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${lifecycleExe}`,
+  lifecycleMainObject,
+  lifecycleEngineLibrary,
+  lifecycleKernel32Library,
 ]);
 
 run("lld-link", [
@@ -331,6 +419,7 @@ run("lld-link", [
 
 let nativeAbiExitCode = null;
 let browserVerticalNativeExitCode = null;
+let dllLifecycleNativeExitCode = null;
 let windowPixelNativeExitCode = null;
 let bootstrapFsNativeExitCode = null;
 let bootstrapParamsNativeExitCode = null;
@@ -339,6 +428,8 @@ if (process.platform === "win32") {
   nativeAbiExitCode = 0;
   run(browserExeFile, [], { timeoutMs: 10_000 });
   browserVerticalNativeExitCode = 0;
+  run(lifecycleExe, [], { timeoutMs: 10_000 });
+  dllLifecycleNativeExitCode = 0;
   run(windowExe, [], { timeoutMs: 10_000, windowsHide: false });
   windowPixelNativeExitCode = 0;
   run(bootstrapExe, [], { timeoutMs: 10_000 });
@@ -361,6 +452,22 @@ const browserExeInspection = run("llvm-readobj", [
 const browserDllInspection = run("llvm-readobj", [
   "--coff-exports",
   browserDllFile,
+]);
+const lifecycleExeInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  lifecycleExe,
+]);
+const lifecycleEngineInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  "--coff-exports",
+  lifecycleEngineDll,
+]);
+const lifecycleCodecInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-exports",
+  lifecycleCodecDll,
 ]);
 const windowInspection = run("llvm-readobj", [
   "--file-headers",
@@ -424,6 +531,46 @@ for (const expected of [
 ]) {
   if (!browserDllInspection.includes(expected)) {
     throw new Error(`browser vertical DLL inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+  "ImageBase: 0x32000000",
+  "Name: lifecycle_engine.dll",
+  "Symbol: engine_verify_attached",
+  "Name: kernel32.dll",
+  "Symbol: GetCurrentProcessId",
+]) {
+  if (!lifecycleExeInspection.includes(expected)) {
+    throw new Error(`DLL lifecycle EXE inspection is missing: ${expected}`);
+  }
+}
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+  "AddressOfEntryPoint: 0x1020",
+  "ImageBase: 0x31000000",
+  "Name: lifecycle_codec.dll",
+  "Symbol: codec_get_state",
+  "Symbol: codec_note_engine_detached",
+  "Name: engine_verify_attached",
+]) {
+  if (!lifecycleEngineInspection.includes(expected)) {
+    throw new Error(`DLL lifecycle engine inspection is missing: ${expected}`);
+  }
+}
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+  "AddressOfEntryPoint: 0x1030",
+  "ImageBase: 0x30000000",
+  "Name: codec_get_state",
+  "Name: codec_note_engine_detached",
+]) {
+  if (!lifecycleCodecInspection.includes(expected)) {
+    throw new Error(`DLL lifecycle codec inspection is missing: ${expected}`);
   }
 }
 
@@ -533,6 +680,11 @@ const report = {
       "fixture_deferred_add",
     ],
     browserVerticalNativeExitCode,
+    dllLifecycleFormat: "PE32/i386",
+    dllLifecycleAttachOrder: ["lifecycle_codec.dll", "lifecycle_engine.dll"],
+    dllLifecycleDetachOrder: ["lifecycle_engine.dll", "lifecycle_codec.dll"],
+    dllLifecycleRuntimeImports: ["kernel32.dll!GetCurrentProcessId"],
+    dllLifecycleNativeExitCode,
     windowPixelFormat: "PE32/i386",
     windowPixelImports,
     windowPixelExpectedEvents: ["WM_CREATE", "WM_PAINT", "WM_DESTROY"],
@@ -558,6 +710,12 @@ const report = {
     browserExeFile,
     browserDllFile,
     browserImportLibrary,
+    lifecycleExe,
+    lifecycleEngineDll,
+    lifecycleEngineLibrary,
+    lifecycleCodecDll,
+    lifecycleCodecLibrary,
+    lifecycleKernel32Library,
     windowExe,
     memoryExe,
     bootstrapExe,

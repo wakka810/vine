@@ -111,8 +111,7 @@ runtime-system export unification, graph dependency discovery from imports, dela
 module memory／object retirement, or BGI continuation. It is partial evidence for `REQ-PE-05`／
 `P2-PE-05`, not their completion.
 
-The next Step 9 checkpoint binds a controlled EXE／guest DLL import graph through mapped exports and
-the existing runtime export catalog, commits IAT／dependency state atomically, then drives
-dependency-first `DLL_PROCESS_ATTACH` and strict reverse `DLL_PROCESS_DETACH` through the guest
-callback scheduler. The frozen third `EncodePointer(0x7F020000)` remains unchanged until that
-runtime-kernel boundary is complete.
+The controlled guest import／runtime export catalog binding and dependency-ordered process callback
+lifecycle are now implemented in [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). The next
+dependency returns the frozen BGI 17-call checkpoint to the generic runtime process path; the third
+`EncodePointer(0x7F020000)` remains unchanged until that re-entry is demonstrated.

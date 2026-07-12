@@ -953,6 +953,15 @@ addressへ解決する。32-hop bound、unsealed retry、duplicate／overlap reg
 cycle resolution failure時のregistry不変をrepresentative Rust contractで固定した。Guest import
 binding、dependency discovery、`DllMain` callback lifecycleは未実装である。
 
+**Foundation 9完了（2026-07-12）:** controlled EXE／guest DLL import graphをmapped exportと
+ordered runtime export catalogへ接続した。Direct guest targetとprocess-owned `UD2` runtime
+endpointをsame IAT planへ入れ、requester image seal／runtime arena／static dependencyをmemory
+transaction後にatomic commitする。`DLL_PROCESS_ATTACH`はcodec -> engine、engine `FALSE`時は
+codec detachへunwindしてgraphをreadyのままretry可能にし、successful retry後のprocess detachは
+engine -> codecとなる。Strict callback frame IDs `1..7`、wrong-frame completion、callback中graph
+mutation rejection、15-page generation `12` reflectionをrepresentative Rust contractで固定した。
+`LoadLibrary`／`FreeLibrary`、TLS／thread callbacks、independent unload／retirementは未実装である。
+
 - module graph
 - process／thread lifecycle
 - handles
