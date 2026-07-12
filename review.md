@@ -1005,6 +1005,23 @@ frozen 17-callとStep 10 generic reportは不変である。次はprocess-owned 
 inverse mappingとして`kernel32-pointer-decoding`を実装し、FLS endpoint invocation前の
 次のexact stopを測る。
 
+### Step 12 — process-owned pointer decoding
+
+**完了（2026-07-13）:** existing pointer traces 2件でcaller RVA `0xA5924`の
+process-specific input、same native `FlsAlloc` result、LastError preserveを固定した。
+native token／address／cookieを破棄し、configured namespace、token record、reverse source
+indexが一致するregistered Vine tokenだけをoriginal sourceへ戻すread-only inverse mappingを
+`RuntimeState`へ追加した。unknown／malformed tokenはregistry、LastError、guest memoryを
+変えずstructured invalid-callとなる。
+
+same generic sessionは17 contracts／36 calls、37 writeback batches／66 dirty pages／348
+changed bytes、17 host deltas、final generation `81`を通し、instruction 577のdynamic
+endpoint ID `1`／`KERNEL32.dll!FlsAlloc(0x100A5666)`で停止した。171,356-byte reportの
+SHA-256は`5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e`である。
+frozen 17-call、Step 10 generic、critical-section reportsは不変である。次はreached
+`FlsAlloc`のnative callback／index／LastError／consumer contractを測定し、bounded
+process-owned FLS allocationをsame dynamic endpoint pathへ実装する。
+
 ---
 
 ## 8. P0完了のDefinition of Done

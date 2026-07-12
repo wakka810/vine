@@ -921,3 +921,28 @@ writeback batches／65 dirty pages／344 changed bytes、17 host deltas、final 
 reportのSHA-256は`cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69`
 である。詳細は[bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md)
 を正とする。
+
+## 45. BGI pointer decoding
+
+existing `--observe pointer-encoding` primary／confirmation tracesは
+2,213,858 bytes／6,979 lines／SHA-256
+`71a79c89aa9511cf0eca37c952d24130765212705ab34be08de56b1529045fa3`と
+312,314 bytes／1,040 lines／SHA-256
+`4309d18d16ad3dc6b5390df421d7edc4137c712221cea65378b91774e31ef04c`
+である。BGI caller RVA `0xA5924`の`DecodePointer`はprocessごとに異なる
+`0x61C0A638`／`0xC7C1EB7E`を同じnative `FlsAlloc` address
+`0x758CD300`へ戻し、LastError `0 -> 0`／`87 -> 87`を保持した。native token、
+address、process cookieは破棄する。
+
+Rustはconfigured namespace、nonzero token ID、token record、reverse source indexを
+checked処理し、registered Vine tokenだけをoriginal sourceへ戻す。controlled
+`0xEC010003`はdynamic endpoint ID `1`／`0x7F020000`へdecodeされ、guest writeと
+LastError変更はない。unknown／malformed tokenはmutation前にstructured invalid-call
+となる。
+
+`npm run check:runtime:bgi-pointer-decoding`は36 calls、37 writeback batches／66 dirty
+pages／348 changed bytes、17 host deltas、final generation `81`を通す。instruction
+`577`でdynamic `FlsAlloc(0x100A5666)`へ到達し、未実装contractを
+`dynamic-export-contract-missing`として停止する。171,356-byte reportのSHA-256は
+`5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e`で2回一致した。
+詳細は[bgi-pointer-decoding.md](bgi-pointer-decoding.md)を正とする。

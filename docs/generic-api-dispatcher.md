@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, and critical-section capability implemented
+- Status: review Step 2／3, Step 4／10, critical-section, and pointer-decoding capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-critical-section-synchronization`
-- Scope: frozen 17-call equivalence plus 35 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-pointer-decoding`
+- Scope: frozen 17-call equivalence plus 36 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -49,14 +49,15 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `TlsAlloc` | 1 | allocates a process TLS index |
 | `TlsSetValue` | 1 | stores a current-thread endpoint value |
 | `EncodePointer` | 6 | allocates stable process pointer tokens |
+| `DecodePointer` | 1 | resolves only registered process tokens to their original source |
 | `InitializeCriticalSectionAndSpinCount` | 14 | creates process-owned synchronization state and exact x86 bytes |
 | `EnterCriticalSection` | controlled test | acquires or recursively enters for the current thread |
 | `LeaveCriticalSection` | controlled test | decrements recursion and releases at zero |
 
-All 16 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 17 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-35 BGI calls, including six `EncodePointer` occurrences and 14 critical-section
-initializations. Enter／leave semantics are fixed by native evidence and the
+36 BGI calls, including six `EncodePointer` occurrences, 14 critical-section
+initializations, and one `DecodePointer`. Enter／leave semantics are fixed by native evidence and the
 controlled public test because the bounded BGI continuation has not reached those
 endpoints. The title harness still performs callsite provenance checks, automatic
 v86 dirty-page synchronization, and evidence serialization around the common
@@ -170,28 +171,43 @@ generation is `80`. The 167,719-byte report has SHA-256
 and stops at instruction 575 on `DecodePointer(0xEC010003)`. Full native and
 runtime evidence is in [bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md).
 
+The pointer-decoding capability profile is:
+
+```powershell
+npm run check:runtime:bgi-pointer-decoding
+```
+
+It resolves controlled token `0xEC010003` to its registered source
+`0x7F020000`, preserves LastError, and performs no guest write. The immediate
+dynamic call adds one 4-byte CPU writeback, so the profile completes 36 calls,
+uses 37 writeback batches／66 dirty pages／348 changed bytes, and ends at
+generation `81`. Its 171,356-byte report has SHA-256
+`5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e`
+and stops at instruction 577 on dynamic endpoint ID `1`／`FlsAlloc`. Full
+evidence is in [bgi-pointer-decoding.md](bgi-pointer-decoding.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
 - The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
 - Private heaps have bounded guest-memory backing, but guest `HeapAlloc` dispatch and broad allocator policy remain absent.
-- TLS free/thread lifecycle, pointer decode, critical-section deletion／contention
-  blocking, and arbitrary export pages are absent.
+- FLS allocation/value/free and TLS free/thread lifecycle, critical-section
+  deletion／contention blocking, and arbitrary export pages are absent.
 - Host completion is connected to controlled Worker／browser services; general
   VFS, input, graphics, audio, and storage adapters remain absent.
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
   Rust byte authority, automatic v86 writeback, and binary transport are now
   fixed by ADR-003 and the memory-writeback checkpoint.
-- The generic session has passed the critical-section initialization cluster. Its
-  first unsupported cluster is Kernel32 pointer decoding; bespoke checkpoint
+- The generic session has passed pointer decoding. Its first unsupported cluster
+  is Kernel32 fiber-local storage allocation; bespoke checkpoint
   expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-pointer-decoding` at
-`DecodePointer(0xEC010003)`. It must resolve only Vine-owned encoded tokens through
-the process state, preserve exact endpoint identity and LastError policy, and
-continue through the same dispatcher and automatic writeback path. Existing
-import, bootstrap, DLL lifecycle, bidirectional memory sync, frozen 17-call
-report, generic 96,244-byte report, and critical-section 167,719-byte report
-remain the regression boundary.
+The next proof is `kernel32-fiber-local-storage-allocation` at dynamic
+`FlsAlloc(0x100A5666)`. It must measure the reached callback/index/LastError
+contract, allocate bounded process-owned FLS slot state, and continue through
+the same generic loop. Existing import, bootstrap, DLL lifecycle, bidirectional
+memory sync, frozen 17-call report, generic 96,244-byte report, critical-section
+167,719-byte report, and pointer-decoding 171,356-byte report remain the
+regression boundary.

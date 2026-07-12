@@ -179,6 +179,7 @@ pub enum ApiReturnSchema {
     Void,
     U32,
     Bool32,
+    OpaquePointer { nullable: bool },
     LogicalPointer { namespace: String, nullable: bool },
     LogicalHandle { namespace: String, nullable: bool },
 }
@@ -421,6 +422,7 @@ pub enum ApiReturnValue {
     Void,
     U32(u32),
     Bool32(bool),
+    OpaquePointer(u32),
     LogicalPointer { namespace: String, value: u32 },
     LogicalHandle { namespace: String, value: u32 },
 }
@@ -1355,6 +1357,11 @@ fn validate_return_value(
         (ApiReturnSchema::U32, ApiReturnValue::U32(value)) => RegisterUpdate::Set(*value),
         (ApiReturnSchema::Bool32, ApiReturnValue::Bool32(value)) => {
             RegisterUpdate::Set(u32::from(*value))
+        }
+        (ApiReturnSchema::OpaquePointer { nullable }, ApiReturnValue::OpaquePointer(value))
+            if *nullable || *value != 0 =>
+        {
+            RegisterUpdate::Set(*value)
         }
         (
             ApiReturnSchema::LogicalPointer {

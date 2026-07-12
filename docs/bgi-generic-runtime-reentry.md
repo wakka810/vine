@@ -150,6 +150,7 @@ protocol.
 The reached critical-section cluster is now closed by
 [bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md).
 That profile preserves this report, adds process-owned recursive state, completes
-14 BGI initializations, and stops at `DecodePointer(0xEC010003)`. The active next
-checkpoint is `kernel32-pointer-decoding`; numbered API modes and handler-specific
-writeback lists remain frozen.
+14 BGI initializations, and stops at `DecodePointer(0xEC010003)`. The subsequent
+[bgi-pointer-decoding.md](bgi-pointer-decoding.md) profile also preserves this
+report, resolves the owned token, and reaches `FlsAlloc(0x100A5666)`. Numbered
+API modes and handler-specific writeback lists remain frozen.

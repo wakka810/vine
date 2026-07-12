@@ -20,10 +20,10 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "bgi-critical-section-synchronization" ||
+    checkpoint.runtimeKernelCheckpoint !== "bgi-pointer-decoding" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !==
-      "single-process-controlled-two-thread-wait-message-heap-module-dll-lifecycle-critical-section" ||
+      "single-process-controlled-two-thread-wait-message-heap-module-dll-lifecycle-critical-section-pointer-decoding" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
       JSON.stringify([
         "process",
@@ -46,8 +46,8 @@ try {
       ]) ||
     checkpoint.callbackFrameStack !== true ||
     checkpoint.hostCompletionModel !== "scheduler-event" ||
-    checkpoint.genericDispatcherApiCount !== 16 ||
-    checkpoint.genericDispatcherCallOccurrenceCount !== 35 ||
+    checkpoint.genericDispatcherApiCount !== 17 ||
+    checkpoint.genericDispatcherCallOccurrenceCount !== 36 ||
     JSON.stringify(checkpoint.genericDispatcherApis) !==
       JSON.stringify([
         "KERNEL32.dll!GetSystemTimeAsFileTime",
@@ -63,6 +63,7 @@ try {
         "KERNEL32.dll!TlsAlloc",
         "KERNEL32.dll!TlsSetValue",
         "KERNEL32.dll!EncodePointer",
+        "KERNEL32.dll!DecodePointer",
         "KERNEL32.dll!InitializeCriticalSectionAndSpinCount",
         "KERNEL32.dll!EnterCriticalSection",
         "KERNEL32.dll!LeaveCriticalSection",
@@ -687,7 +688,57 @@ try {
         reportSha256:
           "cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69",
       }) ||
-    checkpoint.nextCheckpoint !== "kernel32-pointer-decoding" ||
+    JSON.stringify(checkpoint.bgiPointerDecoding) !==
+      JSON.stringify({
+        schema: "vine.v86-bgi-pointer-decoding.v1",
+        nativePrimaryTraceBytes: 2213858,
+        nativePrimaryTraceLines: 6979,
+        nativePrimaryTraceSha256:
+          "71a79c89aa9511cf0eca37c952d24130765212705ab34be08de56b1529045fa3",
+        nativeConfirmationTraceBytes: 312314,
+        nativeConfirmationTraceLines: 1040,
+        nativeConfirmationTraceSha256:
+          "4309d18d16ad3dc6b5390df421d7edc4137c712221cea65378b91774e31ef04c",
+        nativeDecodeCallerRva: "0x000a5924",
+        nativePrimaryEncodedInput: "0x61c0a638",
+        nativeConfirmationEncodedInput: "0xc7c1eb7e",
+        nativeDecodedTarget: "KERNEL32.dll!FlsAlloc",
+        lastErrorPolicy: "preserve",
+        tokenNamespace: "vine.logical-encoded-pointer.v1",
+        decodedToken: "0xec010003",
+        decodedSource: "0x7f020000",
+        acceptsOnlyRegisteredTokens: true,
+        nativeProcessCookieEmulated: false,
+        guestWrites: 0,
+        implementedApiContractCount: 17,
+        genericSupportedCallCount: 36,
+        decodePointerCalls: 1,
+        reflectionPages: 389,
+        reflectionGeneration: 27,
+        frozenCompatibilityGeneration: 30,
+        reflectionSha256:
+          "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
+        writebackBatches: 37,
+        writebackDirtyPages: 66,
+        writebackChangedBytes: 348,
+        hostDeltaBatches: 17,
+        finalMemoryGeneration: 81,
+        firstUnsupportedInstructionCount: 577,
+        firstUnsupportedCapabilityCluster: "kernel32-fiber-local-storage",
+        firstUnsupportedEndpointKind: "dynamic-export",
+        firstUnsupportedEndpointId: 1,
+        firstUnsupportedEndpointAddress: "0x7f020000",
+        firstUnsupportedApi: "KERNEL32.dll!FlsAlloc",
+        firstUnsupportedArguments: ["0x100a5666"],
+        firstUnsupportedReturnAddress: "0x100a5926",
+        firstUnsupportedFault: "dynamic-export-contract-missing",
+        apiSpecificReconciliationLists: false,
+        apiSpecificRequestsOrReceipts: false,
+        reportBytes: 171356,
+        reportSha256:
+          "5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e",
+      }) ||
+    checkpoint.nextCheckpoint !== "kernel32-fiber-local-storage-allocation" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

@@ -85,7 +85,7 @@ and 3 host deltas without an API-specific reconciliation list. Its separate
 `a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa`; the
 frozen 140,660-byte report remains byte-identical.
 
-The next capability profile adds process-owned critical-section synchronization.
+The critical-section capability profile adds process-owned synchronization.
 Native evidence fixes the 24-byte x86 layout, BOOL／LastError policy, recursive
 same-thread enter／leave, and BGI wrapper RVAs. The generic session initializes 14
 contiguous objects and reaches 35 completed calls before stopping at instruction
@@ -94,8 +94,15 @@ contiguous objects and reaches 35 completed calls before stopping at instruction
 167,719-byte report has SHA-256
 `cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69`.
 
-Sixteen Kernel32 contracts now use the generic Rust dispatcher. This includes
-clock／identity, startup, heap, module／export, TLS, pointer encoding, and critical
+The cumulative pointer-decoding profile accepts only registered Vine tokens,
+returns `0x7F020000` for `0xEC010003`, and immediately reaches dynamic
+`FlsAlloc(0x100A5666)` at instruction 577. It completes 36 calls through 37
+writeback batches／66 dirty pages／348 changed bytes and generation `81`. Its
+171,356-byte report has SHA-256
+`5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e`.
+
+Seventeen Kernel32 contracts now use the generic Rust dispatcher. This includes
+clock／identity, startup, heap, module／export, TLS, pointer encoding／decoding, and critical
 section calls. The dispatcher owns endpoint lookup, checked frame decoding,
 pointer and name／ordinal validation, guest writes, return cleanup, LastError
 policy, and identity-preserving faults.
@@ -103,7 +110,7 @@ policy, and identity-preserving faults.
 Those calls now share one authoritative Rust `RuntimeState`. It owns the
 controlled process／logical thread registry, per-thread LastError, clock and startup
 profile, heap／module／endpoint registries, TLS values, deterministic encoded
-pointers, and guest-address-keyed critical sections. Nested callback frames are LIFO and asynchronous host completion is a
+pointers with strict inverse lookup, and guest-address-keyed critical sections. Nested callback frames are LIFO and asynchronous host completion is a
 scheduler event that restores the prior runnable／callback state. Private JSON
 request values remain evidence assertions, not API result sources. A controlled
 one-object wait queue now moves a logical lane from runnable to waiting and back
@@ -169,9 +176,9 @@ cancellation. A controlled raw message queue adds global sequence identity,
 owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. Private heaps now
 have bounded guest-memory backing; mapped images, bounded PE32 export resolution,
 guest／runtime import binding, and DLL process attach failure unwind／retry／detach
-are also process-owned foundations. The next runtime-kernel checkpoint implements
-the reached `DecodePointer` inverse mapping for Vine-owned tokens through the same
-generic session. Bespoke numbered BGI checkpoint expansion remains paused.
+are also process-owned foundations. The next runtime-kernel checkpoint measures
+and implements bounded process-owned allocation for the reached dynamic
+`FlsAlloc(0x100A5666)` call. Bespoke numbered BGI checkpoint expansion remains paused.
 
 ## Requirements
 
@@ -297,6 +304,9 @@ writeback, and stops fail-closed at the first missing critical-section contract.
 `npm run check:runtime:bgi-critical-section-synchronization` validates the 14
 process-owned initializations, preserves both earlier reports, and stops
 fail-closed at `DecodePointer(0xEC010003)` after 35 completed calls.
+`npm run check:runtime:bgi-pointer-decoding` resolves only the registered token,
+preserves all three earlier reports, and stops fail-closed at dynamic
+`FlsAlloc(0x100A5666)` after 36 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

@@ -327,6 +327,89 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
 }
 
 #[test]
+fn pointer_encoding_contract_round_trips_only_process_owned_tokens() {
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoints, frames) = pointer_encoding_dispatcher_fixture(&mut memory, owner);
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let memory_before = memory.stats();
+
+    let encoded_null = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[0],
+        frames[0].0,
+        frames[0].1[0],
+    );
+    let encoded_endpoint = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[0],
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(encoded_null.eax, RegisterUpdate::Set(0xec01_0001));
+    assert_eq!(encoded_endpoint.eax, RegisterUpdate::Set(0xec01_0002));
+
+    for frame in [&frames[2], &frames[3]] {
+        let decoded = dispatch_owned(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoints[1],
+            frame.0,
+            frame.1[0],
+        );
+        assert_eq!(decoded.eax, RegisterUpdate::Set(0));
+        assert_eq!(decoded.last_error, INITIAL_LAST_ERROR);
+    }
+    let decoded_endpoint = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[1],
+        frames[4].0,
+        frames[4].1[0],
+    );
+    assert_eq!(decoded_endpoint.eax, RegisterUpdate::Set(0x7f02_0000));
+    assert_eq!(decoded_endpoint.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(
+        runtime
+            .decode_pointer(0xec01_0002)
+            .expect("registered endpoint token")
+            .source,
+        0x7f02_0000
+    );
+
+    let encoded_pointers_before = runtime.registries().encoded_pointers.clone();
+    for (frame, expected_code) in [
+        (&frames[5], "encoded-pointer-token-unknown"),
+        (&frames[6], "encoded-pointer-token-invalid"),
+    ] {
+        let rejected = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(&endpoints[1], frame.0, frame.1[0]),
+                &mut session,
+                dispatch_kernel32_api,
+            )
+        };
+        assert!(matches!(
+            rejected,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == ApiFaultClass::InvalidCall && fault.code == expected_code
+        ));
+    }
+    assert_eq!(
+        runtime.registries().encoded_pointers,
+        encoded_pointers_before
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
 fn critical_section_contract_owns_recursive_state_and_guest_bytes() {
     const CRITICAL_SECTION_ADDRESS: u32 = OUTPUT_BASE + 0x400;
     const SECOND_THREAD_ID: u32 = 0x3000;
@@ -994,6 +1077,75 @@ fn critical_section_dispatcher_fixture(
         .expect("acknowledge initial reflection");
     (
         ApiDispatcher::new(endpoints.clone(), contracts).expect("critical-section dispatcher"),
+        endpoints,
+        frames,
+    )
+}
+
+fn pointer_encoding_dispatcher_fixture(
+    memory: &mut GuestMemory,
+    owner: MemoryOwnerId,
+) -> (ApiDispatcher, Vec<ApiEndpointIdentity>, [FrameWords; 7]) {
+    let names = ["EncodePointer", "DecodePointer"];
+    let thunks = names
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let id = ImportThunkId((index + 1) as u32);
+            let address = GuestAddress(ENDPOINT_BASE + (index as u32 * 0x10));
+            let iat_address = GuestAddress(IAT_BASE + (index as u32 * 4));
+            memory
+                .write_initialization(owner, iat_address, &address.0.to_le_bytes())
+                .expect("initialize pointer-encoding IAT");
+            ImportThunk {
+                id,
+                address,
+                requester_owner: owner,
+                module: "KERNEL32.dll".to_owned(),
+                iat_rva: Rva(index as u32 * 4),
+                iat_address,
+                original_iat_value: 0,
+                disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+                target: ImportTarget::Name {
+                    name: name.to_owned(),
+                    hint: 0,
+                    name_rva: Rva(0),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    let endpoints = thunks
+        .iter()
+        .map(ApiEndpointIdentity::from_import_thunk)
+        .collect::<Vec<_>>();
+    let contracts = endpoints
+        .iter()
+        .cloned()
+        .map(|endpoint| {
+            kernel32_contract_for_endpoint(endpoint)
+                .expect("Kernel32 contract lookup")
+                .expect("implemented pointer-encoding endpoint")
+        })
+        .collect::<Vec<_>>();
+    let frames = [
+        (STACK_BASE + 0x180, vec![0x1000_0401, 0]),
+        (STACK_BASE + 0x1a0, vec![0x1000_0402, 0x7f02_0000]),
+        (STACK_BASE + 0x1c0, vec![0x1000_0403, 0xec01_0001]),
+        (STACK_BASE + 0x1e0, vec![0x1000_0404, 0xec01_0001]),
+        (STACK_BASE + 0x200, vec![0x1000_0405, 0xec01_0002]),
+        (STACK_BASE + 0x220, vec![0x1000_0406, 0xec01_00ff]),
+        (STACK_BASE + 0x240, vec![0x1000_0407, 0x1234_5678]),
+    ];
+    for (address, words) in &frames {
+        write_frame(memory, owner, GuestAddress(*address), words);
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    (
+        ApiDispatcher::new(endpoints.clone(), contracts).expect("pointer-encoding dispatcher"),
         endpoints,
         frames,
     )

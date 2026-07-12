@@ -79,6 +79,7 @@ const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GenericRuntimeCapability {
     Kernel32CriticalSectionSynchronization,
+    Kernel32PointerDecoding,
 }
 
 struct GenericRuntimeProcess {
@@ -2346,9 +2347,7 @@ fn run_v86_generic_runtime_session(
     for endpoint in &endpoints {
         if let Some(contract) =
             kernel32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)?
-            && (enabled_capability
-                == Some(GenericRuntimeCapability::Kernel32CriticalSectionSynchronization)
-                || !is_critical_section_endpoint(endpoint))
+            && runtime_capability_enables_endpoint(enabled_capability, endpoint)
         {
             contracts.push(contract);
         }
@@ -2513,17 +2512,29 @@ fn run_v86_generic_runtime_session(
     ))
 }
 
-fn is_critical_section_endpoint(endpoint: &ApiEndpointIdentity) -> bool {
-    matches!(
-        &endpoint.symbol,
-        vine_core::ApiSymbol::Name { name }
-            if matches!(
-                name.as_str(),
-                "InitializeCriticalSectionAndSpinCount"
-                    | "EnterCriticalSection"
-                    | "LeaveCriticalSection"
+fn runtime_capability_enables_endpoint(
+    enabled: Option<GenericRuntimeCapability>,
+    endpoint: &ApiEndpointIdentity,
+) -> bool {
+    let vine_core::ApiSymbol::Name { name } = &endpoint.symbol else {
+        return true;
+    };
+    match name.as_str() {
+        "InitializeCriticalSectionAndSpinCount"
+        | "EnterCriticalSection"
+        | "LeaveCriticalSection" => matches!(
+            enabled,
+            Some(
+                GenericRuntimeCapability::Kernel32CriticalSectionSynchronization
+                    | GenericRuntimeCapability::Kernel32PointerDecoding
             )
-    )
+        ),
+        "DecodePointer" => matches!(
+            enabled,
+            Some(GenericRuntimeCapability::Kernel32PointerDecoding)
+        ),
+        _ => true,
+    }
 }
 
 fn send_pending_runtime_delta(
@@ -7648,6 +7659,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-critical-section-synchronization" => {
                     GenericRuntimeCapability::Kernel32CriticalSectionSynchronization
                 }
+                "kernel32-pointer-decoding" => GenericRuntimeCapability::Kernel32PointerDecoding,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
@@ -7858,7 +7870,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

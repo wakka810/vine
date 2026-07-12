@@ -27,6 +27,7 @@ pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1"
 pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
 pub const TLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.tls-set-value.v1";
 pub const ENCODE_POINTER_IMPLEMENTATION: &str = "kernel32.encode-pointer.v1";
+pub const DECODE_POINTER_IMPLEMENTATION: &str = "kernel32.decode-pointer.v1";
 pub const INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION: &str =
     "kernel32.initialize-critical-section-and-spin-count.v1";
 pub const ENTER_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.enter-critical-section.v1";
@@ -61,6 +62,7 @@ pub fn dispatch_kernel32_api(
         TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
         TLS_SET_VALUE_IMPLEMENTATION => handle_tls_set_value(contract, frame, session),
         ENCODE_POINTER_IMPLEMENTATION => handle_encode_pointer(contract, frame, session),
+        DECODE_POINTER_IMPLEMENTATION => handle_decode_pointer(contract, frame, session),
         INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION => {
             handle_initialize_critical_section_and_spin_count(contract, frame, session)
         }
@@ -105,6 +107,7 @@ pub fn kernel32_contract_for_endpoint(
         "TlsAlloc" => tls_alloc_contract(endpoint)?,
         "TlsSetValue" => tls_set_value_contract(endpoint)?,
         "EncodePointer" => encode_pointer_contract(endpoint)?,
+        "DecodePointer" => decode_pointer_contract(endpoint)?,
         "InitializeCriticalSectionAndSpinCount" => {
             initialize_critical_section_and_spin_count_contract(endpoint)?
         }
@@ -314,6 +317,20 @@ fn handle_encode_pointer(
         namespace: encoded.namespace,
         value: encoded.token,
     }))
+}
+
+fn handle_decode_pointer(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let token = required_argument(contract, frame, 0, "encoded pointer")?;
+    let source = session
+        .runtime()
+        .decode_pointer(token)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .source;
+    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(source)))
 }
 
 fn handle_initialize_critical_section_and_spin_count(
@@ -734,6 +751,16 @@ pub fn encode_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
             nullable: false,
         },
         ENCODE_POINTER_IMPLEMENTATION,
+    )
+}
+
+pub fn decode_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "DecodePointer",
+        vec![opaque_pointer("encodedPointer", false, 1)],
+        ApiReturnSchema::OpaquePointer { nullable: true },
+        DECODE_POINTER_IMPLEMENTATION,
     )
 }
 

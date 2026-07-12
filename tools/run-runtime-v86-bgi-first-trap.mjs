@@ -48,7 +48,10 @@ for (let index = 0; index < commandArguments.length; index += 1) {
     assert(genericRuntimeCapability === null, "--runtime-capability may be specified only once");
     genericRuntimeCapability = commandArguments[index + 1] ?? null;
     assert(
-      genericRuntimeCapability === "kernel32-critical-section-synchronization",
+      [
+        "kernel32-critical-section-synchronization",
+        "kernel32-pointer-decoding",
+      ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
     index += 1;
@@ -59,7 +62,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
@@ -97,7 +100,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? "v86-bgi-critical-section-synchronization"
+    ? genericRuntimeCapability === "kernel32-pointer-decoding"
+      ? "v86-bgi-pointer-decoding"
+      : "v86-bgi-critical-section-synchronization"
     : genericRuntimeReentry
       ? "v86-bgi-generic-runtime-reentry"
     : selectedCheckpoint.artifactDirectory,
@@ -1210,6 +1215,35 @@ const criticalSectionSynchronizationExpected = {
   reportBytes: 167_719,
   reportSha256: "cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69",
 };
+const pointerDecodingExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 36,
+  initializationCalls: 14,
+  firstStorageAddress: 0x100ff630,
+  storageStride: 24,
+  spinCount: 4000,
+  decodeCalls: 1,
+  decodedToken: 0xec010003,
+  decodedSource: 0x7f020000,
+  writebackBatches: 37,
+  dirtyPages: 66,
+  changedBytes: 348,
+  hostDeltaBatches: 17,
+  finalGeneration: 81,
+  firstUnsupported: {
+    capabilityCluster: "kernel32-fiber-local-storage",
+    endpointId: 1,
+    endpointAddress: 0x7f020000,
+    module: "kernel32.dll",
+    name: "FlsAlloc",
+    arguments: [0x100a5666],
+    returnAddress: 0x100a5926,
+    instructionCount: 577,
+    faultCode: "dynamic-export-contract-missing",
+  },
+  reportBytes: 171_356,
+  reportSha256: "5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -1665,8 +1699,12 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
-      } else {
+      } else if (
+        genericRuntimeCapability === "kernel32-critical-section-synchronization"
+      ) {
         validateCriticalSectionSynchronizationResult(genericResult);
+      } else {
+        validatePointerDecodingResult(genericResult);
       }
       fs.mkdirSync(outputDirectory, { recursive: true });
       const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
@@ -1674,20 +1712,23 @@ async function run() {
         assert.equal(reportBytes.byteLength, genericRuntimeExpected.reportBytes);
         assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
       } else {
+        const capabilityExpected =
+          genericRuntimeCapability === "kernel32-pointer-decoding"
+            ? pointerDecodingExpected
+            : criticalSectionSynchronizationExpected;
         assert.equal(
           reportBytes.byteLength,
-          criticalSectionSynchronizationExpected.reportBytes,
+          capabilityExpected.reportBytes,
         );
-        assert.equal(
-          sha256(reportBytes),
-          criticalSectionSynchronizationExpected.reportSha256,
-        );
+        assert.equal(sha256(reportBytes), capabilityExpected.reportSha256);
       }
       fs.writeFileSync(reportPath, reportBytes);
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : "bgi critical-section synchronization";
+          : genericRuntimeCapability === "kernel32-pointer-decoding"
+            ? "bgi pointer decoding"
+            : "bgi critical-section synchronization";
       console.log(
         `${checkpointLabel} passed: ${genericResult.supportedCalls.length} generic calls, ` +
           `first unsupported cluster ${genericResult.fault.capabilityCluster}`,
@@ -2024,7 +2065,12 @@ function validateGenericRuntimeReady(ready, offer) {
   assert.equal(ready.runtimeExportEndpoints, expected.imports.total);
   assert.equal(
     ready.implementedApiContracts,
-    declaredDispatches.length + (genericRuntimeCapability === null ? 0 : 3),
+    declaredDispatches.length +
+      (genericRuntimeCapability === null
+        ? 0
+        : genericRuntimeCapability === "kernel32-pointer-decoding"
+          ? 4
+          : 3),
   );
   assert.equal(ready.dynamicExportEndpoints, 4);
   assert.equal(ready.memory.generation, offer.reflection.invalidation.generation);
@@ -2514,6 +2560,65 @@ function validateCriticalSectionSynchronizationResult(result) {
   );
 }
 
+function validatePointerDecodingResult(result) {
+  const expected = pointerDecodingExpected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  const initializations = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "InitializeCriticalSectionAndSpinCount",
+  );
+  assert.equal(initializations.length, expected.initializationCalls);
+  initializations.forEach((call, index) => {
+    assert.deepEqual(call.arguments, [
+      expected.firstStorageAddress + index * expected.storageStride,
+      expected.spinCount,
+    ]);
+  });
+
+  const decodes = result.supportedCalls.filter(({ symbol }) => symbol === "DecodePointer");
+  assert.equal(decodes.length, expected.decodeCalls);
+  assert.deepEqual(decodes[0].arguments, [expected.decodedToken]);
+  assert.deepEqual(decodes[0].result, { action: "set", value: expected.decodedSource });
+  assert.equal(decodes[0].implementationId, "kernel32.decode-pointer.v1");
+  assert.equal(decodes[0].lastError, 87);
+  assert.deepEqual(decodes[0].guestWrites, []);
+  assert.equal(decodes[0].stackPointerAfter, decodes[0].stackPointerBefore + 8);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "dynamic-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.name, unsupported.name);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-dynamic-export-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -2535,7 +2640,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : "vine.v86-bgi-critical-section-synchronization",
+        : genericRuntimeCapability === "kernel32-pointer-decoding"
+          ? "vine.v86-bgi-pointer-decoding"
+          : "vine.v86-bgi-critical-section-synchronization",
     schemaVersion: 1,
     source: offer.source,
     sourceSnapshot: {

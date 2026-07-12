@@ -191,8 +191,8 @@ Rust returns `endpoint-contract-missing` in capability cluster
 `kernel32-pointer-encoding`; it does not decode the controlled token or invoke
 the associated FLS endpoint.
 
-The next checkpoint is `kernel32-pointer-decoding`. It must define the inverse
-mapping for Vine-owned encoded tokens, preserve the process-owned identity and
-failure policy, and continue through the same generic loop. General FLS calls,
-arbitrary synchronization, CPU-backed multithreading, and BGI browser execution
-remain outside this checkpoint.
+The follow-on `kernel32-pointer-decoding` checkpoint is now verified in
+[bgi-pointer-decoding.md](bgi-pointer-decoding.md). It preserves this report,
+resolves only the registered token, and reaches dynamic `FlsAlloc(0x100A5666)`.
+General FLS calls, arbitrary synchronization, CPU-backed multithreading, and BGI
+browser execution remain outside this checkpoint.

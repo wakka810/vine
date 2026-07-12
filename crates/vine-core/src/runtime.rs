@@ -4116,6 +4116,46 @@ impl RuntimeState {
         })
     }
 
+    pub fn decode_pointer(&self, token: u32) -> Result<&RuntimeEncodedPointer, RuntimeStateError> {
+        let token_id = token & 0xffff;
+        if token_id == 0 || token & 0xffff_0000 != self.encoded_pointer_token_prefix {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-pointer-encoding",
+                "encoded-pointer-token-invalid",
+                format!("pointer token {token:#010x} is outside the runtime-owned token namespace"),
+            ));
+        }
+        let encoded = self
+            .registries
+            .encoded_pointers
+            .get(&token)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-pointer-encoding",
+                    "encoded-pointer-token-unknown",
+                    format!("pointer token {token:#010x} is not registered in this process"),
+                )
+            })?;
+        if encoded.namespace != self.encoded_pointer_namespace
+            || encoded.token != token
+            || u32::from(encoded.token_id) != token_id
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-pointer-encoding",
+                "encoded-pointer-record-inconsistent",
+                "registered encoded pointer does not match its process token identity",
+            ));
+        }
+        match self.encoded_pointer_sources.get(&encoded.source) {
+            Some(indexed_token) if *indexed_token == token => Ok(encoded),
+            _ => Err(RuntimeStateError::runtime_defect(
+                "runtime-pointer-encoding",
+                "encoded-pointer-source-index-inconsistent",
+                "registered encoded pointer does not match its process source index",
+            )),
+        }
+    }
+
     pub fn push_callback_frame(
         &mut self,
         target: GuestAddress,
