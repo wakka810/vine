@@ -5708,6 +5708,9 @@ fn controlled_runtime_state(
             .register_dynamic_export_thunk(thunk)
             .map_err(runtime_state_error)?;
     }
+    runtime
+        .start_initial_thread()
+        .map_err(runtime_state_error)?;
     Ok(runtime)
 }
 

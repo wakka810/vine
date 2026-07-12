@@ -88,11 +88,11 @@ pub use runtime::{
     RuntimeClockState, RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeHandle,
     RuntimeHandleClosePolicy, RuntimeHandleEntry, RuntimeHeap, RuntimeHostCompletion,
     RuntimeHostRequest, RuntimeModule, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind,
-    RuntimeObjectRecord, RuntimeObjectTable, RuntimeProcessId, RuntimeProcessState,
-    RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadState,
-    RuntimeTlsValue, RuntimeWaitState, SchedulerThreadState, TLS_OUT_OF_INDEXES,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeObjectRecord, RuntimeObjectTable, RuntimeProcessId, RuntimeProcessLifecycleState,
+    RuntimeProcessState, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
+    RuntimeThreadLifecycleState, RuntimeThreadState, RuntimeTlsValue, RuntimeWaitState,
+    SchedulerThreadState, TLS_OUT_OF_INDEXES, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use win32::{

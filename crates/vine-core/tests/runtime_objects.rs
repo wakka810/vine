@@ -311,7 +311,7 @@ fn typed_runtime_handles_preserve_object_lifetime_and_reject_stale_generations()
 }
 
 fn controlled_runtime() -> RuntimeState {
-    RuntimeState::new(RuntimeBootstrap {
+    let mut runtime = RuntimeState::new(RuntimeBootstrap {
         process_id: RuntimeProcessId(PROCESS_ID),
         initial_thread_id: RuntimeThreadId(THREAD_ID),
         initial_last_error: 0,
@@ -328,5 +328,9 @@ fn controlled_runtime() -> RuntimeState {
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec01_0000,
     })
-    .expect("controlled runtime")
+    .expect("controlled runtime");
+    runtime
+        .start_initial_thread()
+        .expect("start controlled initial thread");
+    runtime
 }

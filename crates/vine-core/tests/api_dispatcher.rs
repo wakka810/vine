@@ -896,7 +896,7 @@ fn suspended_dispatcher_fixture(
 }
 
 fn controlled_runtime(startup_bytes: Vec<u8>) -> RuntimeState {
-    RuntimeState::new(RuntimeBootstrap {
+    let mut runtime = RuntimeState::new(RuntimeBootstrap {
         process_id: RuntimeProcessId(PROCESS_ID),
         initial_thread_id: RuntimeThreadId(THREAD_ID),
         initial_last_error: INITIAL_LAST_ERROR,
@@ -913,7 +913,11 @@ fn controlled_runtime(startup_bytes: Vec<u8>) -> RuntimeState {
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec01_0000,
     })
-    .expect("runtime state")
+    .expect("runtime state");
+    runtime
+        .start_initial_thread()
+        .expect("start controlled initial thread");
+    runtime
 }
 
 fn controlled_startup_info() -> Vec<u8> {

@@ -127,8 +127,9 @@ The Rust／v86 boundary now runs the Step 7 vertical fixture through this
 dispatcher in a Chrome Runtime Worker, including deferred browser services,
 depth-2 callback, cancellation, watchdog, pixel, audio pulse, persistent byte,
 and clean exit. The Step 8 versioned benchmark passed every threshold and kept
-v86 as the exchangeable baseline. `RuntimeState` now owns the generation-tagged
-typed object／handle lifetime foundation. The next proof is a process-owned
-module graph. Existing import, bootstrap, bidirectional memory sync,
-13-contract／17-call semantic checks, 238 instructions, and both private
-evidence digests remain the regression boundary.
+v86 as the exchangeable baseline. `RuntimeState` now owns generation-tagged
+object／handle lifetime, a process module graph, and controlled process／initial-thread
+lifecycle. The next proof is a controlled additional thread registry before
+wait/wake. Existing import, bootstrap, bidirectional memory sync, 13-contract／
+17-call semantic checks, 238 instructions, and both private evidence digests
+remain the regression boundary.

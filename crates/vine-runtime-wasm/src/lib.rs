@@ -571,7 +571,7 @@ fn callback_argument(name: &str) -> ApiArgumentSchema {
 fn controlled_runtime_state() -> Result<RuntimeState, String> {
     let mut startup_info = vec![0; 68];
     startup_info[..4].copy_from_slice(&68_u32.to_le_bytes());
-    RuntimeState::new(RuntimeBootstrap {
+    let mut runtime = RuntimeState::new(RuntimeBootstrap {
         process_id: RuntimeProcessId(PROCESS_ID),
         initial_thread_id: RuntimeThreadId(THREAD_ID),
         initial_last_error: 0,
@@ -588,7 +588,9 @@ fn controlled_runtime_state() -> Result<RuntimeState, String> {
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec02_0000,
     })
-    .map_err(error_string)
+    .map_err(error_string)?;
+    runtime.start_initial_thread().map_err(error_string)?;
+    Ok(runtime)
 }
 
 fn completion_metadata(kind: &str, completion: &ApiImmediateCompletion) -> Value {

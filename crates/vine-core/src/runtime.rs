@@ -419,28 +419,8 @@ impl RuntimeObjectTable {
         key: &RuntimeObjectKey,
         state: RuntimeWaitState,
     ) -> Result<(), RuntimeStateError> {
-        let id = self.identity_index.get(key).copied().ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-object",
-                "runtime-wait-object-missing",
-                "runtime wait state targets an unregistered object",
-            )
-        })?;
-        let record = self.objects.get_mut(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-object",
-                "runtime-object-index-dangling",
-                "runtime object identity index references a missing object",
-            )
-        })?;
-        if record.wait_state.is_none() {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-object",
-                "runtime-object-not-waitable",
-                "runtime object type does not expose a wait state",
-            ));
-        }
-        record.wait_state = Some(state);
+        let updates = self.plan_wait_state_updates(&[(key.clone(), state)])?;
+        self.apply_wait_state_updates(updates);
         Ok(())
     }
 
@@ -450,6 +430,53 @@ impl RuntimeObjectTable {
 
     pub fn handles(&self) -> &BTreeMap<u32, RuntimeHandleEntry> {
         &self.handles
+    }
+
+    fn plan_wait_state_updates(
+        &self,
+        updates: &[(RuntimeObjectKey, RuntimeWaitState)],
+    ) -> Result<Vec<(RuntimeObjectId, RuntimeObjectRecord)>, RuntimeStateError> {
+        let mut planned: Vec<(RuntimeObjectId, RuntimeObjectRecord)> =
+            Vec::with_capacity(updates.len());
+        for (key, state) in updates {
+            let id = self.identity_index.get(key).copied().ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-object",
+                    "runtime-wait-object-missing",
+                    "runtime wait state targets an unregistered object",
+                )
+            })?;
+            if planned.iter().any(|(planned_id, _)| *planned_id == id) {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-object",
+                    "runtime-wait-object-duplicate-update",
+                    "one runtime wait object has duplicate state updates",
+                ));
+            }
+            let mut record = self.objects.get(&id).cloned().ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-object",
+                    "runtime-object-index-dangling",
+                    "runtime object identity index references a missing object",
+                )
+            })?;
+            if record.wait_state.is_none() {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-object",
+                    "runtime-object-not-waitable",
+                    "runtime object type does not expose a wait state",
+                ));
+            }
+            record.wait_state = Some(*state);
+            planned.push((id, record));
+        }
+        Ok(planned)
+    }
+
+    fn apply_wait_state_updates(&mut self, updates: Vec<(RuntimeObjectId, RuntimeObjectRecord)>) {
+        for (id, record) in updates {
+            self.objects.insert(id, record);
+        }
     }
 
     fn preflight_exact_handle(
@@ -769,11 +796,36 @@ pub struct RuntimeCallbackFrame {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum SchedulerThreadState {
+    Initialized,
     Runnable,
     WaitingHost { request_id: u64 },
     WaitingObject { object: u32 },
     InCallback { depth: usize },
+    Terminating { exit_code: u32 },
     Terminated { exit_code: u32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum RuntimeProcessLifecycleState {
+    Bootstrapping,
+    Running,
+    ExitRequested {
+        exit_code: u32,
+        initiating_thread_id: RuntimeThreadId,
+    },
+    Exited {
+        exit_code: u32,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum RuntimeThreadLifecycleState {
+    Initialized,
+    Running,
+    ExitRequested { exit_code: u32 },
+    Exited { exit_code: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -803,6 +855,18 @@ pub struct RuntimeCancellation {
     pub scheduler_events_discarded: usize,
 }
 
+struct RuntimeThreadExitRequestPlan {
+    thread_id: RuntimeThreadId,
+    next_thread: RuntimeThreadState,
+    cancellation: RuntimeCancellation,
+}
+
+struct RuntimeThreadExitCompletionPlan {
+    thread_id: RuntimeThreadId,
+    exit_code: u32,
+    next_thread: RuntimeThreadState,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "event", content = "completion", rename_all = "kebab-case")]
 pub enum RuntimeSchedulerEvent {
@@ -813,6 +877,7 @@ pub enum RuntimeSchedulerEvent {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeThreadState {
     pub id: RuntimeThreadId,
+    pub lifecycle: RuntimeThreadLifecycleState,
     pub last_error: u32,
     pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
     pub callback_frames: Vec<RuntimeCallbackFrame>,
@@ -822,6 +887,7 @@ pub struct RuntimeThreadState {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeProcessState {
     pub id: RuntimeProcessId,
+    pub lifecycle: RuntimeProcessLifecycleState,
     pub address_space: ProcessAddressSpaceLayout,
     pub clock: RuntimeClockState,
     pub startup_info: RuntimeStartupInfo,
@@ -910,6 +976,7 @@ impl RuntimeState {
 
         let initial_thread = RuntimeThreadState {
             id: bootstrap.initial_thread_id,
+            lifecycle: RuntimeThreadLifecycleState::Initialized,
             last_error: bootstrap.initial_last_error,
             tls_values: BTreeMap::new(),
             callback_frames: Vec::new(),
@@ -917,6 +984,7 @@ impl RuntimeState {
         Ok(Self {
             process: RuntimeProcessState {
                 id: bootstrap.process_id,
+                lifecycle: RuntimeProcessLifecycleState::Bootstrapping,
                 address_space: bootstrap.address_space,
                 clock: bootstrap.clock,
                 startup_info: bootstrap.startup_info,
@@ -930,7 +998,7 @@ impl RuntimeState {
                 current_thread_id: bootstrap.initial_thread_id,
                 threads: BTreeMap::from([(
                     bootstrap.initial_thread_id,
-                    SchedulerThreadState::Runnable,
+                    SchedulerThreadState::Initialized,
                 )]),
                 events: VecDeque::new(),
             },
@@ -1060,6 +1128,28 @@ impl RuntimeState {
                     "current runtime thread has no scheduler state",
                 )
             })
+    }
+
+    pub fn start_initial_thread(&mut self) -> Result<(), RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Bootstrapping
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Initialized
+            || self.scheduler_state()? != SchedulerThreadState::Initialized
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-lifecycle",
+                "initial-thread-start-transition-invalid",
+                "initial thread start requires matching process, thread, and scheduler bootstrap states",
+            ));
+        }
+        let thread_id = self.current_thread_id();
+        let mut next_thread = self.current_thread()?.clone();
+        next_thread.lifecycle = RuntimeThreadLifecycleState::Running;
+        self.process.lifecycle = RuntimeProcessLifecycleState::Running;
+        self.threads.insert(thread_id, next_thread);
+        self.scheduler
+            .threads
+            .insert(thread_id, SchedulerThreadState::Runnable);
+        Ok(())
     }
 
     pub fn set_heap_termination_on_corruption(&mut self, enabled: bool) {
@@ -1771,68 +1861,302 @@ impl RuntimeState {
         self.scheduler.events.pop_front()
     }
 
+    pub fn request_current_thread_exit(
+        &mut self,
+        exit_code: u32,
+    ) -> Result<RuntimeCancellation, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-lifecycle",
+                "thread-exit-request-transition-invalid",
+                "thread exit request requires a running process",
+            ));
+        }
+        let plan = self.plan_current_thread_exit_request(exit_code)?;
+        let cancellation = plan.cancellation;
+        self.commit_current_thread_exit_request(plan);
+        Ok(cancellation)
+    }
+
+    pub fn complete_current_thread_exit(&mut self) -> Result<(), RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-lifecycle",
+                "thread-exit-completion-transition-invalid",
+                "thread exit completion requires a running process",
+            ));
+        }
+        let completion = self.plan_current_thread_exit_completion()?;
+        let wait_updates = self.objects.plan_wait_state_updates(&[(
+            RuntimeObjectKey::Thread {
+                thread_id: completion.thread_id.0,
+            },
+            RuntimeWaitState::Signaled {
+                exit_code: completion.exit_code,
+            },
+        )])?;
+        self.objects.apply_wait_state_updates(wait_updates);
+        self.commit_current_thread_exit_completion(completion);
+        Ok(())
+    }
+
     pub fn cancel_current_thread(
         &mut self,
         exit_code: u32,
     ) -> Result<RuntimeCancellation, RuntimeStateError> {
-        let thread_id = self.current_thread_id();
-        if matches!(
-            self.scheduler_state()?,
-            SchedulerThreadState::Terminated { .. }
-        ) {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running {
             return Err(RuntimeStateError::conflict(
-                "runtime-cancellation",
-                "thread-already-terminated",
-                "the current guest thread is already terminated",
+                "runtime-lifecycle",
+                "thread-exit-request-transition-invalid",
+                "thread cancellation requires a running process",
             ));
         }
-
-        let host_requests_before = self.registries.host_requests.len();
-        self.registries
-            .host_requests
-            .retain(|_, request| request.thread_id != thread_id);
-        let host_requests_cancelled =
-            host_requests_before.saturating_sub(self.registries.host_requests.len());
-        let callback_frames_cancelled = {
-            let thread = self.current_thread_mut()?;
-            let count = thread.callback_frames.len();
-            thread.callback_frames.clear();
-            count
-        };
-        let scheduler_events_before = self.scheduler.events.len();
-        self.scheduler.events.retain(|event| match event {
-            RuntimeSchedulerEvent::HostCompleted(completion) => completion.thread_id != thread_id,
-        });
-        let scheduler_events_discarded =
-            scheduler_events_before.saturating_sub(self.scheduler.events.len());
-        self.set_scheduler_state(SchedulerThreadState::Terminated { exit_code })?;
-        self.objects.set_wait_state(
-            &RuntimeObjectKey::Thread {
-                thread_id: thread_id.0,
+        let plan = self.plan_current_thread_exit_request(exit_code)?;
+        let wait_updates = self.objects.plan_wait_state_updates(&[(
+            RuntimeObjectKey::Thread {
+                thread_id: plan.thread_id.0,
             },
             RuntimeWaitState::Signaled { exit_code },
-        )?;
-        Ok(RuntimeCancellation {
-            thread_id,
+        )])?;
+        let cancellation = plan.cancellation;
+        let mut exited_thread = plan.next_thread.clone();
+        exited_thread.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
+        self.objects.apply_wait_state_updates(wait_updates);
+        self.commit_current_thread_exit_request(plan);
+        self.threads.insert(cancellation.thread_id, exited_thread);
+        self.scheduler.threads.insert(
+            cancellation.thread_id,
+            SchedulerThreadState::Terminated { exit_code },
+        );
+        Ok(cancellation)
+    }
+
+    pub fn request_current_process_exit(
+        &mut self,
+        exit_code: u32,
+    ) -> Result<RuntimeCancellation, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-lifecycle",
+                "process-exit-request-transition-invalid",
+                "process exit request requires a running process",
+            ));
+        }
+        let plan = self.plan_current_thread_exit_request(exit_code)?;
+        let cancellation = plan.cancellation;
+        self.process.lifecycle = RuntimeProcessLifecycleState::ExitRequested {
             exit_code,
-            host_requests_cancelled,
-            callback_frames_cancelled,
-            scheduler_events_discarded,
-        })
+            initiating_thread_id: plan.thread_id,
+        };
+        self.commit_current_thread_exit_request(plan);
+        Ok(cancellation)
+    }
+
+    pub fn complete_current_process_exit(&mut self) -> Result<(), RuntimeStateError> {
+        let (thread_id, exit_code) = match self.process.lifecycle {
+            RuntimeProcessLifecycleState::ExitRequested {
+                exit_code,
+                initiating_thread_id,
+            } if initiating_thread_id == self.current_thread_id() => {
+                (initiating_thread_id, exit_code)
+            }
+            _ => {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-lifecycle",
+                    "process-exit-completion-transition-invalid",
+                    "process exit completion requires a matching prior exit request",
+                ));
+            }
+        };
+        let completion = self.plan_current_thread_exit_completion()?;
+        if completion.thread_id != thread_id || completion.exit_code != exit_code {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-lifecycle",
+                "process-thread-exit-state-mismatch",
+                "process exit request does not match the initiating thread exit state",
+            ));
+        }
+        let wait_updates = self.objects.plan_wait_state_updates(&[
+            (
+                RuntimeObjectKey::Thread {
+                    thread_id: thread_id.0,
+                },
+                RuntimeWaitState::Signaled { exit_code },
+            ),
+            (
+                RuntimeObjectKey::Process {
+                    process_id: self.process.id.0,
+                },
+                RuntimeWaitState::Signaled { exit_code },
+            ),
+        ])?;
+        self.objects.apply_wait_state_updates(wait_updates);
+        self.commit_current_thread_exit_completion(completion);
+        self.process.lifecycle = RuntimeProcessLifecycleState::Exited { exit_code };
+        Ok(())
     }
 
     pub fn terminate_current_process(
         &mut self,
         exit_code: u32,
     ) -> Result<RuntimeCancellation, RuntimeStateError> {
-        let cancellation = self.cancel_current_thread(exit_code)?;
-        self.objects.set_wait_state(
-            &RuntimeObjectKey::Process {
-                process_id: self.process.id.0,
-            },
-            RuntimeWaitState::Signaled { exit_code },
-        )?;
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-lifecycle",
+                "process-exit-request-transition-invalid",
+                "process termination requires a running process",
+            ));
+        }
+        let plan = self.plan_current_thread_exit_request(exit_code)?;
+        let wait_updates = self.objects.plan_wait_state_updates(&[
+            (
+                RuntimeObjectKey::Thread {
+                    thread_id: plan.thread_id.0,
+                },
+                RuntimeWaitState::Signaled { exit_code },
+            ),
+            (
+                RuntimeObjectKey::Process {
+                    process_id: self.process.id.0,
+                },
+                RuntimeWaitState::Signaled { exit_code },
+            ),
+        ])?;
+        let cancellation = plan.cancellation;
+        let mut exited_thread = plan.next_thread.clone();
+        exited_thread.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
+        self.objects.apply_wait_state_updates(wait_updates);
+        self.commit_current_thread_exit_request(plan);
+        self.threads.insert(cancellation.thread_id, exited_thread);
+        self.scheduler.threads.insert(
+            cancellation.thread_id,
+            SchedulerThreadState::Terminated { exit_code },
+        );
+        self.process.lifecycle = RuntimeProcessLifecycleState::Exited { exit_code };
         Ok(cancellation)
+    }
+
+    fn plan_current_thread_exit_request(
+        &self,
+        exit_code: u32,
+    ) -> Result<RuntimeThreadExitRequestPlan, RuntimeStateError> {
+        let thread_id = self.current_thread_id();
+        let mut next_thread = self.current_thread()?.clone();
+        if next_thread.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable
+                    | SchedulerThreadState::WaitingHost { .. }
+                    | SchedulerThreadState::WaitingObject { .. }
+                    | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-lifecycle",
+                "thread-exit-request-transition-invalid",
+                "thread exit request requires a running thread and a live scheduler state",
+            ));
+        }
+        let callback_frames_cancelled = next_thread.callback_frames.len();
+        next_thread.callback_frames.clear();
+        next_thread.lifecycle = RuntimeThreadLifecycleState::ExitRequested { exit_code };
+        let host_requests_cancelled = self
+            .registries
+            .host_requests
+            .values()
+            .filter(|request| request.thread_id == thread_id)
+            .count();
+        let scheduler_events_discarded = self
+            .scheduler
+            .events
+            .iter()
+            .filter(|event| match event {
+                RuntimeSchedulerEvent::HostCompleted(completion) => {
+                    completion.thread_id == thread_id
+                }
+            })
+            .count();
+        Ok(RuntimeThreadExitRequestPlan {
+            thread_id,
+            next_thread,
+            cancellation: RuntimeCancellation {
+                thread_id,
+                exit_code,
+                host_requests_cancelled,
+                callback_frames_cancelled,
+                scheduler_events_discarded,
+            },
+        })
+    }
+
+    fn commit_current_thread_exit_request(&mut self, plan: RuntimeThreadExitRequestPlan) {
+        self.registries
+            .host_requests
+            .retain(|_, request| request.thread_id != plan.thread_id);
+        self.scheduler.events.retain(|event| match event {
+            RuntimeSchedulerEvent::HostCompleted(completion) => {
+                completion.thread_id != plan.thread_id
+            }
+        });
+        self.threads.insert(plan.thread_id, plan.next_thread);
+        self.scheduler.threads.insert(
+            plan.thread_id,
+            SchedulerThreadState::Terminating {
+                exit_code: plan.cancellation.exit_code,
+            },
+        );
+    }
+
+    fn plan_current_thread_exit_completion(
+        &self,
+    ) -> Result<RuntimeThreadExitCompletionPlan, RuntimeStateError> {
+        let thread_id = self.current_thread_id();
+        let mut next_thread = self.current_thread()?.clone();
+        let exit_code = match next_thread.lifecycle {
+            RuntimeThreadLifecycleState::ExitRequested { exit_code } => exit_code,
+            _ => {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-lifecycle",
+                    "thread-exit-completion-transition-invalid",
+                    "thread exit completion requires a prior exit request",
+                ));
+            }
+        };
+        if self.scheduler_state()? != (SchedulerThreadState::Terminating { exit_code })
+            || self
+                .registries
+                .host_requests
+                .values()
+                .any(|request| request.thread_id == thread_id)
+            || !self.current_thread()?.callback_frames.is_empty()
+            || self.scheduler.events.iter().any(|event| match event {
+                RuntimeSchedulerEvent::HostCompleted(completion) => {
+                    completion.thread_id == thread_id
+                }
+            })
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-lifecycle",
+                "thread-exit-completion-state-invalid",
+                "thread exit completion requires terminating scheduler state and no retained work",
+            ));
+        }
+        next_thread.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
+        Ok(RuntimeThreadExitCompletionPlan {
+            thread_id,
+            exit_code,
+            next_thread,
+        })
+    }
+
+    fn commit_current_thread_exit_completion(&mut self, plan: RuntimeThreadExitCompletionPlan) {
+        self.threads.insert(plan.thread_id, plan.next_thread);
+        self.scheduler.threads.insert(
+            plan.thread_id,
+            SchedulerThreadState::Terminated {
+                exit_code: plan.exit_code,
+            },
+        );
     }
 
     fn current_thread(&self) -> Result<&RuntimeThreadState, RuntimeStateError> {

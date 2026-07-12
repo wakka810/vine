@@ -131,8 +131,10 @@ rejects stale generations and type aliases, preserves wait signals across
 reopen, and validates the existing heap／module handles. A process-owned module
 graph now adds canonical basename identity, main／guest／runtime classes,
 dependency and reference ownership, and deterministic dependency-first attach／
-reverse detach metadata. The next runtime-kernel checkpoint makes process／
-thread lifecycle transitions explicit before wait queues are added.
+reverse detach metadata. Process／initial-thread lifecycle now separates
+bootstrap, running, exit request, and waitable completion, with atomic cleanup
+and thread-before-process terminal ordering. The next runtime-kernel checkpoint
+adds a controlled second thread before wait queues are introduced.
 The third thunk ID `89` call for
 `KERNEL32.dll!EncodePointer(0x7F020000)` remains the next BGI trap, but bespoke
 API checkpoint expansion is paused until the P0 runtime-kernel gates are met.

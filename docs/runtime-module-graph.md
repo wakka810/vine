@@ -126,6 +126,6 @@ DLL mapping, relocations across modules, exports by name／ordinal, forwarders, 
 invalidation, or module object retirement. It is partial evidence for `REQ-PE-05`／`P2-PE-05`, not
 their completion.
 
-The next dependency is an explicit process／thread lifecycle foundation. It will connect bootstrap,
-running, termination, exit signaling, scheduler terminal state, and the existing typed waitable
-objects before wait queues or guest thread creation are added.
+The controlled process／initial-thread lifecycle dependency is now implemented in
+[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md). The next dependency is
+an additional controlled thread registry before wait queues and DLL thread callbacks.

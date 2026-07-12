@@ -97,4 +97,4 @@ Two consecutive pinned runs produced the same 140,660-byte report and SHA-256. A
 
 This is one encoded guest function and one observed store. It is not `DecodePointer`, arbitrary guest／runtime pointer provenance, process-cookie emulation, endpoint invocation, or a LastError model. General TLS／FLS also remains unimplemented.
 
-The observed next BGI action remains encoding dynamic endpoint ID `1`／`FlsAlloc` at RVA `0xA58DC`, but bespoke BGI continuation is frozen. Runtime object／handle and module-graph foundations are complete; process／thread lifecycle proceeds next. No eighteenth-call flag or receipt is added from this document.
+The observed next BGI action remains encoding dynamic endpoint ID `1`／`FlsAlloc` at RVA `0xA58DC`, but bespoke BGI continuation is frozen. Runtime object／handle, module-graph, and controlled initial lifecycle foundations are complete; thread-registry work proceeds next. No eighteenth-call flag or receipt is added from this document.

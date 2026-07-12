@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB／process-parameters bootstrap、binary bidirectional memory synchronizationがある。controlled fixtureではChrome Runtime Worker内のguest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdogまで成立した。general process integration、DLL／export lifecycle、BGI browser execution、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB／process-parameters bootstrap、binary bidirectional memory synchronization、controlled process／initial-thread lifecycleがある。controlled fixtureではChrome Runtime Worker内のguest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdogまで成立した。general multi-thread／wait、DLL／export lifecycle、BGI browser execution、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -87,7 +87,7 @@ guest CALL / JMP import thunk
 
 API implementation は `Promise` を guest へ見せない。deferred operation の途中でも、別 guest thread、message、cancel、timeout を scheduler が扱える設計にする。
 
-現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEB／process-parameters／command-lineを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてmeasured command-line observationとentry completionまで実行した。general ABI schema、LastError、deferred service、stack growth／guard、general process parameters／lifecycleは未実装である。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
+現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEB／process-parameters／command-lineを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてmeasured command-line observationとentry completionまで実行した。single process／initial threadはexplicit bootstrap／running／exit-requested／exited stateとatomic wait signalを持つ。general ABI schema、stack growth／guard、multi-thread／wait、general process parametersは未実装である。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)と[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)を正とする。
 
 ### 4.3 Host から guest callback
 
@@ -128,6 +128,8 @@ OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は
 - priority、APC、alertable wait、true parallelism は corpus の必要性を測って拡張する。
 
 この方式は data race の再現性を高める一方、multi-core 性能や一部 timing-sensitive code を制約する。SharedArrayBuffer を使う 1 guest thread / 1 Worker 方式は、Phase 1 の benchmark と semantic test を通った場合だけ採用候補にする。
+
+version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、initial thread `initialized／running／exit-requested／exited`、scheduler `initialized／terminating`を所有する。exit requestはpending host／callback workをretireするがwait objectをsignalせず、completionで最大2 object recordsとterminal statesをtargeted atomic commitする。additional thread、CPU context／stack／TEB、last-thread semantics、wait registrationは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)を正とする。
 
 ### 5.3 Clock ownership
 

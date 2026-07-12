@@ -917,6 +917,13 @@ dynamic thread reference ownership、registered／ready／attached／detached st
 dependency-first attach／strict reverse detachをatomic Rust contractで固定した。guest DLL
 mapping／export／forwarder／`DllMain`は未実装のまま、Worker／BGI／benchmarkを維持した。
 
+**Foundation 3完了（2026-07-12）:** controlled process／initial threadへ
+`bootstrapping/initialized -> running -> exit-requested -> exited` lifecycleを導入した。
+scheduler `initialized`／`terminating`、explicit start、exit request／completion、pending
+host／callback cleanup、request中のnonsignaled object、thread／process terminal signalを
+targeted atomic planで固定した。RuntimeState全体はcloneせず、Worker／BGI／benchmarkを
+維持した。multi-thread／wait／DLL detachは未実装である。
+
 - module graph
 - process／thread lifecycle
 - handles
