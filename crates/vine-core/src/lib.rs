@@ -21,7 +21,7 @@ pub use api::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDeferredCall,
     ApiDirection, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass,
     ApiGuestCallbackCall, ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate,
-    ApiImmediateCompletion, ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema,
+    ApiImmediateCompletion, ApiOwnedTrap, ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema,
     ApiReturnValue, ApiStringEncoding, ApiSymbol, ApiTrap, ApiValueSchema, ApiWriteRequirement,
     CallbackPolicy, CallingConvention, DecodedApiArgument, DispatchOutcome, ExecutionSession,
     GuestCallbackRequest, HostCompletion, HostRequest, LastErrorPolicy, ReentrancyPolicy,
@@ -129,5 +129,6 @@ pub use win32::{
     get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
     get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
     get_tick_count_contract, heap_create_contract, heap_set_information_contract,
-    query_performance_counter_contract, tls_alloc_contract, tls_set_value_contract,
+    kernel32_contract_for_endpoint, query_performance_counter_contract, tls_alloc_contract,
+    tls_set_value_contract,
 };

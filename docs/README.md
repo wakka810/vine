@@ -58,6 +58,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | bidirectional dirty pages、binary transport、generation ack、rollback |
 | [memory-writeback.md](memory-writeback.md) | guest writeをどうRust authorityへ戻すか | PTE Dirty discovery、atomic multi-page reconciliation、two-slice evidence |
 | [generic-api-dispatcher.md](generic-api-dispatcher.md) | API固有checkpointを共通runtimeへどう移すか | 13 contract／17 occurrence、RuntimeState、manifest／generic runner、scheduler event |
+| [bgi-generic-runtime-reentry.md](bgi-generic-runtime-reentry.md) | frozen BGI evidenceをproduction runtimeへどう戻すか | process module graph、automatic binary writeback、21 generic calls、critical-section first stop |
 | [browser-runtime-worker.md](browser-runtime-worker.md) | Chrome内でruntime全経路をどこまで通せるか | Worker guest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdog、30分stress |
 | [pe-loader-ingress.md](pe-loader-ingress.md) | immutable PE32 planをどこまで作れるか | Rust workspace、bounded parser／plan、fixture contract、BGI W7 stop |
 | [pe-materialization.md](pe-materialization.md) | PE image bytesをどこまで構築できるか | source copy、zero-fill、`HIGHLOW`、IAT-original verification、BGI stop |

@@ -68,6 +68,34 @@ pub fn dispatch_kernel32_api(
     }
 }
 
+pub fn kernel32_contract_for_endpoint(
+    endpoint: ApiEndpointIdentity,
+) -> Result<Option<ApiContract>, ApiFault> {
+    if !endpoint.module.eq_ignore_ascii_case("kernel32.dll") {
+        return Ok(None);
+    }
+    let ApiSymbol::Name { name } = &endpoint.symbol else {
+        return Ok(None);
+    };
+    let contract = match name.as_str() {
+        "GetSystemTimeAsFileTime" => get_system_time_as_file_time_contract(endpoint)?,
+        "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
+        "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
+        "GetTickCount" => get_tick_count_contract(endpoint)?,
+        "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
+        "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
+        "HeapSetInformation" => heap_set_information_contract(endpoint)?,
+        "HeapCreate" => heap_create_contract(endpoint)?,
+        "GetModuleHandleW" => get_module_handle_w_contract(endpoint)?,
+        "GetProcAddress" => get_proc_address_contract(endpoint)?,
+        "TlsAlloc" => tls_alloc_contract(endpoint)?,
+        "TlsSetValue" => tls_set_value_contract(endpoint)?,
+        "EncodePointer" => encode_pointer_contract(endpoint)?,
+        _ => return Ok(None),
+    };
+    Ok(Some(contract))
+}
+
 fn handle_get_system_time_as_file_time(
     contract: &ApiContract,
     frame: &ApiCallFrame,

@@ -2,8 +2,8 @@ use std::cell::Cell;
 
 use vine_core::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDirection, ApiDispatcher,
-    ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiReturnSchema,
-    ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
+    ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiOwnedTrap,
+    ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession, GuestAddress,
     GuestCallbackRequest, GuestMemory, HostCompletion, HostRequest, ImportTarget, ImportThunk,
     ImportThunkDisposition, ImportThunkId, LOGICAL_ENCODED_POINTER_NAMESPACE,
@@ -12,11 +12,7 @@ use vine_core::{
     ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint,
     RuntimeHeap, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo,
     RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState, StackCleanup,
-    dispatch_kernel32_api, encode_pointer_contract, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, query_performance_counter_contract,
-    tls_alloc_contract, tls_set_value_contract,
+    dispatch_kernel32_api, kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -75,14 +71,13 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
         })
         .expect("load logical module");
 
-    let process = dispatch(
+    let process = dispatch_owned(
         &dispatcher,
         &mut memory,
         &mut runtime,
         &endpoints[0],
         frames[0].0,
         frames[0].1[0],
-        0,
     );
     assert_eq!(process.eax, RegisterUpdate::Set(PROCESS_ID));
     assert_eq!(process.stack_pointer, GuestAddress(STACK_BASE + 4));
@@ -213,8 +208,8 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
     let handler_called = Cell::new(false);
     let unsupported = {
         let mut session = ExecutionSession::new(&mut memory, &mut runtime);
-        dispatcher.dispatch(
-            trap(&endpoints[5], frames[5].0, frames[5].1[0], 0),
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoints[5], frames[5].0, frames[5].1[0]),
             &mut session,
             |_, _, _| {
                 handler_called.set(true);
@@ -663,13 +658,15 @@ fn dispatcher_fixture(
         .iter()
         .map(ApiEndpointIdentity::from_import_thunk)
         .collect::<Vec<_>>();
-    let contracts = vec![
-        get_current_process_id_contract(endpoints[0].clone()).expect("process-ID contract"),
-        query_performance_counter_contract(endpoints[1].clone()).expect("counter contract"),
-        get_startup_info_w_contract(endpoints[2].clone()).expect("startup contract"),
-        tls_set_value_contract(endpoints[3].clone()).expect("TLS contract"),
-        encode_pointer_contract(endpoints[4].clone()).expect("pointer contract"),
-    ];
+    let contracts = endpoints[..5]
+        .iter()
+        .cloned()
+        .map(|endpoint| {
+            kernel32_contract_for_endpoint(endpoint)
+                .expect("Kernel32 contract lookup")
+                .expect("implemented Kernel32 endpoint")
+        })
+        .collect::<Vec<_>>();
     let frames = [
         (STACK_BASE, vec![0x1000_0001]),
         (STACK_BASE + 0x20, vec![0x1000_0002, OUTPUT_BASE]),
@@ -741,16 +738,15 @@ fn remaining_dispatcher_fixture(
         .iter()
         .map(ApiEndpointIdentity::from_import_thunk)
         .collect::<Vec<_>>();
-    let contracts = vec![
-        get_system_time_as_file_time_contract(endpoints[0].clone()).unwrap(),
-        get_current_thread_id_contract(endpoints[1].clone()).unwrap(),
-        get_tick_count_contract(endpoints[2].clone()).unwrap(),
-        heap_set_information_contract(endpoints[3].clone()).unwrap(),
-        heap_create_contract(endpoints[4].clone()).unwrap(),
-        get_module_handle_w_contract(endpoints[5].clone()).unwrap(),
-        get_proc_address_contract(endpoints[6].clone()).unwrap(),
-        tls_alloc_contract(endpoints[7].clone()).unwrap(),
-    ];
+    let contracts = endpoints
+        .iter()
+        .cloned()
+        .map(|endpoint| {
+            kernel32_contract_for_endpoint(endpoint)
+                .expect("Kernel32 contract lookup")
+                .expect("implemented Kernel32 endpoint")
+        })
+        .collect::<Vec<_>>();
     let frames = [
         (STACK_BASE, vec![0x1000_0101, OUTPUT_BASE]),
         (STACK_BASE + 0x20, vec![0x1000_0102]),
@@ -946,6 +942,25 @@ fn dispatch(
     }
 }
 
+fn dispatch_owned(
+    dispatcher: &ApiDispatcher,
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
+    endpoint: &ApiEndpointIdentity,
+    stack_pointer: u32,
+    return_address: u32,
+) -> vine_core::ApiImmediateCompletion {
+    let mut session = ExecutionSession::new(memory, runtime);
+    match dispatcher.dispatch_owned(
+        owned_trap(endpoint, stack_pointer, return_address),
+        &mut session,
+        dispatch_kernel32_api,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected immediate owned dispatch, got {other:?}"),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn dispatch_with_handler(
     dispatcher: &ApiDispatcher,
@@ -977,6 +992,19 @@ fn trap(
         stack_pointer: GuestAddress(stack_pointer),
         return_address: GuestAddress(return_address),
         argument_bytes,
+    }
+}
+
+fn owned_trap(
+    endpoint: &ApiEndpointIdentity,
+    stack_pointer: u32,
+    return_address: u32,
+) -> ApiOwnedTrap {
+    ApiOwnedTrap {
+        endpoint_id: endpoint.id,
+        endpoint_address: endpoint.address,
+        stack_pointer: GuestAddress(stack_pointer),
+        return_address: GuestAddress(return_address),
     }
 }
 

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use vine_core::{
-    CALLBACK_RETURN_ARENA_BASE, DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH,
+    ApiEndpointIdentity, CALLBACK_RETURN_ARENA_BASE, DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH,
     DLL_PROCESS_STATIC_RESERVED, ExecutionSession, GuestAddress, GuestMemory, ImageMaterialization,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LoaderIngressReport,
     MemoryLimits, ModuleSnapshot, Pe32Limits, ProcessAddressSpaceLayout, RuntimeBootstrap,
@@ -132,6 +132,11 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
                 && endpoint.export
                     == RuntimeExport::named("kernel32.dll", "GetCurrentProcessId")
     ));
+    let kernel_endpoint =
+        ApiEndpointIdentity::from_runtime_guest_import(kernel_import).expect("runtime endpoint");
+    assert_eq!(kernel_endpoint.id.0, 1);
+    assert_eq!(kernel_endpoint.address, GuestAddress(0x7f00_0000));
+    assert_eq!(kernel_endpoint.iat_address, kernel_import.iat_address);
     let runtime_exports = runtime.runtime_system_exports().unwrap();
     assert_eq!(runtime_exports.endpoints.len(), 1);
     assert_eq!(runtime_exports.arena.committed_pages, 1);

@@ -71,6 +71,20 @@ dynamic endpoint ID `1`, `FlsAlloc` at `0x7F020000`.
 Fourteen static endpoints are declared; the other 316 retain exact identity as
 explicit traps. Memory generation remains `30`.
 
+The runtime kernel has advanced beyond that frozen compatibility anchor through
+the separate `bgi-generic-runtime-reentry` semantic run. BGI is registered with
+14 process-owned runtime dependencies and all 330 runtime export endpoints, then
+executes through one persistent Rust runtime session with automatic PTE Dirty
+writeback. It validates the frozen 17 calls, completes four additional
+`EncodePointer` calls, and reaches 21 completed calls before stopping at
+instruction 266 on
+`KERNEL32.dll!InitializeCriticalSectionAndSpinCount(0x100FF630, 4000)`. The
+generic run advances memory generation `30 -> 52` through 22 writeback batches
+and 3 host deltas without an API-specific reconciliation list. Its separate
+96,244-byte report has SHA-256
+`a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa`; the
+frozen 140,660-byte report remains byte-identical.
+
 Thirteen Kernel32 contracts now cover all 17 existing call occurrences through
 the generic Rust dispatcher. This includes clock／identity, startup, heap,
 module／export, TLS, and pointer-encoding calls. The dispatcher owns endpoint
@@ -143,11 +157,12 @@ selection, thread-only exit, and deterministic all-lane process termination.
 A controlled wait queue adds monotonic registration identity, object-indexed
 FIFO ownership, exact signal/wake events, already-signaled completion, and exit
 cancellation. A controlled raw message queue adds global sequence identity,
-owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. The next
-runtime-kernel checkpoint connects private heaps to guest-memory backing.
-The third thunk ID `89` call for
-`KERNEL32.dll!EncodePointer(0x7F020000)` remains the next BGI trap, but bespoke
-API checkpoint expansion is paused until the P0 runtime-kernel gates are met.
+owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. Private heaps now
+have bounded guest-memory backing; mapped images, bounded PE32 export resolution,
+guest／runtime import binding, and DLL process attach failure unwind／retry／detach
+are also process-owned foundations. The next runtime-kernel checkpoint measures
+and implements the reached critical-section synchronization cluster through the
+same generic session. Bespoke numbered BGI checkpoint expansion remains paused.
 
 ## Requirements
 
@@ -267,6 +282,9 @@ native process cookie, retains the TLS value, and stops at the next non-NULL
 `npm run check:runtime:bgi-seventeenth-win32-call` validates that executable
 guest function, returns token `0xEC010002`, observes its guest global store,
 and stops at `EncodePointer(0x7F020000)` for the `FlsAlloc` endpoint.
+`npm run check:runtime:bgi-generic-runtime-reentry` independently validates all
+17 frozen semantics, continues through 21 generic calls with automatic binary
+writeback, and stops fail-closed at the first missing critical-section contract.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

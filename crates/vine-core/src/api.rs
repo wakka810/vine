@@ -11,8 +11,9 @@ use crate::memory::{
 use crate::module_images::{RuntimeModuleImage, RuntimeModuleImageError};
 use crate::pe32::{ImportTarget, LoaderIngressReport};
 use crate::runtime::{
-    RuntimeGuestImportBinding, RuntimeHeapAllocation, RuntimeHeapInitialization,
-    RuntimeHeapTeardown, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
+    RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -47,6 +48,24 @@ impl ApiEndpointIdentity {
             iat_address: thunk.iat_address,
             disposition: thunk.disposition,
         }
+    }
+
+    pub fn from_runtime_guest_import(import: &RuntimeGuestImport) -> Option<Self> {
+        let RuntimeGuestImportResolution::RuntimeExport { endpoint } = &import.resolution else {
+            return None;
+        };
+        let symbol = match &import.target {
+            ImportTarget::Name { name, .. } => ApiSymbol::Name { name: name.clone() },
+            ImportTarget::Ordinal { ordinal } => ApiSymbol::Ordinal { ordinal: *ordinal },
+        };
+        Some(Self {
+            id: endpoint.id,
+            address: endpoint.address,
+            module: import.requested_module.clone(),
+            symbol,
+            iat_address: import.iat_address,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        })
     }
 
     pub fn matches(&self, module: &str, symbol: &ApiSymbol) -> bool {
@@ -354,6 +373,15 @@ pub struct ApiTrap {
     pub stack_pointer: GuestAddress,
     pub return_address: GuestAddress,
     pub argument_bytes: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiOwnedTrap {
+    pub endpoint_id: ImportThunkId,
+    pub endpoint_address: GuestAddress,
+    pub stack_pointer: GuestAddress,
+    pub return_address: GuestAddress,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -795,6 +823,67 @@ impl ApiDispatcher {
             }
             ApiHandlerResult::Fault(fault) => DispatchOutcome::Fault(fault.with_endpoint(endpoint)),
         }
+    }
+
+    pub fn dispatch_owned<F>(
+        &self,
+        trap: ApiOwnedTrap,
+        session: &mut ExecutionSession<'_>,
+        handler: F,
+    ) -> DispatchOutcome
+    where
+        F: FnOnce(&ApiContract, &ApiCallFrame, &mut ExecutionSession<'_>) -> ApiHandlerResult,
+    {
+        let Some(endpoint) = self.endpoints_by_address.get(&trap.endpoint_address) else {
+            return DispatchOutcome::Fault(ApiFault::unsupported(
+                "api-dispatch",
+                "endpoint-address-unowned",
+                format!(
+                    "trap address {:#010x} is not an owned API endpoint",
+                    trap.endpoint_address.0
+                ),
+            ));
+        };
+        if endpoint.id != trap.endpoint_id
+            || self.endpoints_by_id.get(&trap.endpoint_id) != Some(endpoint)
+        {
+            return DispatchOutcome::Fault(
+                ApiFault::invalid_call(
+                    "api-dispatch",
+                    "endpoint-trap-identity-mismatch",
+                    "trap endpoint ID and address do not identify the same owned endpoint",
+                )
+                .with_endpoint(endpoint),
+            );
+        }
+        let Some(contract) = self.contracts.get(&endpoint.id) else {
+            return DispatchOutcome::Fault(
+                ApiFault::unsupported(
+                    "api-dispatch",
+                    "endpoint-contract-missing",
+                    format!(
+                        "owned endpoint {} has no API contract",
+                        endpoint_label(endpoint)
+                    ),
+                )
+                .with_endpoint(endpoint),
+            );
+        };
+        let argument_bytes = match contract.abi.argument_bytes() {
+            Ok(argument_bytes) => argument_bytes,
+            Err(fault) => return DispatchOutcome::Fault(fault.with_endpoint(endpoint)),
+        };
+        self.dispatch(
+            ApiTrap {
+                endpoint_id: trap.endpoint_id,
+                endpoint_address: trap.endpoint_address,
+                stack_pointer: trap.stack_pointer,
+                return_address: trap.return_address,
+                argument_bytes,
+            },
+            session,
+            handler,
+        )
     }
 
     pub fn complete_deferred(

@@ -20,7 +20,7 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "runtime-guest-import-dllmain-lifecycle" ||
+    checkpoint.runtimeKernelCheckpoint !== "bgi-generic-runtime-reentry" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !==
       "single-process-controlled-two-thread-wait-message-heap-module-dll-lifecycle" ||
@@ -585,7 +585,49 @@ try {
         bgiReportSha256:
           "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
       }) ||
-    checkpoint.nextCheckpoint !== "bgi-generic-runtime-reentry" ||
+    JSON.stringify(checkpoint.bgiGenericRuntimeReentry) !==
+      JSON.stringify({
+        schema: "vine.v86-bgi-generic-runtime-reentry.v1",
+        frozenCheckpoint: "bgi-seventeenth-win32-call",
+        frozenSemanticCallsValidated: 17,
+        frozenInstructionCount: 238,
+        frozenReportSha256:
+          "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+        reflectionPages: 389,
+        reflectionGeneration: 30,
+        reflectionSha256:
+          "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
+        processModuleCount: 15,
+        processDependencyEdgeCount: 14,
+        processMainModuleHandle: "0x4d01000f",
+        runtimeExportEndpointCount: 330,
+        implementedApiContractCount: 13,
+        dynamicExportEndpointCount: 4,
+        genericSupportedCallCount: 21,
+        encodePointerOccurrenceCount: 6,
+        writebackBatches: 22,
+        writebackDirtyPages: 38,
+        writebackChangedBytes: 268,
+        hostDeltaBatches: 3,
+        finalMemoryGeneration: 52,
+        firstUnsupportedInstructionCount: 266,
+        firstUnsupportedCapabilityCluster: "kernel32-critical-section-synchronization",
+        firstUnsupportedEndpointId: 100,
+        firstUnsupportedEndpointAddress: "0x7f000630",
+        firstUnsupportedApi: "KERNEL32.dll!InitializeCriticalSectionAndSpinCount",
+        firstUnsupportedArguments: ["0x100ff630", 4000],
+        firstUnsupportedIatAddress: "0x100d1238",
+        firstUnsupportedFault: "endpoint-contract-missing",
+        apiSpecificReconciliationLists: false,
+        apiSpecificRequestsOrReceipts: false,
+        binaryCpuWriteback: "VINEWB01",
+        binaryHostDelta: "VINEDL01",
+        binaryFrame: "VINEFR01",
+        reportBytes: 96244,
+        reportSha256:
+          "a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa",
+      }) ||
+    checkpoint.nextCheckpoint !== "kernel32-critical-section-synchronization" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

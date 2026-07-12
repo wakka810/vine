@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Read, Write};
@@ -11,26 +11,31 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use vine_core::{
     ApiContract, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass,
-    ApiImmediateCompletion, ApiTrap, CallbackReturnSentinel, DispatchOutcome, DynamicExportThunk,
-    ExecutionSession, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestPageReconciliation, GuestWriteResult, ImageMaterialization, ImageMemoryLayout,
-    ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition, InitialProcessEnvironment,
-    InitialThreadStack, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
-    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
-    ModuleSnapshot, Pe32Limits, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
-    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeExport,
-    RuntimeExportCatalog, RuntimeModule, RuntimeProcessId, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue, UnsupportedPoint,
-    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
-    dispatch_kernel32_api, encode_pointer_contract, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    ApiImmediateCompletion, ApiOwnedTrap, ApiTrap, CallbackReturnSentinel, CpuWritebackReceipt,
+    DispatchOutcome, DynamicExportThunk, ExecutionSession, GuestAddress, GuestMemory,
+    GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation, GuestWriteResult,
+    ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget, ImportThunk,
+    ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack, LoaderError,
+    LoaderErrorClass, LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits,
+    MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
+    RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,
+    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
+    RuntimeModule, RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
+    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue,
+    SchedulerThreadState, UnsupportedPoint, bind_pe32_imports,
+    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
+    encode_pointer_contract, get_current_process_id_contract, get_current_thread_id_contract,
+    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
+    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
+    heap_set_information_contract, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
-    install_dynamic_export_thunks, install_runtime_return_sentinels, materialize_pe32_image,
-    query_performance_counter_contract, tls_alloc_contract, tls_set_value_contract,
+    install_dynamic_export_thunks, install_runtime_return_sentinels,
+    kernel32_contract_for_endpoint, materialize_pe32_image, query_performance_counter_contract,
+    tls_alloc_contract, tls_set_value_contract,
 };
 
 #[derive(Debug)]
@@ -44,6 +49,7 @@ struct Arguments {
     trap_unsupported_imports: bool,
     v86_reflection_session: bool,
     checkpoint_session: Option<RuntimeCheckpointSelection>,
+    generic_runtime_reentry: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -51,6 +57,103 @@ struct Arguments {
     install_controlled_process_environment: bool,
     install_controlled_process_parameters: bool,
     controlled_command_line: Option<String>,
+}
+
+const RUNTIME_FRAME_MAGIC: &[u8; 8] = b"VINEFR01";
+const RUNTIME_FRAME_VERSION: u32 = 1;
+const RUNTIME_FRAME_HEADER_BYTES: usize = 24;
+const RUNTIME_FRAME_ACKNOWLEDGEMENT: u32 = 2;
+const RUNTIME_FRAME_CPU_WRITEBACK: u32 = 3;
+const RUNTIME_FRAME_WRITEBACK_RECEIPT: u32 = 4;
+const RUNTIME_FRAME_HOST_DELTA: u32 = 5;
+const RUNTIME_FRAME_SESSION_READY: u32 = 6;
+const RUNTIME_FRAME_TRAP: u32 = 7;
+const RUNTIME_FRAME_API_COMPLETION: u32 = 8;
+const RUNTIME_FRAME_API_FAULT: u32 = 9;
+const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
+const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
+const GENERIC_RUNTIME_TRAP_LIMIT: usize = 256;
+const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
+
+struct GenericRuntimeProcess {
+    runtime: RuntimeState,
+    binding: RuntimeGuestImportBinding,
+    module_handles: Vec<u32>,
+    main_module_handle: u32,
+    attach_order: Vec<RuntimeModuleId>,
+}
+
+struct RuntimeFrame {
+    kind: u32,
+    control: Vec<u8>,
+    payload: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum GenericRuntimeTrapKind {
+    RuntimeSystemExport,
+    DynamicExport,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeTrapRequest {
+    schema: String,
+    schema_version: u32,
+    kind: GenericRuntimeTrapKind,
+    endpoint_id: u32,
+    endpoint_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeSessionReady {
+    schema: &'static str,
+    schema_version: u32,
+    process_id: u32,
+    current_thread_id: u32,
+    process_lifecycle: RuntimeProcessLifecycleState,
+    scheduler_state: SchedulerThreadState,
+    dll_lifecycle: RuntimeDllLifecyclePhase,
+    modules: Vec<RuntimeModule>,
+    main_module_handle: u32,
+    dependency_edges: usize,
+    attach_order: Vec<RuntimeModuleId>,
+    runtime_export_endpoints: usize,
+    implemented_api_contracts: usize,
+    dynamic_export_endpoints: usize,
+    memory: MemoryStats,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+enum GenericRuntimeEndpoint {
+    RuntimeSystemExport { endpoint: ApiEndpointIdentity },
+    DynamicExport { endpoint: RuntimeDynamicEndpoint },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeCompletion {
+    schema: &'static str,
+    schema_version: u32,
+    endpoint: GenericRuntimeEndpoint,
+    completion: ApiImmediateCompletion,
+    memory: MemoryStats,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeFault {
+    schema: &'static str,
+    schema_version: u32,
+    capability_cluster: String,
+    endpoint: GenericRuntimeEndpoint,
+    fault: ApiFault,
+    memory: MemoryStats,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1498,6 +1601,7 @@ fn run_v86_reflection_session(
     const MAX_LARGE_IMAGE_REFLECTION_PAGES: usize = 400;
     const MAX_REFLECTION_MESSAGE_BYTES: usize = 512 * 1024;
     const MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
+    let generic_runtime_reentry = arguments.generic_runtime_reentry;
     let supported_call_count = arguments
         .checkpoint_session
         .as_ref()
@@ -1544,16 +1648,40 @@ fn run_v86_reflection_session(
         GuestAddress(load_base),
     )?;
     let trap_unsupported_imports = arguments.trap_unsupported_imports;
-    let catalog = RuntimeExportCatalog::new(arguments.runtime_exports)?;
-    let binding = if trap_unsupported_imports {
+    let declared_catalog = RuntimeExportCatalog::new(arguments.runtime_exports)?;
+    let mut generic_runtime = None;
+    let binding = if generic_runtime_reentry {
+        if !trap_unsupported_imports {
+            return Err(LoaderError::invalid_input(
+                "runtime-reentry",
+                "generic-runtime-reentry-trap-policy-missing",
+                "generic runtime re-entry requires explicit ownership of every imported endpoint",
+            ));
+        }
+        let runtime_catalog = runtime_catalog_for_load_plan(loader_report)?;
+        let (runtime, evidence_binding) = prepare_generic_runtime_process(
+            &mut memory,
+            loader_report,
+            &materialization,
+            &runtime_catalog,
+            &declared_catalog,
+        )?;
+        generic_runtime = Some(runtime);
+        evidence_binding
+    } else if trap_unsupported_imports {
         bind_pe32_imports_with_unsupported_traps(
             &mut memory,
             loader_report,
             &materialization,
-            &catalog,
+            &declared_catalog,
         )?
     } else {
-        bind_pe32_imports(&mut memory, loader_report, &materialization, &catalog)?
+        bind_pe32_imports(
+            &mut memory,
+            loader_report,
+            &materialization,
+            &declared_catalog,
+        )?
     };
     if !binding.complete || !binding.image_owner_sealed {
         return Err(LoaderError::invalid_input(
@@ -1614,7 +1742,7 @@ fn run_v86_reflection_session(
             .then(|| install_controlled_process_environment(&mut memory).map_err(memory_error))
             .transpose()?
     };
-    let dynamic_export_thunks = if get_proc_address_occurrences >= 4 {
+    let dynamic_export_thunks = if generic_runtime_reentry || get_proc_address_occurrences >= 4 {
         install_dynamic_export_thunks(
             &mut memory,
             &[
@@ -1652,6 +1780,16 @@ fn run_v86_reflection_session(
     } else {
         Vec::new()
     };
+    if let Some(runtime) = generic_runtime.as_mut() {
+        let callback_return = callback_return_sentinel.as_ref().ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "runtime-reentry",
+                "generic-runtime-callback-sentinel-missing",
+                "generic runtime process lifecycle requires the process callback sentinel",
+            )
+        })?;
+        finalize_generic_runtime_process(runtime, &dynamic_export_thunks, callback_return.address)?;
+    }
     let dynamic_export_thunk = dynamic_export_thunks.first().cloned();
     let expected_invalidation = dynamic_export_thunks
         .last()
@@ -1875,7 +2013,9 @@ fn run_v86_reflection_session(
         },
     };
     write_protocol_message(&receipt, reflection_message_limit)?;
-    if supported_call_count >= 1 {
+    if let Some(generic_runtime) = generic_runtime {
+        run_v86_generic_runtime_session(&mut protocol_input, &mut memory, generic_runtime)?;
+    } else if supported_call_count >= 1 {
         let mut runtime = controlled_runtime_state(&dynamic_export_thunks)?;
         let return_sessions = V86ReturnSessionOptions {
             supported_call_count,
@@ -1891,6 +2031,814 @@ fn run_v86_reflection_session(
         )?;
     }
     Ok(())
+}
+
+fn runtime_catalog_for_load_plan(
+    loader: &LoaderIngressReport,
+) -> Result<RuntimeExportCatalog, LoaderError> {
+    let mut keys = BTreeSet::new();
+    let mut exports = Vec::new();
+    for module in &loader.load_plan.imports {
+        for symbol in &module.symbols {
+            let key = match &symbol.target {
+                ImportTarget::Name { name, .. } => {
+                    format!("{}!name:{name}", module.name.to_ascii_lowercase())
+                }
+                ImportTarget::Ordinal { ordinal } => {
+                    format!("{}!ordinal:{ordinal}", module.name.to_ascii_lowercase())
+                }
+            };
+            if !keys.insert(key) {
+                continue;
+            }
+            exports.push(match &symbol.target {
+                ImportTarget::Name { name, .. } => {
+                    RuntimeExport::named(module.name.clone(), name.clone())
+                }
+                ImportTarget::Ordinal { ordinal } => {
+                    RuntimeExport::ordinal(module.name.clone(), *ordinal)
+                }
+            });
+        }
+    }
+    RuntimeExportCatalog::new(exports)
+}
+
+fn prepare_generic_runtime_process(
+    memory: &mut GuestMemory,
+    loader: &LoaderIngressReport,
+    materialization: &ImageMaterialization,
+    runtime_catalog: &RuntimeExportCatalog,
+    declared_catalog: &RuntimeExportCatalog,
+) -> Result<(GenericRuntimeProcess, ImportBinding), LoaderError> {
+    let mut runtime = controlled_runtime_state(&[])?;
+    let mut module_handles = vec![CONTROLLED_KERNEL32_HANDLE];
+    let mut canonical_modules = BTreeSet::from(["kernel32.dll".to_owned()]);
+    let mut next_module_slot = 2_u16;
+    for imported in &loader.load_plan.imports {
+        let canonical_name = imported.name.to_ascii_lowercase();
+        if !canonical_modules.insert(canonical_name.clone()) {
+            continue;
+        }
+        let handle = runtime_module_handle(next_module_slot)?;
+        next_module_slot = next_module_slot.checked_add(1).ok_or_else(|| {
+            LoaderError::resource_limit(
+                "runtime-reentry",
+                "runtime-module-handle-space-exhausted",
+                "controlled runtime module handle slots are exhausted",
+            )
+        })?;
+        runtime
+            .load_module(RuntimeModule {
+                owner: "bgi-generic-runtime-reentry".to_owned(),
+                variant_id: "runtime-system-import-v1".to_owned(),
+                namespace: vine_core::LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+                handle,
+                requested_name: imported.name.clone(),
+                canonical_name,
+                runtime_system_module: true,
+            })
+            .map_err(runtime_state_error)?;
+        module_handles.push(handle);
+    }
+    let main_module_handle = runtime_module_handle(next_module_slot)?;
+    runtime
+        .register_main_module(RuntimeModule {
+            owner: "bgi-generic-runtime-reentry".to_owned(),
+            variant_id: "mapped-main-executable-v1".to_owned(),
+            namespace: vine_core::LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            handle: main_module_handle,
+            requested_name: "BGI.exe".to_owned(),
+            canonical_name: "bgi.exe".to_owned(),
+            runtime_system_module: false,
+        })
+        .map_err(runtime_state_error)?;
+    module_handles.push(main_module_handle);
+
+    let binding = ExecutionSession::new(memory, &mut runtime)
+        .bind_guest_module_imports(main_module_handle, loader, materialization, runtime_catalog)
+        .map_err(runtime_state_error)?;
+    ExecutionSession::new(memory, &mut runtime)
+        .register_module_image(main_module_handle, loader, materialization)
+        .map_err(runtime_module_image_error)?;
+    let evidence_binding = evidence_import_binding(
+        &runtime,
+        loader,
+        materialization,
+        &binding,
+        declared_catalog,
+    )?;
+    Ok((
+        GenericRuntimeProcess {
+            runtime,
+            binding,
+            module_handles,
+            main_module_handle,
+            attach_order: Vec::new(),
+        },
+        evidence_binding,
+    ))
+}
+
+fn runtime_module_handle(slot: u16) -> Result<u32, LoaderError> {
+    if slot == 0 {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "runtime-module-handle-slot-zero",
+            "controlled runtime module handle slot cannot be zero",
+        ));
+    }
+    Ok(0x4d01_0000 | u32::from(slot))
+}
+
+fn evidence_import_binding(
+    runtime: &RuntimeState,
+    loader: &LoaderIngressReport,
+    materialization: &ImageMaterialization,
+    binding: &RuntimeGuestImportBinding,
+    declared_catalog: &RuntimeExportCatalog,
+) -> Result<ImportBinding, LoaderError> {
+    let mut thunks = Vec::with_capacity(binding.imports.len());
+    let mut import_index = 0usize;
+    let mut unsupported_trap_imports = 0usize;
+    for module in &loader.load_plan.imports {
+        for symbol in &module.symbols {
+            let import = binding.imports.get(import_index).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "runtime-import-binding-short",
+                    "runtime import binding has fewer entries than the immutable PE plan",
+                )
+            })?;
+            let RuntimeGuestImportResolution::RuntimeExport { endpoint } = &import.resolution
+            else {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "runtime-import-resolution-not-system",
+                    "BGI generic re-entry expected every initial dependency to be runtime-owned",
+                ));
+            };
+            if import.iat_address
+                != GuestAddress(
+                    materialization
+                        .load_base
+                        .0
+                        .checked_add(symbol.iat_rva.0)
+                        .ok_or_else(|| {
+                            LoaderError::runtime_defect(
+                                "runtime-reentry",
+                                "runtime-import-iat-overflow",
+                                "runtime import IAT address overflowed x86 accounting",
+                            )
+                        })?,
+                )
+                || import.target != symbol.target
+            {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "runtime-import-binding-order-mismatch",
+                    "runtime import binding order differs from the immutable PE plan",
+                ));
+            }
+            let disposition = if declared_catalog.supports(&module.name, &symbol.target) {
+                ImportThunkDisposition::DeclaredRuntimeExport
+            } else {
+                unsupported_trap_imports += 1;
+                ImportThunkDisposition::UnsupportedTrap
+            };
+            thunks.push(ImportThunk {
+                id: endpoint.id,
+                address: endpoint.address,
+                requester_owner: binding.image_owner,
+                module: module.name.clone(),
+                iat_rva: symbol.iat_rva,
+                iat_address: import.iat_address,
+                original_iat_value: import.original_iat_value,
+                disposition,
+                target: symbol.target.clone(),
+            });
+            import_index += 1;
+        }
+    }
+    if import_index != binding.imports.len() {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "runtime-import-binding-long",
+            "runtime import binding has more entries than the immutable PE plan",
+        ));
+    }
+    let arena = runtime
+        .runtime_system_exports()
+        .map(|table| table.arena.clone())
+        .ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "runtime-reentry",
+                "runtime-export-table-missing",
+                "runtime import binding completed without its process export table",
+            )
+        })?;
+    Ok(ImportBinding {
+        source: binding.source.clone(),
+        image_owner: binding.image_owner,
+        image_load_base: binding.image_load_base,
+        total_imports: thunks.len(),
+        bound_imports: thunks.len(),
+        unsupported_trap_imports,
+        remaining_imports: 0,
+        complete: true,
+        image_owner_sealed: binding.image_owner_sealed,
+        arena: Some(arena),
+        thunks,
+        unresolved_imports: Vec::new(),
+        first_unresolved_import: None,
+        invalidation: binding.invalidation,
+        stop: UnsupportedPoint {
+            stage: "adapter-execution",
+            code: "entry-execution-pending",
+            message: "the process-owned image and runtime export table are synchronized for adapter execution",
+        },
+    })
+}
+
+fn finalize_generic_runtime_process(
+    process: &mut GenericRuntimeProcess,
+    dynamic_export_thunks: &[DynamicExportThunk],
+    callback_return_sentinel: GuestAddress,
+) -> Result<(), LoaderError> {
+    for thunk in dynamic_export_thunks {
+        process
+            .runtime
+            .register_dynamic_export_thunk(thunk)
+            .map_err(runtime_state_error)?;
+    }
+    for handle in &process.module_handles {
+        process
+            .runtime
+            .mark_module_ready(*handle)
+            .map_err(runtime_state_error)?;
+    }
+    let completion = match process
+        .runtime
+        .begin_dll_process_attach(callback_return_sentinel)
+        .map_err(runtime_state_error)?
+    {
+        RuntimeDllLifecycleAction::Complete { completion } => completion,
+        RuntimeDllLifecycleAction::Callback { .. } => {
+            return Err(LoaderError::runtime_defect(
+                "runtime-reentry",
+                "unexpected-bgi-dll-process-callback",
+                "BGI initial system-module graph unexpectedly requested a guest DllMain callback",
+            ));
+        }
+        RuntimeDllLifecycleAction::AttachFailed { .. } => {
+            return Err(LoaderError::runtime_defect(
+                "runtime-reentry",
+                "bgi-dll-process-attach-failed",
+                "BGI initial system-module graph failed process attach without a guest callback",
+            ));
+        }
+    };
+    if completion.phase != RuntimeDllLifecyclePhase::ProcessAttached
+        || !completion.callback_order.is_empty()
+    {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "bgi-dll-process-attach-completion-invalid",
+            "BGI initial system-module graph did not complete a callback-free process attach",
+        ));
+    }
+    process.attach_order = completion.graph_order;
+    Ok(())
+}
+
+fn run_v86_generic_runtime_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    mut process: GenericRuntimeProcess,
+) -> Result<(), LoaderError> {
+    let endpoints = process
+        .binding
+        .imports
+        .iter()
+        .filter_map(ApiEndpointIdentity::from_runtime_guest_import)
+        .collect::<Vec<_>>();
+    if endpoints.len() != process.binding.imports.len() {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "non-runtime-endpoint-in-bgi-binding",
+            "BGI generic runtime binding contains a non-runtime export endpoint",
+        ));
+    }
+    let mut contracts = Vec::new();
+    for endpoint in &endpoints {
+        if let Some(contract) =
+            kernel32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)?
+        {
+            contracts.push(contract);
+        }
+    }
+    let dispatcher = ApiDispatcher::new(endpoints.clone(), contracts.clone()).map_err(api_fault)?;
+    write_runtime_json_frame(
+        RUNTIME_FRAME_SESSION_READY,
+        &GenericRuntimeSessionReady {
+            schema: "vine.v86-generic-runtime-session-ready",
+            schema_version: 1,
+            process_id: process.runtime.process_id().0,
+            current_thread_id: process.runtime.current_thread_id().0,
+            process_lifecycle: process.runtime.process().lifecycle,
+            scheduler_state: process
+                .runtime
+                .scheduler_state()
+                .map_err(runtime_state_error)?,
+            dll_lifecycle: process.runtime.dll_lifecycle_phase(),
+            modules: process
+                .runtime
+                .process()
+                .modules
+                .values()
+                .cloned()
+                .collect(),
+            main_module_handle: process.main_module_handle,
+            dependency_edges: process.binding.dependency_edges.len(),
+            attach_order: process.attach_order.clone(),
+            runtime_export_endpoints: endpoints.len(),
+            implemented_api_contracts: contracts.len(),
+            dynamic_export_endpoints: process.runtime.registries().dynamic_endpoints.len(),
+            memory: memory.stats(),
+        },
+    )?;
+
+    for _ in 0..GENERIC_RUNTIME_TRAP_LIMIT {
+        let writeback_frame = read_runtime_frame(input)?;
+        require_runtime_frame_kind(&writeback_frame, RUNTIME_FRAME_CPU_WRITEBACK)?;
+        let writeback_receipt = memory
+            .reconcile_cpu_writeback_binary(&writeback_frame.control, &writeback_frame.payload)
+            .map_err(memory_error)?;
+        let receipt_control = encode_writeback_receipt(memory, &writeback_receipt)?;
+        write_runtime_frame(RUNTIME_FRAME_WRITEBACK_RECEIPT, &receipt_control, &[])?;
+
+        let trap_frame = read_runtime_frame(input)?;
+        require_runtime_frame_kind(&trap_frame, RUNTIME_FRAME_TRAP)?;
+        if !trap_frame.payload.is_empty() {
+            return Err(LoaderError::invalid_input(
+                "runtime-reentry",
+                "runtime-trap-payload-unexpected",
+                "generic runtime trap frames may not contain a byte payload",
+            ));
+        }
+        let trap: GenericRuntimeTrapRequest =
+            serde_json::from_slice(&trap_frame.control).map_err(|error| {
+                LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-trap-json-invalid",
+                    format!("generic runtime trap metadata is invalid: {error}"),
+                )
+            })?;
+        if trap.schema != "vine.v86-generic-runtime-trap" || trap.schema_version != 1 {
+            return Err(LoaderError::invalid_input(
+                "runtime-reentry",
+                "runtime-trap-schema-unsupported",
+                "generic runtime trap must use vine.v86-generic-runtime-trap version 1",
+            ));
+        }
+
+        match trap.kind {
+            GenericRuntimeTrapKind::RuntimeSystemExport => {
+                let endpoint = endpoints
+                    .iter()
+                    .find(|endpoint| {
+                        endpoint.id.0 == trap.endpoint_id
+                            && endpoint.address.0 == trap.endpoint_address
+                    })
+                    .cloned()
+                    .ok_or_else(|| {
+                        LoaderError::invalid_input(
+                            "runtime-reentry",
+                            "runtime-trap-endpoint-unowned",
+                            "generic runtime trap does not identify a process-owned export endpoint",
+                        )
+                    })?;
+                let mut session = ExecutionSession::new(memory, &mut process.runtime);
+                match dispatcher.dispatch_owned(
+                    ApiOwnedTrap {
+                        endpoint_id: endpoint.id,
+                        endpoint_address: endpoint.address,
+                        stack_pointer: GuestAddress(trap.stack_pointer),
+                        return_address: GuestAddress(trap.return_address),
+                    },
+                    &mut session,
+                    dispatch_kernel32_api,
+                ) {
+                    DispatchOutcome::Immediate(completion) => {
+                        send_pending_runtime_delta(input, memory)?;
+                        write_runtime_json_frame(
+                            RUNTIME_FRAME_API_COMPLETION,
+                            &GenericRuntimeCompletion {
+                                schema: "vine.v86-generic-runtime-completion",
+                                schema_version: 1,
+                                endpoint: GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
+                                completion,
+                                memory: memory.stats(),
+                            },
+                        )?;
+                    }
+                    DispatchOutcome::Fault(fault) => {
+                        write_generic_runtime_fault(
+                            memory,
+                            GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
+                            fault,
+                        )?;
+                        return Ok(());
+                    }
+                    DispatchOutcome::Deferred(_) | DispatchOutcome::GuestCallback(_) => {
+                        write_generic_runtime_fault(
+                            memory,
+                            GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
+                            ApiFault::unsupported(
+                                "runtime-reentry",
+                                "runtime-api-outcome-unimplemented",
+                                "generic BGI re-entry does not yet resume deferred or callback API outcomes",
+                            ),
+                        )?;
+                        return Ok(());
+                    }
+                }
+            }
+            GenericRuntimeTrapKind::DynamicExport => {
+                let endpoint = process
+                    .runtime
+                    .dynamic_endpoint(trap.endpoint_id)
+                    .map_err(runtime_state_error)?
+                    .clone();
+                if endpoint.address.0 != trap.endpoint_address {
+                    return Err(LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "dynamic-runtime-trap-identity-mismatch",
+                        "dynamic runtime trap ID and address identify different endpoints",
+                    ));
+                }
+                write_generic_runtime_fault(
+                    memory,
+                    GenericRuntimeEndpoint::DynamicExport { endpoint },
+                    ApiFault::unsupported(
+                        "api-dispatch",
+                        "dynamic-export-contract-missing",
+                        "the process-owned dynamic export endpoint has no callable API contract",
+                    ),
+                )?;
+                return Ok(());
+            }
+        }
+    }
+    Err(LoaderError::resource_limit(
+        "runtime-reentry",
+        "generic-runtime-trap-limit-exceeded",
+        "generic runtime re-entry exceeded its bounded trap limit",
+    ))
+}
+
+fn send_pending_runtime_delta(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+) -> Result<(), LoaderError> {
+    if memory.stats().pending_invalidation.is_none() {
+        return Ok(());
+    }
+    let delta = memory.pending_delta().map_err(memory_error)?;
+    let generation = delta.generation;
+    let buffers = delta.encode_binary().map_err(memory_error)?;
+    write_runtime_frame(
+        RUNTIME_FRAME_HOST_DELTA,
+        &buffers.control,
+        &buffers.page_bytes,
+    )?;
+    let acknowledgement = read_runtime_frame(input)?;
+    require_runtime_frame_kind(&acknowledgement, RUNTIME_FRAME_ACKNOWLEDGEMENT)?;
+    if !acknowledgement.payload.is_empty() || acknowledgement.control.len() != 8 {
+        return Err(LoaderError::invalid_input(
+            "runtime-reentry",
+            "runtime-delta-ack-shape-invalid",
+            "runtime host-delta acknowledgement must contain one generation and no payload",
+        ));
+    }
+    let acknowledged =
+        u64::from_le_bytes(acknowledgement.control[..8].try_into().map_err(|_| {
+            LoaderError::runtime_defect(
+                "runtime-reentry",
+                "runtime-delta-ack-width-invalid",
+                "validated runtime delta acknowledgement has an invalid width",
+            )
+        })?);
+    if acknowledged != generation {
+        return Err(LoaderError::invalid_input(
+            "runtime-reentry",
+            "runtime-delta-ack-generation-mismatch",
+            "runtime host-delta acknowledgement names the wrong generation",
+        ));
+    }
+    memory.acknowledge_delta(acknowledged).map_err(memory_error)
+}
+
+fn write_generic_runtime_fault(
+    memory: &GuestMemory,
+    endpoint: GenericRuntimeEndpoint,
+    fault: ApiFault,
+) -> Result<(), LoaderError> {
+    let capability_cluster = runtime_capability_cluster(&endpoint);
+    write_runtime_json_frame(
+        RUNTIME_FRAME_API_FAULT,
+        &GenericRuntimeFault {
+            schema: "vine.v86-generic-runtime-fault",
+            schema_version: 1,
+            capability_cluster,
+            endpoint,
+            fault,
+            memory: memory.stats(),
+        },
+    )
+}
+
+fn runtime_capability_cluster(endpoint: &GenericRuntimeEndpoint) -> String {
+    match endpoint {
+        GenericRuntimeEndpoint::DynamicExport { endpoint }
+            if endpoint.module.eq_ignore_ascii_case("kernel32.dll")
+                && endpoint.name.starts_with("Fls") =>
+        {
+            "kernel32-fiber-local-storage".to_owned()
+        }
+        GenericRuntimeEndpoint::DynamicExport { .. } => "dynamic-export-dispatch".to_owned(),
+        GenericRuntimeEndpoint::RuntimeSystemExport { endpoint } => {
+            let module = endpoint.module.to_ascii_lowercase();
+            match &endpoint.symbol {
+                vine_core::ApiSymbol::Name { name }
+                    if module == "kernel32.dll"
+                        && matches!(name.as_str(), "EncodePointer" | "DecodePointer") =>
+                {
+                    "kernel32-pointer-encoding".to_owned()
+                }
+                vine_core::ApiSymbol::Name { name }
+                    if module == "kernel32.dll" && name.starts_with("Fls") =>
+                {
+                    "kernel32-fiber-local-storage".to_owned()
+                }
+                vine_core::ApiSymbol::Name { name }
+                    if module == "kernel32.dll" && name.contains("CriticalSection") =>
+                {
+                    "kernel32-critical-section-synchronization".to_owned()
+                }
+                _ => format!("{}-api-contract", module.trim_end_matches(".dll")),
+            }
+        }
+    }
+}
+
+fn encode_writeback_receipt(
+    memory: &GuestMemory,
+    receipt: &CpuWritebackReceipt,
+) -> Result<Vec<u8>, LoaderError> {
+    let mut bytes = Vec::with_capacity(120);
+    bytes.extend_from_slice(b"VINEWR01");
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&receipt.from_generation.to_le_bytes());
+    bytes.extend_from_slice(&receipt.generation.to_le_bytes());
+    for count in [
+        receipt.touched_pages,
+        receipt.changed_pages,
+        receipt.unchanged_pages,
+        receipt.executable_pages,
+    ] {
+        bytes.extend_from_slice(
+            &u32::try_from(count)
+                .map_err(|_| {
+                    LoaderError::resource_limit(
+                        "runtime-reentry",
+                        "writeback-receipt-count-overflow",
+                        "CPU writeback receipt count does not fit the binary protocol",
+                    )
+                })?
+                .to_le_bytes(),
+        );
+    }
+    bytes.extend_from_slice(&receipt.changed_bytes.to_le_bytes());
+    bytes.extend_from_slice(&receipt.transferred_bytes.to_le_bytes());
+    if receipt.content_sha256.len() != 64 {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "writeback-receipt-digest-invalid",
+            "CPU writeback receipt digest does not contain 32 bytes",
+        ));
+    }
+    for index in (0..receipt.content_sha256.len()).step_by(2) {
+        bytes.push(
+            u8::from_str_radix(&receipt.content_sha256[index..index + 2], 16).map_err(|_| {
+                LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "writeback-receipt-digest-invalid",
+                    "CPU writeback receipt digest is not hexadecimal",
+                )
+            })?,
+        );
+    }
+    let stats = memory.stats();
+    bytes.extend_from_slice(&stats.generation.to_le_bytes());
+    bytes.extend_from_slice(&stats.acknowledged_generation.to_le_bytes());
+    bytes.extend_from_slice(
+        &u32::try_from(stats.dirty_pages)
+            .map_err(|_| {
+                LoaderError::resource_limit(
+                    "runtime-reentry",
+                    "writeback-receipt-dirty-count-overflow",
+                    "guest-memory dirty-page count does not fit the binary protocol",
+                )
+            })?
+            .to_le_bytes(),
+    );
+    bytes.extend_from_slice(&u32::from(stats.pending_invalidation.is_some()).to_le_bytes());
+    if bytes.len() != 120 {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "writeback-receipt-size-invalid",
+            "CPU writeback receipt did not produce the fixed binary size",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn read_runtime_frame(input: &mut impl Read) -> Result<RuntimeFrame, LoaderError> {
+    let mut header = [0u8; RUNTIME_FRAME_HEADER_BYTES];
+    input.read_exact(&mut header).map_err(|error| {
+        io_error(
+            "runtime-reentry",
+            "runtime-frame-header-read-failed",
+            "could not read a generic runtime frame header",
+            error,
+        )
+    })?;
+    if header[..8] != *RUNTIME_FRAME_MAGIC {
+        return Err(LoaderError::invalid_input(
+            "runtime-reentry",
+            "runtime-frame-magic-mismatch",
+            "generic runtime frame magic is invalid",
+        ));
+    }
+    let version = u32::from_le_bytes(header[8..12].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "runtime-frame-version-width-invalid",
+            "validated runtime frame version has an invalid width",
+        )
+    })?);
+    if version != RUNTIME_FRAME_VERSION {
+        return Err(LoaderError::unsupported(
+            "runtime-reentry",
+            "runtime-frame-version-unsupported",
+            "generic runtime frame version is unsupported",
+        ));
+    }
+    let kind = u32::from_le_bytes(header[12..16].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "runtime-frame-kind-width-invalid",
+            "validated runtime frame kind has an invalid width",
+        )
+    })?);
+    let control_bytes = u32::from_le_bytes(header[16..20].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "runtime-frame-control-width-invalid",
+            "validated runtime frame control length has an invalid width",
+        )
+    })?) as usize;
+    let payload_bytes = u32::from_le_bytes(header[20..24].try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "runtime-frame-payload-width-invalid",
+            "validated runtime frame payload length has an invalid width",
+        )
+    })?) as usize;
+    if control_bytes > RUNTIME_FRAME_MAX_CONTROL_BYTES
+        || payload_bytes > RUNTIME_FRAME_MAX_PAYLOAD_BYTES
+    {
+        return Err(LoaderError::resource_limit(
+            "runtime-reentry",
+            "runtime-frame-size-exceeded",
+            "generic runtime frame exceeds its bounded transport size",
+        ));
+    }
+    let mut control = vec![0; control_bytes];
+    let mut payload = vec![0; payload_bytes];
+    input.read_exact(&mut control).map_err(|error| {
+        io_error(
+            "runtime-reentry",
+            "runtime-frame-control-read-failed",
+            "could not read generic runtime frame control bytes",
+            error,
+        )
+    })?;
+    input.read_exact(&mut payload).map_err(|error| {
+        io_error(
+            "runtime-reentry",
+            "runtime-frame-payload-read-failed",
+            "could not read generic runtime frame payload bytes",
+            error,
+        )
+    })?;
+    Ok(RuntimeFrame {
+        kind,
+        control,
+        payload,
+    })
+}
+
+fn require_runtime_frame_kind(frame: &RuntimeFrame, expected: u32) -> Result<(), LoaderError> {
+    if frame.kind != expected {
+        return Err(LoaderError::invalid_input(
+            "runtime-reentry",
+            "runtime-frame-kind-mismatch",
+            format!(
+                "generic runtime frame kind {} does not match expected kind {expected}",
+                frame.kind
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn write_runtime_json_frame(kind: u32, value: &impl Serialize) -> Result<(), LoaderError> {
+    let control = serde_json::to_vec(value).map_err(|error| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "runtime-frame-json-serialization-failed",
+            format!("could not serialize generic runtime frame metadata: {error}"),
+        )
+    })?;
+    write_runtime_frame(kind, &control, &[])
+}
+
+fn write_runtime_frame(kind: u32, control: &[u8], payload: &[u8]) -> Result<(), LoaderError> {
+    if control.len() > RUNTIME_FRAME_MAX_CONTROL_BYTES
+        || payload.len() > RUNTIME_FRAME_MAX_PAYLOAD_BYTES
+    {
+        return Err(LoaderError::resource_limit(
+            "runtime-reentry",
+            "runtime-frame-size-exceeded",
+            "generic runtime frame exceeds its bounded transport size",
+        ));
+    }
+    let control_bytes = u32::try_from(control.len()).map_err(|_| {
+        LoaderError::resource_limit(
+            "runtime-reentry",
+            "runtime-frame-control-length-overflow",
+            "generic runtime frame control length does not fit 32 bits",
+        )
+    })?;
+    let payload_bytes = u32::try_from(payload.len()).map_err(|_| {
+        LoaderError::resource_limit(
+            "runtime-reentry",
+            "runtime-frame-payload-length-overflow",
+            "generic runtime frame payload length does not fit 32 bits",
+        )
+    })?;
+    let mut header = Vec::with_capacity(RUNTIME_FRAME_HEADER_BYTES);
+    header.extend_from_slice(RUNTIME_FRAME_MAGIC);
+    header.extend_from_slice(&RUNTIME_FRAME_VERSION.to_le_bytes());
+    header.extend_from_slice(&kind.to_le_bytes());
+    header.extend_from_slice(&control_bytes.to_le_bytes());
+    header.extend_from_slice(&payload_bytes.to_le_bytes());
+    let mut output = io::stdout().lock();
+    output.write_all(&header).map_err(|error| {
+        io_error(
+            "runtime-reentry",
+            "runtime-frame-header-write-failed",
+            "could not write generic runtime frame header",
+            error,
+        )
+    })?;
+    output.write_all(control).map_err(|error| {
+        io_error(
+            "runtime-reentry",
+            "runtime-frame-control-write-failed",
+            "could not write generic runtime frame control bytes",
+            error,
+        )
+    })?;
+    output.write_all(payload).map_err(|error| {
+        io_error(
+            "runtime-reentry",
+            "runtime-frame-payload-write-failed",
+            "could not write generic runtime frame payload bytes",
+            error,
+        )
+    })?;
+    output.flush().map_err(|error| {
+        io_error(
+            "runtime-reentry",
+            "runtime-frame-flush-failed",
+            "could not flush generic runtime frame",
+            error,
+        )
+    })
 }
 
 fn read_v86_reflection_ack(input: &mut impl BufRead) -> Result<V86ReflectionAck, LoaderError> {
@@ -5842,6 +6790,22 @@ fn runtime_state_error(error: RuntimeStateError) -> LoaderError {
     }
 }
 
+fn runtime_module_image_error(error: RuntimeModuleImageError) -> LoaderError {
+    match error.class {
+        RuntimeModuleImageErrorClass::InvalidInput
+        | RuntimeModuleImageErrorClass::NotFound
+        | RuntimeModuleImageErrorClass::Conflict => {
+            LoaderError::invalid_input("runtime-module-image", error.code, error.message)
+        }
+        RuntimeModuleImageErrorClass::ResourceLimit => {
+            LoaderError::resource_limit("runtime-module-image", error.code, error.message)
+        }
+        RuntimeModuleImageErrorClass::RuntimeDefect => {
+            LoaderError::runtime_defect("runtime-module-image", error.code, error.message)
+        }
+    }
+}
+
 fn validate_direct_iat_callsite(
     memory: &GuestMemory,
     thunk: &ImportThunk,
@@ -6581,6 +7545,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut runtime_exports = Vec::new();
     let mut trap_unsupported_imports = false;
     let mut v86_reflection_session = false;
+    let mut generic_runtime_reentry = false;
     let mut checkpoint_manifest = None;
     let mut checkpoint_id = None;
     let mut large_image_reflection = false;
@@ -6641,6 +7606,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             v86_reflection_session = true;
+        } else if argument == "--generic-runtime-reentry" {
+            if generic_runtime_reentry {
+                return Err(usage_error());
+            }
+            generic_runtime_reentry = true;
         } else if argument == "--checkpoint-manifest" {
             let value = arguments.next().ok_or_else(usage_error)?;
             if checkpoint_manifest.replace(PathBuf::from(value)).is_some() {
@@ -6731,6 +7701,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if large_image_reflection && !v86_reflection_session {
         return Err(usage_error());
     }
+    if generic_runtime_reentry && (!v86_reflection_session || checkpoint_manifest.is_none()) {
+        return Err(usage_error());
+    }
     if checkpoint_manifest.is_some() != checkpoint_id.is_some()
         || (checkpoint_manifest.is_some() && !v86_reflection_session)
     {
@@ -6756,6 +7729,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         trap_unsupported_imports,
         v86_reflection_session,
         checkpoint_session,
+        generic_runtime_reentry,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -6838,7 +7812,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

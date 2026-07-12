@@ -3,7 +3,6 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +24,7 @@ let checkpointId = "bgi-first-trap";
 let manifestPath = defaultManifestPath;
 let checkpointOptionSeen = false;
 let manifestOptionSeen = false;
+let genericRuntimeReentry = false;
 const positionalArguments = [];
 for (let index = 0; index < commandArguments.length; index += 1) {
   const argument = commandArguments[index];
@@ -40,6 +40,9 @@ for (let index = 0; index < commandArguments.length; index += 1) {
     manifestPath = path.resolve(commandArguments[index + 1] ?? "");
     assert(commandArguments[index + 1] !== undefined, "--manifest requires a file");
     index += 1;
+  } else if (argument === "--generic-runtime-reentry") {
+    assert(!genericRuntimeReentry, "--generic-runtime-reentry may be specified only once");
+    genericRuntimeReentry = true;
   } else {
     assert(!argument.startsWith("--"), `unknown option ${argument}`);
     positionalArguments.push(argument);
@@ -47,7 +50,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry] [WASM] [BGI.exe]",
 );
 const checkpointManifest = loadRuntimeCheckpointManifest(manifestPath);
 const selectedCheckpoint = selectRuntimeCheckpoint(checkpointManifest, checkpointId);
@@ -80,7 +83,9 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  selectedCheckpoint.artifactDirectory,
+  genericRuntimeReentry
+    ? "v86-bgi-generic-runtime-reentry"
+    : selectedCheckpoint.artifactDirectory,
 );
 const reportPath = path.join(outputDirectory, "report.json");
 
@@ -567,6 +572,7 @@ const expected = {
   imports: {
     owner: 2,
     pages: 2,
+    modules: 14,
     total: 330,
     declared: 1 + declaredDispatches.length,
     unsupported: 329 - declaredDispatches.length,
@@ -1107,10 +1113,60 @@ const page = {
   present: 1,
   writable: 2,
   user: 4,
+  dirty: 0x40,
 };
 const protocol = {
   maximumLineBytes: 8 * 1024 * 1024,
   maximumReflectionPages: 400,
+};
+const runtimeFrame = {
+  magic: "VINEFR01",
+  version: 1,
+  headerBytes: 24,
+  acknowledgement: 2,
+  cpuWriteback: 3,
+  writebackReceipt: 4,
+  hostDelta: 5,
+  sessionReady: 6,
+  trap: 7,
+  apiCompletion: 8,
+  apiFault: 9,
+};
+const writebackFormat = {
+  magic: "VINEWB01",
+  version: 1,
+  headerBytes: 32,
+  descriptorBytes: 8,
+};
+const deltaFormat = {
+  magic: "VINEDL01",
+  version: 1,
+  headerBytes: 56,
+  mappingDescriptorBytes: 32,
+  pageDescriptorBytes: 16,
+};
+const genericRuntimeExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 21,
+  writebackBatches: 22,
+  dirtyPages: 38,
+  changedBytes: 268,
+  hostDeltaBatches: 3,
+  finalGeneration: 52,
+  firstUnsupported: {
+    capabilityCluster: "kernel32-critical-section-synchronization",
+    endpointId: 100,
+    endpointAddress: 0x7f000630,
+    module: "kernel32.dll",
+    symbol: "InitializeCriticalSectionAndSpinCount",
+    iatAddress: 0x100d1238,
+    arguments: [0x100ff630, 4000],
+    returnAddress: 0x100ab5e7,
+    instructionCount: 266,
+    faultCode: "endpoint-contract-missing",
+  },
+  reportBytes: 96_244,
+  reportSha256: "a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa",
 };
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
@@ -1449,6 +1505,7 @@ async function run() {
     manifestPath,
     "--checkpoint",
     selectedCheckpoint.id,
+    ...(genericRuntimeReentry ? ["--generic-runtime-reentry"] : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -1464,14 +1521,12 @@ async function run() {
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
   });
-  child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
   let stderr = "";
   child.stderr.on("data", (chunk) => {
     stderr += chunk;
   });
-  const lineReader = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
-  const lines = lineReader[Symbol.asyncIterator]();
+  const protocolReader = createProtocolReader(child.stdout);
   const exit = new Promise((resolve, reject) => {
     child.once("error", reject);
     child.once("exit", (code, signal) => resolve({ code, signal }));
@@ -1479,14 +1534,13 @@ async function run() {
   let sessionCompleted = false;
 
   const nextMessage = async (label) => {
-    const next = await lines.next();
-    assert(!next.done, `${label} was not emitted; probe stderr: ${stderr.trim()}`);
-    const lineBytes = Buffer.byteLength(next.value);
+    const line = await protocolReader.readLine(protocol.maximumLineBytes, label);
+    const lineBytes = line.byteLength;
     assert(
       lineBytes <= protocol.maximumLineBytes,
       `${label} exceeds the ${protocol.maximumLineBytes}-byte protocol limit`,
     );
-    return { message: JSON.parse(next.value), lineBytes };
+    return { message: JSON.parse(line.toString("utf8")), lineBytes };
   };
 
   try {
@@ -1518,6 +1572,13 @@ async function run() {
     const receiptMessage = await nextMessage("reflection receipt");
     const receipt = receiptMessage.message;
     validateReceipt(receipt, offer, context, receiptMessage.lineBytes);
+    const runtimeReady = genericRuntimeReentry
+      ? await readRuntimeJsonFrame(
+          protocolReader,
+          runtimeFrame.sessionReady,
+          "generic runtime session ready",
+        )
+      : null;
 
     const execution = executeToFirstOwnedTrap(offer, context);
     assert.equal(execution.terminal.kind, "owned-import-thunk");
@@ -1527,6 +1588,53 @@ async function run() {
     assert.equal(execution.budgetStops, expected.terminal.budgetStops);
     assert.equal(execution.terminal.returnAddress, expected.terminal.returnAddress);
     assert.deepEqual(execution.terminal.stackWords, expected.terminal.stackWords);
+    if (genericRuntimeReentry) {
+      assert.equal(
+        selectedCheckpoint.supportedCallCount,
+        checkpointSessionSteps.length,
+        "generic runtime re-entry starts from the frozen full manifest checkpoint",
+      );
+      const genericResult = await runGenericRuntimeReentry({
+        child,
+        context,
+        execution,
+        offer,
+        protocolReader,
+        runtimeReady,
+      });
+      child.stdin.end();
+      const processExit = await exit;
+      assert.equal(processExit.signal, null, `reflection probe terminated by ${processExit.signal}`);
+      assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
+      sessionCompleted = true;
+      const sourceAfter = sourceIdentity(bgiPath);
+      assert.deepEqual(sourceAfter, sourceBefore);
+      const report = buildGenericRuntimeReentryReport({
+        execution,
+        genericResult,
+        offer,
+        receipt,
+        runtimeReady,
+        sourceAfter,
+        sourceBefore,
+      });
+      validateGenericRuntimeReentryResult(genericResult);
+      fs.mkdirSync(outputDirectory, { recursive: true });
+      const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
+      assert.equal(reportBytes.byteLength, genericRuntimeExpected.reportBytes);
+      assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
+      fs.writeFileSync(reportPath, reportBytes);
+      console.log(
+        `bgi generic runtime re-entry passed: ${genericResult.supportedCalls.length} ` +
+          `generic calls, first unsupported cluster ${genericResult.fault.capabilityCluster}`,
+      );
+      console.log(
+        `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
+          `${path.relative(root, reportPath)}, ${reportBytes.byteLength} bytes, ` +
+          `sha256 ${sha256(reportBytes)}`,
+      );
+      return;
+    }
     const callResults = await runCheckpointSession({
       child,
       context,
@@ -1623,11 +1731,828 @@ async function run() {
         `sha256 ${sha256(reportBytes)}`,
     );
   } finally {
-    lineReader.close();
     if (!sessionCompleted && child.exitCode === null) {
       child.kill();
     }
   }
+}
+
+async function runGenericRuntimeReentry({
+  child,
+  context,
+  execution,
+  offer,
+  protocolReader,
+  runtimeReady,
+}) {
+  validateGenericRuntimeReady(runtimeReady, offer);
+  let generation = runtimeReady.memory.acknowledgedGeneration;
+  let continuation = execution;
+  const occurrences = new Map();
+  const supportedCalls = [];
+  const writebacks = [];
+  const hostDeltas = [];
+  let frozenSemanticCalls = 0;
+
+  for (let sequence = 1; sequence <= 256; sequence += 1) {
+    const terminal = continuation.terminal;
+    assert(
+      terminal.kind === "owned-import-thunk" ||
+        terminal.kind === "owned-dynamic-export-thunk",
+      `generic runtime reached non-owned terminal ${terminal.kind}`,
+    );
+    const endpoint = genericTerminalEndpoint(terminal);
+    const occurrenceKey = `${endpoint.module.toLowerCase()}!${endpoint.symbol}`;
+    const occurrence = (occurrences.get(occurrenceKey) ?? 0) + 1;
+
+    if (sequence <= checkpointManifest.checkpoints.length) {
+      const stopCheckpoint = checkpointManifest.checkpoints[sequence - 1];
+      assertGenericStopMatchesCheckpoint(
+        continuation,
+        endpoint,
+        occurrence,
+        stopCheckpoint,
+      );
+    }
+
+    const discovery = discoverDirtyMirrorPages(context);
+    const writeback = encodeCpuWriteback(generation, discovery.pages);
+    await writeRuntimeFrame(
+      child.stdin,
+      runtimeFrame.cpuWriteback,
+      writeback.control,
+      writeback.payload,
+    );
+    const receiptFrame = await readRuntimeFrame(
+      protocolReader,
+      runtimeFrame.writebackReceipt,
+      "CPU writeback receipt",
+    );
+    assert.equal(receiptFrame.payload.length, 0);
+    const writebackReceipt = decodeWritebackReceipt(receiptFrame.control);
+    validateGenericWritebackReceipt(writebackReceipt, generation, discovery.pages.length);
+    generation = writebackReceipt.generation;
+    writebacks.push({
+      sequence,
+      instructionCount: continuation.instructionCount,
+      scannedWritablePages: discovery.scannedWritablePages,
+      dirtyPages: discovery.pages.map(({ address, owner }) => ({ address, owner })),
+      cleanWritablePages: discovery.cleanWritablePages,
+      clearedDirtyBits: discovery.pages.length,
+      tlbFlushAfterClear: true,
+      controlBytes: writeback.control.length,
+      payloadBytes: writeback.payload.length,
+      payloadSha256: sha256(writeback.payload),
+      receipt: writebackReceipt,
+    });
+
+    const trapRequest = {
+      schema: "vine.v86-generic-runtime-trap",
+      schemaVersion: 1,
+      kind:
+        terminal.kind === "owned-import-thunk"
+          ? "runtime-system-export"
+          : "dynamic-export",
+      endpointId: endpoint.id,
+      endpointAddress: endpoint.address,
+      stackPointer: continuation.finalState.esp,
+      returnAddress: terminal.returnAddress,
+    };
+    const criticalSectionBytesBefore =
+      endpoint.symbol === genericRuntimeExpected.firstUnsupported.symbol
+        ? Buffer.from(
+            context.readVirtualBytes(
+              terminal.stackWords[1],
+              24,
+              "critical-section storage before unsupported dispatch",
+            ),
+          )
+        : null;
+    await writeRuntimeJsonFrame(child.stdin, runtimeFrame.trap, trapRequest);
+
+    let response = await readRuntimeFrame(protocolReader, null, "generic API response");
+    if (response.kind === runtimeFrame.hostDelta) {
+      const delta = decodeRuntimeHostDelta(response.control, response.payload);
+      assert.equal(delta.fromGeneration, generation);
+      applyRuntimeHostDelta(context, delta);
+      generation = delta.generation;
+      hostDeltas.push({
+        sequence,
+        fromGeneration: delta.fromGeneration,
+        generation: delta.generation,
+        mappingOperations: delta.mappingOperations.length,
+        dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+        controlBytes: response.control.length,
+        payloadBytes: response.payload.length,
+        payloadSha256: sha256(response.payload),
+        cacheEffects: delta.cacheEffects,
+      });
+      await writeRuntimeFrame(
+        child.stdin,
+        runtimeFrame.acknowledgement,
+        encodeGeneration(generation),
+        Buffer.alloc(0),
+      );
+      response = await readRuntimeFrame(protocolReader, null, "generic API completion");
+    }
+
+    if (response.kind === runtimeFrame.apiFault) {
+      assert.equal(response.payload.length, 0);
+      const fault = JSON.parse(response.control.toString("utf8"));
+      validateGenericRuntimeFault(fault, endpoint, generation);
+      if (criticalSectionBytesBefore !== null) {
+        assert.deepEqual(
+          Buffer.from(
+            context.readVirtualBytes(
+              terminal.stackWords[1],
+              criticalSectionBytesBefore.length,
+              "critical-section storage after unsupported dispatch",
+            ),
+          ),
+          criticalSectionBytesBefore,
+          "unsupported critical-section dispatch mutated guest storage",
+        );
+      }
+      return {
+        frozenSemanticCalls,
+        supportedCalls,
+        writebacks,
+        hostDeltas,
+        finalGeneration: generation,
+        fault,
+        terminal: continuation,
+      };
+    }
+    assert.equal(response.kind, runtimeFrame.apiCompletion);
+    assert.equal(response.payload.length, 0);
+    const completionFrame = JSON.parse(response.control.toString("utf8"));
+    validateGenericCompletionFrame(completionFrame, endpoint, generation);
+    occurrences.set(occurrenceKey, occurrence);
+    const call = {
+      sequence,
+      module: endpoint.module,
+      symbol: endpoint.symbol,
+      occurrence,
+      trapInstructionCount: continuation.instructionCount,
+      arguments: completionFrame.completion.frame.arguments.flatMap(({ words }) => words),
+      result: completionFrame.completion.eax,
+      implementationId: completionFrame.completion.implementationId,
+      returnAddress: completionFrame.completion.instructionPointer,
+      stackPointerBefore: completionFrame.completion.frame.stackPointer,
+      stackPointerAfter: completionFrame.completion.stackPointer,
+      lastError: completionFrame.completion.lastError,
+      guestWrites: completionFrame.completion.guestWrites.map(({ write, result }) => ({
+        address: write.address,
+        bytes: write.bytes,
+        result,
+      })),
+    };
+
+    const manifestCheckpoint =
+      sequence <= selectedCheckpoint.supportedCallCount
+        ? checkpointManifest.checkpoints[sequence]
+        : null;
+    let postReturnGuestWrites = [];
+    if (manifestCheckpoint !== null) {
+      validateGenericCallAgainstManifest(call, manifestCheckpoint);
+      const dispatcherWriteAddresses = new Set(
+        completionFrame.completion.guestWrites.map(({ write }) => write.address),
+      );
+      const dispatcherWrites = manifestCheckpoint.expected.guestWrites.filter(({ address }) =>
+        dispatcherWriteAddresses.has(parseManifestInteger(address)),
+      );
+      postReturnGuestWrites = manifestCheckpoint.expected.guestWrites.filter(
+        ({ address }) => !dispatcherWriteAddresses.has(parseManifestInteger(address)),
+      );
+      validateManifestGuestWrites(context, dispatcherWrites);
+      frozenSemanticCalls += 1;
+    }
+    supportedCalls.push(call);
+    restoreGenericApiCompletion(context, continuation.finalState, completionFrame.completion);
+    const next = executeToNextOwnedTrap(offer, context, continuation.instructionCount);
+    if (manifestCheckpoint !== null) {
+      validateManifestGuestWrites(context, postReturnGuestWrites);
+      const nextEndpoint = genericTerminalEndpoint(next.terminal);
+      const nextKey = `${nextEndpoint.module.toLowerCase()}!${nextEndpoint.symbol}`;
+      const nextOccurrence = (occurrences.get(nextKey) ?? 0) + 1;
+      assertGenericStopMatchesCheckpoint(
+        next,
+        nextEndpoint,
+        nextOccurrence,
+        manifestCheckpoint,
+      );
+    }
+    continuation = next;
+  }
+  throw new Error("generic runtime re-entry exceeded its bounded call limit");
+}
+
+function validateGenericRuntimeReady(ready, offer) {
+  assert.equal(ready.schema, "vine.v86-generic-runtime-session-ready");
+  assert.equal(ready.schemaVersion, 1);
+  assert.equal(ready.processId, controlledProcess.processId);
+  assert.equal(ready.currentThreadId, controlledThread.threadId);
+  assert.deepEqual(ready.processLifecycle, { state: "running" });
+  assert.deepEqual(ready.schedulerState, { state: "runnable" });
+  assert.equal(ready.dllLifecycle, "process-attached");
+  assert.equal(ready.modules.length, expected.imports.modules + 1);
+  assert.equal(ready.dependencyEdges, expected.imports.modules);
+  assert.equal(ready.runtimeExportEndpoints, expected.imports.total);
+  assert.equal(ready.implementedApiContracts, declaredDispatches.length);
+  assert.equal(ready.dynamicExportEndpoints, 4);
+  assert.equal(ready.memory.generation, offer.reflection.invalidation.generation);
+  assert.equal(ready.memory.acknowledgedGeneration, offer.reflection.invalidation.generation);
+  assert.equal(ready.memory.dirtyPages, 0);
+  assert.equal(ready.memory.pendingInvalidation, undefined);
+  assert.equal(ready.attachOrder.length, ready.modules.length);
+  const kernel32 = ready.modules.find(({ canonicalName }) => canonicalName === "kernel32.dll");
+  assert(kernel32, "generic runtime process has no KERNEL32 module");
+  assert.equal(kernel32.handle, controlledLoadedModule.handle.value);
+  const main = ready.modules.find(({ handle }) => handle === ready.mainModuleHandle);
+  assert(main, "generic runtime process has no main executable module");
+  assert.equal(main.canonicalName, "bgi.exe");
+}
+
+function genericTerminalEndpoint(terminal) {
+  if (terminal.kind === "owned-import-thunk") {
+    return {
+      kind: "runtime-system-export",
+      id: terminal.thunk.id,
+      address: terminal.thunk.address,
+      module: terminal.thunk.module,
+      symbol: terminal.thunk.name ?? `#${terminal.thunk.ordinal}`,
+    };
+  }
+  assert.equal(terminal.kind, "owned-dynamic-export-thunk");
+  return {
+    kind: "dynamic-export",
+    id: terminal.endpoint.id,
+    address: terminal.endpoint.address,
+    module: terminal.endpoint.module,
+    symbol: terminal.endpoint.name,
+  };
+}
+
+function assertGenericStopMatchesCheckpoint(
+  execution,
+  endpoint,
+  occurrence,
+  checkpoint,
+) {
+  assert.equal(endpoint.module.toLowerCase(), checkpoint.nextStop.module.toLowerCase());
+  assert.equal(endpoint.symbol, checkpoint.nextStop.symbol);
+  assert.equal(occurrence, checkpoint.nextStop.occurrence);
+  assert.equal(execution.instructionCount, checkpoint.evidence.instructionCount);
+  assert.deepEqual(
+    execution.terminal.stackWords.slice(1, checkpoint.nextStop.arguments.length + 1),
+    checkpoint.nextStop.arguments.map(parseManifestInteger),
+  );
+}
+
+function validateGenericCallAgainstManifest(call, checkpoint) {
+  assert.equal(call.module.toLowerCase(), checkpoint.dispatch.module.toLowerCase());
+  assert.equal(call.symbol, checkpoint.dispatch.symbol);
+  assert.equal(call.occurrence, checkpoint.dispatch.occurrence);
+  assert.deepEqual(call.arguments, checkpoint.expected.arguments.map(parseManifestInteger));
+  if (checkpoint.expected.result.kind === "void") {
+    assert.deepEqual(call.result, { action: "preserve" });
+  } else {
+    assert.equal(call.result.action, "set");
+    assert.equal(call.result.value, parseManifestInteger(checkpoint.expected.result.value));
+  }
+}
+
+function validateManifestGuestWrites(context, writes) {
+  for (const write of writes) {
+    const address = parseManifestInteger(write.address);
+    if (write.kind === "u32-le") {
+      assert.equal(
+        context.readVirtualU32(address, `manifest guest write 0x${address.toString(16)}`),
+        parseManifestInteger(write.value),
+      );
+    } else if (write.kind === "u64-le") {
+      const bytes = context.readVirtualBytes(
+        address,
+        8,
+        `manifest guest write 0x${address.toString(16)}`,
+      );
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      assert.equal(view.getBigUint64(0, true), BigInt(write.value));
+    } else if (write.kind === "struct") {
+      assert.equal(write.value, controlledProcessStartup.profileId);
+      const expectedBytes = Buffer.alloc(controlledProcessStartup.structureSize);
+      expectedBytes.writeUInt32LE(controlledProcessStartup.structureSize, 0);
+      assert.deepEqual(
+        Buffer.from(
+          context.readVirtualBytes(
+            address,
+            expectedBytes.length,
+            `manifest guest struct write 0x${address.toString(16)}`,
+          ),
+        ),
+        expectedBytes,
+      );
+    } else {
+      assert.fail(`unsupported manifest guest-write kind ${write.kind}`);
+    }
+  }
+}
+
+function parseManifestInteger(value) {
+  if (typeof value === "number") {
+    return value;
+  }
+  assert.equal(typeof value, "string");
+  return Number.parseInt(value, value.startsWith("0x") ? 16 : 10);
+}
+
+function discoverDirtyMirrorPages(context) {
+  const writable = [...context.mappings.entries()]
+    .filter(([, mapping]) => mapping.protection.write)
+    .sort(([left], [right]) => left - right);
+  const pages = [];
+  const cleanWritablePages = [];
+  for (const [address, mapping] of writable) {
+    const pte = context.physicalView.getUint32(mapping.pteAddress, true);
+    if ((pte & page.dirty) === 0) {
+      cleanWritablePages.push(address);
+      continue;
+    }
+    const bytes = Buffer.from(
+      context.physicalMemory.buffer,
+      context.physicalMemory.byteOffset + mapping.physicalBase,
+      page.size,
+    );
+    pages.push({ address, owner: mapping.owner, bytes: Buffer.from(bytes) });
+    context.physicalView.setUint32(mapping.pteAddress, pte & ~page.dirty, true);
+  }
+  context.wasm.full_clear_tlb();
+  return {
+    scannedWritablePages: writable.length,
+    pages,
+    cleanWritablePages,
+  };
+}
+
+function encodeCpuWriteback(generation, pages) {
+  const control = Buffer.alloc(
+    writebackFormat.headerBytes + pages.length * writebackFormat.descriptorBytes,
+  );
+  control.write(writebackFormat.magic, 0, "ascii");
+  const view = dataView(control);
+  view.setUint32(8, writebackFormat.version, true);
+  view.setUint32(12, page.size, true);
+  view.setBigUint64(16, BigInt(generation), true);
+  view.setUint32(24, pages.length, true);
+  view.setUint32(28, writebackFormat.descriptorBytes, true);
+  const payload = Buffer.alloc(pages.length * page.size);
+  pages.forEach((dirty, index) => {
+    const offset = writebackFormat.headerBytes + index * writebackFormat.descriptorBytes;
+    view.setUint32(offset, dirty.address, true);
+    view.setUint32(offset + 4, dirty.owner, true);
+    dirty.bytes.copy(payload, index * page.size);
+  });
+  return { control, payload };
+}
+
+function decodeWritebackReceipt(control) {
+  assert.equal(control.length, 120);
+  assert.equal(control.subarray(0, 8).toString("ascii"), "VINEWR01");
+  const view = dataView(control);
+  assert.equal(view.getUint32(8, true), 1);
+  return {
+    fromGeneration: safeNumber(view.getBigUint64(16, true), "receipt from generation"),
+    generation: safeNumber(view.getBigUint64(24, true), "receipt generation"),
+    touchedPages: view.getUint32(32, true),
+    changedPages: view.getUint32(36, true),
+    unchangedPages: view.getUint32(40, true),
+    executablePages: view.getUint32(44, true),
+    changedBytes: safeNumber(view.getBigUint64(48, true), "receipt changed bytes"),
+    transferredBytes: safeNumber(
+      view.getBigUint64(56, true),
+      "receipt transferred bytes",
+    ),
+    contentSha256: control.subarray(64, 96).toString("hex"),
+    rustGeneration: safeNumber(view.getBigUint64(96, true), "Rust generation"),
+    rustAcknowledgedGeneration: safeNumber(
+      view.getBigUint64(104, true),
+      "Rust acknowledged generation",
+    ),
+    rustDirtyPages: view.getUint32(112, true),
+    rustPendingInvalidation: Boolean(view.getUint32(116, true)),
+  };
+}
+
+function validateGenericWritebackReceipt(receipt, generation, dirtyPages) {
+  assert.equal(receipt.fromGeneration, generation);
+  assert.equal(receipt.touchedPages, dirtyPages);
+  assert.equal(receipt.changedPages + receipt.unchangedPages, dirtyPages);
+  assert.equal(
+    receipt.generation,
+    generation + Number(receipt.changedPages > 0),
+  );
+  assert.equal(receipt.transferredBytes, dirtyPages * page.size);
+  assert.equal(receipt.rustGeneration, receipt.generation);
+  assert.equal(receipt.rustAcknowledgedGeneration, receipt.generation);
+  assert.equal(receipt.rustDirtyPages, 0);
+  assert.equal(receipt.rustPendingInvalidation, false);
+}
+
+function decodeRuntimeHostDelta(control, payload) {
+  assert.equal(control.subarray(0, 8).toString("ascii"), deltaFormat.magic);
+  const view = dataView(control);
+  assert.equal(view.getUint32(8, true), deltaFormat.version);
+  assert.equal(view.getUint32(12, true), page.size);
+  const fromGeneration = safeNumber(view.getBigUint64(16, true), "delta from generation");
+  const generation = safeNumber(view.getBigUint64(24, true), "delta generation");
+  const mappingCount = view.getUint32(32, true);
+  assert.equal(view.getUint32(36, true), deltaFormat.mappingDescriptorBytes);
+  const dirtyCount = view.getUint32(40, true);
+  assert.equal(view.getUint32(44, true), deltaFormat.pageDescriptorBytes);
+  const cacheFlags = view.getUint32(48, true);
+  assert.equal(
+    control.length,
+    deltaFormat.headerBytes +
+      mappingCount * deltaFormat.mappingDescriptorBytes +
+      dirtyCount * deltaFormat.pageDescriptorBytes,
+  );
+  assert.equal(payload.length, dirtyCount * page.size);
+  const mappingOperations = [];
+  for (let index = 0; index < mappingCount; index += 1) {
+    const offset = deltaFormat.headerBytes + index * deltaFormat.mappingDescriptorBytes;
+    mappingOperations.push({
+      operation: view.getUint32(offset, true),
+      owner: view.getUint32(offset + 4, true),
+      regionKind: view.getUint32(offset + 8, true),
+      protectionFlags: view.getUint32(offset + 12, true),
+      address: view.getUint32(offset + 16, true),
+      byteLength: safeNumber(view.getBigUint64(offset + 20, true), "mapping byte length"),
+    });
+  }
+  const dirtyPages = [];
+  const dirtyBase =
+    deltaFormat.headerBytes + mappingCount * deltaFormat.mappingDescriptorBytes;
+  for (let index = 0; index < dirtyCount; index += 1) {
+    const offset = dirtyBase + index * deltaFormat.pageDescriptorBytes;
+    const flags = view.getUint32(offset + 8, true);
+    dirtyPages.push({
+      address: view.getUint32(offset, true),
+      owner: view.getUint32(offset + 4, true),
+      protection: {
+        read: Boolean(flags & 1),
+        write: Boolean(flags & 2),
+        execute: Boolean(flags & 4),
+      },
+      ownerSealed: Boolean(flags & 8),
+      bytes: payload.subarray(index * page.size, (index + 1) * page.size),
+    });
+  }
+  return {
+    fromGeneration,
+    generation,
+    mappingOperations,
+    dirtyPages,
+    cacheEffects: {
+      flushTlb: Boolean(cacheFlags & 1),
+      invalidateInstructionFetch: Boolean(cacheFlags & 2),
+      invalidateGeneratedCode: Boolean(cacheFlags & 4),
+    },
+  };
+}
+
+function applyRuntimeHostDelta(context, delta) {
+  assert.deepEqual(delta.mappingOperations, []);
+  for (const dirty of delta.dirtyPages) {
+    assert.equal(dirty.ownerSealed, true);
+    const mapping = context.mappings.get(dirty.address);
+    assert(mapping, `host dirty page 0x${dirty.address.toString(16)} is unmapped`);
+    assert.equal(mapping.owner, dirty.owner);
+    assert.deepEqual(mapping.protection, dirty.protection);
+    context.physicalMemory.set(dirty.bytes, mapping.physicalBase);
+  }
+  if (delta.cacheEffects.flushTlb || delta.cacheEffects.invalidateInstructionFetch) {
+    context.wasm.full_clear_tlb();
+  }
+  if (delta.cacheEffects.invalidateGeneratedCode) {
+    context.wasm.jit_clear_cache_js();
+  }
+}
+
+function validateGenericCompletionFrame(frame, endpoint, generation) {
+  assert.equal(frame.schema, "vine.v86-generic-runtime-completion");
+  assert.equal(frame.schemaVersion, 1);
+  assert.equal(frame.endpoint.kind, endpoint.kind);
+  const actual = frame.endpoint.endpoint;
+  assert.equal(actual.id, endpoint.id);
+  assert.equal(actual.address, endpoint.address);
+  assert.equal(actual.module.toLowerCase(), endpoint.module.toLowerCase());
+  assert.equal(actual.symbol.kind, "name");
+  assert.equal(actual.symbol.name, endpoint.symbol);
+  assert.equal(frame.completion.frame.endpoint.id, endpoint.id);
+  assert.equal(frame.completion.frame.endpoint.address, endpoint.address);
+  assert.equal(frame.memory.generation, generation);
+  assert.equal(frame.memory.acknowledgedGeneration, generation);
+  assert.equal(frame.memory.dirtyPages, 0);
+  assert.equal(frame.memory.pendingInvalidation, undefined);
+}
+
+function validateGenericRuntimeFault(fault, endpoint, generation) {
+  assert.equal(fault.schema, "vine.v86-generic-runtime-fault");
+  assert.equal(fault.schemaVersion, 1);
+  assert.equal(fault.endpoint.kind, endpoint.kind);
+  assert.equal(fault.endpoint.endpoint.id, endpoint.id);
+  assert.equal(fault.endpoint.endpoint.address, endpoint.address);
+  assert.equal(fault.fault.class, "unsupported");
+  assert.equal(fault.memory.generation, generation);
+  assert.equal(fault.memory.acknowledgedGeneration, generation);
+  assert.equal(fault.memory.dirtyPages, 0);
+  assert.equal(fault.memory.pendingInvalidation, undefined);
+}
+
+function restoreGenericApiCompletion(context, trapped, completion) {
+  context.wasm.vine_cpu_state_save();
+  const words = new Uint32Array(
+    context.wasm.memory.buffer,
+    context.wasm.vine_cpu_state_ptr(),
+    context.wasm.vine_cpu_state_size() / 4,
+  );
+  assert.equal(words[stateWord.instructionPointer], trapped.instructionPointer);
+  assert.equal(words[stateWord.previousInstructionPointer], trapped.previousInstructionPointer);
+  assert.equal(words[stateWord.esp], trapped.esp);
+  applyRegisterUpdate(words, stateWord.eax, completion.eax);
+  applyRegisterUpdate(words, stateWord.edx, completion.edx);
+  applyRegisterUpdate(words, stateWord.flags, completion.eflags);
+  words[stateWord.esp] = completion.stackPointer;
+  words[stateWord.instructionPointer] = completion.instructionPointer;
+  words[stateWord.previousInstructionPointer] = completion.instructionPointer;
+  assert.equal(context.wasm.vine_cpu_state_restore(), 0);
+  const resumed = captureCpuState(context, 0);
+  assert.equal(resumed.esp, completion.stackPointer);
+  assert.equal(resumed.instructionPointer, completion.instructionPointer);
+  assert.equal(resumed.previousInstructionPointer, completion.instructionPointer);
+}
+
+function applyRegisterUpdate(words, index, update) {
+  if (update.action === "preserve") {
+    return;
+  }
+  assert.equal(update.action, "set");
+  words[index] = update.value >>> 0;
+}
+
+function validateGenericRuntimeReentryResult(result) {
+  assert.equal(result.frozenSemanticCalls, genericRuntimeExpected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, genericRuntimeExpected.supportedCalls);
+  assert.equal(result.writebacks.length, genericRuntimeExpected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    genericRuntimeExpected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    genericRuntimeExpected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, genericRuntimeExpected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, genericRuntimeExpected.finalGeneration);
+
+  const laterPointerCalls = result.supportedCalls.slice(17);
+  assert.deepEqual(
+    laterPointerCalls.map(
+      ({ symbol, occurrence, arguments: callArguments, result: callResult }) => ({
+        symbol,
+        occurrence,
+        arguments: callArguments,
+        result: callResult,
+      }),
+    ),
+    [
+      {
+        symbol: "EncodePointer",
+        occurrence: 3,
+        arguments: [0x7f020000],
+        result: { action: "set", value: 0xec010003 },
+      },
+      {
+        symbol: "EncodePointer",
+        occurrence: 4,
+        arguments: [0x7f020010],
+        result: { action: "set", value: 0xec010004 },
+      },
+      {
+        symbol: "EncodePointer",
+        occurrence: 5,
+        arguments: [0x7f020020],
+        result: { action: "set", value: 0xec010005 },
+      },
+      {
+        symbol: "EncodePointer",
+        occurrence: 6,
+        arguments: [0x7f020030],
+        result: { action: "set", value: 0xec010006 },
+      },
+    ],
+  );
+
+  const expected = genericRuntimeExpected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, expected.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, expected.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, expected.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, expected.module);
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: expected.symbol,
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, expected.iatAddress);
+  assert.equal(result.fault.fault.code, expected.faultCode);
+  assert.equal(result.terminal.instructionCount, expected.instructionCount);
+  assert.equal(result.terminal.terminal.returnAddress, expected.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, expected.arguments.length + 1),
+    expected.arguments,
+  );
+}
+
+function buildGenericRuntimeReentryReport({
+  execution,
+  genericResult,
+  offer,
+  receipt,
+  runtimeReady,
+  sourceAfter,
+  sourceBefore,
+}) {
+  const totalDirtyPages = genericResult.writebacks.reduce(
+    (total, writeback) => total + writeback.dirtyPages.length,
+    0,
+  );
+  const totalChangedBytes = genericResult.writebacks.reduce(
+    (total, writeback) => total + writeback.receipt.changedBytes,
+    0,
+  );
+  return {
+    schema: "vine.v86-bgi-generic-runtime-reentry",
+    schemaVersion: 1,
+    source: offer.source,
+    sourceSnapshot: {
+      immutableAcrossRun: true,
+      before: sourceBefore,
+      after: sourceAfter,
+    },
+    contract: {
+      runtimeStateAuthority: "rust",
+      memoryByteAuthority: "rust-guest-memory",
+      executionMirror: "v86-paging",
+      cpuWriteback: "automatic-pte-dirty-vinewb01",
+      argumentWidthSource: "api-contract",
+      apiSpecificReconciliationLists: false,
+      apiSpecificRequestsOrReceipts: false,
+      frozenCheckpoint: selectedCheckpoint.id,
+      frozenSupportedCalls: selectedCheckpoint.supportedCallCount,
+      continueFromOwnedTrapWithoutNumberedCheckpoint: true,
+    },
+    process: runtimeReady,
+    reflection: {
+      pages: offer.reflection.pages.length,
+      generation: offer.reflection.invalidation.generation,
+      contentSha256: offer.reflection.contentSha256,
+      acknowledgedGeneration: receipt.acknowledgedGeneration,
+    },
+    entry: execution,
+    frozenRegression: {
+      semanticCallsValidated: genericResult.frozenSemanticCalls,
+      instructionCount: selectedCheckpoint.evidence.instructionCount,
+      reportSha256: selectedCheckpoint.evidence.reportSha256,
+      reflectionSha256: selectedCheckpoint.evidence.reflectionSha256,
+    },
+    synchronization: {
+      writebackBatches: genericResult.writebacks.length,
+      dirtyPages: totalDirtyPages,
+      changedBytes: totalChangedBytes,
+      hostDeltaBatches: genericResult.hostDeltas.length,
+      finalGeneration: genericResult.finalGeneration,
+      jsonPageByteArrays: false,
+      writebacks: genericResult.writebacks,
+      hostDeltas: genericResult.hostDeltas,
+    },
+    supportedContinuation: genericResult.supportedCalls,
+    firstUnsupported: {
+      capabilityCluster: genericResult.fault.capabilityCluster,
+      endpoint: genericResult.fault.endpoint,
+      fault: genericResult.fault.fault,
+      instructionCount: genericResult.terminal.instructionCount,
+      terminal: genericResult.terminal.terminal,
+    },
+    stop: {
+      stage: "runtime-capability",
+      code: "first-unsupported-capability-cluster",
+      message:
+        "BGI resumed through the generic runtime until the first process-owned endpoint without a callable capability contract",
+    },
+  };
+}
+
+function createProtocolReader(stream) {
+  const iterator = stream[Symbol.asyncIterator]();
+  let buffered = Buffer.alloc(0);
+  const fill = async (byteLength, label) => {
+    while (buffered.length < byteLength) {
+      const next = await iterator.next();
+      assert(!next.done, `${label} ended with ${byteLength - buffered.length} bytes missing`);
+      buffered = Buffer.concat([buffered, Buffer.from(next.value)]);
+    }
+  };
+  return {
+    async readExact(byteLength, label = "protocol stream") {
+      await fill(byteLength, label);
+      const result = buffered.subarray(0, byteLength);
+      buffered = buffered.subarray(byteLength);
+      return result;
+    },
+    async readLine(maximumBytes, label) {
+      while (true) {
+        const newline = buffered.indexOf(0x0a);
+        if (newline !== -1) {
+          assert(newline <= maximumBytes, `${label} exceeds the protocol line limit`);
+          let result = buffered.subarray(0, newline);
+          buffered = buffered.subarray(newline + 1);
+          if (result.at(-1) === 0x0d) {
+            result = result.subarray(0, result.length - 1);
+          }
+          return result;
+        }
+        assert(buffered.length <= maximumBytes, `${label} exceeds the protocol line limit`);
+        const next = await iterator.next();
+        assert(!next.done, `${label} was not emitted`);
+        buffered = Buffer.concat([buffered, Buffer.from(next.value)]);
+      }
+    },
+  };
+}
+
+async function readRuntimeFrame(reader, expectedKind, label) {
+  const header = await reader.readExact(runtimeFrame.headerBytes, label);
+  assert.equal(header.subarray(0, 8).toString("ascii"), runtimeFrame.magic);
+  const view = dataView(header);
+  assert.equal(view.getUint32(8, true), runtimeFrame.version);
+  const kind = view.getUint32(12, true);
+  if (expectedKind !== null) {
+    assert.equal(kind, expectedKind);
+  }
+  const controlBytes = view.getUint32(16, true);
+  const payloadBytes = view.getUint32(20, true);
+  assert(controlBytes <= 1024 * 1024);
+  assert(payloadBytes <= protocol.maximumLineBytes);
+  return {
+    kind,
+    control: await reader.readExact(controlBytes, `${label} control`),
+    payload: await reader.readExact(payloadBytes, `${label} payload`),
+  };
+}
+
+async function readRuntimeJsonFrame(reader, expectedKind, label) {
+  const frame = await readRuntimeFrame(reader, expectedKind, label);
+  assert.equal(frame.payload.length, 0);
+  return JSON.parse(frame.control.toString("utf8"));
+}
+
+async function writeRuntimeJsonFrame(stream, kind, value) {
+  await writeRuntimeFrame(stream, kind, Buffer.from(JSON.stringify(value)), Buffer.alloc(0));
+}
+
+async function writeRuntimeFrame(stream, kind, control, payload) {
+  const header = Buffer.alloc(runtimeFrame.headerBytes);
+  header.write(runtimeFrame.magic, 0, "ascii");
+  const view = dataView(header);
+  view.setUint32(8, runtimeFrame.version, true);
+  view.setUint32(12, kind, true);
+  view.setUint32(16, control.length, true);
+  view.setUint32(20, payload.length, true);
+  const bytes = Buffer.concat([header, control, payload]);
+  if (!stream.write(bytes)) {
+    await new Promise((resolve) => stream.once("drain", resolve));
+  }
+}
+
+function encodeGeneration(generation) {
+  const bytes = Buffer.alloc(8);
+  dataView(bytes).setBigUint64(0, BigInt(generation), true);
+  return bytes;
+}
+
+function dataView(bytes) {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+function safeNumber(value, label) {
+  assert(value <= BigInt(Number.MAX_SAFE_INTEGER), `${label} exceeds safe integer range`);
+  return Number(value);
 }
 
 function validateOffer(offer, offerLineBytes) {
@@ -2008,6 +2933,7 @@ async function prepareV86(offer) {
     mappings.set(virtualBase, {
       owner: reflected.owner,
       physicalBase,
+      pteAddress: table + tableIndex * 4,
       protection: { ...reflected.protection },
       role: `reflected-owner-${reflected.owner}`,
     });
@@ -2120,6 +3046,8 @@ async function prepareV86(offer) {
     mappings,
     pageDirectory,
     pageTables,
+    physicalMemory,
+    physicalView,
     applyDirtyPage,
     preflightVirtualRange,
     readVirtualBytes,

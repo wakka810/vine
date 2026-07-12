@@ -2,10 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3 and Step 4 dispatcher／manifest／runner migration implemented
-- Date: 2026-07-12
+- Status: review Step 2／3, Step 4 dispatcher migration, and Step 10 generic BGI re-entry implemented
+- Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Scope: all 17 existing call occurrences through one manifest-selected session runner
+- Runtime-kernel checkpoint: `bgi-generic-runtime-reentry`
+- Scope: frozen 17-call equivalence plus 21 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -66,6 +67,16 @@ boolean session fields with one validated ordered selection. The `package.json`
 commands retain their stable names but all use `--checkpoint ID`; API-specific
 dispatch flags no longer exist.
 
+Those numbered commands are compatibility adapters for the immutable historical
+reports. Step 10 adds a separate `--generic-runtime-reentry` mode. It registers
+the BGI image and 14 runtime-system dependencies in the process module graph,
+binds all 330 runtime exports, and constructs one persistent `RuntimeState`,
+`ApiDispatcher`, and `ExecutionSession`. At each trap it scans all writable PTE
+Dirty bits, sends binary `VINEWB01` writeback, dispatches by owned endpoint
+identity, applies binary `VINEDL01` host deltas, and resumes from a generic
+register completion. It has no API-owned reconciliation list, request type, or
+receipt type.
+
 The manifest validator is public and does not require BGI:
 
 ```powershell
@@ -108,30 +119,40 @@ npm run check:runtime:bgi-seventeenth-win32-call
 
 Before and after migration it reaches the same trap after 238 instructions. The report remains 140,660 bytes with SHA-256 `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`; reflection SHA-256 remains `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`.
 
+The Step 10 semantic run is separate:
+
+```powershell
+npm run check:runtime:bgi-generic-runtime-reentry
+```
+
+It validates the frozen 17 calls, returns four more `EncodePointer` calls through
+the same contract, and stops after 21 completed calls at instruction 266 on
+`KERNEL32.dll!InitializeCriticalSectionAndSpinCount(0x100FF630, 4000)`. The run
+discovers 38 changed pages／268 changed bytes in 22 automatic writeback batches,
+applies 3 host deltas, and advances generation `30 -> 52`. Its 96,244-byte report
+has SHA-256 `a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa` in two
+consecutive runs. The frozen report is unchanged, so semantic validation and
+historical evidence serialization are now independent.
+
 ## Deliberate exclusions
 
-- API-specific request／receipt schemas remain evidence adapters for differing reconciliation shapes; they no longer select checkpoints or supply API results.
-- The runtime has one controlled initial thread; general thread, wait, process, and DLL lifecycle are absent.
-- Heap state is metadata-only; loaded runtime modules have no guest DLL images or general exports.
+- API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
+- The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
+- Private heaps have bounded guest-memory backing, but guest `HeapAlloc` dispatch and broad allocator policy remain absent.
 - TLS free/thread lifecycle, pointer decode, and arbitrary export pages are absent.
 - Host completion is connected to controlled Worker／browser services; general
   VFS, input, graphics, audio, and storage adapters remain absent.
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
   Rust byte authority, automatic v86 writeback, and binary transport are now
   fixed by ADR-003 and the memory-writeback checkpoint.
-- The next BGI call remains the third `EncodePointer`; bespoke checkpoint expansion stays paused.
+- The generic session has passed the third through sixth `EncodePointer` calls. Its first unsupported cluster is Kernel32 critical-section synchronization; bespoke checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The Rust／v86 boundary now runs the Step 7 vertical fixture through this
-dispatcher in a Chrome Runtime Worker, including deferred browser services,
-depth-2 callback, cancellation, watchdog, pixel, audio pulse, persistent byte,
-and clean exit. The Step 8 versioned benchmark passed every threshold and kept
-v86 as the exchangeable baseline. `RuntimeState` now owns generation-tagged
-object／handle lifetime, a process module graph, controlled lifecycle, and a
-two-thread logical registry with one-object wait/wake and a bounded raw message FIFO.
-Controlled private-heap backing is now implemented in
-[runtime-heap-backing.md](runtime-heap-backing.md). The next proof is controlled DLL lifecycle. Existing import, bootstrap,
-bidirectional memory sync, 13-contract／
-17-call semantic checks, 238 instructions, and both private evidence digests
-remain the regression boundary.
+The next proof is the reached `kernel32-critical-section-synchronization`
+capability cluster. Native evidence must fix the BOOL return, LastError policy,
+x86 critical-section bytes, spin-count behavior, and first reached enter／leave
+consumer. One process-owned synchronization contract will then be added through
+the same dispatcher and automatic writeback path. Existing import, bootstrap,
+DLL lifecycle, bidirectional memory sync, frozen 17-call report, and generic
+96,244-byte report remain the regression boundary.

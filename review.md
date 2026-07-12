@@ -271,18 +271,18 @@ API対応数を増やす前に、これらを測定しなければならない�
 
 ただし、以下を禁止する。
 
-- 19件目以降のAPI専用CLI flag追加
+- 18件目以降のAPI専用CLI flag追加
 - APIごとの新しいboolean mode chain
 - APIごとの専用request／receipt型を上位orchestrationへ追加
 - `package.json`への同型の連番script追加
 - checkpoint固有stateをproduction coreへ追加
 - generic runtimeを経由しないBGI先行実装
 
-現在の次callである `EncodePointer(0x7F020000)` は、pointer-encoding調査を閉じるために必要なら扱ってよい。ただし次の条件を満たすこと。
+frozen checkpointの次callである `EncodePointer(0x7F020000)` 以降を扱う場合は、次の条件を満たすこと。
 
 - 新しい専用実行経路を作らない。
 - generic dispatcherの最初のmigration caseとして扱う。
-- `check:runtime:bgi-eighteenth-win32-call` を追加する場合も、内部では共通dispatcherとcheckpoint manifestを使用する。
+- numbered BGI command／flag／request／receiptを追加せず、別のgeneric semantic runで進める。
 - その後のAPIへ進む前にP0 gateを完了する。
 
 ### P0-1. generic API schemaとdispatcherを実装する
@@ -972,7 +972,20 @@ mutation rejection、15-page generation `12` reflectionをrepresentative Rust co
 
 ### Step 10 — BGIへ戻る
 
-BGIをgeneric runtime pathへ戻し、first unsupported pointを再測定する。以後はAPI call番号ではなく、runtime capability clusterとvertical checkpointを単位に進める。
+**完了（2026-07-13）:** BGIをprocess-owned 15-module graph、330 runtime
+endpoints、persistent `RuntimeState`／`ApiDispatcher`／`ExecutionSession`、PTE Dirty
+由来のautomatic binary writebackへ戻した。frozen manifestの17 callsをsemantic検証し、
+同じgeneric loopでfour additional `EncodePointer` callsをreturnした。22 writeback
+batches／38 pages／268 changed bytes、3 host deltas、generation `30 -> 52`を通し、
+instruction 266でID `100`／
+`KERNEL32.dll!InitializeCriticalSectionAndSpinCount(0x100FF630, 4000)`をfirst
+unsupported capability clusterとして構造化停止した。96,244-byte generic reportは
+SHA-256 `a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa`で2回一致し、
+frozen 140,660-byte report／SHA-256
+`ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`は不変である。
+以後はAPI call番号ではなく、runtime capability clusterとvertical checkpointを単位に進める。
+次はnative critical-section initialization／immediate enter／leave behaviorを測定し、
+一つのprocess-owned synchronization contractをsame generic sessionへ追加する。
 
 ---
 
@@ -994,12 +1007,12 @@ BGIをgeneric runtime pathへ戻し、first unsupported pointを再測定する�
 - [x] cancellation、watchdog、nested callbackが通る。
 - [x] v86 benchmarkとgo/no-go判断が保存されている。
 - [x] 30分stressのmemory slopeとresponsivenessが記録されている。
-- [ ] semantic testsとevidence snapshotsが分離されている。
+- [x] semantic testsとevidence snapshotsが分離されている。
 - [x] CI artifactにtool versionとfailure evidenceが残る。
 
-上の完了項目はcontrolled 17-call runtime-kernel checkpointの範囲を示す。
-host completionはRust scheduler eventとしてmodel／test済みだが、Chrome Workerの
-browser serviceには未接続であり、後続のWorker項目を完了扱いにはしない。
+上の完了項目はcontrolled runtime-kernel／browser vertical checkpointの範囲を示す。
+frozen numbered reportはhistorical snapshot、Step 10 generic reportはsemantic continuationとして
+別々に固定した。これはBGI browser execution、general Win32、またはfull-play completionを意味しない。
 
 ---
 
