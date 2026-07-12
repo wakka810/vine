@@ -20,6 +20,46 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
+    checkpoint.runtimeKernelCheckpoint !== "checkpoint-manifest-and-generic-session-runner" ||
+    checkpoint.runtimeStateAuthority !== "rust" ||
+    checkpoint.runtimeStateScope !== "single-process-controlled-initial-thread" ||
+    JSON.stringify(checkpoint.runtimeStateOwns) !==
+      JSON.stringify([
+        "process",
+        "thread-last-error",
+        "clock-startup",
+        "heap-module-endpoint-registries",
+        "tls-encoded-pointers",
+        "callback-scheduler-host-events",
+      ]) ||
+    checkpoint.callbackFrameStack !== true ||
+    checkpoint.hostCompletionModel !== "scheduler-event" ||
+    checkpoint.genericDispatcherApiCount !== 13 ||
+    checkpoint.genericDispatcherCallOccurrenceCount !== 17 ||
+    JSON.stringify(checkpoint.genericDispatcherApis) !==
+      JSON.stringify([
+        "KERNEL32.dll!GetSystemTimeAsFileTime",
+        "KERNEL32.dll!GetCurrentProcessId",
+        "KERNEL32.dll!GetCurrentThreadId",
+        "KERNEL32.dll!GetTickCount",
+        "KERNEL32.dll!QueryPerformanceCounter",
+        "KERNEL32.dll!GetStartupInfoW",
+        "KERNEL32.dll!HeapSetInformation",
+        "KERNEL32.dll!HeapCreate",
+        "KERNEL32.dll!GetModuleHandleW",
+        "KERNEL32.dll!GetProcAddress",
+        "KERNEL32.dll!TlsAlloc",
+        "KERNEL32.dll!TlsSetValue",
+        "KERNEL32.dll!EncodePointer",
+      ]) ||
+    checkpoint.allSupportedCallsUseGenericDispatcher !== true ||
+    checkpoint.checkpointManifestized !== true ||
+    checkpoint.checkpointManifest !== "fixtures/checkpoints/bgi-startup-win32.json" ||
+    checkpoint.checkpointManifestSchemaVersion !== 1 ||
+    checkpoint.checkpointManifestEntryCount !== 18 ||
+    checkpoint.genericSessionRunner !== true ||
+    checkpoint.apiSpecificCheckpointCliModes !== false ||
+    checkpoint.bespokeCheckpointExpansionFrozen !== true ||
     checkpoint.controlledProcessId !== 4096 ||
     checkpoint.controlledThreadId !== 8192 ||
     checkpoint.controlledTickCount !== 3600000 ||
@@ -80,7 +120,19 @@ try {
     checkpoint.ownedTrap !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.ownedTrapSymbol !== "EncodePointer" ||
     checkpoint.ownedTrapArgument !== 0x7f02_0000 ||
-    checkpoint.nextCheckpoint !== "eighteenth-supported-win32-call-return"
+    checkpoint.memoryProtocol !== "memory-delta-v1" ||
+    checkpoint.memoryTransaction !== "changed-state-frame-before-image-journal-v1" ||
+    checkpoint.memoryTransactionCopiesBaselinePages !== false ||
+    JSON.stringify(checkpoint.memoryTransactionScalingEvidence) !==
+      JSON.stringify({
+        baselinePages: 1024,
+        baselineBytes: 4194304,
+        beginJournaledFrameBytes: 0,
+        oneChangedPagePeakBytes: 4096,
+        twoChangedPagesPeakBytes: 8192,
+      }) ||
+    checkpoint.nextCheckpoint !== "memory-byte-authority-and-automatic-writeback" ||
+    checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
   }
@@ -90,6 +142,9 @@ try {
   }
   if (!readme.includes(`thunk ID \`${checkpoint.ownedTrapId}\``)) {
     errors.push("README.md: owned trap ID does not match the checkpoint manifest");
+  }
+  if (!fs.existsSync(path.join(root, checkpoint.checkpointManifest))) {
+    errors.push("docs/current-checkpoint.json: runtime checkpoint manifest is missing");
   }
 } catch (error) {
   errors.push(`docs/current-checkpoint.json: ${error.message}`);

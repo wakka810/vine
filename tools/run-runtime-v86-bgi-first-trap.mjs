@@ -7,192 +7,68 @@ import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import {
+  distinctDispatchesThroughCheckpoint,
+  loadRuntimeCheckpointManifest,
+  selectRuntimeCheckpoint,
+} from "./runtime-checkpoint-manifest.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
-const dispatchSystemTimeOnly = commandArguments.includes("--dispatch-system-time");
-const dispatchProcessIdOnly = commandArguments.includes("--dispatch-process-id");
-const dispatchThreadIdOnly = commandArguments.includes("--dispatch-thread-id");
-const dispatchTickCountOnly = commandArguments.includes("--dispatch-tick-count");
-const dispatchPerformanceCounterOnly = commandArguments.includes(
-  "--dispatch-performance-counter",
+const defaultManifestPath = path.join(
+  root,
+  "fixtures",
+  "checkpoints",
+  "bgi-startup-win32.json",
 );
-const dispatchStartupInfoOnly = commandArguments.includes("--dispatch-startup-info");
-const dispatchHeapSetInformationOnly = commandArguments.includes(
-  "--dispatch-heap-set-information",
-);
-const dispatchHeapCreateOnly = commandArguments.includes("--dispatch-heap-create");
-const dispatchModuleHandleOnly = commandArguments.includes("--dispatch-module-handle");
-const dispatchGetProcAddressOnly = commandArguments.includes("--dispatch-get-proc-address");
-const dispatchGetProcAddressSecondOnly = commandArguments.includes(
-  "--dispatch-get-proc-address-second",
-);
-const dispatchGetProcAddressThirdOnly = commandArguments.includes(
-  "--dispatch-get-proc-address-third",
-);
-const dispatchGetProcAddressFourthOnly = commandArguments.includes(
-  "--dispatch-get-proc-address-fourth",
-);
-const dispatchTlsAllocOnly = commandArguments.includes("--dispatch-tls-alloc");
-const dispatchTlsSetValueOnly = commandArguments.includes("--dispatch-tls-set-value");
-const dispatchEncodePointerOnly = commandArguments.includes("--dispatch-encode-pointer");
-const dispatchEncodePointerSecondOnly = commandArguments.includes(
-  "--dispatch-encode-pointer-second",
-);
-const dispatchEncodePointerSecond = dispatchEncodePointerSecondOnly;
-const dispatchEncodePointer = dispatchEncodePointerOnly || dispatchEncodePointerSecond;
-const dispatchTlsSetValue = dispatchTlsSetValueOnly || dispatchEncodePointer;
-const dispatchTlsAlloc = dispatchTlsAllocOnly || dispatchTlsSetValue;
-const dispatchGetProcAddressFourth =
-  dispatchGetProcAddressFourthOnly || dispatchTlsAlloc;
-const dispatchGetProcAddressThird =
-  dispatchGetProcAddressThirdOnly || dispatchGetProcAddressFourth;
-const dispatchGetProcAddressSecond =
-  dispatchGetProcAddressSecondOnly || dispatchGetProcAddressThird;
-const dispatchGetProcAddress = dispatchGetProcAddressOnly || dispatchGetProcAddressSecond;
-const dispatchModuleHandle = dispatchModuleHandleOnly || dispatchGetProcAddress;
-const dispatchHeapCreate = dispatchHeapCreateOnly || dispatchModuleHandle;
-const dispatchHeapSetInformation = dispatchHeapSetInformationOnly || dispatchHeapCreate;
-const dispatchStartupInfo = dispatchStartupInfoOnly || dispatchHeapSetInformation;
-const dispatchPerformanceCounter = dispatchPerformanceCounterOnly || dispatchStartupInfo;
-const dispatchTickCount = dispatchTickCountOnly || dispatchPerformanceCounter;
-const dispatchThreadId = dispatchThreadIdOnly || dispatchTickCount;
-const dispatchProcessId = dispatchProcessIdOnly || dispatchThreadId;
-const dispatchSystemTime = dispatchSystemTimeOnly || dispatchProcessId;
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-system-time").length,
-  Number(dispatchSystemTimeOnly),
-  "--dispatch-system-time may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-process-id").length,
-  Number(dispatchProcessIdOnly),
-  "--dispatch-process-id may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-thread-id").length,
-  Number(dispatchThreadIdOnly),
-  "--dispatch-thread-id may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-tick-count").length,
-  Number(dispatchTickCountOnly),
-  "--dispatch-tick-count may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-performance-counter").length,
-  Number(dispatchPerformanceCounterOnly),
-  "--dispatch-performance-counter may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-startup-info").length,
-  Number(dispatchStartupInfoOnly),
-  "--dispatch-startup-info may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-heap-set-information")
-    .length,
-  Number(dispatchHeapSetInformationOnly),
-  "--dispatch-heap-set-information may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-heap-create").length,
-  Number(dispatchHeapCreateOnly),
-  "--dispatch-heap-create may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-module-handle").length,
-  Number(dispatchModuleHandleOnly),
-  "--dispatch-module-handle may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-get-proc-address").length,
-  Number(dispatchGetProcAddressOnly),
-  "--dispatch-get-proc-address may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-get-proc-address-second")
-    .length,
-  Number(dispatchGetProcAddressSecondOnly),
-  "--dispatch-get-proc-address-second may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-get-proc-address-third")
-    .length,
-  Number(dispatchGetProcAddressThirdOnly),
-  "--dispatch-get-proc-address-third may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-get-proc-address-fourth")
-    .length,
-  Number(dispatchGetProcAddressFourthOnly),
-  "--dispatch-get-proc-address-fourth may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-tls-alloc").length,
-  Number(dispatchTlsAllocOnly),
-  "--dispatch-tls-alloc may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-tls-set-value").length,
-  Number(dispatchTlsSetValueOnly),
-  "--dispatch-tls-set-value may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-encode-pointer").length,
-  Number(dispatchEncodePointerOnly),
-  "--dispatch-encode-pointer may be specified only once",
-);
-assert.equal(
-  commandArguments.filter((argument) => argument === "--dispatch-encode-pointer-second")
-    .length,
-  Number(dispatchEncodePointerSecondOnly),
-  "--dispatch-encode-pointer-second may be specified only once",
-);
-assert(
-  Number(dispatchSystemTimeOnly) +
-    Number(dispatchProcessIdOnly) +
-    Number(dispatchThreadIdOnly) +
-    Number(dispatchTickCountOnly) +
-    Number(dispatchPerformanceCounterOnly) +
-    Number(dispatchStartupInfoOnly) +
-    Number(dispatchHeapSetInformationOnly) +
-    Number(dispatchHeapCreateOnly) +
-    Number(dispatchModuleHandleOnly) +
-    Number(dispatchGetProcAddressOnly) +
-    Number(dispatchGetProcAddressSecondOnly) +
-    Number(dispatchGetProcAddressThirdOnly) +
-    Number(dispatchGetProcAddressFourthOnly) +
-    Number(dispatchTlsAllocOnly) +
-    Number(dispatchTlsSetValueOnly) +
-    Number(dispatchEncodePointerOnly) +
-    Number(dispatchEncodePointerSecondOnly) <=
-    1,
-  "dispatch modes are mutually exclusive",
-);
-const positionalArguments = commandArguments.filter(
-  (argument) =>
-    argument !== "--dispatch-system-time" &&
-    argument !== "--dispatch-process-id" &&
-    argument !== "--dispatch-thread-id" &&
-    argument !== "--dispatch-tick-count" &&
-    argument !== "--dispatch-performance-counter" &&
-    argument !== "--dispatch-startup-info" &&
-    argument !== "--dispatch-heap-set-information" &&
-    argument !== "--dispatch-heap-create" &&
-    argument !== "--dispatch-module-handle" &&
-    argument !== "--dispatch-get-proc-address" &&
-    argument !== "--dispatch-get-proc-address-second" &&
-    argument !== "--dispatch-get-proc-address-third" &&
-    argument !== "--dispatch-get-proc-address-fourth" &&
-    argument !== "--dispatch-tls-alloc" &&
-    argument !== "--dispatch-tls-set-value" &&
-    argument !== "--dispatch-encode-pointer" &&
-    argument !== "--dispatch-encode-pointer-second",
-);
+let checkpointId = "bgi-first-trap";
+let manifestPath = defaultManifestPath;
+let checkpointOptionSeen = false;
+let manifestOptionSeen = false;
+const positionalArguments = [];
+for (let index = 0; index < commandArguments.length; index += 1) {
+  const argument = commandArguments[index];
+  if (argument === "--checkpoint") {
+    assert(!checkpointOptionSeen, "--checkpoint may be specified only once");
+    checkpointOptionSeen = true;
+    checkpointId = commandArguments[index + 1];
+    assert(checkpointId !== undefined, "--checkpoint requires an ID");
+    index += 1;
+  } else if (argument === "--manifest") {
+    assert(!manifestOptionSeen, "--manifest may be specified only once");
+    manifestOptionSeen = true;
+    manifestPath = path.resolve(commandArguments[index + 1] ?? "");
+    assert(commandArguments[index + 1] !== undefined, "--manifest requires a file");
+    index += 1;
+  } else {
+    assert(!argument.startsWith("--"), `unknown option ${argument}`);
+    positionalArguments.push(argument);
+  }
+}
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address | --dispatch-get-proc-address-second | --dispatch-get-proc-address-third | --dispatch-get-proc-address-fourth | --dispatch-tls-alloc | --dispatch-tls-set-value | --dispatch-encode-pointer | --dispatch-encode-pointer-second] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [WASM] [BGI.exe]",
 );
+const checkpointManifest = loadRuntimeCheckpointManifest(manifestPath);
+const selectedCheckpoint = selectRuntimeCheckpoint(checkpointManifest, checkpointId);
+const includesCall = (callNumber) => selectedCheckpoint.supportedCallCount >= callNumber;
+const dispatchSystemTime = includesCall(1);
+const dispatchProcessId = includesCall(2);
+const dispatchThreadId = includesCall(3);
+const dispatchTickCount = includesCall(4);
+const dispatchPerformanceCounter = includesCall(5);
+const dispatchStartupInfo = includesCall(6);
+const dispatchHeapSetInformation = includesCall(7);
+const dispatchHeapCreate = includesCall(8);
+const dispatchModuleHandle = includesCall(9);
+const dispatchGetProcAddress = includesCall(10);
+const dispatchGetProcAddressSecond = includesCall(11);
+const dispatchGetProcAddressThird = includesCall(12);
+const dispatchGetProcAddressFourth = includesCall(13);
+const dispatchTlsAlloc = includesCall(14);
+const dispatchTlsSetValue = includesCall(15);
+const dispatchEncodePointer = includesCall(16);
+const dispatchEncodePointerSecond = includesCall(17);
 const wasmPath = path.resolve(
   positionalArguments[0] ??
     path.join(root, ".work", "v86-adapter-source", "build", "v86-fallback.wasm"),
@@ -204,41 +80,7 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchEncodePointerSecond
-    ? "v86-bgi-seventeenth-win32-call"
-    : dispatchEncodePointer
-    ? "v86-bgi-sixteenth-win32-call"
-    : dispatchTlsSetValue
-    ? "v86-bgi-fifteenth-win32-call"
-    : dispatchTlsAlloc
-    ? "v86-bgi-fourteenth-win32-call"
-    : dispatchGetProcAddressFourth
-    ? "v86-bgi-thirteenth-win32-call"
-    : dispatchGetProcAddressThird
-    ? "v86-bgi-twelfth-win32-call"
-    : dispatchGetProcAddressSecond
-    ? "v86-bgi-eleventh-win32-call"
-    : dispatchGetProcAddress
-    ? "v86-bgi-tenth-win32-call"
-    : dispatchModuleHandle
-    ? "v86-bgi-ninth-win32-call"
-    : dispatchHeapCreate
-      ? "v86-bgi-eighth-win32-call"
-    : dispatchHeapSetInformation
-    ? "v86-bgi-seventh-win32-call"
-    : dispatchStartupInfo
-      ? "v86-bgi-sixth-win32-call"
-    : dispatchPerformanceCounter
-      ? "v86-bgi-fifth-win32-call"
-    : dispatchTickCount
-      ? "v86-bgi-fourth-win32-call"
-      : dispatchThreadId
-        ? "v86-bgi-third-win32-call"
-        : dispatchProcessId
-          ? "v86-bgi-second-win32-call"
-          : dispatchSystemTime
-            ? "v86-bgi-first-win32-call"
-            : "v86-bgi-first-trap",
+  selectedCheckpoint.artifactDirectory,
 );
 const reportPath = path.join(outputDirectory, "report.json");
 
@@ -698,17 +540,21 @@ const controlledEncodedProcessInitializer = {
   },
 };
 
+const declaredDispatches = distinctDispatchesThroughCheckpoint(
+  checkpointManifest,
+  selectedCheckpoint,
+);
+const getProcAddressCallCount = checkpointManifest.checkpoints
+  .slice(1, selectedCheckpoint.supportedCallCount + 1)
+  .filter(
+    ({ dispatch }) =>
+      dispatch.module.toLowerCase() === "kernel32.dll" &&
+      dispatch.symbol === "GetProcAddress",
+  ).length;
+
 const expected = {
-  source: {
-    bytes: 1_193_472,
-    sha256: "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
-  },
-  wasm: {
-    bytes: 1_882_836,
-    sha256: "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
-    imports: 22,
-    exports: 809,
-  },
+  source: checkpointManifest.source,
+  wasm: checkpointManifest.adapter,
   image: {
     owner: 1,
     loadBase: 0x10000000,
@@ -722,60 +568,8 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchEncodePointer
-      ? 14
-      : dispatchTlsSetValue
-      ? 13
-      : dispatchTlsAlloc
-      ? 12
-      : dispatchGetProcAddress
-      ? 11
-      : dispatchModuleHandle
-      ? 10
-      : dispatchHeapCreate
-        ? 9
-      : dispatchHeapSetInformation
-        ? 8
-      : dispatchStartupInfo
-        ? 7
-      : dispatchPerformanceCounter
-        ? 6
-      : dispatchTickCount
-        ? 5
-      : dispatchThreadId
-        ? 4
-        : dispatchProcessId
-          ? 3
-          : dispatchSystemTime
-            ? 2
-            : 1,
-    unsupported: dispatchEncodePointer
-      ? 316
-      : dispatchTlsSetValue
-      ? 317
-      : dispatchTlsAlloc
-      ? 318
-      : dispatchGetProcAddress
-      ? 319
-      : dispatchModuleHandle
-      ? 320
-      : dispatchHeapCreate
-        ? 321
-      : dispatchHeapSetInformation
-        ? 322
-      : dispatchStartupInfo
-        ? 323
-      : dispatchPerformanceCounter
-        ? 324
-      : dispatchTickCount
-        ? 325
-      : dispatchThreadId
-        ? 326
-        : dispatchProcessId
-          ? 327
-          : dispatchSystemTime
-            ? 328
-            : 329,
+    declared: 1 + declaredDispatches.length,
+    unsupported: 329 - declaredDispatches.length,
     first: {
       id: 1,
       address: 0x7f000000,
@@ -833,37 +627,21 @@ const expected = {
     generation: 24,
   },
   dynamicExport: controlledDynamicExport.endpoint,
-  dynamicExports: dispatchGetProcAddressFourth
-    ? [
-        controlledDynamicExport.endpoint,
-        controlledSecondDynamicExport.endpoint,
-        controlledThirdDynamicExport.endpoint,
-        controlledFourthDynamicExport.endpoint,
-      ]
-    : dispatchGetProcAddressThird
-    ? [
-        controlledDynamicExport.endpoint,
-        controlledSecondDynamicExport.endpoint,
-        controlledThirdDynamicExport.endpoint,
-      ]
-    : [controlledDynamicExport.endpoint, controlledSecondDynamicExport.endpoint],
+  dynamicExports: [
+    controlledDynamicExport.endpoint,
+    controlledSecondDynamicExport.endpoint,
+    controlledThirdDynamicExport.endpoint,
+    controlledFourthDynamicExport.endpoint,
+  ].slice(0, Math.max(2, getProcAddressCallCount)),
   memory: {
     owners: dispatchGetProcAddress ? 9 : 8,
     reservedPages: dispatchGetProcAddress ? 433 : 417,
     reflectedPages: dispatchGetProcAddress ? 389 : 388,
     generation: dispatchGetProcAddress ? 27 : 24,
   },
-  reflectionContentSha256: dispatchGetProcAddressFourth
-    ? "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a"
-    : dispatchGetProcAddressThird
-    ? "8025131a9a8687ec01f68969f6cda2c102eaff9258a45bfcd29c5c5c3ae4b344"
-    : dispatchGetProcAddressSecond
-    ? "de382ad25a1487a1c8b038f48eace933d0270cf745820419b776689c87a50eeb"
-    : dispatchGetProcAddress
-    ? "e7a3cc956e167db7e078feefb30eb1d9f2204c8e17ca008f72c4359cce752456"
-    : "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
-  offerLineBytes: 4_904_602,
-  receiptLineBytes: 1_494,
+  reflectionContentSha256: selectedCheckpoint.evidence.reflectionSha256,
+  offerLineBytes: selectedCheckpoint.evidence.offerLineBytes,
+  receiptLineBytes: selectedCheckpoint.evidence.reflectionReceiptLineBytes,
   terminal: {
     thunk: {
       id: 104,
@@ -878,12 +656,7 @@ const expected = {
     returnAddress: 0x100a88d2,
     stackWords: [0x100a88d2, 0x006fffec, 0, 0, 0, 0, 0, 0],
   },
-  report: {
-    bytes: 9_592,
-    sha256: "4ed39b15de85c188b52dbafd0eda9c35e4d88f3c4aa8a9079c98f6d9d9f03840",
-  },
   firstCall: {
-    offerLineBytes: 4_904_569,
     requestLineBytes: 8_670,
     deltaLineBytes: 9_584,
     deltaReceiptLineBytes: 361,
@@ -906,11 +679,8 @@ const expected = {
     instructionCount: 23,
     executeStops: 4,
     budgetStops: 3,
-    reportBytes: 14_540,
-    reportSha256: "7457cdfb50affd0003a3860e6959d5803cc9e7edd1c9bb0358454a6046984c16",
   },
   secondCall: {
-    offerLineBytes: 4_904_536,
     requestLineBytes: 8_552,
     receiptLineBytes: 845,
     stackPageContentSha256: "5aa539018b6830e5fb6ebdd82880174b37e6edd05f6933008b68d6d994c8223f",
@@ -930,11 +700,8 @@ const expected = {
     instructionCount: 26,
     executeStops: 3,
     budgetStops: 2,
-    reportBytes: 18_472,
-    reportSha256: "bbce0252bd7215b0643118c49bef61c724e3c8c0f80279ede1cd5c3ba1b94e67",
   },
   thirdCall: {
-    offerLineBytes: 4_904_503,
     requestLineBytes: 8_548,
     receiptLineBytes: 840,
     stackPageContentSha256: "b22f529af561901c5156e388732e0e79954527b3650fc733ae5b780319791617",
@@ -954,11 +721,8 @@ const expected = {
     instructionCount: 29,
     executeStops: 3,
     budgetStops: 2,
-    reportBytes: 22_383,
-    reportSha256: "d6bf15bec208ed1ced26970ff96a9d9f0faebbcec55da19cfbf27588b452d4fa",
   },
   fourthCall: {
-    offerLineBytes: 4_904_470,
     requestLineBytes: 8_640,
     receiptLineBytes: 926,
     stackPageContentSha256: "f70a02d880af738aa49ba1233b61151929abf67f5e370e3479858c20f312453b",
@@ -978,11 +742,8 @@ const expected = {
     instructionCount: 34,
     executeStops: 5,
     budgetStops: 4,
-    reportBytes: 26_558,
-    reportSha256: "79924bf3817104a9d2762b730534d8f74dc1ca1adfd17aa75c3855bcdf9bf111",
   },
   fifthCall: {
-    offerLineBytes: 4_904_437,
     requestLineBytes: 8_681,
     deltaLineBytes: 9_583,
     deltaReceiptLineBytes: 366,
@@ -1005,11 +766,8 @@ const expected = {
     instructionCount: 78,
     executeStops: 44,
     budgetStops: 43,
-    reportBytes: 31_427,
-    reportSha256: "eb1e83e3a2a75483d2606ce7e92eca36acfdc8d15b69a8381813e8c738974ad1",
   },
   sixthCall: {
-    offerLineBytes: 4_904_404,
     requestLineBytes: 8_663,
     deltaLineBytes: 9_936,
     deltaReceiptLineBytes: 474,
@@ -1034,11 +792,8 @@ const expected = {
     instructionCount: 87,
     executeStops: 9,
     budgetStops: 8,
-    reportBytes: 39_031,
-    reportSha256: "208e5930bdb17da0242fd4567dd8900467eb512992a1930a7e8ede7107c8232c",
   },
   seventhCall: {
-    offerLineBytes: 4_904_371,
     requestLineBytes: 8_724,
     receiptLineBytes: 1_042,
     stackPageContentSha256: "d121a898c549de8cf2eea5d76912375a993cac9a7dfb41d101ef2eb2b68fa3da",
@@ -1058,11 +813,8 @@ const expected = {
     instructionCount: 108,
     executeStops: 21,
     budgetStops: 20,
-    reportBytes: 43_980,
-    reportSha256: "09fab7aeda311661aef516ff3ff2156e0fa3293c6c495e5e601503ca44fabc7f",
   },
   eighthCall: {
-    offerLineBytes: 4_904_338,
     requestLineBytes: 8_691,
     receiptLineBytes: 1_233,
     stackPageContentSha256: "48f30a675492096d7110c249c8f8bc35da1b58ab3db07df9553e168e56e05d93",
@@ -1082,11 +834,8 @@ const expected = {
     instructionCount: 122,
     executeStops: 14,
     budgetStops: 13,
-    reportBytes: 49_699,
-    reportSha256: "f8c8ca1e678bb1e118248a6626825ddf585dc240aa59e1abc428429cbab3a1ad",
   },
   ninthCall: {
-    offerLineBytes: 4_904_305,
     requestLineBytes: 8_721,
     receiptLineBytes: 1_499,
     moduleNameBytesSha256: "4d40ac1582e46f291dedb30130e36b167bbe19b401a248b1972b1bfa7391d924",
@@ -1107,12 +856,8 @@ const expected = {
     instructionCount: 131,
     executeStops: 9,
     budgetStops: 8,
-    reportBytes: 56_729,
-    reportSha256: "147a3599cf942af03034c7f410d333b35c0360812936e39a7473c43008d8d5be",
   },
   tenthCall: {
-    offerLineBytes: 4_921_244,
-    reflectionReceiptLineBytes: 1_579,
     requestLineBytes: 8_821,
     receiptLineBytes: 1_872,
     procedureNameBytesSha256: "574f9b2cb1c509be66aa90427c3250a3249a19c7a243b86f4ab13b4040abbd1e",
@@ -1133,12 +878,8 @@ const expected = {
     instructionCount: 136,
     executeStops: 5,
     budgetStops: 4,
-    reportBytes: 65_858,
-    reportSha256: "54bcc15a033dbe870b81d1c2637949d71568d048202d8f3cc355097ca76332cf",
   },
   eleventhCall: {
-    offerLineBytes: 4_922_145,
-    reflectionReceiptLineBytes: 1_736,
     requestLineBytes: 17_273,
     receiptLineBytes: 2_704,
     procedureNameBytesSha256: "51598ab3ab558b58b22deb49515346e61d997d79ab4215fd040ce7125ea0818f",
@@ -1161,12 +902,8 @@ const expected = {
     instructionCount: 141,
     executeStops: 5,
     budgetStops: 4,
-    reportBytes: 76_844,
-    reportSha256: "40d37072965e4ceefd760ac8111006e9cfeacab62a43fca621c2f7e3d81359b5",
   },
   twelfthCall: {
-    offerLineBytes: 4_922_584,
-    reflectionReceiptLineBytes: 1_798,
     requestLineBytes: 17_336,
     receiptLineBytes: 3_233,
     procedureNameBytesSha256: "24e391b36bf5f29d67cdb94094f5662081c98677e63407f52f1dc1e924034c7d",
@@ -1189,12 +926,8 @@ const expected = {
     instructionCount: 146,
     executeStops: 5,
     budgetStops: 4,
-    reportBytes: 89_289,
-    reportSha256: "28aa2899a7e4fb403c5d839b21e0bb19c05563b9bd19604372bbf1a16a39fbb4",
   },
   thirteenthCall: {
-    offerLineBytes: 4_923_019,
-    reflectionReceiptLineBytes: 1_860,
     requestLineBytes: 17_404,
     receiptLineBytes: 3_736,
     procedureNameBytesSha256: "b25da59ca0b82d9b4b8ddb0a22566cbce73af231e364ed982046c841b26c8dd8",
@@ -1224,12 +957,8 @@ const expected = {
     instructionCount: 158,
     executeStops: 12,
     budgetStops: 11,
-    reportBytes: 103_179,
-    reportSha256: "1cfe9d56fd5c5f9494ffdcc017c6ad189e2900b70125f0eda67d3839326230d4",
   },
   fourteenthCall: {
-    offerLineBytes: 4_922_986,
-    reflectionReceiptLineBytes: 1_860,
     requestLineBytes: 17_318,
     receiptLineBytes: 1_651,
     stackPageContentSha256: "3595f775ff05d8b86348f1ddc3f931cc11b2bd9e769af5f012919daa888f91da",
@@ -1259,12 +988,8 @@ const expected = {
     instructionCount: 165,
     executeStops: 7,
     budgetStops: 6,
-    reportBytes: 110_236,
-    reportSha256: "4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb",
   },
   fifteenthCall: {
-    offerLineBytes: 4_922_953,
-    reflectionReceiptLineBytes: 1_860,
     requestLineBytes: 28_349,
     receiptLineBytes: 2_733,
     stackPageContentSha256: "0f62e02ebf62129f93e1bbad8e4b2f2739783536fd70af2df31a7cd5ef3accec",
@@ -1297,12 +1022,8 @@ const expected = {
     instructionCount: 174,
     executeStops: 9,
     budgetStops: 8,
-    reportBytes: 120_499,
-    reportSha256: "25907e7ae254788313d0feccdae9dac152592c3210ea5bf6956a6b1cac9f960f",
   },
   sixteenthCall: {
-    offerLineBytes: 4_922_920,
-    reflectionReceiptLineBytes: 1_860,
     requestLineBytes: 8_848,
     receiptLineBytes: 2_118,
     stackPageContentSha256: "5f103e07657780d9f8a17053498cf300c1edee9a17272a20455ffd453fdff42a",
@@ -1337,12 +1058,8 @@ const expected = {
     instructionCount: 229,
     executeStops: 55,
     budgetStops: 54,
-    reportBytes: 129_530,
-    reportSha256: "310d90e97f3b33b8c466d0a0e769fb4fe85a4b3cb2a55f191a0480d662f0032b",
   },
   seventeenthCall: {
-    offerLineBytes: 4_922_920,
-    reflectionReceiptLineBytes: 1_860,
     requestLineBytes: 9_136,
     receiptLineBytes: 2_574,
     sourceFunctionPrefixSha256:
@@ -1382,8 +1099,6 @@ const expected = {
     instructionCount: 238,
     executeStops: 9,
     budgetStops: 8,
-    reportBytes: 140_660,
-    reportSha256: "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
   },
 };
 
@@ -1533,11 +1248,183 @@ function sourceIdentity(file) {
   return { bytes: bytes.byteLength, sha256: sha256(bytes) };
 }
 
+const checkpointSessionSteps = [
+  ["systemTime", "GetSystemTimeAsFileTime", 1, dispatchFirstSystemTimeCall],
+  ["processIdentity", "GetCurrentProcessId", 1, dispatchSecondProcessIdCall],
+  ["threadIdentity", "GetCurrentThreadId", 1, dispatchThirdThreadIdCall],
+  ["monotonicClock", "GetTickCount", 1, dispatchFourthTickCountCall],
+  ["performanceCounter", "QueryPerformanceCounter", 1, dispatchFifthPerformanceCounterCall],
+  ["processStartup", "GetStartupInfoW", 1, dispatchSixthStartupInfoCall],
+  ["heapPolicy", "HeapSetInformation", 1, dispatchSeventhHeapSetInformationCall],
+  ["privateHeap", "HeapCreate", 1, dispatchEighthHeapCreateCall],
+  ["loadedModule", "GetModuleHandleW", 1, dispatchNinthGetModuleHandleWCall],
+  ["dynamicExport", "GetProcAddress", 1, dispatchTenthGetProcAddressCall],
+  ["secondDynamicExport", "GetProcAddress", 2, dispatchEleventhGetProcAddressCall],
+  ["thirdDynamicExport", "GetProcAddress", 3, dispatchTwelfthGetProcAddressCall],
+  ["fourthDynamicExport", "GetProcAddress", 4, dispatchThirteenthGetProcAddressCall],
+  ["tlsAllocation", "TlsAlloc", 1, dispatchFourteenthTlsAllocCall],
+  ["tlsValue", "TlsSetValue", 1, dispatchFifteenthTlsSetValueCall],
+  ["encodedNull", "EncodePointer", 1, dispatchSixteenthEncodePointerCall],
+  ["encodedProcessInitializer", "EncodePointer", 2, dispatchSeventeenthEncodePointerCall],
+];
+
+async function runCheckpointSession({ child, context, execution, nextMessage, offer }) {
+  const selectedSteps = checkpointSessionSteps.slice(0, selectedCheckpoint.supportedCallCount);
+  const results = {};
+  let continuation = execution;
+
+  for (const [index, [resultKey, symbol, occurrence, dispatch]] of selectedSteps.entries()) {
+    const manifestCall = checkpointManifest.checkpoints[index + 1].dispatch;
+    assert.equal(manifestCall.module.toLowerCase(), "kernel32.dll");
+    assert.equal(manifestCall.symbol, symbol);
+    assert.equal(manifestCall.occurrence, occurrence);
+    const result = await dispatch({
+      child,
+      context,
+      nextMessage,
+      offer,
+      ...results,
+      execution: continuation,
+      continueSession: index + 1 < selectedSteps.length,
+    });
+    assert(result?.continuation, `${manifestCall.module}!${symbol} did not return a continuation`);
+    results[resultKey] = result;
+    continuation = result.continuation;
+  }
+
+  return results;
+}
+
+const checkpointReportBuilders = [
+  buildFirstTrapReport,
+  buildFirstSystemTimeReport,
+  buildSecondProcessIdReport,
+  buildThirdThreadIdReport,
+  buildFourthTickCountReport,
+  buildFifthPerformanceCounterReport,
+  buildSixthStartupInfoReport,
+  buildSeventhHeapSetInformationReport,
+  buildEighthHeapCreateReport,
+  buildNinthGetModuleHandleWReport,
+  buildTenthGetProcAddressReport,
+  buildEleventhGetProcAddressReport,
+  buildTwelfthGetProcAddressReport,
+  buildThirteenthGetProcAddressReport,
+  buildFourteenthTlsAllocReport,
+  buildFifteenthTlsSetValueReport,
+  buildSixteenthEncodePointerReport,
+  buildSeventeenthEncodePointerReport,
+];
+assert.equal(
+  checkpointSessionSteps.length,
+  checkpointManifest.checkpoints.length - 1,
+  "checkpoint handler registry must cover every manifest call",
+);
+assert.equal(
+  checkpointReportBuilders.length,
+  checkpointManifest.checkpoints.length,
+  "checkpoint report registry must cover every manifest checkpoint",
+);
+
+function buildCheckpointReport(arguments_) {
+  const builder = checkpointReportBuilders[selectedCheckpoint.supportedCallCount];
+  assert(builder, `no report builder for ${selectedCheckpoint.id}`);
+  return builder(arguments_);
+}
+
+function buildFirstTrapReport({
+  context,
+  execution,
+  invalidationCalls,
+  offer,
+  offerMessage,
+  ownerSummaries,
+  receipt,
+  receiptMessage,
+  sourceAfter,
+  sourceBefore,
+}) {
+  return {
+    schema: "vine.v86-bgi-first-trap",
+    schemaVersion: 1,
+    source: offer.source,
+    sourceSnapshot: {
+      immutableAcrossRun: true,
+      before: sourceBefore,
+      after: sourceAfter,
+    },
+    contract: {
+      largeImageReflection: {
+        maximumReflectionPages: protocol.maximumReflectionPages,
+        maximumProtocolLineBytes: protocol.maximumLineBytes,
+      },
+      commandLine: expected.processEnvironment.commandLine,
+      stopBeforeDispatchOrReturn: true,
+    },
+    bootstrap: {
+      imageLoadBase: offer.imageLoadBase,
+      entryPoint: offer.entryPointAddress,
+      initialThreadStack: offer.initialThreadStack,
+      initialProcessEnvironment: offer.initialProcessEnvironment,
+      fsSelector: 0,
+      fsBase: offer.initialProcessEnvironment.tebAddress,
+    },
+    imports: {
+      total: offer.thunks.length,
+      declared: offer.thunks.filter(({ disposition }) => disposition === undefined).length,
+      unsupported: offer.thunks.filter(
+        ({ disposition }) => disposition === "unsupported-trap",
+      ).length,
+      first: offer.thunks[0],
+      last: offer.thunks.at(-1),
+    },
+    adapter: {
+      wasm: expected.wasm,
+      physicalPoolBytes: guest.physicalPoolBytes,
+      excludedPhysicalRanges: guest.excludedPhysicalRanges,
+      pageDirectory: context.pageDirectory,
+      pageTables: [...context.pageTables.entries()].map(
+        ([directoryIndex, physicalAddress]) => ({ directoryIndex, physicalAddress }),
+      ),
+      allocatedPages: context.allocations.length,
+      reflectedPageAllocations: context.allocations.filter(({ role }) =>
+        role.startsWith("reflected-owner-"),
+      ).length,
+    },
+    reflection: {
+      offerLineBytes: offerMessage.lineBytes,
+      receiptLineBytes: receiptMessage.lineBytes,
+      pageSize: offer.reflection.pageSize,
+      pages: offer.reflection.pages.length,
+      contentSha256: offer.reflection.contentSha256,
+      ownerSummaries,
+      invalidation: offer.reflection.invalidation,
+      acknowledgement: {
+        generation: receipt.acknowledgedGeneration,
+        callsBeforeAck: invalidationCalls,
+        pendingAfterAck: receipt.stats.pendingInvalidation ?? null,
+      },
+    },
+    execution,
+    stop: {
+      stage: "thunk-dispatch",
+      code: "runtime-reachable-owned-import-trap",
+      message:
+        "BGI entry reached an exact runtime-owned import thunk; API dispatch, return-value fabrication, stack cleanup, and guest resume were not attempted",
+    },
+  };
+}
+
 async function run() {
   requireFile(wasmPath, "npm run prepare:engine");
   requireFile(bgiPath, "the primary title must be installed at its configured path");
   const sourceBefore = sourceIdentity(bgiPath);
   assert.deepEqual(sourceBefore, expected.source);
+  const runtimeBindingArguments = declaredDispatches.flatMap(({ module, symbol }) => [
+    "--bind-name",
+    module,
+    symbol,
+  ]);
 
   const probeArguments = [
     "run",
@@ -1557,122 +1444,11 @@ async function run() {
     "--bind-name",
     "d3d9.dll",
     "Direct3DCreate9",
-    ...(dispatchSystemTime
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "GetSystemTimeAsFileTime",
-          "--system-time-delta-session",
-        ]
-      : []),
-    ...(dispatchProcessId
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "GetCurrentProcessId",
-          "--process-id-return-session",
-        ]
-      : []),
-    ...(dispatchThreadId
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "GetCurrentThreadId",
-          "--thread-id-return-session",
-        ]
-      : []),
-    ...(dispatchTickCount
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "GetTickCount",
-          "--tick-count-return-session",
-        ]
-      : []),
-    ...(dispatchPerformanceCounter
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "QueryPerformanceCounter",
-          "--performance-counter-return-session",
-        ]
-      : []),
-    ...(dispatchStartupInfo
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "GetStartupInfoW",
-          "--startup-info-return-session",
-        ]
-      : []),
-    ...(dispatchHeapSetInformation
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "HeapSetInformation",
-          "--heap-set-information-return-session",
-        ]
-      : []),
-    ...(dispatchHeapCreate
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "HeapCreate",
-          "--heap-create-return-session",
-        ]
-      : []),
-    ...(dispatchModuleHandle
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "GetModuleHandleW",
-          "--get-module-handle-w-return-session",
-        ]
-      : []),
-    ...(dispatchGetProcAddress
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "GetProcAddress",
-          "--get-proc-address-return-session",
-        ]
-      : []),
-    ...(dispatchGetProcAddressSecond
-      ? ["--get-proc-address-second-return-session"]
-      : []),
-    ...(dispatchGetProcAddressThird
-      ? ["--get-proc-address-third-return-session"]
-      : []),
-    ...(dispatchGetProcAddressFourth
-      ? ["--get-proc-address-fourth-return-session"]
-      : []),
-    ...(dispatchTlsAlloc
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "TlsAlloc",
-          "--tls-alloc-return-session",
-        ]
-      : []),
-    ...(dispatchTlsSetValue
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "TlsSetValue",
-          "--tls-set-value-return-session",
-        ]
-      : []),
-    ...(dispatchEncodePointer
-      ? [
-          "--bind-name",
-          "KERNEL32.dll",
-          "EncodePointer",
-          "--encode-pointer-return-session",
-        ]
-      : []),
-    ...(dispatchEncodePointerSecond
-      ? ["--encode-pointer-second-return-session"]
-      : []),
+    ...runtimeBindingArguments,
+    "--checkpoint-manifest",
+    manifestPath,
+    "--checkpoint",
+    selectedCheckpoint.id,
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -1751,181 +1527,32 @@ async function run() {
     assert.equal(execution.budgetStops, expected.terminal.budgetStops);
     assert.equal(execution.terminal.returnAddress, expected.terminal.returnAddress);
     assert.deepEqual(execution.terminal.stackWords, expected.terminal.stackWords);
-    const systemTime = dispatchSystemTime
-      ? await dispatchFirstSystemTimeCall({
-          child,
-          context,
-          execution,
-          nextMessage,
-          offer,
-          continueSession: dispatchProcessId,
-        })
-      : null;
-    const processIdentity = dispatchProcessId
-      ? await dispatchSecondProcessIdCall({
-          child,
-          context,
-          execution: systemTime.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchThreadId,
-        })
-      : null;
-    const threadIdentity = dispatchThreadId
-      ? await dispatchThirdThreadIdCall({
-          child,
-          context,
-          execution: processIdentity.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchTickCount,
-        })
-      : null;
-    const monotonicClock = dispatchTickCount
-      ? await dispatchFourthTickCountCall({
-          child,
-          context,
-          execution: threadIdentity.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchPerformanceCounter,
-        })
-      : null;
-    const performanceCounter = dispatchPerformanceCounter
-      ? await dispatchFifthPerformanceCounterCall({
-          child,
-          context,
-          execution: monotonicClock.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchStartupInfo,
-        })
-      : null;
-    const processStartup = dispatchStartupInfo
-      ? await dispatchSixthStartupInfoCall({
-          child,
-          context,
-          execution: performanceCounter.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchHeapSetInformation,
-        })
-      : null;
-    const heapPolicy = dispatchHeapSetInformation
-      ? await dispatchSeventhHeapSetInformationCall({
-          child,
-          context,
-          execution: processStartup.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchHeapCreate,
-        })
-      : null;
-    const privateHeap = dispatchHeapCreate
-      ? await dispatchEighthHeapCreateCall({
-          child,
-          context,
-          execution: heapPolicy.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchModuleHandle,
-        })
-      : null;
-    const loadedModule = dispatchModuleHandle
-      ? await dispatchNinthGetModuleHandleWCall({
-          child,
-          context,
-          execution: privateHeap.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchGetProcAddress,
-        })
-      : null;
-    const dynamicExport = dispatchGetProcAddress
-      ? await dispatchTenthGetProcAddressCall({
-          child,
-          context,
-          execution: loadedModule.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchGetProcAddressSecond,
-        })
-      : null;
-    const secondDynamicExport = dispatchGetProcAddressSecond
-      ? await dispatchEleventhGetProcAddressCall({
-          child,
-          context,
-          execution: dynamicExport.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchGetProcAddressThird,
-        })
-      : null;
-    const thirdDynamicExport = dispatchGetProcAddressThird
-      ? await dispatchTwelfthGetProcAddressCall({
-          child,
-          context,
-          execution: secondDynamicExport.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchGetProcAddressFourth,
-        })
-      : null;
-    const fourthDynamicExport = dispatchGetProcAddressFourth
-      ? await dispatchThirteenthGetProcAddressCall({
-          child,
-          context,
-          execution: thirdDynamicExport.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchTlsAlloc,
-        })
-      : null;
-    const tlsAllocation = dispatchTlsAlloc
-      ? await dispatchFourteenthTlsAllocCall({
-          child,
-          context,
-          execution: fourthDynamicExport.continuation,
-          nextMessage,
-          offer,
-          continueSession: dispatchTlsSetValue,
-        })
-      : null;
-    const tlsValue = dispatchTlsSetValue
-      ? await dispatchFifteenthTlsSetValueCall({
-          child,
-          context,
-          execution: tlsAllocation.continuation,
-          nextMessage,
-          offer,
-          tlsAllocation,
-          continueSession: dispatchEncodePointer,
-        })
-      : null;
-    const encodedNull = dispatchEncodePointer
-      ? await dispatchSixteenthEncodePointerCall({
-          child,
-          context,
-          execution: tlsValue.continuation,
-          nextMessage,
-          offer,
-          tlsAllocation,
-          tlsValue,
-          continueSession: dispatchEncodePointerSecond,
-        })
-      : null;
-    const encodedProcessInitializer = dispatchEncodePointerSecond
-      ? await dispatchSeventeenthEncodePointerCall({
-          child,
-          context,
-          encodedNull,
-          execution: encodedNull.continuation,
-          nextMessage,
-          offer,
-          tlsAllocation,
-          tlsValue,
-        })
-      : null;
+    const callResults = await runCheckpointSession({
+      child,
+      context,
+      execution,
+      nextMessage,
+      offer,
+    });
+    const {
+      systemTime = null,
+      processIdentity = null,
+      threadIdentity = null,
+      monotonicClock = null,
+      performanceCounter = null,
+      processStartup = null,
+      heapPolicy = null,
+      privateHeap = null,
+      loadedModule = null,
+      dynamicExport = null,
+      secondDynamicExport = null,
+      thirdDynamicExport = null,
+      fourthDynamicExport = null,
+      tlsAllocation = null,
+      tlsValue = null,
+      encodedNull = null,
+      encodedProcessInitializer = null,
+    } = callResults;
     const processExit = await exit;
     assert.equal(processExit.signal, null, `reflection probe terminated by ${processExit.signal}`);
     assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
@@ -1933,617 +1560,63 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchEncodePointerSecond
-      ? buildSeventeenthEncodePointerReport({
-          context,
-          dynamicExport,
-          encodedNull,
-          encodedProcessInitializer,
-          execution,
-          fourthDynamicExport,
-          heapPolicy,
-          invalidationCalls,
-          loadedModule,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          secondDynamicExport,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          thirdDynamicExport,
-          threadIdentity,
-          tlsAllocation,
-          tlsValue,
-        })
-      : dispatchEncodePointer
-      ? buildSixteenthEncodePointerReport({
-          context,
-          dynamicExport,
-          encodedNull,
-          execution,
-          fourthDynamicExport,
-          heapPolicy,
-          invalidationCalls,
-          loadedModule,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          secondDynamicExport,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          thirdDynamicExport,
-          threadIdentity,
-          tlsAllocation,
-          tlsValue,
-        })
-      : dispatchTlsSetValue
-      ? buildFifteenthTlsSetValueReport({
-          context,
-          dynamicExport,
-          execution,
-          fourthDynamicExport,
-          heapPolicy,
-          invalidationCalls,
-          loadedModule,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          secondDynamicExport,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          thirdDynamicExport,
-          threadIdentity,
-          tlsAllocation,
-          tlsValue,
-        })
-      : dispatchTlsAlloc
-      ? buildFourteenthTlsAllocReport({
-          context,
-          dynamicExport,
-          execution,
-          fourthDynamicExport,
-          heapPolicy,
-          invalidationCalls,
-          loadedModule,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          secondDynamicExport,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          thirdDynamicExport,
-          threadIdentity,
-          tlsAllocation,
-        })
-      : dispatchGetProcAddressFourth
-      ? buildThirteenthGetProcAddressReport({
-          context,
-          dynamicExport,
-          execution,
-          fourthDynamicExport,
-          heapPolicy,
-          invalidationCalls,
-          loadedModule,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          secondDynamicExport,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          thirdDynamicExport,
-          threadIdentity,
-        })
-      : dispatchGetProcAddressThird
-      ? buildTwelfthGetProcAddressReport({
-          context,
-          dynamicExport,
-          execution,
-          heapPolicy,
-          invalidationCalls,
-          loadedModule,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          secondDynamicExport,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          thirdDynamicExport,
-          threadIdentity,
-        })
-      : dispatchGetProcAddressSecond
-      ? buildEleventhGetProcAddressReport({
-          context,
-          dynamicExport,
-          execution,
-          heapPolicy,
-          invalidationCalls,
-          loadedModule,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          secondDynamicExport,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          threadIdentity,
-        })
-      : dispatchGetProcAddress
-      ? buildTenthGetProcAddressReport({
-          context,
-          dynamicExport,
-          execution,
-          heapPolicy,
-          invalidationCalls,
-          loadedModule,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          threadIdentity,
-        })
-      : dispatchModuleHandle
-      ? buildNinthGetModuleHandleWReport({
-          context,
-          execution,
-          heapPolicy,
-          invalidationCalls,
-          loadedModule,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          threadIdentity,
-        })
-      : dispatchHeapCreate
-        ? buildEighthHeapCreateReport({
-          context,
-          execution,
-          heapPolicy,
-          invalidationCalls,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          privateHeap,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          threadIdentity,
-        })
-      : dispatchHeapSetInformation
-        ? buildSeventhHeapSetInformationReport({
-          context,
-          execution,
-          heapPolicy,
-          invalidationCalls,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          threadIdentity,
-        })
-      : dispatchStartupInfo
-        ? buildSixthStartupInfoReport({
-          context,
-          execution,
-          invalidationCalls,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          processIdentity,
-          processStartup,
-          receipt,
-          receiptMessage,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          threadIdentity,
-        })
-      : dispatchPerformanceCounter
-        ? buildFifthPerformanceCounterReport({
-          context,
-          execution,
-          invalidationCalls,
-          monotonicClock,
-          offer,
-          offerMessage,
-          ownerSummaries,
-          performanceCounter,
-          processIdentity,
-          receipt,
-          receiptMessage,
-          sourceAfter,
-          sourceBefore,
-          systemTime,
-          threadIdentity,
-        })
-      : dispatchTickCount
-        ? buildFourthTickCountReport({
-            context,
-            execution,
-            invalidationCalls,
-            monotonicClock,
-            offer,
-            offerMessage,
-            ownerSummaries,
-            processIdentity,
-            receipt,
-            receiptMessage,
-            sourceAfter,
-            sourceBefore,
-            systemTime,
-            threadIdentity,
-          })
-        : dispatchThreadId
-          ? buildThirdThreadIdReport({
-              context,
-              execution,
-              invalidationCalls,
-              offer,
-              offerMessage,
-              ownerSummaries,
-              processIdentity,
-              receipt,
-              receiptMessage,
-              sourceAfter,
-              sourceBefore,
-              systemTime,
-              threadIdentity,
-            })
-          : dispatchProcessId
-            ? buildSecondProcessIdReport({
-                context,
-                execution,
-                invalidationCalls,
-                offer,
-                offerMessage,
-                ownerSummaries,
-                processIdentity,
-                receipt,
-                receiptMessage,
-                sourceAfter,
-                sourceBefore,
-                systemTime,
-              })
-            : dispatchSystemTime
-              ? buildFirstSystemTimeReport({
-                  context,
-                  execution,
-                  invalidationCalls,
-                  offer,
-                  offerMessage,
-                  ownerSummaries,
-                  receipt,
-                  receiptMessage,
-                  sourceAfter,
-                  sourceBefore,
-                  systemTime,
-                })
-              : {
-      schema: "vine.v86-bgi-first-trap",
-      schemaVersion: 1,
-      source: offer.source,
-      sourceSnapshot: {
-        immutableAcrossRun: true,
-        before: sourceBefore,
-        after: sourceAfter,
-      },
-      contract: {
-        largeImageReflection: {
-          maximumReflectionPages: protocol.maximumReflectionPages,
-          maximumProtocolLineBytes: protocol.maximumLineBytes,
-        },
-        commandLine: expected.processEnvironment.commandLine,
-        stopBeforeDispatchOrReturn: true,
-      },
-      bootstrap: {
-        imageLoadBase: offer.imageLoadBase,
-        entryPoint: offer.entryPointAddress,
-        initialThreadStack: offer.initialThreadStack,
-        initialProcessEnvironment: offer.initialProcessEnvironment,
-        fsSelector: 0,
-        fsBase: offer.initialProcessEnvironment.tebAddress,
-      },
-      imports: {
-        total: offer.thunks.length,
-        declared: offer.thunks.filter(({ disposition }) => disposition === undefined).length,
-        unsupported: offer.thunks.filter(
-          ({ disposition }) => disposition === "unsupported-trap",
-        ).length,
-        first: offer.thunks[0],
-        last: offer.thunks.at(-1),
-      },
-      adapter: {
-        wasm: expected.wasm,
-        physicalPoolBytes: guest.physicalPoolBytes,
-        excludedPhysicalRanges: guest.excludedPhysicalRanges,
-        pageDirectory: context.pageDirectory,
-        pageTables: [...context.pageTables.entries()].map(
-          ([directoryIndex, physicalAddress]) => ({ directoryIndex, physicalAddress }),
-        ),
-        allocatedPages: context.allocations.length,
-        reflectedPageAllocations: context.allocations.filter(({ role }) =>
-          role.startsWith("reflected-owner-"),
-        ).length,
-      },
-      reflection: {
-        offerLineBytes: offerMessage.lineBytes,
-        receiptLineBytes: receiptMessage.lineBytes,
-        pageSize: offer.reflection.pageSize,
-        pages: offer.reflection.pages.length,
-        contentSha256: offer.reflection.contentSha256,
-        ownerSummaries,
-        invalidation: offer.reflection.invalidation,
-        acknowledgement: {
-          generation: receipt.acknowledgedGeneration,
-          callsBeforeAck: invalidationCalls,
-          pendingAfterAck: receipt.stats.pendingInvalidation ?? null,
-        },
-      },
+    const report = buildCheckpointReport({
+      context,
+      dynamicExport,
+      encodedNull,
+      encodedProcessInitializer,
       execution,
-      stop: {
-        stage: "thunk-dispatch",
-        code: "runtime-reachable-owned-import-trap",
-        message:
-          "BGI entry reached an exact runtime-owned import thunk; API dispatch, return-value fabrication, stack cleanup, and guest resume were not attempted",
-      },
-      };
+      fourthDynamicExport,
+      heapPolicy,
+      invalidationCalls,
+      loadedModule,
+      monotonicClock,
+      offer,
+      offerMessage,
+      ownerSummaries,
+      performanceCounter,
+      privateHeap,
+      processIdentity,
+      processStartup,
+      receipt,
+      receiptMessage,
+      secondDynamicExport,
+      sourceAfter,
+      sourceBefore,
+      systemTime,
+      thirdDynamicExport,
+      threadIdentity,
+      tlsAllocation,
+      tlsValue,
+    });
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchEncodePointerSecond
-      ? {
-          bytes: expected.seventeenthCall.reportBytes,
-          sha256: expected.seventeenthCall.reportSha256,
-        }
-      : dispatchEncodePointer
-      ? { bytes: expected.sixteenthCall.reportBytes, sha256: expected.sixteenthCall.reportSha256 }
-      : dispatchTlsSetValue
-      ? { bytes: expected.fifteenthCall.reportBytes, sha256: expected.fifteenthCall.reportSha256 }
-      : dispatchTlsAlloc
-      ? { bytes: expected.fourteenthCall.reportBytes, sha256: expected.fourteenthCall.reportSha256 }
-      : dispatchGetProcAddressFourth
-      ? { bytes: expected.thirteenthCall.reportBytes, sha256: expected.thirteenthCall.reportSha256 }
-      : dispatchGetProcAddressThird
-      ? { bytes: expected.twelfthCall.reportBytes, sha256: expected.twelfthCall.reportSha256 }
-      : dispatchGetProcAddressSecond
-      ? { bytes: expected.eleventhCall.reportBytes, sha256: expected.eleventhCall.reportSha256 }
-      : dispatchGetProcAddress
-      ? { bytes: expected.tenthCall.reportBytes, sha256: expected.tenthCall.reportSha256 }
-      : dispatchModuleHandle
-      ? { bytes: expected.ninthCall.reportBytes, sha256: expected.ninthCall.reportSha256 }
-      : dispatchHeapCreate
-        ? { bytes: expected.eighthCall.reportBytes, sha256: expected.eighthCall.reportSha256 }
-      : dispatchHeapSetInformation
-        ? { bytes: expected.seventhCall.reportBytes, sha256: expected.seventhCall.reportSha256 }
-      : dispatchStartupInfo
-        ? { bytes: expected.sixthCall.reportBytes, sha256: expected.sixthCall.reportSha256 }
-      : dispatchPerformanceCounter
-        ? { bytes: expected.fifthCall.reportBytes, sha256: expected.fifthCall.reportSha256 }
-      : dispatchTickCount
-        ? { bytes: expected.fourthCall.reportBytes, sha256: expected.fourthCall.reportSha256 }
-        : dispatchThreadId
-          ? { bytes: expected.thirdCall.reportBytes, sha256: expected.thirdCall.reportSha256 }
-          : dispatchProcessId
-            ? { bytes: expected.secondCall.reportBytes, sha256: expected.secondCall.reportSha256 }
-            : dispatchSystemTime
-              ? { bytes: expected.firstCall.reportBytes, sha256: expected.firstCall.reportSha256 }
-              : expected.report;
-    if (expectedReport.bytes !== null) {
-      assert.equal(reportBytes.byteLength, expectedReport.bytes);
-      assert.equal(sha256(reportBytes), expectedReport.sha256);
-    }
+    assert.equal(report.schema, selectedCheckpoint.evidence.reportSchema);
+    assert.equal(reportBytes.byteLength, selectedCheckpoint.evidence.reportBytes);
+    assert.equal(sha256(reportBytes), selectedCheckpoint.evidence.reportSha256);
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchEncodePointerSecond) {
-      console.log(
-        `v86 BGI seventeenth Win32 call passed: encoded process initializer token ` +
-          `0x${encodedProcessInitializer.encodedPointer.value.toString(16)}, next terminal ` +
-          `${encodedProcessInitializer.continuation.terminal.kind} after ` +
-          `${encodedProcessInitializer.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchEncodePointer) {
-      console.log(
-        `v86 BGI sixteenth Win32 call passed: encoded NULL token ` +
-          `0x${encodedNull.encodedPointer.value.toString(16)}, next terminal ` +
-          `${encodedNull.continuation.terminal.kind} after ` +
-          `${encodedNull.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchTlsSetValue) {
-      console.log(
-        `v86 BGI fifteenth Win32 call passed: TLS value endpoint ` +
-          `0x${tlsValue.threadValue.endpoint.address.toString(16)}, next terminal ` +
-          `${tlsValue.continuation.terminal.kind} after ` +
-          `${tlsValue.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchTlsAlloc) {
-      console.log(
-        `v86 BGI fourteenth Win32 call passed: logical TLS index ` +
-          `${tlsAllocation.slot.index.value}, next terminal ` +
-          `${tlsAllocation.continuation.terminal.kind} after ` +
-          `${tlsAllocation.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchGetProcAddressFourth) {
-      console.log(
-        `v86 BGI thirteenth Win32 call passed: dynamic export endpoint ` +
-          `0x${fourthDynamicExport.endpoint.address.toString(16)}, next terminal ` +
-          `${fourthDynamicExport.continuation.terminal.kind} after ` +
-          `${fourthDynamicExport.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchGetProcAddressThird) {
-      console.log(
-        `v86 BGI twelfth Win32 call passed: dynamic export endpoint ` +
-          `0x${thirdDynamicExport.endpoint.address.toString(16)}, next thunk ID ` +
-          `${thirdDynamicExport.continuation.terminal.thunk.id} after ` +
-          `${thirdDynamicExport.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchGetProcAddressSecond) {
-      console.log(
-        `v86 BGI eleventh Win32 call passed: dynamic export endpoint ` +
-          `0x${secondDynamicExport.endpoint.address.toString(16)}, next thunk ID ` +
-          `${secondDynamicExport.continuation.terminal.thunk.id} after ` +
-          `${secondDynamicExport.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchGetProcAddress) {
-      console.log(
-        `v86 BGI tenth Win32 call passed: dynamic export endpoint ` +
-          `0x${dynamicExport.endpoint.address.toString(16)}, next thunk ID ` +
-          `${dynamicExport.continuation.terminal.thunk.id} after ` +
-          `${dynamicExport.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchModuleHandle) {
-      console.log(
-        `v86 BGI ninth Win32 call passed: logical loaded module ` +
-          `0x${loadedModule.module.handle.value.toString(16)}, next thunk ID ` +
-          `${loadedModule.continuation.terminal.thunk.id} after ` +
-          `${loadedModule.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchHeapCreate) {
-      console.log(
-        `v86 BGI eighth Win32 call passed: logical private heap ` +
-          `0x${privateHeap.heap.handle.value.toString(16)}, next thunk ID ` +
-          `${privateHeap.continuation.terminal.thunk.id} after ` +
-          `${privateHeap.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchHeapSetInformation) {
-      console.log(
-        `v86 BGI seventh Win32 call passed: heap policy ` +
-          `${heapPolicy.policy.policyId}, next thunk ID ` +
-          `${heapPolicy.continuation.terminal.thunk.id} after ` +
-          `${heapPolicy.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchStartupInfo) {
-      console.log(
-        `v86 BGI sixth Win32 call passed: controlled STARTUPINFOW ` +
-          `${processStartup.profile.profileId}, next thunk ID ` +
-          `${processStartup.continuation.terminal.thunk.id} after ` +
-          `${processStartup.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchPerformanceCounter) {
-      console.log(
-        `v86 BGI fifth Win32 call passed: performance counter ` +
-          `${controlledPerformanceCounter.ticks}, next thunk ID ` +
-          `${performanceCounter.continuation.terminal.thunk.id} after ` +
-          `${performanceCounter.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchTickCount) {
-      console.log(
-        `v86 BGI fourth Win32 call passed: tick count ${controlledMonotonicClock.tickCount}, ` +
-          `next thunk ID ${monotonicClock.continuation.terminal.thunk.id} after ` +
-          `${monotonicClock.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchThreadId) {
-      console.log(
-        `v86 BGI third Win32 call passed: thread ID ${controlledThread.threadId}, ` +
-          `next thunk ID ${threadIdentity.continuation.terminal.thunk.id} after ` +
-          `${threadIdentity.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchProcessId) {
-      console.log(
-        `v86 BGI second Win32 call passed: process ID ${controlledProcess.processId}, ` +
-          `next thunk ID ${processIdentity.continuation.terminal.thunk.id} after ` +
-          `${processIdentity.continuation.instructionCount} total instructions`,
-      );
-    } else if (dispatchSystemTime) {
-      console.log(
-        `v86 BGI first Win32 call passed: FILETIME generation ` +
-          `${systemTime.delta.delta.generation}, next thunk ID ` +
-          `${systemTime.continuation.terminal.thunk.id} after ` +
-          `${systemTime.continuation.instructionCount} total instructions`,
-      );
-    } else {
-      console.log(
-        `v86 BGI first trap passed: ${offer.reflection.pages.length} pages, ` +
-          `${execution.instructionCount} instructions, thunk ID ${execution.terminal.thunk.id} ` +
-          `${execution.terminal.thunk.module}!${execution.terminal.thunk.name ?? `#${execution.terminal.thunk.ordinal}`}`,
-      );
-    }
+    const finalExecution =
+      selectedCheckpoint.supportedCallCount === 0
+        ? execution
+        : callResults[
+            checkpointSessionSteps[selectedCheckpoint.supportedCallCount - 1][0]
+          ].continuation;
+    const nextThunk = finalExecution.terminal.thunk;
+    assert.equal(nextThunk.module.toLowerCase(), selectedCheckpoint.nextStop.module.toLowerCase());
+    assert.equal(nextThunk.name, selectedCheckpoint.nextStop.symbol);
+    assert.equal(finalExecution.instructionCount, selectedCheckpoint.evidence.instructionCount);
+    assert.deepEqual(
+      finalExecution.terminal.stackWords.slice(
+        1,
+        selectedCheckpoint.nextStop.arguments.length + 1,
+      ),
+      selectedCheckpoint.nextStop.arguments.map((argument) => Number.parseInt(argument, 16)),
+    );
+    console.log(
+      `${selectedCheckpoint.id} passed: ${selectedCheckpoint.supportedCallCount} dispatched calls, ` +
+        `next ${nextThunk.module}!${nextThunk.name ?? `#${nextThunk.ordinal}`} after ` +
+        `${finalExecution.instructionCount} total instructions`,
+    );
     console.log(
       `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
         `${path.relative(root, reportPath)}, ${reportBytes.byteLength} bytes, ` +
@@ -2718,44 +1791,7 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchEncodePointerSecond
-    ? expected.seventeenthCall.offerLineBytes
-    : dispatchEncodePointer
-    ? expected.sixteenthCall.offerLineBytes
-    : dispatchTlsSetValue
-    ? expected.fifteenthCall.offerLineBytes
-    : dispatchTlsAlloc
-    ? expected.fourteenthCall.offerLineBytes
-    : dispatchGetProcAddressFourth
-    ? expected.thirteenthCall.offerLineBytes
-    : dispatchGetProcAddressThird
-    ? expected.twelfthCall.offerLineBytes
-    : dispatchGetProcAddressSecond
-    ? expected.eleventhCall.offerLineBytes
-    : dispatchGetProcAddress
-    ? expected.tenthCall.offerLineBytes
-    : dispatchModuleHandle
-    ? expected.ninthCall.offerLineBytes
-    : dispatchHeapCreate
-      ? expected.eighthCall.offerLineBytes
-    : dispatchHeapSetInformation
-      ? expected.seventhCall.offerLineBytes
-    : dispatchStartupInfo
-      ? expected.sixthCall.offerLineBytes
-    : dispatchPerformanceCounter
-      ? expected.fifthCall.offerLineBytes
-    : dispatchTickCount
-      ? expected.fourthCall.offerLineBytes
-      : dispatchThreadId
-        ? expected.thirdCall.offerLineBytes
-        : dispatchProcessId
-          ? expected.secondCall.offerLineBytes
-          : dispatchSystemTime
-            ? expected.firstCall.offerLineBytes
-            : expected.offerLineBytes;
-  if (expectedOfferLineBytes !== null) {
-    assert.equal(offerLineBytes, expectedOfferLineBytes);
-  }
+  assert.equal(offerLineBytes, expected.offerLineBytes);
   for (const reflectedPage of reflected.pages) {
     assert.equal(reflectedPage.ownerSealed, true);
     assert.equal(reflectedPage.dirty, true);
@@ -3189,26 +2225,7 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
   assert.equal(offer.reflection.invalidation.generation, receipt.acknowledgedGeneration);
-  const expectedReceiptLineBytes = dispatchEncodePointerSecond
-    ? expected.seventeenthCall.reflectionReceiptLineBytes
-    : dispatchEncodePointer
-    ? expected.sixteenthCall.reflectionReceiptLineBytes
-    : dispatchTlsSetValue
-    ? expected.fifteenthCall.reflectionReceiptLineBytes
-    : dispatchTlsAlloc
-    ? expected.fourteenthCall.reflectionReceiptLineBytes
-    : dispatchGetProcAddressFourth
-    ? expected.thirteenthCall.reflectionReceiptLineBytes
-    : dispatchGetProcAddressThird
-    ? expected.twelfthCall.reflectionReceiptLineBytes
-    : dispatchGetProcAddressSecond
-    ? expected.eleventhCall.reflectionReceiptLineBytes
-    : dispatchGetProcAddress
-    ? expected.tenthCall.reflectionReceiptLineBytes
-    : expected.receiptLineBytes;
-  if (expectedReceiptLineBytes !== null) {
-    assert.equal(receiptLineBytes, expectedReceiptLineBytes);
-  }
+  assert.equal(receiptLineBytes, expected.receiptLineBytes);
 }
 
 async function dispatchFirstSystemTimeCall({

@@ -73,7 +73,7 @@ fn materialize_pe32_image_transaction(
     let plan = &loader.load_plan;
     let relocation_delta = load_base.0.wrapping_sub(plan.image.preferred_image_base);
     let layout = memory
-        .prepare_image_layout_at(&loader.source, plan, load_base)
+        .prepare_image_layout_at_transaction(&loader.source, plan, load_base)
         .map_err(memory_error)?;
     let owner = layout.owner;
     let max_access_bytes = memory.limits().max_access_bytes;

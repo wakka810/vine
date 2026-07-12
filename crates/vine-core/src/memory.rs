@@ -311,6 +311,21 @@ pub struct MemoryStats {
     pub pending_invalidation: Option<MemoryInvalidation>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryTransactionStats {
+    pub baseline_committed_pages: usize,
+    pub baseline_committed_bytes: u64,
+    pub journaled_owner_states: usize,
+    pub journaled_regions: usize,
+    pub journaled_page_states: usize,
+    pub journaled_frame_images: usize,
+    pub journaled_frame_bytes: u64,
+    pub frame_allocator_operations: usize,
+    pub offered_generations: usize,
+    pub peak_journaled_frame_bytes: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryReflectionPage {
@@ -459,7 +474,7 @@ struct MemoryRegion {
     kind: MemoryRegionKind,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FrameId(usize);
 
 #[derive(Debug, Clone)]
@@ -476,6 +491,104 @@ struct PhysicalFrames {
     frames: Vec<Option<Box<[u8; GUEST_PAGE_SIZE_USIZE]>>>,
     free: Vec<usize>,
     in_use: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrameAllocationSource {
+    Reused,
+    Appended,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FrameAllocation {
+    frame: FrameId,
+    source: FrameAllocationSource,
+}
+
+#[derive(Debug)]
+enum FrameUndo {
+    Allocation(FrameAllocation),
+    Release {
+        frame: FrameId,
+        bytes: Box<[u8; GUEST_PAGE_SIZE_USIZE]>,
+    },
+    Bytes {
+        frame: FrameId,
+        bytes: Box<[u8; GUEST_PAGE_SIZE_USIZE]>,
+    },
+}
+
+#[derive(Debug)]
+struct MemoryTransactionJournal {
+    baseline_committed_pages: usize,
+    baseline_next_owner: u32,
+    baseline_generation: u64,
+    baseline_pending_changes: usize,
+    owners: BTreeMap<MemoryOwnerId, Option<OwnerState>>,
+    regions: BTreeMap<u32, Option<MemoryRegion>>,
+    pages: BTreeMap<u32, Option<PageState>>,
+    frame_bytes_recorded: BTreeSet<usize>,
+    allocated_frames: BTreeSet<usize>,
+    frame_undo: Vec<FrameUndo>,
+    offered_generations: BTreeSet<u64>,
+    offered_full_reflections: BTreeSet<u64>,
+    journaled_frame_bytes: u64,
+    peak_journaled_frame_bytes: u64,
+}
+
+impl MemoryTransactionJournal {
+    fn new(memory: &GuestMemory) -> Self {
+        Self {
+            baseline_committed_pages: memory.pages.len(),
+            baseline_next_owner: memory.next_owner,
+            baseline_generation: memory.generation,
+            baseline_pending_changes: memory.pending_changes.len(),
+            owners: BTreeMap::new(),
+            regions: BTreeMap::new(),
+            pages: BTreeMap::new(),
+            frame_bytes_recorded: BTreeSet::new(),
+            allocated_frames: BTreeSet::new(),
+            frame_undo: Vec::new(),
+            offered_generations: BTreeSet::new(),
+            offered_full_reflections: BTreeSet::new(),
+            journaled_frame_bytes: 0,
+            peak_journaled_frame_bytes: 0,
+        }
+    }
+
+    fn push_frame_undo(&mut self, undo: FrameUndo) {
+        if matches!(undo, FrameUndo::Release { .. } | FrameUndo::Bytes { .. }) {
+            self.journaled_frame_bytes += GUEST_PAGE_SIZE;
+            self.peak_journaled_frame_bytes = self
+                .peak_journaled_frame_bytes
+                .max(self.journaled_frame_bytes);
+        }
+        self.frame_undo.push(undo);
+    }
+
+    fn stats(&self) -> MemoryTransactionStats {
+        MemoryTransactionStats {
+            baseline_committed_pages: self.baseline_committed_pages,
+            baseline_committed_bytes: self.baseline_committed_pages as u64 * GUEST_PAGE_SIZE,
+            journaled_owner_states: self.owners.len(),
+            journaled_regions: self.regions.len(),
+            journaled_page_states: self.pages.len(),
+            journaled_frame_images: self
+                .frame_undo
+                .iter()
+                .filter(|undo| matches!(undo, FrameUndo::Release { .. } | FrameUndo::Bytes { .. }))
+                .count(),
+            journaled_frame_bytes: self.journaled_frame_bytes,
+            frame_allocator_operations: self
+                .frame_undo
+                .iter()
+                .filter(|undo| !matches!(undo, FrameUndo::Bytes { .. }))
+                .count(),
+            offered_generations: self.offered_generations.len()
+                + self.offered_full_reflections.len(),
+            peak_journaled_frame_bytes: self.peak_journaled_frame_bytes,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -499,7 +612,7 @@ impl PhysicalFrames {
         self.limit.saturating_sub(self.in_use)
     }
 
-    fn allocate_zeroed(&mut self) -> Result<FrameId, GuestMemoryError> {
+    fn allocate_zeroed(&mut self) -> Result<FrameAllocation, GuestMemoryError> {
         if self.in_use >= self.limit {
             return Err(GuestMemoryError::resource_limit(
                 "physical-allocator",
@@ -508,7 +621,7 @@ impl PhysicalFrames {
             ));
         }
         let bytes = Box::new([0; GUEST_PAGE_SIZE_USIZE]);
-        let index = if let Some(index) = self.free.pop() {
+        let (index, source) = if let Some(index) = self.free.pop() {
             let slot = self.frames.get_mut(index).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
                     "physical-allocator",
@@ -524,16 +637,22 @@ impl PhysicalFrames {
                 ));
             }
             *slot = Some(bytes);
-            index
+            (index, FrameAllocationSource::Reused)
         } else {
             self.frames.push(Some(bytes));
-            self.frames.len() - 1
+            (self.frames.len() - 1, FrameAllocationSource::Appended)
         };
         self.in_use += 1;
-        Ok(FrameId(index))
+        Ok(FrameAllocation {
+            frame: FrameId(index),
+            source,
+        })
     }
 
-    fn release(&mut self, frame: FrameId) -> Result<(), GuestMemoryError> {
+    fn release(
+        &mut self,
+        frame: FrameId,
+    ) -> Result<Box<[u8; GUEST_PAGE_SIZE_USIZE]>, GuestMemoryError> {
         let slot = self.frames.get_mut(frame.0).ok_or_else(|| {
             GuestMemoryError::runtime_defect(
                 "physical-allocator",
@@ -541,13 +660,13 @@ impl PhysicalFrames {
                 "released frame index is outside the allocator table",
             )
         })?;
-        if slot.take().is_none() {
-            return Err(GuestMemoryError::runtime_defect(
+        let bytes = slot.take().ok_or_else(|| {
+            GuestMemoryError::runtime_defect(
                 "physical-allocator",
                 "physical-frame-double-release",
                 "physical frame was released more than once",
-            ));
-        }
+            )
+        })?;
         self.free.push(frame.0);
         self.in_use = self.in_use.checked_sub(1).ok_or_else(|| {
             GuestMemoryError::runtime_defect(
@@ -556,6 +675,83 @@ impl PhysicalFrames {
                 "physical page usage underflowed during release",
             )
         })?;
+        Ok(bytes)
+    }
+
+    fn rollback(&mut self, undo: FrameUndo) -> Result<(), GuestMemoryError> {
+        match undo {
+            FrameUndo::Bytes { frame, bytes } => {
+                self.bytes_mut(frame)?.copy_from_slice(bytes.as_ref());
+            }
+            FrameUndo::Release { frame, bytes } => {
+                let free = self.free.pop().ok_or_else(|| {
+                    GuestMemoryError::runtime_defect(
+                        "memory-transaction",
+                        "rollback-free-list-empty",
+                        "released frame was missing from the allocator free list",
+                    )
+                })?;
+                if free != frame.0 {
+                    return Err(GuestMemoryError::runtime_defect(
+                        "memory-transaction",
+                        "rollback-free-list-order-mismatch",
+                        "allocator free-list order changed inside a memory transaction",
+                    ));
+                }
+                let slot = self.frames.get_mut(frame.0).ok_or_else(|| {
+                    GuestMemoryError::runtime_defect(
+                        "memory-transaction",
+                        "rollback-released-frame-missing",
+                        "released frame index disappeared during rollback",
+                    )
+                })?;
+                if slot.is_some() {
+                    return Err(GuestMemoryError::runtime_defect(
+                        "memory-transaction",
+                        "rollback-released-frame-reallocated",
+                        "released frame remained allocated during rollback",
+                    ));
+                }
+                *slot = Some(bytes);
+                self.in_use += 1;
+            }
+            FrameUndo::Allocation(allocation) => {
+                let slot = self.frames.get_mut(allocation.frame.0).ok_or_else(|| {
+                    GuestMemoryError::runtime_defect(
+                        "memory-transaction",
+                        "rollback-allocated-frame-missing",
+                        "allocated frame index disappeared during rollback",
+                    )
+                })?;
+                if slot.take().is_none() {
+                    return Err(GuestMemoryError::runtime_defect(
+                        "memory-transaction",
+                        "rollback-allocated-frame-released",
+                        "allocated frame was not live during rollback",
+                    ));
+                }
+                self.in_use = self.in_use.checked_sub(1).ok_or_else(|| {
+                    GuestMemoryError::runtime_defect(
+                        "memory-transaction",
+                        "rollback-physical-page-accounting-underflow",
+                        "physical page usage underflowed during rollback",
+                    )
+                })?;
+                match allocation.source {
+                    FrameAllocationSource::Reused => self.free.push(allocation.frame.0),
+                    FrameAllocationSource::Appended => {
+                        if allocation.frame.0 + 1 != self.frames.len() {
+                            return Err(GuestMemoryError::runtime_defect(
+                                "memory-transaction",
+                                "rollback-appended-frame-order-mismatch",
+                                "appended frame was not the final allocator slot during rollback",
+                            ));
+                        }
+                        self.frames.pop();
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -597,7 +793,7 @@ struct AccessSegment {
     fault_address: GuestAddress,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct GuestMemory {
     limits: MemoryLimits,
     owners: BTreeMap<MemoryOwnerId, OwnerState>,
@@ -611,11 +807,12 @@ pub struct GuestMemory {
     offered_generations: BTreeSet<u64>,
     offered_full_reflections: BTreeSet<u64>,
     initial_reflection_acknowledged: bool,
+    transaction: Option<MemoryTransactionJournal>,
 }
 
 pub struct GuestMemoryTransaction<'a> {
     memory: &'a mut GuestMemory,
-    rollback: Option<Box<GuestMemory>>,
+    active: bool,
 }
 
 impl Deref for GuestMemoryTransaction<'_> {
@@ -634,14 +831,23 @@ impl DerefMut for GuestMemoryTransaction<'_> {
 
 impl GuestMemoryTransaction<'_> {
     pub fn commit_transaction(mut self) {
-        self.rollback = None;
+        self.memory.commit_active_transaction();
+        self.active = false;
+    }
+
+    pub fn transaction_stats(&self) -> MemoryTransactionStats {
+        self.memory
+            .transaction
+            .as_ref()
+            .expect("active GuestMemoryTransaction lost its journal")
+            .stats()
     }
 }
 
 impl Drop for GuestMemoryTransaction<'_> {
     fn drop(&mut self) {
-        if let Some(rollback) = self.rollback.take() {
-            *self.memory = *rollback;
+        if self.active {
+            self.memory.rollback_active_transaction();
         }
     }
 }
@@ -672,14 +878,171 @@ impl GuestMemory {
             offered_generations: BTreeSet::new(),
             offered_full_reflections: BTreeSet::new(),
             initial_reflection_acknowledged: false,
+            transaction: None,
         })
     }
 
     pub fn begin_transaction(&mut self) -> GuestMemoryTransaction<'_> {
-        let rollback = Box::new(self.clone());
+        assert!(
+            self.transaction.is_none(),
+            "nested GuestMemory transactions are not supported"
+        );
+        self.transaction = Some(MemoryTransactionJournal::new(self));
         GuestMemoryTransaction {
             memory: self,
-            rollback: Some(rollback),
+            active: true,
+        }
+    }
+
+    fn commit_active_transaction(&mut self) {
+        self.transaction
+            .take()
+            .expect("active GuestMemoryTransaction lost its journal");
+    }
+
+    fn rollback_active_transaction(&mut self) {
+        let journal = self
+            .transaction
+            .take()
+            .expect("active GuestMemoryTransaction lost its journal");
+
+        for undo in journal.frame_undo.into_iter().rev() {
+            self.frames
+                .rollback(undo)
+                .expect("GuestMemory transaction frame journal was inconsistent");
+        }
+        for (virtual_page, before) in journal.pages {
+            match before {
+                Some(page) => {
+                    self.pages.insert(virtual_page, page);
+                }
+                None => {
+                    self.pages.remove(&virtual_page);
+                }
+            }
+        }
+        for (start, before) in journal.regions {
+            match before {
+                Some(region) => {
+                    self.regions.insert(start, region);
+                }
+                None => {
+                    self.regions.remove(&start);
+                }
+            }
+        }
+        for (owner, before) in journal.owners {
+            match before {
+                Some(state) => {
+                    self.owners.insert(owner, state);
+                }
+                None => {
+                    self.owners.remove(&owner);
+                }
+            }
+        }
+        self.pending_changes
+            .truncate(journal.baseline_pending_changes);
+        self.next_owner = journal.baseline_next_owner;
+        self.generation = journal.baseline_generation;
+        for generation in journal.offered_generations {
+            self.offered_generations.remove(&generation);
+        }
+        for generation in journal.offered_full_reflections {
+            self.offered_full_reflections.remove(&generation);
+        }
+    }
+
+    fn journal_owner_before(&mut self, owner: MemoryOwnerId) {
+        let should_record = self
+            .transaction
+            .as_ref()
+            .is_some_and(|journal| !journal.owners.contains_key(&owner));
+        if should_record {
+            let before = self.owners.get(&owner).cloned();
+            self.transaction
+                .as_mut()
+                .expect("checked transaction journal disappeared")
+                .owners
+                .insert(owner, before);
+        }
+    }
+
+    fn journal_region_before(&mut self, start: u32) {
+        let should_record = self
+            .transaction
+            .as_ref()
+            .is_some_and(|journal| !journal.regions.contains_key(&start));
+        if should_record {
+            let before = self.regions.get(&start).cloned();
+            self.transaction
+                .as_mut()
+                .expect("checked transaction journal disappeared")
+                .regions
+                .insert(start, before);
+        }
+    }
+
+    fn journal_page_before(&mut self, virtual_page: u32) {
+        let should_record = self
+            .transaction
+            .as_ref()
+            .is_some_and(|journal| !journal.pages.contains_key(&virtual_page));
+        if should_record {
+            let before = self.pages.get(&virtual_page).cloned();
+            self.transaction
+                .as_mut()
+                .expect("checked transaction journal disappeared")
+                .pages
+                .insert(virtual_page, before);
+        }
+    }
+
+    fn journal_frame_bytes_before(&mut self, frame: FrameId) -> Result<(), GuestMemoryError> {
+        let should_record = self.transaction.as_ref().is_some_and(|journal| {
+            !journal.allocated_frames.contains(&frame.0)
+                && !journal.frame_bytes_recorded.contains(&frame.0)
+        });
+        if should_record {
+            let bytes = Box::new(*self.frames.bytes(frame)?);
+            let journal = self
+                .transaction
+                .as_mut()
+                .expect("checked transaction journal disappeared");
+            journal.frame_bytes_recorded.insert(frame.0);
+            journal.push_frame_undo(FrameUndo::Bytes { frame, bytes });
+        }
+        Ok(())
+    }
+
+    fn allocate_frame_zeroed(&mut self) -> Result<FrameId, GuestMemoryError> {
+        let allocation = self.frames.allocate_zeroed()?;
+        if let Some(journal) = self.transaction.as_mut() {
+            journal.allocated_frames.insert(allocation.frame.0);
+            journal.push_frame_undo(FrameUndo::Allocation(allocation));
+        }
+        Ok(allocation.frame)
+    }
+
+    fn release_frame(&mut self, frame: FrameId) -> Result<(), GuestMemoryError> {
+        let bytes = self.frames.release(frame)?;
+        if let Some(journal) = self.transaction.as_mut() {
+            journal.push_frame_undo(FrameUndo::Release { frame, bytes });
+        }
+        Ok(())
+    }
+
+    fn record_offered_generation(&mut self, generation: u64, full_reflection: bool) {
+        if self.offered_generations.insert(generation)
+            && let Some(journal) = self.transaction.as_mut()
+        {
+            journal.offered_generations.insert(generation);
+        }
+        if full_reflection
+            && self.offered_full_reflections.insert(generation)
+            && let Some(journal) = self.transaction.as_mut()
+        {
+            journal.offered_full_reflections.insert(generation);
         }
     }
 
@@ -793,6 +1156,7 @@ impl GuestMemory {
             ));
         }
         let owner = MemoryOwnerId(self.next_owner);
+        self.journal_owner_before(owner);
         self.next_owner = self.next_owner.checked_add(1).ok_or_else(|| {
             GuestMemoryError::resource_limit(
                 "memory-owner",
@@ -842,6 +1206,7 @@ impl GuestMemory {
             ));
         }
         self.ensure_generation_available()?;
+        self.journal_region_before(start.0);
         self.regions
             .insert(start.0, MemoryRegion { range, owner, kind });
         self.record_change(
@@ -865,6 +1230,7 @@ impl GuestMemory {
                 "memory owner cannot be destroyed while regions or pages remain live",
             ));
         }
+        self.journal_owner_before(owner);
         self.owners
             .remove(&owner)
             .map(|state| state.kind)
@@ -909,17 +1275,18 @@ impl GuestMemory {
 
         let mut allocated = Vec::with_capacity(page_count);
         for virtual_page in pages {
-            match self.frames.allocate_zeroed() {
+            match self.allocate_frame_zeroed() {
                 Ok(frame) => allocated.push((virtual_page, frame)),
                 Err(error) => {
                     for (_, frame) in allocated {
-                        self.frames.release(frame)?;
+                        self.release_frame(frame)?;
                     }
                     return Err(error);
                 }
             }
         }
         for (virtual_page, frame) in allocated {
+            self.journal_page_before(virtual_page);
             self.pages.insert(
                 virtual_page,
                 PageState {
@@ -957,6 +1324,7 @@ impl GuestMemory {
         self.require_committed_owner(owner, &pages)?;
         self.ensure_generation_available()?;
         for virtual_page in pages {
+            self.journal_page_before(virtual_page);
             let page = self.pages.get_mut(&virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
                     "page-table",
@@ -992,6 +1360,7 @@ impl GuestMemory {
         self.require_committed_owner(owner, &pages)?;
         self.ensure_generation_available()?;
         for virtual_page in pages {
+            self.journal_page_before(virtual_page);
             let page = self.pages.remove(&virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
                     "page-table",
@@ -999,7 +1368,7 @@ impl GuestMemory {
                     "decommit preflight succeeded but page disappeared",
                 )
             })?;
-            self.frames.release(page.frame)?;
+            self.release_frame(page.frame)?;
         }
         self.record_change(
             vec![MappingOperation::Decommit { owner, range }],
@@ -1038,6 +1407,7 @@ impl GuestMemory {
         self.require_committed_owner(owner, &pages)?;
         self.ensure_generation_available()?;
         for virtual_page in &pages {
+            self.journal_page_before(*virtual_page);
             let page = self.pages.remove(virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
                     "page-table",
@@ -1045,8 +1415,9 @@ impl GuestMemory {
                     "release preflight succeeded but page disappeared",
                 )
             })?;
-            self.frames.release(page.frame)?;
+            self.release_frame(page.frame)?;
         }
+        self.journal_region_before(start.0);
         self.regions.remove(&start.0);
         self.record_change(
             vec![MappingOperation::Release { owner, range }],
@@ -1079,7 +1450,7 @@ impl GuestMemory {
         Ok(layout)
     }
 
-    fn prepare_image_layout_at_transaction(
+    pub(crate) fn prepare_image_layout_at_transaction(
         &mut self,
         source: &ModuleIdentity,
         plan: &Pe32LoadPlan,
@@ -1155,19 +1526,22 @@ impl GuestMemory {
             image_range.start,
             image_range.byte_length,
         ) {
+            self.journal_owner_before(owner);
             self.owners.remove(&owner);
             return Err(error);
         }
 
         let mut allocated = Vec::with_capacity(page_specs.len());
         for (virtual_page, protection) in page_specs {
-            match self.frames.allocate_zeroed() {
+            match self.allocate_frame_zeroed() {
                 Ok(frame) => allocated.push((virtual_page, protection, frame)),
                 Err(error) => {
                     for (_, _, frame) in allocated {
-                        self.frames.release(frame)?;
+                        self.release_frame(frame)?;
                     }
+                    self.journal_region_before(image_range.start.0);
                     self.regions.remove(&image_range.start.0);
+                    self.journal_owner_before(owner);
                     self.owners.remove(&owner);
                     return Err(error);
                 }
@@ -1184,6 +1558,7 @@ impl GuestMemory {
             readable_pages += usize::from(protection.read);
             writable_pages += usize::from(protection.write);
             executable_pages += usize::from(protection.execute);
+            self.journal_page_before(virtual_page);
             self.pages.insert(
                 virtual_page,
                 PageState {
@@ -1314,6 +1689,19 @@ impl GuestMemory {
             self.generation
         };
         for segment in &segments {
+            self.journal_page_before(segment.virtual_page);
+            let frame = self
+                .pages
+                .get(&segment.virtual_page)
+                .ok_or_else(|| {
+                    GuestMemoryError::runtime_defect(
+                        "page-table",
+                        "preflighted-page-missing",
+                        "zero-fill preflight succeeded but page disappeared",
+                    )
+                })?
+                .frame;
+            self.journal_frame_bytes_before(frame)?;
             let page = self.pages.get_mut(&segment.virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
                     "page-table",
@@ -1367,6 +1755,7 @@ impl GuestMemory {
             .pages
             .values()
             .any(|page| page.owner == owner && page.protection.execute);
+        self.journal_owner_before(owner);
         let state = self.owners.get_mut(&owner).ok_or_else(|| {
             GuestMemoryError::runtime_defect(
                 "memory-owner",
@@ -1390,6 +1779,13 @@ impl GuestMemory {
     }
 
     pub fn acknowledge_delta(&mut self, generation: u64) -> Result<(), GuestMemoryError> {
+        if self.transaction.is_some() {
+            return Err(GuestMemoryError::conflict(
+                "memory-transaction",
+                "memory-delta-acknowledgement-before-transaction-commit",
+                "memory deltas cannot be acknowledged before the active transaction commits",
+            ));
+        }
         if generation > self.generation {
             return Err(GuestMemoryError::invalid_request(
                 "memory-delta",
@@ -1483,7 +1879,7 @@ impl GuestMemory {
             })
         })?;
         let content_sha256 = hash_delta_content(&mapping_operations, &dirty_pages);
-        self.offered_generations.insert(invalidation.generation);
+        self.record_offered_generation(invalidation.generation, false);
         Ok(MemoryDelta {
             from_generation: self.acknowledged_generation,
             generation: invalidation.generation,
@@ -1522,6 +1918,16 @@ impl GuestMemory {
     ) -> Result<Vec<u8>, GuestMemoryError> {
         let segments = self.preflight_guest_access(address, byte_length, MemoryAccess::Read)?;
         self.read_segments(&segments, byte_length)
+    }
+
+    pub fn validate_access(
+        &self,
+        address: GuestAddress,
+        byte_length: usize,
+        access: MemoryAccess,
+    ) -> Result<(), GuestMemoryError> {
+        self.preflight_guest_access(address, byte_length, access)
+            .map(|_| ())
     }
 
     pub fn fetch(
@@ -1639,6 +2045,7 @@ impl GuestMemory {
             .zip(bytes)
             .filter(|(current, incoming)| current != incoming)
             .count();
+        self.journal_frame_bytes_before(frame)?;
         self.frames.bytes_mut(frame)?.copy_from_slice(bytes);
         let mut hasher = Sha256::new();
         hasher.update(bytes);
@@ -1735,9 +2142,7 @@ impl GuestMemory {
                 bytes,
             });
         }
-        self.offered_generations.insert(invalidation.generation);
-        self.offered_full_reflections
-            .insert(invalidation.generation);
+        self.record_offered_generation(invalidation.generation, true);
         Ok(MemoryReflection {
             invalidation,
             page_size: GUEST_PAGE_SIZE,
@@ -1928,6 +2333,19 @@ impl GuestMemory {
     ) -> Result<(), GuestMemoryError> {
         let mut input_offset = 0usize;
         for segment in segments {
+            self.journal_page_before(segment.virtual_page);
+            let frame = self
+                .pages
+                .get(&segment.virtual_page)
+                .ok_or_else(|| {
+                    GuestMemoryError::runtime_defect(
+                        "page-table",
+                        "preflighted-page-missing",
+                        "write preflight succeeded but the page disappeared",
+                    )
+                })?
+                .frame;
+            self.journal_frame_bytes_before(frame)?;
             let page = self.pages.get_mut(&segment.virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
                     "page-table",

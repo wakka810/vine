@@ -3,7 +3,7 @@
 ## Status
 
 - Status: Verified foundation checkpoint
-- Date: 2026-07-11
+- Date: 2026-07-12
 - Rust boundary: `vine-core::GuestMemory`
 - Incremental transfer: `MemoryDelta`
 - v86 evidence: `vine.v86-memory-delta-roundtrip` version `1`
@@ -49,20 +49,40 @@ tracking.
 
 ## Transaction model
 
-`GuestMemory::begin_transaction()` takes a private snapshot of owners, regions,
-page mappings, physical frames, bytes, protections, seal state, generation,
-dirty journal, offered generations, and pending cache effects. Calling
-`commit_transaction()` keeps the result. Returning an error or dropping the
-transaction restores the snapshot.
+`GuestMemory::begin_transaction()` now creates an empty changed-state journal;
+it does not clone `GuestMemory`, the page table, or committed frame bytes.
+Owner, region, and page metadata store their prior value only on the first
+transactional mutation. An existing frame stores one 4 KiB before-image on its
+first byte write. Allocate and release operations keep ordered inverse allocator
+records; pages first allocated by the active transaction need no byte
+before-image because rollback discards their frame slot.
 
-This snapshot implementation favors correctness over copy cost at the current
-checkpoint. It is used for controlled process environment construction,
-runtime return controls, initial stack installation, PE image materialization,
-and import commit. Input-derived command-line sizes, fixed ranges, quotas,
-section ranges, thunk capacity, and original IAT values are checked before
-mutation. Failpoint tests cover every process-environment reserve／commit／zero／
-pointer／seal boundary and every import arena／thunk／IAT／seal boundary; each
-failure leaves the same observable state and permits retry on the same memory.
+The journal also records the starting owner ID, generation, pending-change
+length, and generation offers introduced by the transaction. Calling
+`commit_transaction()` discards the journal and keeps the result. Returning an
+error or dropping the transaction replays frame inverses, restores changed
+metadata and scalars, removes new offers, and truncates pending changes.
+Acknowledging a delta before commit is rejected because the external CPU mirror
+cannot be rolled back by a Rust-only transaction. Transactions are deliberately
+non-nestable; composition uses the transaction-aware internal mapping path
+instead of starting a second journal.
+
+The same journal covers controlled process environment construction, runtime
+return controls, initial stack installation, PE image materialization, import
+commit, and v86 page reconciliation. Failpoint tests cover every
+process-environment reserve／commit／zero／pointer／seal boundary and every import
+arena／thunk／IAT／seal boundary; each failure leaves the same observable state and
+permits retry on the same memory. A destructive rollback contract additionally
+reconciles a CPU page, releases its two-page region, destroys its owner, offers a
+delta, and restores all bytes, mappings, allocator state, generation, and offers
+when dropped.
+
+`MemoryTransactionStats` exposes deterministic rollback payload accounting.
+The representative scaling contract starts with 1,024 committed pages
+(4,194,304 bytes): transaction start journals zero frame bytes, the first write
+to one page peaks at 4,096 bytes, a repeated write to that page adds nothing,
+and a write to a second page peaks at 8,192 bytes. This measures exact frame
+before-image payload, not process RSS or allocator bookkeeping.
 
 ## v86 evidence
 
@@ -129,8 +149,9 @@ The sixth BGI call reconciles 31 additional stack-byte changes at generation
   generation／owner-checked full page can currently be reconciled from v86;
   automatic write detection, multi-page writeback, conflicts, and scheduling
   are not implemented.
-- The transaction snapshot copies committed frames and is not the final large
-  heap or framebuffer transaction strategy.
+- Transaction journal metadata grows with changed owners, regions, pages, and
+  allocator operations. Exact frame payload is measured, but host allocator
+  overhead and process RSS are not yet benchmarked.
 - The 15-byte execute gate is conservative and can reject a short instruction
   near a page boundary even when its actual bytes do not reach the next page.
   Decode-aware adapter integration remains follow-up work in

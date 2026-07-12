@@ -9,10 +9,11 @@ npm run check:fixture-e2e
 npm run check
 ```
 
-`check:fast` is the public short gate. It runs documentation validation, public
-fixture generation, `cargo fmt --all --check`, workspace tests, clippy for all
-targets and features with warnings denied, JavaScript syntax checks, the pinned
-small v86 smoke, and the Windows trace-summary contract.
+`check:fast` is the public short gate. It runs documentation and runtime
+checkpoint-manifest validation, public fixture generation, `cargo fmt --all
+--check`, workspace tests, clippy for all targets and features with warnings
+denied, JavaScript syntax checks, the pinned small v86 smoke, and the Windows
+trace-summary contract.
 
 `check:fixture-e2e` prepares the pinned source adapter, then runs the controlled
 entry, cdecl dispatch, callback, outer return, entry sentinel, Rust-owned stack,
@@ -40,8 +41,9 @@ npm run check:private-corpus
 
 If no private file exists, the command prints the reason and succeeds as an
 explicit skip. If BGI exists but the adapter is absent, it fails and requests
-`npm run check:adapter`. When both are present it runs the immutable first-trap
-contract and the cumulative first through seventeenth supported Win32 call contracts.
+`npm run check:adapter`. When both are present it loads the versioned checkpoint
+manifest and runs the immutable first-trap contract plus the cumulative first
+through seventeenth supported Win32 call contracts through one generic runner.
 Private binaries are never added to Git or required by CI.
 
 Focused native startup／heap evidence is opt-in with

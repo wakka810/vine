@@ -1,0 +1,597 @@
+{
+  "schema": "vine.runtime-checkpoint-manifest",
+  "schemaVersion": 1,
+  "id": "bgi-startup-win32-v1",
+  "source": {
+    "bytes": 1193472,
+    "sha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1"
+  },
+  "adapter": {
+    "bytes": 1882836,
+    "sha256": "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
+    "imports": 22,
+    "exports": 809
+  },
+  "checkpoints": [
+    {
+      "id": "bgi-first-trap",
+      "extends": null,
+      "supportedCallCount": 0,
+      "artifactDirectory": "v86-bgi-first-trap",
+      "dispatch": null,
+      "expected": null,
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetSystemTimeAsFileTime",
+        "occurrence": 1,
+        "arguments": ["0x006fffec"]
+      },
+      "evidence": {
+        "instructionCount": 19,
+        "offerLineBytes": 4904602,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-first-trap",
+        "reportBytes": 9592,
+        "reportSha256": "4ed39b15de85c188b52dbafd0eda9c35e4d88f3c4aa8a9079c98f6d9d9f03840"
+      }
+    },
+    {
+      "id": "bgi-first-win32-call",
+      "extends": "bgi-first-trap",
+      "supportedCallCount": 1,
+      "artifactDirectory": "v86-bgi-first-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetSystemTimeAsFileTime",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": ["0x006fffec"],
+        "result": { "kind": "void" },
+        "guestWrites": [
+          {
+            "address": "0x006fffec",
+            "kind": "u64-le",
+            "value": "134282016000000000"
+          }
+        ]
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetCurrentProcessId",
+        "occurrence": 1,
+        "arguments": []
+      },
+      "evidence": {
+        "instructionCount": 23,
+        "offerLineBytes": 4904569,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-first-win32-call",
+        "reportBytes": 14540,
+        "reportSha256": "7457cdfb50affd0003a3860e6959d5803cc9e7edd1c9bb0358454a6046984c16"
+      }
+    },
+    {
+      "id": "bgi-second-win32-call",
+      "extends": "bgi-first-win32-call",
+      "supportedCallCount": 2,
+      "artifactDirectory": "v86-bgi-second-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetCurrentProcessId",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": [],
+        "result": { "kind": "u32", "value": "0x00001000" },
+        "guestWrites": []
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetCurrentThreadId",
+        "occurrence": 1,
+        "arguments": []
+      },
+      "evidence": {
+        "instructionCount": 26,
+        "offerLineBytes": 4904536,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-second-win32-call",
+        "reportBytes": 18472,
+        "reportSha256": "bbce0252bd7215b0643118c49bef61c724e3c8c0f80279ede1cd5c3ba1b94e67"
+      }
+    },
+    {
+      "id": "bgi-third-win32-call",
+      "extends": "bgi-second-win32-call",
+      "supportedCallCount": 3,
+      "artifactDirectory": "v86-bgi-third-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetCurrentThreadId",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": [],
+        "result": { "kind": "u32", "value": "0x00002000" },
+        "guestWrites": []
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetTickCount",
+        "occurrence": 1,
+        "arguments": []
+      },
+      "evidence": {
+        "instructionCount": 29,
+        "offerLineBytes": 4904503,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-third-win32-call",
+        "reportBytes": 22383,
+        "reportSha256": "d6bf15bec208ed1ced26970ff96a9d9f0faebbcec55da19cfbf27588b452d4fa"
+      }
+    },
+    {
+      "id": "bgi-fourth-win32-call",
+      "extends": "bgi-third-win32-call",
+      "supportedCallCount": 4,
+      "artifactDirectory": "v86-bgi-fourth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetTickCount",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": [],
+        "result": { "kind": "u32", "value": "0x0036ee80" },
+        "guestWrites": []
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "QueryPerformanceCounter",
+        "occurrence": 1,
+        "arguments": ["0x006fffe4"]
+      },
+      "evidence": {
+        "instructionCount": 34,
+        "offerLineBytes": 4904470,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-fourth-win32-call",
+        "reportBytes": 26558,
+        "reportSha256": "79924bf3817104a9d2762b730534d8f74dc1ca1adfd17aa75c3855bcdf9bf111"
+      }
+    },
+    {
+      "id": "bgi-fifth-win32-call",
+      "extends": "bgi-fourth-win32-call",
+      "supportedCallCount": 5,
+      "artifactDirectory": "v86-bgi-fifth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "QueryPerformanceCounter",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": ["0x006fffe4"],
+        "result": { "kind": "bool", "value": 1 },
+        "guestWrites": [
+          {
+            "address": "0x006fffe4",
+            "kind": "u64-le",
+            "value": "12345678901"
+          }
+        ]
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetStartupInfoW",
+        "occurrence": 1,
+        "arguments": ["0x006fff90"]
+      },
+      "evidence": {
+        "instructionCount": 78,
+        "offerLineBytes": 4904437,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-fifth-win32-call",
+        "reportBytes": 31427,
+        "reportSha256": "eb1e83e3a2a75483d2606ce7e92eca36acfdc8d15b69a8381813e8c738974ad1"
+      }
+    },
+    {
+      "id": "bgi-sixth-win32-call",
+      "extends": "bgi-fifth-win32-call",
+      "supportedCallCount": 6,
+      "artifactDirectory": "v86-bgi-sixth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetStartupInfoW",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": ["0x006fff90"],
+        "result": { "kind": "void" },
+        "guestWrites": [
+          {
+            "address": "0x006fff90",
+            "kind": "struct",
+            "value": "startupinfow-v68-zero-optional-fields"
+          }
+        ]
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "HeapSetInformation",
+        "occurrence": 1,
+        "arguments": ["0x00000000", "0x00000001", "0x00000000", "0x00000000"]
+      },
+      "evidence": {
+        "instructionCount": 87,
+        "offerLineBytes": 4904404,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-sixth-win32-call",
+        "reportBytes": 39031,
+        "reportSha256": "208e5930bdb17da0242fd4567dd8900467eb512992a1930a7e8ede7107c8232c"
+      }
+    },
+    {
+      "id": "bgi-seventh-win32-call",
+      "extends": "bgi-sixth-win32-call",
+      "supportedCallCount": 7,
+      "artifactDirectory": "v86-bgi-seventh-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "HeapSetInformation",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": ["0x00000000", "0x00000001", "0x00000000", "0x00000000"],
+        "result": { "kind": "bool", "value": 1 },
+        "guestWrites": []
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "HeapCreate",
+        "occurrence": 1,
+        "arguments": ["0x00000000", "0x00001000", "0x00000000"]
+      },
+      "evidence": {
+        "instructionCount": 108,
+        "offerLineBytes": 4904371,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-seventh-win32-call",
+        "reportBytes": 43980,
+        "reportSha256": "09fab7aeda311661aef516ff3ff2156e0fa3293c6c495e5e601503ca44fabc7f"
+      }
+    },
+    {
+      "id": "bgi-eighth-win32-call",
+      "extends": "bgi-seventh-win32-call",
+      "supportedCallCount": 8,
+      "artifactDirectory": "v86-bgi-eighth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "HeapCreate",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": ["0x00000000", "0x00001000", "0x00000000"],
+        "result": { "kind": "handle", "value": "0x68010001" },
+        "guestWrites": []
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetModuleHandleW",
+        "occurrence": 1,
+        "arguments": ["0x100d24d0"]
+      },
+      "evidence": {
+        "instructionCount": 122,
+        "offerLineBytes": 4904338,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-eighth-win32-call",
+        "reportBytes": 49699,
+        "reportSha256": "f8c8ca1e678bb1e118248a6626825ddf585dc240aa59e1abc428429cbab3a1ad"
+      }
+    },
+    {
+      "id": "bgi-ninth-win32-call",
+      "extends": "bgi-eighth-win32-call",
+      "supportedCallCount": 9,
+      "artifactDirectory": "v86-bgi-ninth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetModuleHandleW",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": ["0x100d24d0"],
+        "result": { "kind": "handle", "value": "0x4d010001" },
+        "guestWrites": []
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetProcAddress",
+        "occurrence": 1,
+        "arguments": ["0x4d010001", "0x100d250c"]
+      },
+      "evidence": {
+        "instructionCount": 131,
+        "offerLineBytes": 4904305,
+        "reflectionReceiptLineBytes": 1494,
+        "reflectionSha256": "f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0",
+        "reportSchema": "vine.v86-bgi-ninth-win32-call",
+        "reportBytes": 56729,
+        "reportSha256": "147a3599cf942af03034c7f410d333b35c0360812936e39a7473c43008d8d5be"
+      }
+    },
+    {
+      "id": "bgi-tenth-win32-call",
+      "extends": "bgi-ninth-win32-call",
+      "supportedCallCount": 10,
+      "artifactDirectory": "v86-bgi-tenth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetProcAddress",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": ["0x4d010001", "0x100d250c"],
+        "result": { "kind": "endpoint", "value": "0x7f020000" },
+        "guestWrites": [
+          { "address": "0x100feebc", "kind": "u32-le", "value": "0x7f020000" }
+        ]
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetProcAddress",
+        "occurrence": 2,
+        "arguments": ["0x4d010001", "0x100d2500"]
+      },
+      "evidence": {
+        "instructionCount": 136,
+        "offerLineBytes": 4921244,
+        "reflectionReceiptLineBytes": 1579,
+        "reflectionSha256": "e7a3cc956e167db7e078feefb30eb1d9f2204c8e17ca008f72c4359cce752456",
+        "reportSchema": "vine.v86-bgi-tenth-win32-call",
+        "reportBytes": 65858,
+        "reportSha256": "54bcc15a033dbe870b81d1c2637949d71568d048202d8f3cc355097ca76332cf"
+      }
+    },
+    {
+      "id": "bgi-eleventh-win32-call",
+      "extends": "bgi-tenth-win32-call",
+      "supportedCallCount": 11,
+      "artifactDirectory": "v86-bgi-eleventh-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetProcAddress",
+        "occurrence": 2
+      },
+      "expected": {
+        "arguments": ["0x4d010001", "0x100d2500"],
+        "result": { "kind": "endpoint", "value": "0x7f020010" },
+        "guestWrites": [
+          { "address": "0x100feec0", "kind": "u32-le", "value": "0x7f020010" }
+        ]
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetProcAddress",
+        "occurrence": 3,
+        "arguments": ["0x4d010001", "0x100d24f4"]
+      },
+      "evidence": {
+        "instructionCount": 141,
+        "offerLineBytes": 4922145,
+        "reflectionReceiptLineBytes": 1736,
+        "reflectionSha256": "de382ad25a1487a1c8b038f48eace933d0270cf745820419b776689c87a50eeb",
+        "reportSchema": "vine.v86-bgi-eleventh-win32-call",
+        "reportBytes": 76844,
+        "reportSha256": "40d37072965e4ceefd760ac8111006e9cfeacab62a43fca621c2f7e3d81359b5"
+      }
+    },
+    {
+      "id": "bgi-twelfth-win32-call",
+      "extends": "bgi-eleventh-win32-call",
+      "supportedCallCount": 12,
+      "artifactDirectory": "v86-bgi-twelfth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetProcAddress",
+        "occurrence": 3
+      },
+      "expected": {
+        "arguments": ["0x4d010001", "0x100d24f4"],
+        "result": { "kind": "endpoint", "value": "0x7f020020" },
+        "guestWrites": [
+          { "address": "0x100feec4", "kind": "u32-le", "value": "0x7f020020" }
+        ]
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetProcAddress",
+        "occurrence": 4,
+        "arguments": ["0x4d010001", "0x100d24ec"]
+      },
+      "evidence": {
+        "instructionCount": 146,
+        "offerLineBytes": 4922584,
+        "reflectionReceiptLineBytes": 1798,
+        "reflectionSha256": "8025131a9a8687ec01f68969f6cda2c102eaff9258a45bfcd29c5c5c3ae4b344",
+        "reportSchema": "vine.v86-bgi-twelfth-win32-call",
+        "reportBytes": 89289,
+        "reportSha256": "28aa2899a7e4fb403c5d839b21e0bb19c05563b9bd19604372bbf1a16a39fbb4"
+      }
+    },
+    {
+      "id": "bgi-thirteenth-win32-call",
+      "extends": "bgi-twelfth-win32-call",
+      "supportedCallCount": 13,
+      "artifactDirectory": "v86-bgi-thirteenth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "GetProcAddress",
+        "occurrence": 4
+      },
+      "expected": {
+        "arguments": ["0x4d010001", "0x100d24ec"],
+        "result": { "kind": "endpoint", "value": "0x7f020030" },
+        "guestWrites": [
+          { "address": "0x100feec8", "kind": "u32-le", "value": "0x7f020030" }
+        ]
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "TlsAlloc",
+        "occurrence": 1,
+        "arguments": []
+      },
+      "evidence": {
+        "instructionCount": 158,
+        "offerLineBytes": 4923019,
+        "reflectionReceiptLineBytes": 1860,
+        "reflectionSha256": "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
+        "reportSchema": "vine.v86-bgi-thirteenth-win32-call",
+        "reportBytes": 103179,
+        "reportSha256": "1cfe9d56fd5c5f9494ffdcc017c6ad189e2900b70125f0eda67d3839326230d4"
+      }
+    },
+    {
+      "id": "bgi-fourteenth-win32-call",
+      "extends": "bgi-thirteenth-win32-call",
+      "supportedCallCount": 14,
+      "artifactDirectory": "v86-bgi-fourteenth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "TlsAlloc",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": [],
+        "result": { "kind": "tls-index", "value": 0 },
+        "guestWrites": [
+          { "address": "0x100f0764", "kind": "u32-le", "value": "0x00000000" }
+        ]
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "TlsSetValue",
+        "occurrence": 1,
+        "arguments": ["0x00000000", "0x7f020010"]
+      },
+      "evidence": {
+        "instructionCount": 165,
+        "offerLineBytes": 4922986,
+        "reflectionReceiptLineBytes": 1860,
+        "reflectionSha256": "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
+        "reportSchema": "vine.v86-bgi-fourteenth-win32-call",
+        "reportBytes": 110236,
+        "reportSha256": "4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb"
+      }
+    },
+    {
+      "id": "bgi-fifteenth-win32-call",
+      "extends": "bgi-fourteenth-win32-call",
+      "supportedCallCount": 15,
+      "artifactDirectory": "v86-bgi-fifteenth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "TlsSetValue",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": ["0x00000000", "0x7f020010"],
+        "result": { "kind": "bool", "value": 1 },
+        "guestWrites": []
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "EncodePointer",
+        "occurrence": 1,
+        "arguments": ["0x00000000"]
+      },
+      "evidence": {
+        "instructionCount": 174,
+        "offerLineBytes": 4922953,
+        "reflectionReceiptLineBytes": 1860,
+        "reflectionSha256": "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
+        "reportSchema": "vine.v86-bgi-fifteenth-win32-call",
+        "reportBytes": 120499,
+        "reportSha256": "25907e7ae254788313d0feccdae9dac152592c3210ea5bf6956a6b1cac9f960f"
+      }
+    },
+    {
+      "id": "bgi-sixteenth-win32-call",
+      "extends": "bgi-fifteenth-win32-call",
+      "supportedCallCount": 16,
+      "artifactDirectory": "v86-bgi-sixteenth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "EncodePointer",
+        "occurrence": 1
+      },
+      "expected": {
+        "arguments": ["0x00000000"],
+        "result": { "kind": "encoded-pointer", "value": "0xec010001" },
+        "guestWrites": []
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "EncodePointer",
+        "occurrence": 2,
+        "arguments": ["0x100a9608"]
+      },
+      "evidence": {
+        "instructionCount": 229,
+        "offerLineBytes": 4922920,
+        "reflectionReceiptLineBytes": 1860,
+        "reflectionSha256": "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
+        "reportSchema": "vine.v86-bgi-sixteenth-win32-call",
+        "reportBytes": 129530,
+        "reportSha256": "310d90e97f3b33b8c466d0a0e769fb4fe85a4b3cb2a55f191a0480d662f0032b"
+      }
+    },
+    {
+      "id": "bgi-seventeenth-win32-call",
+      "extends": "bgi-sixteenth-win32-call",
+      "supportedCallCount": 17,
+      "artifactDirectory": "v86-bgi-seventeenth-win32-call",
+      "dispatch": {
+        "module": "KERNEL32.dll",
+        "symbol": "EncodePointer",
+        "occurrence": 2
+      },
+      "expected": {
+        "arguments": ["0x100a9608"],
+        "result": { "kind": "encoded-pointer", "value": "0xec010002" },
+        "guestWrites": [
+          { "address": "0x100ff62c", "kind": "u32-le", "value": "0xec010002" }
+        ]
+      },
+      "nextStop": {
+        "module": "KERNEL32.dll",
+        "symbol": "EncodePointer",
+        "occurrence": 3,
+        "arguments": ["0x7f020000"]
+      },
+      "evidence": {
+        "instructionCount": 238,
+        "offerLineBytes": 4922920,
+        "reflectionReceiptLineBytes": 1860,
+        "reflectionSha256": "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
+        "reportSchema": "vine.v86-bgi-seventeenth-win32-call",
+        "reportBytes": 140660,
+        "reportSha256": "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4"
+      }
+    }
+  ]
+}

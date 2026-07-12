@@ -71,6 +71,19 @@ dynamic endpoint ID `1`, `FlsAlloc` at `0x7F020000`.
 Fourteen static endpoints are declared; the other 316 retain exact identity as
 explicit traps. Memory generation remains `30`.
 
+Thirteen Kernel32 contracts now cover all 17 existing call occurrences through
+the generic Rust dispatcher. This includes clock／identity, startup, heap,
+module／export, TLS, and pointer-encoding calls. The dispatcher owns endpoint
+lookup, checked frame decoding, pointer and name／ordinal validation, guest
+writes, return cleanup, LastError policy, and identity-preserving faults.
+
+Those calls now share one authoritative Rust `RuntimeState`. It owns the
+controlled process／initial thread, per-thread LastError, clock and startup
+profile, heap／module／endpoint registries, TLS values, and deterministic encoded
+pointers. Nested callback frames are LIFO and asynchronous host completion is a
+scheduler event that restores the prior runnable／callback state. Private JSON
+request values remain evidence assertions, not API result sources.
+
 The foundation below that checkpoint now has an incremental `MemoryDelta`
 protocol. The first transfer is a full snapshot; later generations carry only
 mapping operations and dirty pages, with data transfer separated from TLB,
@@ -78,18 +91,25 @@ instruction-fetch, and generated-code effects. A public fixture writes eight
 bytes to a non-executable data page, transfers one 4 KiB delta to v86, and has
 guest x86 read back `0x8877665544332211`. A conservative 15-byte execute window
 also stops cross-page instruction fetch when the next page is non-executable.
-Multi-owner bootstrap, PE materialization, and import commit paths use rollback
-transactions. Import planning is read-only and reports every unresolved import;
+Multi-owner bootstrap, PE materialization, and import commit paths use a
+changed-state／frame before-image rollback journal. Transaction start copies no
+committed page bytes; a 1,024-page scaling contract records 4 KiB only after the
+first changed page. Import planning is read-only and reports every unresolved import;
 IAT and thunk changes are all-or-nothing, so extending a catalog and retrying on
 the same image is supported before the first successful bind.
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
-edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
+edition label. General DLL/export lifecycle, multi-thread scheduling, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next API checkpoint is the third thunk ID `89` call for
-`KERNEL32.dll!EncodePointer(0x7F020000)`, using the measured native `FlsAlloc`
-encoding while preserving both earlier logical encoded pointers.
+The 17 checkpoint expectations now live in a versioned manifest shared by the
+Node and Rust runners. Stable npm checkpoint commands select one generic session
+by ID; API-specific dispatch flags are no longer used. The next runtime-kernel
+checkpoint resolves byte authority and automatic multi-page v86 writeback,
+then replaces JSON page arrays on the execution path with binary transport.
+The third thunk ID `89` call for
+`KERNEL32.dll!EncodePointer(0x7F020000)` remains the next BGI trap, but bespoke
+API checkpoint expansion is paused until the P0 runtime-kernel gates are met.
 
 ## Requirements
 
@@ -107,8 +127,9 @@ npm ci
 npm run check
 ```
 
-`check:fast` validates docs, rebuilds public fixtures, runs Rust format/tests/
-clippy with warnings denied, checks JavaScript syntax, runs the small v86 smoke,
+`check:fast` validates docs and the runtime checkpoint manifest, rebuilds public
+fixtures, runs Rust format/tests/clippy with warnings denied, checks JavaScript
+syntax, runs the small v86 smoke,
 and checks the Windows trace summarizer. `check:fixture-e2e` prepares the pinned
 source adapter and runs the public entry, ABI callback/return, stack, TEB/PEB,
 process-parameters, MemoryDelta, window, and browser-presentation paths.

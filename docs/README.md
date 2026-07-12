@@ -3,9 +3,9 @@
 ## 文書ステータス
 
 - ステータス: Proposed
-- 基準日: 2026-07-10
+- 基準日: 2026-07-12
 - 対象: current `main` worktree
-- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、bounded CPU page reconciliation、rollback transaction、atomic import binding、public Linux CIを追加済み。BGIは最初の17 APIをreturnし、initial-thread TLS endpoint value、encoded-NULL token、encoded process-initializer functionを保持して`EncodePointer(FlsAlloc endpoint)`へ到達したが、general process／thread lifecycle、DLL／export resolution、TLS／FLS、pointer encoding、Win32 runtime、browser appはまだない
+- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、atomic import binding、public Linux CI、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call checkpoint manifest／generic runnerを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、byte authority／automatic writeback、general process／thread lifecycle、DLL／export resolution、browser appはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
@@ -56,6 +56,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [adr-003-guest-memory.md](adr-003-guest-memory.md) | guest memoryをどこが所有するか | high-address／R／W／X測定、候補比較、provisional CPU integration boundary |
 | [guest-memory-ingress.md](guest-memory-ingress.md) | production memory ingressが何を所有するか | sparse region／page API、fault／invalidation、fixture／BGI layout evidence |
 | [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | incremental dirty pages、cache effects、generation ack、rollback、v86 data roundtrip |
+| [generic-api-dispatcher.md](generic-api-dispatcher.md) | API固有checkpointを共通runtimeへどう移すか | 13 contract／17 occurrence、RuntimeState、manifest／generic runner、scheduler event |
 | [pe-loader-ingress.md](pe-loader-ingress.md) | immutable PE32 planをどこまで作れるか | Rust workspace、bounded parser／plan、fixture contract、BGI W7 stop |
 | [pe-materialization.md](pe-materialization.md) | PE image bytesをどこまで構築できるか | source copy、zero-fill、`HIGHLOW`、IAT-original verification、BGI stop |
 | [pe-import-binding.md](pe-import-binding.md) | runtime import endpointをどこまで所有できるか | all-import planning、atomic IAT commit／rollback、unresolved retry、thunk arena／ID |

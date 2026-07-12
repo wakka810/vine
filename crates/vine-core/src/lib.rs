@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod api;
 mod bootstrap;
 mod callbacks;
 mod dynamic_exports;
@@ -8,7 +9,19 @@ mod imports;
 mod materialize;
 mod memory;
 mod pe32;
+mod runtime;
 mod snapshot;
+mod win32;
+
+pub use api::{
+    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDirection,
+    ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass, ApiGuestWrite,
+    ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiImmediateCompletion, ApiPointeeSchema,
+    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding, ApiSymbol, ApiTrap,
+    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, DecodedApiArgument,
+    DispatchOutcome, ExecutionSession, GuestCallbackRequest, HostCompletion, HostRequest,
+    LastErrorPolicy, ReentrancyPolicy, RegisterUpdate, StackCleanup,
+};
 
 pub use bootstrap::{
     CONTROLLED_INITIAL_STACK_BASE, CONTROLLED_INITIAL_STACK_SIZE, CONTROLLED_INITIAL_STACK_TOP,
@@ -47,7 +60,8 @@ pub use memory::{
     GuestMemoryErrorClass, GuestMemoryTransaction, GuestPageReconciliation, GuestRange,
     GuestWriteResult, ImageMemoryLayout, MappingOperation, MemoryAccess, MemoryDelta, MemoryFault,
     MemoryFaultReason, MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
-    MemoryReflection, MemoryReflectionPage, MemoryRegionKind, MemoryStats, PageProtection,
+    MemoryReflection, MemoryReflectionPage, MemoryRegionKind, MemoryStats, MemoryTransactionStats,
+    PageProtection,
 };
 pub use pe32::{
     DataDirectoryAddressKind, DataDirectoryPlan, FeatureInventory, HeaderMappingPlan, ImageKind,
@@ -56,4 +70,28 @@ pub use pe32::{
     RelocationOperation, RelocationPlan, Rva, SectionMappingPlan, UnsupportedPoint,
     build_pe32_load_plan,
 };
+pub use runtime::{
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
+    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE, ProcessAddressSpaceLayout,
+    RuntimeAddressRange, RuntimeBootstrap, RuntimeCallbackFrame, RuntimeCallbackFrameId,
+    RuntimeClockState, RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeHeap,
+    RuntimeHostCompletion, RuntimeHostRequest, RuntimeModule, RuntimeProcessId,
+    RuntimeProcessState, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
+    RuntimeThreadState, RuntimeTlsValue, SchedulerThreadState, TLS_OUT_OF_INDEXES,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
+};
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
+pub use win32::{
+    ENCODE_POINTER_IMPLEMENTATION, GET_CURRENT_PROCESS_ID_IMPLEMENTATION,
+    GET_CURRENT_THREAD_ID_IMPLEMENTATION, GET_MODULE_HANDLE_W_IMPLEMENTATION,
+    GET_PROC_ADDRESS_IMPLEMENTATION, GET_STARTUP_INFO_W_IMPLEMENTATION,
+    GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION, GET_TICK_COUNT_IMPLEMENTATION,
+    HEAP_CREATE_IMPLEMENTATION, HEAP_SET_INFORMATION_IMPLEMENTATION,
+    QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION, TLS_ALLOC_IMPLEMENTATION,
+    TLS_SET_VALUE_IMPLEMENTATION, dispatch_kernel32_api, encode_pointer_contract,
+    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
+    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
+    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
+    query_performance_counter_contract, tls_alloc_contract, tls_set_value_contract,
+};

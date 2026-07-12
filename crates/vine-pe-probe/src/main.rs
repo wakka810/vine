@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Read, Write};
@@ -9,19 +10,27 @@ use std::process::ExitCode;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use vine_core::{
-    CallbackReturnSentinel, DynamicExportThunk, GuestAddress, GuestMemory, GuestMemoryError,
-    GuestMemoryErrorClass, GuestPageReconciliation, GuestWriteResult, ImageMaterialization,
-    ImageMemoryLayout, ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition,
-    InitialProcessEnvironment, InitialThreadStack, LoaderError, LoaderErrorClass,
-    LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
-    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
-    ProcessEntryReturnSentinel, RuntimeExport, RuntimeExportCatalog, UnsupportedPoint,
+    ApiContract, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass,
+    ApiImmediateCompletion, ApiTrap, CallbackReturnSentinel, DispatchOutcome, DynamicExportThunk,
+    ExecutionSession, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
+    GuestPageReconciliation, GuestWriteResult, ImageMaterialization, ImageMemoryLayout,
+    ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition, InitialProcessEnvironment,
+    InitialThreadStack, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
+    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
+    ModuleSnapshot, Pe32Limits, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
+    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeExport,
+    RuntimeExportCatalog, RuntimeModule, RuntimeProcessId, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue, UnsupportedPoint,
     bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
-    install_callback_return_sentinel, install_controlled_initial_stack,
-    install_controlled_process_environment,
+    dispatch_kernel32_api, encode_pointer_contract, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
     install_dynamic_export_thunks, install_runtime_return_sentinels, materialize_pe32_image,
+    query_performance_counter_contract, tls_alloc_contract, tls_set_value_contract,
 };
 
 #[derive(Debug)]
@@ -34,23 +43,7 @@ struct Arguments {
     runtime_exports: Vec<RuntimeExport>,
     trap_unsupported_imports: bool,
     v86_reflection_session: bool,
-    system_time_delta_session: bool,
-    process_id_return_session: bool,
-    thread_id_return_session: bool,
-    tick_count_return_session: bool,
-    performance_counter_return_session: bool,
-    startup_info_return_session: bool,
-    heap_set_information_return_session: bool,
-    heap_create_return_session: bool,
-    get_module_handle_w_return_session: bool,
-    get_proc_address_return_session: bool,
-    get_proc_address_second_return_session: bool,
-    get_proc_address_third_return_session: bool,
-    get_proc_address_fourth_return_session: bool,
-    tls_alloc_return_session: bool,
-    tls_set_value_return_session: bool,
-    encode_pointer_return_session: bool,
-    encode_pointer_second_return_session: bool,
+    checkpoint_session: Option<RuntimeCheckpointSelection>,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -62,23 +55,56 @@ struct Arguments {
 
 #[derive(Clone, Copy, Debug)]
 struct V86ReturnSessionOptions<'a> {
-    process_id: bool,
-    thread_id: bool,
-    tick_count: bool,
-    performance_counter: bool,
-    startup_info: bool,
-    heap_set_information: bool,
-    heap_create: bool,
-    get_module_handle_w: bool,
-    get_proc_address: bool,
-    get_proc_address_second: bool,
-    get_proc_address_third: bool,
-    get_proc_address_fourth: bool,
-    tls_alloc: bool,
-    tls_set_value: bool,
-    encode_pointer: bool,
-    encode_pointer_second: bool,
+    supported_call_count: usize,
     dynamic_export_thunks: &'a [DynamicExportThunk],
+}
+
+impl V86ReturnSessionOptions<'_> {
+    fn includes(self, call_number: usize) -> bool {
+        self.supported_call_count >= call_number
+    }
+}
+
+#[derive(Clone, Debug)]
+struct RuntimeCheckpointSelection {
+    supported_call_count: usize,
+    dispatches: Vec<RuntimeCheckpointDispatch>,
+}
+
+impl RuntimeCheckpointSelection {
+    fn dispatch_occurrences(&self, module: &str, symbol: &str) -> usize {
+        self.dispatches
+            .iter()
+            .filter(|dispatch| {
+                dispatch.module.eq_ignore_ascii_case(module) && dispatch.symbol == symbol
+            })
+            .count()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeCheckpointDispatch {
+    module: String,
+    symbol: String,
+    occurrence: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeCheckpointManifest {
+    schema: String,
+    schema_version: u32,
+    checkpoints: Vec<RuntimeCheckpointEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeCheckpointEntry {
+    id: String,
+    extends: Option<String>,
+    supported_call_count: usize,
+    dispatch: Option<RuntimeCheckpointDispatch>,
 }
 
 #[derive(Serialize)]
@@ -1174,6 +1200,12 @@ struct X86LogicalTlsThreadValue {
     lifecycle: &'static str,
 }
 
+#[derive(Clone, Copy)]
+struct X86TlsEvidenceState<'a> {
+    slot: &'a X86LogicalTlsSlot,
+    thread_value: &'a X86LogicalTlsThreadValue,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct V86TlsSetValueReturnReceipt {
@@ -1466,6 +1498,16 @@ fn run_v86_reflection_session(
     const MAX_LARGE_IMAGE_REFLECTION_PAGES: usize = 400;
     const MAX_REFLECTION_MESSAGE_BYTES: usize = 512 * 1024;
     const MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
+    let supported_call_count = arguments
+        .checkpoint_session
+        .as_ref()
+        .map_or(0, |selection| selection.supported_call_count);
+    let get_proc_address_occurrences = arguments
+        .checkpoint_session
+        .as_ref()
+        .map_or(0, |selection| {
+            selection.dispatch_occurrences("kernel32.dll", "GetProcAddress")
+        });
     let load_base = arguments.materialize_image_base.ok_or_else(usage_error)?;
     let max_physical_pages = arguments.prepare_memory_pages.ok_or_else(usage_error)?;
     let reflection_page_limit = if arguments.large_image_reflection {
@@ -1572,7 +1614,7 @@ fn run_v86_reflection_session(
             .then(|| install_controlled_process_environment(&mut memory).map_err(memory_error))
             .transpose()?
     };
-    let dynamic_export_thunks = if arguments.get_proc_address_fourth_return_session {
+    let dynamic_export_thunks = if get_proc_address_occurrences >= 4 {
         install_dynamic_export_thunks(
             &mut memory,
             &[
@@ -1583,7 +1625,7 @@ fn run_v86_reflection_session(
             ],
         )
         .map_err(memory_error)?
-    } else if arguments.get_proc_address_third_return_session {
+    } else if get_proc_address_occurrences >= 3 {
         install_dynamic_export_thunks(
             &mut memory,
             &[
@@ -1593,7 +1635,7 @@ fn run_v86_reflection_session(
             ],
         )
         .map_err(memory_error)?
-    } else if arguments.get_proc_address_second_return_session {
+    } else if get_proc_address_occurrences >= 2 {
         install_dynamic_export_thunks(
             &mut memory,
             &[
@@ -1602,7 +1644,7 @@ fn run_v86_reflection_session(
             ],
         )
         .map_err(memory_error)?
-    } else if arguments.get_proc_address_return_session {
+    } else if get_proc_address_occurrences >= 1 {
         vec![
             install_dynamic_export_thunk(&mut memory, "kernel32.dll", "FlsAlloc")
                 .map_err(memory_error)?,
@@ -1657,10 +1699,7 @@ fn run_v86_reflection_session(
         initial_thread_stack: initial_thread_stack.clone(),
         initial_process_environment: initial_process_environment.clone(),
         dynamic_export_thunk: dynamic_export_thunk.clone(),
-        dynamic_export_thunks: if arguments.get_proc_address_second_return_session
-            || arguments.get_proc_address_third_return_session
-            || arguments.get_proc_address_fourth_return_session
-        {
+        dynamic_export_thunks: if get_proc_address_occurrences >= 2 {
             dynamic_export_thunks.clone()
         } else {
             Vec::new()
@@ -1766,20 +1805,12 @@ fn run_v86_reflection_session(
         .as_ref()
         .map(|thunk| memory.fetch(thunk.address, 16).map_err(memory_error))
         .transpose()?;
-    let dynamic_export_page_prefix_bytes = (arguments.get_proc_address_second_return_session
-        || arguments.get_proc_address_third_return_session
-        || arguments.get_proc_address_fourth_return_session)
+    let dynamic_export_page_prefix_bytes = (get_proc_address_occurrences >= 2)
         .then(|| {
             memory
                 .fetch(
                     vine_core::DYNAMIC_EXPORT_ARENA_BASE,
-                    if arguments.get_proc_address_fourth_return_session {
-                        64
-                    } else if arguments.get_proc_address_third_return_session {
-                        48
-                    } else {
-                        32
-                    },
+                    get_proc_address_occurrences * vine_core::DYNAMIC_EXPORT_SLOT_SIZE as usize,
                 )
                 .map_err(memory_error)
         })
@@ -1844,29 +1875,16 @@ fn run_v86_reflection_session(
         },
     };
     write_protocol_message(&receipt, reflection_message_limit)?;
-    if arguments.system_time_delta_session {
+    if supported_call_count >= 1 {
+        let mut runtime = controlled_runtime_state(&dynamic_export_thunks)?;
         let return_sessions = V86ReturnSessionOptions {
-            process_id: arguments.process_id_return_session,
-            thread_id: arguments.thread_id_return_session,
-            tick_count: arguments.tick_count_return_session,
-            performance_counter: arguments.performance_counter_return_session,
-            startup_info: arguments.startup_info_return_session,
-            heap_set_information: arguments.heap_set_information_return_session,
-            heap_create: arguments.heap_create_return_session,
-            get_module_handle_w: arguments.get_module_handle_w_return_session,
-            get_proc_address: arguments.get_proc_address_return_session,
-            get_proc_address_second: arguments.get_proc_address_second_return_session,
-            get_proc_address_third: arguments.get_proc_address_third_return_session,
-            get_proc_address_fourth: arguments.get_proc_address_fourth_return_session,
-            tls_alloc: arguments.tls_alloc_return_session,
-            tls_set_value: arguments.tls_set_value_return_session,
-            encode_pointer: arguments.encode_pointer_return_session,
-            encode_pointer_second: arguments.encode_pointer_second_return_session,
+            supported_call_count,
             dynamic_export_thunks: &dynamic_export_thunks,
         };
         run_v86_system_time_delta_session(
             &mut protocol_input,
             &mut memory,
+            &mut runtime,
             &binding,
             reflection_message_limit,
             return_sessions,
@@ -1919,6 +1937,7 @@ fn validate_v86_reflection_ack(
 fn run_v86_system_time_delta_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions,
@@ -1970,9 +1989,20 @@ fn run_v86_system_time_delta_session(
             "system-time write request does not match the declared GetSystemTimeAsFileTime thunk",
         ));
     }
+    let contract =
+        get_system_time_as_file_time_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+            .map_err(api_fault)?;
 
-    let file_time_ticks =
+    let reported_file_time =
         (u64::from(request.file_time_high) << 32) | u64::from(request.file_time_low);
+    let file_time_ticks = runtime.clock().wall_clock_file_time;
+    if reported_file_time != file_time_ticks {
+        return Err(LoaderError::invalid_input(
+            "win32-system-time",
+            "system-time-evidence-runtime-mismatch",
+            "system-time request evidence does not match the Rust runtime clock",
+        ));
+    }
     let file_time_bytes = file_time_ticks.to_le_bytes();
     let (stack_reconciliation, write, delta) = {
         let mut transaction = memory.begin_transaction();
@@ -1985,17 +2015,41 @@ fn run_v86_system_time_delta_session(
             )
             .map_err(memory_error)?;
 
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[request.output_address],
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
         )?;
-
-        let write = transaction
-            .write(GuestAddress(request.output_address), &file_time_bytes)
-            .map_err(memory_error)?;
+        if completion.eax != RegisterUpdate::Preserve
+            || completion.frame.argument_u32(0) != Some(request.output_address)
+        {
+            return Err(LoaderError::runtime_defect(
+                "api-dispatch",
+                "system-time-completion-invalid",
+                "GetSystemTimeAsFileTime dispatcher did not preserve EAX and decode its output",
+            ));
+        }
+        let write = completion
+            .guest_writes
+            .first()
+            .filter(|_| completion.guest_writes.len() == 1)
+            .map(|receipt| receipt.result)
+            .ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "api-dispatch",
+                    "system-time-write-receipt-invalid",
+                    "GetSystemTimeAsFileTime dispatcher did not produce one guest write",
+                )
+            })?;
         let delta = transaction.pending_delta().map_err(memory_error)?;
         if delta.from_generation != request.reflected_generation
             || delta.dirty_pages.len() != 1
@@ -2077,8 +2131,15 @@ fn run_v86_system_time_delta_session(
         },
         message_limit,
     )?;
-    if return_sessions.process_id {
-        run_v86_process_id_return_session(input, memory, binding, message_limit, return_sessions)?;
+    if return_sessions.includes(2) {
+        run_v86_process_id_return_session(
+            input,
+            memory,
+            runtime,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
     }
     Ok(())
 }
@@ -2086,6 +2147,7 @@ fn run_v86_system_time_delta_session(
 fn run_v86_process_id_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions,
@@ -2118,34 +2180,18 @@ fn run_v86_process_id_return_session(
             "controlled process identity requires a nonempty owner and nonzero process ID",
         ));
     }
-    let thunk = binding
-        .thunks
-        .iter()
-        .find(|thunk| thunk.id.0 == request.thunk_id)
-        .ok_or_else(|| {
-            LoaderError::invalid_input(
-                "thunk-dispatch",
-                "process-id-thunk-id-unowned",
-                "process-ID request does not name an owned import thunk",
-            )
-        })?
-        .clone();
-    if thunk.address.0 != request.thunk_address
-        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
-        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
-        || !matches!(
-            &thunk.target,
-            ImportTarget::Name { name, .. } if name == "GetCurrentProcessId"
-        )
-    {
+    if request.process_id != runtime.process_id().0 {
         return Err(LoaderError::invalid_input(
-            "thunk-dispatch",
-            "process-id-thunk-identity-mismatch",
-            "process-ID request does not match the declared GetCurrentProcessId thunk",
+            "win32-process-identity",
+            "process-id-evidence-runtime-mismatch",
+            "process-ID request evidence does not match the Rust runtime process",
         ));
     }
+    let thunk = owned_import_thunk(binding, request.thunk_id)?;
+    let contract = get_current_process_id_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
 
-    let stack_reconciliation = {
+    let (stack_reconciliation, completion) = {
         let mut transaction = memory.begin_transaction();
         let reconciliation = transaction
             .reconcile_reflected_page(
@@ -2155,16 +2201,35 @@ fn run_v86_process_id_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[],
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
         )?;
+        if !completion.frame.arguments.is_empty() {
+            return Err(LoaderError::runtime_defect(
+                "api-dispatch",
+                "process-id-frame-shape-invalid",
+                "GetCurrentProcessId dispatcher frame unexpectedly contains arguments",
+            ));
+        }
         transaction.commit_transaction();
-        reconciliation
+        (reconciliation, completion)
     };
+    let process_id = set_eax_result(
+        &completion,
+        "process-id-return-register-invalid",
+        "GetCurrentProcessId dispatcher did not set EAX",
+    )?;
 
     write_protocol_message(
         &V86ProcessIdReturnReceipt {
@@ -2176,14 +2241,21 @@ fn run_v86_process_id_return_session(
             stack_pointer: GuestAddress(request.stack_pointer),
             return_address: GuestAddress(request.return_address),
             process_identity_owner: request.process_identity_owner,
-            process_id: request.process_id,
+            process_id,
             stack_reconciliation,
             stats: memory.stats(),
         },
         message_limit,
     )?;
-    if return_sessions.thread_id {
-        run_v86_thread_id_return_session(input, memory, binding, message_limit, return_sessions)?;
+    if return_sessions.includes(3) {
+        run_v86_thread_id_return_session(
+            input,
+            memory,
+            runtime,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
     }
     Ok(())
 }
@@ -2191,6 +2263,7 @@ fn run_v86_process_id_return_session(
 fn run_v86_thread_id_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions,
@@ -2223,6 +2296,14 @@ fn run_v86_thread_id_return_session(
             "controlled thread identity requires a nonempty owner and nonzero thread ID",
         ));
     }
+    let thread_id = runtime.current_thread_id().0;
+    if request.thread_id != thread_id {
+        return Err(LoaderError::invalid_input(
+            "win32-thread-identity",
+            "thread-id-evidence-runtime-mismatch",
+            "thread-ID request evidence does not match the Rust runtime scheduler",
+        ));
+    }
     let thunk = binding
         .thunks
         .iter()
@@ -2249,8 +2330,10 @@ fn run_v86_thread_id_return_session(
             "thread-ID request does not match the declared GetCurrentThreadId thunk",
         ));
     }
+    let contract = get_current_thread_id_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
 
-    let stack_reconciliation = {
+    let (stack_reconciliation, dispatched_thread_id) = {
         let mut transaction = memory.begin_transaction();
         let reconciliation = transaction
             .reconcile_reflected_page(
@@ -2260,16 +2343,35 @@ fn run_v86_thread_id_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[],
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let dispatched_thread_id = set_eax_result(
+            &completion,
+            "thread-id-return-register-invalid",
+            "GetCurrentThreadId dispatcher did not set EAX",
         )?;
         transaction.commit_transaction();
-        reconciliation
+        (reconciliation, dispatched_thread_id)
     };
+    if dispatched_thread_id != thread_id {
+        return Err(LoaderError::runtime_defect(
+            "api-dispatch",
+            "thread-id-runtime-result-mismatch",
+            "GetCurrentThreadId dispatcher disagreed with the runtime scheduler",
+        ));
+    }
 
     write_protocol_message(
         &V86ThreadIdReturnReceipt {
@@ -2281,14 +2383,21 @@ fn run_v86_thread_id_return_session(
             stack_pointer: GuestAddress(request.stack_pointer),
             return_address: GuestAddress(request.return_address),
             thread_identity_owner: request.thread_identity_owner,
-            thread_id: request.thread_id,
+            thread_id: dispatched_thread_id,
             stack_reconciliation,
             stats: memory.stats(),
         },
         message_limit,
     )?;
-    if return_sessions.tick_count {
-        run_v86_tick_count_return_session(input, memory, binding, message_limit, return_sessions)?;
+    if return_sessions.includes(4) {
+        run_v86_tick_count_return_session(
+            input,
+            memory,
+            runtime,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
     }
     Ok(())
 }
@@ -2296,6 +2405,7 @@ fn run_v86_thread_id_return_session(
 fn run_v86_tick_count_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions,
@@ -2331,6 +2441,14 @@ fn run_v86_tick_count_return_session(
             "controlled tick-count sample requires nonempty clock ownership and sample identities",
         ));
     }
+    let tick_count = runtime.clock().tick_count;
+    if request.tick_count != tick_count {
+        return Err(LoaderError::invalid_input(
+            "win32-monotonic-clock",
+            "tick-count-evidence-runtime-mismatch",
+            "tick-count request evidence does not match the Rust runtime clock",
+        ));
+    }
     let thunk = binding
         .thunks
         .iter()
@@ -2357,8 +2475,10 @@ fn run_v86_tick_count_return_session(
             "tick-count request does not match the declared GetTickCount thunk",
         ));
     }
+    let contract = get_tick_count_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
 
-    let stack_reconciliation = {
+    let (stack_reconciliation, dispatched_tick_count) = {
         let mut transaction = memory.begin_transaction();
         let reconciliation = transaction
             .reconcile_reflected_page(
@@ -2368,16 +2488,35 @@ fn run_v86_tick_count_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[],
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let dispatched_tick_count = set_eax_result(
+            &completion,
+            "tick-count-return-register-invalid",
+            "GetTickCount dispatcher did not set EAX",
         )?;
         transaction.commit_transaction();
-        reconciliation
+        (reconciliation, dispatched_tick_count)
     };
+    if dispatched_tick_count != tick_count {
+        return Err(LoaderError::runtime_defect(
+            "api-dispatch",
+            "tick-count-runtime-result-mismatch",
+            "GetTickCount dispatcher disagreed with the runtime clock",
+        ));
+    }
 
     write_protocol_message(
         &V86TickCountReturnReceipt {
@@ -2391,16 +2530,17 @@ fn run_v86_tick_count_return_session(
             monotonic_clock_owner: request.monotonic_clock_owner,
             sample_id: request.sample_id,
             paired_wall_clock_sample_id: request.paired_wall_clock_sample_id,
-            tick_count: request.tick_count,
+            tick_count: dispatched_tick_count,
             stack_reconciliation,
             stats: memory.stats(),
         },
         message_limit,
     )?;
-    if return_sessions.performance_counter {
+    if return_sessions.includes(5) {
         run_v86_performance_counter_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
@@ -2412,6 +2552,7 @@ fn run_v86_tick_count_return_session(
 fn run_v86_performance_counter_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions,
@@ -2448,34 +2589,20 @@ fn run_v86_performance_counter_return_session(
             "controlled performance-counter sample requires nonempty clock ownership and sample identities",
         ));
     }
-    let thunk = binding
-        .thunks
-        .iter()
-        .find(|thunk| thunk.id.0 == request.thunk_id)
-        .ok_or_else(|| {
-            LoaderError::invalid_input(
-                "thunk-dispatch",
-                "performance-counter-thunk-id-unowned",
-                "performance-counter request does not name an owned import thunk",
-            )
-        })?
-        .clone();
-    if thunk.address.0 != request.thunk_address
-        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
-        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
-        || !matches!(
-            &thunk.target,
-            ImportTarget::Name { name, .. } if name == "QueryPerformanceCounter"
-        )
-    {
+    let thunk = owned_import_thunk(binding, request.thunk_id)?;
+    let contract =
+        query_performance_counter_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+            .map_err(api_fault)?;
+
+    let reported_counter = (u64::from(request.counter_high) << 32) | u64::from(request.counter_low);
+    let counter_ticks = runtime.clock().performance_counter;
+    if reported_counter != counter_ticks {
         return Err(LoaderError::invalid_input(
-            "thunk-dispatch",
-            "performance-counter-thunk-identity-mismatch",
-            "performance-counter request does not match the declared QueryPerformanceCounter thunk",
+            "win32-performance-counter",
+            "performance-counter-evidence-runtime-mismatch",
+            "performance-counter request evidence does not match the Rust runtime clock",
         ));
     }
-
-    let counter_ticks = (u64::from(request.counter_high) << 32) | u64::from(request.counter_low);
     let counter_bytes = counter_ticks.to_le_bytes();
     let (stack_reconciliation, write, delta) = {
         let mut transaction = memory.begin_transaction();
@@ -2487,16 +2614,44 @@ fn run_v86_performance_counter_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[request.output_address],
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
         )?;
-        let write = transaction
-            .write(GuestAddress(request.output_address), &counter_bytes)
-            .map_err(memory_error)?;
+        let write = completion
+            .guest_writes
+            .first()
+            .filter(|_| completion.guest_writes.len() == 1)
+            .map(|receipt| receipt.result)
+            .ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "api-dispatch",
+                    "performance-counter-write-receipt-invalid",
+                    "QueryPerformanceCounter dispatcher did not produce one guest write",
+                )
+            })?;
+        if set_eax_result(
+            &completion,
+            "performance-counter-return-register-invalid",
+            "QueryPerformanceCounter dispatcher did not set EAX",
+        )? != 1
+        {
+            return Err(LoaderError::runtime_defect(
+                "api-dispatch",
+                "performance-counter-result-invalid",
+                "QueryPerformanceCounter dispatcher did not return canonical TRUE",
+            ));
+        }
         let delta = transaction.pending_delta().map_err(memory_error)?;
         if delta.from_generation != request.reflected_generation
             || delta.dirty_pages.len() != 1
@@ -2578,10 +2733,11 @@ fn run_v86_performance_counter_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.startup_info {
+    if return_sessions.includes(6) {
         run_v86_startup_info_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
@@ -2593,6 +2749,7 @@ fn run_v86_performance_counter_return_session(
 fn run_v86_startup_info_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions,
@@ -2628,35 +2785,21 @@ fn run_v86_startup_info_return_session(
             "controlled startup info requires its nonempty owner and exact x86 profile identity",
         ));
     }
-    let thunk = binding
-        .thunks
-        .iter()
-        .find(|thunk| thunk.id.0 == request.thunk_id)
-        .ok_or_else(|| {
-            LoaderError::invalid_input(
-                "thunk-dispatch",
-                "startup-info-thunk-id-unowned",
-                "startup-info write request does not name an owned import thunk",
-            )
-        })?
-        .clone();
-    if thunk.address.0 != request.thunk_address
-        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
-        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
-        || !matches!(
-            &thunk.target,
-            ImportTarget::Name { name, .. } if name == "GetStartupInfoW"
-        )
-    {
-        return Err(LoaderError::invalid_input(
-            "thunk-dispatch",
-            "startup-info-thunk-identity-mismatch",
-            "startup-info write request does not match the declared GetStartupInfoW thunk",
-        ));
-    }
+    let thunk = owned_import_thunk(binding, request.thunk_id)?;
+    let contract = get_startup_info_w_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
 
     let startup_info = X86StartupInfoW::controlled();
-    let output_bytes = startup_info.to_bytes();
+    let output_bytes = runtime.startup_info().bytes.clone();
+    if runtime.startup_info().profile_id != request.profile_id
+        || output_bytes != startup_info.to_bytes()
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-process-startup",
+            "startup-info-evidence-runtime-mismatch",
+            "startup-info request or serializer does not match the Rust runtime startup profile",
+        ));
+    }
     let (stack_reconciliation, write, delta) = {
         let mut transaction = memory.begin_transaction();
         let stack_reconciliation = transaction
@@ -2667,16 +2810,39 @@ fn run_v86_startup_info_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[request.output_address],
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
         )?;
-        let write = transaction
-            .write(GuestAddress(request.output_address), &output_bytes)
-            .map_err(memory_error)?;
+        if completion.eax != RegisterUpdate::Preserve {
+            return Err(LoaderError::runtime_defect(
+                "api-dispatch",
+                "startup-info-return-register-invalid",
+                "GetStartupInfoW dispatcher did not preserve EAX for a VOID return",
+            ));
+        }
+        let write = completion
+            .guest_writes
+            .first()
+            .filter(|_| completion.guest_writes.len() == 1)
+            .map(|receipt| receipt.result)
+            .ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "api-dispatch",
+                    "startup-info-write-receipt-invalid",
+                    "GetStartupInfoW dispatcher did not produce one guest write",
+                )
+            })?;
         let delta = transaction.pending_delta().map_err(memory_error)?;
         if delta.from_generation != request.reflected_generation
             || delta.dirty_pages.len() != 1
@@ -2760,10 +2926,11 @@ fn run_v86_startup_info_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.heap_set_information {
+    if return_sessions.includes(7) {
         run_v86_heap_set_information_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
@@ -2775,6 +2942,7 @@ fn run_v86_startup_info_return_session(
 fn run_v86_heap_set_information_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions,
@@ -2844,8 +3012,11 @@ fn run_v86_heap_set_information_return_session(
             "heap policy request does not match the declared HeapSetInformation thunk",
         ));
     }
+    let contract = heap_set_information_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
 
-    let stack_reconciliation = {
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
+    let (stack_reconciliation, result) = {
         let mut transaction = memory.begin_transaction();
         let reconciliation = transaction
             .reconcile_reflected_page(
@@ -2855,21 +3026,39 @@ fn run_v86_heap_set_information_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[
-                request.heap_handle,
-                request.information_class,
-                request.information_address,
-                request.information_length,
-            ],
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let result = set_eax_result(
+            &completion,
+            "heap-set-information-return-register-invalid",
+            "HeapSetInformation dispatcher did not set EAX",
         )?;
         transaction.commit_transaction();
-        reconciliation
+        (reconciliation, result)
     };
+    let termination_on_corruption_enabled = runtime.process().heap_termination_on_corruption;
+    if !termination_on_corruption_enabled
+        || result != 1
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-heap-policy",
+            "heap-policy-runtime-transition-invalid",
+            "HeapSetInformation did not update process policy while preserving thread LastError",
+        ));
+    }
 
     write_protocol_message(
         &V86HeapSetInformationReturnReceipt {
@@ -2886,16 +3075,23 @@ fn run_v86_heap_set_information_return_session(
             information_class: request.information_class,
             information_address: request.information_address,
             information_length: request.information_length,
-            termination_on_corruption_enabled: true,
+            termination_on_corruption_enabled,
             preserve_last_error: request.preserve_last_error,
-            result: 1,
+            result,
             stack_reconciliation,
             stats: memory.stats(),
         },
         message_limit,
     )?;
-    if return_sessions.heap_create {
-        run_v86_heap_create_return_session(input, memory, binding, message_limit, return_sessions)?;
+    if return_sessions.includes(8) {
+        run_v86_heap_create_return_session(
+            input,
+            memory,
+            runtime,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
     }
     Ok(())
 }
@@ -2903,6 +3099,7 @@ fn run_v86_heap_set_information_return_session(
 fn run_v86_heap_create_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions,
@@ -2970,8 +3167,19 @@ fn run_v86_heap_create_return_session(
             "private heap request does not match the declared HeapCreate thunk",
         ));
     }
+    let contract =
+        heap_create_contract(ApiEndpointIdentity::from_import_thunk(&thunk)).map_err(api_fault)?;
 
-    let stack_reconciliation = {
+    if !runtime.process().heap_termination_on_corruption {
+        return Err(LoaderError::invalid_input(
+            "win32-private-heap",
+            "heap-policy-runtime-state-missing",
+            "private heap creation requires the earlier process heap policy transition",
+        ));
+    }
+    let logical_handle = X86LogicalHeapHandle::first_private_heap();
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
+    let (stack_reconciliation, result) = {
         let mut transaction = memory.begin_transaction();
         let reconciliation = transaction
             .reconcile_reflected_page(
@@ -2981,35 +3189,52 @@ fn run_v86_heap_create_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[
-                request.creation_flags,
-                request.initial_size,
-                request.maximum_size,
-            ],
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let result = set_eax_result(
+            &completion,
+            "heap-create-return-register-invalid",
+            "HeapCreate dispatcher did not set EAX",
         )?;
         transaction.commit_transaction();
-        reconciliation
+        (reconciliation, result)
     };
+    let runtime_heap = runtime.heap(result).map_err(runtime_state_error)?.clone();
+    if result != logical_handle.value
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-private-heap",
+            "heap-create-last-error-changed",
+            "logical heap creation changed the current thread LastError",
+        ));
+    }
 
     let logical_heap = X86LogicalHeap {
         owner: request.heap_state_owner,
         variant_id: request.variant_id,
-        handle: X86LogicalHeapHandle::first_private_heap(),
+        handle: logical_handle,
         kind: "private-heap",
         lifecycle: "active",
-        creation_flags: request.creation_flags,
-        initial_size: request.initial_size,
-        maximum_size: request.maximum_size,
-        growable: true,
+        creation_flags: runtime_heap.creation_flags,
+        initial_size: runtime_heap.initial_size,
+        maximum_size: runtime_heap.maximum_size,
+        growable: runtime_heap.growable,
         backing_materialization: "deferred-until-first-reached-heap-operation",
-        live_allocations: 0,
+        live_allocations: runtime_heap.live_allocations,
     };
-    let result = logical_heap.handle.value;
     write_protocol_message(
         &V86HeapCreateReturnReceipt {
             schema: "vine.v86-heap-create-return-receipt",
@@ -3027,10 +3252,11 @@ fn run_v86_heap_create_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.get_module_handle_w {
+    if return_sessions.includes(9) {
         run_v86_get_module_handle_w_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
@@ -3042,6 +3268,7 @@ fn run_v86_heap_create_return_session(
 fn run_v86_get_module_handle_w_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions<'_>,
@@ -3110,8 +3337,12 @@ fn run_v86_get_module_handle_w_return_session(
             "loaded-module request does not match the declared GetModuleHandleW thunk",
         ));
     }
+    let contract = get_module_handle_w_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
 
-    let (stack_reconciliation, observed_name, module_name_utf16_bytes) = {
+    let logical_handle = X86LogicalLoadedModuleHandle::kernel32();
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
+    let (stack_reconciliation, module_name_utf16_bytes, result) = {
         let mut transaction = memory.begin_transaction();
         let reconciliation = transaction
             .reconcile_reflected_page(
@@ -3121,13 +3352,7 @@ fn run_v86_get_module_handle_w_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[request.module_name_address],
-        )?;
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
         let (observed_name, utf16_bytes) =
             read_bounded_utf16_nul(&transaction, GuestAddress(request.module_name_address), 64)?;
         if observed_name != request.module_name
@@ -3139,17 +3364,45 @@ fn run_v86_get_module_handle_w_return_session(
                 "guest UTF-16 module name does not identify the controlled KERNEL32.dll module",
             ));
         }
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let result = set_eax_result(
+            &completion,
+            "get-module-handle-w-return-register-invalid",
+            "GetModuleHandleW dispatcher did not set EAX",
+        )?;
         transaction.commit_transaction();
-        (reconciliation, observed_name, utf16_bytes)
+        (reconciliation, utf16_bytes, result)
     };
+    let runtime_module = runtime.module(result).map_err(runtime_state_error)?.clone();
+    if result != logical_handle.value
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-loaded-module",
+            "module-lookup-last-error-changed",
+            "logical module lookup changed the current thread LastError",
+        ));
+    }
 
     let logical_module = X86LogicalLoadedModule {
         owner: request.loaded_module_owner,
         variant_id: request.variant_id,
-        handle: X86LogicalLoadedModuleHandle::kernel32(),
+        handle: logical_handle,
         kind: "loaded-module",
         lifecycle: "loaded",
-        requested_name: observed_name,
+        requested_name: runtime_module.requested_name,
         canonical_name: CANONICAL_NAME,
         name_match: "unicode-case-insensitive-basename",
         module_role: "runtime-system-module",
@@ -3157,7 +3410,6 @@ fn run_v86_get_module_handle_w_return_session(
         guest_image_materialization: "not-present",
         export_resolution: "deferred-until-first-reached-getprocaddress",
     };
-    let result = logical_module.handle.value;
     write_protocol_message(
         &V86GetModuleHandleWReturnReceipt {
             schema: "vine.v86-get-module-handle-w-return-receipt",
@@ -3177,10 +3429,11 @@ fn run_v86_get_module_handle_w_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.get_proc_address {
+    if return_sessions.includes(10) {
         run_v86_get_proc_address_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
@@ -3192,6 +3445,7 @@ fn run_v86_get_module_handle_w_return_session(
 fn run_v86_get_proc_address_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions<'_>,
@@ -3273,6 +3527,8 @@ fn run_v86_get_proc_address_return_session(
             "dynamic-export request does not match the declared GetProcAddress thunk",
         ));
     }
+    let contract = get_proc_address_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
     if endpoint.id.0 != 1
         || endpoint.address.0 != 0x7f02_0000
         || !endpoint.module.eq_ignore_ascii_case(CANONICAL_MODULE)
@@ -3286,8 +3542,10 @@ fn run_v86_get_proc_address_return_session(
             "installed dynamic-export endpoint does not match the controlled FlsAlloc identity",
         ));
     }
+    let runtime_endpoint = runtime_dynamic_endpoint(runtime, request.module_handle, endpoint)?;
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
 
-    let (stack_reconciliation, observed_name, procedure_name_bytes) = {
+    let (stack_reconciliation, observed_name, procedure_name_bytes, result) = {
         let mut transaction = memory.begin_transaction();
         let reconciliation = transaction
             .reconcile_reflected_page(
@@ -3317,11 +3575,37 @@ fn run_v86_get_proc_address_return_session(
                 "guest ASCII export name does not identify the controlled FlsAlloc endpoint",
             ));
         }
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let result = set_eax_result(
+            &completion,
+            "get-proc-address-return-register-invalid",
+            "GetProcAddress dispatcher did not set EAX",
+        )?;
         transaction.commit_transaction();
-        (reconciliation, observed_name, ascii_bytes)
+        (reconciliation, observed_name, ascii_bytes, result)
     };
+    if result != runtime_endpoint.address.0
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-dynamic-export",
+            "get-proc-address-last-error-changed",
+            "dynamic export lookup changed the current thread LastError",
+        ));
+    }
 
-    let result = endpoint.address.0;
     write_protocol_message(
         &V86GetProcAddressReturnReceipt {
             schema: "vine.v86-get-proc-address-return-receipt",
@@ -3354,10 +3638,11 @@ fn run_v86_get_proc_address_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.get_proc_address_second {
+    if return_sessions.includes(11) {
         run_v86_get_proc_address_second_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
@@ -3369,6 +3654,7 @@ fn run_v86_get_proc_address_return_session(
 fn run_v86_get_proc_address_second_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions<'_>,
@@ -3400,9 +3686,8 @@ fn run_v86_get_proc_address_second_return_session(
                 "second GetProcAddress return session has no second callable endpoint",
             )
         })?;
-    let expected_endpoint_count = 2
-        + usize::from(return_sessions.get_proc_address_third)
-        + usize::from(return_sessions.get_proc_address_fourth);
+    let expected_endpoint_count =
+        2 + usize::from(return_sessions.includes(12)) + usize::from(return_sessions.includes(13));
     if return_sessions.dynamic_export_thunks.len() != expected_endpoint_count
         || first_endpoint.id.0 != 1
         || first_endpoint.address.0 != 0x7f02_0000
@@ -3499,6 +3784,12 @@ fn run_v86_get_proc_address_second_return_session(
             "second dynamic-export request does not match the declared GetProcAddress thunk or live ESI target",
         ));
     }
+    let contract = get_proc_address_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
+    let runtime_first_endpoint =
+        runtime_dynamic_endpoint(runtime, request.module_handle, first_endpoint)?;
+    let runtime_endpoint = runtime_dynamic_endpoint(runtime, request.module_handle, endpoint)?;
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
 
     let (
         stack_reconciliation,
@@ -3506,6 +3797,7 @@ fn run_v86_get_proc_address_second_return_session(
         observed_name,
         procedure_name_bytes,
         first_endpoint_store_value,
+        result,
     ) = {
         let mut transaction = memory.begin_transaction();
         let stack_reconciliation = transaction
@@ -3553,13 +3845,31 @@ fn run_v86_get_proc_address_second_return_session(
                     "checked first endpoint store did not contain four bytes",
                 )
             })?);
-        if first_endpoint_store_value != first_endpoint.address.0 {
+        if first_endpoint_store_value != runtime_first_endpoint.address.0 {
             return Err(LoaderError::invalid_input(
                 "win32-dynamic-export",
                 "first-endpoint-store-value-mismatch",
                 "BGI did not preserve the first dynamic-export endpoint before the second lookup",
             ));
         }
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let result = set_eax_result(
+            &completion,
+            "get-proc-address-second-return-register-invalid",
+            "second GetProcAddress dispatcher did not set EAX",
+        )?;
         transaction.commit_transaction();
         (
             stack_reconciliation,
@@ -3567,10 +3877,19 @@ fn run_v86_get_proc_address_second_return_session(
             observed_name,
             ascii_bytes,
             first_endpoint_store_value,
+            result,
         )
     };
+    if result != runtime_endpoint.address.0
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-dynamic-export",
+            "get-proc-address-second-last-error-changed",
+            "second dynamic export lookup changed the current thread LastError",
+        ));
+    }
 
-    let result = endpoint.address.0;
     write_protocol_message(
         &V86GetProcAddressSecondReturnReceipt {
             schema: "vine.v86-get-proc-address-second-return-receipt",
@@ -3609,10 +3928,11 @@ fn run_v86_get_proc_address_second_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.get_proc_address_third {
+    if return_sessions.includes(12) {
         run_v86_get_proc_address_third_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
@@ -3624,6 +3944,7 @@ fn run_v86_get_proc_address_second_return_session(
 fn run_v86_get_proc_address_third_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions<'_>,
@@ -3672,7 +3993,7 @@ fn run_v86_get_proc_address_third_return_session(
         (3, 0x7f02_0020, PROCEDURE_NAME),
     ];
     let expected_endpoint_count =
-        expected_endpoints.len() + usize::from(return_sessions.get_proc_address_fourth);
+        expected_endpoints.len() + usize::from(return_sessions.includes(13));
     if return_sessions.dynamic_export_thunks.len() != expected_endpoint_count
         || return_sessions
             .dynamic_export_thunks
@@ -3771,6 +4092,14 @@ fn run_v86_get_proc_address_third_return_session(
             "third dynamic-export request does not match the declared GetProcAddress thunk or live ESI target",
         ));
     }
+    let contract = get_proc_address_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
+    let runtime_first_endpoint =
+        runtime_dynamic_endpoint(runtime, request.module_handle, first_endpoint)?;
+    let runtime_second_endpoint =
+        runtime_dynamic_endpoint(runtime, request.module_handle, second_endpoint)?;
+    let runtime_endpoint = runtime_dynamic_endpoint(runtime, request.module_handle, endpoint)?;
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
 
     let (
         stack_reconciliation,
@@ -3779,6 +4108,7 @@ fn run_v86_get_proc_address_third_return_session(
         procedure_name_bytes,
         first_endpoint_store_value,
         second_endpoint_store_value,
+        result,
     ) = {
         let mut transaction = memory.begin_transaction();
         let stack_reconciliation = transaction
@@ -3834,8 +4164,8 @@ fn run_v86_get_proc_address_third_return_session(
             read_stored_endpoint(request.first_endpoint_store_address, "first")?;
         let second_endpoint_store_value =
             read_stored_endpoint(request.second_endpoint_store_address, "second")?;
-        if first_endpoint_store_value != first_endpoint.address.0
-            || second_endpoint_store_value != second_endpoint.address.0
+        if first_endpoint_store_value != runtime_first_endpoint.address.0
+            || second_endpoint_store_value != runtime_second_endpoint.address.0
         {
             return Err(LoaderError::invalid_input(
                 "win32-dynamic-export",
@@ -3843,6 +4173,24 @@ fn run_v86_get_proc_address_third_return_session(
                 "BGI did not preserve the first two dynamic-export endpoints before the third lookup",
             ));
         }
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let result = set_eax_result(
+            &completion,
+            "get-proc-address-third-return-register-invalid",
+            "third GetProcAddress dispatcher did not set EAX",
+        )?;
         transaction.commit_transaction();
         (
             stack_reconciliation,
@@ -3851,10 +4199,19 @@ fn run_v86_get_proc_address_third_return_session(
             ascii_bytes,
             first_endpoint_store_value,
             second_endpoint_store_value,
+            result,
         )
     };
+    if result != runtime_endpoint.address.0
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-dynamic-export",
+            "get-proc-address-third-last-error-changed",
+            "third dynamic export lookup changed the current thread LastError",
+        ));
+    }
 
-    let result = endpoint.address.0;
     write_protocol_message(
         &V86GetProcAddressThirdReturnReceipt {
             schema: "vine.v86-get-proc-address-third-return-receipt",
@@ -3896,10 +4253,11 @@ fn run_v86_get_proc_address_third_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.get_proc_address_fourth {
+    if return_sessions.includes(13) {
         run_v86_get_proc_address_fourth_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
@@ -3911,6 +4269,7 @@ fn run_v86_get_proc_address_third_return_session(
 fn run_v86_get_proc_address_fourth_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions<'_>,
@@ -3982,7 +4341,6 @@ fn run_v86_get_proc_address_fourth_return_session(
             "installed dynamic-export endpoints do not preserve the controlled FLS identity quadruple",
         ));
     }
-
     let request: V86GetProcAddressFourthReturnRequest = read_protocol_message(
         input,
         96 * 1024,
@@ -4058,6 +4416,16 @@ fn run_v86_get_proc_address_fourth_return_session(
             "fourth dynamic-export request does not match the declared GetProcAddress thunk or live ESI target",
         ));
     }
+    let contract = get_proc_address_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
+    let runtime_first_endpoint =
+        runtime_dynamic_endpoint(runtime, request.module_handle, first_endpoint)?;
+    let runtime_second_endpoint =
+        runtime_dynamic_endpoint(runtime, request.module_handle, second_endpoint)?;
+    let runtime_third_endpoint =
+        runtime_dynamic_endpoint(runtime, request.module_handle, third_endpoint)?;
+    let runtime_endpoint = runtime_dynamic_endpoint(runtime, request.module_handle, endpoint)?;
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
 
     let (
         stack_reconciliation,
@@ -4067,6 +4435,7 @@ fn run_v86_get_proc_address_fourth_return_session(
         first_endpoint_store_value,
         second_endpoint_store_value,
         third_endpoint_store_value,
+        result,
     ) = {
         let mut transaction = memory.begin_transaction();
         let stack_reconciliation = transaction
@@ -4124,9 +4493,9 @@ fn run_v86_get_proc_address_fourth_return_session(
             read_stored_endpoint(request.second_endpoint_store_address, "second")?;
         let third_endpoint_store_value =
             read_stored_endpoint(request.third_endpoint_store_address, "third")?;
-        if first_endpoint_store_value != first_endpoint.address.0
-            || second_endpoint_store_value != second_endpoint.address.0
-            || third_endpoint_store_value != third_endpoint.address.0
+        if first_endpoint_store_value != runtime_first_endpoint.address.0
+            || second_endpoint_store_value != runtime_second_endpoint.address.0
+            || third_endpoint_store_value != runtime_third_endpoint.address.0
         {
             return Err(LoaderError::invalid_input(
                 "win32-dynamic-export",
@@ -4134,6 +4503,24 @@ fn run_v86_get_proc_address_fourth_return_session(
                 "BGI did not preserve the first three dynamic-export endpoints before the fourth lookup",
             ));
         }
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let result = set_eax_result(
+            &completion,
+            "get-proc-address-fourth-return-register-invalid",
+            "fourth GetProcAddress dispatcher did not set EAX",
+        )?;
         transaction.commit_transaction();
         (
             stack_reconciliation,
@@ -4143,10 +4530,19 @@ fn run_v86_get_proc_address_fourth_return_session(
             first_endpoint_store_value,
             second_endpoint_store_value,
             third_endpoint_store_value,
+            result,
         )
     };
+    if result != runtime_endpoint.address.0
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-dynamic-export",
+            "get-proc-address-fourth-last-error-changed",
+            "fourth dynamic export lookup changed the current thread LastError",
+        ));
+    }
 
-    let result = endpoint.address.0;
     write_protocol_message(
         &V86GetProcAddressFourthReturnReceipt {
             schema: "vine.v86-get-proc-address-fourth-return-receipt",
@@ -4191,8 +4587,15 @@ fn run_v86_get_proc_address_fourth_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.tls_alloc {
-        run_v86_tls_alloc_return_session(input, memory, binding, message_limit, return_sessions)?;
+    if return_sessions.includes(14) {
+        run_v86_tls_alloc_return_session(
+            input,
+            memory,
+            runtime,
+            binding,
+            message_limit,
+            return_sessions,
+        )?;
     }
     Ok(())
 }
@@ -4200,6 +4603,7 @@ fn run_v86_get_proc_address_fourth_return_session(
 fn run_v86_tls_alloc_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions<'_>,
@@ -4249,6 +4653,11 @@ fn run_v86_tls_alloc_return_session(
             "TlsAlloc return session did not retain the controlled FLS identity quadruple",
         ));
     }
+    let module_handle = X86LogicalLoadedModuleHandle::kernel32().value;
+    let runtime_endpoints = endpoints
+        .iter()
+        .map(|endpoint| runtime_dynamic_endpoint(runtime, module_handle, endpoint))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let request: V86TlsAllocReturnRequest = read_protocol_message(
         input,
@@ -4272,10 +4681,10 @@ fn run_v86_tls_alloc_return_session(
         ));
     }
     let expected_addresses = [
-        endpoints[0].address.0,
-        endpoints[1].address.0,
-        endpoints[2].address.0,
-        endpoints[3].address.0,
+        runtime_endpoints[0].address.0,
+        runtime_endpoints[1].address.0,
+        runtime_endpoints[2].address.0,
+        runtime_endpoints[3].address.0,
     ];
     if request.tls_state_owner != OWNER_ID
         || request.variant_id != VARIANT_ID
@@ -4326,7 +4735,10 @@ fn run_v86_tls_alloc_return_session(
             "TLS allocation request does not match the declared TlsAlloc thunk",
         ));
     }
+    let contract =
+        tls_alloc_contract(ApiEndpointIdentity::from_import_thunk(&thunk)).map_err(api_fault)?;
 
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
     let (
         stack_reconciliation,
         endpoint_store_reconciliation,
@@ -4334,6 +4746,7 @@ fn run_v86_tls_alloc_return_session(
         second_endpoint_store_value,
         third_endpoint_store_value,
         fourth_endpoint_store_value,
+        logical_index,
     ) = {
         let mut transaction = memory.begin_transaction();
         let stack_reconciliation = transaction
@@ -4352,13 +4765,7 @@ fn run_v86_tls_alloc_return_session(
                 &request.endpoint_store_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[],
-        )?;
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
         let read_stored_endpoint =
             |address: u32, label: &'static str| -> Result<u32, LoaderError> {
                 let stored_bytes = transaction
@@ -4395,6 +4802,31 @@ fn run_v86_tls_alloc_return_session(
                 "BGI did not preserve all four dynamic-export endpoints before TlsAlloc",
             ));
         }
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let logical_index = set_eax_result(
+            &completion,
+            "tls-alloc-return-register-invalid",
+            "TlsAlloc dispatcher did not set EAX",
+        )?;
+        if logical_index != request.logical_index {
+            return Err(LoaderError::runtime_defect(
+                "win32-thread-local-storage",
+                "tls-index-runtime-allocation-mismatch",
+                "Rust runtime TLS allocation did not produce the evidenced logical index",
+            ));
+        }
         transaction.commit_transaction();
         (
             stack_reconciliation,
@@ -4403,8 +4835,16 @@ fn run_v86_tls_alloc_return_session(
             second_endpoint_store_value,
             third_endpoint_store_value,
             fourth_endpoint_store_value,
+            logical_index,
         )
     };
+    if runtime.current_last_error().map_err(runtime_state_error)? != last_error_before {
+        return Err(LoaderError::runtime_defect(
+            "win32-thread-local-storage",
+            "tls-alloc-last-error-changed",
+            "logical TLS allocation changed the current thread LastError",
+        ));
+    }
 
     let mut logical_tls_slot = X86LogicalTlsSlot {
         owner: request.tls_state_owner,
@@ -4412,10 +4852,10 @@ fn run_v86_tls_alloc_return_session(
         index: X86LogicalTlsIndex::first(),
         lifecycle: "allocated",
         storage_scope: "thread",
-        initialized_thread_values: 0,
+        initialized_thread_values: runtime.initialized_tls_thread_count(logical_index) as u32,
         backing_materialization: "metadata-only-until-first-reached-tls-operation",
     };
-    let result = logical_tls_slot.index.value;
+    let result = logical_index;
     write_protocol_message(
         &V86TlsAllocReturnReceipt {
             schema: "vine.v86-tls-alloc-return-receipt",
@@ -4442,10 +4882,11 @@ fn run_v86_tls_alloc_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.tls_set_value {
+    if return_sessions.includes(15) {
         run_v86_tls_set_value_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
@@ -4458,6 +4899,7 @@ fn run_v86_tls_alloc_return_session(
 fn run_v86_tls_set_value_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions<'_>,
@@ -4466,7 +4908,6 @@ fn run_v86_tls_set_value_return_session(
     const TLS_STATE_OWNER: &str = "checkpoint-thread-local-storage";
     const ALLOCATION_VARIANT_ID: &str = "tlsalloc-first-controlled-index";
     const THREAD_IDENTITY_OWNER: &str = "checkpoint-thread-identity";
-    const CONTROLLED_THREAD_ID: u32 = 8192;
     const VALUE_KIND: &str = "dynamic-export-endpoint";
     const ENDPOINT_STORE_PAGE_ADDRESS: u32 = 0x100f_e000;
     const TLS_INDEX_STORE_ADDRESS: u32 = 0x100f_0764;
@@ -4510,13 +4951,22 @@ fn run_v86_tls_set_value_return_session(
             "TlsSetValue return session did not retain the controlled FLS identity quadruple",
         ));
     }
+    let module_handle = X86LogicalLoadedModuleHandle::kernel32().value;
+    let runtime_endpoints = endpoints
+        .iter()
+        .map(|endpoint| runtime_dynamic_endpoint(runtime, module_handle, endpoint))
+        .collect::<Result<Vec<_>, _>>()?;
     let endpoint_addresses = [
-        endpoints[0].address.0,
-        endpoints[1].address.0,
-        endpoints[2].address.0,
-        endpoints[3].address.0,
+        runtime_endpoints[0].address.0,
+        runtime_endpoints[1].address.0,
+        runtime_endpoints[2].address.0,
+        runtime_endpoints[3].address.0,
     ];
     let value_endpoint = &endpoints[1];
+    let runtime_value_endpoint = &runtime_endpoints[1];
+    let initialized_thread_values =
+        runtime.initialized_tls_thread_count(logical_tls_slot.index.value) as u32;
+    let current_thread_id = runtime.current_thread_id().0;
 
     let request: V86TlsSetValueReturnRequest = read_protocol_message(
         input,
@@ -4545,18 +4995,18 @@ fn run_v86_tls_set_value_return_session(
         || logical_tls_slot.index.value != X86LogicalTlsIndex::FIRST_INDEX
         || logical_tls_slot.lifecycle != "allocated"
         || logical_tls_slot.storage_scope != "thread"
-        || logical_tls_slot.initialized_thread_values != 0
+        || logical_tls_slot.initialized_thread_values != initialized_thread_values
         || request.tls_state_owner != TLS_STATE_OWNER
         || request.allocation_variant_id != ALLOCATION_VARIANT_ID
         || request.logical_index_namespace != X86LogicalTlsIndex::NAMESPACE
         || request.logical_index != logical_tls_slot.index.value
-        || request.expected_initialized_thread_values != 0
+        || request.expected_initialized_thread_values != initialized_thread_values
         || request.thread_identity_owner != THREAD_IDENTITY_OWNER
-        || request.thread_id != CONTROLLED_THREAD_ID
+        || request.thread_id != current_thread_id
         || request.value_kind != VALUE_KIND
-        || request.value_endpoint_namespace != value_endpoint.namespace
-        || request.value_endpoint_id != value_endpoint.id.0
-        || request.value_address != value_endpoint.address.0
+        || request.value_endpoint_namespace != runtime_value_endpoint.namespace
+        || request.value_endpoint_id != runtime_value_endpoint.id
+        || request.value_address != runtime_value_endpoint.address.0
         || request.endpoint_store_addresses != ENDPOINT_STORE_ADDRESSES
         || request.endpoint_addresses != endpoint_addresses
         || request.endpoint_store_page_address != ENDPOINT_STORE_PAGE_ADDRESS
@@ -4573,38 +5023,18 @@ fn run_v86_tls_set_value_return_session(
         ));
     }
 
-    let thunk = binding
-        .thunks
-        .iter()
-        .find(|thunk| thunk.id.0 == request.thunk_id)
-        .ok_or_else(|| {
-            LoaderError::invalid_input(
-                "thunk-dispatch",
-                "tls-set-value-thunk-id-unowned",
-                "TLS value request does not name an owned import thunk",
-            )
-        })?
-        .clone();
-    if thunk.address.0 != request.thunk_address
-        || request.indirect_call_register != "esi"
-        || request.indirect_call_target != thunk.address.0
-        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
-        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
-        || !matches!(&thunk.target, ImportTarget::Name { name, .. } if name == "TlsSetValue")
-    {
-        return Err(LoaderError::invalid_input(
-            "thunk-dispatch",
-            "tls-set-value-thunk-identity-mismatch",
-            "TLS value request does not match the declared TlsSetValue thunk",
-        ));
-    }
+    let thunk = owned_import_thunk(binding, request.thunk_id)?;
+    let contract = tls_set_value_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
 
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
     let (
         stack_reconciliation,
         endpoint_store_reconciliation,
         tls_index_store_reconciliation,
         endpoint_store_values,
         tls_index_store_value,
+        result,
     ) = {
         let mut transaction = memory.begin_transaction();
         let stack_reconciliation = transaction
@@ -4631,12 +5061,10 @@ fn run_v86_tls_set_value_return_session(
                 &request.tls_index_store_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_esi_iat_frame(
+        validate_esi_iat_callsite(
             &transaction,
             &thunk,
-            request.stack_pointer,
             request.return_address,
-            &[request.logical_index, request.value_address],
             &request.indirect_call_register,
             request.indirect_call_target,
         )?;
@@ -4679,6 +5107,31 @@ fn run_v86_tls_set_value_return_session(
                 "BGI did not preserve the allocated logical TLS index before TlsSetValue",
             ));
         }
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let result = set_eax_result(
+            &completion,
+            "tls-set-value-return-register-invalid",
+            "TlsSetValue dispatcher did not set EAX",
+        )?;
+        if result != 1 {
+            return Err(LoaderError::runtime_defect(
+                "api-dispatch",
+                "tls-set-value-result-invalid",
+                "TlsSetValue dispatcher did not return canonical TRUE",
+            ));
+        }
         transaction.commit_transaction();
         (
             stack_reconciliation,
@@ -4686,15 +5139,34 @@ fn run_v86_tls_set_value_return_session(
             tls_index_store_reconciliation,
             endpoint_store_values,
             tls_index_store_value,
+            result,
         )
     };
+    let runtime_tls_value = runtime
+        .tls_value(request.logical_index)
+        .map_err(runtime_state_error)?
+        .clone();
+    if runtime_tls_value
+        != (RuntimeTlsValue::DynamicEndpoint {
+            endpoint_id: runtime_value_endpoint.id,
+            address: runtime_value_endpoint.address,
+        })
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-thread-local-storage",
+            "tls-set-value-runtime-transition-invalid",
+            "TlsSetValue did not update initial-thread TLS metadata while preserving LastError",
+        ));
+    }
 
     let logical_tls_slot_before = logical_tls_slot.clone();
-    logical_tls_slot.initialized_thread_values = 1;
+    logical_tls_slot.initialized_thread_values =
+        runtime.initialized_tls_thread_count(request.logical_index) as u32;
     logical_tls_slot.backing_materialization = "initial-thread-value-metadata";
     let thread_value = X86LogicalTlsThreadValue {
         thread_identity_owner: request.thread_identity_owner,
-        thread_id: request.thread_id,
+        thread_id: current_thread_id,
         index_namespace: X86LogicalTlsIndex::NAMESPACE,
         index: request.logical_index,
         value_kind: VALUE_KIND,
@@ -4714,7 +5186,7 @@ fn run_v86_tls_set_value_return_session(
             logical_tls_slot_after: logical_tls_slot.clone(),
             thread_value: thread_value.clone(),
             preserve_last_error: request.preserve_last_error,
-            result: 1,
+            result,
             endpoint_store_addresses: ENDPOINT_STORE_ADDRESSES.map(GuestAddress),
             endpoint_store_values,
             tls_index_store_address: GuestAddress(request.tls_index_store_address),
@@ -4726,15 +5198,18 @@ fn run_v86_tls_set_value_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.encode_pointer {
+    if return_sessions.includes(16) {
         run_v86_encode_pointer_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
             return_sessions,
-            logical_tls_slot,
-            &thread_value,
+            X86TlsEvidenceState {
+                slot: logical_tls_slot,
+                thread_value: &thread_value,
+            },
         )?;
     }
     Ok(())
@@ -4743,14 +5218,36 @@ fn run_v86_tls_set_value_return_session(
 fn run_v86_encode_pointer_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
     return_sessions: V86ReturnSessionOptions<'_>,
-    logical_tls_slot: &X86LogicalTlsSlot,
-    tls_thread_value: &X86LogicalTlsThreadValue,
+    tls_evidence: X86TlsEvidenceState<'_>,
 ) -> Result<(), LoaderError> {
     const OWNER_ID: &str = "checkpoint-pointer-encoding";
     const VARIANT_ID: &str = "encodepointer-null-process-token";
+    let logical_tls_slot = tls_evidence.slot;
+    let tls_thread_value = tls_evidence.thread_value;
+    let runtime_tls_value = runtime
+        .tls_value(logical_tls_slot.index.value)
+        .map_err(runtime_state_error)?;
+    let (runtime_endpoint_id, runtime_endpoint_address) = match runtime_tls_value {
+        RuntimeTlsValue::DynamicEndpoint {
+            endpoint_id,
+            address,
+        } => (*endpoint_id, *address),
+        RuntimeTlsValue::Raw { .. } => {
+            return Err(LoaderError::runtime_defect(
+                "win32-pointer-encoding",
+                "runtime-tls-endpoint-value-missing",
+                "EncodePointer requires the initial thread TLS value to identify a dynamic endpoint",
+            ));
+        }
+    };
+    let runtime_tls_endpoint = runtime
+        .dynamic_endpoint(runtime_endpoint_id)
+        .map_err(runtime_state_error)?;
+    let runtime_thread_id = runtime.current_thread_id().0;
     if logical_tls_slot.owner != "checkpoint-thread-local-storage"
         || logical_tls_slot.variant_id != "tlsalloc-first-controlled-index"
         || logical_tls_slot.index.namespace != X86LogicalTlsIndex::NAMESPACE
@@ -4758,21 +5255,23 @@ fn run_v86_encode_pointer_return_session(
         || logical_tls_slot.index.failure_sentinel != X86LogicalTlsIndex::FAILURE_SENTINEL
         || logical_tls_slot.lifecycle != "allocated"
         || logical_tls_slot.storage_scope != "thread"
-        || logical_tls_slot.initialized_thread_values != 1
+        || logical_tls_slot.initialized_thread_values
+            != runtime.initialized_tls_thread_count(logical_tls_slot.index.value) as u32
         || logical_tls_slot.backing_materialization != "initial-thread-value-metadata"
         || tls_thread_value.thread_identity_owner != "checkpoint-thread-identity"
-        || tls_thread_value.thread_id != 8192
+        || tls_thread_value.thread_id != runtime_thread_id
         || tls_thread_value.index_namespace != X86LogicalTlsIndex::NAMESPACE
         || tls_thread_value.index != logical_tls_slot.index.value
         || tls_thread_value.value_kind != "dynamic-export-endpoint"
         || tls_thread_value.endpoint.namespace != "vine.dynamic-export-endpoint.v1"
-        || tls_thread_value.endpoint.id.0 != 2
-        || tls_thread_value.endpoint.address.0 != 0x7f02_0010
+        || tls_thread_value.endpoint.id.0 != runtime_tls_endpoint.id
+        || tls_thread_value.endpoint.address != runtime_endpoint_address
         || !tls_thread_value
             .endpoint
             .module
             .eq_ignore_ascii_case("kernel32.dll")
         || tls_thread_value.endpoint.name != "FlsGetValue"
+        || tls_thread_value.endpoint.name != runtime_tls_endpoint.name
         || tls_thread_value.endpoint.lifetime != "process-runtime"
         || !tls_thread_value.endpoint.owner_sealed
         || tls_thread_value.lifecycle != "set"
@@ -4807,11 +5306,11 @@ fn run_v86_encode_pointer_return_session(
     }
     if request.pointer_encoding_owner != OWNER_ID
         || request.variant_id != VARIANT_ID
-        || request.encoded_pointer_namespace != X86LogicalEncodedPointer::NAMESPACE
+        || request.encoded_pointer_namespace != runtime.encoded_pointer_namespace()
         || request.encoded_pointer_value != X86LogicalEncodedPointer::ENCODED_NULL
         || request.expected_tls_index != logical_tls_slot.index.value
-        || request.expected_tls_thread_id != tls_thread_value.thread_id
-        || request.expected_tls_value_endpoint != tls_thread_value.endpoint.address.0
+        || request.expected_tls_thread_id != runtime_thread_id
+        || request.expected_tls_value_endpoint != runtime_endpoint_address.0
         || !request.preserve_last_error
     {
         return Err(LoaderError::invalid_input(
@@ -4821,31 +5320,12 @@ fn run_v86_encode_pointer_return_session(
         ));
     }
 
-    let thunk = binding
-        .thunks
-        .iter()
-        .find(|thunk| thunk.id.0 == request.thunk_id)
-        .ok_or_else(|| {
-            LoaderError::invalid_input(
-                "thunk-dispatch",
-                "encode-pointer-thunk-id-unowned",
-                "pointer encoding request does not name an owned import thunk",
-            )
-        })?
-        .clone();
-    if thunk.address.0 != request.thunk_address
-        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
-        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
-        || !matches!(&thunk.target, ImportTarget::Name { name, .. } if name == "EncodePointer")
-    {
-        return Err(LoaderError::invalid_input(
-            "thunk-dispatch",
-            "encode-pointer-thunk-identity-mismatch",
-            "pointer encoding request does not match the declared EncodePointer thunk",
-        ));
-    }
+    let thunk = owned_import_thunk(binding, request.thunk_id)?;
+    let contract = encode_pointer_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
 
-    let stack_reconciliation = {
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
+    let (stack_reconciliation, result) = {
         let mut transaction = memory.begin_transaction();
         let reconciliation = transaction
             .reconcile_reflected_page(
@@ -4855,29 +5335,61 @@ fn run_v86_encode_pointer_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[request.source_pointer],
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
         )?;
+        let result = set_eax_result(
+            &completion,
+            "encode-pointer-return-register-invalid",
+            "EncodePointer dispatcher did not set EAX",
+        )?;
+        if result != X86LogicalEncodedPointer::ENCODED_NULL {
+            return Err(LoaderError::runtime_defect(
+                "api-dispatch",
+                "encode-pointer-result-invalid",
+                "EncodePointer dispatcher returned the wrong controlled token",
+            ));
+        }
         transaction.commit_transaction();
-        reconciliation
+        (reconciliation, result)
     };
+    let runtime_encoded_pointer = runtime
+        .encoded_pointer_for_source(request.source_pointer)
+        .map_err(runtime_state_error)?;
+    if result != runtime_encoded_pointer.token
+        || request.encoded_pointer_value != runtime_encoded_pointer.token
+        || request.encoded_pointer_namespace != runtime_encoded_pointer.namespace
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-pointer-encoding",
+            "encode-pointer-runtime-transition-invalid",
+            "EncodePointer did not create the evidenced process token while preserving LastError",
+        ));
+    }
 
     let encoded_pointer = X86LogicalEncodedPointer {
         owner: request.pointer_encoding_owner,
         variant_id: request.variant_id,
         namespace: X86LogicalEncodedPointer::NAMESPACE,
-        value: X86LogicalEncodedPointer::ENCODED_NULL,
+        value: result,
         source_kind: "null",
         source_pointer: request.source_pointer,
         lifetime: "process-runtime",
         process_cookie_materialization: "not-imported",
         native_result_imported: false,
     };
-    let result = encoded_pointer.value;
     write_protocol_message(
         &V86EncodePointerReturnReceipt {
             schema: "vine.v86-encode-pointer-return-receipt",
@@ -4897,14 +5409,14 @@ fn run_v86_encode_pointer_return_session(
         },
         message_limit,
     )?;
-    if return_sessions.encode_pointer_second {
+    if return_sessions.includes(17) {
         run_v86_encode_pointer_second_return_session(
             input,
             memory,
+            runtime,
             binding,
             message_limit,
-            logical_tls_slot,
-            tls_thread_value,
+            tls_evidence,
             &encoded_pointer,
         )?;
     }
@@ -4914,10 +5426,10 @@ fn run_v86_encode_pointer_return_session(
 fn run_v86_encode_pointer_second_return_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
     binding: &ImportBinding,
     message_limit: usize,
-    logical_tls_slot: &X86LogicalTlsSlot,
-    tls_thread_value: &X86LogicalTlsThreadValue,
+    tls_evidence: X86TlsEvidenceState<'_>,
     encoded_null: &X86LogicalEncodedPointer,
 ) -> Result<(), LoaderError> {
     const OWNER_ID: &str = "checkpoint-pointer-encoding";
@@ -4928,11 +5440,37 @@ fn run_v86_encode_pointer_second_return_session(
         0x6a, 0x08, 0x68, 0xf8, 0xb2, 0x0e, 0x10, 0xe8, 0x5c, 0xbc, 0xff, 0xff, 0xe8, 0x33, 0xc0,
         0xff, 0xff,
     ];
+    let logical_tls_slot = tls_evidence.slot;
+    let tls_thread_value = tls_evidence.thread_value;
+    let runtime_encoded_null = runtime
+        .encoded_pointer_for_source(0)
+        .map_err(runtime_state_error)?
+        .clone();
+    let runtime_tls_value = runtime
+        .tls_value(logical_tls_slot.index.value)
+        .map_err(runtime_state_error)?;
+    let (runtime_endpoint_id, runtime_endpoint_address) = match runtime_tls_value {
+        RuntimeTlsValue::DynamicEndpoint {
+            endpoint_id,
+            address,
+        } => (*endpoint_id, *address),
+        RuntimeTlsValue::Raw { .. } => {
+            return Err(LoaderError::runtime_defect(
+                "win32-pointer-encoding",
+                "runtime-tls-endpoint-value-missing",
+                "second EncodePointer requires the initial thread TLS value to identify a dynamic endpoint",
+            ));
+        }
+    };
+    let runtime_tls_endpoint = runtime
+        .dynamic_endpoint(runtime_endpoint_id)
+        .map_err(runtime_state_error)?;
+    let runtime_thread_id = runtime.current_thread_id().0;
 
     if encoded_null.owner != OWNER_ID
         || encoded_null.variant_id != "encodepointer-null-process-token"
         || encoded_null.namespace != X86LogicalEncodedPointer::NAMESPACE
-        || encoded_null.value != X86LogicalEncodedPointer::ENCODED_NULL
+        || encoded_null.value != runtime_encoded_null.token
         || encoded_null.source_kind != "null"
         || encoded_null.source_pointer != 0
         || encoded_null.lifetime != "process-runtime"
@@ -4945,21 +5483,23 @@ fn run_v86_encode_pointer_second_return_session(
         || logical_tls_slot.index.failure_sentinel != X86LogicalTlsIndex::FAILURE_SENTINEL
         || logical_tls_slot.lifecycle != "allocated"
         || logical_tls_slot.storage_scope != "thread"
-        || logical_tls_slot.initialized_thread_values != 1
+        || logical_tls_slot.initialized_thread_values
+            != runtime.initialized_tls_thread_count(logical_tls_slot.index.value) as u32
         || logical_tls_slot.backing_materialization != "initial-thread-value-metadata"
         || tls_thread_value.thread_identity_owner != "checkpoint-thread-identity"
-        || tls_thread_value.thread_id != 8192
+        || tls_thread_value.thread_id != runtime_thread_id
         || tls_thread_value.index_namespace != X86LogicalTlsIndex::NAMESPACE
         || tls_thread_value.index != logical_tls_slot.index.value
         || tls_thread_value.value_kind != "dynamic-export-endpoint"
         || tls_thread_value.endpoint.namespace != "vine.dynamic-export-endpoint.v1"
-        || tls_thread_value.endpoint.id.0 != 2
-        || tls_thread_value.endpoint.address.0 != 0x7f02_0010
+        || tls_thread_value.endpoint.id.0 != runtime_tls_endpoint.id
+        || tls_thread_value.endpoint.address != runtime_endpoint_address
         || !tls_thread_value
             .endpoint
             .module
             .eq_ignore_ascii_case("kernel32.dll")
         || tls_thread_value.endpoint.name != "FlsGetValue"
+        || tls_thread_value.endpoint.name != runtime_tls_endpoint.name
         || tls_thread_value.endpoint.lifetime != "process-runtime"
         || !tls_thread_value.endpoint.owner_sealed
         || tls_thread_value.lifecycle != "set"
@@ -4999,13 +5539,13 @@ fn run_v86_encode_pointer_second_return_session(
         || request.source_function_prefix != SOURCE_FUNCTION_PREFIX
         || request.pointer_encoding_owner != OWNER_ID
         || request.variant_id != VARIANT_ID
-        || request.encoded_pointer_namespace != X86LogicalEncodedPointer::NAMESPACE
+        || request.encoded_pointer_namespace != runtime.encoded_pointer_namespace()
         || request.encoded_pointer_value != X86LogicalEncodedPointer::ENCODED_PROCESS_INITIALIZER
-        || request.expected_encoded_null_namespace != encoded_null.namespace
-        || request.expected_encoded_null_value != encoded_null.value
+        || request.expected_encoded_null_namespace != runtime_encoded_null.namespace
+        || request.expected_encoded_null_value != runtime_encoded_null.token
         || request.expected_tls_index != logical_tls_slot.index.value
-        || request.expected_tls_thread_id != tls_thread_value.thread_id
-        || request.expected_tls_value_endpoint != tls_thread_value.endpoint.address.0
+        || request.expected_tls_thread_id != runtime_thread_id
+        || request.expected_tls_value_endpoint != runtime_endpoint_address.0
         || !request.preserve_last_error
     {
         return Err(LoaderError::invalid_input(
@@ -5015,31 +5555,12 @@ fn run_v86_encode_pointer_second_return_session(
         ));
     }
 
-    let thunk = binding
-        .thunks
-        .iter()
-        .find(|thunk| thunk.id.0 == request.thunk_id)
-        .ok_or_else(|| {
-            LoaderError::invalid_input(
-                "thunk-dispatch",
-                "encode-pointer-second-thunk-id-unowned",
-                "second pointer encoding request does not name an owned import thunk",
-            )
-        })?
-        .clone();
-    if thunk.address.0 != request.thunk_address
-        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
-        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
-        || !matches!(&thunk.target, ImportTarget::Name { name, .. } if name == "EncodePointer")
-    {
-        return Err(LoaderError::invalid_input(
-            "thunk-dispatch",
-            "encode-pointer-second-thunk-identity-mismatch",
-            "second pointer encoding request does not match the declared EncodePointer thunk",
-        ));
-    }
+    let thunk = owned_import_thunk(binding, request.thunk_id)?;
+    let contract = encode_pointer_contract(ApiEndpointIdentity::from_import_thunk(&thunk))
+        .map_err(api_fault)?;
 
-    let (stack_reconciliation, source_function_prefix) = {
+    let last_error_before = runtime.current_last_error().map_err(runtime_state_error)?;
+    let (stack_reconciliation, source_function_prefix, result) = {
         let mut transaction = memory.begin_transaction();
         let stack_reconciliation = transaction
             .reconcile_reflected_page(
@@ -5049,13 +5570,7 @@ fn run_v86_encode_pointer_second_return_session(
                 &request.stack_page_bytes,
             )
             .map_err(memory_error)?;
-        validate_stdcall_iat_frame(
-            &transaction,
-            &thunk,
-            request.stack_pointer,
-            request.return_address,
-            &[request.source_pointer],
-        )?;
+        validate_direct_iat_callsite(&transaction, &thunk, request.return_address)?;
         let source_function_prefix = transaction
             .fetch(
                 GuestAddress(request.source_pointer),
@@ -5069,22 +5584,60 @@ fn run_v86_encode_pointer_second_return_session(
                 "encoded source did not match the controlled executable process-initializer function",
             ));
         }
+        let completion = dispatch_runtime_immediate(
+            &mut transaction,
+            runtime,
+            binding,
+            contract,
+            controlled_api_trap(
+                request.thunk_id,
+                request.thunk_address,
+                request.stack_pointer,
+                request.return_address,
+                request.argument_bytes,
+            ),
+        )?;
+        let result = set_eax_result(
+            &completion,
+            "encode-pointer-second-return-register-invalid",
+            "second EncodePointer dispatcher did not set EAX",
+        )?;
+        if result != X86LogicalEncodedPointer::ENCODED_PROCESS_INITIALIZER {
+            return Err(LoaderError::runtime_defect(
+                "api-dispatch",
+                "encode-pointer-second-result-invalid",
+                "second EncodePointer dispatcher returned the wrong controlled token",
+            ));
+        }
         transaction.commit_transaction();
-        (stack_reconciliation, source_function_prefix)
+        (stack_reconciliation, source_function_prefix, result)
     };
+    let runtime_encoded_pointer = runtime
+        .encoded_pointer_for_source(request.source_pointer)
+        .map_err(runtime_state_error)?;
+    if result != runtime_encoded_pointer.token
+        || request.encoded_pointer_value != runtime_encoded_pointer.token
+        || request.encoded_pointer_namespace != runtime_encoded_pointer.namespace
+        || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-pointer-encoding",
+            "encode-pointer-second-runtime-transition-invalid",
+            "second EncodePointer did not create the evidenced process token while preserving LastError",
+        ));
+    }
 
     let encoded_pointer = X86LogicalEncodedPointer {
         owner: request.pointer_encoding_owner,
         variant_id: request.variant_id,
         namespace: X86LogicalEncodedPointer::NAMESPACE,
-        value: X86LogicalEncodedPointer::ENCODED_PROCESS_INITIALIZER,
+        value: result,
         source_kind: "guest-executable-function",
         source_pointer: request.source_pointer,
         lifetime: "process-runtime",
         process_cookie_materialization: "not-imported",
         native_result_imported: false,
     };
-    let result = encoded_pointer.value;
     write_protocol_message(
         &V86EncodePointerSecondReturnReceipt {
             schema: "vine.v86-encode-pointer-second-return-receipt",
@@ -5108,14 +5661,189 @@ fn run_v86_encode_pointer_second_return_session(
     )
 }
 
-fn validate_stdcall_iat_frame(
-    memory: &GuestMemory,
-    thunk: &ImportThunk,
+fn controlled_runtime_state(
+    dynamic_export_thunks: &[DynamicExportThunk],
+) -> Result<RuntimeState, LoaderError> {
+    const PROCESS_ID: u32 = 4096;
+    const INITIAL_THREAD_ID: u32 = 8192;
+    const INITIAL_LAST_ERROR: u32 = 87;
+    const WALL_CLOCK_FILE_TIME: u64 = 134_282_016_000_000_000;
+    const TICK_COUNT: u32 = 3_600_000;
+    const PERFORMANCE_COUNTER: u64 = 12_345_678_901;
+    const ENCODED_POINTER_TOKEN_PREFIX: u32 = 0xec01_0000;
+
+    let startup_info = X86StartupInfoW::controlled();
+    let mut runtime = RuntimeState::new(RuntimeBootstrap {
+        process_id: RuntimeProcessId(PROCESS_ID),
+        initial_thread_id: RuntimeThreadId(INITIAL_THREAD_ID),
+        initial_last_error: INITIAL_LAST_ERROR,
+        address_space: ProcessAddressSpaceLayout::vine_v1(),
+        clock: RuntimeClockState {
+            wall_clock_file_time: WALL_CLOCK_FILE_TIME,
+            tick_count: TICK_COUNT,
+            performance_counter: PERFORMANCE_COUNTER,
+        },
+        startup_info: RuntimeStartupInfo {
+            profile_id: X86StartupInfoW::PROFILE_ID.to_owned(),
+            bytes: startup_info.to_bytes(),
+        },
+        encoded_pointer_namespace: X86LogicalEncodedPointer::NAMESPACE.to_owned(),
+        encoded_pointer_token_prefix: ENCODED_POINTER_TOKEN_PREFIX,
+    })
+    .map_err(runtime_state_error)?;
+    let kernel32_handle = X86LogicalLoadedModuleHandle::kernel32();
+    runtime
+        .load_module(RuntimeModule {
+            owner: "runtime-loaded-modules".to_owned(),
+            variant_id: "runtime-system-module-v1".to_owned(),
+            namespace: kernel32_handle.namespace.to_owned(),
+            handle: kernel32_handle.value,
+            requested_name: "KERNEL32.DLL".to_owned(),
+            canonical_name: "kernel32.dll".to_owned(),
+            runtime_system_module: true,
+        })
+        .map_err(runtime_state_error)?;
+    for thunk in dynamic_export_thunks {
+        runtime
+            .register_dynamic_export_thunk(thunk)
+            .map_err(runtime_state_error)?;
+    }
+    Ok(runtime)
+}
+
+fn runtime_dynamic_endpoint(
+    runtime: &RuntimeState,
+    module_handle: u32,
+    thunk: &DynamicExportThunk,
+) -> Result<RuntimeDynamicEndpoint, LoaderError> {
+    let module = runtime.module(module_handle).map_err(runtime_state_error)?;
+    let endpoint = runtime
+        .dynamic_endpoint(thunk.id.0)
+        .map_err(runtime_state_error)?;
+    if !module.runtime_system_module
+        || !module.canonical_name.eq_ignore_ascii_case(&endpoint.module)
+        || endpoint.address != thunk.address
+        || endpoint.module != thunk.module
+        || endpoint.name != thunk.name
+        || endpoint.namespace != thunk.namespace
+        || endpoint.lifetime != thunk.lifetime
+    {
+        return Err(LoaderError::runtime_defect(
+            "runtime-endpoint",
+            "dynamic-endpoint-registry-mismatch",
+            "runtime module and endpoint registries disagree with the installed guest thunk",
+        ));
+    }
+    Ok(endpoint.clone())
+}
+
+fn dispatch_runtime_immediate(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
+    binding: &ImportBinding,
+    contract: ApiContract,
+    trap: ApiTrap,
+) -> Result<ApiImmediateCompletion, LoaderError> {
+    let endpoints = binding
+        .thunks
+        .iter()
+        .map(ApiEndpointIdentity::from_import_thunk)
+        .collect::<Vec<_>>();
+    let dispatcher = ApiDispatcher::new(endpoints, [contract]).map_err(api_fault)?;
+    let mut session = ExecutionSession::new(memory, runtime);
+    match dispatcher.dispatch(trap, &mut session, dispatch_kernel32_api) {
+        DispatchOutcome::Immediate(completion) => Ok(completion),
+        DispatchOutcome::Fault(fault) => Err(api_fault(fault)),
+        DispatchOutcome::Deferred(_) | DispatchOutcome::GuestCallback(_) => {
+            Err(LoaderError::runtime_defect(
+                "api-dispatch",
+                "controlled-immediate-outcome-invalid",
+                "controlled synchronous API returned a deferred or callback outcome",
+            ))
+        }
+    }
+}
+
+fn controlled_api_trap(
+    thunk_id: u32,
+    thunk_address: u32,
     stack_pointer: u32,
     return_address: u32,
-    expected_arguments: &[u32],
+    argument_bytes: u32,
+) -> ApiTrap {
+    ApiTrap {
+        endpoint_id: vine_core::ImportThunkId(thunk_id),
+        endpoint_address: GuestAddress(thunk_address),
+        stack_pointer: GuestAddress(stack_pointer),
+        return_address: GuestAddress(return_address),
+        argument_bytes,
+    }
+}
+
+fn owned_import_thunk(binding: &ImportBinding, thunk_id: u32) -> Result<ImportThunk, LoaderError> {
+    binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == thunk_id)
+        .cloned()
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "api-dispatch",
+                "endpoint-id-unowned",
+                "API request does not name an owned import endpoint",
+            )
+        })
+}
+
+fn set_eax_result(
+    completion: &ApiImmediateCompletion,
+    code: &'static str,
+    message: &'static str,
+) -> Result<u32, LoaderError> {
+    match completion.eax {
+        RegisterUpdate::Set(value) => Ok(value),
+        RegisterUpdate::Preserve => Err(LoaderError::runtime_defect("api-dispatch", code, message)),
+    }
+}
+
+fn api_fault(fault: ApiFault) -> LoaderError {
+    match fault.class {
+        ApiFaultClass::InvalidCall => {
+            LoaderError::invalid_input(fault.stage, fault.code, fault.message)
+        }
+        ApiFaultClass::Unsupported => {
+            LoaderError::unsupported(fault.stage, fault.code, fault.message)
+        }
+        ApiFaultClass::ResourceLimit => {
+            LoaderError::resource_limit(fault.stage, fault.code, fault.message)
+        }
+        ApiFaultClass::RuntimeDefect => {
+            LoaderError::runtime_defect(fault.stage, fault.code, fault.message)
+        }
+    }
+}
+
+fn runtime_state_error(error: RuntimeStateError) -> LoaderError {
+    match error.class {
+        RuntimeStateErrorClass::InvalidInput
+        | RuntimeStateErrorClass::NotFound
+        | RuntimeStateErrorClass::Conflict => {
+            LoaderError::invalid_input(error.stage, error.code, error.message)
+        }
+        RuntimeStateErrorClass::ResourceLimit => {
+            LoaderError::resource_limit(error.stage, error.code, error.message)
+        }
+        RuntimeStateErrorClass::RuntimeDefect => {
+            LoaderError::runtime_defect(error.stage, error.code, error.message)
+        }
+    }
+}
+
+fn validate_direct_iat_callsite(
+    memory: &GuestMemory,
+    thunk: &ImportThunk,
+    return_address: u32,
 ) -> Result<(), LoaderError> {
-    validate_stdcall_frame(memory, stack_pointer, return_address, expected_arguments)?;
     let call_site = return_address.checked_sub(6).ok_or_else(|| {
         LoaderError::invalid_input(
             "abi-gateway",
@@ -5140,19 +5868,16 @@ fn validate_stdcall_iat_frame(
             "stdcall return address does not follow its expected indirect IAT call",
         ));
     }
-    validate_bound_iat(memory, thunk)
+    Ok(())
 }
 
-fn validate_stdcall_esi_iat_frame(
+fn validate_esi_iat_callsite(
     memory: &GuestMemory,
     thunk: &ImportThunk,
-    stack_pointer: u32,
     return_address: u32,
-    expected_arguments: &[u32],
     indirect_call_register: &str,
     indirect_call_target: u32,
 ) -> Result<(), LoaderError> {
-    validate_stdcall_frame(memory, stack_pointer, return_address, expected_arguments)?;
     if indirect_call_register != "esi" || indirect_call_target != thunk.address.0 {
         return Err(LoaderError::invalid_input(
             "abi-gateway",
@@ -5177,7 +5902,7 @@ fn validate_stdcall_esi_iat_frame(
             "stdcall return address does not follow the expected CALL ESI",
         ));
     }
-    validate_bound_iat(memory, thunk)
+    Ok(())
 }
 
 fn validate_stdcall_register_iat_frame(
@@ -5722,6 +6447,128 @@ fn write_report(output: &Path, json: &[u8]) -> Result<(), LoaderError> {
     })
 }
 
+fn load_runtime_checkpoint_selection(
+    path: &Path,
+    checkpoint_id: &str,
+) -> Result<RuntimeCheckpointSelection, LoaderError> {
+    const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+    const MAX_CHECKPOINTS: usize = 64;
+    const MAX_SUPPORTED_CALLS: usize = 17;
+
+    let bytes = read_bounded(path, MAX_MANIFEST_BYTES).map_err(|error| LoaderError {
+        stage: "checkpoint-manifest",
+        ..error
+    })?;
+    let manifest: RuntimeCheckpointManifest = serde_json::from_slice(&bytes).map_err(|error| {
+        LoaderError::invalid_input(
+            "checkpoint-manifest",
+            "checkpoint-manifest-json-invalid",
+            format!("could not parse runtime checkpoint manifest: {error}"),
+        )
+    })?;
+    if manifest.schema != "vine.runtime-checkpoint-manifest" || manifest.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "checkpoint-manifest",
+            "checkpoint-manifest-schema-unsupported",
+            "runtime checkpoint manifest must use vine.runtime-checkpoint-manifest version 1",
+        ));
+    }
+    if manifest.checkpoints.is_empty() || manifest.checkpoints.len() > MAX_CHECKPOINTS {
+        return Err(LoaderError::resource_limit(
+            "checkpoint-manifest",
+            "checkpoint-manifest-count-invalid",
+            "runtime checkpoint manifest must contain between 1 and 64 ordered checkpoints",
+        ));
+    }
+
+    let mut ids = BTreeMap::new();
+    let mut occurrences = BTreeMap::new();
+    let mut dispatches = Vec::new();
+    let mut selection = None;
+    for (index, checkpoint) in manifest.checkpoints.iter().enumerate() {
+        if checkpoint.id.is_empty() || ids.insert(checkpoint.id.as_str(), index).is_some() {
+            return Err(LoaderError::invalid_input(
+                "checkpoint-manifest",
+                "checkpoint-manifest-id-invalid",
+                "runtime checkpoint IDs must be non-empty and unique",
+            ));
+        }
+        let expected_extends = index
+            .checked_sub(1)
+            .map(|previous| manifest.checkpoints[previous].id.as_str());
+        if checkpoint.extends.as_deref() != expected_extends
+            || checkpoint.supported_call_count != index
+        {
+            return Err(LoaderError::invalid_input(
+                "checkpoint-manifest",
+                "checkpoint-manifest-order-invalid",
+                "runtime checkpoints must form one ordered extends chain with contiguous call counts",
+            ));
+        }
+
+        match (&checkpoint.dispatch, index) {
+            (None, 0) => {}
+            (Some(dispatch), index) if index > 0 => {
+                if dispatch.module.is_empty()
+                    || dispatch.symbol.is_empty()
+                    || dispatch.occurrence == 0
+                {
+                    return Err(LoaderError::invalid_input(
+                        "checkpoint-manifest",
+                        "checkpoint-manifest-dispatch-invalid",
+                        "checkpoint dispatch identities and occurrences must be non-empty",
+                    ));
+                }
+                let key = format!(
+                    "{}!{}",
+                    dispatch.module.to_ascii_lowercase(),
+                    dispatch.symbol
+                );
+                let occurrence = occurrences.entry(key).or_insert(0usize);
+                *occurrence += 1;
+                if dispatch.occurrence != *occurrence {
+                    return Err(LoaderError::invalid_input(
+                        "checkpoint-manifest",
+                        "checkpoint-manifest-occurrence-invalid",
+                        "checkpoint dispatch occurrences must be sequential per API identity",
+                    ));
+                }
+                dispatches.push(dispatch.clone());
+            }
+            _ => {
+                return Err(LoaderError::invalid_input(
+                    "checkpoint-manifest",
+                    "checkpoint-manifest-dispatch-order-invalid",
+                    "only the initial trap checkpoint may omit a dispatch identity",
+                ));
+            }
+        }
+
+        if checkpoint.id == checkpoint_id {
+            selection = Some(RuntimeCheckpointSelection {
+                supported_call_count: checkpoint.supported_call_count,
+                dispatches: dispatches.clone(),
+            });
+        }
+    }
+
+    let selection = selection.ok_or_else(|| {
+        LoaderError::invalid_input(
+            "checkpoint-manifest",
+            "checkpoint-manifest-selection-missing",
+            format!("runtime checkpoint manifest does not define {checkpoint_id}"),
+        )
+    })?;
+    if selection.supported_call_count > MAX_SUPPORTED_CALLS {
+        return Err(LoaderError::unsupported(
+            "checkpoint-manifest",
+            "checkpoint-manifest-call-count-unsupported",
+            "this probe supports at most the existing 17-call checkpoint sequence",
+        ));
+    }
+    Ok(selection)
+}
+
 fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut input = None;
     let mut output = None;
@@ -5731,23 +6578,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut runtime_exports = Vec::new();
     let mut trap_unsupported_imports = false;
     let mut v86_reflection_session = false;
-    let mut system_time_delta_session = false;
-    let mut process_id_return_session = false;
-    let mut thread_id_return_session = false;
-    let mut tick_count_return_session = false;
-    let mut performance_counter_return_session = false;
-    let mut startup_info_return_session = false;
-    let mut heap_set_information_return_session = false;
-    let mut heap_create_return_session = false;
-    let mut get_module_handle_w_return_session = false;
-    let mut get_proc_address_return_session = false;
-    let mut get_proc_address_second_return_session = false;
-    let mut get_proc_address_third_return_session = false;
-    let mut get_proc_address_fourth_return_session = false;
-    let mut tls_alloc_return_session = false;
-    let mut tls_set_value_return_session = false;
-    let mut encode_pointer_return_session = false;
-    let mut encode_pointer_second_return_session = false;
+    let mut checkpoint_manifest = None;
+    let mut checkpoint_id = None;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -5806,91 +6638,17 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             v86_reflection_session = true;
-        } else if argument == "--system-time-delta-session" {
-            if system_time_delta_session {
+        } else if argument == "--checkpoint-manifest" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            if checkpoint_manifest.replace(PathBuf::from(value)).is_some() {
                 return Err(usage_error());
             }
-            system_time_delta_session = true;
-        } else if argument == "--process-id-return-session" {
-            if process_id_return_session {
+        } else if argument == "--checkpoint" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            let value = value.into_string().map_err(|_| usage_error())?;
+            if checkpoint_id.replace(value).is_some() {
                 return Err(usage_error());
             }
-            process_id_return_session = true;
-        } else if argument == "--thread-id-return-session" {
-            if thread_id_return_session {
-                return Err(usage_error());
-            }
-            thread_id_return_session = true;
-        } else if argument == "--tick-count-return-session" {
-            if tick_count_return_session {
-                return Err(usage_error());
-            }
-            tick_count_return_session = true;
-        } else if argument == "--performance-counter-return-session" {
-            if performance_counter_return_session {
-                return Err(usage_error());
-            }
-            performance_counter_return_session = true;
-        } else if argument == "--startup-info-return-session" {
-            if startup_info_return_session {
-                return Err(usage_error());
-            }
-            startup_info_return_session = true;
-        } else if argument == "--heap-set-information-return-session" {
-            if heap_set_information_return_session {
-                return Err(usage_error());
-            }
-            heap_set_information_return_session = true;
-        } else if argument == "--heap-create-return-session" {
-            if heap_create_return_session {
-                return Err(usage_error());
-            }
-            heap_create_return_session = true;
-        } else if argument == "--get-module-handle-w-return-session" {
-            if get_module_handle_w_return_session {
-                return Err(usage_error());
-            }
-            get_module_handle_w_return_session = true;
-        } else if argument == "--get-proc-address-return-session" {
-            if get_proc_address_return_session {
-                return Err(usage_error());
-            }
-            get_proc_address_return_session = true;
-        } else if argument == "--get-proc-address-second-return-session" {
-            if get_proc_address_second_return_session {
-                return Err(usage_error());
-            }
-            get_proc_address_second_return_session = true;
-        } else if argument == "--get-proc-address-third-return-session" {
-            if get_proc_address_third_return_session {
-                return Err(usage_error());
-            }
-            get_proc_address_third_return_session = true;
-        } else if argument == "--get-proc-address-fourth-return-session" {
-            if get_proc_address_fourth_return_session {
-                return Err(usage_error());
-            }
-            get_proc_address_fourth_return_session = true;
-        } else if argument == "--tls-alloc-return-session" {
-            if tls_alloc_return_session {
-                return Err(usage_error());
-            }
-            tls_alloc_return_session = true;
-        } else if argument == "--tls-set-value-return-session" {
-            if tls_set_value_return_session {
-                return Err(usage_error());
-            }
-            tls_set_value_return_session = true;
-        } else if argument == "--encode-pointer-return-session" {
-            if encode_pointer_return_session {
-                return Err(usage_error());
-            }
-            encode_pointer_return_session = true;
-        } else if argument == "--encode-pointer-second-return-session" {
-            if encode_pointer_second_return_session {
-                return Err(usage_error());
-            }
-            encode_pointer_second_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -5970,60 +6728,20 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if large_image_reflection && !v86_reflection_session {
         return Err(usage_error());
     }
-    if system_time_delta_session && !v86_reflection_session {
-        return Err(usage_error());
-    }
-    if process_id_return_session && !system_time_delta_session {
-        return Err(usage_error());
-    }
-    if thread_id_return_session && !process_id_return_session {
-        return Err(usage_error());
-    }
-    if tick_count_return_session && !thread_id_return_session {
-        return Err(usage_error());
-    }
-    if performance_counter_return_session && !tick_count_return_session {
-        return Err(usage_error());
-    }
-    if startup_info_return_session && !performance_counter_return_session {
-        return Err(usage_error());
-    }
-    if heap_set_information_return_session && !startup_info_return_session {
-        return Err(usage_error());
-    }
-    if heap_create_return_session && !heap_set_information_return_session {
-        return Err(usage_error());
-    }
-    if get_module_handle_w_return_session && !heap_create_return_session {
-        return Err(usage_error());
-    }
-    if get_proc_address_return_session && !get_module_handle_w_return_session {
-        return Err(usage_error());
-    }
-    if get_proc_address_second_return_session && !get_proc_address_return_session {
-        return Err(usage_error());
-    }
-    if get_proc_address_third_return_session && !get_proc_address_second_return_session {
-        return Err(usage_error());
-    }
-    if get_proc_address_fourth_return_session && !get_proc_address_third_return_session {
-        return Err(usage_error());
-    }
-    if tls_alloc_return_session && !get_proc_address_fourth_return_session {
-        return Err(usage_error());
-    }
-    if tls_set_value_return_session && !tls_alloc_return_session {
-        return Err(usage_error());
-    }
-    if encode_pointer_return_session && !tls_set_value_return_session {
-        return Err(usage_error());
-    }
-    if encode_pointer_second_return_session && !encode_pointer_return_session {
+    if checkpoint_manifest.is_some() != checkpoint_id.is_some()
+        || (checkpoint_manifest.is_some() && !v86_reflection_session)
+    {
         return Err(usage_error());
     }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
+
+    let checkpoint_session = checkpoint_manifest
+        .as_deref()
+        .zip(checkpoint_id.as_deref())
+        .map(|(manifest, checkpoint)| load_runtime_checkpoint_selection(manifest, checkpoint))
+        .transpose()?;
 
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
@@ -6034,23 +6752,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         runtime_exports,
         trap_unsupported_imports,
         v86_reflection_session,
-        system_time_delta_session,
-        process_id_return_session,
-        thread_id_return_session,
-        tick_count_return_session,
-        performance_counter_return_session,
-        startup_info_return_session,
-        heap_set_information_return_session,
-        heap_create_return_session,
-        get_module_handle_w_return_session,
-        get_proc_address_return_session,
-        get_proc_address_second_return_session,
-        get_proc_address_third_return_session,
-        get_proc_address_fourth_return_session,
-        tls_alloc_return_session,
-        tls_set_value_return_session,
-        encode_pointer_return_session,
-        encode_pointer_second_return_session,
+        checkpoint_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -6133,7 +6835,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session [--get-module-handle-w-return-session [--get-proc-address-return-session [--get-proc-address-second-return-session [--get-proc-address-third-return-session [--get-proc-address-fourth-return-session [--tls-alloc-return-session [--tls-set-value-return-session [--encode-pointer-return-session [--encode-pointer-second-return-session]]]]]]]]]]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

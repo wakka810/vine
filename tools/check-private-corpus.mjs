@@ -4,6 +4,8 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { loadRuntimeCheckpointManifest } from "./runtime-checkpoint-manifest.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultBgi = process.platform === "win32" ? "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe" : null;
 const bgi = process.env.VINE_BGI_EXE ?? defaultBgi;
@@ -20,31 +22,22 @@ if (!fs.existsSync(wasm)) {
     "private corpus is available but the source adapter is missing; run npm run check:adapter first",
   );
 }
-for (const modeArguments of [
-  [],
-  ["--dispatch-system-time"],
-  ["--dispatch-process-id"],
-  ["--dispatch-thread-id"],
-  ["--dispatch-tick-count"],
-  ["--dispatch-performance-counter"],
-  ["--dispatch-startup-info"],
-  ["--dispatch-heap-set-information"],
-  ["--dispatch-heap-create"],
-  ["--dispatch-module-handle"],
-  ["--dispatch-get-proc-address"],
-  ["--dispatch-get-proc-address-second"],
-  ["--dispatch-get-proc-address-third"],
-  ["--dispatch-get-proc-address-fourth"],
-  ["--dispatch-tls-alloc"],
-  ["--dispatch-tls-set-value"],
-  ["--dispatch-encode-pointer"],
-  ["--dispatch-encode-pointer-second"],
-]) {
+const manifestPath = path.join(
+  root,
+  "fixtures",
+  "checkpoints",
+  "bgi-startup-win32.json",
+);
+const manifest = loadRuntimeCheckpointManifest(manifestPath);
+for (const checkpoint of manifest.checkpoints) {
   const result = spawnSync(
     process.execPath,
     [
       path.join(root, "tools", "run-runtime-v86-bgi-first-trap.mjs"),
-      ...modeArguments,
+      "--manifest",
+      manifestPath,
+      "--checkpoint",
+      checkpoint.id,
       wasm,
       bgi,
     ],
