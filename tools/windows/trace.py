@@ -19,6 +19,7 @@ SUPPORTED_OBSERVATIONS = (
     "heap-lifecycle",
     "module-handle",
     "dynamic-export",
+    "tls-lifecycle",
 )
 
 

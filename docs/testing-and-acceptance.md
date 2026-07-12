@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／transaction／atomic import、BGI firstからthirteenth Win32 call return、Windows trace v1／v2 contracts、Linux public CIは存在する。production runtime test framework、benchmark、対応browser matrixは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／transaction／atomic import、BGI firstからfourteenth Win32 call return、Windows trace v1／v2 contracts、Linux public CIは存在する。production runtime test framework、benchmark、対応browser matrixは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -179,6 +179,8 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 `npm run check:runtime:bgi-twelfth-win32-call`はsame native traceの`FlsSetValue` lookupを使い、ordered endpoint ID `1`～`3`をone RX pageへatomic installする。Rustはthird persistent ESI call、13-byte sequence、bounded ASCII name、generation `30`のstack／writable image pagesを検査する。BGI stores `0x100FEEBC = 0x7F020000`／`0x100FEEC0 = 0x7F020010`をrequired invariantsとし、ID `3`／`0x7F020020`を返す。third store後5命令、累計146命令でsame ID `150`／`FlsFree`へ停止する。89,289-byte reportのSHA-256 `28aa2899a7e4fb403c5d839b21e0bb19c05563b9bd19604372bbf1a16a39fbb4`を検査し、eleventh report hashも不変に保つ。詳細は[v86-bgi-twelfth-win32-call.md](v86-bgi-twelfth-win32-call.md)を正とする。
 
 `npm run check:runtime:bgi-thirteenth-win32-call`はsame native traceの`FlsFree` lookupを使い、ordered endpoint ID `1`～`4`をone RX pageへatomic installする。Rustはfourth persistent ESI call、bounded ASCII name、generation `30` stack／image reconciliation、first three storesを検査し、ID `4`／`0x7F020030`を返す。fourth store後12命令、累計158命令でstatic unsupported ID `70`／`TlsAlloc`へ停止する。103,179-byte reportのSHA-256 `1cfe9d56fd5c5f9494ffdcc017c6ad189e2900b70125f0eda67d3839326230d4`を検査し、twelfth report hashも不変に保つ。詳細は[v86-bgi-thirteenth-win32-call.md](v86-bgi-thirteenth-win32-call.md)を正とする。
+
+`npm run check:runtime:bgi-fourteenth-win32-call`はtwo focused `tls-lifecycle` tracesで`TlsAlloc()`、native index `0x1C`、LastError preserve、immediate `TlsSetValue` consumerを測定する。ID `70`をdeclared endpointへ上げ、Rustはzero-argument frame／IAT、generation `30`のstack／image reconciliation、all four endpoint storesを検査する。native indexを捨ててnamespace `vine.logical-tls-index.v1`のindex `0`を返し、7命令後、累計165命令でunsupported ID `68`／`TlsSetValue(0,0x7F020010)`へ停止する。110,236-byte reportのSHA-256 `4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb`を検査し、thirteenth report hashも不変に保つ。詳細は[v86-bgi-fourteenth-win32-call.md](v86-bgi-fourteenth-win32-call.md)を正とする。
 
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
@@ -479,7 +481,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／MemoryDelta／BGI firstからthirteenth-call ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの13 API returnとcontrolled two-page reconciliationまで進んだが、general process／thread lifecycle、broader PEB・TEB、callback service、pixel／audio／persistence、automatic v86 dirty discovery、guard／heap backing／system-DLL image／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／MemoryDelta／BGI firstからfourteenth-call ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの14 API returnとcontrolled two-page reconciliationまで進んだが、general process／thread lifecycle、broader PEB・TEB、callback service、pixel／audio／persistence、automatic v86 dirty discovery、guard／heap backing／system-DLL image／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
@@ -495,7 +497,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
-現在のimport-binding／BGI firstからthirteenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の13 API return、four ordered dynamic endpoint identities、次のstatic import identityまで処理するが、general API dispatch、ordinal fixture、export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+現在のimport-binding／BGI firstからfourteenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の14 API return、four ordered dynamic endpoint identities、one logical TLS index、次のstatic import identityまで処理するが、general API dispatch、ordinal fixture、export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 
 ### AC-P3: Win32 substrate and persistence complete
 

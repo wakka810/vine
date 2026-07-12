@@ -29,9 +29,13 @@ const dispatchGetProcAddressSecondOnly = commandArguments.includes(
 const dispatchGetProcAddressThirdOnly = commandArguments.includes(
   "--dispatch-get-proc-address-third",
 );
-const dispatchGetProcAddressFourth = commandArguments.includes(
+const dispatchGetProcAddressFourthOnly = commandArguments.includes(
   "--dispatch-get-proc-address-fourth",
 );
+const dispatchTlsAllocOnly = commandArguments.includes("--dispatch-tls-alloc");
+const dispatchGetProcAddressFourth =
+  dispatchGetProcAddressFourthOnly || dispatchTlsAllocOnly;
+const dispatchTlsAlloc = dispatchTlsAllocOnly;
 const dispatchGetProcAddressThird =
   dispatchGetProcAddressThirdOnly || dispatchGetProcAddressFourth;
 const dispatchGetProcAddressSecond =
@@ -112,8 +116,13 @@ assert.equal(
 assert.equal(
   commandArguments.filter((argument) => argument === "--dispatch-get-proc-address-fourth")
     .length,
-  Number(dispatchGetProcAddressFourth),
+  Number(dispatchGetProcAddressFourthOnly),
   "--dispatch-get-proc-address-fourth may be specified only once",
+);
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-tls-alloc").length,
+  Number(dispatchTlsAllocOnly),
+  "--dispatch-tls-alloc may be specified only once",
 );
 assert(
   Number(dispatchSystemTimeOnly) +
@@ -128,7 +137,8 @@ assert(
     Number(dispatchGetProcAddressOnly) +
     Number(dispatchGetProcAddressSecondOnly) +
     Number(dispatchGetProcAddressThirdOnly) +
-    Number(dispatchGetProcAddressFourth) <=
+    Number(dispatchGetProcAddressFourthOnly) +
+    Number(dispatchTlsAllocOnly) <=
     1,
   "dispatch modes are mutually exclusive",
 );
@@ -146,11 +156,12 @@ const positionalArguments = commandArguments.filter(
     argument !== "--dispatch-get-proc-address" &&
     argument !== "--dispatch-get-proc-address-second" &&
     argument !== "--dispatch-get-proc-address-third" &&
-    argument !== "--dispatch-get-proc-address-fourth",
+    argument !== "--dispatch-get-proc-address-fourth" &&
+    argument !== "--dispatch-tls-alloc",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address | --dispatch-get-proc-address-second | --dispatch-get-proc-address-third | --dispatch-get-proc-address-fourth] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address | --dispatch-get-proc-address-second | --dispatch-get-proc-address-third | --dispatch-get-proc-address-fourth | --dispatch-tls-alloc] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -163,7 +174,9 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchGetProcAddressFourth
+  dispatchTlsAlloc
+    ? "v86-bgi-fourteenth-win32-call"
+    : dispatchGetProcAddressFourth
     ? "v86-bgi-thirteenth-win32-call"
     : dispatchGetProcAddressThird
     ? "v86-bgi-twelfth-win32-call"
@@ -500,6 +513,45 @@ const controlledFourthDynamicExport = {
     followingLookups: [],
   },
 };
+const controlledTlsAllocation = {
+  owner: "checkpoint-thread-local-storage",
+  variantId: "tlsalloc-first-controlled-index",
+  index: {
+    namespace: "vine.logical-tls-index.v1",
+    value: 0,
+    failureSentinel: 0xffff_ffff,
+  },
+  lifecycle: "allocated",
+  storageScope: "thread",
+  initializedThreadValues: 0,
+  backingMaterialization: "metadata-only-until-first-reached-tls-operation",
+  preserveLastError: true,
+  nativeObservation: {
+    source: "focused-frida-tls-lifecycle-2026-07-12",
+    traceBytes: 6_138_442,
+    traceLines: 19_816,
+    traceSha256: "214ca138648d6674860ba3fc43e18c017470f0b31e023f1e7e9e4afa88dae08b",
+    confirmationTraceBytes: 62_273,
+    confirmationTraceLines: 223,
+    confirmationTraceSha256:
+      "fd23eb23fca34953216b0a1cf11c5ce4d88959618c5bc1173b58eab5199ad30e",
+    callerRva: 0x000a58aa,
+    arguments: [],
+    nativeResult: 0x1c,
+    nativeResultImported: false,
+    lastErrorBefore: 87,
+    lastErrorAfter: 87,
+    firstConsumer: {
+      api: "TlsSetValue",
+      callerRva: 0x000a58c1,
+      indexRole: "native-index-observed-and-discarded",
+      valueRole: "native-FlsGetValue-address-observed-and-discarded",
+      result: 1,
+      lastErrorBefore: 87,
+      lastErrorAfter: 87,
+    },
+  },
+};
 
 const expected = {
   source: {
@@ -525,7 +577,9 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchGetProcAddress
+    declared: dispatchTlsAlloc
+      ? 12
+      : dispatchGetProcAddress
       ? 11
       : dispatchModuleHandle
       ? 10
@@ -546,7 +600,9 @@ const expected = {
           : dispatchSystemTime
             ? 2
             : 1,
-    unsupported: dispatchGetProcAddress
+    unsupported: dispatchTlsAlloc
+      ? 318
+      : dispatchGetProcAddress
       ? 319
       : dispatchModuleHandle
       ? 320
@@ -1018,6 +1074,41 @@ const expected = {
     reportBytes: 103_179,
     reportSha256: "1cfe9d56fd5c5f9494ffdcc017c6ad189e2900b70125f0eda67d3839326230d4",
   },
+  fourteenthCall: {
+    offerLineBytes: 4_922_986,
+    reflectionReceiptLineBytes: 1_860,
+    requestLineBytes: 17_318,
+    receiptLineBytes: 1_651,
+    stackPageContentSha256: "3595f775ff05d8b86348f1ddc3f931cc11b2bd9e769af5f012919daa888f91da",
+    stackReconciledChangedBytes: 3,
+    endpointStorePageContentSha256:
+      "705c675572bfe882af9addb23e20270278161fb8a8c7f4360afca09b0fbf96f8",
+    endpointStoreReconciledChangedBytes: 3,
+    nextTerminal: {
+      kind: "owned-import-thunk",
+      thunk: {
+        id: 68,
+        address: 0x7f000430,
+        requesterOwner: 1,
+        module: "KERNEL32.dll",
+        iatRva: 0x000d11b8,
+        iatAddress: 0x100d11b8,
+        originalIatValue: 0x000efb2c,
+        disposition: "unsupported-trap",
+        kind: "name",
+        name: "TlsSetValue",
+        hint: 1224,
+        nameRva: 0x000efb2c,
+      },
+      returnAddress: 0x100a58c1,
+      stackWords: [0x100a58c1, 0, 0x7f020010, 0, 0, 0x100a375b, 0xe93f6d87, 0],
+    },
+    instructionCount: 165,
+    executeStops: 7,
+    budgetStops: 6,
+    reportBytes: 110_236,
+    reportSha256: "4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb",
+  },
 };
 
 const page = {
@@ -1279,6 +1370,14 @@ async function run() {
     ...(dispatchGetProcAddressFourth
       ? ["--get-proc-address-fourth-return-session"]
       : []),
+    ...(dispatchTlsAlloc
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "TlsAlloc",
+          "--tls-alloc-return-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -1484,6 +1583,16 @@ async function run() {
           execution: thirdDynamicExport.continuation,
           nextMessage,
           offer,
+          continueSession: dispatchTlsAlloc,
+        })
+      : null;
+    const tlsAllocation = dispatchTlsAlloc
+      ? await dispatchFourteenthTlsAllocCall({
+          child,
+          context,
+          execution: fourthDynamicExport.continuation,
+          nextMessage,
+          offer,
         })
       : null;
     const processExit = await exit;
@@ -1493,7 +1602,34 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchGetProcAddressFourth
+    const report = dispatchTlsAlloc
+      ? buildFourteenthTlsAllocReport({
+          context,
+          dynamicExport,
+          execution,
+          fourthDynamicExport,
+          heapPolicy,
+          invalidationCalls,
+          loadedModule,
+          monotonicClock,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          performanceCounter,
+          privateHeap,
+          processIdentity,
+          processStartup,
+          receipt,
+          receiptMessage,
+          secondDynamicExport,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+          thirdDynamicExport,
+          threadIdentity,
+          tlsAllocation,
+        })
+      : dispatchGetProcAddressFourth
       ? buildThirteenthGetProcAddressReport({
           context,
           dynamicExport,
@@ -1824,7 +1960,9 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchGetProcAddressFourth
+    const expectedReport = dispatchTlsAlloc
+      ? { bytes: expected.fourteenthCall.reportBytes, sha256: expected.fourteenthCall.reportSha256 }
+      : dispatchGetProcAddressFourth
       ? { bytes: expected.thirteenthCall.reportBytes, sha256: expected.thirteenthCall.reportSha256 }
       : dispatchGetProcAddressThird
       ? { bytes: expected.twelfthCall.reportBytes, sha256: expected.twelfthCall.reportSha256 }
@@ -1856,7 +1994,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchGetProcAddressFourth) {
+    if (dispatchTlsAlloc) {
+      console.log(
+        `v86 BGI fourteenth Win32 call passed: logical TLS index ` +
+          `${tlsAllocation.slot.index.value}, next terminal ` +
+          `${tlsAllocation.continuation.terminal.kind} after ` +
+          `${tlsAllocation.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchGetProcAddressFourth) {
       console.log(
         `v86 BGI thirteenth Win32 call passed: dynamic export endpoint ` +
           `0x${fourthDynamicExport.endpoint.address.toString(16)}, next terminal ` +
@@ -2125,7 +2270,9 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchGetProcAddressFourth
+  const expectedOfferLineBytes = dispatchTlsAlloc
+    ? expected.fourteenthCall.offerLineBytes
+    : dispatchGetProcAddressFourth
     ? expected.thirteenthCall.offerLineBytes
     : dispatchGetProcAddressThird
     ? expected.twelfthCall.offerLineBytes
@@ -2588,7 +2735,9 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
   assert.equal(offer.reflection.invalidation.generation, receipt.acknowledgedGeneration);
-  const expectedReceiptLineBytes = dispatchGetProcAddressFourth
+  const expectedReceiptLineBytes = dispatchTlsAlloc
+    ? expected.fourteenthCall.reflectionReceiptLineBytes
+    : dispatchGetProcAddressFourth
     ? expected.thirteenthCall.reflectionReceiptLineBytes
     : dispatchGetProcAddressThird
     ? expected.twelfthCall.reflectionReceiptLineBytes
@@ -5370,6 +5519,7 @@ async function dispatchThirteenthGetProcAddressCall({
   execution,
   nextMessage,
   offer,
+  continueSession,
 }) {
   const trapped = execution.finalState;
   const argumentBytes = 8;
@@ -5523,7 +5673,11 @@ async function dispatchThirteenthGetProcAddressCall({
   if (expected.thirteenthCall.requestLineBytes !== null) {
     assert.equal(Buffer.byteLength(requestLine) - 1, expected.thirteenthCall.requestLineBytes);
   }
-  child.stdin.end(requestLine);
+  if (continueSession) {
+    child.stdin.write(requestLine);
+  } else {
+    child.stdin.end(requestLine);
+  }
 
   const receiptMessage = await nextMessage("fourth GetProcAddress return receipt");
   const receipt = receiptMessage.message;
@@ -5627,7 +5781,22 @@ async function dispatchThirteenthGetProcAddressCall({
   );
   assert.equal(endpointStoreValue, controlledFourthDynamicExport.endpoint.address);
   if (expected.thirteenthCall.nextTerminal !== null) {
-    assert.deepEqual(continuation.terminal, expected.thirteenthCall.nextTerminal);
+    if (continueSession) {
+      assert.equal(continuation.terminal.kind, expected.thirteenthCall.nextTerminal.kind);
+      const { disposition: _priorDisposition, ...tlsAllocThunkIdentity } =
+        expected.thirteenthCall.nextTerminal.thunk;
+      validateThunk(continuation.terminal.thunk, tlsAllocThunkIdentity, false);
+      assert.equal(
+        continuation.terminal.returnAddress,
+        expected.thirteenthCall.nextTerminal.returnAddress,
+      );
+      assert.deepEqual(
+        continuation.terminal.stackWords,
+        expected.thirteenthCall.nextTerminal.stackWords,
+      );
+    } else {
+      assert.deepEqual(continuation.terminal, expected.thirteenthCall.nextTerminal);
+    }
   }
   if (expected.thirteenthCall.instructionCount !== null) {
     assert.equal(continuation.instructionCount, expected.thirteenthCall.instructionCount);
@@ -5686,6 +5855,239 @@ async function dispatchThirteenthGetProcAddressCall({
       address: controlledFourthDynamicExport.endpointStoreAddress,
       value: endpointStoreValue,
     },
+    continuation,
+  };
+}
+
+async function dispatchFourteenthTlsAllocCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+}) {
+  const trapped = execution.finalState;
+  const argumentBytes = 0;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4,
+    "read",
+    "TlsAlloc stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(trapped.esp, "TlsAlloc return address");
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+
+  const callSite = returnAddress - 6;
+  const callBytes = context.readVirtualBytes(callSite, 6, "TlsAlloc indirect IAT call");
+  assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
+  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
+  assert.equal(callView.getUint32(2, true), execution.terminal.thunk.iatAddress);
+  assert.equal(
+    context.readVirtualU32(execution.terminal.thunk.iatAddress, "TlsAlloc bound IAT"),
+    execution.terminal.thunk.address,
+  );
+
+  const endpointStorePages = context.preflightVirtualRange(
+    controlledFourthDynamicExport.firstEndpointStoreAddress,
+    16,
+    "write",
+    "BGI four dynamic endpoint stores before TlsAlloc",
+  );
+  assert.equal(endpointStorePages.length, 1);
+  assert.equal(endpointStorePages[0].owner, expected.image.owner);
+  assert.equal(endpointStorePages[0].protection.execute, false);
+  const endpointStoreAddresses = [
+    controlledFourthDynamicExport.firstEndpointStoreAddress,
+    controlledFourthDynamicExport.secondEndpointStoreAddress,
+    controlledFourthDynamicExport.thirdEndpointStoreAddress,
+    controlledFourthDynamicExport.endpointStoreAddress,
+  ];
+  const endpointAddresses = [
+    controlledDynamicExport.endpoint.address,
+    controlledSecondDynamicExport.endpoint.address,
+    controlledThirdDynamicExport.endpoint.address,
+    controlledFourthDynamicExport.endpoint.address,
+  ];
+  const endpointStoreValues = endpointStoreAddresses.map((address, index) => {
+    const value = context.readVirtualU32(address, `stored dynamic endpoint ${index + 1}`);
+    assert.equal(value, endpointAddresses[index]);
+    return value;
+  });
+  const endpointStorePageAddress =
+    (endpointStoreAddresses[0] & ~(page.size - 1)) >>> 0;
+  const endpointStorePageBytes = context.readVirtualBytes(
+    endpointStorePageAddress,
+    page.size,
+    "current v86 endpoint store page before TlsAlloc return",
+  );
+  const endpointStorePageContentSha256 = sha256(endpointStorePageBytes);
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before TlsAlloc return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-tls-alloc-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.sixthCall.deltaGeneration,
+    thunkId: execution.terminal.thunk.id,
+    thunkAddress: execution.terminal.thunk.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes,
+    stackPageAddress,
+    stackPageOwner: expected.stack.owner,
+    stackPageBytes: [...stackPageBytes],
+    endpointStorePageAddress,
+    endpointStorePageOwner: endpointStorePages[0].owner,
+    endpointStorePageBytes: [...endpointStorePageBytes],
+    firstEndpointAddress: endpointAddresses[0],
+    secondEndpointAddress: endpointAddresses[1],
+    thirdEndpointAddress: endpointAddresses[2],
+    fourthEndpointAddress: endpointAddresses[3],
+    firstEndpointStoreAddress: endpointStoreAddresses[0],
+    secondEndpointStoreAddress: endpointStoreAddresses[1],
+    thirdEndpointStoreAddress: endpointStoreAddresses[2],
+    fourthEndpointStoreAddress: endpointStoreAddresses[3],
+    tlsStateOwner: controlledTlsAllocation.owner,
+    variantId: controlledTlsAllocation.variantId,
+    logicalIndexNamespace: controlledTlsAllocation.index.namespace,
+    logicalIndex: controlledTlsAllocation.index.value,
+    failureSentinel: controlledTlsAllocation.index.failureSentinel,
+    preserveLastError: controlledTlsAllocation.preserveLastError,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 96 * 1024);
+  if (expected.fourteenthCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.fourteenthCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("TlsAlloc return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-tls-alloc-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  const { disposition: _priorDisposition, ...tlsAllocThunkIdentity } =
+    expected.thirteenthCall.nextTerminal.thunk;
+  validateThunk(receipt.thunk, tlsAllocThunkIdentity, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, argumentBytes);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.deepEqual(receipt.logicalTlsSlot, {
+    owner: controlledTlsAllocation.owner,
+    variantId: controlledTlsAllocation.variantId,
+    index: controlledTlsAllocation.index,
+    lifecycle: controlledTlsAllocation.lifecycle,
+    storageScope: controlledTlsAllocation.storageScope,
+    initializedThreadValues: controlledTlsAllocation.initializedThreadValues,
+    backingMaterialization: controlledTlsAllocation.backingMaterialization,
+  });
+  assert.equal(receipt.preserveLastError, controlledTlsAllocation.preserveLastError);
+  assert.equal(receipt.result, controlledTlsAllocation.index.value);
+  for (let index = 0; index < endpointStoreAddresses.length; index += 1) {
+    const ordinal = ["first", "second", "third", "fourth"][index];
+    assert.equal(receipt[`${ordinal}EndpointStoreAddress`], endpointStoreAddresses[index]);
+    assert.equal(receipt[`${ordinal}EndpointStoreValue`], endpointStoreValues[index]);
+  }
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert(receipt.stackReconciliation.changedBytes > 0);
+  assert.deepEqual(receipt.endpointStoreReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: endpointStorePageAddress,
+    owner: expected.image.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.endpointStoreReconciliation.changedBytes,
+    contentSha256: endpointStorePageContentSha256,
+  });
+  assert(receipt.endpointStoreReconciliation.changedBytes > 0);
+  if (expected.fourteenthCall.stackReconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.fourteenthCall.stackReconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.fourteenthCall.stackPageContentSha256);
+    assert.equal(
+      receipt.endpointStoreReconciliation.changedBytes,
+      expected.fourteenthCall.endpointStoreReconciledChangedBytes,
+    );
+    assert.equal(
+      endpointStorePageContentSha256,
+      expected.fourteenthCall.endpointStorePageContentSha256,
+    );
+  }
+  assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.fourteenthCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.fourteenthCall.receiptLineBytes);
+  }
+
+  const resume = resumeTlsAllocStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    receipt.result,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  for (let index = 0; index < endpointStoreAddresses.length; index += 1) {
+    assert.equal(
+      context.readVirtualU32(
+        endpointStoreAddresses[index],
+        `preserved dynamic endpoint ${index + 1} after TlsAlloc`,
+      ),
+      endpointAddresses[index],
+    );
+  }
+  if (expected.fourteenthCall.nextTerminal !== null) {
+    assert.deepEqual(continuation.terminal, expected.fourteenthCall.nextTerminal);
+  }
+  if (expected.fourteenthCall.instructionCount !== null) {
+    assert.equal(continuation.instructionCount, expected.fourteenthCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.fourteenthCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.fourteenthCall.budgetStops);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      arguments: [],
+      stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      endpointStorePageAddress,
+      endpointStorePageOwner: request.endpointStorePageOwner,
+      endpointStorePageContentSha256,
+      endpointAddresses,
+      endpointStoreAddresses,
+      endpointStoreValues,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    slot: receipt.logicalTlsSlot,
+    nativeObservation: controlledTlsAllocation.nativeObservation,
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
     continuation,
   };
 }
@@ -6025,6 +6427,32 @@ function resumeFourthGetProcAddressStdcallResult(
     eaxAfter: restored.resumed.eax,
     resultSource: controlledFourthDynamicExport.owner,
     endpointNamespace: controlledFourthDynamicExport.endpoint.namespace,
+    lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
+  };
+}
+
+function resumeTlsAllocStdcallResult(context, trapped, returnAddress, result) {
+  const argumentBytes = 0;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "TlsAlloc",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: controlledTlsAllocation.owner,
+    indexNamespace: controlledTlsAllocation.index.namespace,
+    failureSentinel: controlledTlsAllocation.index.failureSentinel,
     lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
   };
 }
@@ -6842,6 +7270,43 @@ function buildThirteenthGetProcAddressReport({
       code: "next-runtime-reachable-owned-trap",
       message:
         "BGI returned from thirteen checked Kernel32 calls through GetProcAddress(FlsFree), preserved all four dynamic endpoints, and reached the next identity-owned runtime trap without dispatching it",
+    },
+  };
+}
+
+function buildFourteenthTlsAllocReport({ tlsAllocation, ...thirteenthCallArguments }) {
+  const thirteenthCall = buildThirteenthGetProcAddressReport(thirteenthCallArguments);
+  return {
+    ...thirteenthCall,
+    schema: "vine.v86-bgi-fourteenth-win32-call",
+    contract: {
+      ...thirteenthCall.contract,
+      threadLocalStorageOwner: controlledTlsAllocation.owner,
+      logicalTlsIndexNamespace: controlledTlsAllocation.index.namespace,
+      allFourDynamicExportsPreservedInGuestMemory: true,
+      supportedServiceDispatches: 14,
+    },
+    imports: {
+      ...thirteenthCall.imports,
+      supportedTlsAlloc:
+        thirteenthCallArguments.offer.thunks[
+          expected.thirteenthCall.nextTerminal.thunk.id - 1
+        ],
+    },
+    thirteenthContinuation: thirteenthCall.continuation,
+    tlsAlloc: {
+      request: tlsAllocation.request,
+      slot: tlsAllocation.slot,
+      nativeObservation: tlsAllocation.nativeObservation,
+      receipt: tlsAllocation.receipt,
+      resume: tlsAllocation.resume,
+    },
+    continuation: tlsAllocation.continuation,
+    stop: {
+      stage: "runtime-trap",
+      code: "next-runtime-reachable-owned-trap",
+      message:
+        "BGI returned from fourteen checked Kernel32 calls through TlsAlloc, preserved all four dynamic endpoints, and reached the next identity-owned runtime trap without dispatching it",
     },
   };
 }

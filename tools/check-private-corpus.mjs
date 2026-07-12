@@ -35,6 +35,7 @@ for (const modeArguments of [
   ["--dispatch-get-proc-address-second"],
   ["--dispatch-get-proc-address-third"],
   ["--dispatch-get-proc-address-fourth"],
+  ["--dispatch-tls-alloc"],
 ]) {
   const result = spawnSync(
     process.execPath,

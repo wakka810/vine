@@ -15,6 +15,7 @@ const supportedObservations = new Set([
   "heap-lifecycle",
   "module-handle",
   "dynamic-export",
+  "tls-lifecycle",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

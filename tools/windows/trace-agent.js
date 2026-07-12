@@ -241,6 +241,14 @@ if (selectedObservations.has("module-handle")) {
     ["GetModuleHandleW", ["utf16"]],
   );
 }
+if (selectedObservations.has("tls-lifecycle")) {
+  hooks["kernel32.dll"].push(
+    ["TlsAlloc", []],
+    ["TlsFree", [null]],
+    ["TlsGetValue", [null]],
+    ["TlsSetValue", [null, null]],
+  );
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -365,6 +373,7 @@ function attachHook(module, name, decoders) {
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||
+              (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||
               (name === "GetProcAddress" && selectedObservations.has("dynamic-export"))
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
             : {};

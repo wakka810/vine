@@ -47,6 +47,7 @@ struct Arguments {
     get_proc_address_second_return_session: bool,
     get_proc_address_third_return_session: bool,
     get_proc_address_fourth_return_session: bool,
+    tls_alloc_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -70,6 +71,7 @@ struct V86ReturnSessionOptions<'a> {
     get_proc_address_second: bool,
     get_proc_address_third: bool,
     get_proc_address_fourth: bool,
+    tls_alloc: bool,
     dynamic_export_thunks: &'a [DynamicExportThunk],
 }
 
@@ -1022,6 +1024,99 @@ struct V86GetProcAddressFourthReturnReceipt {
     stats: MemoryStats,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86TlsAllocReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    endpoint_store_page_address: u32,
+    endpoint_store_page_owner: u32,
+    endpoint_store_page_bytes: Vec<u8>,
+    first_endpoint_address: u32,
+    second_endpoint_address: u32,
+    third_endpoint_address: u32,
+    fourth_endpoint_address: u32,
+    first_endpoint_store_address: u32,
+    second_endpoint_store_address: u32,
+    third_endpoint_store_address: u32,
+    fourth_endpoint_store_address: u32,
+    tls_state_owner: String,
+    variant_id: String,
+    logical_index_namespace: String,
+    logical_index: u32,
+    failure_sentinel: u32,
+    preserve_last_error: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct X86LogicalTlsIndex {
+    namespace: &'static str,
+    value: u32,
+    failure_sentinel: u32,
+}
+
+impl X86LogicalTlsIndex {
+    const NAMESPACE: &str = "vine.logical-tls-index.v1";
+    const FIRST_INDEX: u32 = 0;
+    const FAILURE_SENTINEL: u32 = u32::MAX;
+
+    fn first() -> Self {
+        Self {
+            namespace: Self::NAMESPACE,
+            value: Self::FIRST_INDEX,
+            failure_sentinel: Self::FAILURE_SENTINEL,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct X86LogicalTlsSlot {
+    owner: String,
+    variant_id: String,
+    index: X86LogicalTlsIndex,
+    lifecycle: &'static str,
+    storage_scope: &'static str,
+    initialized_thread_values: u32,
+    backing_materialization: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86TlsAllocReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    logical_tls_slot: X86LogicalTlsSlot,
+    preserve_last_error: bool,
+    result: u32,
+    first_endpoint_store_address: GuestAddress,
+    first_endpoint_store_value: u32,
+    second_endpoint_store_address: GuestAddress,
+    second_endpoint_store_value: u32,
+    third_endpoint_store_address: GuestAddress,
+    third_endpoint_store_value: u32,
+    fourth_endpoint_store_address: GuestAddress,
+    fourth_endpoint_store_value: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    endpoint_store_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -1566,6 +1661,7 @@ fn run_v86_reflection_session(
             get_proc_address_second: arguments.get_proc_address_second_return_session,
             get_proc_address_third: arguments.get_proc_address_third_return_session,
             get_proc_address_fourth: arguments.get_proc_address_fourth_return_session,
+            tls_alloc: arguments.tls_alloc_return_session,
             dynamic_export_thunks: &dynamic_export_thunks,
         };
         run_v86_system_time_delta_session(
@@ -3894,6 +3990,257 @@ fn run_v86_get_proc_address_fourth_return_session(
             stats: memory.stats(),
         },
         message_limit,
+    )?;
+    if return_sessions.tls_alloc {
+        run_v86_tls_alloc_return_session(input, memory, binding, message_limit, return_sessions)?;
+    }
+    Ok(())
+}
+
+fn run_v86_tls_alloc_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+    return_sessions: V86ReturnSessionOptions<'_>,
+) -> Result<(), LoaderError> {
+    const OWNER_ID: &str = "checkpoint-thread-local-storage";
+    const VARIANT_ID: &str = "tlsalloc-first-controlled-index";
+    const FIRST_ENDPOINT_STORE_ADDRESS: u32 = 0x100f_eebc;
+    const SECOND_ENDPOINT_STORE_ADDRESS: u32 = 0x100f_eec0;
+    const THIRD_ENDPOINT_STORE_ADDRESS: u32 = 0x100f_eec4;
+    const FOURTH_ENDPOINT_STORE_ADDRESS: u32 = 0x100f_eec8;
+    const ENDPOINT_STORE_PAGE_ADDRESS: u32 = 0x100f_e000;
+
+    let endpoints = return_sessions.dynamic_export_thunks;
+    let expected_endpoints = [
+        (1, 0x7f02_0000, "FlsAlloc"),
+        (2, 0x7f02_0010, "FlsGetValue"),
+        (3, 0x7f02_0020, "FlsSetValue"),
+        (4, 0x7f02_0030, "FlsFree"),
+    ];
+    let first_endpoint = endpoints.first().ok_or_else(|| {
+        LoaderError::runtime_defect(
+            "win32-thread-local-storage",
+            "dynamic-export-endpoints-missing",
+            "TlsAlloc return session has no preserved FLS endpoints",
+        )
+    })?;
+    if endpoints.len() != expected_endpoints.len()
+        || endpoints
+            .iter()
+            .zip(expected_endpoints)
+            .any(|(observed, (id, address, name))| {
+                observed.id.0 != id
+                    || observed.address.0 != address
+                    || !observed.module.eq_ignore_ascii_case("kernel32.dll")
+                    || observed.name != name
+                    || observed.owner != first_endpoint.owner
+                    || observed.arena_range != first_endpoint.arena_range
+                    || observed.content_sha256 != first_endpoint.content_sha256
+                    || observed.invalidation != first_endpoint.invalidation
+                    || observed.lifetime != "process-runtime"
+                    || !observed.owner_sealed
+            })
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-thread-local-storage",
+            "dynamic-export-endpoint-quadruple-mismatch",
+            "TlsAlloc return session did not retain the controlled FLS identity quadruple",
+        ));
+    }
+
+    let request: V86TlsAllocReturnRequest = read_protocol_message(
+        input,
+        96 * 1024,
+        "win32-thread-local-storage",
+        "tls-alloc-return-request",
+        "controlled TLS index allocation request",
+    )?;
+    if request.schema != "vine.v86-tls-alloc-return-request" || request.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "win32-thread-local-storage",
+            "tls-alloc-return-request-schema-unsupported",
+            "TLS allocation request must use vine.v86-tls-alloc-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 0 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "tls-alloc-argument-width-mismatch",
+            "TlsAlloc requires a zero-argument stdcall frame",
+        ));
+    }
+    let expected_addresses = [
+        endpoints[0].address.0,
+        endpoints[1].address.0,
+        endpoints[2].address.0,
+        endpoints[3].address.0,
+    ];
+    if request.tls_state_owner != OWNER_ID
+        || request.variant_id != VARIANT_ID
+        || request.logical_index_namespace != X86LogicalTlsIndex::NAMESPACE
+        || request.logical_index != X86LogicalTlsIndex::FIRST_INDEX
+        || request.failure_sentinel != X86LogicalTlsIndex::FAILURE_SENTINEL
+        || !request.preserve_last_error
+        || [
+            request.first_endpoint_address,
+            request.second_endpoint_address,
+            request.third_endpoint_address,
+            request.fourth_endpoint_address,
+        ] != expected_addresses
+        || request.first_endpoint_store_address != FIRST_ENDPOINT_STORE_ADDRESS
+        || request.second_endpoint_store_address != SECOND_ENDPOINT_STORE_ADDRESS
+        || request.third_endpoint_store_address != THIRD_ENDPOINT_STORE_ADDRESS
+        || request.fourth_endpoint_store_address != FOURTH_ENDPOINT_STORE_ADDRESS
+        || request.endpoint_store_page_address != ENDPOINT_STORE_PAGE_ADDRESS
+        || request.endpoint_store_page_owner != binding.image_owner.0
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-thread-local-storage",
+            "tls-alloc-variant-unsupported",
+            "controlled TLS allocation supports only the first logical index with all four FLS endpoints preserved",
+        ));
+    }
+
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "tls-alloc-thunk-id-unowned",
+                "TLS allocation request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(&thunk.target, ImportTarget::Name { name, .. } if name == "TlsAlloc")
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "tls-alloc-thunk-identity-mismatch",
+            "TLS allocation request does not match the declared TlsAlloc thunk",
+        ));
+    }
+
+    let (
+        stack_reconciliation,
+        endpoint_store_reconciliation,
+        first_endpoint_store_value,
+        second_endpoint_store_value,
+        third_endpoint_store_value,
+        fourth_endpoint_store_value,
+    ) = {
+        let mut transaction = memory.begin_transaction();
+        let stack_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        let endpoint_store_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.endpoint_store_page_owner),
+                GuestAddress(request.endpoint_store_page_address),
+                &request.endpoint_store_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[],
+        )?;
+        let read_stored_endpoint =
+            |address: u32, label: &'static str| -> Result<u32, LoaderError> {
+                let stored_bytes = transaction
+                    .read(GuestAddress(address), 4)
+                    .map_err(memory_error)?;
+                Ok(u32::from_le_bytes(
+                    stored_bytes.as_slice().try_into().map_err(|_| {
+                        LoaderError::runtime_defect(
+                            "win32-thread-local-storage",
+                            "endpoint-store-width-invalid",
+                            format!("checked {label} endpoint store did not contain four bytes"),
+                        )
+                    })?,
+                ))
+            };
+        let first_endpoint_store_value =
+            read_stored_endpoint(request.first_endpoint_store_address, "first")?;
+        let second_endpoint_store_value =
+            read_stored_endpoint(request.second_endpoint_store_address, "second")?;
+        let third_endpoint_store_value =
+            read_stored_endpoint(request.third_endpoint_store_address, "third")?;
+        let fourth_endpoint_store_value =
+            read_stored_endpoint(request.fourth_endpoint_store_address, "fourth")?;
+        if [
+            first_endpoint_store_value,
+            second_endpoint_store_value,
+            third_endpoint_store_value,
+            fourth_endpoint_store_value,
+        ] != expected_addresses
+        {
+            return Err(LoaderError::invalid_input(
+                "win32-thread-local-storage",
+                "endpoint-store-value-mismatch",
+                "BGI did not preserve all four dynamic-export endpoints before TlsAlloc",
+            ));
+        }
+        transaction.commit_transaction();
+        (
+            stack_reconciliation,
+            endpoint_store_reconciliation,
+            first_endpoint_store_value,
+            second_endpoint_store_value,
+            third_endpoint_store_value,
+            fourth_endpoint_store_value,
+        )
+    };
+
+    let logical_tls_slot = X86LogicalTlsSlot {
+        owner: request.tls_state_owner,
+        variant_id: request.variant_id,
+        index: X86LogicalTlsIndex::first(),
+        lifecycle: "allocated",
+        storage_scope: "thread",
+        initialized_thread_values: 0,
+        backing_materialization: "metadata-only-until-first-reached-tls-operation",
+    };
+    let result = logical_tls_slot.index.value;
+    write_protocol_message(
+        &V86TlsAllocReturnReceipt {
+            schema: "vine.v86-tls-alloc-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            logical_tls_slot,
+            preserve_last_error: request.preserve_last_error,
+            result,
+            first_endpoint_store_address: GuestAddress(request.first_endpoint_store_address),
+            first_endpoint_store_value,
+            second_endpoint_store_address: GuestAddress(request.second_endpoint_store_address),
+            second_endpoint_store_value,
+            third_endpoint_store_address: GuestAddress(request.third_endpoint_store_address),
+            third_endpoint_store_value,
+            fourth_endpoint_store_address: GuestAddress(request.fourth_endpoint_store_address),
+            fourth_endpoint_store_value,
+            stack_reconciliation,
+            endpoint_store_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
     )
 }
 
@@ -4496,6 +4843,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut get_proc_address_second_return_session = false;
     let mut get_proc_address_third_return_session = false;
     let mut get_proc_address_fourth_return_session = false;
+    let mut tls_alloc_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -4619,6 +4967,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             get_proc_address_fourth_return_session = true;
+        } else if argument == "--tls-alloc-return-session" {
+            if tls_alloc_return_session {
+                return Err(usage_error());
+            }
+            tls_alloc_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -4737,6 +5090,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if get_proc_address_fourth_return_session && !get_proc_address_third_return_session {
         return Err(usage_error());
     }
+    if tls_alloc_return_session && !get_proc_address_fourth_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -4763,6 +5119,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         get_proc_address_second_return_session,
         get_proc_address_third_return_session,
         get_proc_address_fourth_return_session,
+        tls_alloc_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -4845,7 +5202,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session [--get-module-handle-w-return-session]]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session [--get-module-handle-w-return-session [--get-proc-address-return-session [--get-proc-address-second-return-session [--get-proc-address-third-return-session [--get-proc-address-fourth-return-session [--tls-alloc-return-session]]]]]]]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

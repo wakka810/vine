@@ -352,6 +352,8 @@ ID `3`／`0x7F020020`を返し、BGIのthird store後5命令、entryから累計
 
 ID `4`／`0x7F020030`を返してBGI storeを観測し、12命令後、entryから累計158命令でstatic unsupported ID `70`／`TlsAlloc`へ到達する。103,179-byte reportのSHA-256は`1cfe9d56fd5c5f9494ffdcc017c6ad189e2900b70125f0eda67d3839326230d4`である。これはfourth controlled lookupであり、TLS／FLS semanticsを実装しない。詳細は[v86-bgi-thirteenth-win32-call.md](v86-bgi-thirteenth-win32-call.md)を正とする。
 
+`npm run check:runtime:bgi-fourteenth-win32-call`はfocused TLS traceの`TlsAlloc()`／LastError preserve／immediate first consumerをoracleとする。exact ID `70`のzero-argument frame／IATとall four endpoint storesをchecked処理し、native index `0x1C`を捨ててnamespace `vine.logical-tls-index.v1`のindex `0`を返す。7命令後、累計165命令でID `68`／`TlsSetValue(0,0x7F020010)`へ到達する。110,236-byte reportのSHA-256は`4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb`である。詳細は[v86-bgi-fourteenth-win32-call.md](v86-bgi-fourteenth-win32-call.md)を正とする。
+
 ### B32. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
@@ -362,7 +364,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first thirteen checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `70`のzero-argument `TlsAlloc` stdcall returnである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first fourteen checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `68`のobserved `TlsSetValue` stdcall returnである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -399,7 +401,7 @@ adapter fixture は次の順に増やす。
 25. [Verified] second `GetProcAddress` frameへdistinct `FlsGetValue` endpointを返し、next trapを測る。
 26. [Verified] third `GetProcAddress` frameへdistinct `FlsSetValue` endpointを返し、fourth lookupを測る。
 27. [Verified] fourth `GetProcAddress` frameへdistinct `FlsFree` endpointを返し、next trapを測る。
-28. `TlsAlloc`のnative result／first consumerを測定し、typed logical TLS indexを返してnext trapを測る。
+28. `TlsSetValue(0,0x7F020010)`をallocated logical index／initial thread valueとしてchecked returnし、next trapを測る。
 29. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
 30. 同じfixtureをNodeとChromium Workerで実行する。
 31. adopted ISA fixtureとnormalized workloadを測定する。
