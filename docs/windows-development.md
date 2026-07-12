@@ -43,12 +43,13 @@
 - focused native heap lifecycle observation、typed logical private-heap handle `0x68010001`／metadata、generation `27` preserving reconciliation、ID `102` three-argument stdcall return、ID `72`／`GetModuleHandleW` next trap
 - focused native module-handle observation、bounded UTF-16 `KERNEL32.DLL` lookup、typed logical loaded-module handle `0x4D010001`、generation `27` preserving reconciliation、ID `72` one-argument stdcall return、ID `150`／`GetProcAddress` next trap
 - focused native dynamic-export observation、separate RX endpoint `0x7F020000`、register-indirect IAT provenance、bounded ASCII `FlsAlloc`、generation `30` preserving reconciliation、ID `150` two-argument stdcall return、second `GetProcAddress`／`FlsGetValue` next trap
+- ordered `FlsAlloc`／`FlsGetValue` endpoints、persistent ESI provenance、generation `30` stack＋image-page transactional reconciliation、first endpoint store verification、endpoint `0x7F020010` return、third `GetProcAddress`／`FlsSetValue` next trap
 - 初回full reflection後のdirty-page-only `MemoryDelta`、通常RW／NX 8-byte writeのlive v86 readback、generation単位acknowledgement
 - process environment／PE materialization／import bindingのsnapshot transaction、failpoint rollback、same-memory retry
 - `check:fast`／`check:fixture-e2e`／`check:adapter`／`check:private-corpus`、Linux public CI、PE planner fuzz／randomized memory contract
 - valid low-alignment PEのstructured unsupported stopと、cross-page NX instructionのconservative execute gate
 
-general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB、native-oracled command-line bytes、one controlled startup-info／heap-policy／private-heap／loaded-module／dynamic-export variantまで進んだ。BGIは全330 importsをowned trapsへbindし、runtime-reachable APIを10回returnしたが11件目以降とFLS semanticsは未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-tenth-win32-call.md](v86-bgi-tenth-win32-call.md) を正とする。
+general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB、native-oracled command-line bytes、controlled startup-info／heap-policy／private-heap／loaded-moduleとtwo dynamic-export variantsまで進んだ。BGIは全330 importsをowned trapsへbindし、runtime-reachable APIを11回returnしたが12件目以降とFLS semanticsは未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-eleventh-win32-call.md](v86-bgi-eleventh-win32-call.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -125,6 +126,7 @@ npm run check:runtime:bgi-seventh-win32-call
 npm run check:runtime:bgi-eighth-win32-call
 npm run check:runtime:bgi-ninth-win32-call
 npm run check:runtime:bgi-tenth-win32-call
+npm run check:runtime:bgi-eleventh-win32-call
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -169,7 +171,7 @@ node tools/summarize-windows-trace.mjs `
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
-8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding／BGI firstからtenth Win32 call verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。330 importsをowned thunksへbindし、base 388-page bootstrapにone dynamic-export pageを加えてsource-v86へ渡す。controlled clock／identity／startup-info／heap-policy／private-heap／loaded-module／dynamic-export callsを10件returnし、second `GetProcAddress`／`FlsGetValue`まで実行する。11件目のAPI returnは未実装である。
+8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding／BGI firstからeleventh Win32 call verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。330 importsをowned thunksへbindし、base 388-page bootstrapにone dynamic-export pageを加えてsource-v86へ渡す。controlled clock／identity／startup-info／heap-policy／private-heap／loaded-module／two dynamic-export callsを11件returnし、third `GetProcAddress`／`FlsSetValue`まで実行する。12件目のAPI returnは未実装である。
 
 各 checkpoint の automated test は原則 1 本にする。追加 test は、実際の regression、calling convention／fault ordering の曖昧さ、または title failure を最小化した場合だけ作る。
 
@@ -183,6 +185,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first ten Kernel32 returnsまで固定した。次はsecond exact `GetProcAddress(logicalKernel32,"FlsGetValue")` variantへdistinct callable endpointを返してnext trapを測る。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first eleven Kernel32 returnsまで固定した。次はthird exact `GetProcAddress(logicalKernel32,"FlsSetValue")` variantへdistinct callable endpointを返してfourth lookupを測る。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

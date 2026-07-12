@@ -1,9 +1,9 @@
 {
   "schema": "vine.current-checkpoint",
   "schemaVersion": 1,
-  "checkpoint": "bgi-tenth-win32-call",
-  "entryInstructionCount": 136,
-  "supportedCallCount": 10,
+  "checkpoint": "bgi-eleventh-win32-call",
+  "entryInstructionCount": 141,
+  "supportedCallCount": 11,
   "lastSupportedCallId": 150,
   "lastSupportedCall": "KERNEL32.dll!GetProcAddress",
   "memoryGeneration": 30,
@@ -23,9 +23,14 @@
   "dynamicExportEndpointNamespace": "vine.dynamic-export-endpoint.v1",
   "dynamicExportEndpointId": 1,
   "dynamicExportEndpoint": 2130837504,
+  "controlledSecondDynamicExportVariant": "getprocaddress-kernel32-flsgetvalue-runtime-endpoint",
+  "dynamicExportEndpointCount": 2,
+  "secondDynamicExportEndpointId": 2,
+  "secondDynamicExportEndpoint": 2130837520,
+  "firstDynamicExportStoreAddress": 269479612,
   "ownedTrapId": 150,
   "ownedTrap": "KERNEL32.dll!GetProcAddress",
-  "ownedTrapSymbol": "FlsGetValue",
+  "ownedTrapSymbol": "FlsSetValue",
   "memoryProtocol": "memory-delta-v1",
-  "nextCheckpoint": "eleventh-supported-win32-call-return"
+  "nextCheckpoint": "twelfth-supported-win32-call-return"
 }

@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／transaction／atomic import、BGI firstからtenth Win32 call return、Windows trace v1／v2 contracts、Linux public CIは存在する。production runtime test framework、benchmark、対応browser matrixは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／transaction／atomic import、BGI firstからeleventh Win32 call return、Windows trace v1／v2 contracts、Linux public CIは存在する。production runtime test framework、benchmark、対応browser matrixは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -173,6 +173,8 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 `npm run check:runtime:bgi-ninth-win32-call`はfocused module-handle traceで`GetModuleHandleW(L"KERNEL32.DLL")`、native HMODULE、LastError `87 -> 87`、immediate `GetProcAddress(...,"FlsAlloc")` consumerを測定し、ID `72`をdeclared endpointへ上げる。Rustはone-argument stdcall frame／IAT call、64-code-unit bounded UTF-16 read、case-insensitive canonical module identity、generation `27` stack reconciliation、9 changed bytesを検査し、namespace `vine.logical-loaded-module.v1`のtyped handle `0x4D010001`を返す。guest writeなしでgeneration／dirtyを保持し、9命令後、累計131命令でexact ID `150`／`GetProcAddress`へ停止する。56,729-byte reportのSHA-256を検査し、native HMODULE、guest system-DLL image、general loader／export modelは実装しない。詳細は[v86-bgi-ninth-win32-call.md](v86-bgi-ninth-win32-call.md)を正とする。
 
 `npm run check:runtime:bgi-tenth-win32-call`はfocused dynamic-export traceで4件のFLS lookup、native function addresses、LastError `87 -> 87`を測定し、ID `150`をdeclared endpointへ上げる。Rustはlogical KERNEL32 handle、two-argument stdcall frame、14-byte register-indirect IAT provenance、64-byte bounded ASCII／ordinal discriminationを検査する。separate owner／arenaのRX endpoint ID `1`／`0x7F020000`へ`kernel32.dll!FlsAlloc` identityを保持し、host pointerを返さない。tenth modeは389 pages／initial generation `27`、post-write generation `30`となり、15 changed stack bytesをreconcileする。5命令後、累計136命令でsame ID `150`／`FlsGetValue`へ停止する。65,858-byte reportのSHA-256 `54bcc15a033dbe870b81d1c2637949d71568d048202d8f3cc355097ca76332cf`を検査し、general export／forwarder resolutionとFLS semanticsは実装しない。詳細は[v86-bgi-tenth-win32-call.md](v86-bgi-tenth-win32-call.md)を正とする。
+
+`npm run check:runtime:bgi-eleventh-win32-call`はsame native traceの`FlsGetValue` lookupを使い、ordered endpoint ID `1`／`2`をone RX pageへatomic installする。Rustはpersistent ESI call target、13-byte sequence、bounded ASCII nameを検査し、generation `30`のstack／writable image pagesをone transactionでreconcileする。BGI first endpoint store `0x100FEEBC = 0x7F020000`をrequired invariantとし、ID `2`／`0x7F020010`を返す。BGIのsecond store後5命令、累計141命令でsame ID `150`／`FlsSetValue`へ停止する。76,844-byte reportのSHA-256 `40d37072965e4ceefd760ac8111006e9cfeacab62a43fca621c2f7e3d81359b5`を検査し、tenth report hashも不変に保つ。詳細は[v86-bgi-eleventh-win32-call.md](v86-bgi-eleventh-win32-call.md)を正とする。
 
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
@@ -473,7 +475,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／MemoryDelta／BGI firstからtenth-call ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの10 API returnまで進みhost-originated data deltaを読めるが、general process／thread lifecycle、broader PEB・TEB、callback service、pixel／audio／persistence、automatic v86 writeback、guard／heap backing／system-DLL image／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／MemoryDelta／BGI firstからeleventh-call ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの11 API returnとcontrolled two-page reconciliationまで進んだが、general process／thread lifecycle、broader PEB・TEB、callback service、pixel／audio／persistence、automatic v86 dirty discovery、guard／heap backing／system-DLL image／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
@@ -489,7 +491,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
-現在のimport-binding／BGI firstからtenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の10 API return、one dynamic endpoint identity、次の`GetProcAddress` nameまで処理するが、general API dispatch、ordinal fixture、export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+現在のimport-binding／BGI firstからeleventh-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の11 API return、two ordered dynamic endpoint identities、次の`GetProcAddress` nameまで処理するが、general API dispatch、ordinal fixture、export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 
 ### AC-P3: Win32 substrate and persistence complete
 

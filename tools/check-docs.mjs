@@ -14,9 +14,9 @@ try {
   if (
     checkpoint.schema !== "vine.current-checkpoint" ||
     checkpoint.schemaVersion !== 1 ||
-    checkpoint.checkpoint !== "bgi-tenth-win32-call" ||
-    checkpoint.entryInstructionCount !== 136 ||
-    checkpoint.supportedCallCount !== 10 ||
+    checkpoint.checkpoint !== "bgi-eleventh-win32-call" ||
+    checkpoint.entryInstructionCount !== 141 ||
+    checkpoint.supportedCallCount !== 11 ||
     checkpoint.lastSupportedCallId !== 150 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!GetProcAddress" ||
     checkpoint.memoryGeneration !== 30 ||
@@ -39,10 +39,16 @@ try {
     checkpoint.dynamicExportEndpointNamespace !== "vine.dynamic-export-endpoint.v1" ||
     checkpoint.dynamicExportEndpointId !== 1 ||
     checkpoint.dynamicExportEndpoint !== 0x7f020000 ||
+    checkpoint.controlledSecondDynamicExportVariant !==
+      "getprocaddress-kernel32-flsgetvalue-runtime-endpoint" ||
+    checkpoint.dynamicExportEndpointCount !== 2 ||
+    checkpoint.secondDynamicExportEndpointId !== 2 ||
+    checkpoint.secondDynamicExportEndpoint !== 0x7f020010 ||
+    checkpoint.firstDynamicExportStoreAddress !== 0x100feebc ||
     checkpoint.ownedTrapId !== 150 ||
     checkpoint.ownedTrap !== "KERNEL32.dll!GetProcAddress" ||
-    checkpoint.ownedTrapSymbol !== "FlsGetValue" ||
-    checkpoint.nextCheckpoint !== "eleventh-supported-win32-call-return"
+    checkpoint.ownedTrapSymbol !== "FlsSetValue" ||
+    checkpoint.nextCheckpoint !== "twelfth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
   }

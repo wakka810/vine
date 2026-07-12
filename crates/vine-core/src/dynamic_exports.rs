@@ -38,7 +38,21 @@ pub fn install_dynamic_export_thunk(
     module: &str,
     name: &str,
 ) -> Result<DynamicExportThunk, GuestMemoryError> {
-    validate_identity(module, name)?;
+    let mut thunks = install_dynamic_export_thunks(memory, &[(module, name)])?;
+    thunks.pop().ok_or_else(|| {
+        GuestMemoryError::runtime_defect(
+            "dynamic-export",
+            "dynamic-export-installation-empty",
+            "single dynamic export installation produced no endpoint",
+        )
+    })
+}
+
+pub fn install_dynamic_export_thunks(
+    memory: &mut GuestMemory,
+    identities: &[(&str, &str)],
+) -> Result<Vec<DynamicExportThunk>, GuestMemoryError> {
+    validate_identities(identities)?;
     memory.preflight_growth(1, 1, 1, "dynamic-export")?;
     memory.preflight_fixed_reservation(
         DYNAMIC_EXPORT_ARENA_BASE,
@@ -64,39 +78,80 @@ pub fn install_dynamic_export_thunk(
         },
     )?;
     fill_halt_page(&mut transaction, owner)?;
-    transaction.write_initialization(owner, DYNAMIC_EXPORT_ARENA_BASE, &[0x0f, 0x0b])?;
+    let mut addresses = Vec::with_capacity(identities.len());
+    for index in 0..identities.len() {
+        let address = slot_address(index)?;
+        transaction.write_initialization(owner, address, &[0x0f, 0x0b])?;
+        addresses.push(address);
+    }
     let content_sha256 = hash_initialization_page(&transaction, owner)?;
     let invalidation = transaction.seal_owner(owner)?;
-    let thunk = DynamicExportThunk {
-        namespace: DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
-        id: DynamicExportThunkId(1),
-        address: DYNAMIC_EXPORT_ARENA_BASE,
-        owner,
-        arena_range,
-        committed_pages: 1,
-        slot_size: DYNAMIC_EXPORT_SLOT_SIZE,
-        module: module.to_owned(),
-        name: name.to_owned(),
-        lifetime: "process-runtime",
-        content_sha256,
-        owner_sealed: true,
-        invalidation,
-    };
+    let thunks = identities
+        .iter()
+        .zip(addresses)
+        .enumerate()
+        .map(|(index, ((module, name), address))| DynamicExportThunk {
+            namespace: DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
+            id: DynamicExportThunkId((index + 1) as u32),
+            address,
+            owner,
+            arena_range,
+            committed_pages: 1,
+            slot_size: DYNAMIC_EXPORT_SLOT_SIZE,
+            module: (*module).to_owned(),
+            name: (*name).to_owned(),
+            lifetime: "process-runtime",
+            content_sha256: content_sha256.clone(),
+            owner_sealed: true,
+            invalidation,
+        })
+        .collect();
     transaction.commit_transaction();
-    Ok(thunk)
+    Ok(thunks)
 }
 
-fn validate_identity(module: &str, name: &str) -> Result<(), GuestMemoryError> {
-    for (label, value) in [("module", module), ("name", name)] {
-        if value.is_empty() || !value.is_ascii() || value.as_bytes().contains(&0) {
+fn validate_identities(identities: &[(&str, &str)]) -> Result<(), GuestMemoryError> {
+    let maximum_slots = (GUEST_PAGE_SIZE / u64::from(DYNAMIC_EXPORT_SLOT_SIZE)) as usize;
+    if identities.is_empty() || identities.len() > maximum_slots {
+        return Err(GuestMemoryError::invalid_request(
+            "dynamic-export",
+            "dynamic-export-count-invalid",
+            format!("dynamic export count must be between 1 and {maximum_slots}"),
+        ));
+    }
+    let mut observed = std::collections::BTreeSet::new();
+    for (module, name) in identities {
+        for (label, value) in [("module", *module), ("name", *name)] {
+            if value.is_empty() || !value.is_ascii() || value.as_bytes().contains(&0) {
+                return Err(GuestMemoryError::invalid_request(
+                    "dynamic-export",
+                    "dynamic-export-identity-invalid",
+                    format!("dynamic export {label} must be nonempty NUL-free ASCII"),
+                ));
+            }
+        }
+        if !observed.insert((module.to_ascii_lowercase(), *name)) {
             return Err(GuestMemoryError::invalid_request(
                 "dynamic-export",
-                "dynamic-export-identity-invalid",
-                format!("dynamic export {label} must be nonempty NUL-free ASCII"),
+                "dynamic-export-identity-duplicate",
+                "dynamic export identities must be unique",
             ));
         }
     }
     Ok(())
+}
+
+fn slot_address(index: usize) -> Result<GuestAddress, GuestMemoryError> {
+    let byte_offset = index
+        .checked_mul(DYNAMIC_EXPORT_SLOT_SIZE as usize)
+        .ok_or_else(|| {
+            GuestMemoryError::resource_limit(
+                "dynamic-export",
+                "dynamic-export-slot-offset-overflow",
+                "dynamic export slot offset overflowed host accounting",
+            )
+        })?;
+    add_offset(byte_offset)
 }
 
 fn fill_halt_page(memory: &mut GuestMemory, owner: MemoryOwnerId) -> Result<(), GuestMemoryError> {

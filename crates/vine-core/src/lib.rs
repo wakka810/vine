@@ -23,7 +23,7 @@ pub use callbacks::{
 pub use dynamic_exports::{
     DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
     DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk, DynamicExportThunkId,
-    install_dynamic_export_thunk,
+    install_dynamic_export_thunk, install_dynamic_export_thunks,
 };
 pub use environment::{
     CONTROLLED_COMMAND_LINE, CONTROLLED_COMMAND_LINE_BASE, CONTROLLED_ENVIRONMENT_PAGE_SIZE,

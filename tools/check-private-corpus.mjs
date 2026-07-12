@@ -32,6 +32,7 @@ for (const modeArguments of [
   ["--dispatch-heap-create"],
   ["--dispatch-module-handle"],
   ["--dispatch-get-proc-address"],
+  ["--dispatch-get-proc-address-second"],
 ]) {
   const result = spawnSync(
     process.execPath,
