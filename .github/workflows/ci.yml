@@ -54,3 +54,21 @@ jobs:
       - run: npm run check:fixture-e2e
         env:
           VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      - name: Run v86 browser benchmark gate
+        run: npm run check:runtime:v86-benchmark:prepared
+        env:
+          VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      - name: Upload v86 browser benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v86-browser-benchmark-${{ runner.os }}
+          path: |
+            .work/v86-browser-benchmark/report.json
+            .work/v86-browser-benchmark/benchmark.png
+            .work/toolchain-spike/report.json
+            .work/browser-runtime/browser-report.json
+            .work/browser-runtime/build-manifest.json
+          if-no-files-found: warn

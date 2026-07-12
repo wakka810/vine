@@ -35,6 +35,19 @@ The last command adds a 30-minute repeated lifecycle soak and is not part of the
 ordinary short gate. Its exact evidence and non-claims are recorded in
 [browser-runtime-worker.md](browser-runtime-worker.md).
 
+The versioned v86 performance gate is separate from the ordinary local short
+gate because it takes about one minute and depends on a stable Chrome process:
+
+```powershell
+npm run check:runtime:v86-benchmark
+```
+
+It measures CPU／ABI／memory／Worker／background／AudioWorklet behavior with the
+tracked `v86-browser-baseline-v1` thresholds. Only `go` exits successfully;
+`conditional-go` and `no-go` both fail the regression command. The reference
+Windows result, threshold semantics, and non-claims are recorded in
+[v86-browser-benchmark.md](v86-browser-benchmark.md).
+
 Windows runs execute the two bootstrap fixtures as native self-oracles. Linux
 runs cannot execute PE32 directly, so they require the same fixed fixture
 SHA-256 and carry `recorded-windows-i386-self-oracle` provenance in the report
@@ -79,8 +92,11 @@ Chrome. The PE toolchain is the pinned
 82 MB llvm-mingw `20260616` release asset, verified as SHA-256
 `534b92e067b22a6b4441f48ae9240a3341b17825d04d577eab0cf85c44b4deda`;
 the runner's system clang handles the separate Wasm smoke. It executes
-`npm ci`, `check:fast`, and `check:fixture-e2e`. The workflow has read-only
-repository permissions and does not run private-corpus checks.
+`npm ci`, `check:fast`, `check:fixture-e2e`, and the prepared v86 browser
+benchmark. The workflow has read-only repository permissions and does not run
+private-corpus checks. It uploads the benchmark JSON report／screenshot,
+toolchain report, Worker semantic report, and browser build manifest even when
+the benchmark step fails.
 
 The source adapter has two exact host-build profiles with the same 22 imports,
 809 exports, state ABI, and behavioral contract:

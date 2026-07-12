@@ -239,7 +239,7 @@ production経路では、binary header、typed array、transferable、Wasm memor
 
 固定アドレス自体を即時廃止する必要はない。ただし、値を各subsystemへ直接埋め込まず、`ProcessAddressSpaceLayout`または同等の一元管理へ移すこと。
 
-### 3.7 v86の実用性能と正確性が未判定
+### 3.7 v86のsynthetic実用性能はgo、正確性breadthは未判定
 
 現在のv86 adapterは重要な基礎契約を満たしている。
 
@@ -250,18 +250,13 @@ production経路では、binary header、typed array、transferable、Wasm memor
 - callback
 - limited integer／x87／SSE smoke
 
-しかし、production engineとして必要な以下は未判定である。
+Step 8のversion 1 Chrome gateはCPU／trap／callback／Worker／memory／background／
+audioの全thresholdを満たし、交換可能なbaseline interpreterとして継続`go`となった。
+ただし、production engineの最終採用に必要な以下は未判定である。
 
-- BGI-like workloadのinstructions/sec
-- trap round-trip cost
-- callback cost
 - x87／SSE correctness breadth
-- exception behavior
-- Worker cold start
-- steady-state memory
-- long-run memory slope
-- background tab behavior
-- audio deadlineと同時実行した際のyield
+- adopted exception／privileged-path behavior breadth
+- 238-instruction checkpointを越えるBGI／title workload performance
 - generated-code pathとpermission consistency
 
 API対応数を増やす前に、これらを測定しなければならない。
@@ -893,6 +888,15 @@ dangling work 0。30分／11,326-session stressはfailure 0、heap slope
 
 ### Step 8 — benchmarkとengine gate
 
+**完了（2026-07-12）:** commit `a0d99e5`のclean worktreeからstable Chrome
+`150.0.7871.115`でversion 1 matrixを測定し、threshold failure 0／`go`を得た。
+integer 134.1M ips、x87 52.5M ips、SSE2 83.7M ips、production generic API
+11,279 roundtrips/s、active steady memory 14.58 MB、hidden-tab ratio 0.985、
+AudioWorklet max gap 51.315 msである。report SHA-256は
+`e50ad355361f91e01baae1dcb6f62fb813b2ddc1202466682c60eda7e959a1e7`。
+v86を交換可能なbaselineとして継続し、CIは同じtracked thresholdを実行してreport／
+screenshot／artifact manifestを保存する。
+
 - required metricsを取得する。
 - v86継続／交換判断を記録する。
 - performance regression baselineをCIへ追加する。
@@ -929,10 +933,10 @@ BGIをgeneric runtime pathへ戻し、first unsupported pointを再測定する�
 - [x] Chrome Runtime Worker内でguest CPUが動作する。
 - [x] pixel、audio pulse、persistent byteを一つのsessionで通す。
 - [x] cancellation、watchdog、nested callbackが通る。
-- [ ] v86 benchmarkとgo/no-go判断が保存されている。
+- [x] v86 benchmarkとgo/no-go判断が保存されている。
 - [x] 30分stressのmemory slopeとresponsivenessが記録されている。
 - [ ] semantic testsとevidence snapshotsが分離されている。
-- [ ] CI artifactにtool versionとfailure evidenceが残る。
+- [x] CI artifactにtool versionとfailure evidenceが残る。
 
 上の完了項目はcontrolled 17-call runtime-kernel checkpointの範囲を示す。
 host completionはRust scheduler eventとしてmodel／test済みだが、Chrome Workerの

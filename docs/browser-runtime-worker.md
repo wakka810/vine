@@ -150,9 +150,10 @@ stress command adds the 30-minute repeated lifecycle run.
 
 ## Remaining gates
 
-- v86 integer, x87/SSE, trap, callback, state, reflection, writeback, and slice
-  timing under the Step 8 benchmark matrix
-- background-tab and audio-deadline behavior
-- production Worker physical backing and memory ceiling
+- title-workload Worker physical backing and memory ceiling beyond the controlled session
 - general process, thread, DLL, heap, wait, message, and object lifecycle
 - BGI execution through this browser runtime path
+
+The Step 8 synthetic matrix, background-tab probe, AudioWorklet deadline probe,
+and active steady-memory measurement passed their version 1 thresholds. See
+[v86-browser-benchmark.md](v86-browser-benchmark.md).

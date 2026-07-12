@@ -370,17 +370,19 @@ ID `4`／`0x7F020030`を返してBGI storeを観測し、12命令後、entryか�
 
 Dirty bitは各scanでclearし、`full_clear_tlb()`後だけ次へ進む。CPU writebackは`VINEWB01` fixed-width controlとcontiguous page payloadを使い、Rustはbase generation、owner、mapping、write permission、duplicate、alignment、sizeをbatch全体でpreflightする。reportは4,578 bytes／SHA-256 `5eab2884b70f8b1a48d98dff8021b29a1690296c03dcae0183b5c9fdc10368b8`である。これはcorrectness baselineであり、O(writable-pages) scan／full TLB clearのtitle performance、Chrome cancellation、snapshotを証明しない。詳細は[memory-writeback.md](memory-writeback.md)を正とする。
 
-### B35. Browser Worker
+### B35. Browser Worker: Verified vertical slice
 
-今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
+zero-import Rust runtime coreとsource-v86 mirrorはChrome Runtime Worker内でcontrolled PE32を46 instructions／10 slices実行する。2 deferred host completions、depth-2 callback、automatic writeback、Canvas／Web Audio／IndexedDB、cancel／watchdog、exact entry returnを通した。30分stressは11,326 sessions、failure 0、heap slope 136 bytes/min、maximum heartbeat gap 16.28 msである。詳細は[browser-runtime-worker.md](browser-runtime-worker.md)を正とする。
 
-### B36. Correctness と performance
+### B36. Browser performance gate: Go
 
-W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
+commit `a0d99e5`のclean worktree、Chrome `150.0.7871.115`でversion 1 benchmarkを実行した。integer 134.1M ips、x87 52.5M ips、SSE2 83.7M ips、adapter trap 254,518/s、production Rust dispatch＋host completion＋CPU resume 11,279/s、callback 13.653 us、active steady memory 14.58 MB、hidden-tab ratio 0.985、AudioWorklet max delivery gap 51.315 msで全thresholdを満たした。decisionは`go`、report SHA-256は`e50ad355361f91e01baae1dcb6f62fb813b2ddc1202466682c60eda7e959a1e7`である。詳細は[v86-browser-benchmark.md](v86-browser-benchmark.md)を正とする。
+
+これはsynthetic performance gateであり、adopted ISA correctness、general title workload、full-play performanceを証明しない。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state、binary bidirectional page synchronizationを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first seventeen checked stdcall returnsまで進んだ。同じRust／v86 boundaryはChrome Runtime Worker内で46 guest instructions、async completion、depth-2 callback、browser outputs、cancel／watchdog、30分 lifecycle stressを通した。BGI continuationは凍結し、次のadapter checkpointはStep 8のfull benchmark matrixとgo/no-go decisionである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、binary bidirectional page synchronizationを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first seventeen checked stdcall returnsまで進んだ。同じRust／v86 boundaryはChrome Runtime Worker vertical slice、30分stress、version 1 performance gateを通し、v86継続を`go`とした。BGI continuationは凍結したまま、次のruntime checkpointはStep 9のobject model／process lifecycle foundationである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -421,8 +423,8 @@ adapter fixture は次の順に増やす。
 29. [Verified] `EncodePointer(0x100A9608)`のnative behavior／source role／first consumerを測定し、observed process-initializer function variantだけをreturnする。
 30. `EncodePointer(0x7F020000)`へcontrolled `FlsAlloc` endpoint tokenを返し、prior encoded result storeをreconcileする。
 31. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
-32. 同じfixtureをNodeとChromium Workerで実行する。
-33. adopted ISA fixtureとnormalized workloadを測定する。
+32. [Verified] 同じfixtureをNodeとChromium Workerで実行する。
+33. [Measured] version 1 synthetic CPU／ABI／memory／Worker workloadを測定し、go thresholdを通す。adopted ISA correctnessとtitle workloadは別taskに残す。
 
 ## 9. 採用 gate
 
@@ -437,11 +439,12 @@ adapter fixture は次の順に増やす。
 - controlled production ownershipがsemantic reflection／actual invalidationを経てv86 entryからfirst thunkまで通る
 - fixed production cdecl serviceがexact thunk metadataとstate ABIでguestへreturnし、second thunk ingressまで通る
 - separate production callback sentinel／frameからone-level guest callbackがresult `43`でexact return trapまで通る
+- v86-originated stack／heap／surface／RWX dirty pagesをAPI固有listなしでRust authorityへ戻せる
+- Chromium Worker correctness、30分stress、versioned performance thresholdが通る
 
 `ADR-002` の採用前に残る gate:
 
-- v86-originated dirty-page ownership、general heap／stack mutation、snapshotをv86 paging／fetchへ接続する
-- Chromium Worker で correctness smoke と provisional benchmark が通る
+- general process heap／stack growth、guard、snapshotをv86 paging／fetchへ接続する
 - target workloadに必要なISA／ABI／exception bandを説明できる
 - fork の変更範囲と upstream追従手順を説明できる
 

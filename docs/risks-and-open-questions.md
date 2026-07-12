@@ -52,8 +52,8 @@
 | ID | Status | 問い | 暫定方針 | 解決に必要な証拠 | 期限 | Owner role |
 |---|---|---|---|---|---|---|
 | Q-010 | Investigating | core の言語 ownership、workspace、Wasm toolchain は何か | Rust は CPU／memory／PE／ABI core、TypeScript は Windows API facade／browser backend／UI／toolingを担当する。root Rust workspaceは成立済みだが、Rust coreのWasm packagingとTypeScript／Worker boundaryは未固定 | [toolchain-spike.md](toolchain-spike.md)、最初のRust Wasm／TypeScript workspace build | Phase 0 | Runtime lead |
-| Q-011 | Investigating | x86 engine は既存 engine、独自 interpreter、hybrid のどれか | v86を交換可能なworking baselineとして使う。fixed T1のcdecl／callback、BGI 388-page first nine returns、389-page seventeenth returnは通った。具体的なblockerがない限り他候補の比較や自作をactive workにせず、最終固定はgeneral memory、browser Worker、ISA／performance spike後 | [x86-engine-scorecard.md](x86-engine-scorecard.md)、W1／BGI result、ISA tests、browser benchmark | Phase 0 | CPU lead |
-| Q-012 | Open | optimized execution は threaded interpreter、IR、DBT、generated Wasm のどれか | Phase 1 は baseline interpreter。性能不足が測定された hot path だけを最適化 | cold／warm benchmark、CSP、cache invalidation、differential trace | Phase 1 gate | CPU lead |
+| Q-011 | Resolved | x86 engine は既存 engine、独自 interpreter、hybrid のどれか | version 1 Chrome benchmarkが全thresholdを満たしたため、v86を交換可能なbaseline interpreterとして継続する。具体的blockerが出るまで代替比較／自作をactive workにしない。最終固定ではなくadapter contractを維持する | [x86-engine-scorecard.md](x86-engine-scorecard.md)、[v86-browser-benchmark.md](v86-browser-benchmark.md) | Resolved | CPU lead |
+| Q-012 | Deferred | optimized execution は threaded interpreter、IR、DBT、generated Wasm のどれか | current baselineはgo thresholdを満たすため最適化方式を選ばない。CI regressionまたはtitle workloadがthreshold未達となったhot pathだけをprofileし、同じadapter contractでbounded optimizationを選ぶ | [v86-browser-benchmark.md](v86-browser-benchmark.md)、future title workload profile | Triggered by regression | CPU lead |
 | Q-013 | Resolved | 4 GiB guest VA をどう表現するか | Rust `GuestMemory`をbyte authority、bounded physical allocator＋v86 pagingをexecution mirrorとする。Wasm offsetとの1:1 mappingを避け、binary reflection／delta／PTE Dirty writebackをgeneration単位で同期する | [adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)。mapped file、memory pressure、snapshot、Worker ceilingは別gate | Resolved | Runtime lead |
 | Q-014 | Investigating | page size、protection、guard、self-modifying code policy は何か | 4 KiB region／page metadataとtransactional invalidationをbaselineとする。controlled TLB／generated-code ackとRWX dirty detectionは成立したがcurrent v86にnative execute protectionがないためadapter fetch gateが必須 | [adr-003-guest-memory.md](adr-003-guest-memory.md)、execute／guard／write-to-code／snapshot fixture | Phase 1 | CPU + Memory owners |
 | Q-015 | Open | guest thread を cooperative に multiplex するか、Worker へ分散するか | Runtime Worker 上の cooperative scheduler を baseline | wait／callback／message test、UI responsiveness、multi-thread corpus inventory | Phase 0 | Runtime lead |
@@ -108,7 +108,7 @@
 
 | ID | Status | 問い | 暫定方針 | 解決に必要な証拠 | 期限 | Owner role |
 |---|---|---|---|---|---|---|
-| Q-050 | Open | 個人環境の基準端末、性能 SLO、bundle budget は何か | 実際に利用する desktop を primary reference とし、実測前に絶対値を固定しない | hardware／browser profile、vertical slice benchmark | Phase 1 gate | Performance owner + Product |
+| Q-050 | Investigating | 個人環境の基準端末、性能 SLO、bundle budget は何か | Ryzen 7 8840U／16 GB／Windows build 26200／Chrome 150をversion 1 primary referenceとし、CPU／ABI／memory／background／audio regression thresholdを固定した。title frame／audio／bundle SLOは後続workloadで追加する | [v86-browser-benchmark.md](v86-browser-benchmark.md)、title frame／audio profile | Phase 1-6 | Performance owner + Product |
 | Q-052 | Open | title fingerprint に何を含めるか | metadata + selected executable／DLL hash | collision、update／variant test | Phase 3 | Storage |
 | Q-055 | Open | fuzz／soak の最低量と personal acceptance gate は何か | component coverage を先に計測し、Phase 1 で budget を固定 | baseline throughput、corpus size、CI cost | Phase 1 | QA owner |
 

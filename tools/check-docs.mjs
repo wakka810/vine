@@ -20,7 +20,7 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "chrome-runtime-worker-vertical-slice" ||
+    checkpoint.runtimeKernelCheckpoint !== "v86-browser-engine-gate" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !== "single-process-controlled-initial-thread" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
@@ -202,7 +202,26 @@ try {
         reportBytes: 7039,
         reportSha256: "13a7b579bb13841aa073de4dcf5ed7db0743485810e12b3159272205fbb43bb3",
       }) ||
-    checkpoint.nextCheckpoint !== "v86-go-no-go-benchmark" ||
+    JSON.stringify(checkpoint.v86EngineGate) !==
+      JSON.stringify({
+        decision: "go",
+        configuration: "fixtures/benchmarks/v86-browser-v1.json",
+        sourceCommit: "a0d99e5722391deda4fad0c2ef67f2af155b929e",
+        sourceDirty: false,
+        chromeVersion: "150.0.7871.115",
+        integerInstructionsPerSecond: 134122853.20309904,
+        x87InstructionsPerSecond: 52536027.07970423,
+        sse2InstructionsPerSecond: 83711951.00537346,
+        adapterTrapRoundTripsPerSecond: 254517.68884038288,
+        productionApiRoundTripsPerSecond: 11278.615544947608,
+        activeSteadyMemoryBytes: 14581661,
+        backgroundThroughputRatio: 0.9852770260106688,
+        audioMaximumDeliveryGapMilliseconds: 51.314999997615814,
+        thresholdFailures: 0,
+        reportBytes: 18161,
+        reportSha256: "e50ad355361f91e01baae1dcb6f62fb813b2ddc1202466682c60eda7e959a1e7",
+      }) ||
+    checkpoint.nextCheckpoint !== "runtime-object-model-foundation" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

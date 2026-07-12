@@ -26,7 +26,7 @@
 
 Dirty bit clear後からRust receipt受領まで、binary batchはhost側で保持する。generation conflict、transport truncation、worker cancellation、receipt lossが起きた場合はguestをresumeしない。Rustがbatchを受理していないと確認できる場合だけ同じbufferをretryできる。commit済みか不明、またはreceiptを失った場合はsessionを破棄し、Rust authorityからmirrorを再構築する。partial continuationや片側だけのrollbackは行わない。
 
-binary execution transportはcontrol metadataとcontiguous page payloadを別bufferにする。`VINERF01`、`VINEDL01`、`VINEWB01`を`VINEFR01` frameで運び、JSON numeric page arraysはevidence reportだけに限定する。現在のPTE discoveryはsliceごとにO(writable pages)、Dirty clearはTLB全clearである。このcostはAccepted decisionの正確性baselineであり、Step 8 benchmarkでgo／optimize／replaceを判断する。
+binary execution transportはcontrol metadataとcontiguous page payloadを別bufferにする。`VINERF01`、`VINEDL01`、`VINEWB01`を`VINEFR01` frameで運び、JSON numeric page arraysはevidence reportだけに限定する。現在のPTE discoveryはsliceごとにO(writable pages)、Dirty clearはTLB全clearである。このcostはAccepted decisionの正確性baselineである。Step 8 synthetic benchmarkはreflection／writeback／invalidation／active memory thresholdを満たして継続`go`となったが、title workloadで再測定する。
 
 ## 3. Required Contract
 
@@ -149,6 +149,6 @@ host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 fac
 
 ## 8. Non-Claims And Next Gate
 
-production ingress、controlled reflection、automatic multi-page writebackは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、PAE／NX、decode-aware cross-page execute permission、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはhost／CPU両方向のchanged-page transferをgeneration単位で行えるが、general heap／module lifecycleやsnapshotには未接続である。
+production ingress、controlled reflection、automatic multi-page writebackは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、PAE／NX、decode-aware cross-page execute permission、snapshot、title-scale memory pressureは未検証である。Rust sparse implementationはhost／CPU両方向のchanged-page transferをgeneration単位で行え、controlled Chrome Workerとactive steady-memory gateを通したが、general heap／module lifecycleやsnapshotには未接続である。
 
-owned W7 plan、entry completion、initial stack、typed bootstrap reflection、atomic import binding、MemoryDelta、BGI 17-call continuation、automatic CPU writebackまで進み、同じbinary／generation boundaryをcontrolled Chrome Runtime Worker vertical sliceで使用した。次のgateはStep 8でtitle-like memory量を含むreflection／writeback／invalidation costとWorker steady memoryを測ることである。
+owned W7 plan、entry completion、initial stack、typed bootstrap reflection、atomic import binding、MemoryDelta、BGI 17-call continuation、automatic CPU writebackまで進み、同じbinary／generation boundaryをcontrolled Chrome Runtime Worker vertical sliceとStep 8 benchmarkで使用した。次はStep 9のtyped object／handle lifetimeを同じRust authorityへ接続し、title-scale heap／module／snapshot performanceは実装到達時に再測定する。

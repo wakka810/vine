@@ -173,7 +173,7 @@ v86 interpreter baseline
 
 ## 6. Engine Decision
 
-v86 を現在の working baseline とする。具体的な blocker が出ない限り、他 engine の広い比較や自作 interpreter に時間を使わない。ただし production engine として固定せず、adapter contract を維持し、必要なら交換できる状態にする。
+v86 を現在の working baseline とする。version 1 Chrome benchmarkは全thresholdを通り継続`go`である。具体的な blocker が出ない限り、他 engine の広い比較や自作 interpreter に時間を使わない。ただし production engine として固定せず、adapter contract を維持し、必要なら交換できる状態にする。
 
 ### Pinned evidence
 
@@ -237,6 +237,7 @@ Verified behavior:
 - changed-state／frame before-image `GuestMemoryTransaction`でtransaction開始時のfull cloneを除去する。owner／region／pageは初回mutationだけ、既存frame bytesは初回write／releaseだけをjournalし、新規frameは逆allocator操作で捨てる。process environment／import／reconciliation rollbackを保持し、4 MiB baselineで開始0 bytes、1／2 changed pageのpeak frame payload 4／8 KiBを通す
 - review Step 6としてADR-003をAcceptedにし、Rust `GuestMemory` byte authority／v86 execution mirrorを確定する。`VINERF01` reflection、`VINEDL01` host delta、`VINEWB01` CPU writebackをcontrol metadata＋contiguous 4 KiB payloadへ分離し、`VINEFR01`でbounded frame化する。9 reflected／8 writable pagesの連続2 sliceでAPI固有listなしにstack／heap／surface／RWXの7 pages／49 bytesと別4 pages／13 bytesをPTE Dirty bitから検出し、Dirty clear＋TLB flush、generation `18 -> 19 -> 20 -> 21`、atomic Rust reconciliationを通すautomatic memory writeback
 - review Step 7としてzero-import Rust/Wasm coreとsource-v86 mirrorをChrome Runtime Workerへ載せる。controlled PE32を46命令／10 slices／3 periodic yieldsで実行し、2 deferred host completions、depth-2 nested callback、7 writeback batches／9 pages、Canvas `[255,0,0,255]`、880 Hz Web Audio、IndexedDB `0x5A`、exact clean exitを通す。pending-request cancellationと4-instruction watchdogはいずれもdangling host／callback 0。30分／11,326-session stressはfailure 0、31 memory samples、heap slope 136 bytes/min、maximum heartbeat gap 16.28 msとなるChrome Worker vertical slice
+- review Step 8としてcommit `a0d99e5`のclean Chrome `150.0.7871.115` runでversion 1 engine matrixを測定する。integer 134.1M ips、x87 52.5M ips、SSE2 83.7M ips、adapter trap 254,518/s、production API 11,279/s、active steady memory 14.58 MB、hidden-tab ratio 0.985、audio max gap 51.315 ms、threshold failure 0でv86継続`go`とする。reportは18,161 bytes／SHA-256 `e50ad355361f91e01baae1dcb6f62fb813b2ddc1202466682c60eda7e959a1e7`となるbrowser engine gate
 - valid low-alignment PEを`image-layout`／`low-section-alignment-materialization-unimplemented`としてmalformed inputと区別し、4 KiB backing未対応を明示する。15-byte conservative execute gateはpage境界を跨いで次pageがNXのsynthetic instructionを実行前に構造化停止する
 
 未検証または未実装:
@@ -318,6 +319,7 @@ Verified behavior:
 63. `GuestMemoryTransaction`の全memory snapshotをchanged-state／frame before-image journalへ置換する。transaction開始はcommitted page数に依存するbyte copyを行わず、owner／region／page metadata、frame allocator、generation／delta offerをrollbackする。4 MiB／1,024-page baselineで開始0 bytes、1／2 changed pageのpeak frame payload 4,096／8,192 bytesを測定し、process environment／import failpoint、reconciliation＋release、public E2E、BGI 17-call report digestを維持するscalable transaction contract。
 64. Rust `GuestMemory`をbyte authority、v86 pagingをexecution mirrorとしてADR-003をAcceptedにする。binary reflection／host delta／CPU writebackとbounded frame、全writable PTE Dirty scan、owner／generation付きatomic multi-page reconciliationを実装し、stack／heap／surface／RWXの連続2 sliceを7＋4 dirty pages、generation `18 -> 21`で通すautomatic memory writeback contract。
 65. reproducible `browser-vertical.exe`とzero-import `vine-runtime-wasm` bridgeを追加し、Chrome Runtime Worker上のsource-v86 guest CPUからgeneric dispatcher、async host completion、nested callback、Canvas／Web Audio／IndexedDB、cancel／watchdog、entry sentinelまで通す。desktop／mobile screenshotと30分 repeated lifecycle stressをclean Chrome profileで固定するbrowser runtime vertical contract。
+66. version 1 benchmarkでinteger／x87／SSE2、adapter trap、production generic API、callback、context、1／5／10／16 ms slice、reflection／writeback、invalidation、Worker cold start／active steady memory、background tab、AudioWorklet、Wasm crossingを測定する。clean reference runで全thresholdを満たし、v86継続`go`を記録して同じpublic gateをCIへ追加するbrowser engine decision contract。
 
 2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
 
@@ -398,7 +400,7 @@ Verified behavior:
 - production graphics、audio、storage backend
 - BGIの18件目以降のreachable API dispatch／returnと、その先のentry execution evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingress、explicit import trap binding、BGI firstからseventeenth Win32 call return、13 API contract／17 occurrenceのgeneric dispatcher、single-process／initial-thread RuntimeState foundation、17-call checkpoint manifest／generic session runner、changed-state memory transaction journal、Rust byte authority、automatic binary v86 writeback、controlled Chrome Runtime Worker vertical sliceである。general process parameters、process／thread lifecycle、heap backing／allocator、DLL image／export lifecycle、general TLS／FLS／pointer encoding／decoding semantics、BGI browser execution、production browser host schedulerは未実装である。unsupported trapやfixture host serviceはWin32 API実装ではない。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingress、explicit import trap binding、BGI firstからseventeenth Win32 call return、13 API contract／17 occurrenceのgeneric dispatcher、single-process／initial-thread RuntimeState foundation、17-call checkpoint manifest／generic runner、changed-state memory transaction journal、Rust byte authority、automatic binary v86 writeback、controlled Chrome Runtime Worker vertical slice、version 1 browser engine gateである。general process parameters、process／thread lifecycle、heap backing／allocator、DLL image／export lifecycle、general TLS／FLS／pointer encoding／decoding semantics、BGI browser execution、production browser host scheduler、title workload performanceは未実装／未測定である。unsupported trapやfixture host serviceはWin32 API実装ではない。
 
 ## 8. Corpus
 
@@ -466,6 +468,7 @@ npm run check:runtime:window-loader
 npm run check:runtime:window-browser
 npm run check:runtime:browser-worker
 npm run check:runtime:browser-worker:stress
+npm run check:runtime:v86-benchmark
 npm run check:runtime:pe
 npm run check:runtime:memory-core
 npm run check:runtime:materialization
@@ -508,11 +511,11 @@ Generated output は `.work/` に置く。raw artifact は commit せず、重�
 
 ## 10. Active Queue
 
-Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS／process-parameters ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、atomic import binding、canonical public E2E／CI、low-alignment rejection、negative／randomized／fuzz ingress、cross-page execute gateは 2026-07-11 までに完了した。2026-07-12にはBGIの最初の17 APIをchecked returnしてsame exact ID `89`／`EncodePointer(0x7F020000)`へ到達し、review Step 2／3とStep 4の13 contracts／17 occurrence generic dispatcher migration、17-call expectation manifest／generic session runner、Step 5のchanged-state transaction journal、Step 6のAccepted byte authority／automatic binary multi-page writeback、Step 7のChrome Runtime Worker vertical slice／30分stressまで通した。BGI専用checkpointの追加は凍結し、現在はruntime kernelを次の順で一つずつ進める。
+Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS／process-parameters ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、atomic import binding、canonical public E2E／CI、low-alignment rejection、negative／randomized／fuzz ingress、cross-page execute gateは 2026-07-11 までに完了した。2026-07-12にはBGIの最初の17 APIをchecked returnしてsame exact ID `89`／`EncodePointer(0x7F020000)`へ到達し、review Step 2／3とStep 4の13 contracts／17 occurrence generic dispatcher migration、17-call expectation manifest／generic session runner、Step 5のchanged-state transaction journal、Step 6のAccepted byte authority／automatic binary multi-page writeback、Step 7のChrome Runtime Worker vertical slice／30分stress、Step 8のversion 1 browser benchmark／v86継続`go`まで通した。BGI専用checkpointの追加は凍結し、現在はruntime kernelを次の順で一つずつ進める。
 
-1. v86 go/no-go benchmarkを実施し、integer、x87／SSE、API trap／callback、context save／restore、1／5／10／16 ms slice、reflection／writeback、invalidation、Worker cold start／steady memory、background tab、audio deadline、Wasm crossing countを測定する。
+1. `RuntimeState`へgeneration付きtyped object／handle tableを導入し、controlled process／initial threadのidentity、lookup、close、stale-handle rejection、waitable lifetimeを一般contractとして固定する。Win32 API追加、module graph、actual wait wakeはこのfoundationの後に行う。
 
-項目1が次の primary implementation checkpointである。third `EncodePointer(0x7F020000)`は次のBGI trapとして保持するが、専用CLI flag／request／receiptを追加して先行しない。詳細は`docs/browser-runtime-worker.md`、`docs/x86-engine-scorecard.md`、`review.md` Step 8を正とする。
+項目1が次の primary implementation checkpointである。third `EncodePointer(0x7F020000)`は次のBGI trapとして保持するが、専用CLI flag／request／receiptを追加して先行しない。詳細は`docs/v86-browser-benchmark.md`、`docs/generic-api-dispatcher.md`、`review.md` Step 9を正とする。
 
 ## 11. Major Open Questions
 
@@ -578,6 +581,7 @@ Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load�
 | `docs/memory-writeback.md` | Rust byte authority、PTE Dirty discovery、binary multi-page CPU writeback evidence |
 | `docs/generic-api-dispatcher.md` | 13 API contracts／17 occurrence dispatcher、RuntimeState authority、checkpoint manifest／generic runner |
 | `docs/browser-runtime-worker.md` | Worker guest CPU、async completion、nested callback、browser outputs、cancel／watchdog、30分stress evidence |
+| `docs/v86-browser-benchmark.md` | version 1 CPU／ABI／memory／Worker benchmark、threshold、v86 go decision |
 | `docs/checks-and-ci.md` | canonical check groups、private corpus skip、Linux CI、fuzz reproduction |
 | `docs/v86-entry-ingress.md` | production page reflection／invalidation ack、bounded stack、entry-to-thunk evidence |
 | `docs/v86-cdecl-ingress.md` | exact thunk metadata、fixed cdecl return、guest cleanup、callback-service ingress |

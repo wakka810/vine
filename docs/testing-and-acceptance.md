@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、Windows trace v1／v2 contracts、Linux public CIは存在する。production title Runtime Worker、benchmark threshold、対応browser matrixは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、version 1 v86 browser benchmark／go threshold、Windows trace v1／v2 contracts、Linux public CIは存在する。production title Runtime Workerと対応browser matrixは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -489,7 +489,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／BGI firstからseventeenth-call ingressとcontrolled Chrome Workerは`AC-P1-01`～`AC-P1-05`、`AC-P1-07`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの17 API return、two pointer tokens、one observed guest storeまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistenceを通したが、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、benchmark threshold、guard／heap backing／system-DLL image／snapshot、BGI browser executionを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの17 API return、two pointer tokens、one observed guest storeまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／heap backing／system-DLL image／snapshot、title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
