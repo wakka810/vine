@@ -1022,6 +1022,30 @@ frozen 17-call、Step 10 generic、critical-section reportsは不変である。
 `FlsAlloc`のnative callback／index／LastError／consumer contractを測定し、bounded
 process-owned FLS allocationをsame dynamic endpoint pathへ実装する。
 
+### Step 13 — bounded process-owned FLS allocation
+
+**完了（2026-07-13）:** opt-in `fls-lifecycle` traceを2回取得し、BGIの
+`FlsAlloc` call instruction RVA `0xA5924`、callback RVA `0xA5666`、native index
+`9`、LastError `87 -> 87`／`0 -> 0`、直後のindex store／`-1` checkを固定した。
+raw tracesは441,487／453,151 bytes、694／713 balanced pairs、max depth `3`、
+diagnostics `0`である。native indexを破棄し、namespace
+`vine.logical-fls-index.v1`のlogical index `0`を返す。
+
+Rust `RuntimeState`へ128-slot bounded process tableとretained optional callbackを追加し、
+non-NULL callbackをexecutable guest memoryとしてchecked処理する。NULL callbackは許容し、
+capacityはnative exhaustion未測定のためsentinel successを装わずstructured resource limitで
+mutation前に停止する。static import IDとdynamic export IDが同値でも共存できるbinding-scoped
+`ApiEndpointIdentity`を導入し、dynamic `FlsAlloc`をsame `ApiDispatcher`へ接続した。
+
+same generic sessionは18 contracts／37 calls、38 writeback batches／68 dirty pages／399
+changed bytes、17 host deltas、final generation `82`を通し、instruction 618のID `75`／
+`KERNEL32.dll!HeapAlloc(0x68010001,8,0x214)`で停止した。175,123-byte reportの
+SHA-256は`26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c`
+である。frozen 17-call、Step 10 generic、critical-section、pointer-decoding reportsは
+byte-identicalである。`FlsGetValue`／`FlsSetValue`／`FlsFree`、per-thread value、callback
+teardownは未実装のまま保持し、次はexisting bounded private-heap backingへreached
+`HeapAlloc` contractを接続する。
+
 ---
 
 ## 8. P0完了のDefinition of Done

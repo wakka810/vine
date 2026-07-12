@@ -16,7 +16,9 @@ const supportedObservations = new Set([
   "module-handle",
   "dynamic-export",
   "tls-lifecycle",
+  "fls-lifecycle",
   "pointer-encoding",
+  "critical-section",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

@@ -946,3 +946,33 @@ pages／348 changed bytes、17 host deltas、final generation `81`を通す。in
 `dynamic-export-contract-missing`として停止する。171,356-byte reportのSHA-256は
 `5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e`で2回一致した。
 詳細は[bgi-pointer-decoding.md](bgi-pointer-decoding.md)を正とする。
+
+## 46. BGI fiber-local-storage allocation
+
+opt-in `--observe fls-lifecycle` tracesは441,487 bytes／1,459 lines／SHA-256
+`2a505ca8fd7339896e651c9fe7ddc9e60b604b92d878c9d01cf10600a944f281`と
+453,151 bytes／1,498 lines／SHA-256
+`d3f3e4829b9dbb564a6956c581bbb46607f97bb0a1651f9481ea2d61d57bc186`
+である。summaryは694／713 balanced API pairs、max depth `3`、contiguous
+sequence、diagnostics `0`を返した。summarizerのobservation allowlistもtracerと
+揃え、`fls-lifecycle`と既存`critical-section`をpublic contractで受け付ける。
+
+BGI call instruction RVA `0xA5924`の`FlsAlloc`はcallback RVA `0xA5666`を受け、
+両captureでnative index `9`を返した。LastErrorは`87 -> 87`／`0 -> 0`である。
+native indexはprocess-local allocation orderに依存するため破棄する。直後のRVA
+`0xA5926`はresultをRVA `0xF0760`へstoreし、`0xFFFFFFFF`と比較する。
+
+Rustはnon-NULL callbackのexecute accessをchecked処理し、128-slot bounded
+process tableへnamespace `vine.logical-fls-index.v1`のindex `0`とcallback
+`0x100A5666`を保持する。dynamic endpoint ID `1`はbinding-scoped identityにより
+same IDのstatic importと共存し、common `ApiDispatcher`からone-argument stdcallで
+returnする。LastError、guest memory、host deltaはdispatch中に変えない。
+
+`npm run check:runtime:bgi-fiber-local-storage-allocation`は18 contracts／37 calls、
+38 writeback batches／68 dirty pages／399 changed bytes、17 host deltas、final
+generation `82`を通す。instruction `618`でID `75`／
+`HeapAlloc(0x68010001,8,0x214)`へ到達し、`kernel32-private-heap-allocation`で
+structured stopする。175,123-byte reportのSHA-256は
+`26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c`で2回一致し、
+先行4 reportsはbyte-identicalである。詳細は
+[bgi-fiber-local-storage-allocation.md](bgi-fiber-local-storage-allocation.md)を正とする。

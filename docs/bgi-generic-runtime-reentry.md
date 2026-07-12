@@ -141,9 +141,9 @@ BGI size and SHA-256 remain `1,193,472` bytes and
 
 ## Non-claims and follow-on dependency
 
-This checkpoint does not implement a Windows critical section, arbitrary dynamic
-export dispatch, general multi-thread CPU contexts, or BGI browser execution. The
-four FLS endpoints are still callable addresses without FLS contracts. Initial
+At this historical checkpoint, Windows critical sections and FLS dispatch were
+not implemented. It still does not claim arbitrary dynamic export dispatch,
+general multi-thread CPU contexts, or BGI browser execution. Initial
 reflection remains the private evidence adapter rather than a title-import browser
 protocol.
 
@@ -152,5 +152,8 @@ The reached critical-section cluster is now closed by
 That profile preserves this report, adds process-owned recursive state, completes
 14 BGI initializations, and stops at `DecodePointer(0xEC010003)`. The subsequent
 [bgi-pointer-decoding.md](bgi-pointer-decoding.md) profile also preserves this
-report, resolves the owned token, and reaches `FlsAlloc(0x100A5666)`. Numbered
+report, resolves the owned token, and reaches `FlsAlloc(0x100A5666)`. The
+[bgi-fiber-local-storage-allocation.md](bgi-fiber-local-storage-allocation.md)
+profile preserves it again, returns logical FLS index `0`, and reaches
+`HeapAlloc(0x68010001,8,0x214)`. Numbered
 API modes and handler-specific writeback lists remain frozen.

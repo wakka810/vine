@@ -286,6 +286,14 @@ if (selectedObservations.has("tls-lifecycle")) {
     ["TlsSetValue", [null, null]],
   );
 }
+if (selectedObservations.has("fls-lifecycle")) {
+  hooks["kernel32.dll"].push(
+    ["FlsAlloc", [null]],
+    ["FlsFree", [null]],
+    ["FlsGetValue", [null]],
+    ["FlsSetValue", [null, null]],
+  );
+}
 if (selectedObservations.has("pointer-encoding")) {
   hooks["kernel32.dll"].push(
     ["EncodePointer", [null]],
@@ -444,6 +452,7 @@ function attachHook(module, name, decoders) {
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||
               (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||
+              (name.startsWith("Fls") && selectedObservations.has("fls-lifecycle")) ||
               ((name === "EncodePointer" || name === "DecodePointer") &&
                 selectedObservations.has("pointer-encoding")) ||
               (name === "GetProcAddress" && selectedObservations.has("dynamic-export"))

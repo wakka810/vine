@@ -78,8 +78,9 @@ const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GenericRuntimeCapability {
-    Kernel32CriticalSectionSynchronization,
-    Kernel32PointerDecoding,
+    CriticalSectionSynchronization,
+    PointerDecoding,
+    FiberLocalStorageAllocation,
 }
 
 struct GenericRuntimeProcess {
@@ -2343,6 +2344,7 @@ fn run_v86_generic_runtime_session(
             "BGI generic runtime binding contains a non-runtime export endpoint",
         ));
     }
+    let mut dispatcher_endpoints = endpoints.clone();
     let mut contracts = Vec::new();
     for endpoint in &endpoints {
         if let Some(contract) =
@@ -2352,7 +2354,30 @@ fn run_v86_generic_runtime_session(
             contracts.push(contract);
         }
     }
-    let dispatcher = ApiDispatcher::new(endpoints.clone(), contracts.clone()).map_err(api_fault)?;
+    if matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::FiberLocalStorageAllocation)
+    ) {
+        let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
+            process
+                .runtime
+                .dynamic_endpoint_by_name("kernel32.dll", "FlsAlloc")
+                .map_err(runtime_state_error)?,
+        );
+        let contract = kernel32_contract_for_endpoint(endpoint.clone())
+            .map_err(api_fault)?
+            .ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "fls-allocation-contract-missing",
+                    "the reached dynamic FlsAlloc endpoint has no Kernel32 API contract",
+                )
+            })?;
+        dispatcher_endpoints.push(endpoint);
+        contracts.push(contract);
+    }
+    let dispatcher =
+        ApiDispatcher::new(dispatcher_endpoints, contracts.clone()).map_err(api_fault)?;
     write_runtime_json_frame(
         RUNTIME_FRAME_SESSION_READY,
         &GenericRuntimeSessionReady {
@@ -2492,16 +2517,64 @@ fn run_v86_generic_runtime_session(
                         "dynamic runtime trap ID and address identify different endpoints",
                     ));
                 }
-                write_generic_runtime_fault(
-                    memory,
-                    GenericRuntimeEndpoint::DynamicExport { endpoint },
-                    ApiFault::unsupported(
-                        "api-dispatch",
-                        "dynamic-export-contract-missing",
-                        "the process-owned dynamic export endpoint has no callable API contract",
-                    ),
-                )?;
-                return Ok(());
+                if !runtime_capability_enables_dynamic_endpoint(enabled_capability, &endpoint) {
+                    write_generic_runtime_fault(
+                        memory,
+                        GenericRuntimeEndpoint::DynamicExport { endpoint },
+                        ApiFault::unsupported(
+                            "api-dispatch",
+                            "dynamic-export-contract-missing",
+                            "the process-owned dynamic export endpoint has no callable API contract",
+                        ),
+                    )?;
+                    return Ok(());
+                }
+                let endpoint_identity = ApiEndpointIdentity::from_dynamic_endpoint(&endpoint);
+                let mut session = ExecutionSession::new(memory, &mut process.runtime);
+                match dispatcher.dispatch_owned(
+                    ApiOwnedTrap {
+                        endpoint_id: endpoint_identity.id,
+                        endpoint_address: endpoint_identity.address,
+                        stack_pointer: GuestAddress(trap.stack_pointer),
+                        return_address: GuestAddress(trap.return_address),
+                    },
+                    &mut session,
+                    dispatch_kernel32_api,
+                ) {
+                    DispatchOutcome::Immediate(completion) => {
+                        send_pending_runtime_delta(input, memory)?;
+                        write_runtime_json_frame(
+                            RUNTIME_FRAME_API_COMPLETION,
+                            &GenericRuntimeCompletion {
+                                schema: "vine.v86-generic-runtime-completion",
+                                schema_version: 1,
+                                endpoint: GenericRuntimeEndpoint::DynamicExport { endpoint },
+                                completion,
+                                memory: memory.stats(),
+                            },
+                        )?;
+                    }
+                    DispatchOutcome::Fault(fault) => {
+                        write_generic_runtime_fault(
+                            memory,
+                            GenericRuntimeEndpoint::DynamicExport { endpoint },
+                            fault,
+                        )?;
+                        return Ok(());
+                    }
+                    DispatchOutcome::Deferred(_) | DispatchOutcome::GuestCallback(_) => {
+                        write_generic_runtime_fault(
+                            memory,
+                            GenericRuntimeEndpoint::DynamicExport { endpoint },
+                            ApiFault::unsupported(
+                                "runtime-reentry",
+                                "runtime-api-outcome-unimplemented",
+                                "generic BGI re-entry does not yet resume deferred or callback API outcomes",
+                            ),
+                        )?;
+                        return Ok(());
+                    }
+                }
             }
         }
     }
@@ -2525,16 +2598,35 @@ fn runtime_capability_enables_endpoint(
         | "LeaveCriticalSection" => matches!(
             enabled,
             Some(
-                GenericRuntimeCapability::Kernel32CriticalSectionSynchronization
-                    | GenericRuntimeCapability::Kernel32PointerDecoding
+                GenericRuntimeCapability::CriticalSectionSynchronization
+                    | GenericRuntimeCapability::PointerDecoding
+                    | GenericRuntimeCapability::FiberLocalStorageAllocation
             )
         ),
         "DecodePointer" => matches!(
             enabled,
-            Some(GenericRuntimeCapability::Kernel32PointerDecoding)
+            Some(
+                GenericRuntimeCapability::PointerDecoding
+                    | GenericRuntimeCapability::FiberLocalStorageAllocation
+            )
+        ),
+        "FlsAlloc" => matches!(
+            enabled,
+            Some(GenericRuntimeCapability::FiberLocalStorageAllocation)
         ),
         _ => true,
     }
+}
+
+fn runtime_capability_enables_dynamic_endpoint(
+    enabled: Option<GenericRuntimeCapability>,
+    endpoint: &RuntimeDynamicEndpoint,
+) -> bool {
+    matches!(
+        enabled,
+        Some(GenericRuntimeCapability::FiberLocalStorageAllocation)
+    ) && endpoint.module.eq_ignore_ascii_case("kernel32.dll")
+        && endpoint.name == "FlsAlloc"
 }
 
 fn send_pending_runtime_delta(
@@ -2625,6 +2717,11 @@ fn runtime_capability_cluster(endpoint: &GenericRuntimeEndpoint) -> String {
                     if module == "kernel32.dll" && name.contains("CriticalSection") =>
                 {
                     "kernel32-critical-section-synchronization".to_owned()
+                }
+                vine_core::ApiSymbol::Name { name }
+                    if module == "kernel32.dll" && name == "HeapAlloc" =>
+                {
+                    "kernel32-private-heap-allocation".to_owned()
                 }
                 _ => format!("{}-api-contract", module.trim_end_matches(".dll")),
             }
@@ -7657,9 +7754,12 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
             let value = value.into_string().map_err(|_| usage_error())?;
             let capability = match value.as_str() {
                 "kernel32-critical-section-synchronization" => {
-                    GenericRuntimeCapability::Kernel32CriticalSectionSynchronization
+                    GenericRuntimeCapability::CriticalSectionSynchronization
                 }
-                "kernel32-pointer-decoding" => GenericRuntimeCapability::Kernel32PointerDecoding,
+                "kernel32-pointer-decoding" => GenericRuntimeCapability::PointerDecoding,
+                "kernel32-fiber-local-storage-allocation" => {
+                    GenericRuntimeCapability::FiberLocalStorageAllocation
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
@@ -7870,7 +7970,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

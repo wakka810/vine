@@ -136,7 +136,7 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
         ApiEndpointIdentity::from_runtime_guest_import(kernel_import).expect("runtime endpoint");
     assert_eq!(kernel_endpoint.id.0, 1);
     assert_eq!(kernel_endpoint.address, GuestAddress(0x7f00_0000));
-    assert_eq!(kernel_endpoint.iat_address, kernel_import.iat_address);
+    assert_eq!(kernel_endpoint.iat_address, Some(kernel_import.iat_address));
     let runtime_exports = runtime.runtime_system_exports().unwrap();
     assert_eq!(runtime_exports.endpoints.len(), 1);
     assert_eq!(runtime_exports.arena.committed_pages, 1);

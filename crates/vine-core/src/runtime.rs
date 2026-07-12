@@ -31,6 +31,7 @@ use crate::snapshot::ModuleIdentity;
 pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
 pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1";
 pub const LOGICAL_TLS_INDEX_NAMESPACE: &str = "vine.logical-tls-index.v1";
+pub const LOGICAL_FLS_INDEX_NAMESPACE: &str = "vine.logical-fls-index.v1";
 pub const LOGICAL_ENCODED_POINTER_NAMESPACE: &str = "vine.logical-encoded-pointer.v1";
 pub const RUNTIME_PROCESS_OBJECT_NAMESPACE: &str = "vine.runtime-process-object.v1";
 pub const RUNTIME_THREAD_OBJECT_NAMESPACE: &str = "vine.runtime-thread-object.v1";
@@ -42,6 +43,8 @@ pub const RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE: u8 = 0xa5;
 pub const RUNTIME_PRIVATE_HEAP_FREED_BYTE: u8 = 0xdd;
 pub const RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS: usize = 65_536;
 pub const TLS_OUT_OF_INDEXES: u32 = u32::MAX;
+pub const FLS_OUT_OF_INDEXES: u32 = u32::MAX;
+pub const RUNTIME_FLS_INDEX_LIMIT: u32 = 128;
 pub const X86_STARTUP_INFO_W_BYTE_LENGTH: usize = 68;
 pub const X86_CRITICAL_SECTION_BYTE_LENGTH: usize = 24;
 pub const RUNTIME_CRITICAL_SECTION_LIMIT: usize = 4096;
@@ -1228,6 +1231,14 @@ pub enum RuntimeTlsValue {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeFlsSlot {
+    pub namespace: String,
+    pub index: u32,
+    pub callback: Option<GuestAddress>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeCriticalSection {
@@ -1464,6 +1475,7 @@ pub struct RuntimeProcessState {
     pub heaps: BTreeMap<u32, RuntimeHeap>,
     pub modules: BTreeMap<u32, RuntimeModule>,
     pub allocated_tls_indices: BTreeSet<u32>,
+    pub fls_slots: BTreeMap<u32, RuntimeFlsSlot>,
     pub critical_sections: BTreeMap<GuestAddress, RuntimeCriticalSection>,
 }
 
@@ -1512,6 +1524,7 @@ pub struct RuntimeState {
     next_encoded_pointer_id: u16,
     next_private_heap_slot: u16,
     next_tls_index: u32,
+    next_fls_index: u32,
     next_callback_frame_id: u64,
     next_host_request_id: u64,
     next_wait_registration_id: u64,
@@ -1577,6 +1590,7 @@ impl RuntimeState {
                 heaps: BTreeMap::new(),
                 modules: BTreeMap::new(),
                 allocated_tls_indices: BTreeSet::new(),
+                fls_slots: BTreeMap::new(),
                 critical_sections: BTreeMap::new(),
             },
             threads: BTreeMap::from([(bootstrap.initial_thread_id, initial_thread)]),
@@ -1609,6 +1623,7 @@ impl RuntimeState {
             next_encoded_pointer_id: 1,
             next_private_heap_slot: 1,
             next_tls_index: 0,
+            next_fls_index: 0,
             next_callback_frame_id: 1,
             next_host_request_id: 1,
             next_wait_registration_id: 1,
@@ -3825,6 +3840,72 @@ impl RuntimeState {
             )
         })?;
         Ok(index)
+    }
+
+    pub fn allocate_fls_slot(
+        &mut self,
+        callback: Option<GuestAddress>,
+    ) -> Result<&RuntimeFlsSlot, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-fls",
+                "fls-allocation-lifecycle-state-invalid",
+                "FLS allocation requires a running process and active current thread",
+            ));
+        }
+        if self.next_fls_index >= RUNTIME_FLS_INDEX_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-fls",
+                "fls-index-space-exhausted",
+                format!("logical FLS allocation is limited to {RUNTIME_FLS_INDEX_LIMIT} slots"),
+            ));
+        }
+        let index = self.next_fls_index;
+        if self.process.fls_slots.contains_key(&index) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-fls",
+                "fls-index-allocator-collision",
+                "logical FLS allocator selected an already allocated index",
+            ));
+        }
+        self.next_fls_index = index.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-fls",
+                "fls-index-counter-overflow",
+                "logical FLS index counter overflowed",
+            )
+        })?;
+        self.process.fls_slots.insert(
+            index,
+            RuntimeFlsSlot {
+                namespace: LOGICAL_FLS_INDEX_NAMESPACE.to_owned(),
+                index,
+                callback,
+            },
+        );
+        self.process.fls_slots.get(&index).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-fls",
+                "inserted-fls-slot-missing",
+                "logical FLS slot disappeared after insertion",
+            )
+        })
+    }
+
+    pub fn fls_slot(&self, index: u32) -> Result<&RuntimeFlsSlot, RuntimeStateError> {
+        self.process.fls_slots.get(&index).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-fls",
+                "fls-index-unallocated",
+                format!("logical FLS index {index} is not allocated"),
+            )
+        })
     }
 
     pub fn set_tls_value(&mut self, index: u32, value: u32) -> Result<(), RuntimeStateError> {

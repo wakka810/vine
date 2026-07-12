@@ -151,9 +151,9 @@ instruction:         577
 ```
 
 The runtime returns `dynamic-export-contract-missing` in capability cluster
-`kernel32-fiber-local-storage`. The next checkpoint is
-`kernel32-fiber-local-storage-allocation`: measure `FlsAlloc` callback/index/
-LastError behavior, add process-owned FLS slot state, and continue to the next
-owned boundary. `FlsGetValue`, `FlsSetValue`, `FlsFree`, callback invocation,
-thread teardown, and general FLS lifecycle remain unimplemented until reached
-and measured.
+`kernel32-fiber-local-storage`. The follow-on
+`kernel32-fiber-local-storage-allocation` checkpoint is now verified in
+[bgi-fiber-local-storage-allocation.md](bgi-fiber-local-storage-allocation.md).
+It preserves this report, returns logical index `0`, and advances to static
+`HeapAlloc`. `FlsGetValue`, `FlsSetValue`, `FlsFree`, callback invocation,
+thread teardown, and general FLS value lifecycle remain unimplemented.

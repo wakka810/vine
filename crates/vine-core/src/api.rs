@@ -11,9 +11,9 @@ use crate::memory::{
 use crate::module_images::{RuntimeModuleImage, RuntimeModuleImageError};
 use crate::pe32::{ImportTarget, LoaderIngressReport};
 use crate::runtime::{
-    RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
-    RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeDynamicEndpoint, RuntimeGuestImport, RuntimeGuestImportBinding,
+    RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeHeapInitialization,
+    RuntimeHeapTeardown, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -23,6 +23,12 @@ pub enum ApiSymbol {
     Ordinal { ordinal: u16 },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ApiEndpointBinding {
+    ImportAddressTable,
+    DynamicExport,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEndpointIdentity {
@@ -30,8 +36,12 @@ pub struct ApiEndpointIdentity {
     pub address: GuestAddress,
     pub module: String,
     pub symbol: ApiSymbol,
-    pub iat_address: GuestAddress,
-    pub disposition: ImportThunkDisposition,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iat_address: Option<GuestAddress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disposition: Option<ImportThunkDisposition>,
+    #[serde(skip)]
+    pub binding: ApiEndpointBinding,
 }
 
 impl ApiEndpointIdentity {
@@ -45,8 +55,9 @@ impl ApiEndpointIdentity {
             address: thunk.address,
             module: thunk.module.clone(),
             symbol,
-            iat_address: thunk.iat_address,
-            disposition: thunk.disposition,
+            iat_address: Some(thunk.iat_address),
+            disposition: Some(thunk.disposition),
+            binding: ApiEndpointBinding::ImportAddressTable,
         }
     }
 
@@ -63,13 +74,32 @@ impl ApiEndpointIdentity {
             address: endpoint.address,
             module: import.requested_module.clone(),
             symbol,
-            iat_address: import.iat_address,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            iat_address: Some(import.iat_address),
+            disposition: Some(ImportThunkDisposition::DeclaredRuntimeExport),
+            binding: ApiEndpointBinding::ImportAddressTable,
         })
+    }
+
+    pub fn from_dynamic_endpoint(endpoint: &RuntimeDynamicEndpoint) -> Self {
+        Self {
+            id: ImportThunkId(endpoint.id),
+            address: endpoint.address,
+            module: endpoint.module.clone(),
+            symbol: ApiSymbol::Name {
+                name: endpoint.name.clone(),
+            },
+            iat_address: None,
+            disposition: None,
+            binding: ApiEndpointBinding::DynamicExport,
+        }
     }
 
     pub fn matches(&self, module: &str, symbol: &ApiSymbol) -> bool {
         self.module.eq_ignore_ascii_case(module) && &self.symbol == symbol
+    }
+
+    fn registry_key(&self) -> (ApiEndpointBinding, ImportThunkId) {
+        (self.binding, self.id)
     }
 }
 
@@ -637,8 +667,8 @@ impl<'a> ExecutionSession<'a> {
 #[derive(Debug, Clone)]
 pub struct ApiDispatcher {
     endpoints_by_address: BTreeMap<GuestAddress, ApiEndpointIdentity>,
-    endpoints_by_id: BTreeMap<ImportThunkId, ApiEndpointIdentity>,
-    contracts: BTreeMap<ImportThunkId, ApiContract>,
+    endpoints_by_id: BTreeMap<(ApiEndpointBinding, ImportThunkId), ApiEndpointIdentity>,
+    contracts: BTreeMap<GuestAddress, ApiContract>,
 }
 
 impl ApiDispatcher {
@@ -649,25 +679,24 @@ impl ApiDispatcher {
         let mut endpoints_by_address = BTreeMap::new();
         let mut endpoints_by_id = BTreeMap::new();
         for endpoint in endpoints {
-            if endpoints_by_address
-                .insert(endpoint.address, endpoint.clone())
-                .is_some()
-                || endpoints_by_id
-                    .insert(endpoint.id, endpoint.clone())
-                    .is_some()
+            let registry_key = endpoint.registry_key();
+            if endpoints_by_address.contains_key(&endpoint.address)
+                || endpoints_by_id.contains_key(&registry_key)
             {
                 return Err(ApiFault::invalid_call(
                     "api-dispatch",
                     "endpoint-identity-duplicate",
-                    "API endpoint registry contains a duplicate ID or address",
+                    "API endpoint registry contains a duplicate binding/ID or address",
                 ));
             }
+            endpoints_by_address.insert(endpoint.address, endpoint.clone());
+            endpoints_by_id.insert(registry_key, endpoint);
         }
 
         let mut registered_contracts = BTreeMap::new();
         for contract in contracts {
             validate_contract(&contract)?;
-            let Some(endpoint) = endpoints_by_id.get(&contract.endpoint.id) else {
+            let Some(endpoint) = endpoints_by_id.get(&contract.endpoint.registry_key()) else {
                 return Err(ApiFault::invalid_call(
                     "api-dispatch",
                     "contract-endpoint-unowned",
@@ -683,15 +712,35 @@ impl ApiDispatcher {
                 )
                 .with_endpoint(endpoint));
             }
-            if endpoint.disposition != ImportThunkDisposition::DeclaredRuntimeExport {
-                return Err(ApiFault::invalid_call(
-                    "api-dispatch",
-                    "unsupported-endpoint-contract-forbidden",
-                    "an unsupported trap endpoint cannot be registered as an implemented API",
-                )
-                .with_endpoint(endpoint));
+            match endpoint.binding {
+                ApiEndpointBinding::ImportAddressTable
+                    if endpoint.iat_address.is_none()
+                        || endpoint.disposition
+                            != Some(ImportThunkDisposition::DeclaredRuntimeExport) =>
+                {
+                    return Err(ApiFault::invalid_call(
+                        "api-dispatch",
+                        "unsupported-endpoint-contract-forbidden",
+                        "an unbound or unsupported import endpoint cannot be registered as an implemented API",
+                    )
+                    .with_endpoint(endpoint));
+                }
+                ApiEndpointBinding::DynamicExport
+                    if endpoint.iat_address.is_some() || endpoint.disposition.is_some() =>
+                {
+                    return Err(ApiFault::runtime_defect(
+                        "api-dispatch",
+                        "dynamic-endpoint-binding-invalid",
+                        "a dynamic export endpoint cannot carry import binding metadata",
+                    )
+                    .with_endpoint(endpoint));
+                }
+                _ => {}
             }
-            if registered_contracts.insert(endpoint.id, contract).is_some() {
+            if registered_contracts
+                .insert(endpoint.address, contract)
+                .is_some()
+            {
                 return Err(ApiFault::invalid_call(
                     "api-dispatch",
                     "endpoint-contract-duplicate",
@@ -728,7 +777,7 @@ impl ApiDispatcher {
             ));
         };
         if endpoint.id != trap.endpoint_id
-            || self.endpoints_by_id.get(&trap.endpoint_id) != Some(endpoint)
+            || self.endpoints_by_id.get(&endpoint.registry_key()) != Some(endpoint)
         {
             return DispatchOutcome::Fault(
                 ApiFault::invalid_call(
@@ -739,7 +788,7 @@ impl ApiDispatcher {
                 .with_endpoint(endpoint),
             );
         }
-        let Some(contract) = self.contracts.get(&endpoint.id) else {
+        let Some(contract) = self.contracts.get(&endpoint.address) else {
             return DispatchOutcome::Fault(
                 ApiFault::unsupported(
                     "api-dispatch",
@@ -847,7 +896,7 @@ impl ApiDispatcher {
             ));
         };
         if endpoint.id != trap.endpoint_id
-            || self.endpoints_by_id.get(&trap.endpoint_id) != Some(endpoint)
+            || self.endpoints_by_id.get(&endpoint.registry_key()) != Some(endpoint)
         {
             return DispatchOutcome::Fault(
                 ApiFault::invalid_call(
@@ -858,7 +907,7 @@ impl ApiDispatcher {
                 .with_endpoint(endpoint),
             );
         }
-        let Some(contract) = self.contracts.get(&endpoint.id) else {
+        let Some(contract) = self.contracts.get(&endpoint.address) else {
             return DispatchOutcome::Fault(
                 ApiFault::unsupported(
                     "api-dispatch",
@@ -944,9 +993,9 @@ impl ApiDispatcher {
         session: &mut ExecutionSession<'_>,
     ) -> DispatchOutcome {
         let endpoint = &frame.endpoint;
-        if self.endpoints_by_id.get(&endpoint.id) != Some(endpoint)
+        if self.endpoints_by_id.get(&endpoint.registry_key()) != Some(endpoint)
             || self.endpoints_by_address.get(&endpoint.address) != Some(endpoint)
-            || self.contracts.get(&endpoint.id) != Some(&contract)
+            || self.contracts.get(&endpoint.address) != Some(&contract)
         {
             return DispatchOutcome::Fault(
                 ApiFault::invalid_call(
@@ -1071,8 +1120,19 @@ fn validate_bound_iat(
     memory: &GuestMemory,
     endpoint: &ApiEndpointIdentity,
 ) -> Result<(), ApiFault> {
+    if endpoint.binding == ApiEndpointBinding::DynamicExport {
+        return Ok(());
+    }
+    let iat_address = endpoint.iat_address.ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "api-dispatch",
+            "import-endpoint-iat-missing",
+            "an import endpoint has no IAT binding address",
+        )
+        .with_endpoint(endpoint)
+    })?;
     let bytes = memory
-        .read(endpoint.iat_address, 4)
+        .read(iat_address, 4)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     let value = u32::from_le_bytes(bytes.try_into().map_err(|_| {
         ApiFault::runtime_defect(

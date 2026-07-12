@@ -6,7 +6,7 @@ use crate::api::{
     LastErrorPolicy, ReentrancyPolicy, StackCleanup,
 };
 use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
-use crate::memory::GuestAddress;
+use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, RuntimeCriticalSection, X86_CRITICAL_SECTION_BYTE_LENGTH,
@@ -28,6 +28,7 @@ pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
 pub const TLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.tls-set-value.v1";
 pub const ENCODE_POINTER_IMPLEMENTATION: &str = "kernel32.encode-pointer.v1";
 pub const DECODE_POINTER_IMPLEMENTATION: &str = "kernel32.decode-pointer.v1";
+pub const FLS_ALLOC_IMPLEMENTATION: &str = "kernel32.fls-alloc.v1";
 pub const INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION: &str =
     "kernel32.initialize-critical-section-and-spin-count.v1";
 pub const ENTER_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.enter-critical-section.v1";
@@ -63,6 +64,7 @@ pub fn dispatch_kernel32_api(
         TLS_SET_VALUE_IMPLEMENTATION => handle_tls_set_value(contract, frame, session),
         ENCODE_POINTER_IMPLEMENTATION => handle_encode_pointer(contract, frame, session),
         DECODE_POINTER_IMPLEMENTATION => handle_decode_pointer(contract, frame, session),
+        FLS_ALLOC_IMPLEMENTATION => handle_fls_alloc(contract, frame, session),
         INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION => {
             handle_initialize_critical_section_and_spin_count(contract, frame, session)
         }
@@ -108,6 +110,7 @@ pub fn kernel32_contract_for_endpoint(
         "TlsSetValue" => tls_set_value_contract(endpoint)?,
         "EncodePointer" => encode_pointer_contract(endpoint)?,
         "DecodePointer" => decode_pointer_contract(endpoint)?,
+        "FlsAlloc" => fls_alloc_contract(endpoint)?,
         "InitializeCriticalSectionAndSpinCount" => {
             initialize_critical_section_and_spin_count_contract(endpoint)?
         }
@@ -331,6 +334,26 @@ fn handle_decode_pointer(
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
         .source;
     Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(source)))
+}
+
+fn handle_fls_alloc(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let callback_value = required_argument(contract, frame, 0, "FLS callback")?;
+    let callback = (callback_value != 0).then_some(GuestAddress(callback_value));
+    if let Some(address) = callback {
+        session
+            .memory()
+            .validate_access(address, 1, MemoryAccess::Execute)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    }
+    let slot = session
+        .runtime_mut()
+        .allocate_fls_slot(callback)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(slot.index)))
 }
 
 fn handle_initialize_critical_section_and_spin_count(
@@ -761,6 +784,16 @@ pub fn decode_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         vec![opaque_pointer("encodedPointer", false, 1)],
         ApiReturnSchema::OpaquePointer { nullable: true },
         DECODE_POINTER_IMPLEMENTATION,
+    )
+}
+
+pub fn fls_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "FlsAlloc",
+        vec![opaque_pointer("callback", true, 1)],
+        ApiReturnSchema::U32,
+        FLS_ALLOC_IMPLEMENTATION,
     )
 }
 

@@ -574,6 +574,20 @@ dynamicExportSelection.find(
 ).selectedObservations = ["dynamic-export"];
 assert.doesNotThrow(() => summarizeTrace(encode(dynamicExportSelection)));
 
+const flsLifecycleSelection = structuredClone(events);
+flsLifecycleSelection[0].arguments.observations = ["fls-lifecycle"];
+flsLifecycleSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["fls-lifecycle"];
+assert.doesNotThrow(() => summarizeTrace(encode(flsLifecycleSelection)));
+
+const criticalSectionSelection = structuredClone(events);
+criticalSectionSelection[0].arguments.observations = ["critical-section"];
+criticalSectionSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["critical-section"];
+assert.doesNotThrow(() => summarizeTrace(encode(criticalSectionSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

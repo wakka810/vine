@@ -51,6 +51,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
       [
         "kernel32-critical-section-synchronization",
         "kernel32-pointer-decoding",
+        "kernel32-fiber-local-storage-allocation",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -62,7 +63,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
@@ -100,9 +101,11 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? genericRuntimeCapability === "kernel32-pointer-decoding"
-      ? "v86-bgi-pointer-decoding"
-      : "v86-bgi-critical-section-synchronization"
+    ? genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+      ? "v86-bgi-fiber-local-storage-allocation"
+      : genericRuntimeCapability === "kernel32-pointer-decoding"
+        ? "v86-bgi-pointer-decoding"
+        : "v86-bgi-critical-section-synchronization"
     : genericRuntimeReentry
       ? "v86-bgi-generic-runtime-reentry"
     : selectedCheckpoint.artifactDirectory,
@@ -1244,6 +1247,36 @@ const pointerDecodingExpected = {
   reportBytes: 171_356,
   reportSha256: "5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e",
 };
+const fiberLocalStorageAllocationExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 37,
+  initializationCalls: 14,
+  decodeCalls: 1,
+  allocationCalls: 1,
+  callback: 0x100a5666,
+  logicalIndex: 0,
+  allocationInstructionCount: 577,
+  allocationReturnAddress: 0x100a5926,
+  writebackBatches: 38,
+  dirtyPages: 68,
+  changedBytes: 399,
+  hostDeltaBatches: 17,
+  finalGeneration: 82,
+  firstUnsupported: {
+    capabilityCluster: "kernel32-private-heap-allocation",
+    endpointId: 75,
+    endpointAddress: 0x7f0004a0,
+    module: "kernel32.dll",
+    symbol: "HeapAlloc",
+    iatAddress: 0x100d11d4,
+    arguments: [0x68010001, 8, 0x214],
+    returnAddress: 0x100ac3cc,
+    instructionCount: 618,
+    faultCode: "endpoint-contract-missing",
+  },
+  reportBytes: 175_123,
+  reportSha256: "26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -1703,8 +1736,10 @@ async function run() {
         genericRuntimeCapability === "kernel32-critical-section-synchronization"
       ) {
         validateCriticalSectionSynchronizationResult(genericResult);
-      } else {
+      } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else {
+        validateFiberLocalStorageAllocationResult(genericResult);
       }
       fs.mkdirSync(outputDirectory, { recursive: true });
       const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
@@ -1713,9 +1748,11 @@ async function run() {
         assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
       } else {
         const capabilityExpected =
-          genericRuntimeCapability === "kernel32-pointer-decoding"
-            ? pointerDecodingExpected
-            : criticalSectionSynchronizationExpected;
+          genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+            ? fiberLocalStorageAllocationExpected
+            : genericRuntimeCapability === "kernel32-pointer-decoding"
+              ? pointerDecodingExpected
+              : criticalSectionSynchronizationExpected;
         assert.equal(
           reportBytes.byteLength,
           capabilityExpected.reportBytes,
@@ -1726,9 +1763,11 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : genericRuntimeCapability === "kernel32-pointer-decoding"
-            ? "bgi pointer decoding"
-            : "bgi critical-section synchronization";
+          : genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+            ? "bgi fiber-local-storage allocation"
+            : genericRuntimeCapability === "kernel32-pointer-decoding"
+              ? "bgi pointer decoding"
+              : "bgi critical-section synchronization";
       console.log(
         `${checkpointLabel} passed: ${genericResult.supportedCalls.length} generic calls, ` +
           `first unsupported cluster ${genericResult.fault.capabilityCluster}`,
@@ -2068,9 +2107,11 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : genericRuntimeCapability === "kernel32-pointer-decoding"
-          ? 4
-          : 3),
+        : genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+          ? 5
+          : genericRuntimeCapability === "kernel32-pointer-decoding"
+            ? 4
+            : 3),
   );
   assert.equal(ready.dynamicExportEndpoints, 4);
   assert.equal(ready.memory.generation, offer.reflection.invalidation.generation);
@@ -2359,10 +2400,16 @@ function validateGenericCompletionFrame(frame, endpoint, generation) {
   assert.equal(actual.id, endpoint.id);
   assert.equal(actual.address, endpoint.address);
   assert.equal(actual.module.toLowerCase(), endpoint.module.toLowerCase());
-  assert.equal(actual.symbol.kind, "name");
-  assert.equal(actual.symbol.name, endpoint.symbol);
+  if (endpoint.kind === "runtime-system-export") {
+    assert.equal(actual.symbol.kind, "name");
+    assert.equal(actual.symbol.name, endpoint.symbol);
+  } else {
+    assert.equal(actual.name, endpoint.symbol);
+  }
   assert.equal(frame.completion.frame.endpoint.id, endpoint.id);
   assert.equal(frame.completion.frame.endpoint.address, endpoint.address);
+  assert.equal(frame.completion.frame.endpoint.symbol.kind, "name");
+  assert.equal(frame.completion.frame.endpoint.symbol.name, endpoint.symbol);
   assert.equal(frame.memory.generation, generation);
   assert.equal(frame.memory.acknowledgedGeneration, generation);
   assert.equal(frame.memory.dirtyPages, 0);
@@ -2619,6 +2666,71 @@ function validatePointerDecodingResult(result) {
   );
 }
 
+function validateFiberLocalStorageAllocationResult(result) {
+  const expected = fiberLocalStorageAllocationExpected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  assert.equal(
+    result.supportedCalls.filter(
+      ({ symbol }) => symbol === "InitializeCriticalSectionAndSpinCount",
+    ).length,
+    expected.initializationCalls,
+  );
+  assert.equal(
+    result.supportedCalls.filter(({ symbol }) => symbol === "DecodePointer").length,
+    expected.decodeCalls,
+  );
+
+  const allocations = result.supportedCalls.filter(({ symbol }) => symbol === "FlsAlloc");
+  assert.equal(allocations.length, expected.allocationCalls);
+  assert.deepEqual(allocations[0].arguments, [expected.callback]);
+  assert.deepEqual(allocations[0].result, { action: "set", value: expected.logicalIndex });
+  assert.equal(allocations[0].implementationId, "kernel32.fls-alloc.v1");
+  assert.equal(allocations[0].lastError, 87);
+  assert.deepEqual(allocations[0].guestWrites, []);
+  assert.equal(allocations[0].stackPointerAfter, allocations[0].stackPointerBefore + 8);
+  assert.equal(allocations[0].trapInstructionCount, expected.allocationInstructionCount);
+  assert.equal(allocations[0].returnAddress, expected.allocationReturnAddress);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: unsupported.symbol,
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -2640,9 +2752,11 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : genericRuntimeCapability === "kernel32-pointer-decoding"
-          ? "vine.v86-bgi-pointer-decoding"
-          : "vine.v86-bgi-critical-section-synchronization",
+        : genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+          ? "vine.v86-bgi-fiber-local-storage-allocation"
+          : genericRuntimeCapability === "kernel32-pointer-decoding"
+            ? "vine.v86-bgi-pointer-decoding"
+            : "vine.v86-bgi-critical-section-synchronization",
     schemaVersion: 1,
     source: offer.source,
     sourceSnapshot: {

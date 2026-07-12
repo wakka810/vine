@@ -4,15 +4,16 @@ use vine_core::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDirection, ApiDispatcher,
     ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiOwnedTrap,
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
-    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession, GuestAddress,
-    GuestCallbackRequest, GuestMemory, HostCompletion, HostRequest, ImportTarget, ImportThunk,
-    ImportThunkDisposition, ImportThunkId, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession, GUEST_PAGE_SIZE,
+    GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest,
+    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE, LastErrorPolicy, MemoryLimits,
     MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
-    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint,
-    RuntimeHeap, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo,
-    RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState, StackCleanup,
-    dispatch_kernel32_api, kernel32_contract_for_endpoint,
+    RUNTIME_FLS_INDEX_LIMIT, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
+    RuntimeDynamicEndpoint, RuntimeHeap, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState,
+    StackCleanup, dispatch_kernel32_api, kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -324,6 +325,91 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
             .code,
         "host-request-id-unknown"
     );
+}
+
+#[test]
+fn fls_allocation_contract_owns_bounded_callback_slots() {
+    const CALLBACK_ADDRESS: u32 = OUTPUT_BASE + 0x800;
+
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoint, frames) =
+        fls_allocation_dispatcher_fixture(&mut memory, owner, CALLBACK_ADDRESS);
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let memory_before = memory.stats();
+
+    let invalid_callback = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[0].0, frames[0].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        invalid_callback,
+        DispatchOutcome::Fault(ref fault) if fault.class == ApiFaultClass::InvalidCall
+    ));
+    assert!(runtime.process().fls_slots.is_empty());
+
+    let callback_slot = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(callback_slot.eax, RegisterUpdate::Set(0));
+    assert_eq!(callback_slot.stack_pointer, GuestAddress(frames[1].0 + 8));
+    assert_eq!(callback_slot.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(
+        runtime.fls_slot(0).expect("callback FLS slot").namespace,
+        LOGICAL_FLS_INDEX_NAMESPACE
+    );
+    assert_eq!(
+        runtime.fls_slot(0).expect("callback FLS slot").callback,
+        Some(GuestAddress(CALLBACK_ADDRESS))
+    );
+
+    let null_callback_slot = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+    );
+    assert_eq!(null_callback_slot.eax, RegisterUpdate::Set(1));
+    assert_eq!(
+        runtime
+            .fls_slot(1)
+            .expect("null callback FLS slot")
+            .callback,
+        None
+    );
+
+    for expected_index in 2..RUNTIME_FLS_INDEX_LIMIT {
+        assert_eq!(
+            runtime
+                .allocate_fls_slot(None)
+                .expect("bounded FLS allocation")
+                .index,
+            expected_index
+        );
+    }
+    assert_eq!(
+        runtime
+            .allocate_fls_slot(None)
+            .expect_err("FLS capacity is fail-closed")
+            .code,
+        "fls-index-space-exhausted"
+    );
+    assert_eq!(
+        runtime.process().fls_slots.len(),
+        RUNTIME_FLS_INDEX_LIMIT as usize
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+    assert_eq!(memory.stats(), memory_before);
 }
 
 #[test]
@@ -1147,6 +1233,80 @@ fn pointer_encoding_dispatcher_fixture(
     (
         ApiDispatcher::new(endpoints.clone(), contracts).expect("pointer-encoding dispatcher"),
         endpoints,
+        frames,
+    )
+}
+
+fn fls_allocation_dispatcher_fixture(
+    memory: &mut GuestMemory,
+    owner: MemoryOwnerId,
+    callback_address: u32,
+) -> (ApiDispatcher, ApiEndpointIdentity, [FrameWords; 3]) {
+    memory
+        .protect(
+            owner,
+            GuestRange::new(GuestAddress(OUTPUT_BASE), GUEST_PAGE_SIZE)
+                .expect("callback page range"),
+            PageProtection {
+                read: true,
+                write: true,
+                execute: true,
+            },
+        )
+        .expect("make callback page executable");
+    let dynamic = RuntimeDynamicEndpoint {
+        namespace: DYNAMIC_EXPORT_ENDPOINT_NAMESPACE.to_owned(),
+        id: 1,
+        address: GuestAddress(0x7f02_0000),
+        module: "kernel32.dll".to_owned(),
+        name: "FlsAlloc".to_owned(),
+        lifetime: "process-runtime".to_owned(),
+    };
+    let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(&dynamic);
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented FLS allocation endpoint");
+    let static_endpoint_address = GuestAddress(0x7f00_0000);
+    let static_iat_address = GuestAddress(IAT_BASE);
+    memory
+        .write_initialization(
+            owner,
+            static_iat_address,
+            &static_endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize colliding static endpoint IAT");
+    let static_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: static_endpoint_address,
+        requester_owner: owner,
+        module: "fixture.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: static_iat_address,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "StaticIdCollision".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let frames = [
+        (STACK_BASE + 0x260, vec![0x1000_0501, 0x3000_0000]),
+        (STACK_BASE + 0x280, vec![0x1000_0502, callback_address]),
+        (STACK_BASE + 0x2a0, vec![0x1000_0503, 0]),
+    ];
+    for (address, words) in &frames {
+        write_frame(memory, owner, GuestAddress(*address), words);
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    (
+        ApiDispatcher::new([static_endpoint, endpoint.clone()], [contract])
+            .expect("static/dynamic ID collision FLS allocation dispatcher"),
+        endpoint,
         frames,
     )
 }

@@ -101,16 +101,26 @@ writeback batches／66 dirty pages／348 changed bytes and generation `81`. Its
 171,356-byte report has SHA-256
 `5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e`.
 
-Seventeen Kernel32 contracts now use the generic Rust dispatcher. This includes
-clock／identity, startup, heap, module／export, TLS, pointer encoding／decoding, and critical
-section calls. The dispatcher owns endpoint lookup, checked frame decoding,
+The cumulative FLS-allocation profile dispatches dynamic `FlsAlloc` through the
+same generic path, validates executable callback `0x100A5666`, preserves
+LastError, and returns process-owned logical index `0` instead of native index
+`9`. It completes 37 calls, then reaches
+`HeapAlloc(0x68010001, 8, 0x214)` at instruction 618. Its 38 writeback batches
+cover 68 dirty pages／399 changed bytes and finish at generation `82`; the
+175,123-byte report has SHA-256
+`26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c`.
+
+Eighteen Kernel32 contracts now use the generic Rust dispatcher. This includes
+clock／identity, startup, heap, module／export, TLS, pointer encoding／decoding,
+critical-section, and dynamic FLS-allocation calls. The dispatcher owns endpoint lookup, checked frame decoding,
 pointer and name／ordinal validation, guest writes, return cleanup, LastError
 policy, and identity-preserving faults.
 
 Those calls now share one authoritative Rust `RuntimeState`. It owns the
 controlled process／logical thread registry, per-thread LastError, clock and startup
 profile, heap／module／endpoint registries, TLS values, deterministic encoded
-pointers with strict inverse lookup, and guest-address-keyed critical sections. Nested callback frames are LIFO and asynchronous host completion is a
+pointers with strict inverse lookup, guest-address-keyed critical sections, and
+bounded process-owned FLS slots with retained cleanup callbacks. Nested callback frames are LIFO and asynchronous host completion is a
 scheduler event that restores the prior runnable／callback state. Private JSON
 request values remain evidence assertions, not API result sources. A controlled
 one-object wait queue now moves a logical lane from runnable to waiting and back
@@ -176,9 +186,9 @@ cancellation. A controlled raw message queue adds global sequence identity,
 owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. Private heaps now
 have bounded guest-memory backing; mapped images, bounded PE32 export resolution,
 guest／runtime import binding, and DLL process attach failure unwind／retry／detach
-are also process-owned foundations. The next runtime-kernel checkpoint measures
-and implements bounded process-owned allocation for the reached dynamic
-`FlsAlloc(0x100A5666)` call. Bespoke numbered BGI checkpoint expansion remains paused.
+are also process-owned foundations. The next runtime-kernel checkpoint connects
+the reached `HeapAlloc(0x68010001, 8, 0x214)` call to the existing bounded
+private-heap allocator. Bespoke numbered BGI checkpoint expansion remains paused.
 
 ## Requirements
 
@@ -307,6 +317,9 @@ fail-closed at `DecodePointer(0xEC010003)` after 35 completed calls.
 `npm run check:runtime:bgi-pointer-decoding` resolves only the registered token,
 preserves all three earlier reports, and stops fail-closed at dynamic
 `FlsAlloc(0x100A5666)` after 36 completed calls.
+`npm run check:runtime:bgi-fiber-local-storage-allocation` allocates logical FLS
+index `0`, preserves all four earlier reports, and stops fail-closed at
+`HeapAlloc(0x68010001, 8, 0x214)` after 37 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.
