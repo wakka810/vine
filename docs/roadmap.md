@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは20 contracts／42 callsをcommon dispatcherからreturnして`InterlockedIncrement(0x100F08E0)`へ到達した。17-call checkpoint manifest／generic runner、changed-state memory transaction、Chrome Worker vertical、v86 browser go gateは成立し、visual critical scenarioとdevice-level COM continuationは未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは21 contracts／50 callsをcommon dispatcherからreturnして`HeapAlloc(0x68010001,8,0x800)`へ到達した。17-call checkpoint manifest／generic runner、changed-state memory transaction、Chrome Worker vertical、v86 browser go gateは成立し、visual critical scenarioとdevice-level COM continuationは未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -928,9 +928,18 @@ pages／497 changed bytes、19 host deltas、final generation `91`を通し、in
 ID `124`／`InterlockedIncrement(0x100F08E0)`へ進んだ。195,821-byte report／SHA-256
 `f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f`を固定した。
 
-1. exact endpoint ID `124`／`KERNEL32.dll!InterlockedIncrement(0x100F08E0)`のnative result／LastError／caller evidenceとguest target bytesを測定し、reached one-argument stdcall contractをchecked atomic guest-memory updateへ接続してsame generic sessionの次のexact stopまで進める。Adjacent interlocked APIs、FLS get／free／teardown、later heap variantを同時に追加しない。
+Step 16は2件のfocused native traceでcaller RVA `0xA5577`／`0xA7351`／`0xA73C7`の
+`0 -> 1`／`1 -> 2`／`0 -> 1`、LastError `87 -> 87`とlater `-1 -> 0` wrappingを固定した。
+Required aligned `InOut LONG`をcommon dispatcherのchecked read／one guest writeへ接続し、
+3 callsをreturnした。Existing critical-section／thread／startup contractsを含む21 contracts／
+50 calls、51 writeback batches／86 dirty pages／667 changed bytes、26 host deltas、final
+generation `106`を通し、instruction 934の`HeapAlloc(0x68010001,8,0x800)`へ進んだ。
+234,775-byte report／SHA-256
+`4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643`を固定した。
 
-frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated eighteenth-call expansionはpauseを続ける。FLS value storageは完了し、現在はreached atomic incrementを進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
+1. existing heap-lifecycle native pairで測定済みのsecond `HeapAlloc(nativeHeap,0x8,0x800)`を、first allocationを保持したsame bounded private-heap transactionへ接続する。Expected second guest allocation identity／address／zero initialization、host delta、LastError、failure atomicityを固定し、same generic sessionの次のexact stopまで進める。Other flags／sizes、free／destroy／realloc、zero-size、resource-failure successを同時に追加しない。
+
+frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated eighteenth-call expansionはpauseを続ける。Interlocked incrementは完了し、現在はreached second private-heap allocationを進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
 
 ## 23. 完了の定義
 

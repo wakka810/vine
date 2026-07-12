@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 use crate::api::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDirection,
     ApiEndpointIdentity, ApiFault, ApiHandlerResult, ApiImmediate, ApiPointeeSchema,
@@ -31,6 +33,7 @@ pub const ENCODE_POINTER_IMPLEMENTATION: &str = "kernel32.encode-pointer.v1";
 pub const DECODE_POINTER_IMPLEMENTATION: &str = "kernel32.decode-pointer.v1";
 pub const FLS_ALLOC_IMPLEMENTATION: &str = "kernel32.fls-alloc.v1";
 pub const FLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.fls-set-value.v1";
+pub const INTERLOCKED_INCREMENT_IMPLEMENTATION: &str = "kernel32.interlocked-increment.v1";
 pub const INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION: &str =
     "kernel32.initialize-critical-section-and-spin-count.v1";
 pub const ENTER_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.enter-critical-section.v1";
@@ -71,6 +74,9 @@ pub fn dispatch_kernel32_api(
         DECODE_POINTER_IMPLEMENTATION => handle_decode_pointer(contract, frame, session),
         FLS_ALLOC_IMPLEMENTATION => handle_fls_alloc(contract, frame, session),
         FLS_SET_VALUE_IMPLEMENTATION => handle_fls_set_value(contract, frame, session),
+        INTERLOCKED_INCREMENT_IMPLEMENTATION => {
+            handle_interlocked_increment(contract, frame, session)
+        }
         INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION => {
             handle_initialize_critical_section_and_spin_count(contract, frame, session)
         }
@@ -119,6 +125,7 @@ pub fn kernel32_contract_for_endpoint(
         "DecodePointer" => decode_pointer_contract(endpoint)?,
         "FlsAlloc" => fls_alloc_contract(endpoint)?,
         "FlsSetValue" => fls_set_value_contract(endpoint)?,
+        "InterlockedIncrement" => interlocked_increment_contract(endpoint)?,
         "InitializeCriticalSectionAndSpinCount" => {
             initialize_critical_section_and_spin_count_contract(endpoint)?
         }
@@ -399,6 +406,28 @@ fn handle_fls_set_value(
         .set_fls_value(index, value)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
+}
+
+fn handle_interlocked_increment(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(contract, frame, 0, "LONG target")?);
+    let bytes = session
+        .memory()
+        .read(address, size_of::<i32>())
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let value = i32::from_le_bytes(bytes.try_into().map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-interlocked",
+            "interlocked-long-read-size-invalid",
+            "checked InterlockedIncrement target did not contain one LONG",
+        )
+    })?);
+    let incremented = value.wrapping_add(1);
+    Ok(ApiImmediate::new(ApiReturnValue::U32(incremented as u32))
+        .with_guest_write(address, incremented.to_le_bytes().to_vec()))
 }
 
 fn handle_initialize_critical_section_and_spin_count(
@@ -863,6 +892,18 @@ pub fn fls_set_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContra
         vec![u32_argument("flsIndex"), opaque_pointer("value", true, 1)],
         ApiReturnSchema::Bool32,
         FLS_SET_VALUE_IMPLEMENTATION,
+    )
+}
+
+pub fn interlocked_increment_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "InterlockedIncrement",
+        vec![inout_struct("addend", "LONG", size_of::<i32>() as u32)],
+        ApiReturnSchema::U32,
+        INTERLOCKED_INCREMENT_IMPLEMENTATION,
     )
 }
 

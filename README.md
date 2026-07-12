@@ -127,9 +127,18 @@ stopping at `InterlockedIncrement(0x100F08E0)` at instruction 707. It completes
 host deltas, finishing at generation `91`. The 195,821-byte report has SHA-256
 `f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f`.
 
-Twenty Kernel32 contracts now use the generic Rust dispatcher. This includes
+The cumulative InterlockedIncrement profile checks three native-matching LONG
+updates at `0x100F08E0`, `0x100F0F70`, and `0x100F0EBC`, then continues existing
+critical-section, thread, and startup contracts. It completes 50 calls through
+51 writeback batches／86 dirty pages／667 changed bytes and 26 host deltas,
+finishing at generation `106`. The 234,775-byte report has SHA-256
+`4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643`
+and stops fail-closed at `HeapAlloc(0x68010001, 8, 0x800)`.
+
+Twenty-one Kernel32 contracts now use the generic Rust dispatcher. This includes
 clock／identity, startup, heap, module／export, TLS, pointer encoding／decoding,
-critical-section, dynamic FLS allocation／value storage, and reached private-heap allocation.
+critical-section, dynamic FLS allocation／value storage, reached private-heap
+allocation, and checked `InterlockedIncrement`.
 The dispatcher owns endpoint lookup, checked frame decoding,
 pointer and name／ordinal validation, guest writes, return cleanup, LastError
 policy, and identity-preserving faults.
@@ -204,9 +213,10 @@ cancellation. A controlled raw message queue adds global sequence identity,
 owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. Private heaps now
 have bounded guest-memory backing; mapped images, bounded PE32 export resolution,
 guest／runtime import binding, and DLL process attach failure unwind／retry／detach
-are also process-owned foundations. The next runtime-kernel checkpoint measures
-and implements `InterlockedIncrement(0x100F08E0)` against checked writable guest
-memory. Bespoke numbered BGI checkpoint expansion remains paused.
+are also process-owned foundations. The next runtime-kernel checkpoint extends
+the existing bounded heap transaction to the measured second
+`HeapAlloc(0x68010001, 8, 0x800)` occurrence. Bespoke numbered BGI checkpoint
+expansion remains paused.
 
 ## Requirements
 
@@ -344,6 +354,9 @@ dynamic `FlsSetValue(0, 0x20000000)` after 39 completed calls.
 `npm run check:runtime:bgi-fiber-local-storage-value` stores that pointer for
 controlled thread `8192`, preserves all six earlier reports, and stops
 fail-closed at `InterlockedIncrement(0x100F08E0)` after 42 completed calls.
+`npm run check:runtime:bgi-interlocked-increment` returns three checked LONG
+updates, preserves all seven earlier reports, and stops fail-closed at the
+measured second `HeapAlloc(0x68010001, 8, 0x800)` after 50 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

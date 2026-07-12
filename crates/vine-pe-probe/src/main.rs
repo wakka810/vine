@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Read, Write};
+use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -11,20 +12,20 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use vine_core::{
     ApiContract, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass,
-    ApiImmediateCompletion, ApiOwnedTrap, ApiTrap, CallbackReturnSentinel, CpuWritebackReceipt,
-    DispatchOutcome, DynamicExportThunk, ExecutionSession, GuestAddress, GuestMemory,
-    GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation, GuestWriteResult,
-    ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget, ImportThunk,
-    ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack, LoaderError,
-    LoaderErrorClass, LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits,
-    MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
-    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
-    RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,
-    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
-    RuntimeModule, RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
-    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue,
-    SchedulerThreadState, UnsupportedPoint, bind_pe32_imports,
+    ApiImmediateCompletion, ApiOwnedTrap, ApiSymbol, ApiTrap, CallbackReturnSentinel,
+    CpuWritebackReceipt, DispatchOutcome, DynamicExportThunk, ExecutionSession, GuestAddress,
+    GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation,
+    GuestWriteResult, ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget,
+    ImportThunk, ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
+    LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta, MemoryInvalidation,
+    MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot,
+    Pe32Limits, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate,
+    RuntimeBootstrap, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
+    RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeGuestImportResolution, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
+    RuntimeModuleImageErrorClass, RuntimeProcessId, RuntimeProcessLifecycleState,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
+    RuntimeTlsValue, SchedulerThreadState, UnsupportedPoint, bind_pe32_imports,
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
     encode_pointer_contract, get_current_process_id_contract, get_current_thread_id_contract,
     get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
@@ -83,6 +84,7 @@ enum GenericRuntimeCapability {
     FiberLocalStorageAllocation,
     PrivateHeapAllocation,
     FiberLocalStorageValue,
+    InterlockedIncrement,
 }
 
 struct GenericRuntimeProcess {
@@ -154,6 +156,8 @@ struct GenericRuntimeCompletion {
     completion: ApiImmediateCompletion,
     #[serde(skip_serializing_if = "Option::is_none")]
     fls_value: Option<GenericRuntimeFlsValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interlocked_increment: Option<GenericRuntimeLongUpdate>,
     memory: MemoryStats,
 }
 
@@ -163,6 +167,14 @@ struct GenericRuntimeFlsValue {
     thread_id: u32,
     index: u32,
     value: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeLongUpdate {
+    address: u32,
+    before: i32,
+    after: i32,
 }
 
 #[derive(Debug, Serialize)]
@@ -2372,6 +2384,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::FiberLocalStorageAllocation
                 | GenericRuntimeCapability::PrivateHeapAllocation
                 | GenericRuntimeCapability::FiberLocalStorageValue
+                | GenericRuntimeCapability::InterlockedIncrement
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2394,7 +2407,10 @@ fn run_v86_generic_runtime_session(
     }
     if matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::FiberLocalStorageValue)
+        Some(
+            GenericRuntimeCapability::FiberLocalStorageValue
+                | GenericRuntimeCapability::InterlockedIncrement
+        )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
             process
@@ -2496,6 +2512,21 @@ fn run_v86_generic_runtime_session(
                             "generic runtime trap does not identify a process-owned export endpoint",
                         )
                     })?;
+                let interlocked_before = if enabled_capability
+                    == Some(GenericRuntimeCapability::InterlockedIncrement)
+                    && endpoint.matches(
+                        "kernel32.dll",
+                        &ApiSymbol::Name {
+                            name: "InterlockedIncrement".to_owned(),
+                        },
+                    ) {
+                    Some(read_generic_runtime_long_argument(
+                        memory,
+                        trap.stack_pointer,
+                    )?)
+                } else {
+                    None
+                };
                 let mut session = ExecutionSession::new(memory, &mut process.runtime);
                 match dispatcher.dispatch_owned(
                     ApiOwnedTrap {
@@ -2508,6 +2539,9 @@ fn run_v86_generic_runtime_session(
                     dispatch_kernel32_api,
                 ) {
                     DispatchOutcome::Immediate(completion) => {
+                        let interlocked_increment = interlocked_before
+                            .map(|before| generic_runtime_long_update(&completion, before))
+                            .transpose()?;
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -2517,6 +2551,7 @@ fn run_v86_generic_runtime_session(
                                 endpoint: GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
                                 completion,
                                 fls_value: None,
+                                interlocked_increment,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -2609,6 +2644,7 @@ fn run_v86_generic_runtime_session(
                                 endpoint: GenericRuntimeEndpoint::DynamicExport { endpoint },
                                 completion,
                                 fls_value,
+                                interlocked_increment: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -2662,6 +2698,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::FiberLocalStorageAllocation
                     | GenericRuntimeCapability::PrivateHeapAllocation
                     | GenericRuntimeCapability::FiberLocalStorageValue
+                    | GenericRuntimeCapability::InterlockedIncrement
             )
         ),
         "DecodePointer" => matches!(
@@ -2671,6 +2708,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::FiberLocalStorageAllocation
                     | GenericRuntimeCapability::PrivateHeapAllocation
                     | GenericRuntimeCapability::FiberLocalStorageValue
+                    | GenericRuntimeCapability::InterlockedIncrement
             )
         ),
         "FlsAlloc" => matches!(
@@ -2679,6 +2717,7 @@ fn runtime_capability_enables_endpoint(
                 GenericRuntimeCapability::FiberLocalStorageAllocation
                     | GenericRuntimeCapability::PrivateHeapAllocation
                     | GenericRuntimeCapability::FiberLocalStorageValue
+                    | GenericRuntimeCapability::InterlockedIncrement
             )
         ),
         "HeapAlloc" => matches!(
@@ -2686,11 +2725,19 @@ fn runtime_capability_enables_endpoint(
             Some(
                 GenericRuntimeCapability::PrivateHeapAllocation
                     | GenericRuntimeCapability::FiberLocalStorageValue
+                    | GenericRuntimeCapability::InterlockedIncrement
             )
         ),
         "FlsSetValue" => matches!(
             enabled,
-            Some(GenericRuntimeCapability::FiberLocalStorageValue)
+            Some(
+                GenericRuntimeCapability::FiberLocalStorageValue
+                    | GenericRuntimeCapability::InterlockedIncrement
+            )
+        ),
+        "InterlockedIncrement" => matches!(
+            enabled,
+            Some(GenericRuntimeCapability::InterlockedIncrement)
         ),
         _ => true,
     }
@@ -2708,11 +2755,98 @@ fn runtime_capability_enables_dynamic_endpoint(
             GenericRuntimeCapability::FiberLocalStorageAllocation
             | GenericRuntimeCapability::PrivateHeapAllocation,
         ) => endpoint.name == "FlsAlloc",
-        Some(GenericRuntimeCapability::FiberLocalStorageValue) => {
+        Some(
+            GenericRuntimeCapability::FiberLocalStorageValue
+            | GenericRuntimeCapability::InterlockedIncrement,
+        ) => {
             matches!(endpoint.name.as_str(), "FlsAlloc" | "FlsSetValue")
         }
         _ => false,
     }
+}
+
+fn read_generic_runtime_long_argument(
+    memory: &GuestMemory,
+    stack_pointer: u32,
+) -> Result<(GuestAddress, i32), LoaderError> {
+    let argument_address = GuestAddress(stack_pointer.checked_add(4).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "runtime-reentry",
+            "interlocked-frame-address-overflow",
+            "InterlockedIncrement argument address crosses the x86 address limit",
+        )
+    })?);
+    let bytes = memory.read(argument_address, 4).map_err(memory_error)?;
+    let address = GuestAddress(u32::from_le_bytes(bytes.try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "interlocked-frame-read-size-invalid",
+            "checked InterlockedIncrement frame did not contain one argument",
+        )
+    })?));
+    Ok((address, read_generic_runtime_long(memory, address)?))
+}
+
+fn read_generic_runtime_long(
+    memory: &GuestMemory,
+    address: GuestAddress,
+) -> Result<i32, LoaderError> {
+    if !address.0.is_multiple_of(size_of::<i32>() as u32) {
+        return Err(LoaderError::invalid_input(
+            "runtime-reentry",
+            "interlocked-target-alignment-invalid",
+            "InterlockedIncrement target is not aligned to one LONG",
+        ));
+    }
+    let bytes = memory
+        .read(address, size_of::<i32>())
+        .map_err(memory_error)?;
+    Ok(i32::from_le_bytes(bytes.try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "interlocked-target-read-size-invalid",
+            "checked InterlockedIncrement target did not contain one LONG",
+        )
+    })?))
+}
+
+fn generic_runtime_long_update(
+    completion: &ApiImmediateCompletion,
+    (address, before): (GuestAddress, i32),
+) -> Result<GenericRuntimeLongUpdate, LoaderError> {
+    let [write] = completion.guest_writes.as_slice() else {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "interlocked-write-count-invalid",
+            "InterlockedIncrement completion did not contain exactly one guest write",
+        ));
+    };
+    if write.write.address != address || write.write.bytes.len() != size_of::<i32>() {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "interlocked-write-shape-invalid",
+            "InterlockedIncrement completion did not write one LONG to its argument",
+        ));
+    }
+    let after = i32::from_le_bytes(write.write.bytes.as_slice().try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "interlocked-write-size-invalid",
+            "checked InterlockedIncrement completion did not contain one LONG",
+        )
+    })?);
+    if after != before.wrapping_add(1) {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "interlocked-write-value-invalid",
+            "InterlockedIncrement completion did not contain the wrapping successor",
+        ));
+    }
+    Ok(GenericRuntimeLongUpdate {
+        address: address.0,
+        before,
+        after,
+    })
 }
 
 fn send_pending_runtime_delta(
@@ -7852,6 +7986,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-fiber-local-storage-value" => {
                     GenericRuntimeCapability::FiberLocalStorageValue
                 }
+                "kernel32-interlocked-increment" => GenericRuntimeCapability::InterlockedIncrement,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
@@ -8062,7 +8197,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

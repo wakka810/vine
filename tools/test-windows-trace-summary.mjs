@@ -588,6 +588,13 @@ criticalSectionSelection.find(
 ).selectedObservations = ["critical-section"];
 assert.doesNotThrow(() => summarizeTrace(encode(criticalSectionSelection)));
 
+const interlockedIncrementSelection = structuredClone(events);
+interlockedIncrementSelection[0].arguments.observations = ["interlocked-increment"];
+interlockedIncrementSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["interlocked-increment"];
+assert.doesNotThrow(() => summarizeTrace(encode(interlockedIncrementSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

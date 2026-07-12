@@ -61,6 +61,7 @@
     "check:runtime:bgi-fiber-local-storage-allocation": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-fiber-local-storage-allocation",
     "check:runtime:bgi-private-heap-allocation": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-private-heap-allocation",
     "check:runtime:bgi-fiber-local-storage-value": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-fiber-local-storage-value",
+    "check:runtime:bgi-interlocked-increment": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-interlocked-increment",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "typecheck:runtime:browser-worker": "tsc -p browser/runtime-worker/tsconfig.json",

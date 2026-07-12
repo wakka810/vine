@@ -1086,6 +1086,31 @@ SHA-256は`f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f`
 である。先行6 reportsはbyte-identicalである。次はreached atomic incrementだけを測定／
 実装し、adjacent interlocked APIsとFLS get／free／teardownを先取りしない。
 
+### Step 16 — reached InterlockedIncrement
+
+**完了（2026-07-13）:** opt-in `interlocked-increment` traceを2件取得し、BGI caller
+RVA `0xA5577`／`0xA7351`／`0xA73C7`のLONG `0 -> 1`／`1 -> 2`／`0 -> 1`、
+result、LastError `87 -> 87`を固定した。同じfirst callerのlater `-1 -> 0`はsigned
+wrappingを固定する。Raw tracesは272,588 bytes／875 lines／SHA-256
+`917f73f6ad71737c406b2be2324c94abd7e6c59135f771ffe23f7664178706e5`と335,188
+bytes／1,054 lines／SHA-256
+`719ad5fd2f36ad10897c414bb528a8140ae7256e3981a29010fe0971b6b36c3a`である。
+
+Rust common dispatcherへrequired 4-byte-aligned `InOut LONG`、one-argument stdcall、
+`i32::wrapping_add(1)`、required one guest write、LastError preserve contractを追加した。
+Representative testは`0 -> 1`／`-1 -> 0`、stdcall cleanupとread-only／unmapped／
+page-crossing unaligned targetのmutation-free rejectionを固定する。Current single Runtime
+Worker lane内のindivisible updateであり、cross-worker host atomicityはclaimしない。
+
+same generic sessionは21 contracts／50 calls、51 writeback batches／86 dirty pages／667
+changed bytes、26 host deltas、final generation `106`を通した。3 callsのtarget／write
+generationは`0x100F08E0`／`92`、`0x100F0F70`／`98`、`0x100F0EBC`／`100`である。
+instruction 934のID `75`／`HeapAlloc(0x68010001,8,0x800)`でstructured
+`heap-alloc-variant-unsupported`停止した。234,775-byte reportのSHA-256は
+`4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643`である。
+先行7 reportsはbyte-identicalである。次はこのalready measured second allocationだけを
+existing private-heap transactionへ接続し、other heap variantsを先取りしない。
+
 ---
 
 ## 8. P0完了のDefinition of Done

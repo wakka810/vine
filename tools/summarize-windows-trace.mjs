@@ -19,6 +19,7 @@ const supportedObservations = new Set([
   "fls-lifecycle",
   "pointer-encoding",
   "critical-section",
+  "interlocked-increment",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

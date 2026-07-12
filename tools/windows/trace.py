@@ -23,6 +23,7 @@ SUPPORTED_OBSERVATIONS = (
     "fls-lifecycle",
     "pointer-encoding",
     "critical-section",
+    "interlocked-increment",
 )
 
 

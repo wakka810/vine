@@ -638,6 +638,142 @@ fn heap_alloc_contract_uses_transactional_guest_backing_and_rejects_other_varian
 }
 
 #[test]
+fn interlocked_increment_contract_wraps_and_rejects_invalid_targets_before_mutation() {
+    const ZERO_TARGET: u32 = OUTPUT_BASE;
+    const WRAP_TARGET: u32 = OUTPUT_BASE + 4;
+    const UNMAPPED_TARGET: u32 = 0x4000_0000;
+    const CROSS_PAGE_TARGET: u32 = OUTPUT_BASE + 0x0ffe;
+
+    let (mut memory, owner) = initialized_memory();
+    let endpoint_address = GuestAddress(ENDPOINT_BASE);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize InterlockedIncrement IAT");
+    memory
+        .write_initialization(owner, GuestAddress(ZERO_TARGET), &0_i32.to_le_bytes())
+        .expect("initialize zero target");
+    memory
+        .write_initialization(owner, GuestAddress(WRAP_TARGET), &(-1_i32).to_le_bytes())
+        .expect("initialize wrapping target");
+    let frames = [
+        (STACK_BASE, vec![0x1000_0701, ZERO_TARGET]),
+        (STACK_BASE + 0x20, vec![0x1000_0702, WRAP_TARGET]),
+        (STACK_BASE + 0x40, vec![0x1000_0703, ZERO_TARGET]),
+        (STACK_BASE + 0x60, vec![0x1000_0704, UNMAPPED_TARGET]),
+        (STACK_BASE + 0x80, vec![0x1000_0705, CROSS_PAGE_TARGET]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "InterlockedIncrement".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented InterlockedIncrement endpoint");
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+
+    for (frame, expected) in [(&frames[0], 1_u32), (&frames[1], 0_u32)] {
+        let completion = dispatch_owned(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoint,
+            frame.0,
+            frame.1[0],
+        );
+        assert_eq!(completion.eax, RegisterUpdate::Set(expected));
+        assert_eq!(completion.stack_pointer, GuestAddress(frame.0 + 8));
+        assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+        assert_eq!(completion.guest_writes.len(), 1);
+        assert_eq!(completion.guest_writes[0].write.address.0, frame.1[1]);
+        assert_eq!(
+            completion.guest_writes[0].write.bytes,
+            (expected as i32).to_le_bytes()
+        );
+        acknowledge_pending_delta(&mut memory);
+        assert_eq!(
+            memory
+                .read(GuestAddress(frame.1[1]), 4)
+                .expect("read incremented LONG"),
+            (expected as i32).to_le_bytes()
+        );
+    }
+
+    memory
+        .protect(
+            owner,
+            GuestRange::new(GuestAddress(OUTPUT_BASE), GUEST_PAGE_SIZE).expect("target page range"),
+            PageProtection {
+                read: true,
+                write: false,
+                execute: false,
+            },
+        )
+        .expect("make target page read-only");
+    acknowledge_pending_delta(&mut memory);
+    let runtime_before_rejections = runtime.clone();
+    let memory_before_rejections = memory.stats();
+    let rejection_cases = [
+        (&frames[2], "guest-page-fault", "WriteDenied"),
+        (&frames[3], "guest-page-fault", "Unmapped"),
+        (
+            &frames[4],
+            "pointer-alignment-invalid",
+            "not aligned to 4 bytes",
+        ),
+    ];
+    for (frame, expected_code, expected_message) in rejection_cases {
+        let rejected = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(&endpoint, frame.0, frame.1[0]),
+                &mut session,
+                dispatch_kernel32_api,
+            )
+        };
+        assert!(matches!(
+            rejected,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == ApiFaultClass::InvalidCall
+                    && fault.code == expected_code
+                    && fault.message.contains(expected_message)
+        ));
+        assert_eq!(runtime, runtime_before_rejections);
+        assert_eq!(memory.stats(), memory_before_rejections);
+    }
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+    assert_eq!(
+        memory
+            .read(GuestAddress(ZERO_TARGET), 8)
+            .expect("read unchanged valid targets"),
+        [1_i32.to_le_bytes(), 0_i32.to_le_bytes()].concat()
+    );
+}
+
+#[test]
 fn pointer_encoding_contract_round_trips_only_process_owned_tokens() {
     let (mut memory, owner) = initialized_memory();
     let (dispatcher, endpoints, frames) = pointer_encoding_dispatcher_fixture(&mut memory, owner);

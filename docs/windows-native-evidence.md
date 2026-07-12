@@ -1022,3 +1022,26 @@ instruction `707`でID `124`／`InterlockedIncrement(0x100F08E0)`へ到達する
 195,821-byte reportのSHA-256は
 `f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f`
 である。詳細は[bgi-fiber-local-storage-value.md](bgi-fiber-local-storage-value.md)を正とする。
+
+## 49. BGI InterlockedIncrement
+
+opt-in `interlocked-increment` tracesは272,588 bytes／875 lines／SHA-256
+`917f73f6ad71737c406b2be2324c94abd7e6c59135f771ffe23f7664178706e5`と
+335,188 bytes／1,054 lines／SHA-256
+`719ad5fd2f36ad10897c414bb528a8140ae7256e3981a29010fe0971b6b36c3a`
+である。両captureでBGI caller RVA `0xA5577`／`0xA7351`／`0xA73C7`はそれぞれ
+LONG `0 -> 1`／`1 -> 2`／`0 -> 1`、同じresult、LastError `87 -> 87`を返す。
+Later `0xA5577` pairの`-1 -> 0`はsigned wrappingを固定する。
+
+Rust common dispatcherはrequired aligned `InOut LONG`をread／write preflightし、
+`i32::wrapping_add(1)`のone guest writeとstdcall returnを同じimmediate completionへ入れる。
+Current single Runtime Worker lane内ではguest executionを挟まず更新するが、general host-thread／
+cross-worker atomicityはclaimしない。
+
+`npm run check:runtime:bgi-interlocked-increment`は21 contracts／50 calls、51 writeback
+batches／86 dirty pages／667 changed bytes、26 host deltas、final generation `106`を通す。
+3 targetのwrite generationは`92`／`98`／`100`である。instruction `934`でID `75`／
+`HeapAlloc(0x68010001,8,0x800)`を`heap-alloc-variant-unsupported`として停止する。
+234,775-byte reportのSHA-256は
+`4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643`
+である。詳細は[bgi-interlocked-increment.md](bgi-interlocked-increment.md)を正とする。

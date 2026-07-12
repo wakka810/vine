@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, and FLS-value capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, and InterlockedIncrement capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-fiber-local-storage-value`
-- Scope: frozen 17-call equivalence plus 42 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-interlocked-increment`
+- Scope: frozen 17-call equivalence plus 50 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -38,10 +38,10 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 |---|---:|---|
 | `GetSystemTimeAsFileTime` | 1 | writes process wall clock |
 | `GetCurrentProcessId` | 1 | returns process identity |
-| `GetCurrentThreadId` | 1 | returns scheduler current thread |
+| `GetCurrentThreadId` | 2 | returns scheduler current thread |
 | `GetTickCount` | 1 | returns process monotonic clock |
 | `QueryPerformanceCounter` | 1 | writes process performance counter |
-| `GetStartupInfoW` | 1 | writes process startup profile |
+| `GetStartupInfoW` | 2 | writes process startup profile |
 | `HeapSetInformation` | 1 | enables the reached process heap policy |
 | `HeapCreate` | 1 | allocates deterministic logical heap metadata |
 | `GetModuleHandleW` | 2 | bounded UTF-16 loaded-module lookup |
@@ -51,17 +51,19 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `EncodePointer` | 6 | allocates stable process pointer tokens |
 | `DecodePointer` | 2 | resolves only registered process tokens to their original source |
 | `InitializeCriticalSectionAndSpinCount` | 14 | creates process-owned synchronization state and exact x86 bytes |
-| `EnterCriticalSection` | 1 | acquires or recursively enters for the current thread |
-| `LeaveCriticalSection` | controlled test | decrements recursion and releases at zero |
+| `EnterCriticalSection` | 2 | acquires or recursively enters for the current thread |
+| `LeaveCriticalSection` | 2 | decrements recursion and releases at zero |
 | `FlsAlloc` | 1 | allocates a bounded process-owned logical FLS slot and retains its callback |
 | `FlsSetValue` | 1 | stores an opaque value in the selected thread's allocated FLS slot |
 | `HeapAlloc` | 1 | allocates the reached zeroed block through transactional guest-memory backing |
+| `InterlockedIncrement` | 3 | performs a checked wrapping LONG update in guest memory |
 
-All 20 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 21 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-42 BGI calls, including six `EncodePointer` occurrences, 14 critical-section
+50 BGI calls, including six `EncodePointer` occurrences, 14 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
-one `HeapAlloc`, a second module lookup, and one `EnterCriticalSection`.
+one `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
+critical-section／thread／startup occurrences.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The title harness still performs callsite provenance checks, automatic
 v86 dirty-page synchronization, and evidence serialization around the common
@@ -107,6 +109,7 @@ npm run check:runtime:bgi-pointer-decoding
 npm run check:runtime:bgi-fiber-local-storage-allocation
 npm run check:runtime:bgi-private-heap-allocation
 npm run check:runtime:bgi-fiber-local-storage-value
+npm run check:runtime:bgi-interlocked-increment
 ```
 
 ## RuntimeState authority
@@ -129,7 +132,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 20 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 21 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -141,13 +144,13 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The eight tests cover all 20 APIs, the five original shapes, output writes,
+The nine tests cover all 21 APIs, the five original shapes, output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
 bytes, same-thread recursion, release, structured contention, dynamic/static ID
 collision, executable FLS callbacks, bounded FLS allocation, selected-thread
-FLS value isolation, and the reached transactional private-heap allocation with
-mutation-free variant rejection.
+FLS value isolation, the reached transactional private-heap allocation, and
+wrapping checked LONG updates with mutation-free invalid-target rejection.
 
 The cumulative private-corpus command is:
 
@@ -249,6 +252,23 @@ and stops at instruction 707 on static endpoint ID `124`／
 `InterlockedIncrement(0x100F08E0)`. Full evidence is in
 [bgi-fiber-local-storage-value.md](bgi-fiber-local-storage-value.md).
 
+The InterlockedIncrement capability profile is:
+
+```powershell
+npm run check:runtime:bgi-interlocked-increment
+```
+
+It returns three reached wrapping increments with exact before/after evidence:
+`0 -> 1` at `0x100F08E0`, `1 -> 2` at `0x100F0F70`, and `0 -> 1` at
+`0x100F0EBC`. Each required four-byte guest write is applied through
+`GuestMemory` and reflected to v86 before resuming. Existing contracts continue
+through 50 calls, 51 writeback batches／86 dirty pages／667 changed bytes and 26
+host deltas, ending at generation `106`. Its 234,775-byte report has SHA-256
+`4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643`
+and stops at instruction 934 on the already measured
+`HeapAlloc(0x68010001,HEAP_ZERO_MEMORY,0x800)` variant. Full evidence is in
+[bgi-interlocked-increment.md](bgi-interlocked-increment.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -264,17 +284,22 @@ and stops at instruction 707 on static endpoint ID `124`／
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
   Rust byte authority, automatic v86 writeback, and binary transport are now
   fixed by ADR-003 and the memory-writeback checkpoint.
-- The generic session has passed the reached FLS value store. Its first
-  unsupported endpoint is Kernel32 `InterlockedIncrement`; bespoke checkpoint
-  expansion stays paused.
+- `InterlockedIncrement` is implemented only for the checked 32-bit LONG shape
+  in the single cooperative Runtime Worker. Adjacent interlocked APIs and
+  cross-worker shared-memory atomicity are absent.
+- The generic session has passed three reached increments. Its first unsupported
+  operation is the second measured `HeapAlloc(...,0x800)` variant; bespoke
+  checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-interlocked-increment` at
-`InterlockedIncrement(0x100F08E0)`. It must measure the reached atomic operation,
-validate writable guest storage, and return through the same dispatcher without
-adding adjacent interlocked APIs. Existing import, bootstrap, DLL lifecycle,
+The next proof is `kernel32-private-heap-second-allocation` at
+`HeapAlloc(0x68010001,HEAP_ZERO_MEMORY,0x800)`. It must retain the first block,
+allocate the already measured second size through the same bounded transaction,
+and return the new guest pointer without adding other allocator variants.
+Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
-FLS-allocation 175,123-byte report, private-heap 183,102-byte report, and FLS-value
-195,821-byte report remain the regression boundary.
+FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
+195,821-byte report, and InterlockedIncrement 234,775-byte report remain the
+regression boundary.

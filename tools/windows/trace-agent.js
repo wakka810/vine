@@ -156,6 +156,24 @@ function snapshotCriticalSection(pointer) {
   }
 }
 
+function snapshotLong(pointer) {
+  const size = 4;
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+      value: new DataView(buffer).getInt32(0, true),
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
 function describeCaller(address) {
   const module = Process.findModuleByAddress(address);
   return {
@@ -312,6 +330,9 @@ if (selectedObservations.has("critical-section")) {
     ["DeleteCriticalSection", [null]],
   );
 }
+if (selectedObservations.has("interlocked-increment")) {
+  hooks["kernel32.dll"].push(["InterlockedIncrement", [null]]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -449,6 +470,12 @@ function attachHook(module, name, decoders) {
                 lastErrorBefore: Number(this.lastError) >>> 0,
                 criticalSectionBefore: snapshotCriticalSection(args[0]),
               }
+          : name === "InterlockedIncrement" &&
+              selectedObservations.has("interlocked-increment")
+            ? {
+                lastErrorBefore: Number(this.lastError) >>> 0,
+                interlockedTargetBefore: snapshotLong(args[0]),
+              }
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||
               (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||
@@ -463,6 +490,11 @@ function attachHook(module, name, decoders) {
       this.traceCriticalSectionPointer =
         selectedObservations.has("critical-section") &&
         name.includes("CriticalSection")
+          ? args[0]
+          : null;
+      this.traceInterlockedPointer =
+        name === "InterlockedIncrement" &&
+        selectedObservations.has("interlocked-increment")
           ? args[0]
           : null;
       this.traceFrame = beginCall(
@@ -495,6 +527,11 @@ function attachHook(module, name, decoders) {
               criticalSectionAfter: snapshotCriticalSection(
                 this.traceCriticalSectionPointer,
               ),
+            }),
+        ...(this.traceInterlockedPointer === null
+          ? {}
+          : {
+              interlockedTargetAfter: snapshotLong(this.traceInterlockedPointer),
             }),
       };
       finishCall(

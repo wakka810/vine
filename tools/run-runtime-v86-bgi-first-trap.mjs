@@ -54,6 +54,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-fiber-local-storage-allocation",
         "kernel32-private-heap-allocation",
         "kernel32-fiber-local-storage-value",
+        "kernel32-interlocked-increment",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -65,7 +66,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
@@ -91,7 +92,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const interlockedIncrementEnabled =
+  genericRuntimeCapability === "kernel32-interlocked-increment";
 const fiberLocalStorageValueEnabled =
+  interlockedIncrementEnabled ||
   genericRuntimeCapability === "kernel32-fiber-local-storage-value";
 const privateHeapAllocationEnabled =
   fiberLocalStorageValueEnabled ||
@@ -111,7 +115,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? fiberLocalStorageValueEnabled
+    ? interlockedIncrementEnabled
+      ? "v86-bgi-interlocked-increment"
+      : fiberLocalStorageValueEnabled
       ? "v86-bgi-fiber-local-storage-value"
       : privateHeapAllocationEnabled
       ? "v86-bgi-private-heap-allocation"
@@ -1360,6 +1366,56 @@ const fiberLocalStorageValueExpected = {
   reportBytes: 195_821,
   reportSha256: "f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f",
 };
+const interlockedIncrementExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 50,
+  callCount: 3,
+  calls: [
+    {
+      targetAddress: 0x100f08e0,
+      before: 0,
+      after: 1,
+      instructionCount: 707,
+      returnAddress: 0x100a5577,
+      writeGeneration: 92,
+    },
+    {
+      targetAddress: 0x100f0f70,
+      before: 1,
+      after: 2,
+      instructionCount: 759,
+      returnAddress: 0x100a7351,
+      writeGeneration: 98,
+    },
+    {
+      targetAddress: 0x100f0ebc,
+      before: 0,
+      after: 1,
+      instructionCount: 823,
+      returnAddress: 0x100a73c7,
+      writeGeneration: 100,
+    },
+  ],
+  writebackBatches: 51,
+  dirtyPages: 86,
+  changedBytes: 667,
+  hostDeltaBatches: 26,
+  finalGeneration: 106,
+  firstUnsupported: {
+    capabilityCluster: "kernel32-private-heap-allocation",
+    endpointId: 75,
+    endpointAddress: 0x7f0004a0,
+    module: "kernel32.dll",
+    symbol: "HeapAlloc",
+    iatAddress: 0x100d11d4,
+    arguments: [0x68010001, 8, 0x800],
+    returnAddress: 0x100ac3cc,
+    instructionCount: 934,
+    faultCode: "heap-alloc-variant-unsupported",
+  },
+  reportBytes: 234_775,
+  reportSha256: "4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -1821,6 +1877,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (interlockedIncrementEnabled) {
+        validateInterlockedIncrementResult(genericResult);
       } else if (fiberLocalStorageValueEnabled) {
         validateFiberLocalStorageValueResult(genericResult);
       } else if (privateHeapAllocationEnabled) {
@@ -1835,7 +1893,9 @@ async function run() {
         assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
       } else {
         const capabilityExpected =
-          fiberLocalStorageValueEnabled
+          interlockedIncrementEnabled
+            ? interlockedIncrementExpected
+            : fiberLocalStorageValueEnabled
             ? fiberLocalStorageValueExpected
             : privateHeapAllocationEnabled
             ? privateHeapAllocationExpected
@@ -1844,17 +1904,16 @@ async function run() {
             : genericRuntimeCapability === "kernel32-pointer-decoding"
               ? pointerDecodingExpected
               : criticalSectionSynchronizationExpected;
-        assert.equal(
-          reportBytes.byteLength,
-          capabilityExpected.reportBytes,
-        );
+        assert.equal(reportBytes.byteLength, capabilityExpected.reportBytes);
         assert.equal(sha256(reportBytes), capabilityExpected.reportSha256);
       }
       fs.writeFileSync(reportPath, reportBytes);
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : fiberLocalStorageValueEnabled
+          : interlockedIncrementEnabled
+            ? "bgi interlocked increment"
+            : fiberLocalStorageValueEnabled
             ? "bgi fiber-local-storage value"
             : privateHeapAllocationEnabled
             ? "bgi private-heap allocation"
@@ -2148,6 +2207,9 @@ async function runGenericRuntimeReentry({
       ...(completionFrame.flsValue === undefined
         ? {}
         : { flsValue: completionFrame.flsValue }),
+      ...(completionFrame.interlockedIncrement === undefined
+        ? {}
+        : { interlockedIncrement: completionFrame.interlockedIncrement }),
     };
 
     const manifestCheckpoint =
@@ -2205,7 +2267,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : fiberLocalStorageValueEnabled
+        : interlockedIncrementEnabled
+          ? 8
+          : fiberLocalStorageValueEnabled
           ? 7
           : privateHeapAllocationEnabled
           ? 6
@@ -3016,6 +3080,77 @@ function validateFiberLocalStorageValueResult(result) {
   );
 }
 
+function validateInterlockedIncrementResult(result) {
+  const expected = interlockedIncrementExpected;
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "InterlockedIncrement",
+  );
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, expected.callCount);
+  for (const [index, call] of calls.entries()) {
+    const occurrence = expected.calls[index];
+    assert.deepEqual(call.arguments, [occurrence.targetAddress]);
+    assert.deepEqual(call.result, { action: "set", value: occurrence.after });
+    assert.equal(call.implementationId, "kernel32.interlocked-increment.v1");
+    assert.equal(call.lastError, 87);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+    assert.equal(call.trapInstructionCount, occurrence.instructionCount);
+    assert.equal(call.returnAddress, occurrence.returnAddress);
+    assert.deepEqual(call.interlockedIncrement, {
+      address: occurrence.targetAddress,
+      before: occurrence.before,
+      after: occurrence.after,
+    });
+    assert.equal(call.guestWrites.length, 1);
+    assert.equal(call.guestWrites[0].address, occurrence.targetAddress);
+    assert.deepEqual(call.guestWrites[0].bytes, [occurrence.after, 0, 0, 0]);
+    assert.equal(call.guestWrites[0].result.bytesWritten, 4);
+    assert.equal(call.guestWrites[0].result.dirtyPages, 1);
+    assert.deepEqual(call.guestWrites[0].result.invalidation, {
+      generation: occurrence.writeGeneration,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    });
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -3037,7 +3172,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : fiberLocalStorageValueEnabled
+        : interlockedIncrementEnabled
+          ? "vine.v86-bgi-interlocked-increment"
+          : fiberLocalStorageValueEnabled
           ? "vine.v86-bgi-fiber-local-storage-value"
           : privateHeapAllocationEnabled
           ? "vine.v86-bgi-private-heap-allocation"
