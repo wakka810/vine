@@ -213,6 +213,16 @@ pub struct RuntimeHostCompletion {
     pub service: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCancellation {
+    pub thread_id: RuntimeThreadId,
+    pub exit_code: u32,
+    pub host_requests_cancelled: usize,
+    pub callback_frames_cancelled: usize,
+    pub scheduler_events_discarded: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "event", content = "completion", rename_all = "kebab-case")]
 pub enum RuntimeSchedulerEvent {
@@ -984,6 +994,50 @@ impl RuntimeState {
 
     pub fn pop_scheduler_event(&mut self) -> Option<RuntimeSchedulerEvent> {
         self.scheduler.events.pop_front()
+    }
+
+    pub fn cancel_current_thread(
+        &mut self,
+        exit_code: u32,
+    ) -> Result<RuntimeCancellation, RuntimeStateError> {
+        let thread_id = self.current_thread_id();
+        if matches!(
+            self.scheduler_state()?,
+            SchedulerThreadState::Terminated { .. }
+        ) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-cancellation",
+                "thread-already-terminated",
+                "the current guest thread is already terminated",
+            ));
+        }
+
+        let host_requests_before = self.registries.host_requests.len();
+        self.registries
+            .host_requests
+            .retain(|_, request| request.thread_id != thread_id);
+        let host_requests_cancelled =
+            host_requests_before.saturating_sub(self.registries.host_requests.len());
+        let callback_frames_cancelled = {
+            let thread = self.current_thread_mut()?;
+            let count = thread.callback_frames.len();
+            thread.callback_frames.clear();
+            count
+        };
+        let scheduler_events_before = self.scheduler.events.len();
+        self.scheduler.events.retain(|event| match event {
+            RuntimeSchedulerEvent::HostCompleted(completion) => completion.thread_id != thread_id,
+        });
+        let scheduler_events_discarded =
+            scheduler_events_before.saturating_sub(self.scheduler.events.len());
+        self.set_scheduler_state(SchedulerThreadState::Terminated { exit_code })?;
+        Ok(RuntimeCancellation {
+            thread_id,
+            exit_code,
+            host_requests_cancelled,
+            callback_frames_cancelled,
+            scheduler_events_discarded,
+        })
     }
 
     fn current_thread(&self) -> Result<&RuntimeThreadState, RuntimeStateError> {

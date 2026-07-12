@@ -14,13 +14,14 @@ mod snapshot;
 mod win32;
 
 pub use api::{
-    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDirection,
-    ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass, ApiGuestWrite,
-    ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiImmediateCompletion, ApiPointeeSchema,
-    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding, ApiSymbol, ApiTrap,
-    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, DecodedApiArgument,
-    DispatchOutcome, ExecutionSession, GuestCallbackRequest, HostCompletion, HostRequest,
-    LastErrorPolicy, ReentrancyPolicy, RegisterUpdate, StackCleanup,
+    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDeferredCall,
+    ApiDirection, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass,
+    ApiGuestCallbackCall, ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate,
+    ApiImmediateCompletion, ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema,
+    ApiReturnValue, ApiStringEncoding, ApiSymbol, ApiTrap, ApiValueSchema, ApiWriteRequirement,
+    CallbackPolicy, CallingConvention, DecodedApiArgument, DispatchOutcome, ExecutionSession,
+    GuestCallbackRequest, HostCompletion, HostRequest, LastErrorPolicy, ReentrancyPolicy,
+    RegisterUpdate, StackCleanup,
 };
 
 pub use bootstrap::{
@@ -76,8 +77,8 @@ pub use runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE, ProcessAddressSpaceLayout,
     RuntimeAddressRange, RuntimeBootstrap, RuntimeCallbackFrame, RuntimeCallbackFrameId,
-    RuntimeClockState, RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeHeap,
-    RuntimeHostCompletion, RuntimeHostRequest, RuntimeModule, RuntimeProcessId,
+    RuntimeCancellation, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeEncodedPointer,
+    RuntimeHeap, RuntimeHostCompletion, RuntimeHostRequest, RuntimeModule, RuntimeProcessId,
     RuntimeProcessState, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
     RuntimeThreadState, RuntimeTlsValue, SchedulerThreadState, TLS_OUT_OF_INDEXES,

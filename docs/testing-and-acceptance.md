@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、Windows trace v1／v2 contracts、Linux public CIは存在する。production Runtime Worker test framework、benchmark、対応browser matrixは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、Windows trace v1／v2 contracts、Linux public CIは存在する。production title Runtime Worker、benchmark threshold、対応browser matrixは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -294,6 +294,8 @@ fixed `GetMessageA`はcandidateをzero metadataのMSGへmaterialize／dequeueし
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
+後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、2 deferred host completions、depth-2 callback、automatic writeback、Canvas／Web Audio／IndexedDB、pending cancel、watchdog、entry sentinelを通す。46 instructions／10 slices／3 yields、30分／11,326 sessionsのevidenceは[browser-runtime-worker.md](browser-runtime-worker.md)を正とする。これは`AC-P1-04`、`AC-P1-05`、`AC-P1-07`、`AC-P1-10`へのpartial evidenceであり、general wait／wake、host timeout、versioned performance threshold、title workloadを代用しない。
+
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch
 - timer、paint invalidation、focus、capture
@@ -487,7 +489,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／BGI firstからseventeenth-call ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの17 API return、two pointer tokens、one observed guest storeまで進んだが、Chrome Runtime Worker、general process／thread lifecycle、broader PEB・TEB、browser callback service、pixel／audio／persistence、guard／heap backing／system-DLL image／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／BGI firstからseventeenth-call ingressとcontrolled Chrome Workerは`AC-P1-01`～`AC-P1-05`、`AC-P1-07`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの17 API return、two pointer tokens、one observed guest storeまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistenceを通したが、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、benchmark threshold、guard／heap backing／system-DLL image／snapshot、BGI browser executionを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 

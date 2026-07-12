@@ -18,8 +18,22 @@ trace-summary contract.
 `check:fixture-e2e` prepares the pinned source adapter, then runs the controlled
 entry, cdecl dispatch, callback, outer return, entry sentinel, Rust-owned stack,
 FS／TEB／PEB, process parameters, MemoryDelta data roundtrip, automatic binary
-CPU writeback, window loader, and Chrome Canvas presentation paths. It uses
-only repository fixtures.
+CPU writeback, window loader, Chrome Canvas presentation, and the full Chrome
+Runtime Worker vertical path. The Worker check runs guest CPU, deferred host
+completion, depth-2 callbacks, Canvas, Web Audio, IndexedDB, pending-request
+cancellation, and watchdog cleanup. It uses only repository fixtures.
+
+The focused Worker commands are:
+
+```powershell
+npm run check:runtime:browser-worker
+npm run serve:runtime:browser-worker
+npm run check:runtime:browser-worker:stress
+```
+
+The last command adds a 30-minute repeated lifecycle soak and is not part of the
+ordinary short gate. Its exact evidence and non-claims are recorded in
+[browser-runtime-worker.md](browser-runtime-worker.md).
 
 Windows runs execute the two bootstrap fixtures as native self-oracles. Linux
 runs cannot execute PE32 directly, so they require the same fixed fixture
@@ -60,7 +74,8 @@ traces do not install these hooks.
 ## GitHub Actions
 
 `.github/workflows/ci.yml` runs on Ubuntu 24.04 with Node 22, Rust 1.97.0,
-rustfmt, clippy, LLVM 22.1.8, and stable Chrome. The PE toolchain is the pinned
+the `wasm32-unknown-unknown` target, rustfmt, clippy, LLVM 22.1.8, and stable
+Chrome. The PE toolchain is the pinned
 82 MB llvm-mingw `20260616` release asset, verified as SHA-256
 `534b92e067b22a6b4441f48ae9240a3341b17825d04d577eab0cf85c44b4deda`;
 the runner's system clang handles the separate Wasm smoke. It executes
@@ -77,10 +92,12 @@ The source adapter has two exact host-build profiles with the same 22 imports,
 
 Windows report fingerprints remain the canonical evidence values. Linux
 reports preserve their actual adapter identity and run all semantic assertions,
-but do not pretend to have the same whole-report SHA-256. Browser presentation
-uses a clean temporary profile and loopback-only DevTools endpoint to read the
-Canvas result. Linux adds Chrome's CI-only sandbox/shared-memory/GPU flags;
-Chrome is terminated before the profile and local server are removed.
+but do not pretend to have the same whole-report SHA-256. Browser checks use a
+clean temporary profile and loopback-only DevTools endpoint. The Worker check
+additionally captures Canvas readback, browser-service state, desktop/mobile
+screenshots, and structured cleanup reports. Linux adds Chrome's CI-only
+sandbox/shared-memory/GPU flags; Chrome is terminated before the profile and
+local server are removed.
 
 ## Fuzz target
 

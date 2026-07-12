@@ -380,7 +380,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state、binary bidirectional page synchronizationを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first seventeen checked stdcall returnsまで進んだ。BGI continuationは凍結し、次のadapter sliceは同じRust／v86 boundaryをChrome Runtime Workerへpackageしてbrowser lifecycle／cancellation下で実行することである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、binary bidirectional page synchronizationを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first seventeen checked stdcall returnsまで進んだ。同じRust／v86 boundaryはChrome Runtime Worker内で46 guest instructions、async completion、depth-2 callback、browser outputs、cancel／watchdog、30分 lifecycle stressを通した。BGI continuationは凍結し、次のadapter checkpointはStep 8のfull benchmark matrixとgo/no-go decisionである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT

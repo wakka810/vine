@@ -1,14 +1,17 @@
 use std::cell::Cell;
 
 use vine_core::{
-    ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate,
-    ApiReturnValue, ApiTrap, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
-    GuestAddress, GuestMemory, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
-    LOGICAL_PRIVATE_HEAP_NAMESPACE, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
-    PageProtection, ProcessAddressSpaceLayout, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
-    RuntimeDynamicEndpoint, RuntimeHeap, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState,
+    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDirection, ApiDispatcher,
+    ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiReturnSchema,
+    ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
+    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession, GuestAddress,
+    GuestCallbackRequest, GuestMemory, HostCompletion, HostRequest, ImportTarget, ImportThunk,
+    ImportThunkDisposition, ImportThunkId, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE, LastErrorPolicy, MemoryLimits,
+    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
+    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint,
+    RuntimeHeap, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo,
+    RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState, StackCleanup,
     dispatch_kernel32_api, encode_pointer_contract, get_current_process_id_contract,
     get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
     get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
@@ -287,6 +290,45 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
     );
     assert_eq!(runtime.current_thread_id(), RuntimeThreadId(THREAD_ID));
     assert_eq!(runtime.current_last_error().unwrap(), 0xabcd);
+
+    runtime
+        .push_callback_frame(GuestAddress(0x1000_3000), GuestAddress(0x7f01_0000))
+        .expect("cancellation outer callback");
+    runtime
+        .push_callback_frame(GuestAddress(0x1000_4000), GuestAddress(0x7f01_0010))
+        .expect("cancellation nested callback");
+    let cancelled_request = runtime
+        .begin_host_request("browser.storage.write")
+        .expect("cancellation host request");
+    let cancellation = runtime
+        .cancel_current_thread(0xc000_013a)
+        .expect("cancel current thread");
+    assert_eq!(cancellation.thread_id, RuntimeThreadId(THREAD_ID));
+    assert_eq!(cancellation.exit_code, 0xc000_013a);
+    assert_eq!(cancellation.host_requests_cancelled, 1);
+    assert_eq!(cancellation.callback_frames_cancelled, 2);
+    assert_eq!(cancellation.scheduler_events_discarded, 0);
+    assert!(runtime.registries().host_requests.is_empty());
+    assert!(
+        runtime
+            .current_thread_state()
+            .unwrap()
+            .callback_frames
+            .is_empty()
+    );
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::Terminated {
+            exit_code: 0xc000_013a
+        }
+    );
+    assert_eq!(
+        runtime
+            .complete_host_request(cancelled_request.request_id)
+            .expect_err("cancelled host request is retired")
+            .code,
+        "host-request-id-unknown"
+    );
 }
 
 #[test]
@@ -429,6 +471,108 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
             if fault.class == ApiFaultClass::Unsupported
                 && fault.code == "get-proc-address-ordinal-unsupported"
     ));
+}
+
+#[test]
+fn deferred_and_guest_callback_completions_preserve_the_decoded_abi_frame() {
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoints, frames) = suspended_dispatcher_fixture(&mut memory, owner);
+    let mut runtime = controlled_runtime(controlled_startup_info());
+
+    let deferred = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch(
+            trap(&endpoints[0], frames[0].0, frames[0].1[0], 8),
+            &mut session,
+            |_, frame, _| {
+                assert_eq!(frame.argument_u32(0), Some(19));
+                assert_eq!(frame.argument_u32(1), Some(23));
+                ApiHandlerResult::Deferred(HostRequest {
+                    request_id: 17,
+                    service: "browser.deferred-add".to_owned(),
+                    payload: vec![19, 23],
+                })
+            },
+        )
+    };
+    let deferred = match deferred {
+        DispatchOutcome::Deferred(call) => call,
+        other => panic!("expected deferred dispatch, got {other:?}"),
+    };
+    let deferred_completion = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.complete_deferred(
+            deferred,
+            HostCompletion {
+                request_id: 17,
+                result: ApiImmediate::new(ApiReturnValue::U32(42)),
+            },
+            &mut session,
+        )
+    };
+    let deferred_completion = match deferred_completion {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected deferred completion, got {other:?}"),
+    };
+    assert_eq!(
+        deferred_completion.implementation_id,
+        "test-deferred-add-v1"
+    );
+    assert_eq!(deferred_completion.eax, RegisterUpdate::Set(42));
+    assert_eq!(
+        deferred_completion.instruction_pointer,
+        GuestAddress(frames[0].1[0])
+    );
+    assert_eq!(
+        deferred_completion.stack_pointer,
+        GuestAddress(frames[0].0 + 4)
+    );
+
+    let callback = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch(
+            trap(&endpoints[1], frames[1].0, frames[1].1[0], 8),
+            &mut session,
+            |_, frame, _| {
+                ApiHandlerResult::GuestCallback(GuestCallbackRequest {
+                    target: GuestAddress(frame.argument_u32(0).expect("callback target")),
+                    arguments: vec![frame.argument_u32(1).expect("callback value")],
+                    return_sentinel: GuestAddress(0x7f01_0000),
+                })
+            },
+        )
+    };
+    let callback = match callback {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected guest callback dispatch, got {other:?}"),
+    };
+    assert_eq!(callback.request.arguments, [42]);
+    let callback_completion = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.complete_guest_callback(
+            callback,
+            ApiImmediate::new(ApiReturnValue::U32(44)),
+            &mut session,
+        )
+    };
+    let callback_completion = match callback_completion {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected callback completion, got {other:?}"),
+    };
+    assert_eq!(
+        callback_completion.implementation_id,
+        "test-call-callback-v1"
+    );
+    assert_eq!(callback_completion.eax, RegisterUpdate::Set(44));
+    assert_eq!(
+        callback_completion.instruction_pointer,
+        GuestAddress(frames[1].1[0])
+    );
+    assert_eq!(
+        callback_completion.stack_pointer,
+        GuestAddress(frames[1].0 + 4)
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
 }
 
 fn initialized_memory() -> (GuestMemory, MemoryOwnerId) {
@@ -642,6 +786,110 @@ fn remaining_dispatcher_fixture(
         .expect("acknowledge initial reflection");
     (
         ApiDispatcher::new(endpoints.clone(), contracts).expect("dispatcher"),
+        endpoints,
+        frames,
+    )
+}
+
+fn suspended_dispatcher_fixture(
+    memory: &mut GuestMemory,
+    owner: MemoryOwnerId,
+) -> (ApiDispatcher, Vec<ApiEndpointIdentity>, [FrameWords; 2]) {
+    let specifications = ["DeferredAdd", "CallCallback"];
+    let thunks = specifications
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let id = ImportThunkId((index + 1) as u32);
+            let address = GuestAddress(ENDPOINT_BASE + (index as u32 * 0x10));
+            let iat_address = GuestAddress(IAT_BASE + (index as u32 * 4));
+            memory
+                .write_initialization(owner, iat_address, &address.0.to_le_bytes())
+                .expect("initialize suspended-call IAT");
+            ImportThunk {
+                id,
+                address,
+                requester_owner: owner,
+                module: "fixture.dll".to_owned(),
+                iat_rva: Rva(index as u32 * 4),
+                iat_address,
+                original_iat_value: 0,
+                disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+                target: ImportTarget::Name {
+                    name: name.to_owned(),
+                    hint: 0,
+                    name_rva: Rva(0),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    let endpoints = thunks
+        .iter()
+        .map(ApiEndpointIdentity::from_import_thunk)
+        .collect::<Vec<_>>();
+    let u32_argument = |name: &str| ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::In,
+        value: ApiValueSchema::U32,
+    };
+    let contract = |endpoint: ApiEndpointIdentity,
+                    implementation_id: &str,
+                    behavior: ApiBehavior,
+                    callback_policy: CallbackPolicy,
+                    arguments: Vec<ApiArgumentSchema>| ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Cdecl,
+            arguments,
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Caller,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior,
+        callback_policy,
+        implementation_id: implementation_id.to_owned(),
+    };
+    let contracts = vec![
+        contract(
+            endpoints[0].clone(),
+            "test-deferred-add-v1",
+            ApiBehavior::Deferred,
+            CallbackPolicy::Forbidden,
+            vec![u32_argument("left"), u32_argument("right")],
+        ),
+        contract(
+            endpoints[1].clone(),
+            "test-call-callback-v1",
+            ApiBehavior::Immediate,
+            CallbackPolicy::Required,
+            vec![
+                ApiArgumentSchema {
+                    name: "callback".to_owned(),
+                    direction: ApiDirection::In,
+                    value: ApiValueSchema::OpaquePointer {
+                        nullable: false,
+                        alignment: 1,
+                    },
+                },
+                u32_argument("value"),
+            ],
+        ),
+    ];
+    let frames = [
+        (STACK_BASE, vec![0x1000_0201, 19, 23]),
+        (STACK_BASE + 0x20, vec![0x1000_0202, 0x1000_3000, 42]),
+    ];
+    for (address, words) in &frames {
+        write_frame(memory, owner, GuestAddress(*address), words);
+    }
+    memory.seal_owner(owner).expect("seal suspended-call owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    (
+        ApiDispatcher::new(endpoints.clone(), contracts).expect("suspended dispatcher"),
         endpoints,
         frames,
     )

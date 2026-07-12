@@ -7,7 +7,7 @@
     "check": "npm run check:fast && npm run check:fixture-e2e",
     "check:fast": "npm run check:docs && npm run check:checkpoint-manifest && npm run check:toolchain && npm run check:rust && npm run check:js && npm run check:engine && npm run check:windows-trace",
     "check:fixture-e2e": "npm run prepare:engine && npm run check:fixture-e2e:prepared",
-    "check:fixture-e2e:prepared": "npm run check:runtime:entry && npm run check:runtime:cdecl && npm run check:runtime:callback && npm run check:runtime:outer-return && npm run check:runtime:entry-return && npm run check:runtime:stack-bootstrap && npm run check:runtime:bootstrap-fs-first-stop && npm run check:runtime:bootstrap-fs && npm run check:runtime:bootstrap-params-first-stop && npm run check:runtime:bootstrap-params && npm run check:runtime:memory-delta && npm run check:runtime:memory-writeback && npm run check:runtime:window-loader && npm run check:runtime:window-browser",
+    "check:fixture-e2e:prepared": "npm run check:runtime:entry && npm run check:runtime:cdecl && npm run check:runtime:callback && npm run check:runtime:outer-return && npm run check:runtime:entry-return && npm run check:runtime:stack-bootstrap && npm run check:runtime:bootstrap-fs-first-stop && npm run check:runtime:bootstrap-fs && npm run check:runtime:bootstrap-params-first-stop && npm run check:runtime:bootstrap-params && npm run check:runtime:memory-delta && npm run check:runtime:memory-writeback && npm run check:runtime:window-loader && npm run check:runtime:window-browser && npm run check:runtime:browser-worker:prepared",
     "check:adapter": "npm run prepare:engine && npm run check:engine:adapter && npm run check:runtime:memory",
     "check:private-corpus": "node tools/check-private-corpus.mjs",
     "check:docs": "node tools/check-docs.mjs",
@@ -57,7 +57,14 @@
     "check:runtime:bgi-seventeenth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
+    "typecheck:runtime:browser-worker": "tsc -p browser/runtime-worker/tsconfig.json",
+    "build:runtime:browser-worker:prepared": "cargo build -p vine-runtime-wasm --target wasm32-unknown-unknown --release --locked && npm run typecheck:runtime:browser-worker && node tools/build-browser-runtime.mjs",
+    "build:runtime:browser-worker": "npm run check:toolchain && npm run prepare:engine && npm run build:runtime:browser-worker:prepared",
+    "check:runtime:browser-worker:prepared": "npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs",
+    "check:runtime:browser-worker": "npm run check:toolchain && npm run prepare:engine && npm run check:runtime:browser-worker:prepared",
+    "check:runtime:browser-worker:stress": "npm run build:runtime:browser-worker && node tools/run-browser-runtime-check.mjs --stress-ms 1800000",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",
+    "serve:runtime:browser-worker": "npm run build:runtime:browser-worker && node tools/run-browser-runtime-check.mjs --serve",
     "probe:runtime:pe": "cargo run --quiet --locked -p vine-pe-probe --",
     "prepare:engine": "node tools/prepare-v86-adapter.mjs"
   },
@@ -65,6 +72,9 @@
     "node": ">=22"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
+    "lucide": "^1.24.0",
+    "typescript": "^7.0.2",
     "v86": "0.5.424"
   }
 }

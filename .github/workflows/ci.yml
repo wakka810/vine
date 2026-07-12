@@ -24,6 +24,7 @@ jobs:
         with:
           toolchain: 1.97.0
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
 
       - name: Install LLVM 22.1.8
         run: |

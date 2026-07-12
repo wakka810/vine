@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB／process-parameters bootstrap、binary bidirectional memory synchronizationがある。general process integration／parameters、DLL／export lifecycle、Chrome Runtime Worker、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB／process-parameters bootstrap、binary bidirectional memory synchronizationがある。controlled fixtureではChrome Runtime Worker内のguest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdogまで成立した。general process integration、DLL／export lifecycle、BGI browser execution、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -194,7 +194,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsとnative-oracled command-line bytesを実行した。v86のexecute-permission gapにはslice-boundary gateを保持し、PTE Dirty bitでmulti-page mutationをRust authorityへ戻す。large BGI transferは成立したが、general process parameters、stack growth、snapshot、broad ABI、Chrome Runtime Worker、title-workload performanceは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
+固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsとnative-oracled command-line bytesを実行した。v86のexecute-permission gapにはslice-boundary gateを保持し、PTE Dirty bitでmulti-page mutationをRust authorityへ戻す。controlled Chrome Runtime Workerは同じbinary boundaryで46 guest instructions、3 periodic yields、2 deferred completions、depth-2 callback、7 writeback batches、clean exitを通した。large BGI transferも成立したが、general process parameters、stack growth、snapshot、broad ABI、BGI browser execution、title-workload performanceは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[browser-runtime-worker.md](browser-runtime-worker.md)、[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 

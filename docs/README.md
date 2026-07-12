@@ -5,7 +5,7 @@
 - ステータス: Proposed
 - 基準日: 2026-07-12
 - 対象: current `main` worktree
-- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、public Linux CI、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call checkpoint manifest／generic runnerを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、general process／thread lifecycle、DLL／export resolution、Chrome Runtime Worker、browser appはまだない
+- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call manifest／generic runner、controlled Chrome Runtime Worker vertical sliceを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、general process／thread／DLL lifecycleとBGI browser executionはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
@@ -58,6 +58,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | bidirectional dirty pages、binary transport、generation ack、rollback |
 | [memory-writeback.md](memory-writeback.md) | guest writeをどうRust authorityへ戻すか | PTE Dirty discovery、atomic multi-page reconciliation、two-slice evidence |
 | [generic-api-dispatcher.md](generic-api-dispatcher.md) | API固有checkpointを共通runtimeへどう移すか | 13 contract／17 occurrence、RuntimeState、manifest／generic runner、scheduler event |
+| [browser-runtime-worker.md](browser-runtime-worker.md) | Chrome内でruntime全経路をどこまで通せるか | Worker guest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdog、30分stress |
 | [pe-loader-ingress.md](pe-loader-ingress.md) | immutable PE32 planをどこまで作れるか | Rust workspace、bounded parser／plan、fixture contract、BGI W7 stop |
 | [pe-materialization.md](pe-materialization.md) | PE image bytesをどこまで構築できるか | source copy、zero-fill、`HIGHLOW`、IAT-original verification、BGI stop |
 | [pe-import-binding.md](pe-import-binding.md) | runtime import endpointをどこまで所有できるか | all-import planning、atomic IAT commit／rollback、unresolved retry、thunk arena／ID |

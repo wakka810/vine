@@ -1,0 +1,391 @@
+import type { ApiCompletion, PreparedMetadata, RegisterUpdate } from "./runtime-bridge.js";
+import {
+  type CacheEffects,
+  type DirtyMirrorPage,
+  type HostMemoryDelta,
+  type MemoryProtection,
+  type MemoryReflection,
+  memoryPageSize,
+} from "./memory-transport.js";
+
+const physicalPoolBytes = 2 * 1024 * 1024;
+const pageFlags = { present: 1, writable: 2, user: 4, dirty: 0x40 } as const;
+const adapterPrivateOffset = { instructionCounter: 664, memorySize: 812 } as const;
+const stateWord = {
+  magic: 0,
+  version: 1,
+  wordCount: 2,
+  eax: 4,
+  edx: 6,
+  esp: 8,
+  instructionPointer: 12,
+  previousInstructionPointer: 13,
+  flags: 14,
+  cpl: 20,
+  protectedMode: 21,
+  operandSize32: 22,
+  stackSize32: 23,
+  inHalt: 24,
+  segmentSelectorBase: 28,
+  segmentOffsetBase: 36,
+  segmentLimitBase: 44,
+  segmentMetaBase: 52,
+  controlRegisterBase: 60,
+} as const;
+
+export const v86StopReason = {
+  budget: 1,
+  invalidOpcode: 0x106,
+  pageFault: 0x10e,
+} as const;
+
+interface V86Exports extends WebAssembly.Exports {
+  memory: WebAssembly.Memory;
+  rust_init(): void;
+  allocate_memory(bytes: number): number;
+  zero_memory(address: number, bytes: number): void;
+  reset_cpu(): void;
+  full_clear_tlb(): void;
+  jit_clear_cache_js(): void;
+  vine_cpu_state_ptr(): number;
+  vine_cpu_state_size(): number;
+  vine_cpu_state_version(): number;
+  vine_cpu_state_save(): void;
+  vine_cpu_state_restore(): number;
+  vine_execute_budget(instructions: number): number;
+  vine_get_stop_error_code(): number;
+}
+
+interface MirrorMapping {
+  address: number;
+  owner: number;
+  protection: MemoryProtection;
+  physicalBase: number;
+  pteAddress: number;
+}
+
+export interface CpuState {
+  words: Uint32Array;
+  eax: number;
+  esp: number;
+  instructionPointer: number;
+  previousInstructionPointer: number;
+}
+
+export interface SliceResult {
+  reason: number;
+  errorCode: number;
+  instructions: number;
+  state: CpuState;
+}
+
+function invariant(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function sameProtection(left: MemoryProtection, right: MemoryProtection): boolean {
+  return left.read === right.read && left.write === right.write && left.execute === right.execute;
+}
+
+export class V86Mirror {
+  readonly #wasm: V86Exports;
+  readonly #mappings = new Map<number, MirrorMapping>();
+  readonly #physicalMemory: Uint8Array;
+  readonly #physicalView: DataView;
+  readonly #privateState: DataView;
+  readonly #pageDirectory: number;
+  #nextPhysicalPage = memoryPageSize;
+  readonly #pageTables = new Map<number, number>();
+
+  private constructor(wasm: V86Exports) {
+    this.#wasm = wasm;
+    wasm.rust_init();
+    let privateState = new DataView(wasm.memory.buffer);
+    privateState.setUint32(adapterPrivateOffset.memorySize, physicalPoolBytes, true);
+    const physicalBase = wasm.allocate_memory(physicalPoolBytes);
+    privateState = new DataView(wasm.memory.buffer);
+    this.#privateState = privateState;
+    this.#physicalMemory = new Uint8Array(wasm.memory.buffer, physicalBase, physicalPoolBytes);
+    this.#physicalView = new DataView(
+      this.#physicalMemory.buffer,
+      this.#physicalMemory.byteOffset,
+      this.#physicalMemory.byteLength,
+    );
+    wasm.zero_memory(0, physicalPoolBytes);
+    this.#pageDirectory = this.#allocatePage();
+  }
+
+  static async instantiate(url: URL): Promise<V86Mirror> {
+    const response = await fetch(url);
+    invariant(response.ok, `v86 adapter fetch failed with ${response.status}`);
+    const module = await WebAssembly.compile(await response.arrayBuffer());
+    const imports = WebAssembly.Module.imports(module);
+    const environment: Record<string, WebAssembly.ImportValue> = {
+      __indirect_function_table: new WebAssembly.Table({
+        element: "anyfunc",
+        initial: 1_924,
+      }),
+    };
+    for (const imported of imports) {
+      invariant(imported.module === "env", `unexpected v86 import module ${imported.module}`);
+      if (imported.kind !== "function") {
+        invariant(imported.kind === "table", `unexpected v86 import ${imported.name}`);
+        continue;
+      }
+      environment[imported.name] = (..._arguments: unknown[]) => {
+        if (imported.name === "microtick" || imported.name === "get_rand_int") {
+          return 0;
+        }
+        if (
+          imported.name === "jit_clear_func" ||
+          imported.name === "stop_idling" ||
+          imported.name === "cpu_event_halt" ||
+          imported.name === "run_hardware_timers"
+        ) {
+          return 0;
+        }
+        throw new Error(`v86 reached unsupported host import ${imported.name}`);
+      };
+    }
+    const instance = await WebAssembly.instantiate(module, { env: environment });
+    return new V86Mirror(instance.exports as V86Exports);
+  }
+
+  install(reflection: MemoryReflection, prepared: PreparedMetadata): void {
+    invariant(this.#mappings.size === 0, "v86 mirror is already initialized");
+    for (const page of reflection.pages) {
+      invariant((page.address & (memoryPageSize - 1)) === 0, "unaligned reflected page");
+      invariant(page.bytes.byteLength === memoryPageSize, "invalid reflected page length");
+      const table = this.#ensurePageTable(page.address);
+      const pteAddress = table + ((page.address >>> 12) & 0x3ff) * 4;
+      const physicalBase = this.#allocatePage();
+      this.#physicalView.setUint32(
+        pteAddress,
+        physicalBase |
+          pageFlags.present |
+          pageFlags.user |
+          (page.protection.write ? pageFlags.writable : 0),
+        true,
+      );
+      this.#physicalMemory.set(page.bytes, physicalBase);
+      this.#mappings.set(page.address, {
+        address: page.address,
+        owner: page.owner,
+        protection: { ...page.protection },
+        physicalBase,
+        pteAddress,
+      });
+    }
+    this.applyCacheEffects(reflection.cacheEffects);
+    this.#initializeCpu(prepared);
+  }
+
+  execute(instructionBudget: number): SliceResult {
+    const beforeState = this.saveState();
+    this.#assertExecutableFetchWindow(beforeState.instructionPointer);
+    const before = this.#privateState.getUint32(adapterPrivateOffset.instructionCounter, true);
+    const reason = this.#wasm.vine_execute_budget(instructionBudget);
+    const errorCode = this.#wasm.vine_get_stop_error_code();
+    const state = this.saveState();
+    const after = this.#privateState.getUint32(adapterPrivateOffset.instructionCounter, true);
+    return {
+      reason,
+      errorCode,
+      instructions: (after - before) >>> 0,
+      state,
+    };
+  }
+
+  saveState(): CpuState {
+    this.#wasm.vine_cpu_state_save();
+    const words = Uint32Array.from(this.#liveStateWords());
+    return {
+      words,
+      eax: words[stateWord.eax] ?? 0,
+      esp: words[stateWord.esp] ?? 0,
+      instructionPointer: words[stateWord.instructionPointer] ?? 0,
+      previousInstructionPointer: words[stateWord.previousInstructionPointer] ?? 0,
+    };
+  }
+
+  applyCompletion(completion: ApiCompletion): void {
+    const state = this.saveState().words;
+    this.#applyRegisterUpdate(state, stateWord.eax, completion.eax);
+    this.#applyRegisterUpdate(state, stateWord.edx, completion.edx);
+    this.#applyRegisterUpdate(state, stateWord.flags, completion.eflags);
+    state[stateWord.esp] = completion.stackPointer >>> 0;
+    state[stateWord.instructionPointer] = completion.instructionPointer >>> 0;
+    state[stateWord.previousInstructionPointer] = completion.instructionPointer >>> 0;
+    state[stateWord.inHalt] = 0;
+    this.#restoreState(state);
+  }
+
+  enterCallback(target: number, stackPointer: number): void {
+    const state = this.saveState().words;
+    state[stateWord.esp] = stackPointer >>> 0;
+    state[stateWord.instructionPointer] = target >>> 0;
+    state[stateWord.previousInstructionPointer] = target >>> 0;
+    state[stateWord.inHalt] = 0;
+    this.#restoreState(state);
+  }
+
+  readU32(address: number): number {
+    const bytes = new Uint8Array(4);
+    for (let index = 0; index < bytes.length; index += 1) {
+      const current = (address + index) >>> 0;
+      invariant(current >= address, "guest read wrapped the address space");
+      const mapping = this.#mappingFor(current);
+      invariant(mapping.protection.read, "guest mirror read targets an unreadable page");
+      bytes[index] = this.#physicalMemory[mapping.physicalBase + (current & 0xfff)] ?? 0;
+    }
+    return new DataView(bytes.buffer).getUint32(0, true);
+  }
+
+  discoverDirtyPages(): DirtyMirrorPage[] {
+    const dirty: DirtyMirrorPage[] = [];
+    const writable = [...this.#mappings.values()]
+      .filter((mapping) => mapping.protection.write)
+      .sort((left, right) => left.address - right.address);
+    for (const mapping of writable) {
+      const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
+      if ((pte & pageFlags.dirty) === 0) {
+        continue;
+      }
+      this.#physicalView.setUint32(mapping.pteAddress, pte & ~pageFlags.dirty, true);
+      dirty.push({
+        address: mapping.address,
+        owner: mapping.owner,
+        bytes: Uint8Array.from(
+          this.#physicalMemory.subarray(
+            mapping.physicalBase,
+            mapping.physicalBase + memoryPageSize,
+          ),
+        ),
+      });
+    }
+    this.#wasm.full_clear_tlb();
+    return dirty;
+  }
+
+  applyHostDelta(delta: HostMemoryDelta): void {
+    for (const page of delta.pages) {
+      const mapping = this.#mappings.get(page.address);
+      invariant(mapping !== undefined, "host delta targets an unmapped mirror page");
+      invariant(mapping.owner === page.owner, "host delta owner does not match the mirror");
+      invariant(
+        sameProtection(mapping.protection, page.protection),
+        "host delta protection does not match the mirror",
+      );
+      this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+    }
+    this.applyCacheEffects(delta.cacheEffects);
+  }
+
+  applyCacheEffects(effects: CacheEffects): void {
+    if (effects.flushTlb || effects.invalidateInstructionFetch) {
+      this.#wasm.full_clear_tlb();
+    }
+    if (effects.invalidateGeneratedCode) {
+      this.#wasm.jit_clear_cache_js();
+    }
+  }
+
+  #initializeCpu(prepared: PreparedMetadata): void {
+    this.#wasm.reset_cpu();
+    invariant(this.#wasm.vine_cpu_state_version() === 1, "unsupported v86 CPU state version");
+    invariant(this.#wasm.vine_cpu_state_size() === 640, "unexpected v86 CPU state size");
+    this.#wasm.vine_cpu_state_save();
+    const words = this.#liveStateWords();
+    invariant(words[stateWord.magic] === 0x5649_4e45, "invalid v86 CPU state magic");
+    invariant(words[stateWord.version] === 1 && words[stateWord.wordCount] === 160, "invalid CPU state header");
+    words.fill(0, 4, 12);
+    words[stateWord.esp] = prepared.initialStackPointer >>> 0;
+    words[stateWord.instructionPointer] = prepared.entryPoint >>> 0;
+    words[stateWord.previousInstructionPointer] = prepared.entryPoint >>> 0;
+    words[stateWord.flags] = 2;
+    words[stateWord.cpl] = 3;
+    words[stateWord.protectedMode] = 1;
+    words[stateWord.operandSize32] = 1;
+    words[stateWord.stackSize32] = 1;
+    words[stateWord.inHalt] = 0;
+    for (let index = 0; index < 8; index += 1) {
+      words[stateWord.segmentSelectorBase + index] = 0;
+      words[stateWord.segmentOffsetBase + index] = 0;
+      words[stateWord.segmentLimitBase + index] = 0xffff_ffff;
+      words[stateWord.segmentMetaBase + index] = 0xf2;
+    }
+    words[stateWord.segmentMetaBase + 1] = 0xfa;
+    words[stateWord.controlRegisterBase] =
+      (words[stateWord.controlRegisterBase] ?? 0) | 0x8001_0001;
+    words[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
+    words[stateWord.controlRegisterBase + 4] =
+      (words[stateWord.controlRegisterBase + 4] ?? 0) | 0x200;
+    invariant(this.#wasm.vine_cpu_state_restore() === 0, "v86 rejected the initial CPU state");
+  }
+
+  #liveStateWords(): Uint32Array {
+    return new Uint32Array(
+      this.#wasm.memory.buffer,
+      this.#wasm.vine_cpu_state_ptr(),
+      this.#wasm.vine_cpu_state_size() / 4,
+    );
+  }
+
+  #restoreState(words: Uint32Array): void {
+    this.#liveStateWords().set(words);
+    invariant(this.#wasm.vine_cpu_state_restore() === 0, "v86 rejected a resumed CPU state");
+  }
+
+  #applyRegisterUpdate(words: Uint32Array, index: number, update: RegisterUpdate): void {
+    if (update.action === "set") {
+      words[index] = update.value >>> 0;
+    }
+  }
+
+  #mappingFor(address: number): MirrorMapping {
+    const pageAddress = (address & ~(memoryPageSize - 1)) >>> 0;
+    const mapping = this.#mappings.get(pageAddress);
+    invariant(mapping !== undefined, `guest address 0x${address.toString(16)} is unmapped`);
+    return mapping;
+  }
+
+  #assertExecutableFetchWindow(instructionPointer: number): void {
+    for (let offset = 0; offset < 15; offset += 1) {
+      const address = instructionPointer + offset;
+      invariant(address <= 0xffff_ffff, "instruction fetch window wraps the guest address space");
+      invariant(
+        this.#mappingFor(address).protection.execute,
+        `execute gate rejected EIP 0x${instructionPointer.toString(16)}`,
+      );
+    }
+  }
+
+  #ensurePageTable(address: number): number {
+    const directoryIndex = address >>> 22;
+    const existing = this.#pageTables.get(directoryIndex);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const table = this.#allocatePage();
+    this.#pageTables.set(directoryIndex, table);
+    this.#physicalView.setUint32(
+      this.#pageDirectory + directoryIndex * 4,
+      table | pageFlags.present | pageFlags.writable | pageFlags.user,
+      true,
+    );
+    return table;
+  }
+
+  #allocatePage(): number {
+    invariant(
+      this.#nextPhysicalPage + memoryPageSize <= physicalPoolBytes,
+      "v86 physical mirror pool exhausted",
+    );
+    const address = this.#nextPhysicalPage;
+    this.#nextPhysicalPage += memoryPageSize;
+    this.#physicalMemory.fill(0, address, address + memoryPageSize);
+    return address;
+  }
+}

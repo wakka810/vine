@@ -114,7 +114,8 @@ Before and after migration it reaches the same trap after 238 instructions. The 
 - The runtime has one controlled initial thread; general thread, wait, process, and DLL lifecycle are absent.
 - Heap state is metadata-only; loaded runtime modules have no guest DLL images or general exports.
 - TLS free/thread lifecycle, pointer decode, and arbitrary export pages are absent.
-- Host completion is modeled but not connected to a Worker／browser service.
+- Host completion is connected to controlled Worker／browser services; general
+  VFS, input, graphics, audio, and storage adapters remain absent.
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
   Rust byte authority, automatic v86 writeback, and binary transport are now
   fixed by ADR-003 and the memory-writeback checkpoint.
@@ -122,7 +123,10 @@ Before and after migration it reaches the same trap after 238 instructions. The 
 
 ## Next checkpoint
 
-Package the Rust／v86 boundary in a Chrome Runtime Worker and run the Step 7
-browser vertical slice. Existing import, bootstrap, bidirectional memory sync,
+The Rust／v86 boundary now runs the Step 7 vertical fixture through this
+dispatcher in a Chrome Runtime Worker, including deferred browser services,
+depth-2 callback, cancellation, watchdog, pixel, audio pulse, persistent byte,
+and clean exit. The next proof is the Step 8 v86 benchmark and go/no-go
+decision. Existing import, bootstrap, bidirectional memory sync,
 13-contract／17-call semantic checks, 238 instructions, and both private
 evidence digests remain the regression boundary.

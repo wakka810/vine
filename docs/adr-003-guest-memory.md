@@ -151,4 +151,4 @@ host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 fac
 
 production ingress、controlled reflection、automatic multi-page writebackは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、PAE／NX、decode-aware cross-page execute permission、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはhost／CPU両方向のchanged-page transferをgeneration単位で行えるが、general heap／module lifecycleやsnapshotには未接続である。
 
-owned W7 plan、entry completion、initial stack、typed bootstrap reflection、atomic import binding、MemoryDelta、BGI 17-call continuation、automatic CPU writebackまで進んだ。次のgateは同じbinary／generation boundaryをChrome Runtime Worker内で使うproduction vertical sliceである。
+owned W7 plan、entry completion、initial stack、typed bootstrap reflection、atomic import binding、MemoryDelta、BGI 17-call continuation、automatic CPU writebackまで進み、同じbinary／generation boundaryをcontrolled Chrome Runtime Worker vertical sliceで使用した。次のgateはStep 8でtitle-like memory量を含むreflection／writeback／invalidation costとWorker steady memoryを測ることである。

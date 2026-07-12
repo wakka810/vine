@@ -20,7 +20,7 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "memory-authority-and-automatic-writeback" ||
+    checkpoint.runtimeKernelCheckpoint !== "chrome-runtime-worker-vertical-slice" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !== "single-process-controlled-initial-thread" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
@@ -152,7 +152,57 @@ try {
         oneChangedPagePeakBytes: 4096,
         twoChangedPagesPeakBytes: 8192,
       }) ||
-    checkpoint.nextCheckpoint !== "chrome-runtime-worker-vertical-slice" ||
+    checkpoint.browserRuntimeProtocol !== "vine.browser-runtime-worker.v1" ||
+    checkpoint.browserRuntimeWorker !== true ||
+    JSON.stringify(checkpoint.browserRuntimeCoreWasm) !==
+      JSON.stringify({
+        imports: 0,
+        bytes: 658861,
+        sha256: "0c2647e6d07f7f47cabe022d0560a72ced0a851f508ab1820feb004f7fd8bf23",
+      }) ||
+    JSON.stringify(checkpoint.browserRuntimeFixture) !==
+      JSON.stringify({
+        bytes: 2560,
+        sha256: "24c98ec43bc76dcd0c1ddbbbf68c2ea1d86207bc2ebea2aea536a4757bf4189f",
+        nativeExitCode: 0,
+      }) ||
+    JSON.stringify(checkpoint.browserRuntimeEvidence) !==
+      JSON.stringify({
+        chromeVersion: "150.0.7871.115",
+        guestInstructions: 46,
+        cpuSlices: 10,
+        budgetYields: 3,
+        hostRequests: 2,
+        callbackEntries: 2,
+        maximumCallbackDepth: 2,
+        writebackBatches: 7,
+        writebackPages: 9,
+        finalGeneration: 21,
+        pixelRgba: [255, 0, 0, 255],
+        toneHz: 880,
+        persistentByte: 90,
+        exitCode: 0,
+        cancelPendingHostRequests: 1,
+        cancelPendingHostCallsAfterCleanup: 0,
+        cancelPendingCallbacksAfterCleanup: 0,
+        watchdogInstructions: 4,
+        watchdogPendingHostCallsAfterCleanup: 0,
+        watchdogPendingCallbacksAfterCleanup: 0,
+      }) ||
+    JSON.stringify(checkpoint.browserStressEvidence) !==
+      JSON.stringify({
+        durationMilliseconds: 1800073.5,
+        sessions: 11326,
+        memorySamples: 31,
+        failedSessions: 0,
+        firstUsedJsHeapBytes: 960969,
+        lastUsedJsHeapBytes: 994282,
+        heapSlopeBytesPerMinute: 136.21389950213228,
+        maximumHeartbeatGapMilliseconds: 16.28499999642372,
+        reportBytes: 7039,
+        reportSha256: "13a7b579bb13841aa073de4dcf5ed7db0743485810e12b3159272205fbb43bb3",
+      }) ||
+    checkpoint.nextCheckpoint !== "v86-go-no-go-benchmark" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/vine-core", "crates/vine-pe-probe"]
+members = ["crates/vine-core", "crates/vine-pe-probe", "crates/vine-runtime-wasm"]
 exclude = [".work/v86-adapter-source"]
 resolver = "3"
 

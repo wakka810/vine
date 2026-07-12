@@ -121,6 +121,17 @@ const exeObject = path.join(outputDirectory, "fixture-exe.obj");
 const dllFile = path.join(outputDirectory, "vine_fixture.dll");
 const importLibrary = path.join(outputDirectory, "vine_fixture.lib");
 const exeFile = path.join(outputDirectory, "abi-smoke.exe");
+const browserFixtureDirectory = path.join(
+  root,
+  "fixtures",
+  "pe32",
+  "browser-vertical",
+);
+const browserDllObject = path.join(outputDirectory, "browser-fixture-dll.obj");
+const browserExeObject = path.join(outputDirectory, "browser-fixture-exe.obj");
+const browserDllFile = path.join(outputDirectory, "vine_browser_fixture.dll");
+const browserImportLibrary = path.join(outputDirectory, "vine_browser_fixture.lib");
+const browserExeFile = path.join(outputDirectory, "browser-vertical.exe");
 const windowFixtureDirectory = path.join(
   root,
   "fixtures",
@@ -183,6 +194,14 @@ const compilePeObject = (source, output) => {
 compilePeObject(path.join(fixtureDirectory, "fixture-dll.c"), dllObject);
 compilePeObject(path.join(fixtureDirectory, "fixture-exe.c"), exeObject);
 compilePeObject(
+  path.join(browserFixtureDirectory, "fixture-dll.c"),
+  browserDllObject,
+);
+compilePeObject(
+  path.join(browserFixtureDirectory, "fixture-exe.c"),
+  browserExeObject,
+);
+compilePeObject(
   path.join(windowFixtureDirectory, "fixture-window.c"),
   windowObject,
 );
@@ -233,6 +252,30 @@ run("lld-link", [
   `/out:${exeFile}`,
   exeObject,
   importLibrary,
+]);
+
+run("lld-link", [
+  "/dll",
+  "/noentry",
+  "/nodefaultlib",
+  "/machine:x86",
+  "/timestamp:0",
+  `/out:${browserDllFile}`,
+  `/implib:${browserImportLibrary}`,
+  browserDllObject,
+]);
+
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${browserExeFile}`,
+  browserExeObject,
+  browserImportLibrary,
 ]);
 
 run("lld-link", [
@@ -287,12 +330,15 @@ run("lld-link", [
 ]);
 
 let nativeAbiExitCode = null;
+let browserVerticalNativeExitCode = null;
 let windowPixelNativeExitCode = null;
 let bootstrapFsNativeExitCode = null;
 let bootstrapParamsNativeExitCode = null;
 if (process.platform === "win32") {
   run(exeFile, [], { timeoutMs: 10_000 });
   nativeAbiExitCode = 0;
+  run(browserExeFile, [], { timeoutMs: 10_000 });
+  browserVerticalNativeExitCode = 0;
   run(windowExe, [], { timeoutMs: 10_000, windowsHide: false });
   windowPixelNativeExitCode = 0;
   run(bootstrapExe, [], { timeoutMs: 10_000 });
@@ -307,6 +353,15 @@ const exeInspection = run("llvm-readobj", [
   exeFile,
 ]);
 const dllInspection = run("llvm-readobj", ["--coff-exports", dllFile]);
+const browserExeInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  browserExeFile,
+]);
+const browserDllInspection = run("llvm-readobj", [
+  "--coff-exports",
+  browserDllFile,
+]);
 const windowInspection = run("llvm-readobj", [
   "--file-headers",
   "--coff-imports",
@@ -347,6 +402,28 @@ for (const expected of requiredExeEvidence) {
 for (const expected of ["Name: fixture_add", "Name: fixture_call_callback"]) {
   if (!dllInspection.includes(expected)) {
     throw new Error(`DLL export inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+  "Name: vine_browser_fixture.dll",
+  "Symbol: fixture_call_callback",
+  "Symbol: fixture_commit_outputs",
+  "Symbol: fixture_deferred_add",
+]) {
+  if (!browserExeInspection.includes(expected)) {
+    throw new Error(`browser vertical PE32 inspection is missing: ${expected}`);
+  }
+}
+for (const expected of [
+  "Name: fixture_call_callback",
+  "Name: fixture_commit_outputs",
+  "Name: fixture_deferred_add",
+]) {
+  if (!browserDllInspection.includes(expected)) {
+    throw new Error(`browser vertical DLL inspection is missing: ${expected}`);
   }
 }
 
@@ -449,6 +526,13 @@ const report = {
     peImports: ["fixture_add", "fixture_call_callback"],
     dllExports: ["fixture_add", "fixture_call_callback"],
     nativeAbiExitCode,
+    browserVerticalFormat: "PE32/i386",
+    browserVerticalImports: [
+      "fixture_call_callback",
+      "fixture_commit_outputs",
+      "fixture_deferred_add",
+    ],
+    browserVerticalNativeExitCode,
     windowPixelFormat: "PE32/i386",
     windowPixelImports,
     windowPixelExpectedEvents: ["WM_CREATE", "WM_PAINT", "WM_DESTROY"],
@@ -471,6 +555,9 @@ const report = {
     exeFile,
     dllFile,
     importLibrary,
+    browserExeFile,
+    browserDllFile,
+    browserImportLibrary,
     windowExe,
     memoryExe,
     bootstrapExe,

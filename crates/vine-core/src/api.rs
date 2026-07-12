@@ -487,11 +487,27 @@ pub struct ApiImmediateCompletion {
     pub guest_writes: Vec<ApiGuestWriteReceipt>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiDeferredCall {
+    pub request: HostRequest,
+    pub contract: ApiContract,
+    pub frame: ApiCallFrame,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiGuestCallbackCall {
+    pub request: GuestCallbackRequest,
+    pub contract: ApiContract,
+    pub frame: ApiCallFrame,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DispatchOutcome {
     Immediate(ApiImmediateCompletion),
-    Deferred(HostRequest),
-    GuestCallback(GuestCallbackRequest),
+    Deferred(ApiDeferredCall),
+    GuestCallback(ApiGuestCallbackCall),
     Fault(ApiFault),
 }
 
@@ -686,7 +702,11 @@ impl ApiDispatcher {
                         .with_endpoint(endpoint),
                     )
                 } else {
-                    DispatchOutcome::Deferred(request)
+                    DispatchOutcome::Deferred(ApiDeferredCall {
+                        request,
+                        contract: contract.clone(),
+                        frame,
+                    })
                 }
             }
             ApiHandlerResult::GuestCallback(callback) => {
@@ -700,10 +720,92 @@ impl ApiDispatcher {
                         .with_endpoint(endpoint),
                     )
                 } else {
-                    DispatchOutcome::GuestCallback(callback)
+                    DispatchOutcome::GuestCallback(ApiGuestCallbackCall {
+                        request: callback,
+                        contract: contract.clone(),
+                        frame,
+                    })
                 }
             }
             ApiHandlerResult::Fault(fault) => DispatchOutcome::Fault(fault.with_endpoint(endpoint)),
+        }
+    }
+
+    pub fn complete_deferred(
+        &self,
+        call: ApiDeferredCall,
+        completion: HostCompletion,
+        session: &mut ExecutionSession<'_>,
+    ) -> DispatchOutcome {
+        if call.request.request_id != completion.request_id {
+            return DispatchOutcome::Fault(
+                ApiFault::invalid_call(
+                    "api-dispatch",
+                    "host-completion-request-mismatch",
+                    "host completion does not identify the suspended API request",
+                )
+                .with_endpoint(&call.frame.endpoint),
+            );
+        }
+        if call.contract.behavior != ApiBehavior::Deferred {
+            return DispatchOutcome::Fault(
+                ApiFault::runtime_defect(
+                    "api-dispatch",
+                    "deferred-completion-contract-mismatch",
+                    "suspended host call does not carry a deferred API contract",
+                )
+                .with_endpoint(&call.frame.endpoint),
+            );
+        }
+        self.complete_suspended(call.contract, call.frame, completion.result, session)
+    }
+
+    pub fn complete_guest_callback(
+        &self,
+        call: ApiGuestCallbackCall,
+        result: ApiImmediate,
+        session: &mut ExecutionSession<'_>,
+    ) -> DispatchOutcome {
+        if call.contract.callback_policy == CallbackPolicy::Forbidden {
+            return DispatchOutcome::Fault(
+                ApiFault::runtime_defect(
+                    "api-dispatch",
+                    "callback-completion-contract-mismatch",
+                    "suspended callback call forbids guest callbacks",
+                )
+                .with_endpoint(&call.frame.endpoint),
+            );
+        }
+        self.complete_suspended(call.contract, call.frame, result, session)
+    }
+
+    fn complete_suspended(
+        &self,
+        contract: ApiContract,
+        frame: ApiCallFrame,
+        result: ApiImmediate,
+        session: &mut ExecutionSession<'_>,
+    ) -> DispatchOutcome {
+        let endpoint = &frame.endpoint;
+        if self.endpoints_by_id.get(&endpoint.id) != Some(endpoint)
+            || self.endpoints_by_address.get(&endpoint.address) != Some(endpoint)
+            || self.contracts.get(&endpoint.id) != Some(&contract)
+        {
+            return DispatchOutcome::Fault(
+                ApiFault::invalid_call(
+                    "api-dispatch",
+                    "suspended-call-identity-mismatch",
+                    "suspended API metadata no longer matches the dispatcher registry",
+                )
+                .with_endpoint(endpoint),
+            );
+        }
+        if let Err(fault) = validate_bound_iat(session.memory(), endpoint) {
+            return DispatchOutcome::Fault(fault);
+        }
+        match complete_immediate(session, &contract, frame, result) {
+            Ok(completion) => DispatchOutcome::Immediate(completion),
+            Err(fault) => DispatchOutcome::Fault(fault),
         }
     }
 }

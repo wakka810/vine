@@ -872,6 +872,14 @@ surface／RWX writeをgeneration `18 -> 21`で検証した。
 
 ### Step 7 — Chrome Worker vertical slice
 
+**完了（2026-07-12）:** zero-import Rust/Wasm coreとsource-v86 mirrorを
+Chrome Runtime Workerへ載せ、controlled PE32を46命令／10 slicesで実行した。
+2 deferred host completions、depth-2 nested callback、7 automatic writeback
+batches、Canvas RGBA、880 Hz Web Audio、IndexedDB `0x5a`、clean exitを同じ
+sessionで通した。pending host request cancelと4-instruction watchdogはいずれも
+dangling work 0。30分／11,326-session stressはfailure 0、heap slope
+136 bytes/min、maximum heartbeat gap 16.28 msだった。
+
 - Rust/Wasm packaging
 - Runtime Worker
 - v86 execution
@@ -918,11 +926,11 @@ BGIをgeneric runtime pathへ戻し、first unsupported pointを再測定する�
 - [x] guest-originated multi-page writeが自動同期される。
 - [x] byte authorityがADRで決定されている。
 - [x] production memory transportがbinaryである。
-- [ ] Chrome Runtime Worker内でguest CPUが動作する。
-- [ ] pixel、audio pulse、persistent byteを一つのsessionで通す。
-- [ ] cancellation、watchdog、nested callbackが通る。
+- [x] Chrome Runtime Worker内でguest CPUが動作する。
+- [x] pixel、audio pulse、persistent byteを一つのsessionで通す。
+- [x] cancellation、watchdog、nested callbackが通る。
 - [ ] v86 benchmarkとgo/no-go判断が保存されている。
-- [ ] 30分stressのmemory slopeとresponsivenessが記録されている。
+- [x] 30分stressのmemory slopeとresponsivenessが記録されている。
 - [ ] semantic testsとevidence snapshotsが分離されている。
 - [ ] CI artifactにtool versionとfailure evidenceが残る。
 

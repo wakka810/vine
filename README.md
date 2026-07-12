@@ -103,17 +103,27 @@ first changed page. Import planning is read-only and reports every unresolved im
 IAT and thunk changes are all-or-nothing, so extending a catalog and retrying on
 the same image is supported before the first successful bind.
 
+A controlled PE32 fixture now runs inside a Chrome Runtime Worker through the
+same Rust memory and generic dispatcher boundaries. The browser path completes
+46 guest instructions in 10 bounded slices with three periodic yields, two
+deferred host services, a depth-2 nested callback, seven automatic writeback
+batches, Canvas RGBA readback, an 880 Hz Web Audio pulse, IndexedDB byte `0x5a`,
+and exact clean exit. Pending-request cancellation and a four-instruction
+watchdog both leave no suspended host request or callback. A 30-minute repeated
+lifecycle stress completed 11,326 sessions with zero failures, a measured JS
+heap slope of 136 bytes/minute, and a worst main-thread heartbeat gap of
+16.28 ms.
+
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
-edition label. General DLL/export lifecycle, multi-thread scheduling, browser
-runtime, graphics, audio, storage, and full title play remain unimplemented.
+edition label. General DLL/export lifecycle, multi-thread scheduling, BGI
+browser execution, production graphics/audio/storage semantics, and full title
+play remain unimplemented.
 The 17 checkpoint expectations now live in a versioned manifest shared by the
 Node and Rust runners. Stable npm checkpoint commands select one generic session
 by ID; API-specific dispatch flags are no longer used. The next runtime-kernel
-checkpoint packages the Rust／v86 boundary for a Chrome Runtime Worker and
-completes one browser session through guest execution, generic dispatch, async
-completion, nested callback, pixel, audio pulse, persistent byte,
-cancellation, and watchdog.
+checkpoint measures the full v86 adapter benchmark matrix and records the
+engine go/no-go decision before broader runtime dependencies are added.
 The third thunk ID `89` call for
 `KERNEL32.dll!EncodePointer(0x7F020000)` remains the next BGI trap, but bespoke
 API checkpoint expansion is paused until the P0 runtime-kernel gates are met.
@@ -140,7 +150,8 @@ syntax, runs the small v86 smoke,
 and checks the Windows trace summarizer. `check:fixture-e2e` prepares the pinned
 source adapter and runs the public entry, ABI callback/return, stack, TEB/PEB,
 process-parameters, MemoryDelta, automatic binary CPU writeback, window, and
-browser-presentation paths.
+browser-presentation paths, including the guest CPU Runtime Worker vertical
+slice.
 `check:adapter` holds the broader adapter checks. `check:private-corpus` runs BGI
 only when `VINE_BGI_EXE` or the documented local path exists; absence is an
 explicit skip. GitHub Actions runs the two public check groups on Linux.
@@ -176,6 +187,11 @@ mapping and verifies the updated eight-byte value from guest code.
 `npm run check:runtime:memory-writeback` runs two bounded guest slices, scans
 v86 PTE Dirty bits, and atomically returns stack／heap／surface／RWX pages to the
 Rust byte authority through binary control and payload buffers.
+`npm run check:runtime:browser-worker` builds the zero-import Rust/Wasm core and
+TypeScript application, then runs the controlled guest CPU, async completion,
+nested callback, pixel／audio／storage, cancellation, and watchdog paths in a
+clean Chrome profile. `npm run check:runtime:browser-worker:stress` adds the
+30-minute repeated lifecycle measurement.
 `npm run check:runtime:bgi-first-win32-call` reconciles one live stack page,
 writes a controlled `FILETIME` through `MemoryDelta`, returns from exact thunk
 ID `104`, and stops at exact thunk ID `103` before a second dispatch.
