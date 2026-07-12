@@ -1000,3 +1000,25 @@ writeback batches／70 dirty pages／415 changed bytes、18 host deltas、final 
 183,102-byte reportのSHA-256は
 `d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`
 である。詳細は[bgi-private-heap-allocation.md](bgi-private-heap-allocation.md)を正とする。
+
+## 48. BGI fiber-local-storage value
+
+existing opt-in FLS lifecycle tracesは441,487 bytes／1,459 lines／SHA-256
+`2a505ca8fd7339896e651c9fe7ddc9e60b604b92d878c9d01cf10600a944f281`と
+453,151 bytes／1,498 lines／SHA-256
+`d3f3e4829b9dbb564a6956c581bbb46607f97bb0a1651f9481ea2d61d57bc186`
+である。BGI caller return RVA `0xA5955`の`FlsSetValue`はnative index `9`、process-specific
+heap pointer、BOOL `1`を返し、LastError `87 -> 87`／`0 -> 0`を保持する。
+
+Rust common dispatcherはlogical index `0`とopaque value `0x20000000`をchecked
+two-argument stdcallで受け、selected thread `8192`のseparate FLS value mapへ保存する。
+Process-owned slot／callbackは共有し、thread-local valueはTLS mapと分離する。Unknown index／
+inactive laneはmutation前にstructured faultとなる。
+
+`npm run check:runtime:bgi-fiber-local-storage-value`は20 contracts／42 calls、43
+writeback batches／75 dirty pages／497 changed bytes、19 host deltas、final generation `91`
+を通す。Existing second `GetModuleHandleW`／first `EnterCriticalSection`をreturnし、
+instruction `707`でID `124`／`InterlockedIncrement(0x100F08E0)`へ到達する。
+195,821-byte reportのSHA-256は
+`f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f`
+である。詳細は[bgi-fiber-local-storage-value.md](bgi-fiber-local-storage-value.md)を正とする。

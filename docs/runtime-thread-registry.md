@@ -4,7 +4,7 @@
 
 review Step 9のfourth foundationとして、single controlled processの`RuntimeState`へ
 initial threadとは別のlogical threadを登録するversion 1 registry contractを追加した。
-thread identity、typed object／handle、LastError／TLS／callback state、scheduler lane、exitを
+thread identity、typed object／handle、LastError／TLS／FLS／callback state、scheduler lane、exitを
 同じRust authorityへ置き、wait queueとper-thread CPU bootstrapの前提を作る。
 
 このcheckpointはguest `CreateThread`を追加せず、CPU context、stack、TEB／FS、start routine、
@@ -16,7 +16,7 @@ parameter、suspend countを作らない。controlled testとfuture schedulerが
 `register_thread(thread_id, initial_last_error)`はrunning processだけで成功する。nonzeroかつ
 process内でuniqueなTIDを要求し、次を一回のcommitで作る。
 
-- `RuntimeThreadState { running, LastError, empty TLS, empty callback stack }`
+- `RuntimeThreadState { running, LastError, empty TLS/FLS values, empty callback stack }`
 - `SchedulerThreadState::Runnable`
 - `RuntimeObjectKey::Thread`とnonsignaled wait state
 - generation付きinitial thread handle
@@ -35,13 +35,14 @@ SelectionはCPU context switchではない。現在のthread-local Rust APIsが�
 
 ## Thread-local ownership
 
-LastError、logical TLS value、callback frame stack、scheduler state、pending host requestはTIDごとに
-分離する。controlled contractは同じTLS indexへinitial thread `0x1111`、second thread `0x2222`
-を保存し、LastError `11`／`33`と別callback frameをswitch後も保持する。
+LastError、logical TLS／FLS value、callback frame stack、scheduler state、pending host requestは
+TIDごとに分離する。controlled contractsは同じTLS indexへinitial thread `0x1111`、second
+thread `0x2222`を保存し、同じprocess-owned FLS indexへ別pointerを保存する。LastError
+`11`／`33`と別callback frameもswitch後に保持する。
 
-Process-owned clock、startup info、module graph、heap、TLS index allocator、dynamic endpoint、encoded
-pointer registryは共有のままである。CPU register／FPU state、stack、TEB、message queueはまだ
-thread recordへ追加しない。
+Process-owned clock、startup info、module graph、heap、TLS index allocator、FLS slot／callback、
+dynamic endpoint、encoded pointer registryは共有のままである。CPU register／FPU state、stack、
+TEBはまだthread recordへ追加しない。
 
 ## Exit and deterministic process termination
 

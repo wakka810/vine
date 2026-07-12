@@ -1066,6 +1066,26 @@ SHA-256は`d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`
 である。先行5 reportsはbyte-identicalである。次はreached current-thread FLS value
 storeをsame dynamic dispatcherへ接続し、later `HeapAlloc(0x800)`は先取りしない。
 
+### Step 15 — reached fiber-local-storage value
+
+**完了（2026-07-13）:** existing `fls-lifecycle` tracesのBGI caller return RVA
+`0xA5955`で`FlsSetValue(nativeIndex9,nativeHeapPointer)`、BOOL `1`、LastError
+`87 -> 87`／`0 -> 0`を再確認した。Native index／pointerは破棄する。
+
+Rust `RuntimeThreadState`へTLSと分離したFLS value mapを追加し、process-owned logical
+slot `0`へselected threadごとのopaque valueを保存するtwo-argument stdcall contractを
+dynamic common dispatcherへ接続した。Representative testはtwo threadのvalue isolation、
+stdcall cleanup、LastError preserve、unknown indexのmutation-free rejectionを固定する。
+
+same generic sessionは20 contracts／42 calls、43 writeback batches／75 dirty pages／497
+changed bytes、19 host deltas、final generation `91`を通した。FLS completionはthread
+`8192`／index `0`／value `0x20000000`をauthoritative stateとして記録する。Existing second
+`GetModuleHandleW`とfirst `EnterCriticalSection`をreturnし、instruction 707のID `124`／
+`KERNEL32.dll!InterlockedIncrement(0x100F08E0)`で停止した。195,821-byte reportの
+SHA-256は`f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f`
+である。先行6 reportsはbyte-identicalである。次はreached atomic incrementだけを測定／
+実装し、adjacent interlocked APIsとFLS get／free／teardownを先取りしない。
+
 ---
 
 ## 8. P0完了のDefinition of Done

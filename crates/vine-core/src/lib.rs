@@ -122,7 +122,7 @@ pub use runtime::{
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use win32::{
     DECODE_POINTER_IMPLEMENTATION, ENCODE_POINTER_IMPLEMENTATION,
-    ENTER_CRITICAL_SECTION_IMPLEMENTATION, FLS_ALLOC_IMPLEMENTATION,
+    ENTER_CRITICAL_SECTION_IMPLEMENTATION, FLS_ALLOC_IMPLEMENTATION, FLS_SET_VALUE_IMPLEMENTATION,
     GET_CURRENT_PROCESS_ID_IMPLEMENTATION, GET_CURRENT_THREAD_ID_IMPLEMENTATION,
     GET_MODULE_HANDLE_W_IMPLEMENTATION, GET_PROC_ADDRESS_IMPLEMENTATION,
     GET_STARTUP_INFO_W_IMPLEMENTATION, GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION,
@@ -131,10 +131,10 @@ pub use win32::{
     LEAVE_CRITICAL_SECTION_IMPLEMENTATION, QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION,
     TLS_ALLOC_IMPLEMENTATION, TLS_SET_VALUE_IMPLEMENTATION, decode_pointer_contract,
     dispatch_kernel32_api, encode_pointer_contract, enter_critical_section_contract,
-    fls_alloc_contract, get_current_process_id_contract, get_current_thread_id_contract,
-    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
-    get_system_time_as_file_time_contract, get_tick_count_contract, heap_alloc_contract,
-    heap_create_contract, heap_set_information_contract,
+    fls_alloc_contract, fls_set_value_contract, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_alloc_contract, heap_create_contract, heap_set_information_contract,
     initialize_critical_section_and_spin_count_contract, kernel32_contract_for_endpoint,
     leave_critical_section_contract, query_performance_counter_contract, tls_alloc_contract,
     tls_set_value_contract,

@@ -119,16 +119,24 @@ second `DecodePointer`, then stops at dynamic
 The 183,102-byte report has SHA-256
 `d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`.
 
-Nineteen Kernel32 contracts now use the generic Rust dispatcher. This includes
+The cumulative FLS-value profile stores `0x20000000` in logical slot `0` for
+controlled thread `8192`, returns BOOL `1`, and preserves LastError. Existing
+contracts then pass a second module lookup and one critical-section entry before
+stopping at `InterlockedIncrement(0x100F08E0)` at instruction 707. It completes
+42 calls through 43 writeback batches／75 dirty pages／497 changed bytes and 19
+host deltas, finishing at generation `91`. The 195,821-byte report has SHA-256
+`f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f`.
+
+Twenty Kernel32 contracts now use the generic Rust dispatcher. This includes
 clock／identity, startup, heap, module／export, TLS, pointer encoding／decoding,
-critical-section, dynamic FLS-allocation, and reached private-heap allocation.
+critical-section, dynamic FLS allocation／value storage, and reached private-heap allocation.
 The dispatcher owns endpoint lookup, checked frame decoding,
 pointer and name／ordinal validation, guest writes, return cleanup, LastError
 policy, and identity-preserving faults.
 
 Those calls now share one authoritative Rust `RuntimeState`. It owns the
 controlled process／logical thread registry, per-thread LastError, clock and startup
-profile, heap／module／endpoint registries, TLS values, deterministic encoded
+profile, heap／module／endpoint registries, per-thread TLS／FLS values, deterministic encoded
 pointers with strict inverse lookup, guest-address-keyed critical sections, and
 bounded process-owned FLS slots with retained cleanup callbacks. Nested callback frames are LIFO and asynchronous host completion is a
 scheduler event that restores the prior runnable／callback state. Private JSON
@@ -196,9 +204,9 @@ cancellation. A controlled raw message queue adds global sequence identity,
 owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. Private heaps now
 have bounded guest-memory backing; mapped images, bounded PE32 export resolution,
 guest／runtime import binding, and DLL process attach failure unwind／retry／detach
-are also process-owned foundations. The next runtime-kernel checkpoint stores
-the reached `FlsSetValue(0, 0x20000000)` value in controlled per-thread FLS
-state. Bespoke numbered BGI checkpoint expansion remains paused.
+are also process-owned foundations. The next runtime-kernel checkpoint measures
+and implements `InterlockedIncrement(0x100F08E0)` against checked writable guest
+memory. Bespoke numbered BGI checkpoint expansion remains paused.
 
 ## Requirements
 
@@ -333,6 +341,9 @@ index `0`, preserves all four earlier reports, and stops fail-closed at
 `npm run check:runtime:bgi-private-heap-allocation` returns zeroed guest pointer
 `0x20000000`, preserves all five earlier reports, and stops fail-closed at
 dynamic `FlsSetValue(0, 0x20000000)` after 39 completed calls.
+`npm run check:runtime:bgi-fiber-local-storage-value` stores that pointer for
+controlled thread `8192`, preserves all six earlier reports, and stops
+fail-closed at `InterlockedIncrement(0x100F08E0)` after 42 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

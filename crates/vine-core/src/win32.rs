@@ -30,6 +30,7 @@ pub const TLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.tls-set-value.v1";
 pub const ENCODE_POINTER_IMPLEMENTATION: &str = "kernel32.encode-pointer.v1";
 pub const DECODE_POINTER_IMPLEMENTATION: &str = "kernel32.decode-pointer.v1";
 pub const FLS_ALLOC_IMPLEMENTATION: &str = "kernel32.fls-alloc.v1";
+pub const FLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.fls-set-value.v1";
 pub const INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION: &str =
     "kernel32.initialize-critical-section-and-spin-count.v1";
 pub const ENTER_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.enter-critical-section.v1";
@@ -69,6 +70,7 @@ pub fn dispatch_kernel32_api(
         ENCODE_POINTER_IMPLEMENTATION => handle_encode_pointer(contract, frame, session),
         DECODE_POINTER_IMPLEMENTATION => handle_decode_pointer(contract, frame, session),
         FLS_ALLOC_IMPLEMENTATION => handle_fls_alloc(contract, frame, session),
+        FLS_SET_VALUE_IMPLEMENTATION => handle_fls_set_value(contract, frame, session),
         INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION => {
             handle_initialize_critical_section_and_spin_count(contract, frame, session)
         }
@@ -116,6 +118,7 @@ pub fn kernel32_contract_for_endpoint(
         "EncodePointer" => encode_pointer_contract(endpoint)?,
         "DecodePointer" => decode_pointer_contract(endpoint)?,
         "FlsAlloc" => fls_alloc_contract(endpoint)?,
+        "FlsSetValue" => fls_set_value_contract(endpoint)?,
         "InitializeCriticalSectionAndSpinCount" => {
             initialize_critical_section_and_spin_count_contract(endpoint)?
         }
@@ -382,6 +385,20 @@ fn handle_fls_alloc(
         .allocate_fls_slot(callback)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(slot.index)))
+}
+
+fn handle_fls_set_value(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let index = required_argument(contract, frame, 0, "FLS index")?;
+    let value = required_argument(contract, frame, 1, "FLS value")?;
+    session
+        .runtime_mut()
+        .set_fls_value(index, value)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
 }
 
 fn handle_initialize_critical_section_and_spin_count(
@@ -836,6 +853,16 @@ pub fn fls_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, 
         vec![opaque_pointer("callback", true, 1)],
         ApiReturnSchema::U32,
         FLS_ALLOC_IMPLEMENTATION,
+    )
+}
+
+pub fn fls_set_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "FlsSetValue",
+        vec![u32_argument("flsIndex"), opaque_pointer("value", true, 1)],
+        ApiReturnSchema::Bool32,
+        FLS_SET_VALUE_IMPLEMENTATION,
     )
 }
 

@@ -1459,6 +1459,7 @@ pub struct RuntimeThreadState {
     pub lifecycle: RuntimeThreadLifecycleState,
     pub last_error: u32,
     pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
+    pub fls_values: BTreeMap<u32, u32>,
     pub callback_frames: Vec<RuntimeCallbackFrame>,
     pub message_queue: VecDeque<RuntimeThreadMessage>,
 }
@@ -1576,6 +1577,7 @@ impl RuntimeState {
             lifecycle: RuntimeThreadLifecycleState::Initialized,
             last_error: bootstrap.initial_last_error,
             tls_values: BTreeMap::new(),
+            fls_values: BTreeMap::new(),
             callback_frames: Vec::new(),
             message_queue: VecDeque::new(),
         };
@@ -2095,6 +2097,7 @@ impl RuntimeState {
                 lifecycle: RuntimeThreadLifecycleState::Running,
                 last_error: initial_last_error,
                 tls_values: BTreeMap::new(),
+                fls_values: BTreeMap::new(),
                 callback_frames: Vec::new(),
                 message_queue: VecDeque::new(),
             },
@@ -3906,6 +3909,49 @@ impl RuntimeState {
                 format!("logical FLS index {index} is not allocated"),
             )
         })
+    }
+
+    pub fn set_fls_value(
+        &mut self,
+        index: u32,
+        value: u32,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-fls",
+                "fls-value-lifecycle-state-invalid",
+                "FLS value storage requires a running process and active current thread",
+            ));
+        }
+        if !self.process.fls_slots.contains_key(&index) {
+            return Err(RuntimeStateError::not_found(
+                "runtime-fls",
+                "fls-index-unallocated",
+                format!("logical FLS index {index} is not allocated"),
+            ));
+        }
+        Ok(self.current_thread_mut()?.fls_values.insert(index, value))
+    }
+
+    pub fn fls_value(&self, index: u32) -> Result<u32, RuntimeStateError> {
+        self.fls_slot(index)?;
+        self.current_thread()?
+            .fls_values
+            .get(&index)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-fls",
+                    "fls-value-uninitialized",
+                    format!("logical FLS index {index} has no value for the current thread"),
+                )
+            })
     }
 
     pub fn set_tls_value(&mut self, index: u32, value: u32) -> Result<(), RuntimeStateError> {

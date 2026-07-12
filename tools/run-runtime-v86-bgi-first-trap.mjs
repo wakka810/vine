@@ -53,6 +53,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-pointer-decoding",
         "kernel32-fiber-local-storage-allocation",
         "kernel32-private-heap-allocation",
+        "kernel32-fiber-local-storage-value",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -64,7 +65,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
@@ -90,7 +91,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const fiberLocalStorageValueEnabled =
+  genericRuntimeCapability === "kernel32-fiber-local-storage-value";
 const privateHeapAllocationEnabled =
+  fiberLocalStorageValueEnabled ||
   genericRuntimeCapability === "kernel32-private-heap-allocation";
 const fiberLocalStorageAllocationEnabled =
   privateHeapAllocationEnabled ||
@@ -107,7 +111,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? privateHeapAllocationEnabled
+    ? fiberLocalStorageValueEnabled
+      ? "v86-bgi-fiber-local-storage-value"
+      : privateHeapAllocationEnabled
       ? "v86-bgi-private-heap-allocation"
       : fiberLocalStorageAllocationEnabled
       ? "v86-bgi-fiber-local-storage-allocation"
@@ -1324,6 +1330,36 @@ const privateHeapAllocationExpected = {
   reportBytes: 183_102,
   reportSha256: "d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4",
 };
+const fiberLocalStorageValueExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 42,
+  flsSetValueCalls: 1,
+  logicalIndex: 0,
+  value: 0x20000000,
+  threadId: 8192,
+  callInstructionCount: 644,
+  callReturnAddress: 0x100a5955,
+  continuationSymbols: ["FlsSetValue", "GetModuleHandleW", "EnterCriticalSection"],
+  writebackBatches: 43,
+  dirtyPages: 75,
+  changedBytes: 497,
+  hostDeltaBatches: 19,
+  finalGeneration: 91,
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 124,
+    endpointAddress: 0x7f0007b0,
+    module: "kernel32.dll",
+    symbol: "InterlockedIncrement",
+    iatAddress: 0x100d1298,
+    arguments: [0x100f08e0],
+    returnAddress: 0x100a5577,
+    instructionCount: 707,
+    faultCode: "endpoint-contract-missing",
+  },
+  reportBytes: 195_821,
+  reportSha256: "f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -1785,6 +1821,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (fiberLocalStorageValueEnabled) {
+        validateFiberLocalStorageValueResult(genericResult);
       } else if (privateHeapAllocationEnabled) {
         validatePrivateHeapAllocationResult(genericResult);
       } else {
@@ -1797,7 +1835,9 @@ async function run() {
         assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
       } else {
         const capabilityExpected =
-          privateHeapAllocationEnabled
+          fiberLocalStorageValueEnabled
+            ? fiberLocalStorageValueExpected
+            : privateHeapAllocationEnabled
             ? privateHeapAllocationExpected
             : fiberLocalStorageAllocationEnabled
             ? fiberLocalStorageAllocationExpected
@@ -1814,7 +1854,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : privateHeapAllocationEnabled
+          : fiberLocalStorageValueEnabled
+            ? "bgi fiber-local-storage value"
+            : privateHeapAllocationEnabled
             ? "bgi private-heap allocation"
             : fiberLocalStorageAllocationEnabled
             ? "bgi fiber-local-storage allocation"
@@ -2103,6 +2145,9 @@ async function runGenericRuntimeReentry({
         bytes: write.bytes,
         result,
       })),
+      ...(completionFrame.flsValue === undefined
+        ? {}
+        : { flsValue: completionFrame.flsValue }),
     };
 
     const manifestCheckpoint =
@@ -2160,7 +2205,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : privateHeapAllocationEnabled
+        : fiberLocalStorageValueEnabled
+          ? 7
+          : privateHeapAllocationEnabled
           ? 6
           : fiberLocalStorageAllocationEnabled
           ? 5
@@ -2908,6 +2955,67 @@ function validatePrivateHeapAllocationResult(result) {
   );
 }
 
+function validateFiberLocalStorageValueResult(result) {
+  const expected = fiberLocalStorageValueExpected;
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "FlsSetValue");
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  assert.equal(calls.length, expected.flsSetValueCalls);
+  assert.deepEqual(calls[0].arguments, [expected.logicalIndex, expected.value]);
+  assert.deepEqual(calls[0].result, { action: "set", value: 1 });
+  assert.equal(calls[0].implementationId, "kernel32.fls-set-value.v1");
+  assert.equal(calls[0].lastError, 87);
+  assert.deepEqual(calls[0].guestWrites, []);
+  assert.equal(calls[0].stackPointerAfter, calls[0].stackPointerBefore + 12);
+  assert.equal(calls[0].trapInstructionCount, expected.callInstructionCount);
+  assert.equal(calls[0].returnAddress, expected.callReturnAddress);
+  assert.deepEqual(calls[0].flsValue, {
+    threadId: expected.threadId,
+    index: expected.logicalIndex,
+    value: expected.value,
+  });
+  assert.deepEqual(
+    result.supportedCalls.slice(-expected.continuationSymbols.length).map(({ symbol }) => symbol),
+    expected.continuationSymbols,
+  );
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -2929,7 +3037,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : privateHeapAllocationEnabled
+        : fiberLocalStorageValueEnabled
+          ? "vine.v86-bgi-fiber-local-storage-value"
+          : privateHeapAllocationEnabled
           ? "vine.v86-bgi-private-heap-allocation"
           : fiberLocalStorageAllocationEnabled
           ? "vine.v86-bgi-fiber-local-storage-allocation"

@@ -273,6 +273,14 @@ variantはstate／memory mutation前にstructured unsupportedとなる。Private
 free／destroy／realloc、FLS value semanticsの代用ではない。詳細は
 [bgi-private-heap-allocation.md](bgi-private-heap-allocation.md)を正とする。
 
+Reached FLS valueの代表Rust contractはtwo-argument stdcall、allocated logical index、
+nullable opaque value、BOOL return、LastError preserve、two selected threadのvalue isolation、
+unknown index rejection時のstate／memory不変を固定する。Private BGI profileは20 contracts／
+42 calls、generation `91`まで進み、existing second `GetModuleHandleW`／first
+`EnterCriticalSection`を通してinstruction 707の`InterlockedIncrement(0x100F08E0)`で
+停止する。これはFLS get／free／callback teardownまたはinterlocked semanticsの代用ではない。
+詳細は[bgi-fiber-local-storage-value.md](bgi-fiber-local-storage-value.md)を正とする。
+
 ### 5.4 CPU と ABI tests
 
 CPU test vector は instruction encoding、initial register／flags／memory、expected result／fault を持つ。
@@ -548,7 +556,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。frozen controlled CPUはprimary titleの17 API return、separate runtime-kernel profileは19 contracts／39 calls、strict pointer inverse、one bounded FLS slot、one reached zeroed heap block、`FlsSetValue` first stopまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／broad guest heap APIとtitle capacity／system-DLL image／snapshot、title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。frozen controlled CPUはprimary titleの17 API return、separate runtime-kernel profileは20 contracts／42 calls、strict pointer inverse、one bounded FLS slot／selected-thread value、one reached zeroed heap block、`InterlockedIncrement` first stopまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／broad guest heap APIとtitle capacity／system-DLL image／snapshot、title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
@@ -564,7 +572,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
-現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の17 frozen API return、four ordered dynamic endpoint identities、logical TLS／encoded-pointer／FLS allocation／reached heap stateを処理し、separate generic dispatcherは39 callsまで進むが、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の17 frozen API return、four ordered dynamic endpoint identities、logical TLS／encoded-pointer／FLS allocation／selected-thread value／reached heap stateを処理し、separate generic dispatcherは42 callsまで進むが、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 
 ### AC-P3: Win32 substrate and persistence complete
 

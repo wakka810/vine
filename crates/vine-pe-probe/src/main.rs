@@ -82,6 +82,7 @@ enum GenericRuntimeCapability {
     PointerDecoding,
     FiberLocalStorageAllocation,
     PrivateHeapAllocation,
+    FiberLocalStorageValue,
 }
 
 struct GenericRuntimeProcess {
@@ -151,7 +152,17 @@ struct GenericRuntimeCompletion {
     schema_version: u32,
     endpoint: GenericRuntimeEndpoint,
     completion: ApiImmediateCompletion,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fls_value: Option<GenericRuntimeFlsValue>,
     memory: MemoryStats,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeFlsValue {
+    thread_id: u32,
+    index: u32,
+    value: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -2360,6 +2371,7 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::FiberLocalStorageAllocation
                 | GenericRuntimeCapability::PrivateHeapAllocation
+                | GenericRuntimeCapability::FiberLocalStorageValue
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2375,6 +2387,28 @@ fn run_v86_generic_runtime_session(
                     "runtime-reentry",
                     "fls-allocation-contract-missing",
                     "the reached dynamic FlsAlloc endpoint has no Kernel32 API contract",
+                )
+            })?;
+        dispatcher_endpoints.push(endpoint);
+        contracts.push(contract);
+    }
+    if matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::FiberLocalStorageValue)
+    ) {
+        let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
+            process
+                .runtime
+                .dynamic_endpoint_by_name("kernel32.dll", "FlsSetValue")
+                .map_err(runtime_state_error)?,
+        );
+        let contract = kernel32_contract_for_endpoint(endpoint.clone())
+            .map_err(api_fault)?
+            .ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "fls-set-value-contract-missing",
+                    "the reached dynamic FlsSetValue endpoint has no Kernel32 API contract",
                 )
             })?;
         dispatcher_endpoints.push(endpoint);
@@ -2482,6 +2516,7 @@ fn run_v86_generic_runtime_session(
                                 schema_version: 1,
                                 endpoint: GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
                                 completion,
+                                fls_value: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -2546,6 +2581,25 @@ fn run_v86_generic_runtime_session(
                     dispatch_kernel32_api,
                 ) {
                     DispatchOutcome::Immediate(completion) => {
+                        let fls_value = if endpoint.name == "FlsSetValue" {
+                            let index = completion.frame.argument_u32(0).ok_or_else(|| {
+                                LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "fls-set-value-index-missing",
+                                    "completed FlsSetValue frame has no logical index argument",
+                                )
+                            })?;
+                            Some(GenericRuntimeFlsValue {
+                                thread_id: session.runtime().current_thread_id().0,
+                                index,
+                                value: session
+                                    .runtime()
+                                    .fls_value(index)
+                                    .map_err(runtime_state_error)?,
+                            })
+                        } else {
+                            None
+                        };
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -2554,6 +2608,7 @@ fn run_v86_generic_runtime_session(
                                 schema_version: 1,
                                 endpoint: GenericRuntimeEndpoint::DynamicExport { endpoint },
                                 completion,
+                                fls_value,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -2606,6 +2661,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::PointerDecoding
                     | GenericRuntimeCapability::FiberLocalStorageAllocation
                     | GenericRuntimeCapability::PrivateHeapAllocation
+                    | GenericRuntimeCapability::FiberLocalStorageValue
             )
         ),
         "DecodePointer" => matches!(
@@ -2614,6 +2670,7 @@ fn runtime_capability_enables_endpoint(
                 GenericRuntimeCapability::PointerDecoding
                     | GenericRuntimeCapability::FiberLocalStorageAllocation
                     | GenericRuntimeCapability::PrivateHeapAllocation
+                    | GenericRuntimeCapability::FiberLocalStorageValue
             )
         ),
         "FlsAlloc" => matches!(
@@ -2621,11 +2678,19 @@ fn runtime_capability_enables_endpoint(
             Some(
                 GenericRuntimeCapability::FiberLocalStorageAllocation
                     | GenericRuntimeCapability::PrivateHeapAllocation
+                    | GenericRuntimeCapability::FiberLocalStorageValue
             )
         ),
         "HeapAlloc" => matches!(
             enabled,
-            Some(GenericRuntimeCapability::PrivateHeapAllocation)
+            Some(
+                GenericRuntimeCapability::PrivateHeapAllocation
+                    | GenericRuntimeCapability::FiberLocalStorageValue
+            )
+        ),
+        "FlsSetValue" => matches!(
+            enabled,
+            Some(GenericRuntimeCapability::FiberLocalStorageValue)
         ),
         _ => true,
     }
@@ -2635,14 +2700,19 @@ fn runtime_capability_enables_dynamic_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &RuntimeDynamicEndpoint,
 ) -> bool {
-    matches!(
-        enabled,
+    if !endpoint.module.eq_ignore_ascii_case("kernel32.dll") {
+        return false;
+    }
+    match enabled {
         Some(
             GenericRuntimeCapability::FiberLocalStorageAllocation
-                | GenericRuntimeCapability::PrivateHeapAllocation
-        )
-    ) && endpoint.module.eq_ignore_ascii_case("kernel32.dll")
-        && endpoint.name == "FlsAlloc"
+            | GenericRuntimeCapability::PrivateHeapAllocation,
+        ) => endpoint.name == "FlsAlloc",
+        Some(GenericRuntimeCapability::FiberLocalStorageValue) => {
+            matches!(endpoint.name.as_str(), "FlsAlloc" | "FlsSetValue")
+        }
+        _ => false,
+    }
 }
 
 fn send_pending_runtime_delta(
@@ -7779,6 +7849,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-private-heap-allocation" => {
                     GenericRuntimeCapability::PrivateHeapAllocation
                 }
+                "kernel32-fiber-local-storage-value" => {
+                    GenericRuntimeCapability::FiberLocalStorageValue
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
@@ -7989,7 +8062,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

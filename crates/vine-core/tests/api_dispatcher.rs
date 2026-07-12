@@ -413,6 +413,92 @@ fn fls_allocation_contract_owns_bounded_callback_slots() {
 }
 
 #[test]
+fn fls_set_value_contract_owns_current_thread_values() {
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoint, frames) = fls_set_value_dispatcher_fixture(&mut memory, owner);
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    assert_eq!(
+        runtime
+            .allocate_fls_slot(None)
+            .expect("logical FLS slot")
+            .index,
+        0
+    );
+    let memory_before = memory.stats();
+
+    let first = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+    );
+    assert_eq!(first.eax, RegisterUpdate::Set(1));
+    assert_eq!(first.stack_pointer, GuestAddress(frames[0].0 + 12));
+    assert_eq!(first.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(
+        runtime.fls_value(0).expect("initial-thread FLS value"),
+        0x2000_0000
+    );
+
+    let second_thread = RuntimeThreadId(THREAD_ID + 1);
+    runtime
+        .register_thread(second_thread, 0x5678)
+        .expect("register second FLS lane");
+    runtime
+        .select_thread(second_thread)
+        .expect("select second FLS lane");
+    assert_eq!(
+        runtime
+            .fls_value(0)
+            .expect_err("FLS values are thread-local")
+            .code,
+        "fls-value-uninitialized"
+    );
+    let second = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(second.eax, RegisterUpdate::Set(1));
+    assert_eq!(second.last_error, 0x5678);
+    assert_eq!(
+        runtime.fls_value(0).expect("second-thread FLS value"),
+        0x2000_0100
+    );
+
+    runtime
+        .select_thread(RuntimeThreadId(THREAD_ID))
+        .expect("restore initial FLS lane");
+    assert_eq!(
+        runtime.fls_value(0).expect("retained initial FLS value"),
+        0x2000_0000
+    );
+    let runtime_before_rejection = runtime.clone();
+    let rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[2].0, frames[2].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall
+                && fault.code == "fls-index-unallocated"
+    ));
+    assert_eq!(runtime, runtime_before_rejection);
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
 fn heap_alloc_contract_uses_transactional_guest_backing_and_rejects_other_variants() {
     const FRAME_BASE: u32 = 0x3000_0100;
     const TEST_IAT_BASE: u32 = 0x3000_2000;
@@ -1445,6 +1531,42 @@ fn fls_allocation_dispatcher_fixture(
     (
         ApiDispatcher::new([static_endpoint, endpoint.clone()], [contract])
             .expect("static/dynamic ID collision FLS allocation dispatcher"),
+        endpoint,
+        frames,
+    )
+}
+
+fn fls_set_value_dispatcher_fixture(
+    memory: &mut GuestMemory,
+    owner: MemoryOwnerId,
+) -> (ApiDispatcher, ApiEndpointIdentity, [FrameWords; 3]) {
+    let dynamic = RuntimeDynamicEndpoint {
+        namespace: DYNAMIC_EXPORT_ENDPOINT_NAMESPACE.to_owned(),
+        id: 3,
+        address: GuestAddress(0x7f02_0020),
+        module: "kernel32.dll".to_owned(),
+        name: "FlsSetValue".to_owned(),
+        lifetime: "process-runtime".to_owned(),
+    };
+    let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(&dynamic);
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented FLS value endpoint");
+    let frames = [
+        (STACK_BASE + 0x2c0, vec![0x1000_0511, 0, 0x2000_0000]),
+        (STACK_BASE + 0x2e0, vec![0x1000_0512, 0, 0x2000_0100]),
+        (STACK_BASE + 0x300, vec![0x1000_0513, 1, 0x2000_0200]),
+    ];
+    for (address, words) in &frames {
+        write_frame(memory, owner, GuestAddress(*address), words);
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    (
+        ApiDispatcher::new([endpoint.clone()], [contract]).expect("FLS value dispatcher"),
         endpoint,
         frames,
     )
