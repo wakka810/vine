@@ -134,8 +134,8 @@ pub use win32::{
     fls_alloc_contract, fls_set_value_contract, get_current_process_id_contract,
     get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
     get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_alloc_contract, heap_create_contract, heap_set_information_contract,
-    initialize_critical_section_and_spin_count_contract, kernel32_contract_for_endpoint,
-    leave_critical_section_contract, query_performance_counter_contract, tls_alloc_contract,
-    tls_set_value_contract,
+    heap_alloc_contract, heap_alloc_first_two_reached_contract, heap_create_contract,
+    heap_set_information_contract, initialize_critical_section_and_spin_count_contract,
+    kernel32_contract_for_endpoint, leave_critical_section_contract,
+    query_performance_counter_contract, tls_alloc_contract, tls_set_value_contract,
 };

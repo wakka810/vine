@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, and InterlockedIncrement capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, and second private-heap allocation capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-interlocked-increment`
-- Scope: frozen 17-call equivalence plus 50 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-private-heap-second-allocation`
+- Scope: frozen 17-call equivalence plus 51 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -55,14 +55,14 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `LeaveCriticalSection` | 2 | decrements recursion and releases at zero |
 | `FlsAlloc` | 1 | allocates a bounded process-owned logical FLS slot and retains its callback |
 | `FlsSetValue` | 1 | stores an opaque value in the selected thread's allocated FLS slot |
-| `HeapAlloc` | 1 | allocates the reached zeroed block through transactional guest-memory backing |
+| `HeapAlloc` | 2 | allocates the first two reached zeroed blocks through transactional guest-memory backing |
 | `InterlockedIncrement` | 3 | performs a checked wrapping LONG update in guest memory |
 
 All 21 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-50 BGI calls, including six `EncodePointer` occurrences, 14 critical-section
+51 BGI calls, including six `EncodePointer` occurrences, 14 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
-one `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
+two `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
 critical-section／thread／startup occurrences.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The title harness still performs callsite provenance checks, automatic
@@ -110,6 +110,7 @@ npm run check:runtime:bgi-fiber-local-storage-allocation
 npm run check:runtime:bgi-private-heap-allocation
 npm run check:runtime:bgi-fiber-local-storage-value
 npm run check:runtime:bgi-interlocked-increment
+npm run check:runtime:bgi-private-heap-second-allocation
 ```
 
 ## RuntimeState authority
@@ -150,7 +151,8 @@ ordinal rejection, callback LIFO, host completion events, exact critical-section
 bytes, same-thread recursion, release, structured contention, dynamic/static ID
 collision, executable FLS callbacks, bounded FLS allocation, selected-thread
 FLS value isolation, the reached transactional private-heap allocation, and
-wrapping checked LONG updates with mutation-free invalid-target rejection.
+wrapping checked LONG updates, and versioned two-block heap allocation with
+mutation-free later-variant rejection.
 
 The cumulative private-corpus command is:
 
@@ -269,12 +271,29 @@ and stops at instruction 934 on the already measured
 `HeapAlloc(0x68010001,HEAP_ZERO_MEMORY,0x800)` variant. Full evidence is in
 [bgi-interlocked-increment.md](bgi-interlocked-increment.md).
 
+The second private-heap-allocation profile is:
+
+```powershell
+npm run check:runtime:bgi-private-heap-second-allocation
+```
+
+It replaces only the profile's HeapAlloc implementation ID with the versioned
+first-two-reached contract, preserving the earlier v1 report. Allocation ID `2`
+is zeroed at `0x20000218` while allocation ID `1` remains live. The existing
+unsealed heap owner emits a dirty-only generation `106 -> 107` delta without a
+new mapping. The profile completes 51 calls, uses 52 writeback batches／89 dirty
+pages／906 changed bytes and 27 host deltas, and ends at generation `108`. Its
+239,789-byte report has SHA-256
+`fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8`
+and stops at instruction 1395 on `GetStdHandle(STD_INPUT_HANDLE)`. Full evidence
+is in [bgi-private-heap-second-allocation.md](bgi-private-heap-second-allocation.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
 - The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
-- Private heaps have bounded guest-memory backing and the reached zeroed
-  `HeapAlloc` variant; other sizes/flags, free/destroy/realloc dispatch, and
+- Private heaps have bounded guest-memory backing and the first two reached
+  zeroed `HeapAlloc` variants; other sizes/flags, free/destroy/realloc dispatch, and
   broad allocator policy remain absent.
 - FLS get/free/callback teardown and TLS free/thread lifecycle, critical-section
   deletion／contention blocking, and arbitrary export pages are absent. Only the
@@ -287,19 +306,19 @@ and stops at instruction 934 on the already measured
 - `InterlockedIncrement` is implemented only for the checked 32-bit LONG shape
   in the single cooperative Runtime Worker. Adjacent interlocked APIs and
   cross-worker shared-memory atomicity are absent.
-- The generic session has passed three reached increments. Its first unsupported
-  operation is the second measured `HeapAlloc(...,0x800)` variant; bespoke
-  checkpoint expansion stays paused.
+- The generic session has passed the second reached heap allocation. Its first
+  unsupported operation is `GetStdHandle(STD_INPUT_HANDLE)`; bespoke checkpoint
+  expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-private-heap-second-allocation` at
-`HeapAlloc(0x68010001,HEAP_ZERO_MEMORY,0x800)`. It must retain the first block,
-allocate the already measured second size through the same bounded transaction,
-and return the new guest pointer without adding other allocator variants.
+The next proof is `kernel32-standard-handles` at
+`GetStdHandle(STD_INPUT_HANDLE)`. It must measure the native result／LastError and
+immediate consumer, then define a process-owned logical handle without exposing
+a host OS handle or adding file I/O behavior prematurely.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
 FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
-195,821-byte report, and InterlockedIncrement 234,775-byte report remain the
-regression boundary.
+195,821-byte report, InterlockedIncrement 234,775-byte report, and second-heap
+239,789-byte report remain the regression boundary.

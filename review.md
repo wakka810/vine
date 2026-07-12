@@ -1111,6 +1111,30 @@ instruction 934のID `75`／`HeapAlloc(0x68010001,8,0x800)`でstructured
 先行7 reportsはbyte-identicalである。次はこのalready measured second allocationだけを
 existing private-heap transactionへ接続し、other heap variantsを先取りしない。
 
+### Step 17 — reached second private-heap allocation
+
+**完了（2026-07-13）:** existing heap-lifecycle traceのsame caller RVA `0xAC3CC`で
+first `HeapAlloc(nativeHeap,0x8,0x214)`とsecond `HeapAlloc(nativeHeap,0x8,0x800)`が
+nonnull result、LastError `0 -> 0`を返すexact pairsを再確認した。Next same-caller size
+`0xBC`以降はdeferする。
+
+Frozen `kernel32.heap-alloc.v1`は`0x214`だけをacceptしたまま、new cumulative profileへ
+`kernel32.heap-alloc-first-two-reached.v1`を選択する。Representative public testはv1の
+mutation-free `0x800` rejection、v2のallocation ID `1` retention、ID `2`／guest
+`0x20000218`／zeroed `0x800` block、dirty-only delta、later `0xBC` rejectionを固定する。
+
+same generic sessionは21 contracts／51 calls、52 writeback batches／89 dirty pages／906
+changed bytes、27 host deltas、final generation `108`を通した。Second allocation deltaは
+unsealed heap owner `10`のpage `0x20000000`をgeneration `106 -> 107`で更新し、mapping
+operation／cache effectは0である。Mirrorはmappingごとのowner-sealed identityを保持し、
+unsealed mutable heapのlater deltaをchecked適用する。
+
+instruction 1395のID `94`／`GetStdHandle(STD_INPUT_HANDLE)`でstructured
+`endpoint-contract-missing`停止した。239,789-byte reportのSHA-256は
+`fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8`である。
+先行8 reportsはbyte-identicalである。次はreached standard input handleだけをnative
+測定／logical process stateへ接続し、host handleやfile I/Oを先取りしない。
+
 ---
 
 ## 8. P0完了のDefinition of Done

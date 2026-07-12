@@ -20,10 +20,10 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "bgi-interlocked-increment" ||
+    checkpoint.runtimeKernelCheckpoint !== "bgi-private-heap-second-allocation" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !==
-      "single-process-controlled-two-thread-wait-message-heap-module-dll-lifecycle-critical-section-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment" ||
+      "single-process-controlled-two-thread-wait-message-heap-module-dll-lifecycle-critical-section-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
       JSON.stringify([
         "process",
@@ -50,7 +50,7 @@ try {
     checkpoint.callbackFrameStack !== true ||
     checkpoint.hostCompletionModel !== "scheduler-event" ||
     checkpoint.genericDispatcherApiCount !== 21 ||
-    checkpoint.genericDispatcherCallOccurrenceCount !== 50 ||
+    checkpoint.genericDispatcherCallOccurrenceCount !== 51 ||
     JSON.stringify(checkpoint.genericDispatcherApis) !==
       JSON.stringify([
         "KERNEL32.dll!GetSystemTimeAsFileTime",
@@ -986,7 +986,74 @@ try {
         reportSha256:
           "4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643",
       }) ||
-    checkpoint.nextCheckpoint !== "kernel32-private-heap-second-allocation" ||
+    JSON.stringify(checkpoint.bgiPrivateHeapSecondAllocation) !==
+      JSON.stringify({
+        schema: "vine.v86-bgi-private-heap-second-allocation.v1",
+        nativeTraceBytes: 6870828,
+        nativeTraceLines: 21822,
+        nativeTraceSha256:
+          "9bdf000eedb8844a6e8db4732d025e7dd3a33854bea47175e26c5d5a3e678682",
+        nativeCallerReturnRva: "0x000ac3cc",
+        nativeFlags: "0x00000008",
+        nativeFirstByteLength: 532,
+        nativeFirstResult: "0x04a405c0",
+        nativeSecondByteLength: 2048,
+        nativeSecondResult: "0x04a407e0",
+        nativeFirstLaterUnsupportedByteLength: 188,
+        lastErrorPolicy: "preserve",
+        frozenHeapAllocImplementation: "kernel32.heap-alloc.v1",
+        extendedHeapAllocImplementation: "kernel32.heap-alloc-first-two-reached.v1",
+        logicalHeapHandle: "0x68010001",
+        firstAllocationId: 1,
+        firstGuestAddress: "0x20000000",
+        secondAllocationId: 2,
+        secondGuestAddress: "0x20000218",
+        secondRequestedBytes: 2048,
+        secondReservedBytes: 2048,
+        secondInitialization: "zeroed",
+        secondLiveAllocationCount: 2,
+        secondDeltaSequence: 51,
+        secondDeltaFromGeneration: 106,
+        secondDeltaGeneration: 107,
+        secondDeltaMappingOperations: 0,
+        secondDeltaOwner: 10,
+        secondDeltaOwnerSealed: false,
+        secondDeltaDirtyPage: "0x20000000",
+        secondDeltaPayloadBytes: 4096,
+        secondDeltaPayloadSha256:
+          "bd49b343e4864d3d12162b7f0d9a7ce77782b4aa1c931f72121ddcb0f2018532",
+        implementedApiContractCount: 21,
+        genericSupportedCallCount: 51,
+        heapAllocCalls: 2,
+        reflectionPages: 389,
+        reflectionGeneration: 27,
+        reflectionSha256:
+          "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
+        writebackBatches: 52,
+        writebackDirtyPages: 89,
+        writebackChangedBytes: 906,
+        hostDeltaBatches: 27,
+        finalMemoryGeneration: 108,
+        firstUnsupportedInstructionCount: 1395,
+        firstUnsupportedCapabilityCluster: "kernel32-api-contract",
+        firstUnsupportedEndpointKind: "runtime-system-export",
+        firstUnsupportedEndpointId: 94,
+        firstUnsupportedEndpointAddress: "0x7f0005d0",
+        firstUnsupportedApi: "KERNEL32.dll!GetStdHandle",
+        firstUnsupportedArguments: ["0xfffffff6"],
+        firstUnsupportedIatAddress: "0x100d1220",
+        firstUnsupportedReturnAddress: "0x100a87b6",
+        firstUnsupportedFault: "endpoint-contract-missing",
+        laterHeapSizesImplemented: false,
+        heapFreeImplemented: false,
+        heapReAllocImplemented: false,
+        apiSpecificReconciliationLists: false,
+        apiSpecificRequestsOrReceipts: false,
+        reportBytes: 239789,
+        reportSha256:
+          "fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8",
+      }) ||
+    checkpoint.nextCheckpoint !== "kernel32-standard-handles" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

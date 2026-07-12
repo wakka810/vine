@@ -25,6 +25,8 @@ pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
 pub const HEAP_CREATE_IMPLEMENTATION: &str = "kernel32.heap-create.v1";
 pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v1";
+pub const HEAP_ALLOC_FIRST_TWO_REACHED_IMPLEMENTATION: &str =
+    "kernel32.heap-alloc-first-two-reached.v1";
 pub const GET_MODULE_HANDLE_W_IMPLEMENTATION: &str = "kernel32.get-module-handle-w.v1";
 pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1";
 pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
@@ -42,6 +44,7 @@ pub const LEAVE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.leave-critical
 const HEAP_ENABLE_TERMINATION_ON_CORRUPTION: u32 = 1;
 const HEAP_ZERO_MEMORY: u32 = 0x0000_0008;
 const REACHED_HEAP_ALLOC_BYTE_LENGTH: u32 = 0x0000_0214;
+const REACHED_SECOND_HEAP_ALLOC_BYTE_LENGTH: u32 = 0x0000_0800;
 const MAX_MODULE_NAME_CODE_UNITS: usize = 64;
 const MAX_EXPORT_NAME_BYTES: usize = 64;
 
@@ -65,7 +68,12 @@ pub fn dispatch_kernel32_api(
             handle_heap_set_information(contract, frame, session)
         }
         HEAP_CREATE_IMPLEMENTATION => handle_heap_create(contract, frame, session),
-        HEAP_ALLOC_IMPLEMENTATION => handle_heap_alloc(contract, frame, session),
+        HEAP_ALLOC_IMPLEMENTATION => {
+            handle_heap_alloc(contract, frame, session, ReachedHeapAllocProfile::FirstOnly)
+        }
+        HEAP_ALLOC_FIRST_TWO_REACHED_IMPLEMENTATION => {
+            handle_heap_alloc(contract, frame, session, ReachedHeapAllocProfile::FirstTwo)
+        }
         GET_MODULE_HANDLE_W_IMPLEMENTATION => handle_get_module_handle_w(contract, frame, session),
         GET_PROC_ADDRESS_IMPLEMENTATION => handle_get_proc_address(contract, frame, session),
         TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
@@ -243,15 +251,27 @@ fn handle_heap_alloc(
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
+    profile: ReachedHeapAllocProfile,
 ) -> Result<ApiImmediate, ApiFault> {
     let heap = required_argument(contract, frame, 0, "heap handle")?;
     let flags = required_argument(contract, frame, 1, "heap allocation flags")?;
     let byte_length = required_argument(contract, frame, 2, "heap allocation byte length")?;
-    if flags != HEAP_ZERO_MEMORY || byte_length != REACHED_HEAP_ALLOC_BYTE_LENGTH {
+    let supported_length = byte_length == REACHED_HEAP_ALLOC_BYTE_LENGTH
+        || (profile == ReachedHeapAllocProfile::FirstTwo
+            && byte_length == REACHED_SECOND_HEAP_ALLOC_BYTE_LENGTH);
+    if flags != HEAP_ZERO_MEMORY || !supported_length {
+        let message = match profile {
+            ReachedHeapAllocProfile::FirstOnly => {
+                "only the reached HEAP_ZERO_MEMORY 0x214-byte allocation is implemented"
+            }
+            ReachedHeapAllocProfile::FirstTwo => {
+                "only the first two reached HEAP_ZERO_MEMORY allocations (0x214 and 0x800 bytes) are implemented"
+            }
+        };
         return Err(ApiFault::unsupported(
             "win32-heap",
             "heap-alloc-variant-unsupported",
-            "only the reached HEAP_ZERO_MEMORY 0x214-byte allocation is implemented",
+            message,
         ));
     }
     let allocation = session
@@ -260,6 +280,12 @@ fn handle_heap_alloc(
     Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
         allocation.address.0,
     )))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReachedHeapAllocProfile {
+    FirstOnly,
+    FirstTwo,
 }
 
 fn handle_get_module_handle_w(
@@ -778,6 +804,19 @@ pub fn heap_create_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract
 }
 
 pub fn heap_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    heap_alloc_contract_with_implementation(endpoint, HEAP_ALLOC_IMPLEMENTATION)
+}
+
+pub fn heap_alloc_first_two_reached_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    heap_alloc_contract_with_implementation(endpoint, HEAP_ALLOC_FIRST_TWO_REACHED_IMPLEMENTATION)
+}
+
+fn heap_alloc_contract_with_implementation(
+    endpoint: ApiEndpointIdentity,
+    implementation_id: &str,
+) -> Result<ApiContract, ApiFault> {
     kernel32_contract(
         endpoint,
         "HeapAlloc",
@@ -787,7 +826,7 @@ pub fn heap_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract,
             u32_argument("byteLength"),
         ],
         ApiReturnSchema::OpaquePointer { nullable: false },
-        HEAP_ALLOC_IMPLEMENTATION,
+        implementation_id,
     )
 }
 

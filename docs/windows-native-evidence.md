@@ -1045,3 +1045,23 @@ batches／86 dirty pages／667 changed bytes、26 host deltas、final generation
 234,775-byte reportのSHA-256は
 `4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643`
 である。詳細は[bgi-interlocked-increment.md](bgi-interlocked-increment.md)を正とする。
+
+## 50. BGI second private-heap allocation
+
+existing heap-lifecycle traceのcaller RVA `0xAC3CC`でcall IDs `28`／`29`はsame native
+heap、flags `0x8`、sizes `0x214`／`0x800`、nonnull results `0x04A405C0`／
+`0x04A407E0`、LastError `0 -> 0`を返す。Next same-caller sizeは`0xBC`でありdeferする。
+
+Frozen `kernel32.heap-alloc.v1`を保持し、新profileだけが
+`kernel32.heap-alloc-first-two-reached.v1`を選ぶ。First allocation ID `1`を保持し、
+second ID `2`／guest `0x20000218`／zeroed `0x800`をsame bounded heapへ作る。
+Generation `106 -> 107` deltaはunsealed owner `10`のexisting page `0x20000000`を更新し、
+mapping operation／cache effectは0である。Mirror mappingはowner-sealed bitを保持してlater
+deltaのidentityを検証する。
+
+`npm run check:runtime:bgi-private-heap-second-allocation`は21 contracts／51 calls、52
+writeback batches／89 dirty pages／906 changed bytes、27 host deltas、final generation `108`
+を通す。instruction `1395`でID `94`／`GetStdHandle(STD_INPUT_HANDLE)`へ到達する。
+239,789-byte reportのSHA-256は
+`fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8`
+である。詳細は[bgi-private-heap-second-allocation.md](bgi-private-heap-second-allocation.md)を正とする。

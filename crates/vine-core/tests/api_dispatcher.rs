@@ -13,7 +13,8 @@ use vine_core::{
     RUNTIME_FLS_INDEX_LIMIT, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
     RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId, RuntimeModule, RuntimeProcessId,
     RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva,
-    SchedulerThreadState, StackCleanup, dispatch_kernel32_api, kernel32_contract_for_endpoint,
+    SchedulerThreadState, StackCleanup, dispatch_kernel32_api,
+    heap_alloc_first_two_reached_contract, kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -499,7 +500,7 @@ fn fls_set_value_contract_owns_current_thread_values() {
 }
 
 #[test]
-fn heap_alloc_contract_uses_transactional_guest_backing_and_rejects_other_variants() {
+fn heap_alloc_contract_versions_preserve_first_profile_and_add_second_block() {
     const FRAME_BASE: u32 = 0x3000_0100;
     const TEST_IAT_BASE: u32 = 0x3000_2000;
 
@@ -564,6 +565,7 @@ fn heap_alloc_contract_uses_transactional_guest_backing_and_rejects_other_varian
             FRAME_BASE + 0x20,
             vec![0x1000_0602, 0x6801_0001, 0x8, 0x800],
         ),
+        (FRAME_BASE + 0x40, vec![0x1000_0603, 0x6801_0001, 0x8, 0xbc]),
     ];
     for (address, words) in &frames {
         write_frame(&mut memory, owner, GuestAddress(*address), words);
@@ -634,6 +636,69 @@ fn heap_alloc_contract_uses_transactional_guest_backing_and_rejects_other_varian
     ));
     assert_eq!(runtime, runtime_before_rejection);
     assert_eq!(memory.stats(), memory_before_rejection);
+
+    let extended_contract = heap_alloc_first_two_reached_contract(endpoint.clone())
+        .expect("two-reached-size HeapAlloc contract");
+    let extended_dispatcher =
+        ApiDispatcher::new([endpoint.clone()], [extended_contract]).expect("extended dispatcher");
+    let second = dispatch_owned(
+        &extended_dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(second.eax, RegisterUpdate::Set(0x2000_0218));
+    assert_eq!(second.stack_pointer, GuestAddress(frames[1].0 + 16));
+    assert_eq!(second.last_error, INITIAL_LAST_ERROR);
+    let backing = runtime
+        .heap_backing(0x6801_0001)
+        .expect("heap backing lookup")
+        .expect("materialized heap backing");
+    assert_eq!(backing.allocations.len(), 2);
+    let second_allocation = backing
+        .allocations
+        .get(&0x2000_0218)
+        .expect("second heap allocation");
+    assert_eq!(second_allocation.id, RuntimeHeapAllocationId(2));
+    assert_eq!(second_allocation.byte_length, 0x800);
+    assert_eq!(second_allocation.reserved_byte_length, 0x800);
+    let second_delta = memory.pending_delta().expect("second allocation delta");
+    assert!(second_delta.mapping_operations.is_empty());
+    assert_eq!(second_delta.dirty_pages.len(), 1);
+    assert_eq!(
+        second_delta.dirty_pages[0].address,
+        GuestAddress(0x2000_0000)
+    );
+    memory
+        .acknowledge_delta(second_delta.generation)
+        .expect("acknowledge second allocation delta");
+    assert_eq!(
+        memory
+            .read(GuestAddress(0x2000_0000), 0xa18)
+            .expect("first and second zeroed allocations"),
+        vec![0; 0xa18]
+    );
+
+    let runtime_before_later_rejection = runtime.clone();
+    let memory_before_later_rejection = memory.stats();
+    let later_rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        extended_dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[2].0, frames[2].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        later_rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "heap-alloc-variant-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before_later_rejection);
+    assert_eq!(memory.stats(), memory_before_later_rejection);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
 }
 

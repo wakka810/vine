@@ -265,9 +265,10 @@ guest heap allocationの代用ではない。詳細は
 [bgi-fiber-local-storage-allocation.md](bgi-fiber-local-storage-allocation.md)を正とする。
 
 Reached private-heap allocationの代表Rust contractはthree-argument stdcall、logical heap
-handle、`HEAP_ZERO_MEMORY`／`0x214` gate、guest pointer `0x20000000`、zeroed `0x218`
-reservation、reserve／commit delta、LastError preserveを固定する。Observed `0x800`
-variantはstate／memory mutation前にstructured unsupportedとなる。Private BGI profileは
+handle、versioned `HEAP_ZERO_MEMORY`／size gate、guest pointers `0x20000000`／
+`0x20000218`、zeroed first／second blocks、reserve／commitとdirty-only deltas、LastError
+preserveを固定する。Frozen v1は`0x800`をstate／memory mutation前にrejectし、extended
+contractだけがfirst blockを保持してsecond blockを作る。Base private BGI profileは
 19 contracts／39 calls、generation `87`まで進み、instruction 644のdynamic
 `FlsSetValue(0,0x20000000)`で停止する。これはbroad heap flags／sizes、failure return、
 free／destroy／realloc、FLS value semanticsの代用ではない。詳細は
@@ -289,6 +290,13 @@ incrementとexisting critical-section／thread／startup callsを通してinstru
 `HeapAlloc(0x68010001,8,0x800)`で停止する。これはadjacent interlocked APIs、cross-worker
 atomicity、broad heap allocationの代用ではない。詳細は
 [bgi-interlocked-increment.md](bgi-interlocked-increment.md)を正とする。
+
+Reached second private-heap allocationのprivate BGI profileはallocation ID `1`を保持し、
+ID `2`／guest `0x20000218`／zeroed `0x800`を作る。Unsealed heap ownerのgeneration
+`106 -> 107` deltaはmapping identityとprotectionを保持してexisting v86 pageへ適用される。
+21 contracts／51 calls、generation `108`まで進み、instruction 1395の
+`GetStdHandle(STD_INPUT_HANDLE)`で停止する。詳細は
+[bgi-private-heap-second-allocation.md](bgi-private-heap-second-allocation.md)を正とする。
 
 ### 5.4 CPU と ABI tests
 
@@ -565,7 +573,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。frozen controlled CPUはprimary titleの17 API return、separate runtime-kernel profileは21 contracts／50 calls、strict pointer inverse、one bounded FLS slot／selected-thread value、one reached zeroed heap block、three checked LONG increments、second `HeapAlloc` variant stopまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／broad guest heap APIとtitle capacity／system-DLL image／snapshot、title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。frozen controlled CPUはprimary titleの17 API return、separate runtime-kernel profileは21 contracts／51 calls、strict pointer inverse、one bounded FLS slot／selected-thread value、two reached zeroed heap blocks、three checked LONG increments、`GetStdHandle` first stopまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／broad guest heap APIとtitle capacity／system-DLL image／snapshot、title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
@@ -581,7 +589,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
-現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の17 frozen API return、four ordered dynamic endpoint identities、logical TLS／encoded-pointer／FLS allocation／selected-thread value／reached heap／interlocked stateを処理し、separate generic dispatcherは50 callsまで進むが、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の17 frozen API return、four ordered dynamic endpoint identities、logical TLS／encoded-pointer／FLS allocation／selected-thread value／reached heap／interlocked stateを処理し、separate generic dispatcherは51 callsまで進むが、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 
 ### AC-P3: Win32 substrate and persistence complete
 

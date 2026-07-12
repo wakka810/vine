@@ -55,6 +55,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-private-heap-allocation",
         "kernel32-fiber-local-storage-value",
         "kernel32-interlocked-increment",
+        "kernel32-private-heap-second-allocation",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -66,7 +67,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment|kernel32-private-heap-second-allocation]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
@@ -92,7 +93,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const privateHeapSecondAllocationEnabled =
+  genericRuntimeCapability === "kernel32-private-heap-second-allocation";
 const interlockedIncrementEnabled =
+  privateHeapSecondAllocationEnabled ||
   genericRuntimeCapability === "kernel32-interlocked-increment";
 const fiberLocalStorageValueEnabled =
   interlockedIncrementEnabled ||
@@ -115,7 +119,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? interlockedIncrementEnabled
+    ? privateHeapSecondAllocationEnabled
+      ? "v86-bgi-private-heap-second-allocation"
+      : interlockedIncrementEnabled
       ? "v86-bgi-interlocked-increment"
       : fiberLocalStorageValueEnabled
       ? "v86-bgi-fiber-local-storage-value"
@@ -1416,6 +1422,43 @@ const interlockedIncrementExpected = {
   reportBytes: 234_775,
   reportSha256: "4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643",
 };
+const privateHeapSecondAllocationExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 51,
+  heapHandle: 0x68010001,
+  firstGuestAddress: 0x20000000,
+  secondGuestAddress: 0x20000218,
+  secondByteLength: 0x800,
+  secondInstructionCount: 934,
+  secondReturnAddress: 0x100ac3cc,
+  writebackBatches: 52,
+  dirtyPages: 89,
+  changedBytes: 906,
+  hostDeltaBatches: 27,
+  finalGeneration: 108,
+  secondDelta: {
+    sequence: 51,
+    fromGeneration: 106,
+    generation: 107,
+    address: 0x20000000,
+    owner: 10,
+    payloadSha256: "bd49b343e4864d3d12162b7f0d9a7ce77782b4aa1c931f72121ddcb0f2018532",
+  },
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 94,
+    endpointAddress: 0x7f0005d0,
+    module: "kernel32.dll",
+    symbol: "GetStdHandle",
+    iatAddress: 0x100d1220,
+    arguments: [0xfffffff6],
+    returnAddress: 0x100a87b6,
+    instructionCount: 1395,
+    faultCode: "endpoint-contract-missing",
+  },
+  reportBytes: 239_789,
+  reportSha256: "fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -1877,6 +1920,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (privateHeapSecondAllocationEnabled) {
+        validatePrivateHeapSecondAllocationResult(genericResult);
       } else if (interlockedIncrementEnabled) {
         validateInterlockedIncrementResult(genericResult);
       } else if (fiberLocalStorageValueEnabled) {
@@ -1893,7 +1938,9 @@ async function run() {
         assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
       } else {
         const capabilityExpected =
-          interlockedIncrementEnabled
+          privateHeapSecondAllocationEnabled
+            ? privateHeapSecondAllocationExpected
+            : interlockedIncrementEnabled
             ? interlockedIncrementExpected
             : fiberLocalStorageValueEnabled
             ? fiberLocalStorageValueExpected
@@ -1911,7 +1958,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : interlockedIncrementEnabled
+          : privateHeapSecondAllocationEnabled
+            ? "bgi private-heap second allocation"
+            : interlockedIncrementEnabled
             ? "bgi interlocked increment"
             : fiberLocalStorageValueEnabled
             ? "bgi fiber-local-storage value"
@@ -2210,6 +2259,9 @@ async function runGenericRuntimeReentry({
       ...(completionFrame.interlockedIncrement === undefined
         ? {}
         : { interlockedIncrement: completionFrame.interlockedIncrement }),
+      ...(completionFrame.heapAllocation === undefined
+        ? {}
+        : { heapAllocation: completionFrame.heapAllocation }),
     };
 
     const manifestCheckpoint =
@@ -2267,7 +2319,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : interlockedIncrementEnabled
+        : privateHeapSecondAllocationEnabled
+          ? 8
+          : interlockedIncrementEnabled
           ? 8
           : fiberLocalStorageValueEnabled
           ? 7
@@ -2573,6 +2627,7 @@ function applyRuntimeHostDelta(context, delta) {
       context.mapRuntimePage(
         address,
         operation.owner,
+        dirty.ownerSealed,
         operation.protection,
         dirty.bytes,
         `host-committed-owner-${operation.owner}`,
@@ -2581,10 +2636,10 @@ function applyRuntimeHostDelta(context, delta) {
     }
   }
   for (const dirty of dirtyByAddress.values()) {
-    assert.equal(dirty.ownerSealed, true);
     const mapping = context.mappings.get(dirty.address);
     assert(mapping, `host dirty page 0x${dirty.address.toString(16)} is unmapped`);
     assert.equal(mapping.owner, dirty.owner);
+    assert.equal(mapping.ownerSealed, dirty.ownerSealed);
     assert.deepEqual(mapping.protection, dirty.protection);
     context.physicalMemory.set(dirty.bytes, mapping.physicalBase);
   }
@@ -3151,6 +3206,111 @@ function validateInterlockedIncrementResult(result) {
   );
 }
 
+function validatePrivateHeapSecondAllocationResult(result) {
+  const expected = privateHeapSecondAllocationExpected;
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "HeapAlloc");
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].result, {
+    action: "set",
+    value: expected.firstGuestAddress,
+  });
+  assert.deepEqual(calls[0].heapAllocation, {
+    heapHandle: expected.heapHandle,
+    allocation: {
+      id: 1,
+      address: expected.firstGuestAddress,
+      byteLength: 0x214,
+      reservedByteLength: 0x218,
+      initialization: "zeroed",
+    },
+    liveAllocations: 1,
+  });
+  assert.deepEqual(calls[1].arguments, [
+    expected.heapHandle,
+    8,
+    expected.secondByteLength,
+  ]);
+  assert.deepEqual(calls[1].result, {
+    action: "set",
+    value: expected.secondGuestAddress,
+  });
+  assert.equal(
+    calls[1].implementationId,
+    "kernel32.heap-alloc-first-two-reached.v1",
+  );
+  assert.equal(calls[1].lastError, 87);
+  assert.deepEqual(calls[1].guestWrites, []);
+  assert.equal(calls[1].stackPointerAfter, calls[1].stackPointerBefore + 16);
+  assert.equal(calls[1].trapInstructionCount, expected.secondInstructionCount);
+  assert.equal(calls[1].returnAddress, expected.secondReturnAddress);
+  assert.deepEqual(calls[1].heapAllocation, {
+    heapHandle: expected.heapHandle,
+    allocation: {
+      id: 2,
+      address: expected.secondGuestAddress,
+      byteLength: expected.secondByteLength,
+      reservedByteLength: expected.secondByteLength,
+      initialization: "zeroed",
+    },
+    liveAllocations: 2,
+  });
+
+  const secondDelta = result.hostDeltas.find(
+    ({ sequence }) => sequence === expected.secondDelta.sequence,
+  );
+  assert(secondDelta, "second HeapAlloc did not emit a host delta");
+  assert.equal(secondDelta.fromGeneration, expected.secondDelta.fromGeneration);
+  assert.equal(secondDelta.generation, expected.secondDelta.generation);
+  assert.equal(secondDelta.mappingOperations, 0);
+  assert.deepEqual(secondDelta.dirtyPages, [
+    { address: expected.secondDelta.address, owner: expected.secondDelta.owner },
+  ]);
+  assert.equal(secondDelta.payloadBytes, page.size);
+  assert.equal(secondDelta.payloadSha256, expected.secondDelta.payloadSha256);
+  assert.deepEqual(secondDelta.cacheEffects, {
+    flushTlb: false,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  });
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -3172,7 +3332,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : interlockedIncrementEnabled
+        : privateHeapSecondAllocationEnabled
+          ? "vine.v86-bgi-private-heap-second-allocation"
+          : interlockedIncrementEnabled
           ? "vine.v86-bgi-interlocked-increment"
           : fiberLocalStorageValueEnabled
           ? "vine.v86-bgi-fiber-local-storage-value"
@@ -3701,7 +3863,7 @@ async function prepareV86(offer) {
     }
     return table;
   };
-  const mapRuntimePage = (virtualBase, owner, protection, bytes, role) => {
+  const mapRuntimePage = (virtualBase, owner, ownerSealed, protection, bytes, role) => {
     checkedGuestEnd(virtualBase, page.size, role);
     assert.equal(virtualBase & (page.size - 1), 0);
     assert(!mappings.has(virtualBase), `duplicate mapping 0x${virtualBase.toString(16)}`);
@@ -3720,6 +3882,7 @@ async function prepareV86(offer) {
     physicalMemory.set(Uint8Array.from(bytes), physicalBase);
     mappings.set(virtualBase, {
       owner,
+      ownerSealed,
       physicalBase,
       pteAddress: table + tableIndex * 4,
       protection: { ...protection },
@@ -3730,6 +3893,7 @@ async function prepareV86(offer) {
     mapRuntimePage(
       reflected.address,
       reflected.owner,
+      reflected.ownerSealed,
       reflected.protection,
       reflected.bytes,
       `reflected-owner-${reflected.owner}`,
