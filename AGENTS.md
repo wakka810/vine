@@ -167,7 +167,7 @@ v86 interpreter baseline
 - x86 execution は caller-defined instruction budget で必ず host へ制御を戻す。
 - API import は runtime-owned thunk address へ解決し、guest exception／sentinel から host dispatcher へ戻す。
 - host から guest callback を呼ぶときは、guest stack frame と callback return sentinel を明示的に作る。
-- guest memory のsemantic sourceはRust-owned sparse region／page tableとbounded zeroed frame allocatorに置く。初回full reflectionと以後のgeneration-tagged `MemoryDelta`は成立し、host-originated dirty pagesだけをv86へ再同期できる。v86-originated writeback、production physical backing、snapshotは未決定。
+- guest memory のbyte／metadata authorityはRust-owned sparse `GuestMemory`、v86 pagingはbounded execution mirrorとする。初回reflection、host `MemoryDelta`、CPU writebackはbinary control＋contiguous page payloadを使う。bounded slice後に全writable PTE Dirty bitをscanし、owner／generation付きmulti-page batchをRustへatomic reconcileする。production physical backing、snapshotは未決定。
 - renderer は共通 surface model の背後で WebGL2／WebGPU を比較する。方式は未決定。
 - audio は DirectSound／WinMM frontend と Web Audio backend を分離する。mixer、AudioWorklet、clock ownership は未決定。
 
@@ -235,11 +235,12 @@ Verified behavior:
 - typed owner `6`／`7`のprocess-parameters／command-line pagesへ測定済みpointerと`UNICODE_STRING`、UTF-16 `bootstrap-params.exe`をchecked initializationする。generation `21`の11 pagesをreflectし、同じfixtureをmatch index `0`／entry result `0`まで通すprocess-parameters ingress
 - 初回full reflection acknowledgement後の通常RW／NX data writeをgeneration `11`の1-page／4 KiB `MemoryDelta`としてlive v86 mappingへ適用し、cache flushなしでguest x86がEDX:EAX `0x8877665544332211`を読むdata-write roundtrip。mapping operation、partial generation ack、write-to-code cache effectもRust contractで分離する
 - changed-state／frame before-image `GuestMemoryTransaction`でtransaction開始時のfull cloneを除去する。owner／region／pageは初回mutationだけ、既存frame bytesは初回write／releaseだけをjournalし、新規frameは逆allocator操作で捨てる。process environment／import／reconciliation rollbackを保持し、4 MiB baselineで開始0 bytes、1／2 changed pageのpeak frame payload 4／8 KiBを通す
+- review Step 6としてADR-003をAcceptedにし、Rust `GuestMemory` byte authority／v86 execution mirrorを確定する。`VINERF01` reflection、`VINEDL01` host delta、`VINEWB01` CPU writebackをcontrol metadata＋contiguous 4 KiB payloadへ分離し、`VINEFR01`でbounded frame化する。9 reflected／8 writable pagesの連続2 sliceでAPI固有listなしにstack／heap／surface／RWXの7 pages／49 bytesと別4 pages／13 bytesをPTE Dirty bitから検出し、Dirty clear＋TLB flush、generation `18 -> 19 -> 20 -> 21`、atomic Rust reconciliationを通すautomatic memory writeback
 - valid low-alignment PEを`image-layout`／`low-section-alignment-materialization-unimplemented`としてmalformed inputと区別し、4 KiB backing未対応を明示する。15-byte conservative execute gateはpage境界を跨いで次pageがNXのsynthetic instructionを実行前に構造化停止する
 
 未検証または未実装:
 
-- general v86-connected process memory、v86-originated dirty ownership、decode-aware execute gate、snapshot
+- general v86-connected process mapping、decode-aware execute gate、snapshot、O(writable-pages) dirty scanのtitle performance
 - general stdcall／thiscall／fastcall、arbitrary nested callback、SEH と production ABI gateway
 - Chromium Worker integration
 - broad ISA correctness と target workload performance
@@ -314,6 +315,7 @@ Verified behavior:
 61. focused pointer-encoding trace 2件で`EncodePointer(NULL)`のvarying native resultとLastError preserveを測定する。native result／process cookieを破棄し、typed controlled token `0xEC010001`を返す。retained TLS stateとone stack pageをchecked処理し、累計229命令でsame ID `89`／`EncodePointer(0x100A9608)`へ到達するBGI sixteenth Win32 call contract。
 62. same tracesとstatic disassemblyでRVA `0xA9608`をprocess-initializer function、RVA `0xFF62C`をencoded store、downstreamをdecode-and-call pathとして固定する。token `0xEC010002`を返してguest storeを観測し、累計238命令でsame ID `89`／`EncodePointer(FlsAlloc endpoint)`へ到達するBGI seventeenth Win32 call contract。
 63. `GuestMemoryTransaction`の全memory snapshotをchanged-state／frame before-image journalへ置換する。transaction開始はcommitted page数に依存するbyte copyを行わず、owner／region／page metadata、frame allocator、generation／delta offerをrollbackする。4 MiB／1,024-page baselineで開始0 bytes、1／2 changed pageのpeak frame payload 4,096／8,192 bytesを測定し、process environment／import failpoint、reconciliation＋release、public E2E、BGI 17-call report digestを維持するscalable transaction contract。
+64. Rust `GuestMemory`をbyte authority、v86 pagingをexecution mirrorとしてADR-003をAcceptedにする。binary reflection／host delta／CPU writebackとbounded frame、全writable PTE Dirty scan、owner／generation付きatomic multi-page reconciliationを実装し、stack／heap／surface／RWXの連続2 sliceを7＋4 dirty pages、generation `18 -> 21`で通すautomatic memory writeback contract。
 
 2026-07-10 に Windows 11 25H2、Chrome 150、Frida 17.15.4 で `npm run check` と BGI fingerprint を再確認した。BGI startup trace は main window、D3D9、DirectInput 8、DirectSoundCreate8、GDI+ と title resource band まで到達し、native `abi-smoke.exe` は callback 後に exit code `0` となった。同じ fixture を source-built v86 adapter 上で実行する W1 contract は result `43`、final EAX `0`、ESP `0x00700000`、budget stop 5 回で完了した。続く native `window-pixel.exe` は `WM_CREATE -> WM_PAINT -> WM_DESTROY`、queued dispatch、1 pixel、clean quit を自己検証して exit code `0` となった。2026-07-11 に同じfixed imageを使うW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flowを再実行し、3 DLL／13 importをowned thunkへ解決して13 fixed partial service returnと6 callback eventを完了した。harness-only bounds `[0,0,2,2]`の`PAINTSTRUCT`とtyped HDC `0x48010001`を作り、pixel `(1,1) = 0x000000FF`を保持した。Dispatch API ID `3`／`WM_PAINT` callback ID `4`の内側でDestroy API ID `5`／`WM_DESTROY` callback ID `6`をnested実行し、`PostQuitMessage(0)`、両callback／API return、`GetMessageA`の`MSG [NULL, WM_QUIT, 0, 0, 0, 0, 0]`／return `0`を経てentry sentinel `0x00500F00`へEAX `0`、ESP `0x00700000`で到達した。66 budget stop、83 execute stop、17 owned `UD2`、231命令である。同じfinal stateからversion 1 browser present eventを1件emitし、Chrome `150.0.7871.115`のCanvas 2D sinkで1回presentして`(1,1) = RGBA [255,0,0,255]`をreadbackした。詳細は `docs/windows-native-evidence.md` を参照する。logical client／HDC／surface／queue／frame layoutとsparse eventはcheckpoint-localであり、native geometry、production common surface、general Win32、renderer backendの決定ではない。W1／W2 flowはNode.js上の固定harness、W2 fixtureはnative Windows oracleである。W3でChromeが実行するのは生成済みeventの最小Canvas sinkだけであり、guest CPU、Win32 lifecycle、Runtime Workerのbrowser実行は未実施である。
 
@@ -394,7 +396,7 @@ Verified behavior:
 - graphics、audio、storage backend
 - BGIの18件目以降のreachable API dispatch／returnと、その先のentry execution evidence
 
-現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingress、explicit import trap binding、BGI firstからseventeenth Win32 call return、13 API contract／17 occurrenceのgeneric dispatcher、single-process／initial-thread RuntimeState foundation、17-call checkpoint manifest／generic session runner、changed-state memory transaction journalである。byte authority、automatic v86 writeback、binary transport、general process parameters、process／thread lifecycle、heap backing／allocator、DLL image／export lifecycle、general TLS／FLS／pointer encoding／decoding semantics、browser host schedulerは未実装である。unsupported trapはAPI実装ではない。
+現状を「production runtime が一部完成している」と誤認しないこと。成立しているのは toolchain、CPU adapter、Windows native evidence、W1／W2／W3、fixed high-address memory measurement、W7 Rust load／memory／entry return／stack／minimum TEB・PEB／process-parameters ingress、explicit import trap binding、BGI firstからseventeenth Win32 call return、13 API contract／17 occurrenceのgeneric dispatcher、single-process／initial-thread RuntimeState foundation、17-call checkpoint manifest／generic session runner、changed-state memory transaction journal、Rust byte authority、automatic binary v86 writebackである。general process parameters、process／thread lifecycle、heap backing／allocator、DLL image／export lifecycle、general TLS／FLS／pointer encoding／decoding semantics、Chrome Runtime Worker／browser host schedulerは未実装である。unsupported trapはAPI実装ではない。
 
 ## 8. Corpus
 
@@ -475,6 +477,7 @@ npm run check:runtime:bootstrap-fs
 npm run check:runtime:bootstrap-params-first-stop
 npm run check:runtime:bootstrap-params
 npm run check:runtime:memory-delta
+npm run check:runtime:memory-writeback
 npm run check:runtime:bgi-first-trap
 npm run check:runtime:bgi-first-win32-call
 npm run check:runtime:bgi-second-win32-call
@@ -495,25 +498,25 @@ npm run check:runtime:bgi-sixteenth-win32-call
 npm run check:runtime:bgi-seventeenth-win32-call
 ```
 
-`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とする。`check:runtime:entry`から`check:runtime:entry-return`はproduction reflectionとfixed ABI returnを段階的に固定し、`check:runtime:stack-bootstrap`はcontrolled stackをRust ownershipへ移す。`check:runtime:bootstrap-fs-first-stop`はnative FS oracleとzero-base fault、`check:runtime:bootstrap-fs`はRust-owned TEB／PEBとFS-base restore後のentry completion、`check:runtime:bootstrap-params-first-stop`はnative command-line oracleとzero process-parameters pointer、`check:runtime:bootstrap-params`は測定済みparameters／UTF-16 bytesのRust ownershipとentry completionを固定する。`check:runtime:memory-delta`は初回reflection後のdirty data pageをlive v86へ差分適用する。BGI checksはfirst trapと17件のAPI returnを累積再現する。これらはprimary BGI fileとsource adapterを必要とする。source adapterを使うpublic fixture checkpointは`check:fixture-e2e`を通じて通常の`npm run check`へ含まれ、BGIだけはprivate corpus checkに留める。
+`prepare:engine` は固定 source を取得し、workspace-local Rust 1.97.0 を用意し、overlay を適用して build と一つの adapter contract check を行う。`check:runtime:abi`、`check:runtime:memory`、`check:runtime:window-loader`は先に`npm run check:toolchain`で生成したfixed fixtureも必要とする。`check:runtime:entry`から`check:runtime:entry-return`はproduction reflectionとfixed ABI returnを段階的に固定し、`check:runtime:stack-bootstrap`はcontrolled stackをRust ownershipへ移す。`check:runtime:bootstrap-fs-first-stop`はnative FS oracleとzero-base fault、`check:runtime:bootstrap-fs`はRust-owned TEB／PEBとFS-base restore後のentry completion、`check:runtime:bootstrap-params-first-stop`はnative command-line oracleとzero process-parameters pointer、`check:runtime:bootstrap-params`は測定済みparameters／UTF-16 bytesのRust ownershipとentry completionを固定する。`check:runtime:memory-delta`は初回reflection後のdirty data pageをlive v86へ差分適用し、`check:runtime:memory-writeback`は連続slice後のPTE Dirty pagesをbinary batchでRust authorityへ戻す。BGI checksはfirst trapと17件のAPI returnを累積再現する。これらはprimary BGI fileとsource adapterを必要とする。source adapterを使うpublic fixture checkpointは`check:fixture-e2e`を通じて通常の`npm run check`へ含まれ、BGIだけはprivate corpus checkに留める。
 
 Generated output は `.work/` に置く。raw artifact は commit せず、重要な結果だけ小さな manifest または Markdown に要約する。
 
 ## 10. Active Queue
 
-Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS／process-parameters ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、atomic import binding、canonical public E2E／CI、low-alignment rejection、negative／randomized／fuzz ingress、cross-page execute gateは 2026-07-11 までに完了した。2026-07-12にはBGIの最初の17 APIをchecked returnしてsame exact ID `89`／`EncodePointer(0x7F020000)`へ到達し、review Step 2／3とStep 4の13 contracts／17 occurrence generic dispatcher migration、17-call expectation manifest／generic session runner、Step 5のchanged-state transaction journalまでreport digestを維持した。BGI専用checkpointの追加は凍結し、現在はruntime kernelを次の順で一つずつ進める。
+Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap FS／process-parameters ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、atomic import binding、canonical public E2E／CI、low-alignment rejection、negative／randomized／fuzz ingress、cross-page execute gateは 2026-07-11 までに完了した。2026-07-12にはBGIの最初の17 APIをchecked returnしてsame exact ID `89`／`EncodePointer(0x7F020000)`へ到達し、review Step 2／3とStep 4の13 contracts／17 occurrence generic dispatcher migration、17-call expectation manifest／generic session runner、Step 5のchanged-state transaction journal、Step 6のAccepted byte authority／automatic binary multi-page writebackまでreport digestを維持した。BGI専用checkpointの追加は凍結し、現在はruntime kernelを次の順で一つずつ進める。
 
-1. ADR-003でproduction byte authority、slice同期点、generation conflict／cancellation failure policyを確定する。その決定に従い、API固有page listなしのv86-originated multi-page dirty discovery／Rust writebackとbinary page transportを実装し、stack／heap／surface fixtureで検証する。
+1. Rust core／source-v86 adapterをWasm packageとしてChrome Runtime Workerへ載せ、guest CPU、generic dispatcher、async host completion、nested callback、pixel、audio pulse、persistent byte、cancellation／watchdogを同じbrowser sessionで通す。
 
-項目1が次の primary implementation checkpointである。third `EncodePointer(0x7F020000)`は次のBGI trapとして保持するが、専用CLI flag／request／receiptを追加して先行しない。詳細は`docs/adr-003-guest-memory.md`と`docs/memory-delta-and-transactions.md`を正とする。
+項目1が次の primary implementation checkpointである。third `EncodePointer(0x7F020000)`は次のBGI trapとして保持するが、専用CLI flag／request／receiptを追加して先行しない。詳細は`docs/target-architecture.md`、`docs/adr-003-guest-memory.md`、`docs/memory-writeback.md`を正とする。
 
 ## 11. Major Open Questions
 
 優先順:
 
-1. ordered dynamic endpoint arenaとcontrolled image-page reconciliationをgeneral v86 dirty discoveryへ拡張せず、4 FLS identities／stores／later callsまでどう保持するか。
+1. automatic v86 writebackをBGI generic sessionへ接続した後、4 FLS identities／stores／later callsをspecial reconciliation listなしでどう保持するか。
 2. IDirect3D9 rootでは11 methodsへ到達したが、device／resource vtable、presentation parameters内容、format／state／draw／Present／Reset、DirectInput／DirectSound methodは何か。
-3. host-originated dirty-page delta／actual invalidationは成立したが、v86-originated writeback、general heap／stack mutation、snapshotを同じpaging boundaryへどう結び付けるか。
+3. bidirectional dirty-page syncは成立したが、general heap／stack mapping、snapshot、O(writable-pages) scan optimizationを同じpaging boundaryへどう結び付けるか。
 4. version 1 production import thunkのaddress／ID ownershipをcallback sentinel、Win32 exception delivery、generated API metadataとどう統合するか。
 5. cooperative guest threads、wait／message、async host responseをどうsuspend／resumeするか。
 6. root Rust workspaceに続くTypeScript package、schema generation、Wasm build／ownership boundaryをどう固定するか。
@@ -561,13 +564,14 @@ Windows W0、W1／W2／W3、trace v2、high-address memory、W7 Rust PE32 load�
 | `docs/requirements.md` | functional／non-functional requirements |
 | `docs/corpus-inventory.md` | title fingerprint、dependency、corpus role |
 | `docs/target-architecture.md` | component boundary、flow、ADR候補 |
-| `docs/adr-003-guest-memory.md` | high-address／protection測定、memory候補比較、provisional CPU integration boundary |
+| `docs/adr-003-guest-memory.md` | Rust byte authority、v86 execution mirror、slice synchronization／failure policy |
 | `docs/guest-memory-ingress.md` | production Rust sparse memory、fixture／BGI layout、fault／invalidation contract |
 | `docs/pe-loader-ingress.md` | Rust workspace、immutable PE32 plan、W7 BGI result／structured stop |
 | `docs/pe-materialization.md` | source copy／zero-fill／`HIGHLOW`、fixture／BGI mapped-content evidence、IAT stop |
 | `docs/pe-import-binding.md` | read-only all-import plan、runtime thunk arena／ID、atomic IAT commit／rollback、unresolved retry |
 | `docs/pe-unsupported-trap-binding.md` | catalog-missing identity trap policy、controlled contract、sealed BGI image evidence |
 | `docs/memory-delta-and-transactions.md` | initial reflection、incremental dirty-page delta、generation ack、transaction rollback、cross-page execute gate |
+| `docs/memory-writeback.md` | Rust byte authority、PTE Dirty discovery、binary multi-page CPU writeback evidence |
 | `docs/generic-api-dispatcher.md` | 13 API contracts／17 occurrence dispatcher、RuntimeState authority、checkpoint manifest／generic runner |
 | `docs/checks-and-ci.md` | canonical check groups、private corpus skip、Linux CI、fuzz reproduction |
 | `docs/v86-entry-ingress.md` | production page reflection／invalidation ack、bounded stack、entry-to-thunk evidence |

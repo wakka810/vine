@@ -859,6 +859,12 @@ import、process bootstrap、reconciliation／release rollback、17-call evidenc
 
 ### Step 6 — memory authorityとwriteback
 
+**完了（2026-07-12）:** ADR-003でRust-owned `GuestMemory`をbyte authority、
+v86 pagingをexecution mirrorとしてAcceptedにした。bounded slice後のPTE
+Dirty scan、owner／generation付きatomic multi-page writeback、binary
+reflection／delta／writeback transportを実装し、連続2 sliceのstack／heap／
+surface／RWX writeをgeneration `18 -> 21`で検証した。
+
 - ADRを作る。
 - automatic multi-page dirty writebackを実装する。
 - binary transportへ移す。
@@ -909,9 +915,9 @@ BGIをgeneric runtime pathへ戻し、first unsupported pointを再測定する�
 - [x] ProcessState／ThreadState／Scheduler／LastErrorが存在する。
 - [x] host async operationをwaiting／completionとして扱える。
 - [x] transactionが全GuestMemoryをcloneしない。
-- [ ] guest-originated multi-page writeが自動同期される。
-- [ ] byte authorityがADRで決定されている。
-- [ ] production memory transportがbinaryである。
+- [x] guest-originated multi-page writeが自動同期される。
+- [x] byte authorityがADRで決定されている。
+- [x] production memory transportがbinaryである。
 - [ ] Chrome Runtime Worker内でguest CPUが動作する。
 - [ ] pixel、audio pulse、persistent byteを一つのsessionで通す。
 - [ ] cancellation、watchdog、nested callbackが通る。

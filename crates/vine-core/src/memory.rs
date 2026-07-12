@@ -120,6 +120,7 @@ pub enum MemoryRegionKind {
     Heap,
     Anonymous,
     Runtime,
+    Surface,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -257,6 +258,151 @@ pub struct MemoryDelta {
     pub content_sha256: String,
 }
 
+pub const MEMORY_DELTA_BINARY_VERSION: u32 = 1;
+const MEMORY_DELTA_CONTROL_MAGIC: &[u8; 8] = b"VINEDL01";
+const MEMORY_DELTA_CONTROL_HEADER_BYTES: usize = 56;
+const MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES: usize = 32;
+const MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES: usize = 16;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryDeltaBuffers {
+    pub control: Vec<u8>,
+    pub page_bytes: Vec<u8>,
+}
+
+impl MemoryDelta {
+    pub fn encode_binary(&self) -> Result<MemoryDeltaBuffers, GuestMemoryError> {
+        if self.page_size != GUEST_PAGE_SIZE {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-delta-transport",
+                "memory-delta-page-size-unsupported",
+                "binary memory delta requires 4 KiB pages",
+            ));
+        }
+        let mapping_count = u32::try_from(self.mapping_operations.len()).map_err(|_| {
+            GuestMemoryError::resource_limit(
+                "memory-delta-transport",
+                "memory-delta-mapping-count-overflow",
+                "memory delta mapping count does not fit the binary control format",
+            )
+        })?;
+        let dirty_count = u32::try_from(self.dirty_pages.len()).map_err(|_| {
+            GuestMemoryError::resource_limit(
+                "memory-delta-transport",
+                "memory-delta-page-count-overflow",
+                "memory delta page count does not fit the binary control format",
+            )
+        })?;
+        let mapping_bytes = self
+            .mapping_operations
+            .len()
+            .checked_mul(MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "memory-delta-transport",
+                    "memory-delta-control-size-overflow",
+                    "memory delta mapping size overflowed host accounting",
+                )
+            })?;
+        let page_descriptor_bytes = self
+            .dirty_pages
+            .len()
+            .checked_mul(MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "memory-delta-transport",
+                    "memory-delta-control-size-overflow",
+                    "memory delta page descriptor size overflowed host accounting",
+                )
+            })?;
+        let payload_bytes = self
+            .dirty_pages
+            .len()
+            .checked_mul(GUEST_PAGE_SIZE_USIZE)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "memory-delta-transport",
+                    "memory-delta-payload-size-overflow",
+                    "memory delta payload size overflowed host accounting",
+                )
+            })?;
+        let control_bytes = MEMORY_DELTA_CONTROL_HEADER_BYTES
+            .checked_add(mapping_bytes)
+            .and_then(|bytes| bytes.checked_add(page_descriptor_bytes))
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "memory-delta-transport",
+                    "memory-delta-control-size-overflow",
+                    "memory delta control size overflowed host accounting",
+                )
+            })?;
+        let mut control = Vec::with_capacity(control_bytes);
+        control.extend_from_slice(MEMORY_DELTA_CONTROL_MAGIC);
+        control.extend_from_slice(&MEMORY_DELTA_BINARY_VERSION.to_le_bytes());
+        control.extend_from_slice(&(GUEST_PAGE_SIZE as u32).to_le_bytes());
+        control.extend_from_slice(&self.from_generation.to_le_bytes());
+        control.extend_from_slice(&self.generation.to_le_bytes());
+        control.extend_from_slice(&mapping_count.to_le_bytes());
+        control.extend_from_slice(&(MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES as u32).to_le_bytes());
+        control.extend_from_slice(&dirty_count.to_le_bytes());
+        control.extend_from_slice(&(MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES as u32).to_le_bytes());
+        let cache_flags = u32::from(self.cache_effects.flush_tlb)
+            | u32::from(self.cache_effects.invalidate_instruction_fetch) << 1
+            | u32::from(self.cache_effects.invalidate_generated_code) << 2;
+        control.extend_from_slice(&cache_flags.to_le_bytes());
+        control.extend_from_slice(&0u32.to_le_bytes());
+
+        for operation in &self.mapping_operations {
+            let (operation_code, owner, kind, range, protection) = match operation {
+                MappingOperation::Reserve { owner, kind, range } => {
+                    (1u32, *owner, Some(*kind), *range, None)
+                }
+                MappingOperation::Commit {
+                    owner,
+                    range,
+                    protection,
+                } => (2, *owner, None, *range, Some(*protection)),
+                MappingOperation::Protect {
+                    owner,
+                    range,
+                    protection,
+                } => (3, *owner, None, *range, Some(*protection)),
+                MappingOperation::Decommit { owner, range } => (4, *owner, None, *range, None),
+                MappingOperation::Release { owner, range } => (5, *owner, None, *range, None),
+            };
+            let protection_flags = protection.map_or(0, page_protection_flags);
+            control.extend_from_slice(&operation_code.to_le_bytes());
+            control.extend_from_slice(&owner.0.to_le_bytes());
+            control.extend_from_slice(&kind.map_or(0, memory_region_kind_code).to_le_bytes());
+            control.extend_from_slice(&protection_flags.to_le_bytes());
+            control.extend_from_slice(&range.start().0.to_le_bytes());
+            control.extend_from_slice(&range.byte_length().to_le_bytes());
+            control.extend_from_slice(&0u32.to_le_bytes());
+        }
+
+        let mut page_bytes = Vec::with_capacity(payload_bytes);
+        for page in &self.dirty_pages {
+            if page.bytes.len() != GUEST_PAGE_SIZE_USIZE {
+                return Err(GuestMemoryError::runtime_defect(
+                    "memory-delta-transport",
+                    "memory-delta-page-size-mismatch",
+                    "memory delta contains a page with a non-4-KiB payload",
+                ));
+            }
+            let flags = page_protection_flags(page.protection) | u32::from(page.owner_sealed) << 3;
+            control.extend_from_slice(&page.address.0.to_le_bytes());
+            control.extend_from_slice(&page.owner.0.to_le_bytes());
+            control.extend_from_slice(&flags.to_le_bytes());
+            control.extend_from_slice(&0u32.to_le_bytes());
+            page_bytes.extend_from_slice(&page.bytes);
+        }
+        Ok(MemoryDeltaBuffers {
+            control,
+            page_bytes,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GuestWriteResult {
@@ -275,6 +421,236 @@ pub struct GuestPageReconciliation {
     pub bytes_reconciled: usize,
     pub changed_bytes: usize,
     pub content_sha256: String,
+}
+
+pub const CPU_WRITEBACK_BINARY_VERSION: u32 = 1;
+const CPU_WRITEBACK_CONTROL_MAGIC: &[u8; 8] = b"VINEWB01";
+const CPU_WRITEBACK_CONTROL_HEADER_BYTES: usize = 32;
+const CPU_WRITEBACK_DESCRIPTOR_BYTES: usize = 8;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CpuWritebackPage {
+    pub address: GuestAddress,
+    pub owner: MemoryOwnerId,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CpuWritebackBatch {
+    pub base_generation: u64,
+    pub pages: Vec<CpuWritebackPage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CpuWritebackBuffers {
+    pub control: Vec<u8>,
+    pub page_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CpuWritebackReceipt {
+    pub from_generation: u64,
+    pub generation: u64,
+    pub touched_pages: usize,
+    pub changed_pages: usize,
+    pub unchanged_pages: usize,
+    pub executable_pages: usize,
+    pub changed_bytes: u64,
+    pub transferred_bytes: u64,
+    pub content_sha256: String,
+}
+
+impl CpuWritebackBatch {
+    pub fn encode_binary(&self) -> Result<CpuWritebackBuffers, GuestMemoryError> {
+        let page_count = u32::try_from(self.pages.len()).map_err(|_| {
+            GuestMemoryError::resource_limit(
+                "cpu-writeback-transport",
+                "cpu-writeback-page-count-overflow",
+                "CPU writeback page count does not fit the binary control format",
+            )
+        })?;
+        let control_bytes = CPU_WRITEBACK_CONTROL_HEADER_BYTES
+            .checked_add(
+                self.pages
+                    .len()
+                    .checked_mul(CPU_WRITEBACK_DESCRIPTOR_BYTES)
+                    .ok_or_else(|| {
+                        GuestMemoryError::resource_limit(
+                            "cpu-writeback-transport",
+                            "cpu-writeback-control-size-overflow",
+                            "CPU writeback control size overflowed host accounting",
+                        )
+                    })?,
+            )
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "cpu-writeback-transport",
+                    "cpu-writeback-control-size-overflow",
+                    "CPU writeback control size overflowed host accounting",
+                )
+            })?;
+        let payload_bytes = self
+            .pages
+            .len()
+            .checked_mul(GUEST_PAGE_SIZE_USIZE)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "cpu-writeback-transport",
+                    "cpu-writeback-payload-size-overflow",
+                    "CPU writeback page payload size overflowed host accounting",
+                )
+            })?;
+        let mut control = Vec::with_capacity(control_bytes);
+        control.extend_from_slice(CPU_WRITEBACK_CONTROL_MAGIC);
+        control.extend_from_slice(&CPU_WRITEBACK_BINARY_VERSION.to_le_bytes());
+        control.extend_from_slice(&(GUEST_PAGE_SIZE as u32).to_le_bytes());
+        control.extend_from_slice(&self.base_generation.to_le_bytes());
+        control.extend_from_slice(&page_count.to_le_bytes());
+        control.extend_from_slice(&(CPU_WRITEBACK_DESCRIPTOR_BYTES as u32).to_le_bytes());
+        let mut page_bytes = Vec::with_capacity(payload_bytes);
+        for page in &self.pages {
+            if !page.address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
+                return Err(GuestMemoryError::invalid_request(
+                    "cpu-writeback-transport",
+                    "cpu-writeback-address-not-page-aligned",
+                    "CPU writeback page address must be guest-page aligned",
+                ));
+            }
+            if page.bytes.len() != GUEST_PAGE_SIZE_USIZE {
+                return Err(GuestMemoryError::invalid_request(
+                    "cpu-writeback-transport",
+                    "cpu-writeback-page-size-mismatch",
+                    "CPU writeback page payload must contain exactly one guest page",
+                ));
+            }
+            control.extend_from_slice(&page.address.0.to_le_bytes());
+            control.extend_from_slice(&page.owner.0.to_le_bytes());
+            page_bytes.extend_from_slice(&page.bytes);
+        }
+        Ok(CpuWritebackBuffers {
+            control,
+            page_bytes,
+        })
+    }
+
+    pub fn decode_binary(
+        control: &[u8],
+        page_bytes: &[u8],
+        max_pages: usize,
+    ) -> Result<Self, GuestMemoryError> {
+        if control.len() < CPU_WRITEBACK_CONTROL_HEADER_BYTES {
+            return Err(GuestMemoryError::invalid_request(
+                "cpu-writeback-transport",
+                "cpu-writeback-control-truncated",
+                "CPU writeback control header is truncated",
+            ));
+        }
+        if control.get(..8) != Some(CPU_WRITEBACK_CONTROL_MAGIC.as_slice()) {
+            return Err(GuestMemoryError::invalid_request(
+                "cpu-writeback-transport",
+                "cpu-writeback-control-magic-mismatch",
+                "CPU writeback control magic is invalid",
+            ));
+        }
+        let version = read_binary_u32(control, 8, "cpu-writeback-control-truncated")?;
+        if version != CPU_WRITEBACK_BINARY_VERSION {
+            return Err(GuestMemoryError::invalid_request(
+                "cpu-writeback-transport",
+                "cpu-writeback-version-unsupported",
+                format!("CPU writeback binary version {version} is unsupported"),
+            ));
+        }
+        let page_size = read_binary_u32(control, 12, "cpu-writeback-control-truncated")?;
+        if page_size != GUEST_PAGE_SIZE as u32 {
+            return Err(GuestMemoryError::invalid_request(
+                "cpu-writeback-transport",
+                "cpu-writeback-page-size-unsupported",
+                "CPU writeback binary page size is not 4 KiB",
+            ));
+        }
+        let base_generation = read_binary_u64(control, 16, "cpu-writeback-control-truncated")?;
+        let page_count = read_binary_u32(control, 24, "cpu-writeback-control-truncated")? as usize;
+        if page_count > max_pages {
+            return Err(GuestMemoryError::resource_limit(
+                "cpu-writeback-transport",
+                "cpu-writeback-page-limit-exceeded",
+                format!("CPU writeback contains {page_count} pages; limit is {max_pages}"),
+            ));
+        }
+        let descriptor_bytes =
+            read_binary_u32(control, 28, "cpu-writeback-control-truncated")? as usize;
+        if descriptor_bytes != CPU_WRITEBACK_DESCRIPTOR_BYTES {
+            return Err(GuestMemoryError::invalid_request(
+                "cpu-writeback-transport",
+                "cpu-writeback-descriptor-size-unsupported",
+                "CPU writeback descriptor size is unsupported",
+            ));
+        }
+        let expected_control = CPU_WRITEBACK_CONTROL_HEADER_BYTES
+            .checked_add(page_count.checked_mul(descriptor_bytes).ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "cpu-writeback-transport",
+                    "cpu-writeback-control-size-overflow",
+                    "CPU writeback descriptor size overflowed host accounting",
+                )
+            })?)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "cpu-writeback-transport",
+                    "cpu-writeback-control-size-overflow",
+                    "CPU writeback control size overflowed host accounting",
+                )
+            })?;
+        if control.len() != expected_control {
+            return Err(GuestMemoryError::invalid_request(
+                "cpu-writeback-transport",
+                "cpu-writeback-control-length-mismatch",
+                "CPU writeback control length does not match its page count",
+            ));
+        }
+        let expected_payload = page_count
+            .checked_mul(GUEST_PAGE_SIZE_USIZE)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "cpu-writeback-transport",
+                    "cpu-writeback-payload-size-overflow",
+                    "CPU writeback page payload size overflowed host accounting",
+                )
+            })?;
+        if page_bytes.len() != expected_payload {
+            return Err(GuestMemoryError::invalid_request(
+                "cpu-writeback-transport",
+                "cpu-writeback-payload-length-mismatch",
+                "CPU writeback page payload length does not match its page count",
+            ));
+        }
+
+        let mut pages = Vec::with_capacity(page_count);
+        for index in 0..page_count {
+            let descriptor = CPU_WRITEBACK_CONTROL_HEADER_BYTES + index * descriptor_bytes;
+            let address = GuestAddress(read_binary_u32(
+                control,
+                descriptor,
+                "cpu-writeback-control-truncated",
+            )?);
+            let owner = MemoryOwnerId(read_binary_u32(
+                control,
+                descriptor + 4,
+                "cpu-writeback-control-truncated",
+            )?);
+            let payload = index * GUEST_PAGE_SIZE_USIZE;
+            pages.push(CpuWritebackPage {
+                address,
+                owner,
+                bytes: page_bytes[payload..payload + GUEST_PAGE_SIZE_USIZE].to_vec(),
+            });
+        }
+        Ok(Self {
+            base_generation,
+            pages,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -344,6 +720,103 @@ pub struct MemoryReflection {
     pub page_size: u64,
     pub pages: Vec<MemoryReflectionPage>,
     pub content_sha256: String,
+}
+
+pub const MEMORY_REFLECTION_BINARY_VERSION: u32 = 1;
+const MEMORY_REFLECTION_CONTROL_MAGIC: &[u8; 8] = b"VINERF01";
+const MEMORY_REFLECTION_CONTROL_HEADER_BYTES: usize = 40;
+const MEMORY_REFLECTION_DESCRIPTOR_BYTES: usize = 16;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryReflectionBuffers {
+    pub control: Vec<u8>,
+    pub page_bytes: Vec<u8>,
+}
+
+impl MemoryReflection {
+    pub fn encode_binary(&self) -> Result<MemoryReflectionBuffers, GuestMemoryError> {
+        if self.page_size != GUEST_PAGE_SIZE {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-reflection-transport",
+                "memory-reflection-page-size-unsupported",
+                "binary memory reflection requires 4 KiB pages",
+            ));
+        }
+        let page_count = u32::try_from(self.pages.len()).map_err(|_| {
+            GuestMemoryError::resource_limit(
+                "memory-reflection-transport",
+                "memory-reflection-page-count-overflow",
+                "memory reflection page count does not fit the binary control format",
+            )
+        })?;
+        let descriptor_bytes = self
+            .pages
+            .len()
+            .checked_mul(MEMORY_REFLECTION_DESCRIPTOR_BYTES)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "memory-reflection-transport",
+                    "memory-reflection-control-size-overflow",
+                    "memory reflection descriptor size overflowed host accounting",
+                )
+            })?;
+        let payload_bytes = self
+            .pages
+            .len()
+            .checked_mul(GUEST_PAGE_SIZE_USIZE)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "memory-reflection-transport",
+                    "memory-reflection-payload-size-overflow",
+                    "memory reflection payload size overflowed host accounting",
+                )
+            })?;
+        let control_bytes = MEMORY_REFLECTION_CONTROL_HEADER_BYTES
+            .checked_add(descriptor_bytes)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "memory-reflection-transport",
+                    "memory-reflection-control-size-overflow",
+                    "memory reflection control size overflowed host accounting",
+                )
+            })?;
+        let mut control = Vec::with_capacity(control_bytes);
+        control.extend_from_slice(MEMORY_REFLECTION_CONTROL_MAGIC);
+        control.extend_from_slice(&MEMORY_REFLECTION_BINARY_VERSION.to_le_bytes());
+        control.extend_from_slice(&(GUEST_PAGE_SIZE as u32).to_le_bytes());
+        control.extend_from_slice(&self.invalidation.generation.to_le_bytes());
+        control.extend_from_slice(&page_count.to_le_bytes());
+        control.extend_from_slice(&(MEMORY_REFLECTION_DESCRIPTOR_BYTES as u32).to_le_bytes());
+        let cache_flags = u32::from(self.invalidation.data_tlb)
+            | u32::from(self.invalidation.instruction_fetch) << 1
+            | u32::from(self.invalidation.generated_code) << 2;
+        control.extend_from_slice(&cache_flags.to_le_bytes());
+        control.extend_from_slice(&0u32.to_le_bytes());
+        let mut page_bytes = Vec::with_capacity(payload_bytes);
+        for page in &self.pages {
+            if page.bytes.len() != GUEST_PAGE_SIZE_USIZE {
+                return Err(GuestMemoryError::runtime_defect(
+                    "memory-reflection-transport",
+                    "memory-reflection-page-size-mismatch",
+                    "memory reflection contains a page with a non-4-KiB payload",
+                ));
+            }
+            let flags = u32::from(page.protection.read)
+                | u32::from(page.protection.write) << 1
+                | u32::from(page.protection.execute) << 2
+                | u32::from(page.owner_sealed) << 3
+                | u32::from(page.dirty) << 4;
+            control.extend_from_slice(&page.address.0.to_le_bytes());
+            control.extend_from_slice(&page.owner.0.to_le_bytes());
+            control.extend_from_slice(&flags.to_le_bytes());
+            control.extend_from_slice(&0u32.to_le_bytes());
+            page_bytes.extend_from_slice(&page.bytes);
+        }
+        Ok(MemoryReflectionBuffers {
+            control,
+            page_bytes,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -523,6 +996,7 @@ struct MemoryTransactionJournal {
     baseline_committed_pages: usize,
     baseline_next_owner: u32,
     baseline_generation: u64,
+    baseline_acknowledged_generation: u64,
     baseline_pending_changes: usize,
     owners: BTreeMap<MemoryOwnerId, Option<OwnerState>>,
     regions: BTreeMap<u32, Option<MemoryRegion>>,
@@ -542,6 +1016,7 @@ impl MemoryTransactionJournal {
             baseline_committed_pages: memory.pages.len(),
             baseline_next_owner: memory.next_owner,
             baseline_generation: memory.generation,
+            baseline_acknowledged_generation: memory.acknowledged_generation,
             baseline_pending_changes: memory.pending_changes.len(),
             owners: BTreeMap::new(),
             regions: BTreeMap::new(),
@@ -945,6 +1420,7 @@ impl GuestMemory {
             .truncate(journal.baseline_pending_changes);
         self.next_owner = journal.baseline_next_owner;
         self.generation = journal.baseline_generation;
+        self.acknowledged_generation = journal.baseline_acknowledged_generation;
         for generation in journal.offered_generations {
             self.offered_generations.remove(&generation);
         }
@@ -2060,6 +2536,188 @@ impl GuestMemory {
         })
     }
 
+    pub fn reconcile_cpu_writeback_binary(
+        &mut self,
+        control: &[u8],
+        page_bytes: &[u8],
+    ) -> Result<CpuWritebackReceipt, GuestMemoryError> {
+        let batch =
+            CpuWritebackBatch::decode_binary(control, page_bytes, self.limits.max_physical_pages)?;
+        self.reconcile_cpu_writeback(&batch)
+    }
+
+    pub fn reconcile_cpu_writeback(
+        &mut self,
+        batch: &CpuWritebackBatch,
+    ) -> Result<CpuWritebackReceipt, GuestMemoryError> {
+        self.ensure_synchronized()?;
+        if !self.initial_reflection_acknowledged {
+            return Err(GuestMemoryError::invalid_request(
+                "cpu-writeback",
+                "initial-memory-reflection-required",
+                "a full memory reflection must be acknowledged before CPU writeback",
+            ));
+        }
+        if batch.base_generation != self.generation
+            || batch.base_generation != self.acknowledged_generation
+        {
+            return Err(GuestMemoryError::conflict(
+                "cpu-writeback",
+                "cpu-writeback-generation-conflict",
+                format!(
+                    "CPU writeback generation {} does not match synchronized generation {}",
+                    batch.base_generation, self.acknowledged_generation
+                ),
+            ));
+        }
+        if batch.pages.len() > self.limits.max_physical_pages {
+            return Err(GuestMemoryError::resource_limit(
+                "cpu-writeback",
+                "cpu-writeback-page-limit-exceeded",
+                format!(
+                    "CPU writeback contains {} pages; limit is {}",
+                    batch.pages.len(),
+                    self.limits.max_physical_pages
+                ),
+            ));
+        }
+
+        let mut order = (0..batch.pages.len()).collect::<Vec<_>>();
+        order.sort_unstable_by_key(|index| batch.pages[*index].address);
+        for pair in order.windows(2) {
+            if batch.pages[pair[0]].address == batch.pages[pair[1]].address {
+                return Err(GuestMemoryError::conflict(
+                    "cpu-writeback",
+                    "cpu-writeback-duplicate-page",
+                    "CPU writeback contains the same guest page more than once",
+                ));
+            }
+        }
+
+        let mut changed_order = Vec::with_capacity(batch.pages.len());
+        let mut executable_pages = 0usize;
+        let mut changed_bytes = 0u64;
+        let mut hasher = Sha256::new();
+        hasher.update(batch.base_generation.to_le_bytes());
+        for &index in &order {
+            let writeback = &batch.pages[index];
+            if !writeback.address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
+                return Err(GuestMemoryError::invalid_request(
+                    "cpu-writeback",
+                    "cpu-writeback-address-not-page-aligned",
+                    "CPU writeback page address must be guest-page aligned",
+                ));
+            }
+            if writeback.bytes.len() != GUEST_PAGE_SIZE_USIZE {
+                return Err(GuestMemoryError::invalid_request(
+                    "cpu-writeback",
+                    "cpu-writeback-page-size-mismatch",
+                    "CPU writeback must provide exactly one page per dirty-page descriptor",
+                ));
+            }
+            let segments = self.preflight_guest_access_without_synchronization(
+                writeback.address,
+                writeback.bytes.len(),
+                MemoryAccess::Write,
+            )?;
+            let [segment] = segments.as_slice() else {
+                return Err(GuestMemoryError::runtime_defect(
+                    "cpu-writeback",
+                    "cpu-writeback-segment-count-invalid",
+                    "one aligned CPU writeback page did not produce one access segment",
+                ));
+            };
+            let page = self.pages.get(&segment.virtual_page).ok_or_else(|| {
+                GuestMemoryError::runtime_defect(
+                    "cpu-writeback",
+                    "cpu-writeback-preflighted-page-missing",
+                    "CPU writeback preflight succeeded but the page disappeared",
+                )
+            })?;
+            if page.owner != writeback.owner {
+                return Err(GuestMemoryError::conflict(
+                    "cpu-writeback",
+                    "cpu-writeback-page-owner-mismatch",
+                    "CPU writeback owner does not match the mapped guest page",
+                ));
+            }
+            if page.dirty_generation.is_some() {
+                return Err(GuestMemoryError::runtime_defect(
+                    "cpu-writeback",
+                    "cpu-writeback-page-already-dirty",
+                    "a synchronized CPU writeback page retained host dirty state",
+                ));
+            }
+            executable_pages += usize::from(page.protection.execute);
+            let page_changed_bytes = self
+                .frames
+                .bytes(page.frame)?
+                .iter()
+                .zip(&writeback.bytes)
+                .filter(|(current, incoming)| current != incoming)
+                .count();
+            if page_changed_bytes != 0 {
+                changed_order.push(index);
+                changed_bytes = changed_bytes
+                    .checked_add(page_changed_bytes as u64)
+                    .ok_or_else(|| {
+                        GuestMemoryError::resource_limit(
+                            "cpu-writeback",
+                            "cpu-writeback-changed-byte-count-overflow",
+                            "CPU writeback changed-byte count overflowed host accounting",
+                        )
+                    })?;
+            }
+            hasher.update(writeback.address.0.to_le_bytes());
+            hasher.update(writeback.owner.0.to_le_bytes());
+            hasher.update(&writeback.bytes);
+        }
+
+        let from_generation = self.generation;
+        let changed_pages = changed_order.len();
+        let generation = if changed_pages == 0 {
+            from_generation
+        } else {
+            self.next_generation()?
+        };
+        if changed_pages != 0 {
+            let mut transaction = self.begin_transaction();
+            for &index in &changed_order {
+                let writeback = &batch.pages[index];
+                transaction.reconcile_reflected_page(
+                    batch.base_generation,
+                    writeback.owner,
+                    writeback.address,
+                    &writeback.bytes,
+                )?;
+            }
+            transaction.generation = generation;
+            transaction.acknowledged_generation = generation;
+            transaction.commit_transaction();
+        }
+
+        let transferred_bytes = (batch.pages.len() as u64)
+            .checked_mul(GUEST_PAGE_SIZE)
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "cpu-writeback",
+                    "cpu-writeback-transferred-byte-count-overflow",
+                    "CPU writeback transfer size overflowed host accounting",
+                )
+            })?;
+        Ok(CpuWritebackReceipt {
+            from_generation,
+            generation,
+            touched_pages: batch.pages.len(),
+            changed_pages,
+            unchanged_pages: batch.pages.len() - changed_pages,
+            executable_pages,
+            changed_bytes,
+            transferred_bytes,
+            content_sha256: hex_digest(&hasher.finalize()),
+        })
+    }
+
     pub fn stats(&self) -> MemoryStats {
         let reserved_pages = self
             .regions
@@ -2431,6 +3089,75 @@ impl GuestMemory {
             generated_code: effects.invalidate_generated_code,
         };
         Some(invalidation)
+    }
+}
+
+fn read_binary_u32(
+    bytes: &[u8],
+    offset: usize,
+    code: &'static str,
+) -> Result<u32, GuestMemoryError> {
+    let end = offset.checked_add(4).ok_or_else(|| {
+        GuestMemoryError::invalid_request(
+            "cpu-writeback-transport",
+            code,
+            "CPU writeback control offset overflowed host accounting",
+        )
+    })?;
+    let value = bytes.get(offset..end).ok_or_else(|| {
+        GuestMemoryError::invalid_request(
+            "cpu-writeback-transport",
+            code,
+            "CPU writeback control is truncated",
+        )
+    })?;
+    Ok(u32::from_le_bytes(
+        value.try_into().expect("checked four-byte control field"),
+    ))
+}
+
+fn read_binary_u64(
+    bytes: &[u8],
+    offset: usize,
+    code: &'static str,
+) -> Result<u64, GuestMemoryError> {
+    let end = offset.checked_add(8).ok_or_else(|| {
+        GuestMemoryError::invalid_request(
+            "cpu-writeback-transport",
+            code,
+            "CPU writeback control offset overflowed host accounting",
+        )
+    })?;
+    let value = bytes.get(offset..end).ok_or_else(|| {
+        GuestMemoryError::invalid_request(
+            "cpu-writeback-transport",
+            code,
+            "CPU writeback control is truncated",
+        )
+    })?;
+    Ok(u64::from_le_bytes(
+        value.try_into().expect("checked eight-byte control field"),
+    ))
+}
+
+fn page_protection_flags(protection: PageProtection) -> u32 {
+    u32::from(protection.read)
+        | u32::from(protection.write) << 1
+        | u32::from(protection.execute) << 2
+}
+
+fn memory_region_kind_code(kind: MemoryRegionKind) -> u32 {
+    match kind {
+        MemoryRegionKind::Image => 1,
+        MemoryRegionKind::Stack => 2,
+        MemoryRegionKind::ThreadEnvironmentBlock => 3,
+        MemoryRegionKind::ProcessEnvironmentBlock => 4,
+        MemoryRegionKind::ProcessParameters => 5,
+        MemoryRegionKind::CommandLine => 6,
+        MemoryRegionKind::Heap => 7,
+        MemoryRegionKind::Anonymous => 8,
+        MemoryRegionKind::Runtime => 9,
+        MemoryRegionKind::Surface => 10,
     }
 }
 

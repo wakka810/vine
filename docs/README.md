@@ -5,7 +5,7 @@
 - ステータス: Proposed
 - 基準日: 2026-07-12
 - 対象: current `main` worktree
-- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、atomic import binding、public Linux CI、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call checkpoint manifest／generic runnerを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、byte authority／automatic writeback、general process／thread lifecycle、DLL／export resolution、browser appはまだない
+- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、public Linux CI、authoritative RuntimeState、13 API contract／17 call occurrenceのgeneric dispatcher、17-call checkpoint manifest／generic runnerを追加済み。BGIは`EncodePointer(FlsAlloc endpoint)`へ到達したが、general process／thread lifecycle、DLL／export resolution、Chrome Runtime Worker、browser appはまだない
 - 開発形態: 1 人、完全個人用
 - primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
@@ -53,9 +53,10 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [corpus-inventory.md](corpus-inventory.md) | 何を最初に動かすか | ローカル title inventory、primary target、静的依存、調査待ち evidence |
 | [toolchain-spike.md](toolchain-spike.md) | 何を再現生成できるか | LLVM／Wasm baseline、PE32 fixture、次の engine 比較条件 |
 | [x86-engine-scorecard.md](x86-engine-scorecard.md) | どの x86 engine を先に試すか | 4 候補の比較、v86 実行 evidence、adapter blocker と採用 gate |
-| [adr-003-guest-memory.md](adr-003-guest-memory.md) | guest memoryをどこが所有するか | high-address／R／W／X測定、候補比較、provisional CPU integration boundary |
+| [adr-003-guest-memory.md](adr-003-guest-memory.md) | guest memoryをどこが所有するか | Rust byte authority、v86 execution mirror、slice同期／failure policy |
 | [guest-memory-ingress.md](guest-memory-ingress.md) | production memory ingressが何を所有するか | sparse region／page API、fault／invalidation、fixture／BGI layout evidence |
-| [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | incremental dirty pages、cache effects、generation ack、rollback、v86 data roundtrip |
+| [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | bidirectional dirty pages、binary transport、generation ack、rollback |
+| [memory-writeback.md](memory-writeback.md) | guest writeをどうRust authorityへ戻すか | PTE Dirty discovery、atomic multi-page reconciliation、two-slice evidence |
 | [generic-api-dispatcher.md](generic-api-dispatcher.md) | API固有checkpointを共通runtimeへどう移すか | 13 contract／17 occurrence、RuntimeState、manifest／generic runner、scheduler event |
 | [pe-loader-ingress.md](pe-loader-ingress.md) | immutable PE32 planをどこまで作れるか | Rust workspace、bounded parser／plan、fixture contract、BGI W7 stop |
 | [pe-materialization.md](pe-materialization.md) | PE image bytesをどこまで構築できるか | source copy、zero-fill、`HIGHLOW`、IAT-original verification、BGI stop |

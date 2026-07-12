@@ -6,7 +6,7 @@
 - Rust: `1.97.0` (`2d8144b7880597b6e6d3dfd63a9a9efae3f533d3`)
 - LLVM／Clang: `22.1.8`
 - Target: `wasm32-unknown-unknown`
-- Result: bounded interpreter、release exception stop、versioned CPU state round trip、high-address paging／R／W fault measurement verified
+- Result: bounded interpreter、release exception stop、versioned CPU state round trip、high-address paging／R／W fault measurement、automatic binary dirty-page writeback verified
 
 This is a disposable Phase 0 adapter experiment, not a vendored v86 fork or an accepted production engine.
 
@@ -51,7 +51,7 @@ The check writes `.work/v86-adapter-spike/report.json` and verifies:
 - CPL0 `hlt` returns the halt reason
 - GPR、x87、XMM state survives one save／reset／restore／resume sequence
 
-After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v86-memory-spike/report.json`. It maps a fixed PE32 image at `0xF1000000` through low physical pages and checks present／R／W faults、cross-page no-partial-write、protect／remap invalidation. It also records that this v86 revision executes a PE non-executable section and does not emit the instruction-fetch PFEC bit. [ADR-003](../../docs/adr-003-guest-memory.md) keeps the resulting paging candidate provisional.
+After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v86-memory-spike/report.json`. It maps a fixed PE32 image at `0xF1000000` through low physical pages and checks present／R／W faults、cross-page no-partial-write、protect／remap invalidation. It also records that this v86 revision executes a PE non-executable section and does not emit the instruction-fetch PFEC bit. [ADR-003](../../docs/adr-003-guest-memory.md) combines this result with later writeback evidence and accepts Rust authority plus the paging mirror.
 
 `npm run check:runtime:entry` holds a production Rust `GuestMemory` in a bounded probe session, reflects six sealed semantic pages without exposing Rust physical-frame indices, and acknowledges generation `4` only after v86 state restore、`full_clear_tlb`、and `jit_clear_cache_js`. It then executes the relocated controlled entry on one harness stack page and stops at production thunk ID `1`. The versioned result and non-claims are recorded in [v86-entry-ingress.md](../../docs/v86-entry-ingress.md).
 
@@ -72,6 +72,8 @@ After `npm run check:toolchain`, `npm run check:runtime:memory` writes `.work/v8
 `npm run check:runtime:bootstrap-params-first-stop` runs a separate import-free native command-line oracle, then executes it against the existing minimum TEB／PEB. It fixes the zero `PEB+0x10` observation, explicit result `2`, and exact entry return without pretending that process parameters exist. The result is recorded in [v86-bootstrap-params-first-stop.md](../../docs/v86-bootstrap-params-first-stop.md).
 
 `npm run check:runtime:bootstrap-params` adds typed Rust-owned process-parameters and command-line pages, reflects generation `21`, and verifies the exact UTF-16 observations plus entry result `0`. The result is recorded in [v86-bootstrap-params-ingress.md](../../docs/v86-bootstrap-params-ingress.md).
+
+`npm run check:runtime:memory-writeback` treats Rust `GuestMemory` as byte authority and the adapter paging state as an execution mirror. Two bounded slices discover exact stack／heap／surface／RWX pages from PTE Dirty bits, clear them with a TLB flush, and return binary multi-page batches to Rust at generations `18 -> 21`. The result is recorded in [memory-writeback.md](../../docs/memory-writeback.md).
 
 `npm run check:runtime:bgi-first-trap` uses explicit 400-page／8 MiB protocol limits to reflect 388 sealed BGI pages at generation `24`. Its adapter allocator excludes v86's physical VGA MMIO hole, then executes entry `0x100A383E` for 19 instructions to exact owned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`. It stops before dispatch or return; the result is recorded in [v86-bgi-first-trap.md](../../docs/v86-bgi-first-trap.md).
 
@@ -115,4 +117,4 @@ The 2026-07-10 local build produced the following evidence. Compiler output hash
 
 ## Remaining work
 
-The state layout is explicit, but adapter physical memory remains one bounded pool with an explicitly excluded VGA hole, and memory-size setup still uses one private offset pinned to this artifact. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior, and production reflection returns from two BGI APIs. General region mutation／dirty-page synchronization、third and later BGI API return、snapshot、general ABI、Chromium Worker remain unimplemented.
+The state layout and bidirectional binary page synchronization are explicit, but adapter physical memory remains one bounded pool with an explicitly excluded VGA hole, memory-size setup still uses one private offset pinned to this artifact, and Dirty discovery scans every writable mapping. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior and multi-page writeback, and production reflection returns from 17 BGI calls. General process mapping、snapshot、general ABI、Chrome Runtime Worker、title-workload performance remain unimplemented.

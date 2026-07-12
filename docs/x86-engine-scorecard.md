@@ -172,9 +172,9 @@ v86 の通常 RAM は contiguous guest physical memory である。一方、Vine
 
 3,072-byteのfixed PE32 imageはimage base `0xF1000000`で、`.text` RX、`.rdata`／`.rprobe`／`.nxprobe` R、`.data` RWを持つ。2 MiB physical poolの15 pages／60 KiBをdirectory、3 page tables、11 mapped pagesへ割り当て、44 KiBのvirtual mappingからhigh EIP／stackを実行した。R write PFEC `7`、unmapped read／write PFEC `4`／`6`、cross-page writeのsecond-page fault／no partial write、PTE protect／remap後の`full_clear_tlb`効果はv86 pagingで成立した。
 
-一方、fixed v86はinstruction fetchをread translationとして扱い、PEのnon-executable `.nxprobe`を実行した。unmapped fetchもPFEC `4`でinstruction-fetch bitを持たない。checked sparse referenceは同じpage metadataからnon-executable／unmapped fetchを`21`／`20`として拒否したがCPU未接続である。この結果から、Vine region table＋bounded physical allocatorをv86 pagingへ反映し、adapter-owned execute gateを追加する案をprovisional candidateとする。snapshot、guard、generated-code invalidation、Worker ceilingを閉じるまで`ADR-003`はAcceptedではない。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)を正とする。
+一方、fixed v86はinstruction fetchをread translationとして扱い、PEのnon-executable `.nxprobe`を実行した。unmapped fetchもPFEC `4`でinstruction-fetch bitを持たない。checked sparse referenceは同じpage metadataからnon-executable／unmapped fetchを`21`／`20`として拒否したがCPU未接続である。この結果と後続writeback evidenceから、Rust-owned Vine region／bytesをbounded v86 pagingへ反映し、adapter-owned execute gateを追加する案をAccepted baselineとする。snapshot、guard、Worker ceiling、performanceは後続gateであり、byte authority decisionとは分離する。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)を正とする。
 
-続くproduction Rust ingressはsparse owner／region／page state、bounded zeroed frames、logical execute seal、cross-page preflight、generation-tagged `MemoryDelta`を実装した。high fixtureの6 image pagesとBGI planの380 pagesを所有し、controlled imageの2 IATを`0x7F000000` arenaへatomic bindして両ownerをsealした。optional entry-return modeはseparate ownerのRX control pageへcallback／process-entry sentinelを置いた7 pagesをgeneration `9`でreflectし、actual invalidation後にone-level callback、outer cdecl return、exact entry completionまで進めた。初回snapshot後の通常data writeはdirty 1 pageだけをlive v86へ適用できるが、v86-originated writeback／general process mapping／snapshotは未接続である。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[pe-import-binding.md](pe-import-binding.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)、[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を正とする。
+続くproduction Rust ingressはsparse owner／region／page state、bounded zeroed frames、logical execute seal、cross-page preflight、generation-tagged `MemoryDelta`を実装した。high fixtureの6 image pagesとBGI planの380 pagesを所有し、controlled imageの2 IATを`0x7F000000` arenaへatomic bindして両ownerをsealした。optional entry-return modeはseparate ownerのRX control pageへcallback／process-entry sentinelを置いた7 pagesをgeneration `9`でreflectし、actual invalidation後にone-level callback、outer cdecl return、exact entry completionまで進めた。初回snapshot後の通常data writeはdirty 1 pageだけをlive v86へ適用できる。逆方向は全writable PTE Dirty bitをslice後にscanし、binary multi-page batchをowner／generation単位でRust authorityへatomic reconcileする。general process mapping／snapshot、writable-page scan costは未接続／未判定である。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[memory-writeback.md](memory-writeback.md)、[pe-import-binding.md](pe-import-binding.md)、[v86-entry-ingress.md](v86-entry-ingress.md)、[v86-cdecl-ingress.md](v86-cdecl-ingress.md)、[v86-callback-return-ingress.md](v86-callback-return-ingress.md)、[v86-outer-return-ingress.md](v86-outer-return-ingress.md)、[v86-entry-return-ingress.md](v86-entry-return-ingress.md)を正とする。
 
 ### B5. Stable state ABI: Verified baseline
 
@@ -272,7 +272,7 @@ entry `0x100A383E`はinstruction budget `1`で全境界のlogical execute permis
 
 `npm run check:runtime:memory-delta`は初回4-page reflectionをacknowledgeした後、RustのRW／NX pageへ8 bytesを書き、generation `11`の1-page／4 KiB deltaだけを既存v86 mappingへ適用する。cache effectsは全てfalseで、guest x86はEDX:EAX `0x8877665544332211`を読んでexact `UD2`へ停止する。ack後のRust dirty pagesは0である。同じfixtureは実行可能page末尾からNX pageへ跨るinstructionを15-byte conservative gateで実行前に停止する。
 
-これはhost-originated data outputを全snapshot再送なしでCPUへ返せるevidenceである。v86-originated writeback、binary IPC、decode-aware execute span、general mapping lifecycleは未実装である。詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)を正とする。
+これはhost-originated data outputを全snapshot再送なしでCPUへ返せるevidenceである。逆方向のautomatic writebackとbinary transportはB34で固定する。decode-aware execute span、general mapping lifecycleは未実装である。詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)を正とする。
 
 ### B19. First BGI Win32 call return: Verified ingress
 
@@ -364,17 +364,23 @@ ID `4`／`0x7F020030`を返してBGI storeを観測し、12命令後、entryか�
 
 `npm run check:runtime:bgi-seventeenth-win32-call`はsame native tracesとstatic disassemblyからsource `0x100A9608`をexecutable process-initializer functionとして分類する。11-byte direct-IAT frame、17-byte source prefix、prior encoded-NULL／TLS stateをchecked処理し、token `0xEC010002`を返す。BGI global `0x100FF62C`へのstoreを観測し、9命令後、累計238命令でsame ID `89`／`EncodePointer(0x7F020000)`へ到達する。140,660-byte reportのSHA-256は`ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`である。詳細は[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
 
-### B34. Browser Worker
+### B34. Automatic binary CPU writeback: Verified ingress
+
+`npm run check:runtime:memory-writeback`は9 pagesを`VINERF01` binary reflectionでv86へ渡し、bounded slice後に8 writable PTEをscanする。first sliceはcross-page stack／surface、`REP STOSD` heap、RWX targetのexact 7 dirty pagesを検出し、49 changed bytesをgeneration `18 -> 19`へatomic reconcileする。Rustのone-page `VINEDL01` host deltaで`19 -> 20`へ進めた後、second sliceは別のstack／heap／surface／RWX exact 4 pages、13 changed bytesだけを`20 -> 21`へ戻す。
+
+Dirty bitは各scanでclearし、`full_clear_tlb()`後だけ次へ進む。CPU writebackは`VINEWB01` fixed-width controlとcontiguous page payloadを使い、Rustはbase generation、owner、mapping、write permission、duplicate、alignment、sizeをbatch全体でpreflightする。reportは4,578 bytes／SHA-256 `5eab2884b70f8b1a48d98dff8021b29a1690296c03dcae0183b5c9fdc10368b8`である。これはcorrectness baselineであり、O(writable-pages) scan／full TLB clearのtitle performance、Chrome cancellation、snapshotを証明しない。詳細は[memory-writeback.md](memory-writeback.md)を正とする。
+
+### B35. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
 
-### B35. Correctness と performance
+### B36. Correctness と performance
 
 W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like benchmark でもない。Windows oracle と独立 vector を使う instruction conformance、compiler fixture、hot loop、callback、30 分 stress が必要である。
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first seventeen checked stdcall returnsまで進んだ。次のadapter sliceはsame exact thunk ID `89`のobserved `EncodePointer(0x7F020000)` stdcall returnである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、binary bidirectional page synchronizationを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first seventeen checked stdcall returnsまで進んだ。BGI continuationは凍結し、次のadapter sliceは同じRust／v86 boundaryをChrome Runtime Workerへpackageしてbrowser lifecycle／cancellation下で実行することである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT

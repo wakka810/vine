@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB／process-parameters bootstrapがある。general process integration／parameters、DLL／export lifecycle、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB／process-parameters bootstrap、binary bidirectional memory synchronizationがある。general process integration／parameters、DLL／export lifecycle、Chrome Runtime Worker、Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 
@@ -168,7 +168,7 @@ UNMAPPED -> RESERVED -> COMMITTED
 
 host の実行権限とは無関係に、guest `EXECUTE` を論理検査する。write-to-code が発生した場合は decode/cache を無効化し、policy によって継続または診断停止する。
 
-current ingressはpage R／W／Xとowner sealをfetch前に検査し、mapping／protection／seal／writeをgeneration-tagged `MemoryDelta`へ変換する。初回だけfull snapshotを送り、以後はmapping operationとdirty pageだけを転送し、data bytesとTLB／instruction-fetch／generated-code effectsを分離する。base sessionはgeneration `6`、optional callback-control ownerを含むsessionはgeneration `9`をv86 state restore／TLB／generated-code cacheの実flush後だけacknowledgeした。host-originated通常data writeのlive v86 roundtripと、generation／owner付きone-page CPU reconciliation後のBGI stack outputは成立したが、automatic v86-originated dirty ownership、general heap／stack lifecycle、decode-aware execute gate、snapshot generationは未接続である。
+current ingressはRust `GuestMemory`をbyte authority、v86 pagingをexecution mirrorとし、page R／W／Xとowner sealをfetch前に検査する。初回reflection、host側mapping／dirty delta、CPU側writebackはbinary control metadataとcontiguous 4 KiB payloadを分離する。bounded slice後は全writable PTE Dirty bitをscanし、owner／generation付きmulti-page batchをRustへatomic reconcileしてgenerationを一度だけ進める。host-originated通常data writeのlive v86 roundtrip、連続2 sliceのstack／heap／surface／RWX writeback、generation／owner付きBGI reconciliationが成立した。pending host delta中のexecution、generation conflict、partial batchはfail-closedであり、Dirty clear後のcancellation／receipt lossはmirrorを破棄してRust authorityから再構築する。general heap／stack lifecycle、decode-aware execute gate、snapshot generation、O(writable-pages) scanのperformanceは未接続／未判定である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)と[memory-writeback.md](memory-writeback.md)を正とする。
 
 ### 6.3 Heap と mapped file
 
@@ -194,7 +194,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsとnative-oracled command-line bytesを実行した。v86のexecute-permission gapにはslice-boundary gateを保持する。large BGI transfer、general process parameters、stack growth、mutation、snapshot、broad ABI、browser Workerは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)と[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
+固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsとnative-oracled command-line bytesを実行した。v86のexecute-permission gapにはslice-boundary gateを保持し、PTE Dirty bitでmulti-page mutationをRust authorityへ戻す。large BGI transferは成立したが、general process parameters、stack growth、snapshot、broad ABI、Chrome Runtime Worker、title-workload performanceは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 

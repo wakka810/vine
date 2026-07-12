@@ -20,7 +20,7 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "checkpoint-manifest-and-generic-session-runner" ||
+    checkpoint.runtimeKernelCheckpoint !== "memory-authority-and-automatic-writeback" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !== "single-process-controlled-initial-thread" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
@@ -120,7 +120,28 @@ try {
     checkpoint.ownedTrap !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.ownedTrapSymbol !== "EncodePointer" ||
     checkpoint.ownedTrapArgument !== 0x7f02_0000 ||
-    checkpoint.memoryProtocol !== "memory-delta-v1" ||
+    checkpoint.memoryProtocol !== "binary-page-transport-v1" ||
+    checkpoint.memoryDeltaProtocol !== "memory-delta-v1" ||
+    checkpoint.byteAuthority !== "rust-guest-memory" ||
+    checkpoint.executionMirror !== "v86-paging" ||
+    checkpoint.dirtyDiscovery !== "v86-pte-dirty-bit" ||
+    checkpoint.writebackSynchronization !== "bounded-slice-end" ||
+    checkpoint.writebackGenerationPolicy !== "one-generation-per-changed-batch" ||
+    JSON.stringify(checkpoint.binaryMemoryTransports) !==
+      JSON.stringify(["VINERF01", "VINEDL01", "VINEWB01", "VINEFR01"]) ||
+    JSON.stringify(checkpoint.automaticWritebackEvidence) !==
+      JSON.stringify({
+        reflectedPages: 9,
+        writablePages: 8,
+        firstSliceDirtyPages: 7,
+        firstSliceChangedBytes: 49,
+        secondSliceDirtyPages: 4,
+        secondSliceChangedBytes: 13,
+        initialGeneration: 18,
+        finalGeneration: 21,
+        reportBytes: 4578,
+        reportSha256: "5eab2884b70f8b1a48d98dff8021b29a1690296c03dcae0183b5c9fdc10368b8",
+      }) ||
     checkpoint.memoryTransaction !== "changed-state-frame-before-image-journal-v1" ||
     checkpoint.memoryTransactionCopiesBaselinePages !== false ||
     JSON.stringify(checkpoint.memoryTransactionScalingEvidence) !==
@@ -131,7 +152,7 @@ try {
         oneChangedPagePeakBytes: 4096,
         twoChangedPagesPeakBytes: 8192,
       }) ||
-    checkpoint.nextCheckpoint !== "memory-byte-authority-and-automatic-writeback" ||
+    checkpoint.nextCheckpoint !== "chrome-runtime-worker-vertical-slice" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

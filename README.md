@@ -84,13 +84,18 @@ pointers. Nested callback frames are LIFO and asynchronous host completion is a
 scheduler event that restores the prior runnable／callback state. Private JSON
 request values remain evidence assertions, not API result sources.
 
-The foundation below that checkpoint now has an incremental `MemoryDelta`
-protocol. The first transfer is a full snapshot; later generations carry only
-mapping operations and dirty pages, with data transfer separated from TLB,
-instruction-fetch, and generated-code effects. A public fixture writes eight
-bytes to a non-executable data page, transfers one 4 KiB delta to v86, and has
-guest x86 read back `0x8877665544332211`. A conservative 15-byte execute window
-also stops cross-page instruction fetch when the next page is non-executable.
+The foundation below that checkpoint uses Rust `GuestMemory` as byte authority
+and v86 paging as a bounded execution mirror. Initial reflection, host delta,
+and CPU writeback use binary control buffers plus contiguous page payloads.
+After every bounded CPU slice, the host scans writable PTE Dirty bits without
+an API-specific page list and atomically reconciles changed pages by owner and
+generation. A public two-slice fixture writes across stack, heap, surface, and
+RWX pages, discovers exactly 7 then 4 dirty pages, and advances Rust generation
+`18 -> 21` around one intervening host delta. The earlier fixture still writes
+eight bytes to a non-executable data page, transfers one 4 KiB delta to v86,
+and has guest x86 read back `0x8877665544332211`. A conservative 15-byte execute
+window also stops cross-page instruction fetch when the next page is
+non-executable.
 Multi-owner bootstrap, PE materialization, and import commit paths use a
 changed-state／frame before-image rollback journal. Transaction start copies no
 committed page bytes; a 1,024-page scaling contract records 4 KiB only after the
@@ -105,8 +110,10 @@ runtime, graphics, audio, storage, and full title play remain unimplemented.
 The 17 checkpoint expectations now live in a versioned manifest shared by the
 Node and Rust runners. Stable npm checkpoint commands select one generic session
 by ID; API-specific dispatch flags are no longer used. The next runtime-kernel
-checkpoint resolves byte authority and automatic multi-page v86 writeback,
-then replaces JSON page arrays on the execution path with binary transport.
+checkpoint packages the Rust／v86 boundary for a Chrome Runtime Worker and
+completes one browser session through guest execution, generic dispatch, async
+completion, nested callback, pixel, audio pulse, persistent byte,
+cancellation, and watchdog.
 The third thunk ID `89` call for
 `KERNEL32.dll!EncodePointer(0x7F020000)` remains the next BGI trap, but bespoke
 API checkpoint expansion is paused until the P0 runtime-kernel gates are met.
@@ -132,7 +139,8 @@ fixtures, runs Rust format/tests/clippy with warnings denied, checks JavaScript
 syntax, runs the small v86 smoke,
 and checks the Windows trace summarizer. `check:fixture-e2e` prepares the pinned
 source adapter and runs the public entry, ABI callback/return, stack, TEB/PEB,
-process-parameters, MemoryDelta, window, and browser-presentation paths.
+process-parameters, MemoryDelta, automatic binary CPU writeback, window, and
+browser-presentation paths.
 `check:adapter` holds the broader adapter checks. `check:private-corpus` runs BGI
 only when `VINE_BGI_EXE` or the documented local path exists; absence is an
 explicit skip. GitHub Actions runs the two public check groups on Linux.
@@ -165,6 +173,9 @@ command-line oracle with the explicit missing-pointer guest result.
 parameters and UTF-16 bytes and verifies exact guest completion.
 `npm run check:runtime:memory-delta` applies one dirty data page to live v86
 mapping and verifies the updated eight-byte value from guest code.
+`npm run check:runtime:memory-writeback` runs two bounded guest slices, scans
+v86 PTE Dirty bits, and atomically returns stack／heap／surface／RWX pages to the
+Rust byte authority through binary control and payload buffers.
 `npm run check:runtime:bgi-first-win32-call` reconciles one live stack page,
 writes a controlled `FILETIME` through `MemoryDelta`, returns from exact thunk
 ID `104`, and stops at exact thunk ID `103` before a second dispatch.

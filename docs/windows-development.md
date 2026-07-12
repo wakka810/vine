@@ -51,6 +51,7 @@
 - focused pointer-encoding evidence、controlled encoded-NULL token `0xEC010001`、TLS state preservation、same ID `89`／`EncodePointer(0x100A9608)` next call
 - executable process-initializer source validation、token `0xEC010002`／guest global store、same ID `89`／`EncodePointer(0x7F020000)` next call
 - 初回full reflection後のdirty-page-only `MemoryDelta`、通常RW／NX 8-byte writeのlive v86 readback、generation単位acknowledgement
+- Rust byte authority／v86 execution mirror、binary reflection／delta／writeback、PTE Dirty scanによるstack／heap／surface／RWXの連続2-slice multi-page reconciliation
 - process environment／PE materialization／import bindingのsnapshot transaction、failpoint rollback、same-memory retry
 - `check:fast`／`check:fixture-e2e`／`check:adapter`／`check:private-corpus`、Linux public CI、PE planner fuzz／randomized memory contract
 - valid low-alignment PEのstructured unsupported stopと、cross-page NX instructionのconservative execute gate
@@ -121,6 +122,7 @@ npm run check:runtime:bootstrap-fs
 npm run check:runtime:bootstrap-params-first-stop
 npm run check:runtime:bootstrap-params
 npm run check:runtime:memory-delta
+npm run check:runtime:memory-writeback
 npm run check:runtime:bgi-first-trap
 npm run check:runtime:bgi-first-win32-call
 npm run check:runtime:bgi-second-win32-call
@@ -197,6 +199,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first seventeen Kernel32 returnsまで固定した。次はexact `EncodePointer(0x7F020000)`へcontrolled `FlsAlloc` endpoint tokenを返し、process-initializer global pageをreconcileする。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first seventeen Kernel32 returns、automatic binary multi-page writebackまで固定した。BGIのexact `EncodePointer(0x7F020000)` continuationは保持して凍結し、次はRust／v86 boundaryをChrome Runtime Workerへpackageする。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

@@ -17,8 +17,9 @@ trace-summary contract.
 
 `check:fixture-e2e` prepares the pinned source adapter, then runs the controlled
 entry, cdecl dispatch, callback, outer return, entry sentinel, Rust-owned stack,
-FS／TEB／PEB, process parameters, MemoryDelta data roundtrip, window loader, and
-Chrome Canvas presentation paths. It uses only repository fixtures.
+FS／TEB／PEB, process parameters, MemoryDelta data roundtrip, automatic binary
+CPU writeback, window loader, and Chrome Canvas presentation paths. It uses
+only repository fixtures.
 
 Windows runs execute the two bootstrap fixtures as native self-oracles. Linux
 runs cannot execute PE32 directly, so they require the same fixed fixture

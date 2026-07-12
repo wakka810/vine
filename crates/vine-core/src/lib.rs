@@ -56,12 +56,14 @@ pub use imports::{
 };
 pub use materialize::{ImageMaterialization, UnboundImport, materialize_pe32_image};
 pub use memory::{
-    CacheEffects, DirtyPage, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError,
-    GuestMemoryErrorClass, GuestMemoryTransaction, GuestPageReconciliation, GuestRange,
-    GuestWriteResult, ImageMemoryLayout, MappingOperation, MemoryAccess, MemoryDelta, MemoryFault,
-    MemoryFaultReason, MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
-    MemoryReflection, MemoryReflectionPage, MemoryRegionKind, MemoryStats, MemoryTransactionStats,
-    PageProtection,
+    CPU_WRITEBACK_BINARY_VERSION, CacheEffects, CpuWritebackBatch, CpuWritebackBuffers,
+    CpuWritebackPage, CpuWritebackReceipt, DirtyPage, GUEST_PAGE_SIZE, GuestAddress, GuestMemory,
+    GuestMemoryError, GuestMemoryErrorClass, GuestMemoryTransaction, GuestPageReconciliation,
+    GuestRange, GuestWriteResult, ImageMemoryLayout, MEMORY_DELTA_BINARY_VERSION,
+    MEMORY_REFLECTION_BINARY_VERSION, MappingOperation, MemoryAccess, MemoryDelta,
+    MemoryDeltaBuffers, MemoryFault, MemoryFaultReason, MemoryInvalidation, MemoryLimits,
+    MemoryOwnerId, MemoryOwnerKind, MemoryReflection, MemoryReflectionBuffers,
+    MemoryReflectionPage, MemoryRegionKind, MemoryStats, MemoryTransactionStats, PageProtection,
 };
 pub use pe32::{
     DataDirectoryAddressKind, DataDirectoryPlan, FeatureInventory, HeaderMappingPlan, ImageKind,

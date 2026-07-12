@@ -7,7 +7,7 @@
   "lastSupportedCallId": 89,
   "lastSupportedCall": "KERNEL32.dll!EncodePointer",
   "memoryGeneration": 30,
-  "runtimeKernelCheckpoint": "checkpoint-manifest-and-generic-session-runner",
+  "runtimeKernelCheckpoint": "memory-authority-and-automatic-writeback",
   "runtimeStateAuthority": "rust",
   "runtimeStateScope": "single-process-controlled-initial-thread",
   "runtimeStateOwns": [
@@ -96,7 +96,31 @@
   "ownedTrap": "KERNEL32.dll!EncodePointer",
   "ownedTrapSymbol": "EncodePointer",
   "ownedTrapArgument": 2130837504,
-  "memoryProtocol": "memory-delta-v1",
+  "memoryProtocol": "binary-page-transport-v1",
+  "memoryDeltaProtocol": "memory-delta-v1",
+  "byteAuthority": "rust-guest-memory",
+  "executionMirror": "v86-paging",
+  "dirtyDiscovery": "v86-pte-dirty-bit",
+  "writebackSynchronization": "bounded-slice-end",
+  "writebackGenerationPolicy": "one-generation-per-changed-batch",
+  "binaryMemoryTransports": [
+    "VINERF01",
+    "VINEDL01",
+    "VINEWB01",
+    "VINEFR01"
+  ],
+  "automaticWritebackEvidence": {
+    "reflectedPages": 9,
+    "writablePages": 8,
+    "firstSliceDirtyPages": 7,
+    "firstSliceChangedBytes": 49,
+    "secondSliceDirtyPages": 4,
+    "secondSliceChangedBytes": 13,
+    "initialGeneration": 18,
+    "finalGeneration": 21,
+    "reportBytes": 4578,
+    "reportSha256": "5eab2884b70f8b1a48d98dff8021b29a1690296c03dcae0183b5c9fdc10368b8"
+  },
   "memoryTransaction": "changed-state-frame-before-image-journal-v1",
   "memoryTransactionCopiesBaselinePages": false,
   "memoryTransactionScalingEvidence": {
@@ -106,6 +130,6 @@
     "oneChangedPagePeakBytes": 4096,
     "twoChangedPagesPeakBytes": 8192
   },
-  "nextCheckpoint": "memory-byte-authority-and-automatic-writeback",
+  "nextCheckpoint": "chrome-runtime-worker-vertical-slice",
   "pausedBgiCheckpoint": "eighteenth-supported-win32-call-return"
 }

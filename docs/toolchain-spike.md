@@ -107,4 +107,4 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。production memory／bootstrap、BGI full trap binding／owner seal、389-page dynamic-endpoint mode、first seventeen Kernel32 returnsまで進んだ。次はexact `EncodePointer(0x7F020000)` returnである。詳細は[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。production memory／bootstrap、BGI full trap binding／owner seal、389-page dynamic-endpoint mode、first seventeen Kernel32 returns、automatic binary writebackまで進んだ。BGI continuationは凍結し、次はChrome Runtime Worker vertical sliceである。詳細は[memory-writeback.md](memory-writeback.md)と[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。

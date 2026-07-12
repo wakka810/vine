@@ -115,13 +115,14 @@ Before and after migration it reaches the same trap after 238 instructions. The 
 - Heap state is metadata-only; loaded runtime modules have no guest DLL images or general exports.
 - TLS free/thread lifecycle, pointer decode, and arbitrary export pages are absent.
 - Host completion is modeled but not connected to a Worker／browser service.
-- `GuestMemoryTransaction` now uses a changed-state／frame before-image journal.
-  Byte authority, automatic v86 writeback, and binary transport remain open.
+- `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
+  Rust byte authority, automatic v86 writeback, and binary transport are now
+  fixed by ADR-003 and the memory-writeback checkpoint.
 - The next BGI call remains the third `EncodePointer`; bespoke checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-Resolve ADR-003 byte authority, automatic multi-page v86 writeback, and binary
-page transport. Existing import, bootstrap, reconciliation, 13-contract／17-call
-semantic checks, 238 instructions, and both private evidence digests remain the
-regression boundary.
+Package the Rust／v86 boundary in a Chrome Runtime Worker and run the Step 7
+browser vertical slice. Existing import, bootstrap, bidirectional memory sync,
+13-contract／17-call semantic checks, 238 instructions, and both private
+evidence digests remain the regression boundary.

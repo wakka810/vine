@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／transaction／atomic import、BGI firstからseventeenth Win32 call return、Windows trace v1／v2 contracts、Linux public CIは存在する。production runtime test framework、benchmark、対応browser matrixは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、Windows trace v1／v2 contracts、Linux public CIは存在する。production Runtime Worker test framework、benchmark、対応browser matrixは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -82,7 +82,7 @@ representative adapter memory measurementは、fixed PE32／LAA imageを`0xF1000
 
 representative production memory contractは同じhigh-memory planをRust-owned sparse regionへ準備し、6 image pagesと1 anonymous probe pageでpending invalidation、unsealed／NX fetch PFEC `21`、read-only write PFEC `7`、cross-page unmapped write PFEC `6`／no partial write、protect、exact quota failure、decommit／reuse、release／owner teardownを一つのsequenceで検査する。BGIの380-page layoutはversion 1 probe evidenceとして別に記録し、同じautomated testを複製しない。guard、all-width access、snapshot、actual generated-code invalidation、Worker testは具体的なfailureまたは次gateまで増やさない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
 
-incremental memory contractは初回full reflection後に通常RW／NX pageへ8 bytesを書き、dirty 1 pageだけのgeneration `11` deltaをlive v86へ適用してguest readbackする。Rust testsはcross-page／same-page writes、consecutive generation、partial／stale／duplicate／future ack、write-to-code、protect、decommit／release、pending offer中mutationを固定する。snapshot transactionはprocess environmentの20 mutation checkpointとimport arena／各thunk／各IAT／両seal checkpointを失敗させ、stats、owners、regions、frames、bytes、protection、seal、generation、pending deltaの復元とsame-memory retryを検査する。randomized reference-model sequenceはcommit／protect／read／fetch／write／decommit／release／owner replacement／rollback／delta適用を比較する。詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)を正とする。
+incremental memory contractは初回full reflection後に通常RW／NX pageへ8 bytesを書き、dirty 1 pageだけのgeneration `11` deltaをlive v86へ適用してguest readbackする。automatic writeback contractはbinary reflection後の連続2 sliceで全writable PTEをscanし、API固有listなしにstack／heap／surface／RWXの7 page／49 bytes、host delta後の別4 page／13 bytesをRust authorityへatomic reconcileする。untouched page、Dirty clear、TLB flush、generation `18 -> 21`、stale generation／wrong owner／truncated payloadのno-partial-change、all five binary mapping descriptorsを固定する。Rust testsはcross-page／same-page writes、consecutive generation、partial／stale／duplicate／future ack、write-to-code、protect、decommit／release、pending offer中mutationを固定する。transaction contractはprocess environmentの20 mutation checkpointとimport arena／各thunk／各IAT／両seal checkpointを失敗させ、stats、owners、regions、frames、bytes、protection、seal、generation、pending deltaの復元とsame-memory retryを検査する。randomized reference-model sequenceはcommit／protect／read／fetch／write／decommit／release／owner replacement／rollback／delta適用を比較する。詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)と[memory-writeback.md](memory-writeback.md)を正とする。
 
 ### 5.1 Static と repository checks
 
@@ -487,7 +487,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／MemoryDelta／BGI firstからseventeenth-call ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの17 API return、two pointer tokens、one observed guest storeまで進んだが、general process／thread lifecycle、broader PEB・TEB、callback service、pixel／audio／persistence、automatic v86 dirty discovery、guard／heap backing／system-DLL image／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／BGI firstからseventeenth-call ingressは`AC-P1-01`、`AC-P1-02`、`AC-P1-03`、`AC-P1-10`へのpartial evidenceである。controlled CPUはprimary titleの17 API return、two pointer tokens、one observed guest storeまで進んだが、Chrome Runtime Worker、general process／thread lifecycle、broader PEB・TEB、browser callback service、pixel／audio／persistence、guard／heap backing／system-DLL image／snapshotを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 

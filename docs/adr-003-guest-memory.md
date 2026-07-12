@@ -2,16 +2,33 @@
 
 ## 1. Status
 
-- Status: Provisional candidate／In discovery
+- Status: Accepted
 - Measurement date: 2026-07-11
+- Decision date: 2026-07-12
 - Scope: `P0-ARCH-03` partial evidence for 4 GiB guest VA、page protection、page ownership
-- Working candidate: Vine region table + bounded physical page allocator reflected into v86 paging
-- Implemented ingress: Rust-owned sparse region／page API、bounded zeroed frames、logical execute gate、generation-tagged MemoryDelta、controlled／388-page semantic v86 reflection、dirty-page v86 update、rollback transaction
-- Not decided: v86-to-Rust dirty ownership、guard、snapshot、binary IPC、Worker memory ceiling
+- Decision: Rust-owned `GuestMemory` is byte authority; v86 paging is a bounded execution mirror
+- Implemented ingress: sparse region／page API、bounded zeroed frames、logical execute gate、generation-tagged `MemoryDelta`、binary reflection／delta／writeback、PTE Dirty discovery、atomic multi-page reconciliation、changed-state rollback transaction
+- Not decided: guard、snapshot、production physical backing、Worker memory ceiling
 
-この文書はmemory architectureのaccepted decisionではない。fixed high-address fixtureで2候補を比較し、production Rust ingressでownership contractを実装した。CPU integrationとacceptance前に閉じるgateが残るため、working directionは引き続きprovisionalである。
+このADRはbyte authorityとCPU mirror間の同期方針を確定する。fixed high-address fixtureで2候補を比較し、production Rust ingress、host-originated delta、automatic CPU writebackを同じgeneration contractへ接続した。guard、snapshot、general process mapping、Chrome Worker、performance gateは未完了であり、`P0-ARCH-03`全体や`AC-P1`の完了を意味しない。
 
-## 2. Required Contract
+## 2. Accepted Decision
+
+`vine-core::GuestMemory`がregion、owner、R／W／X、seal、committed page bytes、generationのsemantic sourceである。v86は同じbytesをlow physical pagesとx86 page tablesへ反映して命令を実行するmirrorであり、そのphysical address、PTE、TLB、generated-code cacheをruntime stateの正本にしない。TypeScriptはbinary bufferを運ぶがguest pointerやpage bytesのauthorityを持たない。
+
+同期点はbounded CPU sliceの前後に限定する。
+
+1. 初回slice前にRustが`VINERF01` reflectionを発行し、mirrorが全mapping／bytesを適用してTLB／instruction cacheをclearした後だけgenerationをacknowledgeする。
+2. host側mapping／byte変更は`VINEDL01` deltaとしてmirrorへ適用し、required cache effectsの実行後だけacknowledgeする。pending deltaがある間はguest executionとCPU writebackを開始しない。
+3. bounded slice終了時、API trap、callback return、budget yield、fault、wait遷移のいずれでも、mirrorは全writable mappingのPTE Dirty bitをscanする。dirty pageのaddress／ownerと4 KiB payloadを`VINEWB01` batchへ置き、Dirty bitをclearして`full_clear_tlb()`を行う。
+4. Rustはbatch全体についてbase generation、current acknowledgement、page count、alignment、duplicate、mapping、write permission、owner、payload lengthを先に検査する。一件でも不一致ならbyte／generationを変更しない。valid batchは実際にbyteが変わったpageだけをone transactionで置換し、batch全体でgenerationを一度だけ進める。mirrorは既に同じbytesを持つため、そのgenerationを同期済みとして確定する。
+5. RWX pageは同じdirty scanで検出し、receiptでexecutable page数を記録する。guest自身のwriteに必要なexecution-local invalidationはv86 write pathの責務であり、Rustから同じbytesを再送しない。hostが後からcode pageを変更する場合は通常のdeltaがinstruction-fetch／generated-code invalidationを要求する。
+
+Dirty bit clear後からRust receipt受領まで、binary batchはhost側で保持する。generation conflict、transport truncation、worker cancellation、receipt lossが起きた場合はguestをresumeしない。Rustがbatchを受理していないと確認できる場合だけ同じbufferをretryできる。commit済みか不明、またはreceiptを失った場合はsessionを破棄し、Rust authorityからmirrorを再構築する。partial continuationや片側だけのrollbackは行わない。
+
+binary execution transportはcontrol metadataとcontiguous page payloadを別bufferにする。`VINERF01`、`VINEDL01`、`VINEWB01`を`VINEFR01` frameで運び、JSON numeric page arraysはevidence reportだけに限定する。現在のPTE discoveryはsliceごとにO(writable pages)、Dirty clearはTLB全clearである。このcostはAccepted decisionの正確性baselineであり、Step 8 benchmarkでgo／optimize／replaceを判断する。
+
+## 3. Required Contract
 
 Vine guest memoryは、次を同時に満たす必要がある。
 
@@ -27,7 +44,7 @@ Vine guest memoryは、次を同時に満たす必要がある。
 1. v86 pagingを使い、Vine-owned region tableとphysical allocatorからx86 page tableを生成する。
 2. v86のmemory accessをVine-owned checked sparse memoryへ差し替える。
 
-## 3. Reproduction
+## 4. Reproduction
 
 `fixtures/pe32/high-memory/fixture-memory.c`から、importなしのfixed PE32 imageを生成する。
 
@@ -36,6 +53,7 @@ npm run check:toolchain
 npm run prepare:engine
 npm run check:runtime:memory
 npm run check:runtime:memory-core
+npm run check:runtime:memory-writeback
 ```
 
 | Artifact | Observed |
@@ -49,9 +67,9 @@ npm run check:runtime:memory-core
 
 runnerは同じpage mapをsource-built v86 adapterとchecked sparse referenceへ与える。referenceはCPUへ接続せず、Windows-visible R／W／Xとfault orderingのexpected contractだけを表す。
 
-## 4. Measured Result
+## 5. Measured Result
 
-### 4.1 Mapping
+### 5.1 Mapping
 
 | Property | Result |
 |---|---:|
@@ -65,7 +83,7 @@ runnerは同じpage mapをsource-built v86 adapterとchecked sparse referenceへ
 
 high image、high stack、cross-page probeをlow physical pagesへmapし、entryはEIP `0xF1001000`から9命令でreturn trap `0xF1001070`へ到達した。EAX `0`、writable result `0x11223345`である。これは4 GiBをWasm linear memoryとして確保せずhigh VAを実行できることを示すが、2 MiB pool自体はまだcontiguousなfixture allocationである。
 
-### 4.2 Fault And Invalidation
+### 5.2 Fault And Invalidation
 
 | Probe | v86 paging | Checked sparse reference |
 |---|---|---|
@@ -80,7 +98,7 @@ v86のfixed revisionはinstruction fetchにread translationを使い、PAE page 
 
 RW PTEをread-onlyへ変更した直後はcached TLBによりwriteが通り、`full_clear_tlb`後はPFEC `7`になった。virtual code pageを別physical pageへremapした場合も、clear前は旧value `0x12345678`、clear後は新value `0x87654321`を実行した。protect／remap transactionはpage metadata更新とTLB／code invalidationを一つのowner boundaryで行う必要がある。
 
-## 5. Candidate Comparison
+## 6. Candidate Comparison
 
 | Property | v86 paging + Vine ownership | Checked sparse replacement |
 |---|---|---|
@@ -92,9 +110,9 @@ RW PTEをread-onlyへ変更した直後はcached TLBによりwriteが通り、`f
 | TLB／code cache | v86 invalidation semanticsを使う | 全fetch／decode pathを再接続する必要がある |
 | Change surface | region／allocator／fetch gate中心 | virtual access、physical access、JIT assumptionsの広い変更 |
 
-現時点では、CPU-integrated high-address executionとR／W fault orderingを保持できる前者をworking candidateとする。checked sparse案は境界が明快だが、現在はCPUに接続されておらず、hot pathとgenerated-code pathを変更する根拠が不足する。v86 paging案がexecute gate、quota、snapshot、Worker ceilingのいずれかで成立しない場合に再評価する。
+CPU-integrated high-address executionとR／W fault orderingを保持でき、automatic writebackまで接続できたため、前者をAccepted baselineとする。checked sparse案は境界が明快だが、現在はCPUに接続されておらず、hot pathとgenerated-code pathを変更する根拠が不足する。v86 paging案がexecute gate、quota、snapshot、Worker ceiling、またはStep 8 performance gateで成立しない場合に再評価する。
 
-## 6. Production Ingress Result
+## 7. Production Ingress Result
 
 `vine-core`は次をproduction-oriented Rust APIとして実装した。
 
@@ -116,19 +134,21 @@ BGI continuationは同じboundaryを388 semantic pages／generation `24`へ拡�
 
 `npm run check:runtime:memory-delta`は初回snapshotのack後にnon-executable RW pageへ8 bytesを書き、generation `11`の1-page／4 KiB deltaをlive v86 mappingへ適用する。cache effectsはすべてfalseで、guest x86はEDX:EAX `0x8877665544332211`を読む。mapping／write-to-code／partial ackとtransaction failpointのRust contractを含む詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)を正とする。
 
+`npm run check:runtime:memory-writeback`は9 production pagesをbinary reflectionし、8 writable PTEをAPI固有page listなしでscanする。first sliceはstack 2、heap 2、surface 2、RWX target 1の計7 dirty pagesを検出し、49 changed bytesをgeneration `18 -> 19`としてatomic reconcileする。Rustからscratch pageへのbinary deltaをgeneration `19 -> 20`で適用した後、second sliceは別のstack／heap／surface／RWX 4 pagesだけを検出し、13 changed bytesをgeneration `20 -> 21`へ進める。各scanはDirty bit clear後にTLBをflushし、untouched scratch pageはfirst sliceでclean、Rustはreceipt後dirty 0／pending invalidationなしとなる。詳細は[memory-writeback.md](memory-writeback.md)を正とする。
+
 BGI first-call continuationは、outputとlive call frameが同じstack pageにあるcaseを固定した。adapterがcurrent 4 KiB pageをgeneration `24`／owner `4`付きで供給し、Rustはalignment／size／mapping／write permissionをchecked reconcileする。この取込はgenerationを進めずdirtyにもせず、直後の8-byte host writeだけがgeneration `25` deltaを作る。full delta pageがcurrent adapter page＋outputと一致することを検査した。これはexplicit one-page handoffであり、自動dirty trackingではない。詳細は[v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md)を正とする。
 
-次は未実装であり、このADRをAcceptedへ進める前に閉じる。
+次は未実装であり、後続checkpointで閉じる。
 
-- v86側guest writeを自動検出しRustへ戻すgeneral bidirectional dirty-page ownership
 - process-wide stack／heap／module mappingとexecute gate、fault classificationのgeneralization
 - region／page／CPU generationを揃えるsnapshot contract
 - guard、mapped file、copy-on-write、sharing、memory pressure、Worker ceiling
+- writable-page scan／full TLB clearのtitle-workload performanceと必要なincremental dirty index
 
 host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 facadeからsemantic map requestを渡す。page tableのraw bytes、physical page number、v86 private offsetをWindows API層へ公開しない。
 
-## 7. Non-Claims And Next Gate
+## 8. Non-Claims And Next Gate
 
-production ingressとcontrolled reflection checkpointは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、automatic v86-originated dirty capture、PAE／NX、decode-aware cross-page execute permission、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはhost-originated dirty pagesをv86へ差分反映でき、one explicit CPU pageをreconcileできるが、general heap／module lifecycleには未接続である。
+production ingress、controlled reflection、automatic multi-page writebackは完了したが、`P0-ARCH-03`、`P1-MEM-01`～`P1-MEM-03`、`P1-CPU-01`、`AC-P1`を完了しない。guard、copy-on-write、mapped file、all-width access、PAE／NX、decode-aware cross-page execute permission、snapshot、memory pressure、Chrome Workerは未検証である。Rust sparse implementationはhost／CPU両方向のchanged-page transferをgeneration単位で行えるが、general heap／module lifecycleやsnapshotには未接続である。
 
-owned W7 plan、entry completion、initial stack、typed bootstrap reflection、atomic import binding、MemoryDelta、BGI first API returnまで進んだ。host API outputとbounded one-page reconciliationは成立したが、automatic v86-originated mutation、stack growth／heap／snapshotが未完了であるためADR statusは変えない。
+owned W7 plan、entry completion、initial stack、typed bootstrap reflection、atomic import binding、MemoryDelta、BGI 17-call continuation、automatic CPU writebackまで進んだ。次のgateは同じbinary／generation boundaryをChrome Runtime Worker内で使うproduction vertical sliceである。

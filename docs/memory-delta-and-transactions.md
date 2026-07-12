@@ -6,11 +6,12 @@
 - Date: 2026-07-12
 - Rust boundary: `vine-core::GuestMemory`
 - Incremental transfer: `MemoryDelta`
-- v86 evidence: `vine.v86-memory-delta-roundtrip` version `1`
+- CPU writeback: `CpuWritebackBatch`
+- v86 evidence: `vine.v86-memory-delta-roundtrip`／`vine.v86-memory-writeback` version `1`
 
 ## Transfer model
 
-`GuestMemory` is the semantic source. The first CPU connection uses
+`GuestMemory` is the byte and metadata authority. The first CPU connection uses
 `pending_reflection()` to transfer every committed page. After that generation
 is acknowledged, `pending_reflection()` is rejected and callers use
 `pending_delta()`.
@@ -45,7 +46,24 @@ and the generation and owner match. The bytes already active in the CPU mirror
 replace the Rust frame without advancing generation or making it dirty. A
 following host write can then emit a normal full-page delta without erasing
 guest stack changes. This is a synchronous one-page handoff, not general dirty
-tracking.
+tracking; it remains for older checkpoint replay.
+
+The production direction is `reconcile_cpu_writeback[_binary]`. At every
+bounded CPU stop, the execution mirror scans all writable PTEs, collects pages
+whose x86 Dirty bit is set, clears those bits, flushes the TLB, and submits one
+generation-tagged batch. Rust preflights the whole batch for synchronized base
+generation, unique aligned addresses, owner, writable mapping, exact page size,
+and configured limits. Any failure leaves all bytes and generations unchanged.
+A valid multi-page batch copies only pages whose bytes actually differ in one
+transaction, advances generation once, and acknowledges that generation
+without emitting a Rust-to-v86 delta because the mirror already has those
+bytes. RWX pages are detected and counted in the receipt.
+
+Initial reflection (`VINERF01`), host delta (`VINEDL01`), and CPU writeback
+(`VINEWB01`) use fixed-width binary control descriptors and a separate
+contiguous page payload. `VINEFR01` bounds the two buffers on the session
+transport. JSON page-byte arrays are no longer part of the production memory
+path; JSON remains an evidence format.
 
 ## Transaction model
 
@@ -91,6 +109,7 @@ Reproduction:
 ```powershell
 npm run prepare:engine
 npm run check:runtime:memory-delta
+npm run check:runtime:memory-writeback
 ```
 
 The public session reflects code, data, and a two-page execute-gate fixture.
@@ -142,13 +161,22 @@ The sixth BGI call reconciles 31 additional stack-byte changes at generation
 `27` as another one-page data-only delta before the VOID return. See
 [v86-bgi-sixth-win32-call.md](v86-bgi-sixth-win32-call.md).
 
+The automatic writeback session reflects nine pages through binary buffers and
+executes two consecutive slices. The first discovers seven stack／heap／surface／
+RWX pages and reconciles 49 changed bytes at generation `18 -> 19`; an
+intervening one-page host delta advances `19 -> 20`; the second discovers four
+different writable pages and reconciles 13 changed bytes at `20 -> 21`.
+Untouched writable pages remain clean, every Dirty clear is followed by a TLB
+flush, and Rust ends each receipt with no dirty page or pending invalidation.
+See [memory-writeback.md](memory-writeback.md).
+
 ## Limits
 
-- Delta page payloads are still JSON numeric arrays; binary IPC is deferred.
-- Dirty ownership remains Rust-to-v86 in general. Only one explicitly supplied,
-  generation／owner-checked full page can currently be reconciled from v86;
-  automatic write detection, multi-page writeback, conflicts, and scheduling
-  are not implemented.
+- PTE Dirty discovery is O(writable mappings) per bounded slice and currently
+  clears the full TLB. Title-workload cost is deferred to the v86 benchmark.
+- The binary fixture transport is synchronous. Chrome Worker cancellation,
+  receipt-loss recovery, and an idempotent production queue are not yet
+  implemented; ambiguous completion destroys and rebuilds the mirror.
 - Transaction journal metadata grows with changed owners, regions, pages, and
   allocator operations. Exact frame payload is measured, but host allocator
   overhead and process RSS are not yet benchmarked.
