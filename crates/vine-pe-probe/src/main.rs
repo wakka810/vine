@@ -50,6 +50,7 @@ struct Arguments {
     v86_reflection_session: bool,
     checkpoint_session: Option<RuntimeCheckpointSelection>,
     generic_runtime_reentry: bool,
+    generic_runtime_capability: Option<GenericRuntimeCapability>,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -74,6 +75,11 @@ const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 256;
 const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GenericRuntimeCapability {
+    Kernel32CriticalSectionSynchronization,
+}
 
 struct GenericRuntimeProcess {
     runtime: RuntimeState,
@@ -1602,6 +1608,7 @@ fn run_v86_reflection_session(
     const MAX_REFLECTION_MESSAGE_BYTES: usize = 512 * 1024;
     const MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
     let generic_runtime_reentry = arguments.generic_runtime_reentry;
+    let generic_runtime_capability = arguments.generic_runtime_capability;
     let supported_call_count = arguments
         .checkpoint_session
         .as_ref()
@@ -2014,7 +2021,12 @@ fn run_v86_reflection_session(
     };
     write_protocol_message(&receipt, reflection_message_limit)?;
     if let Some(generic_runtime) = generic_runtime {
-        run_v86_generic_runtime_session(&mut protocol_input, &mut memory, generic_runtime)?;
+        run_v86_generic_runtime_session(
+            &mut protocol_input,
+            &mut memory,
+            generic_runtime,
+            generic_runtime_capability,
+        )?;
     } else if supported_call_count >= 1 {
         let mut runtime = controlled_runtime_state(&dynamic_export_thunks)?;
         let return_sessions = V86ReturnSessionOptions {
@@ -2315,6 +2327,7 @@ fn run_v86_generic_runtime_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
     mut process: GenericRuntimeProcess,
+    enabled_capability: Option<GenericRuntimeCapability>,
 ) -> Result<(), LoaderError> {
     let endpoints = process
         .binding
@@ -2333,6 +2346,9 @@ fn run_v86_generic_runtime_session(
     for endpoint in &endpoints {
         if let Some(contract) =
             kernel32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)?
+            && (enabled_capability
+                == Some(GenericRuntimeCapability::Kernel32CriticalSectionSynchronization)
+                || !is_critical_section_endpoint(endpoint))
         {
             contracts.push(contract);
         }
@@ -2495,6 +2511,19 @@ fn run_v86_generic_runtime_session(
         "generic-runtime-trap-limit-exceeded",
         "generic runtime re-entry exceeded its bounded trap limit",
     ))
+}
+
+fn is_critical_section_endpoint(endpoint: &ApiEndpointIdentity) -> bool {
+    matches!(
+        &endpoint.symbol,
+        vine_core::ApiSymbol::Name { name }
+            if matches!(
+                name.as_str(),
+                "InitializeCriticalSectionAndSpinCount"
+                    | "EnterCriticalSection"
+                    | "LeaveCriticalSection"
+            )
+    )
 }
 
 fn send_pending_runtime_delta(
@@ -7546,6 +7575,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut trap_unsupported_imports = false;
     let mut v86_reflection_session = false;
     let mut generic_runtime_reentry = false;
+    let mut generic_runtime_capability = None;
     let mut checkpoint_manifest = None;
     let mut checkpoint_id = None;
     let mut large_image_reflection = false;
@@ -7611,6 +7641,18 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             generic_runtime_reentry = true;
+        } else if argument == "--runtime-capability" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            let value = value.into_string().map_err(|_| usage_error())?;
+            let capability = match value.as_str() {
+                "kernel32-critical-section-synchronization" => {
+                    GenericRuntimeCapability::Kernel32CriticalSectionSynchronization
+                }
+                _ => return Err(usage_error()),
+            };
+            if generic_runtime_capability.replace(capability).is_some() {
+                return Err(usage_error());
+            }
         } else if argument == "--checkpoint-manifest" {
             let value = arguments.next().ok_or_else(usage_error)?;
             if checkpoint_manifest.replace(PathBuf::from(value)).is_some() {
@@ -7704,6 +7746,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if generic_runtime_reentry && (!v86_reflection_session || checkpoint_manifest.is_none()) {
         return Err(usage_error());
     }
+    if generic_runtime_capability.is_some() && !generic_runtime_reentry {
+        return Err(usage_error());
+    }
     if checkpoint_manifest.is_some() != checkpoint_id.is_some()
         || (checkpoint_manifest.is_some() && !v86_reflection_session)
     {
@@ -7730,6 +7775,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         v86_reflection_session,
         checkpoint_session,
         generic_runtime_reentry,
+        generic_runtime_capability,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -7812,7 +7858,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

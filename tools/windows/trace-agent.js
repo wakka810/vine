@@ -13,6 +13,9 @@ const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
 const activeCallsByThread = new Map();
+let criticalSectionOracleScheduled = false;
+let criticalSectionOracleSentinel = null;
+let criticalSectionOracleLastError = null;
 
 function emit(kind, fields = {}) {
   send({
@@ -113,6 +116,40 @@ function snapshotStartupInfoW(pointer, decodeStrings = false) {
             },
           }
         : {}),
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
+function snapshotCriticalSection(pointer) {
+  const size = 24;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 CRITICAL_SECTION observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    const bytes = [...new Uint8Array(buffer)];
+    const view = new DataView(buffer);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes,
+      fields: {
+        debugInfo: view.getUint32(0, true),
+        lockCount: view.getInt32(4, true),
+        recursionCount: view.getInt32(8, true),
+        owningThread: view.getUint32(12, true),
+        lockSemaphore: view.getUint32(16, true),
+        spinCount: view.getUint32(20, true),
+      },
     };
   } catch (error) {
     return { pointer: pointer.toString(), size, error: error.message };
@@ -255,6 +292,18 @@ if (selectedObservations.has("pointer-encoding")) {
     ["DecodePointer", [null]],
   );
 }
+if (selectedObservations.has("critical-section")) {
+  hooks["kernel32.dll"].push(
+    ["InitializeCriticalSection", [null]],
+    ["InitializeCriticalSectionAndSpinCount", [null, null]],
+    ["InitializeCriticalSectionEx", [null, null, null]],
+    ["EnterCriticalSection", [null]],
+    ["TryEnterCriticalSection", [null]],
+    ["LeaveCriticalSection", [null]],
+    ["SetCriticalSectionSpinCount", [null, null]],
+    ["DeleteCriticalSection", [null]],
+  );
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -371,12 +420,27 @@ function attachHook(module, name, decoders) {
 
   Interceptor.attach(address, {
     onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      this.traceCriticalSectionOracle =
+        criticalSectionOracleSentinel !== null &&
+        selectedObservations.has("critical-section") &&
+        name.includes("CriticalSection") &&
+        caller.module === "frida-agent.dll";
+      if (this.traceCriticalSectionOracle) {
+        this.lastError = criticalSectionOracleSentinel;
+      }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
       const observation =
         name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
+          : selectedObservations.has("critical-section") &&
+              name.includes("CriticalSection")
+            ? {
+                lastErrorBefore: Number(this.lastError) >>> 0,
+                criticalSectionBefore: snapshotCriticalSection(args[0]),
+              }
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||
               (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||
@@ -387,6 +451,11 @@ function attachHook(module, name, decoders) {
             : {};
       this.traceStartupInfoPointer =
         name === "GetStartupInfoW" ? args[0] : null;
+      this.traceCriticalSectionPointer =
+        selectedObservations.has("critical-section") &&
+        name.includes("CriticalSection")
+          ? args[0]
+          : null;
       this.traceFrame = beginCall(
         {
           module: module.name,
@@ -399,15 +468,26 @@ function attachHook(module, name, decoders) {
     },
     onLeave(result) {
       const lastError = this.lastError;
-      const observation =
-        this.traceStartupInfoPointer === null
+      if (this.traceCriticalSectionOracle) {
+        criticalSectionOracleLastError = Number(lastError) >>> 0;
+      }
+      const observation = {
+        ...(this.traceStartupInfoPointer === null
           ? {}
           : {
               startupInfoAfter: snapshotStartupInfoW(
                 this.traceStartupInfoPointer,
                 true,
               ),
-            };
+            }),
+        ...(this.traceCriticalSectionPointer === null
+          ? {}
+          : {
+              criticalSectionAfter: snapshotCriticalSection(
+                this.traceCriticalSectionPointer,
+              ),
+            }),
+      };
       finishCall(
         this.traceFrame,
         {
@@ -422,6 +502,86 @@ function attachHook(module, name, decoders) {
         attachIdirect3d9(result);
       }
     },
+  });
+}
+
+function scheduleCriticalSectionOracle(module) {
+  if (criticalSectionOracleScheduled) {
+    return;
+  }
+  criticalSectionOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = (name) => {
+        const result = findExport(module, name);
+        if (result === null) {
+          throw new Error(`${name} export is unavailable`);
+        }
+        return result;
+      };
+      const initialize = new NativeFunction(
+        address("InitializeCriticalSectionAndSpinCount"),
+        "int",
+        ["pointer", "uint32"],
+        "stdcall",
+      );
+      const enter = new NativeFunction(
+        address("EnterCriticalSection"),
+        "void",
+        ["pointer"],
+        "stdcall",
+      );
+      const leave = new NativeFunction(
+        address("LeaveCriticalSection"),
+        "void",
+        ["pointer"],
+        "stdcall",
+      );
+      const delete_ = new NativeFunction(
+        address("DeleteCriticalSection"),
+        "void",
+        ["pointer"],
+        "stdcall",
+      );
+      const storage = Memory.alloc(24);
+      storage.writeByteArray(Array(24).fill(0xa5));
+      const states = [{ step: "before", snapshot: snapshotCriticalSection(storage) }];
+      const invoke = (step, sentinel, operation) => {
+        criticalSectionOracleSentinel = sentinel;
+        criticalSectionOracleLastError = null;
+        try {
+          const result = operation();
+          const lastError = criticalSectionOracleLastError;
+          if (lastError === null) {
+            throw new Error(`${step} did not pass through the critical-section hook`);
+          }
+          states.push({
+            step,
+            sentinel,
+            result: result === undefined ? null : Number(result),
+            lastError,
+            snapshot: snapshotCriticalSection(storage),
+          });
+        } finally {
+          criticalSectionOracleSentinel = null;
+          criticalSectionOracleLastError = null;
+        }
+      };
+      invoke("initialize", 87, () => initialize(storage, 4000));
+      invoke("enter-first", 88, () => enter(storage));
+      invoke("enter-recursive", 89, () => enter(storage));
+      invoke("leave-recursive", 90, () => leave(storage));
+      invoke("leave-final", 91, () => leave(storage));
+      invoke("delete", 92, () => delete_(storage));
+      emit("critical-section-oracle", {
+        profile: "x86-uncontended-recursive-v1",
+        structureSize: 24,
+        spinCount: 4000,
+        states,
+      });
+    } catch (error) {
+      emit("critical-section-oracle-error", { error: error.message });
+    }
   });
 }
 
@@ -444,6 +604,12 @@ Process.attachModuleObserver({
       } catch (error) {
         emit("hook-error", { module: module.name, api: name, error: error.message });
       }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("critical-section")
+    ) {
+      scheduleCriticalSectionOracle(module);
     }
   },
 });

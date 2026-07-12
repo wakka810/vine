@@ -25,6 +25,7 @@ let manifestPath = defaultManifestPath;
 let checkpointOptionSeen = false;
 let manifestOptionSeen = false;
 let genericRuntimeReentry = false;
+let genericRuntimeCapability = null;
 const positionalArguments = [];
 for (let index = 0; index < commandArguments.length; index += 1) {
   const argument = commandArguments[index];
@@ -43,6 +44,14 @@ for (let index = 0; index < commandArguments.length; index += 1) {
   } else if (argument === "--generic-runtime-reentry") {
     assert(!genericRuntimeReentry, "--generic-runtime-reentry may be specified only once");
     genericRuntimeReentry = true;
+  } else if (argument === "--runtime-capability") {
+    assert(genericRuntimeCapability === null, "--runtime-capability may be specified only once");
+    genericRuntimeCapability = commandArguments[index + 1] ?? null;
+    assert(
+      genericRuntimeCapability === "kernel32-critical-section-synchronization",
+      "unsupported --runtime-capability value",
+    );
+    index += 1;
   } else {
     assert(!argument.startsWith("--"), `unknown option ${argument}`);
     positionalArguments.push(argument);
@@ -50,7 +59,11 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization]] [WASM] [BGI.exe]",
+);
+assert(
+  genericRuntimeCapability === null || genericRuntimeReentry,
+  "--runtime-capability requires --generic-runtime-reentry",
 );
 const checkpointManifest = loadRuntimeCheckpointManifest(manifestPath);
 const selectedCheckpoint = selectRuntimeCheckpoint(checkpointManifest, checkpointId);
@@ -83,8 +96,10 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  genericRuntimeReentry
-    ? "v86-bgi-generic-runtime-reentry"
+  genericRuntimeCapability !== null
+    ? "v86-bgi-critical-section-synchronization"
+    : genericRuntimeReentry
+      ? "v86-bgi-generic-runtime-reentry"
     : selectedCheckpoint.artifactDirectory,
 );
 const reportPath = path.join(outputDirectory, "report.json");
@@ -1168,6 +1183,33 @@ const genericRuntimeExpected = {
   reportBytes: 96_244,
   reportSha256: "a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa",
 };
+const criticalSectionSynchronizationExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 35,
+  initializationCalls: 14,
+  firstStorageAddress: 0x100ff630,
+  storageStride: 24,
+  spinCount: 4000,
+  writebackBatches: 36,
+  dirtyPages: 65,
+  changedBytes: 344,
+  hostDeltaBatches: 17,
+  finalGeneration: 80,
+  firstUnsupported: {
+    capabilityCluster: "kernel32-pointer-encoding",
+    endpointId: 88,
+    endpointAddress: 0x7f000570,
+    module: "kernel32.dll",
+    symbol: "DecodePointer",
+    iatAddress: 0x100d1208,
+    arguments: [0xec010003],
+    returnAddress: 0x100a5924,
+    instructionCount: 575,
+    faultCode: "endpoint-contract-missing",
+  },
+  reportBytes: 167_719,
+  reportSha256: "cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -1506,6 +1548,9 @@ async function run() {
     "--checkpoint",
     selectedCheckpoint.id,
     ...(genericRuntimeReentry ? ["--generic-runtime-reentry"] : []),
+    ...(genericRuntimeCapability === null
+      ? []
+      : ["--runtime-capability", genericRuntimeCapability]),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -1618,15 +1663,34 @@ async function run() {
         sourceAfter,
         sourceBefore,
       });
-      validateGenericRuntimeReentryResult(genericResult);
+      if (genericRuntimeCapability === null) {
+        validateGenericRuntimeReentryResult(genericResult);
+      } else {
+        validateCriticalSectionSynchronizationResult(genericResult);
+      }
       fs.mkdirSync(outputDirectory, { recursive: true });
       const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-      assert.equal(reportBytes.byteLength, genericRuntimeExpected.reportBytes);
-      assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
+      if (genericRuntimeCapability === null) {
+        assert.equal(reportBytes.byteLength, genericRuntimeExpected.reportBytes);
+        assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
+      } else {
+        assert.equal(
+          reportBytes.byteLength,
+          criticalSectionSynchronizationExpected.reportBytes,
+        );
+        assert.equal(
+          sha256(reportBytes),
+          criticalSectionSynchronizationExpected.reportSha256,
+        );
+      }
       fs.writeFileSync(reportPath, reportBytes);
+      const checkpointLabel =
+        genericRuntimeCapability === null
+          ? "bgi generic runtime re-entry"
+          : "bgi critical-section synchronization";
       console.log(
-        `bgi generic runtime re-entry passed: ${genericResult.supportedCalls.length} ` +
-          `generic calls, first unsupported cluster ${genericResult.fault.capabilityCluster}`,
+        `${checkpointLabel} passed: ${genericResult.supportedCalls.length} generic calls, ` +
+          `first unsupported cluster ${genericResult.fault.capabilityCluster}`,
       );
       console.log(
         `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
@@ -1819,7 +1883,7 @@ async function runGenericRuntimeReentry({
       returnAddress: terminal.returnAddress,
     };
     const criticalSectionBytesBefore =
-      endpoint.symbol === genericRuntimeExpected.firstUnsupported.symbol
+      endpoint.symbol === "InitializeCriticalSectionAndSpinCount"
         ? Buffer.from(
             context.readVirtualBytes(
               terminal.stackWords[1],
@@ -1958,7 +2022,10 @@ function validateGenericRuntimeReady(ready, offer) {
   assert.equal(ready.modules.length, expected.imports.modules + 1);
   assert.equal(ready.dependencyEdges, expected.imports.modules);
   assert.equal(ready.runtimeExportEndpoints, expected.imports.total);
-  assert.equal(ready.implementedApiContracts, declaredDispatches.length);
+  assert.equal(
+    ready.implementedApiContracts,
+    declaredDispatches.length + (genericRuntimeCapability === null ? 0 : 3),
+  );
   assert.equal(ready.dynamicExportEndpoints, 4);
   assert.equal(ready.memory.generation, offer.reflection.invalidation.generation);
   assert.equal(ready.memory.acknowledgedGeneration, offer.reflection.invalidation.generation);
@@ -2379,6 +2446,74 @@ function validateGenericRuntimeReentryResult(result) {
   );
 }
 
+function validateCriticalSectionSynchronizationResult(result) {
+  const expected = criticalSectionSynchronizationExpected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  const initializations = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "InitializeCriticalSectionAndSpinCount",
+  );
+  assert.equal(initializations.length, expected.initializationCalls);
+  const unlockedBytes = [
+    0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    0xa0, 0x0f, 0, 0,
+  ];
+  initializations.forEach((call, index) => {
+    const address = expected.firstStorageAddress + index * expected.storageStride;
+    assert.equal(call.occurrence, index + 1);
+    assert.deepEqual(call.arguments, [address, expected.spinCount]);
+    assert.deepEqual(call.result, { action: "set", value: 1 });
+    assert.equal(
+      call.implementationId,
+      "kernel32.initialize-critical-section-and-spin-count.v1",
+    );
+    assert.equal(call.guestWrites.length, 1);
+    assert.equal(call.guestWrites[0].address, address);
+    assert.deepEqual(call.guestWrites[0].bytes, unlockedBytes);
+  });
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: unsupported.symbol,
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -2397,7 +2532,10 @@ function buildGenericRuntimeReentryReport({
     0,
   );
   return {
-    schema: "vine.v86-bgi-generic-runtime-reentry",
+    schema:
+      genericRuntimeCapability === null
+        ? "vine.v86-bgi-generic-runtime-reentry"
+        : "vine.v86-bgi-critical-section-synchronization",
     schemaVersion: 1,
     source: offer.source,
     sourceSnapshot: {
@@ -2416,6 +2554,9 @@ function buildGenericRuntimeReentryReport({
       frozenCheckpoint: selectedCheckpoint.id,
       frozenSupportedCalls: selectedCheckpoint.supportedCallCount,
       continueFromOwnedTrapWithoutNumberedCheckpoint: true,
+      ...(genericRuntimeCapability === null
+        ? {}
+        : { enabledCapability: genericRuntimeCapability }),
     },
     process: runtimeReady,
     reflection: {

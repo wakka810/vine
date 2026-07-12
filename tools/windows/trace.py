@@ -21,6 +21,7 @@ SUPPORTED_OBSERVATIONS = (
     "dynamic-export",
     "tls-lifecycle",
     "pointer-encoding",
+    "critical-section",
 )
 
 

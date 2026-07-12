@@ -9,7 +9,8 @@ use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
 use crate::memory::GuestAddress;
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
-    LOGICAL_PRIVATE_HEAP_NAMESPACE, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    LOGICAL_PRIVATE_HEAP_NAMESPACE, RuntimeCriticalSection, X86_CRITICAL_SECTION_BYTE_LENGTH,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -26,6 +27,10 @@ pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1"
 pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
 pub const TLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.tls-set-value.v1";
 pub const ENCODE_POINTER_IMPLEMENTATION: &str = "kernel32.encode-pointer.v1";
+pub const INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION: &str =
+    "kernel32.initialize-critical-section-and-spin-count.v1";
+pub const ENTER_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.enter-critical-section.v1";
+pub const LEAVE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.leave-critical-section.v1";
 
 const HEAP_ENABLE_TERMINATION_ON_CORRUPTION: u32 = 1;
 const MAX_MODULE_NAME_CODE_UNITS: usize = 64;
@@ -56,6 +61,15 @@ pub fn dispatch_kernel32_api(
         TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
         TLS_SET_VALUE_IMPLEMENTATION => handle_tls_set_value(contract, frame, session),
         ENCODE_POINTER_IMPLEMENTATION => handle_encode_pointer(contract, frame, session),
+        INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION => {
+            handle_initialize_critical_section_and_spin_count(contract, frame, session)
+        }
+        ENTER_CRITICAL_SECTION_IMPLEMENTATION => {
+            handle_enter_critical_section(contract, frame, session)
+        }
+        LEAVE_CRITICAL_SECTION_IMPLEMENTATION => {
+            handle_leave_critical_section(contract, frame, session)
+        }
         implementation_id => Err(ApiFault::unsupported(
             "win32-api-dispatch",
             "implementation-id-unsupported",
@@ -91,6 +105,11 @@ pub fn kernel32_contract_for_endpoint(
         "TlsAlloc" => tls_alloc_contract(endpoint)?,
         "TlsSetValue" => tls_set_value_contract(endpoint)?,
         "EncodePointer" => encode_pointer_contract(endpoint)?,
+        "InitializeCriticalSectionAndSpinCount" => {
+            initialize_critical_section_and_spin_count_contract(endpoint)?
+        }
+        "EnterCriticalSection" => enter_critical_section_contract(endpoint)?,
+        "LeaveCriticalSection" => leave_critical_section_contract(endpoint)?,
         _ => return Ok(None),
     };
     Ok(Some(contract))
@@ -295,6 +314,124 @@ fn handle_encode_pointer(
         namespace: encoded.namespace,
         value: encoded.token,
     }))
+}
+
+fn handle_initialize_critical_section_and_spin_count(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(
+        contract,
+        frame,
+        0,
+        "critical section storage",
+    )?);
+    let spin_count = required_argument(contract, frame, 1, "critical section spin count")?;
+    let section = session
+        .runtime_mut()
+        .initialize_critical_section(address, spin_count)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_guest_write(address, x86_critical_section_bytes(section)))
+}
+
+fn handle_enter_critical_section(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(
+        contract,
+        frame,
+        0,
+        "critical section storage",
+    )?);
+    validate_x86_critical_section(contract, session, address)?;
+    let current_thread_id = session.runtime().current_thread_id();
+    if let Some(owner) = session
+        .runtime()
+        .critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .owning_thread_id
+        && owner != current_thread_id
+    {
+        return Err(ApiFault::unsupported(
+            "win32-critical-section",
+            "critical-section-contention-unimplemented",
+            format!(
+                "critical section {:#010x} is owned by thread {}; scheduler blocking is not implemented",
+                address.0, owner.0
+            ),
+        ));
+    }
+    let section = session
+        .runtime_mut()
+        .enter_critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Void)
+        .with_guest_write(address, x86_critical_section_bytes(section)))
+}
+
+fn handle_leave_critical_section(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(
+        contract,
+        frame,
+        0,
+        "critical section storage",
+    )?);
+    validate_x86_critical_section(contract, session, address)?;
+    let section = session
+        .runtime_mut()
+        .leave_critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Void)
+        .with_guest_write(address, x86_critical_section_bytes(section)))
+}
+
+fn validate_x86_critical_section(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+    address: GuestAddress,
+) -> Result<(), ApiFault> {
+    let section = session
+        .runtime()
+        .critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let expected = x86_critical_section_bytes(section);
+    let actual = session
+        .memory()
+        .read(address, X86_CRITICAL_SECTION_BYTE_LENGTH)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    if actual != expected {
+        return Err(ApiFault::invalid_call(
+            "win32-critical-section",
+            "critical-section-guest-state-mismatch",
+            "guest CRITICAL_SECTION bytes differ from the process-owned synchronization state",
+        ));
+    }
+    Ok(())
+}
+
+fn x86_critical_section_bytes(section: &RuntimeCriticalSection) -> Vec<u8> {
+    let lock_count = if section.recursion_count == 0 {
+        -1_i32
+    } else {
+        -2_i32
+    };
+    let owning_thread = section.owning_thread_id.map_or(0, |thread| thread.0);
+    let mut bytes = Vec::with_capacity(X86_CRITICAL_SECTION_BYTE_LENGTH);
+    bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+    bytes.extend_from_slice(&lock_count.to_le_bytes());
+    bytes.extend_from_slice(&section.recursion_count.to_le_bytes());
+    bytes.extend_from_slice(&owning_thread.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&section.spin_count.to_le_bytes());
+    bytes
 }
 
 fn required_argument(
@@ -600,6 +737,57 @@ pub fn encode_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
     )
 }
 
+pub fn initialize_critical_section_and_spin_count_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "InitializeCriticalSectionAndSpinCount",
+        vec![
+            out_struct(
+                "criticalSection",
+                "RTL_CRITICAL_SECTION",
+                X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
+            ),
+            u32_argument("spinCount"),
+        ],
+        ApiReturnSchema::Bool32,
+        INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION,
+    )
+}
+
+pub fn enter_critical_section_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "EnterCriticalSection",
+        vec![inout_struct(
+            "criticalSection",
+            "RTL_CRITICAL_SECTION",
+            X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
+        )],
+        ApiReturnSchema::Void,
+        ENTER_CRITICAL_SECTION_IMPLEMENTATION,
+    )
+}
+
+pub fn leave_critical_section_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "LeaveCriticalSection",
+        vec![inout_struct(
+            "criticalSection",
+            "RTL_CRITICAL_SECTION",
+            X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
+        )],
+        ApiReturnSchema::Void,
+        LEAVE_CRITICAL_SECTION_IMPLEMENTATION,
+    )
+}
+
 fn kernel32_contract(
     endpoint: ApiEndpointIdentity,
     name: &str,
@@ -708,6 +896,24 @@ fn out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema 
     ApiArgumentSchema {
         name: name.to_owned(),
         direction: ApiDirection::Out,
+        value: ApiValueSchema::Pointer {
+            constraint: ApiPointerConstraint {
+                nullable: false,
+                alignment: 4,
+                byte_length,
+                pointee: ApiPointeeSchema::Struct {
+                    type_id: type_id.to_owned(),
+                },
+                write_requirement: ApiWriteRequirement::Required,
+            },
+        },
+    }
+}
+
+fn inout_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::InOut,
         value: ApiValueSchema::Pointer {
             constraint: ApiPointerConstraint {
                 nullable: false,

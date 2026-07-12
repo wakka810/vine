@@ -43,6 +43,8 @@ pub const RUNTIME_PRIVATE_HEAP_FREED_BYTE: u8 = 0xdd;
 pub const RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS: usize = 65_536;
 pub const TLS_OUT_OF_INDEXES: u32 = u32::MAX;
 pub const X86_STARTUP_INFO_W_BYTE_LENGTH: usize = 68;
+pub const X86_CRITICAL_SECTION_BYTE_LENGTH: usize = 24;
+pub const RUNTIME_CRITICAL_SECTION_LIMIT: usize = 4096;
 
 const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
 const RUNTIME_PRIVATE_HEAP_OWNER: &str = "runtime-process-private-heaps";
@@ -1226,6 +1228,15 @@ pub enum RuntimeTlsValue {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCriticalSection {
+    pub address: GuestAddress,
+    pub spin_count: u32,
+    pub owning_thread_id: Option<RuntimeThreadId>,
+    pub recursion_count: u32,
+}
+
 impl RuntimeTlsValue {
     pub fn raw_value(&self) -> u32 {
         match self {
@@ -1453,6 +1464,7 @@ pub struct RuntimeProcessState {
     pub heaps: BTreeMap<u32, RuntimeHeap>,
     pub modules: BTreeMap<u32, RuntimeModule>,
     pub allocated_tls_indices: BTreeSet<u32>,
+    pub critical_sections: BTreeMap<GuestAddress, RuntimeCriticalSection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1565,6 +1577,7 @@ impl RuntimeState {
                 heaps: BTreeMap::new(),
                 modules: BTreeMap::new(),
                 allocated_tls_indices: BTreeSet::new(),
+                critical_sections: BTreeMap::new(),
             },
             threads: BTreeMap::from([(bootstrap.initial_thread_id, initial_thread)]),
             scheduler: RuntimeScheduler {
@@ -3853,6 +3866,181 @@ impl RuntimeState {
             .values()
             .filter(|thread| thread.tls_values.contains_key(&index))
             .count()
+    }
+
+    pub fn initialize_critical_section(
+        &mut self,
+        address: GuestAddress,
+        spin_count: u32,
+    ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
+        self.require_critical_section_operation_state()?;
+        if address.0 == 0 || !address.0.is_multiple_of(4) {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-critical-section",
+                "critical-section-address-invalid",
+                "critical section storage must be a nonzero 4-byte-aligned guest address",
+            ));
+        }
+        if spin_count > 0x00ff_ffff {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-critical-section",
+                "critical-section-spin-count-invalid",
+                "critical section spin count exceeds the Win32 24-bit range",
+            ));
+        }
+        if self.process.critical_sections.contains_key(&address) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-already-initialized",
+                format!(
+                    "critical section storage {:#010x} is already initialized",
+                    address.0
+                ),
+            ));
+        }
+        if self.process.critical_sections.len() >= RUNTIME_CRITICAL_SECTION_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-critical-section",
+                "critical-section-limit-exceeded",
+                "process critical section count exceeds the runtime bound",
+            ));
+        }
+        self.process.critical_sections.insert(
+            address,
+            RuntimeCriticalSection {
+                address,
+                spin_count,
+                owning_thread_id: None,
+                recursion_count: 0,
+            },
+        );
+        self.critical_section(address)
+    }
+
+    pub fn enter_critical_section(
+        &mut self,
+        address: GuestAddress,
+    ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
+        self.require_critical_section_operation_state()?;
+        let current_thread_id = self.current_thread_id();
+        let section = self
+            .process
+            .critical_sections
+            .get_mut(&address)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-critical-section",
+                    "critical-section-uninitialized",
+                    format!(
+                        "critical section storage {:#010x} is not initialized",
+                        address.0
+                    ),
+                )
+            })?;
+        match section.owning_thread_id {
+            None if section.recursion_count == 0 => {
+                section.owning_thread_id = Some(current_thread_id);
+                section.recursion_count = 1;
+            }
+            Some(owner) if owner == current_thread_id && section.recursion_count != 0 => {
+                section.recursion_count =
+                    section.recursion_count.checked_add(1).ok_or_else(|| {
+                        RuntimeStateError::resource_limit(
+                            "runtime-critical-section",
+                            "critical-section-recursion-overflow",
+                            "critical section recursion count overflowed",
+                        )
+                    })?;
+            }
+            Some(owner) if owner != current_thread_id && section.recursion_count != 0 => {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-critical-section",
+                    "critical-section-contended",
+                    format!(
+                        "critical section {:#010x} is owned by thread {}",
+                        address.0, owner.0
+                    ),
+                ));
+            }
+            _ => {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-critical-section",
+                    "critical-section-owner-recursion-inconsistent",
+                    "critical section owner and recursion count disagree",
+                ));
+            }
+        }
+        self.critical_section(address)
+    }
+
+    pub fn leave_critical_section(
+        &mut self,
+        address: GuestAddress,
+    ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
+        self.require_critical_section_operation_state()?;
+        let current_thread_id = self.current_thread_id();
+        let section = self
+            .process
+            .critical_sections
+            .get_mut(&address)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-critical-section",
+                    "critical-section-uninitialized",
+                    format!(
+                        "critical section storage {:#010x} is not initialized",
+                        address.0
+                    ),
+                )
+            })?;
+        if section.owning_thread_id != Some(current_thread_id) || section.recursion_count == 0 {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-not-owned-by-current-thread",
+                format!(
+                    "critical section {:#010x} is not owned by current thread {}",
+                    address.0, current_thread_id.0
+                ),
+            ));
+        }
+        section.recursion_count -= 1;
+        if section.recursion_count == 0 {
+            section.owning_thread_id = None;
+        }
+        self.critical_section(address)
+    }
+
+    pub fn critical_section(
+        &self,
+        address: GuestAddress,
+    ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
+        self.process.critical_sections.get(&address).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-critical-section",
+                "critical-section-uninitialized",
+                format!(
+                    "critical section storage {:#010x} is not initialized",
+                    address.0
+                ),
+            )
+        })
+    }
+
+    fn require_critical_section_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-lifecycle-state-invalid",
+                "critical section operations require a running process and active current thread",
+            ));
+        }
+        Ok(())
     }
 
     pub fn encoded_pointer_namespace(&self) -> &str {

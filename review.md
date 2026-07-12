@@ -984,8 +984,26 @@ SHA-256 `a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa`で2�
 frozen 140,660-byte report／SHA-256
 `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`は不変である。
 以後はAPI call番号ではなく、runtime capability clusterとvertical checkpointを単位に進める。
-次はnative critical-section initialization／immediate enter／leave behaviorを測定し、
-一つのprocess-owned synchronization contractをsame generic sessionへ追加する。
+
+### Step 11 — process-owned critical-section synchronization
+
+**完了（2026-07-13）:** opt-in native traceでcaller RVA `0xAB5E7`から14個の
+24-byte critical sectionsをspin count `4000`で初期化し、BOOL `1`、LastError
+preserve、bytes `[-1,-1,0,0,0,4000]`を測定した。controlled oracleはsame-thread
+recursive enter／leaveとdelete、BGI traceはwrapper RVA `0xAB763`／`0xAB66F`の
+immediate consumersを固定した。Rust `RuntimeState`へguest address-keyed process-owned
+stateを追加し、initialize／enter／leaveの3 contracts、controlled TID、recursion、exact
+guest bytesをcommon dispatcherへ接続した。cross-thread contentionはscheduler blocking
+未実装としてmutation前にstructured unsupportedとなる。
+
+same generic sessionは14 initializationsを含む35 calls、36 writeback batches／65 dirty
+pages／344 changed bytes、17 host deltas、final generation `80`を通し、instruction 575の
+ID `88`／`KERNEL32.dll!DecodePointer(0xEC010003)`で次のcapability clusterへ停止した。
+167,719-byte reportのSHA-256は
+`cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69`である。
+frozen 17-callとStep 10 generic reportは不変である。次はprocess-owned encoded tokenの
+inverse mappingとして`kernel32-pointer-decoding`を実装し、FLS endpoint invocation前の
+次のexact stopを測る。
 
 ---
 

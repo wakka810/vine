@@ -327,6 +327,136 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
 }
 
 #[test]
+fn critical_section_contract_owns_recursive_state_and_guest_bytes() {
+    const CRITICAL_SECTION_ADDRESS: u32 = OUTPUT_BASE + 0x400;
+    const SECOND_THREAD_ID: u32 = 0x3000;
+
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoints, frames) =
+        critical_section_dispatcher_fixture(&mut memory, owner, CRITICAL_SECTION_ADDRESS);
+    let mut runtime = controlled_runtime(controlled_startup_info());
+
+    let initialized = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[0],
+        frames[0].0,
+        frames[0].1[0],
+    );
+    assert_eq!(initialized.eax, RegisterUpdate::Set(1));
+    assert_eq!(initialized.stack_pointer, GuestAddress(frames[0].0 + 12));
+    assert_eq!(initialized.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(CRITICAL_SECTION_ADDRESS), 24)
+            .expect("initialized critical section bytes"),
+        expected_critical_section_bytes(4000, None, 0)
+    );
+
+    let entered = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[1],
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(entered.eax, RegisterUpdate::Preserve);
+    assert_eq!(entered.stack_pointer, GuestAddress(frames[1].0 + 8));
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(CRITICAL_SECTION_ADDRESS), 24)
+            .expect("owned critical section bytes"),
+        expected_critical_section_bytes(4000, Some(THREAD_ID), 1)
+    );
+
+    dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[1],
+        frames[1].0,
+        frames[1].1[0],
+    );
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        runtime
+            .critical_section(GuestAddress(CRITICAL_SECTION_ADDRESS))
+            .expect("recursive critical section")
+            .recursion_count,
+        2
+    );
+    assert_eq!(
+        memory
+            .read(GuestAddress(CRITICAL_SECTION_ADDRESS), 24)
+            .expect("recursive critical section bytes"),
+        expected_critical_section_bytes(4000, Some(THREAD_ID), 2)
+    );
+
+    dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[2],
+        frames[2].0,
+        frames[2].1[0],
+    );
+    acknowledge_pending_delta(&mut memory);
+    runtime
+        .register_thread(RuntimeThreadId(SECOND_THREAD_ID), 0x5678)
+        .expect("register contending thread");
+    runtime
+        .select_thread(RuntimeThreadId(SECOND_THREAD_ID))
+        .expect("select contending thread");
+    let contention = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoints[1], frames[1].0, frames[1].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        contention,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "critical-section-contention-unimplemented"
+    ));
+    assert_eq!(runtime.current_last_error().unwrap(), 0x5678);
+    assert_eq!(
+        runtime
+            .critical_section(GuestAddress(CRITICAL_SECTION_ADDRESS))
+            .expect("contended critical section")
+            .recursion_count,
+        1
+    );
+
+    runtime
+        .select_thread(RuntimeThreadId(THREAD_ID))
+        .expect("restore owning thread");
+    let left = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[2],
+        frames[2].0,
+        frames[2].1[0],
+    );
+    assert_eq!(left.eax, RegisterUpdate::Preserve);
+    assert_eq!(left.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(CRITICAL_SECTION_ADDRESS), 24)
+            .expect("released critical section bytes"),
+        expected_critical_section_bytes(4000, None, 0)
+    );
+}
+
+#[test]
 fn remaining_kernel32_calls_share_the_generic_dispatcher() {
     const MODULE_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x200;
     const EXPORT_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x300;
@@ -787,6 +917,88 @@ fn remaining_dispatcher_fixture(
     )
 }
 
+fn critical_section_dispatcher_fixture(
+    memory: &mut GuestMemory,
+    owner: MemoryOwnerId,
+    critical_section_address: u32,
+) -> (ApiDispatcher, Vec<ApiEndpointIdentity>, [FrameWords; 3]) {
+    let names = [
+        "InitializeCriticalSectionAndSpinCount",
+        "EnterCriticalSection",
+        "LeaveCriticalSection",
+    ];
+    let thunks = names
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let id = ImportThunkId((index + 1) as u32);
+            let address = GuestAddress(ENDPOINT_BASE + (index as u32 * 0x10));
+            let iat_address = GuestAddress(IAT_BASE + (index as u32 * 4));
+            memory
+                .write_initialization(owner, iat_address, &address.0.to_le_bytes())
+                .expect("initialize critical-section IAT");
+            ImportThunk {
+                id,
+                address,
+                requester_owner: owner,
+                module: "KERNEL32.dll".to_owned(),
+                iat_rva: Rva(index as u32 * 4),
+                iat_address,
+                original_iat_value: 0,
+                disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+                target: ImportTarget::Name {
+                    name: name.to_owned(),
+                    hint: 0,
+                    name_rva: Rva(0),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    let endpoints = thunks
+        .iter()
+        .map(ApiEndpointIdentity::from_import_thunk)
+        .collect::<Vec<_>>();
+    let contracts = endpoints
+        .iter()
+        .cloned()
+        .map(|endpoint| {
+            kernel32_contract_for_endpoint(endpoint)
+                .expect("Kernel32 contract lookup")
+                .expect("implemented critical-section endpoint")
+        })
+        .collect::<Vec<_>>();
+    let frames = [
+        (
+            STACK_BASE + 0x120,
+            vec![0x1000_0301, critical_section_address, 4000],
+        ),
+        (
+            STACK_BASE + 0x140,
+            vec![0x1000_0302, critical_section_address],
+        ),
+        (
+            STACK_BASE + 0x160,
+            vec![0x1000_0303, critical_section_address],
+        ),
+    ];
+    for (address, words) in &frames {
+        write_frame(memory, owner, GuestAddress(*address), words);
+    }
+    memory
+        .write_initialization(owner, GuestAddress(critical_section_address), &[0xa5; 24])
+        .expect("initialize critical-section storage");
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    (
+        ApiDispatcher::new(endpoints.clone(), contracts).expect("critical-section dispatcher"),
+        endpoints,
+        frames,
+    )
+}
+
 fn suspended_dispatcher_fixture(
     memory: &mut GuestMemory,
     owner: MemoryOwnerId,
@@ -920,6 +1132,23 @@ fn controlled_startup_info() -> Vec<u8> {
     let mut bytes = vec![0; 68];
     bytes[..4].copy_from_slice(&68_u32.to_le_bytes());
     bytes
+}
+
+fn expected_critical_section_bytes(
+    spin_count: u32,
+    owning_thread_id: Option<u32>,
+    recursion_count: u32,
+) -> Vec<u8> {
+    let lock_count = if recursion_count == 0 { -1_i32 } else { -2_i32 };
+    [
+        u32::MAX.to_le_bytes(),
+        lock_count.to_le_bytes(),
+        recursion_count.to_le_bytes(),
+        owning_thread_id.unwrap_or(0).to_le_bytes(),
+        0_u32.to_le_bytes(),
+        spin_count.to_le_bytes(),
+    ]
+    .concat()
 }
 
 fn dispatch(

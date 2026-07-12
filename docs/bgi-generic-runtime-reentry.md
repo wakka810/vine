@@ -7,6 +7,7 @@
 - Frozen compatibility anchor: `bgi-seventeenth-win32-call`
 - Runtime-kernel checkpoint: `bgi-generic-runtime-reentry`
 - First unsupported capability: `kernel32-critical-section-synchronization`
+- Follow-on checkpoint: `bgi-critical-section-synchronization` verified
 
 ## Purpose
 
@@ -138,7 +139,7 @@ The generic command was run twice and produced the same report digest. The sourc
 BGI size and SHA-256 remain `1,193,472` bytes and
 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`.
 
-## Non-claims and next dependency
+## Non-claims and follow-on dependency
 
 This checkpoint does not implement a Windows critical section, arbitrary dynamic
 export dispatch, general multi-thread CPU contexts, or BGI browser execution. The
@@ -146,8 +147,9 @@ four FLS endpoints are still callable addresses without FLS contracts. Initial
 reflection remains the private evidence adapter rather than a title-import browser
 protocol.
 
-The next checkpoint is the reached critical-section synchronization cluster. It
-must first measure the native initialization bytes and immediately reached lock／
-unlock behavior, then add one process-owned synchronization object contract and
-continue through this same generic loop. It must not restore numbered API modes or
-handler-specific writeback lists.
+The reached critical-section cluster is now closed by
+[bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md).
+That profile preserves this report, adds process-owned recursive state, completes
+14 BGI initializations, and stops at `DecodePointer(0xEC010003)`. The active next
+checkpoint is `kernel32-pointer-decoding`; numbered API modes and handler-specific
+writeback lists remain frozen.

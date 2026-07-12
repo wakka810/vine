@@ -56,6 +56,7 @@
     "check:runtime:bgi-sixteenth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-sixteenth-win32-call",
     "check:runtime:bgi-seventeenth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call",
     "check:runtime:bgi-generic-runtime-reentry": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry",
+    "check:runtime:bgi-critical-section-synchronization": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-critical-section-synchronization",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "typecheck:runtime:browser-worker": "tsc -p browser/runtime-worker/tsconfig.json",

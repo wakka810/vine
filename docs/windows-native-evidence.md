@@ -892,3 +892,32 @@ same pointer tracesのsecond BGI callはcaller RVA `0xA9697`、source RVA `0xA96
 `npm run check:runtime:bgi-seventeenth-win32-call`はframe `[0x100A9697,0x100A9608]`、11-byte `PUSH imm32`／direct IAT call、source page owner／execute protection、17-byte function prefixをadapterとRustで検査する。prior encoded-NULL object、logical TLS slot／initial-thread endpoint valueをrequired invariantsとして保持し、namespace `vine.logical-encoded-pointer.v1`のprocess-initializer token `0xEC010002`を返す。
 
 generation `30`のstack pageを32 bytes reconcileし、SHA-256は`3091514821863563f1c42861b1835da0639a0aecf15286732f71dec102615893`である。BGI store `0x100FF62C: 0 -> 0xEC010002`を観測し、9命令後、累計238命令でsame ID `89`／`EncodePointer(0x7F020000)`へ到達する。140,660-byte reportのSHA-256は`ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`で2回一致し、sixteenth report hashも不変である。これはone executable guest-function mappingであり、general pointer encoding／decodingやendpoint invocationを実装しない。詳細は[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
+
+## 44. BGI critical-section synchronization
+
+opt-in `--observe critical-section` captureは8,094,273 bytes／14,542 lines／
+SHA-256 `c668e8e6bd831442d4f0f5e3e2937395b7cd2bc003aa96a67b8872417cc53567`
+で、Frida `17.15.4`、Windows build `26200`、diagnostics／oracle errors `0`だった。
+BGI caller RVA `0xAB5E7`はspin count `4000`で14個の24-byte objectsをnative
+address `0x0033F630..0x0033F768`へ連続初期化し、全callがBOOL `1`を返した。
+image RVAは`0xFF630..0xFF768`なのでruntime mappingは
+`0x100FF630..0x100FF768`となる。initialized fieldsは
+`[-1,-1,0,0,0,4000]`である。
+
+Frida-owned controlled oracleはnonzero LastError `87..92`がinitialize、recursive
+enter／leave、deleteの全てで保持されることを測定した。first enterは
+`LockCount -2`／recursion `1`／native TID、recursive enterはrecursion `2`、final
+leaveはunlocked bytes、deleteは24 bytes zeroとなる。BGI側のimmediate consumerは
+RVA `0xAB763`／`EnterCriticalSection`と`0xAB66F`／`LeaveCriticalSection`であり、
+capture中にRVA `0xFF6C0`／`0xFF6F0`／`0xFF708`へ5／16／18 balanced pairsを
+観測した。
+
+Rustはinitialization、same-thread recursion、releaseの3 contractsとprocess-owned
+stateを実装し、controlled TID `8192`をguest owner fieldへ書く。cross-thread
+contentionはscheduler blocking未実装として`critical-section-contention-unimplemented`
+でmutation前に停止する。generic BGI profileは14 initializationsを含む35 calls、36
+writeback batches／65 dirty pages／344 changed bytes、17 host deltas、final generation
+`80`を通し、instruction 575の`DecodePointer(0xEC010003)`へ進んだ。167,719-byte
+reportのSHA-256は`cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69`
+である。詳細は[bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md)
+を正とする。
