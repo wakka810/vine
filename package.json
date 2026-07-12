@@ -50,6 +50,7 @@
     "check:runtime:bgi-twelfth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-get-proc-address-third",
     "check:runtime:bgi-thirteenth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-get-proc-address-fourth",
     "check:runtime:bgi-fourteenth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-tls-alloc",
+    "check:runtime:bgi-fifteenth-win32-call": "node tools/run-runtime-v86-bgi-first-trap.mjs --dispatch-tls-set-value",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",

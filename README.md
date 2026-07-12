@@ -4,7 +4,7 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-fourteenth-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-fifteenth-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
 330 imports to deterministic runtime-owned `UD2` thunks, installs four ordered
 dynamic-export endpoints, and reflects 389 sealed pages into source-built v86.
@@ -56,9 +56,12 @@ all three prior stores and returns endpoint `0x7F020030`. BGI stores it at
 the bound IAT and all four endpoint stores, discards native TLS index `0x1C`,
 and returns Vine-owned logical TLS index `0`. Seven instructions later BGI
 reaches thunk ID `68`, `KERNEL32.dll!TlsSetValue`, with arguments
-`[0, 0x7F020010]`. Twelve static endpoints are declared; the other 318 retain
-exact identity as explicit traps. Memory generation remains `30` after the
-allocation.
+`[0, 0x7F020010]`. A fifteenth checked stdcall reconciles the stack, endpoint
+store page, and BGI's TLS-index global, then associates endpoint ID `2` with
+controlled thread ID `8192` and returns BOOL `1`. Nine instructions later BGI
+reaches thunk ID `89`, `KERNEL32.dll!EncodePointer`, with argument `NULL`.
+Thirteen static endpoints are declared; the other 317 retain exact identity as
+explicit traps. Memory generation remains `30`.
 
 The foundation below that checkpoint now has an incremental `MemoryDelta`
 protocol. The first transfer is a full snapshot; later generations carry only
@@ -76,8 +79,8 @@ The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next API checkpoint is thunk ID `68` for `KERNEL32.dll!TlsSetValue`, limited
-to the observed logical index `0` and `FlsGetValue` endpoint value.
+The next API checkpoint is thunk ID `89` for `KERNEL32.dll!EncodePointer`, after
+focused native result, LastError, and first-consumer evidence.
 
 ## Requirements
 
@@ -176,6 +179,9 @@ stops at unsupported static thunk ID `70` for `TlsAlloc`.
 `TlsAlloc`, returns typed logical index `0` without importing the native index,
 preserves all four endpoint stores, and stops at unsupported thunk ID `68` for
 `TlsSetValue(0, 0x7F020010)`.
+`npm run check:runtime:bgi-fifteenth-win32-call` records that endpoint as the
+initial controlled thread's logical TLS value, returns BOOL `1`, and stops at
+unsupported thunk ID `89` for `EncodePointer(NULL)`.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

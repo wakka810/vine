@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI fourteenth Win32 call。BGIは最初の14 APIをreturnし、logical TLS index `0`を割り当ててstatic `TlsSetValue` trapへ到達した。visual critical scenario、device-level COM trace、general process／thread integration、engine最終選定は未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI fifteenth Win32 call。BGIは最初の15 APIをreturnし、initial-thread TLS endpoint valueを保持してstatic `EncodePointer` trapへ到達した。visual critical scenario、device-level COM trace、general process／thread integration、engine最終選定は未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap executionがあり、general process integration、DLL lifecycle／export resolution、Win32 runtime、browser app、CIは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -909,9 +909,9 @@ Phase 5、7B、8 はこの順序へ自動挿入しない。DirectDraw comparison
 
 ## 22. 現在地からの Windows task queue
 
-static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、transaction rollback、atomic import binding、public E2E／CI、low-alignment rejection、planner fuzz／randomized memory test、cross-page execute gateは完了した。さらにBGIの最初の14 APIをchecked returnし、entryから累計165命令でID `68`／`KERNEL32.dll!TlsSetValue`へ到達した。separate dynamic arenaは4 FLS identities／storesを保持し、typed logical TLS index `0`を割り当て済みである。general API dispatch、DLL／export／forwarder resolution、process／thread lifecycle、loader list、general TLS／FLS、LastError、general v86-originated writeback、heap backing、system-DLL image、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [v86-bgi-fourteenth-win32-call.md](v86-bgi-fourteenth-win32-call.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
+static inventory、primary title選択、CPU adapter、Windows W0、trace v1／v2、W1／W2／W3、high-address memory、W7 Rust PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit unsupported trap binding／BGI first runtime trapに加え、MemoryDelta、transaction rollback、atomic import binding、public E2E／CI、low-alignment rejection、planner fuzz／randomized memory test、cross-page execute gateは完了した。さらにBGIの最初の15 APIをchecked returnし、entryから累計174命令でID `89`／`KERNEL32.dll!EncodePointer`へ到達した。separate dynamic arenaは4 FLS identities／storesを保持し、typed logical TLS index `0`とinitial-thread endpoint valueを関連付け済みである。general API dispatch、DLL／export／forwarder resolution、process／thread lifecycle、loader list、general TLS／FLS、LastError、general v86-originated writeback、heap backing、system-DLL image、snapshotはnot attemptedであり、`AC-P1`／`AC-P2`等を完了しない。以後は [v86-bgi-fifteenth-win32-call.md](v86-bgi-fifteenth-win32-call.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[adr-003-guest-memory.md](adr-003-guest-memory.md)、[windows-native-evidence.md](windows-native-evidence.md) に従い、同じ Windows workspaceで次を一つずつ進める。
 
-1. exact thunk ID `68`の`TlsSetValue(0,0x7F020010)`について、allocated logical indexとinitial controlled threadをchecked処理する。focused traceで測定済みのsuccess／LastError preserveに限定し、thread valueへFlsGetValue endpoint identityを関連付け、BOOL `1`を返して次のruntime-reachable trapまで実行する。
+1. exact thunk ID `89`の`EncodePointer(NULL)`について、native result、LastError、first consumerをfocused traceで測定する。process-specific encoded host valueをruntimeへコピーせず、観測したNULL-input variantだけをtyped controlled pointer-encoding stateとしてreturnし、次のruntime-reachable trapまで実行する。
 
 この queue の各 checkpoint は、実装、focused trace、代表 automated test 1 本、短い結果記録で閉じる。未到達 API の網羅 test、別 compiler matrix、長時間 fuzz／soak は具体的な failure が出るまで active queue に入れない。
 

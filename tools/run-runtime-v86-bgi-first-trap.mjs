@@ -33,9 +33,11 @@ const dispatchGetProcAddressFourthOnly = commandArguments.includes(
   "--dispatch-get-proc-address-fourth",
 );
 const dispatchTlsAllocOnly = commandArguments.includes("--dispatch-tls-alloc");
+const dispatchTlsSetValueOnly = commandArguments.includes("--dispatch-tls-set-value");
+const dispatchTlsSetValue = dispatchTlsSetValueOnly;
+const dispatchTlsAlloc = dispatchTlsAllocOnly || dispatchTlsSetValue;
 const dispatchGetProcAddressFourth =
-  dispatchGetProcAddressFourthOnly || dispatchTlsAllocOnly;
-const dispatchTlsAlloc = dispatchTlsAllocOnly;
+  dispatchGetProcAddressFourthOnly || dispatchTlsAlloc;
 const dispatchGetProcAddressThird =
   dispatchGetProcAddressThirdOnly || dispatchGetProcAddressFourth;
 const dispatchGetProcAddressSecond =
@@ -124,6 +126,11 @@ assert.equal(
   Number(dispatchTlsAllocOnly),
   "--dispatch-tls-alloc may be specified only once",
 );
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-tls-set-value").length,
+  Number(dispatchTlsSetValueOnly),
+  "--dispatch-tls-set-value may be specified only once",
+);
 assert(
   Number(dispatchSystemTimeOnly) +
     Number(dispatchProcessIdOnly) +
@@ -138,7 +145,8 @@ assert(
     Number(dispatchGetProcAddressSecondOnly) +
     Number(dispatchGetProcAddressThirdOnly) +
     Number(dispatchGetProcAddressFourthOnly) +
-    Number(dispatchTlsAllocOnly) <=
+    Number(dispatchTlsAllocOnly) +
+    Number(dispatchTlsSetValueOnly) <=
     1,
   "dispatch modes are mutually exclusive",
 );
@@ -157,11 +165,12 @@ const positionalArguments = commandArguments.filter(
     argument !== "--dispatch-get-proc-address-second" &&
     argument !== "--dispatch-get-proc-address-third" &&
     argument !== "--dispatch-get-proc-address-fourth" &&
-    argument !== "--dispatch-tls-alloc",
+    argument !== "--dispatch-tls-alloc" &&
+    argument !== "--dispatch-tls-set-value",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address | --dispatch-get-proc-address-second | --dispatch-get-proc-address-third | --dispatch-get-proc-address-fourth | --dispatch-tls-alloc] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address | --dispatch-get-proc-address-second | --dispatch-get-proc-address-third | --dispatch-get-proc-address-fourth | --dispatch-tls-alloc | --dispatch-tls-set-value] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -174,7 +183,9 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchTlsAlloc
+  dispatchTlsSetValue
+    ? "v86-bgi-fifteenth-win32-call"
+    : dispatchTlsAlloc
     ? "v86-bgi-fourteenth-win32-call"
     : dispatchGetProcAddressFourth
     ? "v86-bgi-thirteenth-win32-call"
@@ -552,6 +563,33 @@ const controlledTlsAllocation = {
     },
   },
 };
+const controlledTlsValue = {
+  owner: controlledTlsAllocation.owner,
+  variantId: "tlssetvalue-initial-thread-flsgetvalue-endpoint",
+  allocationVariantId: controlledTlsAllocation.variantId,
+  threadIdentity: controlledThread,
+  index: controlledTlsAllocation.index,
+  valueKind: "dynamic-export-endpoint",
+  endpoint: controlledSecondDynamicExport.endpoint,
+  preserveLastError: true,
+  result: 1,
+  nativeObservation: {
+    source: controlledTlsAllocation.nativeObservation.source,
+    traceSha256: controlledTlsAllocation.nativeObservation.traceSha256,
+    confirmationTraceSha256:
+      controlledTlsAllocation.nativeObservation.confirmationTraceSha256,
+    callerRva: 0x000a58c1,
+    nativeArguments: [0x1c, 0x758d33f0],
+    controlledArguments: [
+      controlledTlsAllocation.index.value,
+      controlledSecondDynamicExport.endpoint.address,
+    ],
+    nativeArgumentsImported: false,
+    result: 1,
+    lastErrorBefore: 87,
+    lastErrorAfter: 87,
+  },
+};
 
 const expected = {
   source: {
@@ -577,7 +615,9 @@ const expected = {
     owner: 2,
     pages: 2,
     total: 330,
-    declared: dispatchTlsAlloc
+    declared: dispatchTlsSetValue
+      ? 13
+      : dispatchTlsAlloc
       ? 12
       : dispatchGetProcAddress
       ? 11
@@ -600,7 +640,9 @@ const expected = {
           : dispatchSystemTime
             ? 2
             : 1,
-    unsupported: dispatchTlsAlloc
+    unsupported: dispatchTlsSetValue
+      ? 317
+      : dispatchTlsAlloc
       ? 318
       : dispatchGetProcAddress
       ? 319
@@ -1109,6 +1151,44 @@ const expected = {
     reportBytes: 110_236,
     reportSha256: "4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb",
   },
+  fifteenthCall: {
+    offerLineBytes: 4_922_953,
+    reflectionReceiptLineBytes: 1_860,
+    requestLineBytes: 28_349,
+    receiptLineBytes: 2_733,
+    stackPageContentSha256: "0f62e02ebf62129f93e1bbad8e4b2f2739783536fd70af2df31a7cd5ef3accec",
+    stackReconciledChangedBytes: 8,
+    endpointStorePageContentSha256:
+      "705c675572bfe882af9addb23e20270278161fb8a8c7f4360afca09b0fbf96f8",
+    endpointStoreReconciledChangedBytes: 0,
+    tlsIndexStorePageContentSha256:
+      "b25cb15bb316bf0e716d70f9503a982c60ed5189eeb903b29d602141896d3c2c",
+    tlsIndexStoreReconciledChangedBytes: 12,
+    nextTerminal: {
+      kind: "owned-import-thunk",
+      thunk: {
+        id: 89,
+        address: 0x7f000580,
+        requesterOwner: 1,
+        module: "KERNEL32.dll",
+        iatRva: 0x000d120c,
+        iatAddress: 0x100d120c,
+        originalIatValue: 0x000ef9b0,
+        disposition: "unsupported-trap",
+        kind: "name",
+        name: "EncodePointer",
+        hint: 234,
+        nameRva: 0x000ef9b0,
+      },
+      returnAddress: 0x100a5467,
+      stackWords: [0x100a5467, 0, 0x100a4fd6, 0x7f000430, 0x100a58ce, 0, 0, 0x100a375b],
+    },
+    instructionCount: 174,
+    executeStops: 9,
+    budgetStops: 8,
+    reportBytes: 120_499,
+    reportSha256: "25907e7ae254788313d0feccdae9dac152592c3210ea5bf6956a6b1cac9f960f",
+  },
 };
 
 const page = {
@@ -1378,6 +1458,14 @@ async function run() {
           "--tls-alloc-return-session",
         ]
       : []),
+    ...(dispatchTlsSetValue
+      ? [
+          "--bind-name",
+          "KERNEL32.dll",
+          "TlsSetValue",
+          "--tls-set-value-return-session",
+        ]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -1593,6 +1681,17 @@ async function run() {
           execution: fourthDynamicExport.continuation,
           nextMessage,
           offer,
+          continueSession: dispatchTlsSetValue,
+        })
+      : null;
+    const tlsValue = dispatchTlsSetValue
+      ? await dispatchFifteenthTlsSetValueCall({
+          child,
+          context,
+          execution: tlsAllocation.continuation,
+          nextMessage,
+          offer,
+          tlsAllocation,
         })
       : null;
     const processExit = await exit;
@@ -1602,7 +1701,35 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchTlsAlloc
+    const report = dispatchTlsSetValue
+      ? buildFifteenthTlsSetValueReport({
+          context,
+          dynamicExport,
+          execution,
+          fourthDynamicExport,
+          heapPolicy,
+          invalidationCalls,
+          loadedModule,
+          monotonicClock,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          performanceCounter,
+          privateHeap,
+          processIdentity,
+          processStartup,
+          receipt,
+          receiptMessage,
+          secondDynamicExport,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+          thirdDynamicExport,
+          threadIdentity,
+          tlsAllocation,
+          tlsValue,
+        })
+      : dispatchTlsAlloc
       ? buildFourteenthTlsAllocReport({
           context,
           dynamicExport,
@@ -1960,7 +2087,9 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchTlsAlloc
+    const expectedReport = dispatchTlsSetValue
+      ? { bytes: expected.fifteenthCall.reportBytes, sha256: expected.fifteenthCall.reportSha256 }
+      : dispatchTlsAlloc
       ? { bytes: expected.fourteenthCall.reportBytes, sha256: expected.fourteenthCall.reportSha256 }
       : dispatchGetProcAddressFourth
       ? { bytes: expected.thirteenthCall.reportBytes, sha256: expected.thirteenthCall.reportSha256 }
@@ -1994,7 +2123,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchTlsAlloc) {
+    if (dispatchTlsSetValue) {
+      console.log(
+        `v86 BGI fifteenth Win32 call passed: TLS value endpoint ` +
+          `0x${tlsValue.threadValue.endpoint.address.toString(16)}, next terminal ` +
+          `${tlsValue.continuation.terminal.kind} after ` +
+          `${tlsValue.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchTlsAlloc) {
       console.log(
         `v86 BGI fourteenth Win32 call passed: logical TLS index ` +
           `${tlsAllocation.slot.index.value}, next terminal ` +
@@ -2270,7 +2406,9 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchTlsAlloc
+  const expectedOfferLineBytes = dispatchTlsSetValue
+    ? expected.fifteenthCall.offerLineBytes
+    : dispatchTlsAlloc
     ? expected.fourteenthCall.offerLineBytes
     : dispatchGetProcAddressFourth
     ? expected.thirteenthCall.offerLineBytes
@@ -2735,7 +2873,9 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
   assert.equal(offer.reflection.invalidation.generation, receipt.acknowledgedGeneration);
-  const expectedReceiptLineBytes = dispatchTlsAlloc
+  const expectedReceiptLineBytes = dispatchTlsSetValue
+    ? expected.fifteenthCall.reflectionReceiptLineBytes
+    : dispatchTlsAlloc
     ? expected.fourteenthCall.reflectionReceiptLineBytes
     : dispatchGetProcAddressFourth
     ? expected.thirteenthCall.reflectionReceiptLineBytes
@@ -5865,6 +6005,7 @@ async function dispatchFourteenthTlsAllocCall({
   execution,
   nextMessage,
   offer,
+  continueSession,
 }) {
   const trapped = execution.finalState;
   const argumentBytes = 0;
@@ -5967,7 +6108,11 @@ async function dispatchFourteenthTlsAllocCall({
   if (expected.fourteenthCall.requestLineBytes !== null) {
     assert.equal(Buffer.byteLength(requestLine) - 1, expected.fourteenthCall.requestLineBytes);
   }
-  child.stdin.end(requestLine);
+  if (continueSession) {
+    child.stdin.write(requestLine);
+  } else {
+    child.stdin.end(requestLine);
+  }
 
   const receiptMessage = await nextMessage("TlsAlloc return receipt");
   const receipt = receiptMessage.message;
@@ -6054,7 +6199,22 @@ async function dispatchFourteenthTlsAllocCall({
     );
   }
   if (expected.fourteenthCall.nextTerminal !== null) {
-    assert.deepEqual(continuation.terminal, expected.fourteenthCall.nextTerminal);
+    if (continueSession) {
+      assert.equal(continuation.terminal.kind, expected.fourteenthCall.nextTerminal.kind);
+      const { disposition: _priorDisposition, ...tlsSetValueThunkIdentity } =
+        expected.fourteenthCall.nextTerminal.thunk;
+      validateThunk(continuation.terminal.thunk, tlsSetValueThunkIdentity, false);
+      assert.equal(
+        continuation.terminal.returnAddress,
+        expected.fourteenthCall.nextTerminal.returnAddress,
+      );
+      assert.deepEqual(
+        continuation.terminal.stackWords,
+        expected.fourteenthCall.nextTerminal.stackWords,
+      );
+    } else {
+      assert.deepEqual(continuation.terminal, expected.fourteenthCall.nextTerminal);
+    }
   }
   if (expected.fourteenthCall.instructionCount !== null) {
     assert.equal(continuation.instructionCount, expected.fourteenthCall.instructionCount);
@@ -6086,6 +6246,307 @@ async function dispatchFourteenthTlsAllocCall({
     },
     slot: receipt.logicalTlsSlot,
     nativeObservation: controlledTlsAllocation.nativeObservation,
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
+async function dispatchFifteenthTlsSetValueCall({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+  tlsAllocation,
+}) {
+  const trapped = execution.finalState;
+  const argumentBytes = 8;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4 + argumentBytes,
+    "read",
+    "TlsSetValue stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(trapped.esp, "TlsSetValue return address");
+  const logicalIndex = context.readVirtualU32(trapped.esp + 4, "TlsSetValue index");
+  const valueAddress = context.readVirtualU32(trapped.esp + 8, "TlsSetValue value");
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  assert.equal(logicalIndex, controlledTlsValue.index.value);
+  assert.equal(valueAddress, controlledTlsValue.endpoint.address);
+
+  const callSequence = context.readVirtualBytes(
+    returnAddress - 9,
+    9,
+    "TlsSetValue push-value / push-index / call-esi sequence",
+  );
+  assert.deepEqual([...callSequence.subarray(0, 2)], [0xff, 0x35]);
+  const callView = new DataView(
+    callSequence.buffer,
+    callSequence.byteOffset,
+    callSequence.byteLength,
+  );
+  assert.equal(
+    callView.getUint32(2, true),
+    controlledFourthDynamicExport.secondEndpointStoreAddress,
+  );
+  assert.equal(callSequence[6], 0x50);
+  assert.deepEqual([...callSequence.subarray(7, 9)], [0xff, 0xd6]);
+  assert.equal(trapped.esi, execution.terminal.thunk.address);
+  assert.equal(
+    context.readVirtualU32(execution.terminal.thunk.iatAddress, "TlsSetValue bound IAT"),
+    execution.terminal.thunk.address,
+  );
+
+  const endpointStoreAddresses = tlsAllocation.request.endpointStoreAddresses;
+  const endpointAddresses = tlsAllocation.request.endpointAddresses;
+  const endpointStorePages = context.preflightVirtualRange(
+    endpointStoreAddresses[0],
+    16,
+    "write",
+    "BGI dynamic endpoint stores before TlsSetValue",
+  );
+  assert.equal(endpointStorePages.length, 1);
+  assert.equal(endpointStorePages[0].owner, expected.image.owner);
+  const endpointStoreValues = endpointStoreAddresses.map((address, index) => {
+    const value = context.readVirtualU32(
+      address,
+      `stored dynamic endpoint ${index + 1} before TlsSetValue`,
+    );
+    assert.equal(value, endpointAddresses[index]);
+    return value;
+  });
+  const endpointStorePageAddress =
+    (endpointStoreAddresses[0] & ~(page.size - 1)) >>> 0;
+  const endpointStorePageBytes = context.readVirtualBytes(
+    endpointStorePageAddress,
+    page.size,
+    "current v86 endpoint store page before TlsSetValue return",
+  );
+  const endpointStorePageContentSha256 = sha256(endpointStorePageBytes);
+
+  const tlsIndexStoreAddress = 0x100f0764;
+  const tlsIndexStorePageAddress = (tlsIndexStoreAddress & ~(page.size - 1)) >>> 0;
+  const tlsIndexStorePages = context.preflightVirtualRange(
+    tlsIndexStoreAddress,
+    4,
+    "write",
+    "BGI TLS index store",
+  );
+  assert.equal(tlsIndexStorePages.length, 1);
+  assert.equal(tlsIndexStorePages[0].owner, expected.image.owner);
+  assert.equal(
+    context.readVirtualU32(tlsIndexStoreAddress, "stored logical TLS index"),
+    logicalIndex,
+  );
+  const tlsIndexStorePageBytes = context.readVirtualBytes(
+    tlsIndexStorePageAddress,
+    page.size,
+    "current v86 TLS index store page",
+  );
+  const tlsIndexStorePageContentSha256 = sha256(tlsIndexStorePageBytes);
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before TlsSetValue return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-tls-set-value-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.sixthCall.deltaGeneration,
+    thunkId: execution.terminal.thunk.id,
+    thunkAddress: execution.terminal.thunk.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes,
+    indirectCallRegister: "esi",
+    indirectCallTarget: trapped.esi,
+    stackPageAddress,
+    stackPageOwner: expected.stack.owner,
+    stackPageBytes: [...stackPageBytes],
+    endpointStorePageAddress,
+    endpointStorePageOwner: endpointStorePages[0].owner,
+    endpointStorePageBytes: [...endpointStorePageBytes],
+    tlsIndexStoreAddress,
+    tlsIndexStorePageAddress,
+    tlsIndexStorePageOwner: tlsIndexStorePages[0].owner,
+    tlsIndexStorePageBytes: [...tlsIndexStorePageBytes],
+    endpointStoreAddresses,
+    endpointAddresses,
+    tlsStateOwner: controlledTlsValue.owner,
+    allocationVariantId: controlledTlsValue.allocationVariantId,
+    logicalIndexNamespace: controlledTlsValue.index.namespace,
+    logicalIndex,
+    expectedInitializedThreadValues: tlsAllocation.slot.initializedThreadValues,
+    threadIdentityOwner: controlledTlsValue.threadIdentity.owner,
+    threadId: controlledTlsValue.threadIdentity.threadId,
+    valueKind: controlledTlsValue.valueKind,
+    valueEndpointNamespace: controlledTlsValue.endpoint.namespace,
+    valueEndpointId: controlledTlsValue.endpoint.id,
+    valueAddress,
+    preserveLastError: controlledTlsValue.preserveLastError,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 96 * 1024);
+  if (expected.fifteenthCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.fifteenthCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("TlsSetValue return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-tls-set-value-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  const { disposition: _priorDisposition, ...tlsSetValueThunkIdentity } =
+    expected.fourteenthCall.nextTerminal.thunk;
+  validateThunk(receipt.thunk, tlsSetValueThunkIdentity, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, argumentBytes);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.deepEqual(receipt.logicalTlsSlotBefore, tlsAllocation.slot);
+  assert.deepEqual(receipt.logicalTlsSlotAfter, {
+    ...tlsAllocation.slot,
+    initializedThreadValues: 1,
+    backingMaterialization: "initial-thread-value-metadata",
+  });
+  assert.deepEqual(receipt.threadValue, {
+    threadIdentityOwner: controlledTlsValue.threadIdentity.owner,
+    threadId: controlledTlsValue.threadIdentity.threadId,
+    indexNamespace: controlledTlsValue.index.namespace,
+    index: controlledTlsValue.index.value,
+    valueKind: controlledTlsValue.valueKind,
+    endpoint: controlledTlsValue.endpoint,
+    lifecycle: "set",
+  });
+  assert.equal(receipt.preserveLastError, controlledTlsValue.preserveLastError);
+  assert.equal(receipt.result, controlledTlsValue.result);
+  assert.deepEqual(receipt.endpointStoreAddresses, endpointStoreAddresses);
+  assert.deepEqual(receipt.endpointStoreValues, endpointStoreValues);
+  assert.equal(receipt.tlsIndexStoreAddress, tlsIndexStoreAddress);
+  assert.equal(receipt.tlsIndexStoreValue, logicalIndex);
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  assert.deepEqual(receipt.endpointStoreReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: endpointStorePageAddress,
+    owner: expected.image.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.endpointStoreReconciliation.changedBytes,
+    contentSha256: endpointStorePageContentSha256,
+  });
+  assert.deepEqual(receipt.tlsIndexStoreReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: tlsIndexStorePageAddress,
+    owner: expected.image.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.tlsIndexStoreReconciliation.changedBytes,
+    contentSha256: tlsIndexStorePageContentSha256,
+  });
+  if (expected.fifteenthCall.stackReconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.fifteenthCall.stackReconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.fifteenthCall.stackPageContentSha256);
+    assert.equal(
+      receipt.endpointStoreReconciliation.changedBytes,
+      expected.fifteenthCall.endpointStoreReconciledChangedBytes,
+    );
+    assert.equal(
+      endpointStorePageContentSha256,
+      expected.fifteenthCall.endpointStorePageContentSha256,
+    );
+    assert.equal(
+      receipt.tlsIndexStoreReconciliation.changedBytes,
+      expected.fifteenthCall.tlsIndexStoreReconciledChangedBytes,
+    );
+    assert.equal(
+      tlsIndexStorePageContentSha256,
+      expected.fifteenthCall.tlsIndexStorePageContentSha256,
+    );
+  }
+  assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.fifteenthCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.fifteenthCall.receiptLineBytes);
+  }
+
+  const resume = resumeTlsSetValueStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    receipt.result,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  for (let index = 0; index < endpointStoreAddresses.length; index += 1) {
+    assert.equal(
+      context.readVirtualU32(
+        endpointStoreAddresses[index],
+        `preserved dynamic endpoint ${index + 1} after TlsSetValue`,
+      ),
+      endpointAddresses[index],
+    );
+  }
+  assert.equal(
+    context.readVirtualU32(tlsIndexStoreAddress, "logical TLS index after TlsSetValue"),
+    logicalIndex,
+  );
+  if (expected.fifteenthCall.nextTerminal !== null) {
+    assert.deepEqual(continuation.terminal, expected.fifteenthCall.nextTerminal);
+  }
+  if (expected.fifteenthCall.instructionCount !== null) {
+    assert.equal(continuation.instructionCount, expected.fifteenthCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.fifteenthCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.fifteenthCall.budgetStops);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      arguments: [logicalIndex, valueAddress],
+      indirectCallRegister: request.indirectCallRegister,
+      indirectCallTarget: request.indirectCallTarget,
+      stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      endpointStorePageAddress,
+      endpointStorePageOwner: request.endpointStorePageOwner,
+      endpointStorePageContentSha256,
+      tlsIndexStoreAddress,
+      tlsIndexStorePageAddress,
+      tlsIndexStorePageOwner: request.tlsIndexStorePageOwner,
+      tlsIndexStorePageContentSha256,
+      endpointAddresses,
+      endpointStoreAddresses,
+      endpointStoreValues,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    slotBefore: receipt.logicalTlsSlotBefore,
+    slotAfter: receipt.logicalTlsSlotAfter,
+    threadValue: receipt.threadValue,
+    nativeObservation: controlledTlsValue.nativeObservation,
     receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
     resume,
     continuation,
@@ -6453,6 +6914,33 @@ function resumeTlsAllocStdcallResult(context, trapped, returnAddress, result) {
     resultSource: controlledTlsAllocation.owner,
     indexNamespace: controlledTlsAllocation.index.namespace,
     failureSentinel: controlledTlsAllocation.index.failureSentinel,
+    lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
+  };
+}
+
+function resumeTlsSetValueStdcallResult(context, trapped, returnAddress, result) {
+  const argumentBytes = 8;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "TlsSetValue",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: controlledTlsValue.owner,
+    indexNamespace: controlledTlsValue.index.namespace,
+    valueKind: controlledTlsValue.valueKind,
+    endpointNamespace: controlledTlsValue.endpoint.namespace,
     lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
   };
 }
@@ -7307,6 +7795,46 @@ function buildFourteenthTlsAllocReport({ tlsAllocation, ...thirteenthCallArgumen
       code: "next-runtime-reachable-owned-trap",
       message:
         "BGI returned from fourteen checked Kernel32 calls through TlsAlloc, preserved all four dynamic endpoints, and reached the next identity-owned runtime trap without dispatching it",
+    },
+  };
+}
+
+function buildFifteenthTlsSetValueReport({ tlsValue, ...fourteenthCallArguments }) {
+  const fourteenthCall = buildFourteenthTlsAllocReport(fourteenthCallArguments);
+  return {
+    ...fourteenthCall,
+    schema: "vine.v86-bgi-fifteenth-win32-call",
+    contract: {
+      ...fourteenthCall.contract,
+      controlledInitialThreadTlsValue: true,
+      tlsValueKind: controlledTlsValue.valueKind,
+      tlsValueEndpointNamespace: controlledTlsValue.endpoint.namespace,
+      threePageReconciliation: true,
+      supportedServiceDispatches: 15,
+    },
+    imports: {
+      ...fourteenthCall.imports,
+      supportedTlsSetValue:
+        fourteenthCallArguments.offer.thunks[
+          expected.fourteenthCall.nextTerminal.thunk.id - 1
+        ],
+    },
+    fourteenthContinuation: fourteenthCall.continuation,
+    tlsSetValue: {
+      request: tlsValue.request,
+      slotBefore: tlsValue.slotBefore,
+      slotAfter: tlsValue.slotAfter,
+      threadValue: tlsValue.threadValue,
+      nativeObservation: tlsValue.nativeObservation,
+      receipt: tlsValue.receipt,
+      resume: tlsValue.resume,
+    },
+    continuation: tlsValue.continuation,
+    stop: {
+      stage: "runtime-trap",
+      code: "next-runtime-reachable-owned-trap",
+      message:
+        "BGI returned from fifteen checked Kernel32 calls through TlsSetValue, retained the initial-thread TLS endpoint value, and reached the next identity-owned runtime trap without dispatching it",
     },
   };
 }

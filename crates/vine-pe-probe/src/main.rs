@@ -48,6 +48,7 @@ struct Arguments {
     get_proc_address_third_return_session: bool,
     get_proc_address_fourth_return_session: bool,
     tls_alloc_return_session: bool,
+    tls_set_value_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -72,6 +73,7 @@ struct V86ReturnSessionOptions<'a> {
     get_proc_address_third: bool,
     get_proc_address_fourth: bool,
     tls_alloc: bool,
+    tls_set_value: bool,
     dynamic_export_thunks: &'a [DynamicExportThunk],
 }
 
@@ -1117,6 +1119,82 @@ struct V86TlsAllocReturnReceipt {
     stats: MemoryStats,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86TlsSetValueReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    indirect_call_register: String,
+    indirect_call_target: u32,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    endpoint_store_page_address: u32,
+    endpoint_store_page_owner: u32,
+    endpoint_store_page_bytes: Vec<u8>,
+    tls_index_store_address: u32,
+    tls_index_store_page_address: u32,
+    tls_index_store_page_owner: u32,
+    tls_index_store_page_bytes: Vec<u8>,
+    endpoint_store_addresses: [u32; 4],
+    endpoint_addresses: [u32; 4],
+    tls_state_owner: String,
+    allocation_variant_id: String,
+    logical_index_namespace: String,
+    logical_index: u32,
+    expected_initialized_thread_values: u32,
+    thread_identity_owner: String,
+    thread_id: u32,
+    value_kind: String,
+    value_endpoint_namespace: String,
+    value_endpoint_id: u32,
+    value_address: u32,
+    preserve_last_error: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct X86LogicalTlsThreadValue {
+    thread_identity_owner: String,
+    thread_id: u32,
+    index_namespace: &'static str,
+    index: u32,
+    value_kind: &'static str,
+    endpoint: DynamicExportThunk,
+    lifecycle: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86TlsSetValueReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    logical_tls_slot_before: X86LogicalTlsSlot,
+    logical_tls_slot_after: X86LogicalTlsSlot,
+    thread_value: X86LogicalTlsThreadValue,
+    preserve_last_error: bool,
+    result: u32,
+    endpoint_store_addresses: [GuestAddress; 4],
+    endpoint_store_values: [u32; 4],
+    tls_index_store_address: GuestAddress,
+    tls_index_store_value: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    endpoint_store_reconciliation: GuestPageReconciliation,
+    tls_index_store_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -1662,6 +1740,7 @@ fn run_v86_reflection_session(
             get_proc_address_third: arguments.get_proc_address_third_return_session,
             get_proc_address_fourth: arguments.get_proc_address_fourth_return_session,
             tls_alloc: arguments.tls_alloc_return_session,
+            tls_set_value: arguments.tls_set_value_return_session,
             dynamic_export_thunks: &dynamic_export_thunks,
         };
         run_v86_system_time_delta_session(
@@ -4206,7 +4285,7 @@ fn run_v86_tls_alloc_return_session(
         )
     };
 
-    let logical_tls_slot = X86LogicalTlsSlot {
+    let mut logical_tls_slot = X86LogicalTlsSlot {
         owner: request.tls_state_owner,
         variant_id: request.variant_id,
         index: X86LogicalTlsIndex::first(),
@@ -4225,7 +4304,7 @@ fn run_v86_tls_alloc_return_session(
             argument_bytes: request.argument_bytes,
             stack_pointer: GuestAddress(request.stack_pointer),
             return_address: GuestAddress(request.return_address),
-            logical_tls_slot,
+            logical_tls_slot: logical_tls_slot.clone(),
             preserve_last_error: request.preserve_last_error,
             result,
             first_endpoint_store_address: GuestAddress(request.first_endpoint_store_address),
@@ -4238,6 +4317,290 @@ fn run_v86_tls_alloc_return_session(
             fourth_endpoint_store_value,
             stack_reconciliation,
             endpoint_store_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
+    )?;
+    if return_sessions.tls_set_value {
+        run_v86_tls_set_value_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            return_sessions,
+            &mut logical_tls_slot,
+        )?;
+    }
+    Ok(())
+}
+
+fn run_v86_tls_set_value_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+    return_sessions: V86ReturnSessionOptions<'_>,
+    logical_tls_slot: &mut X86LogicalTlsSlot,
+) -> Result<(), LoaderError> {
+    const TLS_STATE_OWNER: &str = "checkpoint-thread-local-storage";
+    const ALLOCATION_VARIANT_ID: &str = "tlsalloc-first-controlled-index";
+    const THREAD_IDENTITY_OWNER: &str = "checkpoint-thread-identity";
+    const CONTROLLED_THREAD_ID: u32 = 8192;
+    const VALUE_KIND: &str = "dynamic-export-endpoint";
+    const ENDPOINT_STORE_PAGE_ADDRESS: u32 = 0x100f_e000;
+    const TLS_INDEX_STORE_ADDRESS: u32 = 0x100f_0764;
+    const TLS_INDEX_STORE_PAGE_ADDRESS: u32 = 0x100f_0000;
+    const ENDPOINT_STORE_ADDRESSES: [u32; 4] = [0x100f_eebc, 0x100f_eec0, 0x100f_eec4, 0x100f_eec8];
+
+    let endpoints = return_sessions.dynamic_export_thunks;
+    let expected_endpoints = [
+        (1, 0x7f02_0000, "FlsAlloc"),
+        (2, 0x7f02_0010, "FlsGetValue"),
+        (3, 0x7f02_0020, "FlsSetValue"),
+        (4, 0x7f02_0030, "FlsFree"),
+    ];
+    let first_endpoint = endpoints.first().ok_or_else(|| {
+        LoaderError::runtime_defect(
+            "win32-thread-local-storage",
+            "dynamic-export-endpoints-missing",
+            "TlsSetValue return session has no preserved FLS endpoints",
+        )
+    })?;
+    if endpoints.len() != expected_endpoints.len()
+        || endpoints
+            .iter()
+            .zip(expected_endpoints)
+            .any(|(observed, (id, address, name))| {
+                observed.id.0 != id
+                    || observed.address.0 != address
+                    || !observed.module.eq_ignore_ascii_case("kernel32.dll")
+                    || observed.name != name
+                    || observed.owner != first_endpoint.owner
+                    || observed.arena_range != first_endpoint.arena_range
+                    || observed.content_sha256 != first_endpoint.content_sha256
+                    || observed.invalidation != first_endpoint.invalidation
+                    || observed.lifetime != "process-runtime"
+                    || !observed.owner_sealed
+            })
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-thread-local-storage",
+            "dynamic-export-endpoint-quadruple-mismatch",
+            "TlsSetValue return session did not retain the controlled FLS identity quadruple",
+        ));
+    }
+    let endpoint_addresses = [
+        endpoints[0].address.0,
+        endpoints[1].address.0,
+        endpoints[2].address.0,
+        endpoints[3].address.0,
+    ];
+    let value_endpoint = &endpoints[1];
+
+    let request: V86TlsSetValueReturnRequest = read_protocol_message(
+        input,
+        96 * 1024,
+        "win32-thread-local-storage",
+        "tls-set-value-return-request",
+        "controlled initial-thread TLS value request",
+    )?;
+    if request.schema != "vine.v86-tls-set-value-return-request" || request.schema_version != 1 {
+        return Err(LoaderError::invalid_input(
+            "win32-thread-local-storage",
+            "tls-set-value-return-request-schema-unsupported",
+            "TLS value request must use vine.v86-tls-set-value-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 8 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "tls-set-value-argument-width-mismatch",
+            "TlsSetValue requires two four-byte stdcall arguments",
+        ));
+    }
+    if logical_tls_slot.owner != TLS_STATE_OWNER
+        || logical_tls_slot.variant_id != ALLOCATION_VARIANT_ID
+        || logical_tls_slot.index.namespace != X86LogicalTlsIndex::NAMESPACE
+        || logical_tls_slot.index.value != X86LogicalTlsIndex::FIRST_INDEX
+        || logical_tls_slot.lifecycle != "allocated"
+        || logical_tls_slot.storage_scope != "thread"
+        || logical_tls_slot.initialized_thread_values != 0
+        || request.tls_state_owner != TLS_STATE_OWNER
+        || request.allocation_variant_id != ALLOCATION_VARIANT_ID
+        || request.logical_index_namespace != X86LogicalTlsIndex::NAMESPACE
+        || request.logical_index != logical_tls_slot.index.value
+        || request.expected_initialized_thread_values != 0
+        || request.thread_identity_owner != THREAD_IDENTITY_OWNER
+        || request.thread_id != CONTROLLED_THREAD_ID
+        || request.value_kind != VALUE_KIND
+        || request.value_endpoint_namespace != value_endpoint.namespace
+        || request.value_endpoint_id != value_endpoint.id.0
+        || request.value_address != value_endpoint.address.0
+        || request.endpoint_store_addresses != ENDPOINT_STORE_ADDRESSES
+        || request.endpoint_addresses != endpoint_addresses
+        || request.endpoint_store_page_address != ENDPOINT_STORE_PAGE_ADDRESS
+        || request.endpoint_store_page_owner != binding.image_owner.0
+        || request.tls_index_store_address != TLS_INDEX_STORE_ADDRESS
+        || request.tls_index_store_page_address != TLS_INDEX_STORE_PAGE_ADDRESS
+        || request.tls_index_store_page_owner != binding.image_owner.0
+        || !request.preserve_last_error
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-thread-local-storage",
+            "tls-set-value-variant-unsupported",
+            "controlled TLS value supports only logical index 0, initial thread 8192, and the FlsGetValue endpoint",
+        ));
+    }
+
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "tls-set-value-thunk-id-unowned",
+                "TLS value request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || request.indirect_call_register != "esi"
+        || request.indirect_call_target != thunk.address.0
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(&thunk.target, ImportTarget::Name { name, .. } if name == "TlsSetValue")
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "tls-set-value-thunk-identity-mismatch",
+            "TLS value request does not match the declared TlsSetValue thunk",
+        ));
+    }
+
+    let (
+        stack_reconciliation,
+        endpoint_store_reconciliation,
+        tls_index_store_reconciliation,
+        endpoint_store_values,
+        tls_index_store_value,
+    ) = {
+        let mut transaction = memory.begin_transaction();
+        let stack_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        let endpoint_store_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.endpoint_store_page_owner),
+                GuestAddress(request.endpoint_store_page_address),
+                &request.endpoint_store_page_bytes,
+            )
+            .map_err(memory_error)?;
+        let tls_index_store_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.tls_index_store_page_owner),
+                GuestAddress(request.tls_index_store_page_address),
+                &request.tls_index_store_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_esi_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[request.logical_index, request.value_address],
+            &request.indirect_call_register,
+            request.indirect_call_target,
+        )?;
+        let mut endpoint_store_values = [0; 4];
+        for (index, address) in request.endpoint_store_addresses.into_iter().enumerate() {
+            let bytes = transaction
+                .read(GuestAddress(address), 4)
+                .map_err(memory_error)?;
+            endpoint_store_values[index] =
+                u32::from_le_bytes(bytes.as_slice().try_into().map_err(|_| {
+                    LoaderError::runtime_defect(
+                        "win32-thread-local-storage",
+                        "endpoint-store-width-invalid",
+                        "checked endpoint store did not contain four bytes",
+                    )
+                })?);
+        }
+        if endpoint_store_values != endpoint_addresses {
+            return Err(LoaderError::invalid_input(
+                "win32-thread-local-storage",
+                "endpoint-store-value-mismatch",
+                "BGI did not preserve all four dynamic-export endpoints before TlsSetValue",
+            ));
+        }
+        let tls_index_store_bytes = transaction
+            .read(GuestAddress(request.tls_index_store_address), 4)
+            .map_err(memory_error)?;
+        let tls_index_store_value =
+            u32::from_le_bytes(tls_index_store_bytes.as_slice().try_into().map_err(|_| {
+                LoaderError::runtime_defect(
+                    "win32-thread-local-storage",
+                    "tls-index-store-width-invalid",
+                    "checked TLS index store did not contain four bytes",
+                )
+            })?);
+        if tls_index_store_value != request.logical_index {
+            return Err(LoaderError::invalid_input(
+                "win32-thread-local-storage",
+                "tls-index-store-value-mismatch",
+                "BGI did not preserve the allocated logical TLS index before TlsSetValue",
+            ));
+        }
+        transaction.commit_transaction();
+        (
+            stack_reconciliation,
+            endpoint_store_reconciliation,
+            tls_index_store_reconciliation,
+            endpoint_store_values,
+            tls_index_store_value,
+        )
+    };
+
+    let logical_tls_slot_before = logical_tls_slot.clone();
+    logical_tls_slot.initialized_thread_values = 1;
+    logical_tls_slot.backing_materialization = "initial-thread-value-metadata";
+    let thread_value = X86LogicalTlsThreadValue {
+        thread_identity_owner: request.thread_identity_owner,
+        thread_id: request.thread_id,
+        index_namespace: X86LogicalTlsIndex::NAMESPACE,
+        index: request.logical_index,
+        value_kind: VALUE_KIND,
+        endpoint: value_endpoint.clone(),
+        lifecycle: "set",
+    };
+    write_protocol_message(
+        &V86TlsSetValueReturnReceipt {
+            schema: "vine.v86-tls-set-value-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            logical_tls_slot_before,
+            logical_tls_slot_after: logical_tls_slot.clone(),
+            thread_value,
+            preserve_last_error: request.preserve_last_error,
+            result: 1,
+            endpoint_store_addresses: ENDPOINT_STORE_ADDRESSES.map(GuestAddress),
+            endpoint_store_values,
+            tls_index_store_address: GuestAddress(request.tls_index_store_address),
+            tls_index_store_value,
+            stack_reconciliation,
+            endpoint_store_reconciliation,
+            tls_index_store_reconciliation,
             stats: memory.stats(),
         },
         message_limit,
@@ -4274,6 +4637,43 @@ fn validate_stdcall_iat_frame(
             "abi-gateway",
             "stdcall-callsite-mismatch",
             "stdcall return address does not follow its expected indirect IAT call",
+        ));
+    }
+    validate_bound_iat(memory, thunk)
+}
+
+fn validate_stdcall_esi_iat_frame(
+    memory: &GuestMemory,
+    thunk: &ImportThunk,
+    stack_pointer: u32,
+    return_address: u32,
+    expected_arguments: &[u32],
+    indirect_call_register: &str,
+    indirect_call_target: u32,
+) -> Result<(), LoaderError> {
+    validate_stdcall_frame(memory, stack_pointer, return_address, expected_arguments)?;
+    if indirect_call_register != "esi" || indirect_call_target != thunk.address.0 {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "stdcall-esi-call-target-mismatch",
+            "stdcall register-indirect call requires live ESI to match its owned import thunk",
+        ));
+    }
+    let call_site = return_address.checked_sub(2).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "abi-gateway",
+            "stdcall-esi-return-address-underflow",
+            "stdcall return address cannot identify a two-byte CALL ESI",
+        )
+    })?;
+    let call = memory
+        .fetch(GuestAddress(call_site), 2)
+        .map_err(memory_error)?;
+    if call != [0xff, 0xd6] {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "stdcall-esi-callsite-mismatch",
+            "stdcall return address does not follow the expected CALL ESI",
         ));
     }
     validate_bound_iat(memory, thunk)
@@ -4844,6 +5244,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut get_proc_address_third_return_session = false;
     let mut get_proc_address_fourth_return_session = false;
     let mut tls_alloc_return_session = false;
+    let mut tls_set_value_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -4972,6 +5373,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             tls_alloc_return_session = true;
+        } else if argument == "--tls-set-value-return-session" {
+            if tls_set_value_return_session {
+                return Err(usage_error());
+            }
+            tls_set_value_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -5093,6 +5499,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if tls_alloc_return_session && !get_proc_address_fourth_return_session {
         return Err(usage_error());
     }
+    if tls_set_value_return_session && !tls_alloc_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -5120,6 +5529,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         get_proc_address_third_return_session,
         get_proc_address_fourth_return_session,
         tls_alloc_return_session,
+        tls_set_value_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -5202,7 +5612,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session [--get-module-handle-w-return-session [--get-proc-address-return-session [--get-proc-address-second-return-session [--get-proc-address-third-return-session [--get-proc-address-fourth-return-session [--tls-alloc-return-session]]]]]]]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session [--get-module-handle-w-return-session [--get-proc-address-return-session [--get-proc-address-second-return-session [--get-proc-address-third-return-session [--get-proc-address-fourth-return-session [--tls-alloc-return-session [--tls-set-value-return-session]]]]]]]]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

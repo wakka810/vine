@@ -14,11 +14,11 @@ try {
   if (
     checkpoint.schema !== "vine.current-checkpoint" ||
     checkpoint.schemaVersion !== 1 ||
-    checkpoint.checkpoint !== "bgi-fourteenth-win32-call" ||
-    checkpoint.entryInstructionCount !== 165 ||
-    checkpoint.supportedCallCount !== 14 ||
-    checkpoint.lastSupportedCallId !== 70 ||
-    checkpoint.lastSupportedCall !== "KERNEL32.dll!TlsAlloc" ||
+    checkpoint.checkpoint !== "bgi-fifteenth-win32-call" ||
+    checkpoint.entryInstructionCount !== 174 ||
+    checkpoint.supportedCallCount !== 15 ||
+    checkpoint.lastSupportedCallId !== 68 ||
+    checkpoint.lastSupportedCall !== "KERNEL32.dll!TlsSetValue" ||
     checkpoint.memoryGeneration !== 30 ||
     checkpoint.controlledProcessId !== 4096 ||
     checkpoint.controlledThreadId !== 8192 ||
@@ -60,10 +60,16 @@ try {
     checkpoint.logicalTlsIndexNamespace !== "vine.logical-tls-index.v1" ||
     checkpoint.logicalTlsIndex !== 0 ||
     checkpoint.tlsOutOfIndexes !== 0xffff_ffff ||
-    checkpoint.ownedTrapId !== 68 ||
-    checkpoint.ownedTrap !== "KERNEL32.dll!TlsSetValue" ||
-    checkpoint.ownedTrapSymbol !== "TlsSetValue" ||
-    checkpoint.nextCheckpoint !== "fifteenth-supported-win32-call-return"
+    checkpoint.controlledTlsValueVariant !==
+      "tlssetvalue-initial-thread-flsgetvalue-endpoint" ||
+    checkpoint.controlledTlsThreadId !== 8192 ||
+    checkpoint.logicalTlsValueEndpointId !== 2 ||
+    checkpoint.logicalTlsValueEndpoint !== 0x7f020010 ||
+    checkpoint.tlsIndexStoreAddress !== 0x100f0764 ||
+    checkpoint.ownedTrapId !== 89 ||
+    checkpoint.ownedTrap !== "KERNEL32.dll!EncodePointer" ||
+    checkpoint.ownedTrapSymbol !== "EncodePointer" ||
+    checkpoint.nextCheckpoint !== "sixteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
   }

@@ -354,6 +354,8 @@ ID `4`／`0x7F020030`を返してBGI storeを観測し、12命令後、entryか�
 
 `npm run check:runtime:bgi-fourteenth-win32-call`はfocused TLS traceの`TlsAlloc()`／LastError preserve／immediate first consumerをoracleとする。exact ID `70`のzero-argument frame／IATとall four endpoint storesをchecked処理し、native index `0x1C`を捨ててnamespace `vine.logical-tls-index.v1`のindex `0`を返す。7命令後、累計165命令でID `68`／`TlsSetValue(0,0x7F020010)`へ到達する。110,236-byte reportのSHA-256は`4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb`である。詳細は[v86-bgi-fourteenth-win32-call.md](v86-bgi-fourteenth-win32-call.md)を正とする。
 
+`npm run check:runtime:bgi-fifteenth-win32-call`はID `68`のlive ESI call、logical index `0`、FlsGetValue endpoint ID `2`、initial thread ID `8192`をchecked処理する。stack／endpoint-store／TLS-index-storeの3 pagesをtransactional reconcileしてone thread-value metadataを作り、BOOL `1`を返す。9命令後、累計174命令でID `89`／`EncodePointer(NULL)`へ到達する。120,499-byte reportのSHA-256は`25907e7ae254788313d0feccdae9dac152592c3210ea5bf6956a6b1cac9f960f`である。詳細は[v86-bgi-fifteenth-win32-call.md](v86-bgi-fifteenth-win32-call.md)を正とする。
+
 ### B32. Browser Worker
 
 今回の実行環境は Node.js 24 の WebAssembly runtime である。Chromium の Runtime Worker、yield、termination、source map、cold start、memory ceiling は未検証である。
@@ -364,7 +366,7 @@ W1の21命令とW2の231命令の成功は ISA correctness suite でも VN-like 
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first fourteen checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `68`のobserved `TlsSetValue` stdcall returnである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU stateを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first fifteen checked stdcall returnsまで進んだ。次のadapter sliceはexact thunk ID `89`のobserved `EncodePointer(NULL)` stdcall returnである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT
@@ -401,7 +403,7 @@ adapter fixture は次の順に増やす。
 25. [Verified] second `GetProcAddress` frameへdistinct `FlsGetValue` endpointを返し、next trapを測る。
 26. [Verified] third `GetProcAddress` frameへdistinct `FlsSetValue` endpointを返し、fourth lookupを測る。
 27. [Verified] fourth `GetProcAddress` frameへdistinct `FlsFree` endpointを返し、next trapを測る。
-28. `TlsSetValue(0,0x7F020010)`をallocated logical index／initial thread valueとしてchecked returnし、next trapを測る。
+28. `EncodePointer(NULL)`のnative behaviorを測定し、process-specific host resultをdiscardしたcontrolled returnからnext trapを測る。
 29. broader stdcall signature、thiscall、nested callbackを実到達fixtureから追加する。
 30. 同じfixtureをNodeとChromium Workerで実行する。
 31. adopted ISA fixtureとnormalized workloadを測定する。
