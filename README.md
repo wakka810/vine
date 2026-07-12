@@ -150,10 +150,19 @@ deltas, finishing at generation `109`. The 243,749-byte report has SHA-256
 `5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e`
 and stops at `GetFileType(0x53010001)` at instruction 1403.
 
-Twenty-two Kernel32 contracts now use the generic Rust dispatcher. This includes
+The cumulative file-type profile classifies registered logical stdin as
+`FILE_TYPE_CHAR (2)`, then returns the existing 15th critical-section
+initialization. It completes 54 calls through 55 writeback batches／94 dirty
+pages／938 changed bytes and 28 host deltas, finishing at generation `112`. The
+252,994-byte report has SHA-256
+`dff76ce6eb289bdc4e57e6013c113906d9b0cee80eaa8cbf23948dcccd7efbcf`
+and stops at `GetStdHandle(STD_OUTPUT_HANDLE)` at instruction 1439.
+
+Twenty-three Kernel32 contracts now use the generic Rust dispatcher. This includes
 clock／identity, startup, heap, module／export, TLS, pointer encoding／decoding,
 critical-section, dynamic FLS allocation／value storage, two reached private-heap
-allocations, checked `InterlockedIncrement`, and logical standard input lookup.
+allocations, checked `InterlockedIncrement`, logical standard input lookup, and
+its file-type classification.
 The dispatcher owns endpoint lookup, checked frame decoding,
 pointer and name／ordinal validation, guest writes, return cleanup, LastError
 policy, and identity-preserving faults.
@@ -229,9 +238,8 @@ owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. Private heaps now
 have bounded guest-memory backing; mapped images, bounded PE32 export resolution,
 guest／runtime import binding, and DLL process attach failure unwind／retry／detach
 are also process-owned foundations. The next runtime-kernel checkpoint measures
-`GetFileType` for the logical standard input handle without adding read/write,
-console, or broad file behavior. Bespoke numbered BGI checkpoint expansion remains
-paused.
+`STD_OUTPUT_HANDLE` without adding stderr, output classification, console writes,
+or broad file behavior. Bespoke numbered BGI checkpoint expansion remains paused.
 
 ## Requirements
 
@@ -378,6 +386,9 @@ allocation ID `2`, preserves all eight earlier reports, and stops fail-closed at
 `npm run check:runtime:bgi-standard-input-handle` returns logical stdin handle
 `0x53010001`, preserves all nine earlier reports, and stops fail-closed at
 `GetFileType(0x53010001)` after 52 completed calls.
+`npm run check:runtime:bgi-file-type` returns `FILE_TYPE_CHAR`, preserves all ten
+earlier reports, and stops fail-closed at `GetStdHandle(STD_OUTPUT_HANDLE)` after
+54 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

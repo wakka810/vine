@@ -1157,6 +1157,28 @@ deltaは0である。instruction 1403のID `101`／`GetFileType(0x53010001)`でs
 先行9 reportsはbyte-identicalである。次はreached stdin file typeだけをnative測定／logical
 classificationへ接続し、read／write、console、output／error variantsを先取りしない。
 
+### Step 19 — reached standard input file type
+
+**完了（2026-07-13）:** focused `file-type` trace 2件でBGI caller return RVA
+`0xA87C8`のstdin handleがいずれも`FILE_TYPE_CHAR (2)`を返し、LastError
+`87 -> 87`を保持することを固定した。Native handleは`0x208`／`0x210`と変わるためdiscardする。
+Consumerはzero check後にlow byteをcharacter／pipeとして分類し、handleを保存してexisting
+critical-section initializationへ進む。
+
+`kernel32.get-file-type-standard-input.v1`はnamespace
+`vine.logical-standard-handle.v1`のregistered stdinだけをresolveして`2`を返す。Unknown logical
+handleはstate／memory mutation前に拒否する。Representative testはone-argument stdcall、
+LastError preserve、guest write 0、unknown identity rejectionを固定する。
+
+same generic sessionは23 contracts／54 calls、55 writeback batches／94 dirty pages／938
+changed bytes、28 host deltas、final generation `112`を通した。Existing 15th
+`InitializeCriticalSectionAndSpinCount(0x20000224,4000)`をreturnし、instruction 1439の
+ID `94`／`GetStdHandle(STD_OUTPUT_HANDLE)`でinput-only contractがmutation-free停止した。
+252,994-byte reportのSHA-256は
+`dff76ce6eb289bdc4e57e6013c113906d9b0cee80eaa8cbf23948dcccd7efbcf`である。
+先行10 reportsはbyte-identicalである。次はstdout identityだけをnative測定／versioned contractへ
+接続し、stderr／output file type／console writeを先取りしない。
+
 ---
 
 ## 8. P0完了のDefinition of Done

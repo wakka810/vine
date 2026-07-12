@@ -336,6 +336,9 @@ if (selectedObservations.has("interlocked-increment")) {
 if (selectedObservations.has("standard-handle")) {
   hooks["kernel32.dll"].push(["GetStdHandle", [null]]);
 }
+if (selectedObservations.has("file-type")) {
+  hooks["kernel32.dll"].push(["GetFileType", [null]]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -481,6 +484,8 @@ function attachHook(module, name, decoders) {
               }
           : name === "GetStdHandle" &&
               selectedObservations.has("standard-handle")
+            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
+          : name === "GetFileType" && selectedObservations.has("file-type")
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||

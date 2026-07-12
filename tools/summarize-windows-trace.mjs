@@ -21,6 +21,7 @@ const supportedObservations = new Set([
   "critical-section",
   "interlocked-increment",
   "standard-handle",
+  "file-type",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

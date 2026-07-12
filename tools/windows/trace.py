@@ -25,6 +25,7 @@ SUPPORTED_OBSERVATIONS = (
     "critical-section",
     "interlocked-increment",
     "standard-handle",
+    "file-type",
 )
 
 

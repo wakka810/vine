@@ -22,6 +22,7 @@ pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-pr
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
 pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle-input.v1";
+pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type-standard-input.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
@@ -63,6 +64,7 @@ pub fn dispatch_kernel32_api(
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
         GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(contract, frame, session),
+        GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(contract, frame, session),
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
         }
@@ -124,6 +126,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetTickCount" => get_tick_count_contract(endpoint)?,
         "GetStdHandle" => get_std_handle_contract(endpoint)?,
+        "GetFileType" => get_file_type_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
@@ -205,6 +208,21 @@ fn handle_get_std_handle(
         namespace: standard_handle.namespace,
         value: standard_handle.handle,
     }))
+}
+
+fn handle_get_file_type(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    const FILE_TYPE_CHAR: u32 = 2;
+
+    let handle = required_argument(contract, frame, 0, "standard handle")?;
+    session
+        .runtime()
+        .standard_handle_by_value(handle)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(FILE_TYPE_CHAR)))
 }
 
 fn handle_query_performance_counter(
@@ -781,6 +799,20 @@ pub fn get_std_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
             nullable: false,
         },
         GET_STD_HANDLE_IMPLEMENTATION,
+    )
+}
+
+pub fn get_file_type_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetFileType",
+        vec![logical_handle(
+            "handle",
+            LOGICAL_STANDARD_HANDLE_NAMESPACE,
+            false,
+        )],
+        ApiReturnSchema::U32,
+        GET_FILE_TYPE_IMPLEMENTATION,
     )
 }
 

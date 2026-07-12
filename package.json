@@ -64,6 +64,7 @@
     "check:runtime:bgi-interlocked-increment": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-interlocked-increment",
     "check:runtime:bgi-private-heap-second-allocation": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-private-heap-second-allocation",
     "check:runtime:bgi-standard-input-handle": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-standard-input-handle",
+    "check:runtime:bgi-file-type": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-file-type",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "typecheck:runtime:browser-worker": "tsc -p browser/runtime-worker/tsconfig.json",

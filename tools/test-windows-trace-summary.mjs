@@ -602,6 +602,13 @@ standardHandleSelection.find(
 ).selectedObservations = ["standard-handle"];
 assert.doesNotThrow(() => summarizeTrace(encode(standardHandleSelection)));
 
+const fileTypeSelection = structuredClone(events);
+fileTypeSelection[0].arguments.observations = ["file-type"];
+fileTypeSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["file-type"];
+assert.doesNotThrow(() => summarizeTrace(encode(fileTypeSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

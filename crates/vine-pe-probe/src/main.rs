@@ -89,6 +89,7 @@ enum GenericRuntimeCapability {
     InterlockedIncrement,
     PrivateHeapSecondAllocation,
     StandardInputHandle,
+    FileType,
 }
 
 struct GenericRuntimeProcess {
@@ -166,6 +167,8 @@ struct GenericRuntimeCompletion {
     heap_allocation: Option<GenericRuntimeHeapAllocation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     standard_handle: Option<RuntimeStandardHandle>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_type: Option<GenericRuntimeFileType>,
     memory: MemoryStats,
 }
 
@@ -191,6 +194,13 @@ struct GenericRuntimeHeapAllocation {
     heap_handle: u32,
     allocation: RuntimeHeapAllocation,
     live_allocations: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeFileType {
+    standard_handle: RuntimeStandardHandle,
+    file_type: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -2397,6 +2407,7 @@ fn run_v86_generic_runtime_session(
             Some(
                 GenericRuntimeCapability::PrivateHeapSecondAllocation
                     | GenericRuntimeCapability::StandardInputHandle
+                    | GenericRuntimeCapability::FileType
             )
         ) && endpoint.matches(
             "kernel32.dll",
@@ -2420,6 +2431,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::InterlockedIncrement
                 | GenericRuntimeCapability::PrivateHeapSecondAllocation
                 | GenericRuntimeCapability::StandardInputHandle
+                | GenericRuntimeCapability::FileType
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2447,6 +2459,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::InterlockedIncrement
                 | GenericRuntimeCapability::PrivateHeapSecondAllocation
                 | GenericRuntimeCapability::StandardInputHandle
+                | GenericRuntimeCapability::FileType
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2555,6 +2568,7 @@ fn run_v86_generic_runtime_session(
                         GenericRuntimeCapability::InterlockedIncrement
                             | GenericRuntimeCapability::PrivateHeapSecondAllocation
                             | GenericRuntimeCapability::StandardInputHandle
+                            | GenericRuntimeCapability::FileType
                     )
                 ) && endpoint.matches(
                     "kernel32.dll",
@@ -2589,6 +2603,7 @@ fn run_v86_generic_runtime_session(
                             Some(
                                 GenericRuntimeCapability::PrivateHeapSecondAllocation
                                     | GenericRuntimeCapability::StandardInputHandle
+                                    | GenericRuntimeCapability::FileType
                             )
                         ) && endpoint.matches(
                             "kernel32.dll",
@@ -2600,15 +2615,31 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
-                        let standard_handle = if enabled_capability
-                            == Some(GenericRuntimeCapability::StandardInputHandle)
+                        let standard_handle = if matches!(
+                            enabled_capability,
+                            Some(
+                                GenericRuntimeCapability::StandardInputHandle
+                                    | GenericRuntimeCapability::FileType
+                            )
+                        ) && endpoint.matches(
+                            "kernel32.dll",
+                            &ApiSymbol::Name {
+                                name: "GetStdHandle".to_owned(),
+                            },
+                        ) {
+                            Some(generic_runtime_standard_handle(&session, &completion)?)
+                        } else {
+                            None
+                        };
+                        let file_type = if enabled_capability
+                            == Some(GenericRuntimeCapability::FileType)
                             && endpoint.matches(
                                 "kernel32.dll",
                                 &ApiSymbol::Name {
-                                    name: "GetStdHandle".to_owned(),
+                                    name: "GetFileType".to_owned(),
                                 },
                             ) {
-                            Some(generic_runtime_standard_handle(&session, &completion)?)
+                            Some(generic_runtime_file_type(&session, &completion)?)
                         } else {
                             None
                         };
@@ -2624,6 +2655,7 @@ fn run_v86_generic_runtime_session(
                                 interlocked_increment,
                                 heap_allocation,
                                 standard_handle,
+                                file_type,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -2719,6 +2751,7 @@ fn run_v86_generic_runtime_session(
                                 interlocked_increment: None,
                                 heap_allocation: None,
                                 standard_handle: None,
+                                file_type: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -2775,6 +2808,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
                     | GenericRuntimeCapability::StandardInputHandle
+                    | GenericRuntimeCapability::FileType
             )
         ),
         "DecodePointer" => matches!(
@@ -2787,6 +2821,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
                     | GenericRuntimeCapability::StandardInputHandle
+                    | GenericRuntimeCapability::FileType
             )
         ),
         "FlsAlloc" => matches!(
@@ -2798,6 +2833,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
                     | GenericRuntimeCapability::StandardInputHandle
+                    | GenericRuntimeCapability::FileType
             )
         ),
         "HeapAlloc" => matches!(
@@ -2808,6 +2844,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
                     | GenericRuntimeCapability::StandardInputHandle
+                    | GenericRuntimeCapability::FileType
             )
         ),
         "FlsSetValue" => matches!(
@@ -2817,6 +2854,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
                     | GenericRuntimeCapability::StandardInputHandle
+                    | GenericRuntimeCapability::FileType
             )
         ),
         "InterlockedIncrement" => matches!(
@@ -2825,9 +2863,16 @@ fn runtime_capability_enables_endpoint(
                 GenericRuntimeCapability::InterlockedIncrement
                     | GenericRuntimeCapability::PrivateHeapSecondAllocation
                     | GenericRuntimeCapability::StandardInputHandle
+                    | GenericRuntimeCapability::FileType
             )
         ),
-        "GetStdHandle" => matches!(enabled, Some(GenericRuntimeCapability::StandardInputHandle)),
+        "GetStdHandle" => matches!(
+            enabled,
+            Some(
+                GenericRuntimeCapability::StandardInputHandle | GenericRuntimeCapability::FileType
+            )
+        ),
+        "GetFileType" => matches!(enabled, Some(GenericRuntimeCapability::FileType)),
         _ => true,
     }
 }
@@ -2848,7 +2893,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             GenericRuntimeCapability::FiberLocalStorageValue
             | GenericRuntimeCapability::InterlockedIncrement
             | GenericRuntimeCapability::PrivateHeapSecondAllocation
-            | GenericRuntimeCapability::StandardInputHandle,
+            | GenericRuntimeCapability::StandardInputHandle
+            | GenericRuntimeCapability::FileType,
         ) => {
             matches!(endpoint.name.as_str(), "FlsAlloc" | "FlsSetValue")
         }
@@ -2999,6 +3045,34 @@ fn generic_runtime_standard_handle(
         .standard_handle_by_value(handle)
         .cloned()
         .map_err(runtime_state_error)
+}
+
+fn generic_runtime_file_type(
+    session: &ExecutionSession<'_>,
+    completion: &ApiImmediateCompletion,
+) -> Result<GenericRuntimeFileType, LoaderError> {
+    let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "file-type-handle-missing",
+            "completed GetFileType frame has no logical handle argument",
+        )
+    })?;
+    let RegisterUpdate::Set(file_type) = completion.eax else {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "file-type-result-missing",
+            "completed GetFileType did not return a file type",
+        ));
+    };
+    Ok(GenericRuntimeFileType {
+        standard_handle: session
+            .runtime()
+            .standard_handle_by_value(handle)
+            .cloned()
+            .map_err(runtime_state_error)?,
+        file_type,
+    })
 }
 
 fn send_pending_runtime_delta(
@@ -8143,6 +8217,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::PrivateHeapSecondAllocation
                 }
                 "kernel32-standard-input-handle" => GenericRuntimeCapability::StandardInputHandle,
+                "kernel32-file-type" => GenericRuntimeCapability::FileType,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
@@ -8353,7 +8428,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment|kernel32-private-heap-second-allocation|kernel32-standard-input-handle]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment|kernel32-private-heap-second-allocation|kernel32-standard-input-handle|kernel32-file-type]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

@@ -20,10 +20,10 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "bgi-standard-input-handle" ||
+    checkpoint.runtimeKernelCheckpoint !== "bgi-file-type" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
     checkpoint.runtimeStateScope !==
-      "single-process-controlled-two-thread-wait-message-heap-module-dll-lifecycle-critical-section-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle" ||
+      "single-process-controlled-two-thread-wait-message-heap-module-dll-lifecycle-critical-section-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
       JSON.stringify([
         "process",
@@ -50,8 +50,8 @@ try {
       ]) ||
     checkpoint.callbackFrameStack !== true ||
     checkpoint.hostCompletionModel !== "scheduler-event" ||
-    checkpoint.genericDispatcherApiCount !== 22 ||
-    checkpoint.genericDispatcherCallOccurrenceCount !== 52 ||
+    checkpoint.genericDispatcherApiCount !== 23 ||
+    checkpoint.genericDispatcherCallOccurrenceCount !== 54 ||
     JSON.stringify(checkpoint.genericDispatcherApis) !==
       JSON.stringify([
         "KERNEL32.dll!GetSystemTimeAsFileTime",
@@ -76,6 +76,7 @@ try {
         "KERNEL32.dll!HeapAlloc",
         "KERNEL32.dll!InterlockedIncrement",
         "KERNEL32.dll!GetStdHandle",
+        "KERNEL32.dll!GetFileType",
       ]) ||
     checkpoint.allSupportedCallsUseGenericDispatcher !== true ||
     checkpoint.checkpointManifestized !== true ||
@@ -1110,7 +1111,65 @@ try {
         reportSha256:
           "5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e",
       }) ||
-    checkpoint.nextCheckpoint !== "kernel32-file-type" ||
+    JSON.stringify(checkpoint.bgiFileType) !==
+      JSON.stringify({
+        schema: "vine.v86-bgi-file-type.v1",
+        nativePrimaryTraceBytes: 246422,
+        nativePrimaryTraceLines: 819,
+        nativePrimaryTraceSha256:
+          "480e2e9e7901535f88cd6dd87994bc7da97c47cd90ee0eb77dbef1149bfb7a9f",
+        nativeConfirmationTraceBytes: 261838,
+        nativeConfirmationTraceLines: 872,
+        nativeConfirmationTraceSha256:
+          "9986a349350e6875c779f35582347dbc485618492f7a68afa3716064ba1f3f02",
+        nativeCallerReturnRva: "0x000a87c8",
+        nativePrimaryHandle: "0x00000208",
+        nativeConfirmationHandle: "0x00000210",
+        nativeResultPrimary: 2,
+        nativeResultConfirmation: 2,
+        nativeLastErrorBefore: 87,
+        nativeLastErrorAfter: 87,
+        nativeClassification: "FILE_TYPE_CHAR",
+        immediateConsumer: "store-handle-classify-char-and-initialize-critical-section",
+        implementation: "kernel32.get-file-type-standard-input.v1",
+        logicalHandleNamespace: "vine.logical-standard-handle.v1",
+        logicalHandle: "0x53010001",
+        fileType: 2,
+        implementedApiContractCount: 23,
+        genericSupportedCallCount: 54,
+        reflectionPages: 389,
+        reflectionGeneration: 27,
+        reflectionSha256:
+          "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
+        writebackBatches: 55,
+        writebackDirtyPages: 94,
+        writebackChangedBytes: 938,
+        hostDeltaBatches: 28,
+        finalMemoryGeneration: 112,
+        criticalSectionOccurrence: 15,
+        criticalSectionAddress: "0x20000224",
+        criticalSectionSpinCount: 4000,
+        firstUnsupportedInstructionCount: 1439,
+        firstUnsupportedCapabilityCluster: "kernel32-api-contract",
+        firstUnsupportedEndpointKind: "runtime-system-export",
+        firstUnsupportedEndpointId: 94,
+        firstUnsupportedEndpointAddress: "0x7f0005d0",
+        firstUnsupportedApi: "KERNEL32.dll!GetStdHandle",
+        firstUnsupportedArguments: ["0xfffffff5"],
+        firstUnsupportedIatAddress: "0x100d1220",
+        firstUnsupportedReturnAddress: "0x100a87b6",
+        firstUnsupportedFault: "standard-handle-selector-unsupported",
+        standardOutputImplemented: false,
+        standardErrorImplemented: false,
+        fileReadWriteImplemented: false,
+        consoleSemanticsImplemented: false,
+        apiSpecificReconciliationLists: false,
+        apiSpecificRequestsOrReceipts: false,
+        reportBytes: 252994,
+        reportSha256:
+          "dff76ce6eb289bdc4e57e6013c113906d9b0cee80eaa8cbf23948dcccd7efbcf",
+      }) ||
+    checkpoint.nextCheckpoint !== "kernel32-standard-output-handle" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

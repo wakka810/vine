@@ -1088,3 +1088,22 @@ instruction `1403`でID `101`／`GetFileType(0x53010001)`へ到達する。243,7
 reportのSHA-256は
 `5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e`
 である。詳細は[bgi-standard-input-handle.md](bgi-standard-input-handle.md)を正とする。
+
+## 52. BGI standard input file type
+
+opt-in `file-type` tracesは246,422 bytes／819 lines／SHA-256
+`480e2e9e7901535f88cd6dd87994bc7da97c47cd90ee0eb77dbef1149bfb7a9f`と
+261,838 bytes／872 lines／SHA-256
+`9986a349350e6875c779f35582347dbc485618492f7a68afa3716064ba1f3f02`
+である。BGI caller return RVA `0xA87C8`のstdin handles `0x208`／`0x210`はいずれも
+`FILE_TYPE_CHAR (2)`、LastError `87 -> 87`を返す。Consumerはzero check、low-byte
+classification、handle storeの後にcritical-section initializationへ進む。Native handle値はdiscardする。
+
+Rust common dispatcherはregistered logical stdin `0x53010001`だけをresolveして`2`を返す。
+Unknown logical handleはmutation前にstructured faultとなる。`npm run check:runtime:bgi-file-type`は
+23 contracts／54 calls、55 writeback batches／94 dirty pages／938 changed bytes、28 host deltas、
+final generation `112`を通す。Existing 15th critical-section initializationをreturnし、instruction
+`1439`でID `94`／`GetStdHandle(STD_OUTPUT_HANDLE)`をinput-only variant faultとして停止する。
+252,994-byte reportのSHA-256は
+`dff76ce6eb289bdc4e57e6013c113906d9b0cee80eaa8cbf23948dcccd7efbcf`
+である。詳細は[bgi-file-type.md](bgi-file-type.md)を正とする。
