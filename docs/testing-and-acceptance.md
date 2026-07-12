@@ -243,6 +243,12 @@ signal／runnable wake／one event、already-signaled immediate completion、pro
 alertable wait、message wake、guest APIの代用ではない。詳細は
 [runtime-wait-queue.md](runtime-wait-queue.md)を正とする。
 
+controlled message queueの代表Rust contractはempty receiveのblock、別threadからのIDs `1,2` enqueue、
+first messageだけのwake event、owner FIFO dequeue、reblock後ID `3`によるrewake、exited-target rejection
+時のfull state不変、process-exit message discardを1 testで固定する。これはHWND validation、filter、
+Peek／Get、WM_QUIT、paint、input、timer、Send／dispatch、guest APIの代用ではない。詳細は
+[runtime-message-queue.md](runtime-message-queue.md)を正とする。
+
 ### 5.4 CPU と ABI tests
 
 CPU test vector は instruction encoding、initial register／flags／memory、expected result／fault を持つ。

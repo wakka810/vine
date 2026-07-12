@@ -97,5 +97,6 @@ waiter registration, timeout, wait-any／wait-all, APC, or message wake. It is p
 
 The controlled wait-queue dependency is now implemented in
 [runtime-wait-queue.md](runtime-wait-queue.md): one selected thread waits on the other thread object
-and resumes deterministically after signal. The next dependency is a controlled per-thread message
-queue. Per-thread CPU bootstrap remains separate before guest-created threads can execute.
+and resumes deterministically after signal. The controlled message queue is implemented in
+[runtime-message-queue.md](runtime-message-queue.md). The next dependency is private-heap backing.
+Per-thread CPU bootstrap remains separate before guest-created threads can execute.

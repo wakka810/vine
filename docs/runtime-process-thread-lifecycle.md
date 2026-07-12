@@ -115,4 +115,5 @@ The controlled multi-thread registry dependency is now implemented in
 [runtime-thread-registry.md](runtime-thread-registry.md): one additional logical thread preserves
 per-thread state and typed object lifetime, and all lanes terminate deterministically. The controlled
 wait registration／wake dependency is implemented in [runtime-wait-queue.md](runtime-wait-queue.md).
-The next dependency is per-thread message ownership and empty-queue wake.
+Per-thread message ownership and empty-queue wake are implemented in
+[runtime-message-queue.md](runtime-message-queue.md). The next dependency is private-heap backing.

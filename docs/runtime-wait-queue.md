@@ -89,6 +89,6 @@ ownership or abandonment, waiter priority, multiple waiters contract evidence, t
 wait-any／wait-all, alertable wait, APC, message wake, guest API dispatch, or CPU context switching.
 It is partial evidence for `P1-SCH-01`／`REQ-API-03`, not their completion.
 
-The next Step 9 dependency is a controlled per-thread message queue foundation: enqueue ordered
-messages to another registered thread, dequeue by that owner, and connect empty-queue blocking／wake
-to scheduler metadata without claiming general User32 semantics.
+The controlled per-thread message queue dependency is now implemented in
+[runtime-message-queue.md](runtime-message-queue.md): ordered enqueue／owner dequeue and empty-queue
+wake share the scheduler metadata. The next Step 9 dependency is controlled private-heap backing.

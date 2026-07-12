@@ -934,6 +934,11 @@ selection、thread-only exit、TID昇順のall-lane process terminationをatomic
 signalによるdeterministic wake／exact event、already-signaled path、process-exit cancellationを
 atomic Rust contractで固定した。wait-any／wait-all／timeout／message wakeは未実装である。
 
+**Foundation 6完了（2026-07-12）:** bounded per-thread raw message FIFOを導入した。
+process-global sequence、opaque payload、empty receiveの`WaitingMessage`、first enqueueだけの
+runnable wake／exact event、owner FIFO dequeue、reblock／rewake、exit cleanupをatomic Rust
+contractで固定した。User32 filter／WM_QUIT／Send／dispatchは未実装である。
+
 - module graph
 - process／thread lifecycle
 - handles

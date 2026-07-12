@@ -166,6 +166,11 @@ signalによるrunnable wake、already-signaled completion、process-exit cancel
 未実装なので`REQ-API-03`はpartialのままである。詳細は
 [runtime-wait-queue.md](runtime-wait-queue.md)を正とする。
 
+controlled message queueはbounded per-thread raw FIFO、opaque payload、empty block、first-message wake、
+ordered dequeue、exit cleanupをRust metadataで通す。window ownership、Post／Send、Peek／Get、filter、
+WM_QUIT、paint、timer、dispatch callback、guest ABIは未実装なので`REQ-UI-02`はpartialのままである。
+詳細は[runtime-message-queue.md](runtime-message-queue.md)を正とする。
+
 ### 7.4 Windows userspace compatibility
 
 | ID | 要件 | 優先度 |

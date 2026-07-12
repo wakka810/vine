@@ -129,5 +129,6 @@ their completion.
 The controlled process／initial-thread lifecycle dependency is now implemented in
 [runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md), and the additional
 controlled thread registry is implemented in [runtime-thread-registry.md](runtime-thread-registry.md).
-The wait queue is implemented in [runtime-wait-queue.md](runtime-wait-queue.md). The next dependency
-is a per-thread message queue; DLL thread callbacks remain later work.
+The wait queue is implemented in [runtime-wait-queue.md](runtime-wait-queue.md), and the message queue
+is implemented in [runtime-message-queue.md](runtime-message-queue.md). The next dependency is
+controlled private-heap backing; DLL thread callbacks remain later work.

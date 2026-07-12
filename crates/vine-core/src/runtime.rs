@@ -27,6 +27,7 @@ pub const X86_STARTUP_INFO_W_BYTE_LENGTH: usize = 68;
 const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
 const RUNTIME_PRIVATE_HEAP_OWNER: &str = "runtime-process-private-heaps";
 const RUNTIME_PRIVATE_HEAP_VARIANT: &str = "heap-create-metadata-v1";
+const MAX_RUNTIME_THREAD_MESSAGES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -179,6 +180,37 @@ pub enum RuntimeWaitDisposition {
     Pending {
         registration: RuntimeWaitRegistration,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeMessageId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeThreadMessage {
+    pub id: RuntimeMessageId,
+    pub source_thread_id: RuntimeThreadId,
+    pub target_thread_id: RuntimeThreadId,
+    pub hwnd: u32,
+    pub message: u32,
+    pub w_param: u32,
+    pub l_param: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeMessageWake {
+    pub thread_id: RuntimeThreadId,
+    pub message_id: RuntimeMessageId,
+    pub queue_depth: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "kebab-case")]
+pub enum RuntimeMessageReceiveDisposition {
+    Message { message: RuntimeThreadMessage },
+    Blocked,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -860,6 +892,7 @@ pub enum SchedulerThreadState {
         registration_id: RuntimeWaitRegistrationId,
         object_id: RuntimeObjectId,
     },
+    WaitingMessage,
     InCallback {
         depth: usize,
     },
@@ -919,6 +952,7 @@ pub struct RuntimeCancellation {
     pub host_requests_cancelled: usize,
     pub callback_frames_cancelled: usize,
     pub wait_registrations_cancelled: usize,
+    pub messages_discarded: usize,
     pub scheduler_events_discarded: usize,
 }
 
@@ -931,6 +965,7 @@ pub struct RuntimeProcessCancellation {
     pub host_requests_cancelled: usize,
     pub callback_frames_cancelled: usize,
     pub wait_registrations_cancelled: usize,
+    pub messages_discarded: usize,
     pub scheduler_events_discarded: usize,
 }
 
@@ -959,6 +994,7 @@ struct RuntimeProcessExitRequestPlan {
 pub enum RuntimeSchedulerEvent {
     HostCompleted(RuntimeHostCompletion),
     WaitSatisfied(RuntimeWaitCompletion),
+    MessageReady(RuntimeMessageWake),
 }
 
 impl RuntimeSchedulerEvent {
@@ -966,6 +1002,7 @@ impl RuntimeSchedulerEvent {
         match self {
             Self::HostCompleted(completion) => completion.thread_id,
             Self::WaitSatisfied(completion) => completion.registration.thread_id,
+            Self::MessageReady(wake) => wake.thread_id,
         }
     }
 }
@@ -978,6 +1015,7 @@ pub struct RuntimeThreadState {
     pub last_error: u32,
     pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
     pub callback_frames: Vec<RuntimeCallbackFrame>,
+    pub message_queue: VecDeque<RuntimeThreadMessage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1030,6 +1068,7 @@ pub struct RuntimeState {
     next_callback_frame_id: u64,
     next_host_request_id: u64,
     next_wait_registration_id: u64,
+    next_message_id: u64,
 }
 
 impl RuntimeState {
@@ -1078,6 +1117,7 @@ impl RuntimeState {
             last_error: bootstrap.initial_last_error,
             tls_values: BTreeMap::new(),
             callback_frames: Vec::new(),
+            message_queue: VecDeque::new(),
         };
         Ok(Self {
             process: RuntimeProcessState {
@@ -1118,6 +1158,7 @@ impl RuntimeState {
             next_callback_frame_id: 1,
             next_host_request_id: 1,
             next_wait_registration_id: 1,
+            next_message_id: 1,
         })
     }
 
@@ -1343,6 +1384,7 @@ impl RuntimeState {
                 last_error: initial_last_error,
                 tls_values: BTreeMap::new(),
                 callback_frames: Vec::new(),
+                message_queue: VecDeque::new(),
             },
         );
         self.scheduler
@@ -1367,6 +1409,7 @@ impl RuntimeState {
                 SchedulerThreadState::Runnable
                     | SchedulerThreadState::WaitingHost { .. }
                     | SchedulerThreadState::WaitingObject { .. }
+                    | SchedulerThreadState::WaitingMessage
                     | SchedulerThreadState::InCallback { .. }
             )
         {
@@ -1471,6 +1514,129 @@ impl RuntimeState {
             },
         );
         Ok(RuntimeWaitDisposition::Pending { registration })
+    }
+
+    pub fn post_thread_message(
+        &mut self,
+        target_thread_id: RuntimeThreadId,
+        hwnd: u32,
+        message: u32,
+        w_param: u32,
+        l_param: u32,
+    ) -> Result<RuntimeThreadMessage, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-message",
+                "message-post-source-state-invalid",
+                "message post requires a running process and executing source thread",
+            ));
+        }
+        let source_thread_id = self.current_thread_id();
+        let target_thread = self.thread_state(target_thread_id)?;
+        let target_scheduler_state = self.scheduler_state_for_thread(target_thread_id)?;
+        if target_thread.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                target_scheduler_state,
+                SchedulerThreadState::Runnable
+                    | SchedulerThreadState::WaitingHost { .. }
+                    | SchedulerThreadState::WaitingObject { .. }
+                    | SchedulerThreadState::WaitingMessage
+                    | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-message",
+                "message-post-target-state-invalid",
+                "message target requires matching live thread and scheduler states",
+            ));
+        }
+        if target_thread.message_queue.len() >= MAX_RUNTIME_THREAD_MESSAGES {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-message",
+                "message-queue-capacity-exceeded",
+                "runtime thread message queue reached its controlled capacity",
+            ));
+        }
+        if target_scheduler_state == SchedulerThreadState::WaitingMessage
+            && !target_thread.message_queue.is_empty()
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-message",
+                "waiting-message-thread-queue-nonempty",
+                "message-waiting thread must have an empty queue",
+            ));
+        }
+        let id = RuntimeMessageId(self.next_message_id);
+        let next_message_id = self.next_message_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-message",
+                "message-id-overflow",
+                "runtime message ID space is exhausted",
+            )
+        })?;
+        let posted = RuntimeThreadMessage {
+            id,
+            source_thread_id,
+            target_thread_id,
+            hwnd,
+            message,
+            w_param,
+            l_param,
+        };
+        let queue_depth = {
+            let target = self.threads.get_mut(&target_thread_id).ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-message",
+                    "message-target-disappeared",
+                    "message target disappeared after complete registry preflight",
+                )
+            })?;
+            target.message_queue.push_back(posted);
+            target.message_queue.len()
+        };
+        self.next_message_id = next_message_id;
+        if target_scheduler_state == SchedulerThreadState::WaitingMessage {
+            self.scheduler
+                .threads
+                .insert(target_thread_id, SchedulerThreadState::Runnable);
+            self.scheduler
+                .events
+                .push_back(RuntimeSchedulerEvent::MessageReady(RuntimeMessageWake {
+                    thread_id: target_thread_id,
+                    message_id: id,
+                    queue_depth,
+                }));
+        }
+        Ok(posted)
+    }
+
+    pub fn receive_current_thread_message(
+        &mut self,
+    ) -> Result<RuntimeMessageReceiveDisposition, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || self.scheduler_state()? != SchedulerThreadState::Runnable
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-message",
+                "message-receive-thread-state-invalid",
+                "message receive requires a running process and runnable owner thread",
+            ));
+        }
+        let thread_id = self.current_thread_id();
+        if let Some(message) = self.current_thread_mut()?.message_queue.pop_front() {
+            return Ok(RuntimeMessageReceiveDisposition::Message { message });
+        }
+        self.scheduler
+            .threads
+            .insert(thread_id, SchedulerThreadState::WaitingMessage);
+        Ok(RuntimeMessageReceiveDisposition::Blocked)
     }
 
     pub fn set_heap_termination_on_corruption(&mut self, enabled: bool) {
@@ -2585,6 +2751,7 @@ impl RuntimeState {
                 SchedulerThreadState::Runnable
                     | SchedulerThreadState::WaitingHost { .. }
                     | SchedulerThreadState::WaitingObject { .. }
+                    | SchedulerThreadState::WaitingMessage
                     | SchedulerThreadState::InCallback { .. }
             )
         {
@@ -2597,6 +2764,8 @@ impl RuntimeState {
         let cancelled_wait = self.plan_thread_wait_cancellation(thread_id, scheduler_state)?;
         let callback_frames_cancelled = next_thread.callback_frames.len();
         next_thread.callback_frames.clear();
+        let messages_discarded = next_thread.message_queue.len();
+        next_thread.message_queue.clear();
         next_thread.lifecycle = RuntimeThreadLifecycleState::ExitRequested { exit_code };
         let host_requests_cancelled = self
             .registries
@@ -2620,6 +2789,7 @@ impl RuntimeState {
                 host_requests_cancelled,
                 callback_frames_cancelled,
                 wait_registrations_cancelled: usize::from(cancelled_wait.is_some()),
+                messages_discarded,
                 scheduler_events_discarded,
             },
         })
@@ -2667,6 +2837,7 @@ impl RuntimeState {
                 .values()
                 .any(|request| request.thread_id == thread_id)
             || !next_thread.callback_frames.is_empty()
+            || !next_thread.message_queue.is_empty()
             || self
                 .scheduler
                 .wait_registrations
@@ -2769,6 +2940,10 @@ impl RuntimeState {
             wait_registrations_cancelled: thread_cancellations
                 .iter()
                 .map(|cancellation| cancellation.wait_registrations_cancelled)
+                .sum(),
+            messages_discarded: thread_cancellations
+                .iter()
+                .map(|cancellation| cancellation.messages_discarded)
                 .sum(),
             scheduler_events_discarded: thread_cancellations
                 .iter()

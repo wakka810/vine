@@ -84,7 +84,8 @@ pointers. Nested callback frames are LIFO and asynchronous host completion is a
 scheduler event that restores the prior runnable／callback state. Private JSON
 request values remain evidence assertions, not API result sources. A controlled
 one-object wait queue now moves a logical lane from runnable to waiting and back
-when another thread's waitable object is signaled.
+when another thread's waitable object is signaled. Per-thread bounded raw message
+FIFOs add empty-queue blocking and first-message wake without claiming User32 APIs.
 
 The foundation below that checkpoint uses Rust `GuestMemory` as byte authority
 and v86 paging as a bounded execution mirror. Initial reflection, host delta,
@@ -141,7 +142,9 @@ adds unique TIDs, typed handles, isolated LastError／TLS／callback lanes, expl
 selection, thread-only exit, and deterministic all-lane process termination.
 A controlled wait queue adds monotonic registration identity, object-indexed
 FIFO ownership, exact signal/wake events, already-signaled completion, and exit
-cancellation. The next runtime-kernel checkpoint introduces per-thread message queues.
+cancellation. A controlled raw message queue adds global sequence identity,
+owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. The next
+runtime-kernel checkpoint connects private heaps to guest-memory backing.
 The third thunk ID `89` call for
 `KERNEL32.dll!EncodePointer(0x7F020000)` remains the next BGI trap, but bespoke
 API checkpoint expansion is paused until the P0 runtime-kernel gates are met.

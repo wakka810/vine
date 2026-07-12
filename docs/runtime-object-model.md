@@ -118,4 +118,5 @@ implemented in [runtime-module-graph.md](runtime-module-graph.md) and
 [runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md). The additional controlled
 thread registry is implemented in [runtime-thread-registry.md](runtime-thread-registry.md), and the
 controlled wait-queue dependency is implemented in [runtime-wait-queue.md](runtime-wait-queue.md).
-The next dependency is per-thread message ownership over the same identities.
+Per-thread message ownership is implemented in [runtime-message-queue.md](runtime-message-queue.md).
+The next dependency is controlled private-heap backing.

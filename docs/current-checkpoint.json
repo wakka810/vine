@@ -7,9 +7,9 @@
   "lastSupportedCallId": 89,
   "lastSupportedCall": "KERNEL32.dll!EncodePointer",
   "memoryGeneration": 30,
-  "runtimeKernelCheckpoint": "runtime-wait-queue-foundation",
+  "runtimeKernelCheckpoint": "runtime-message-queue-foundation",
   "runtimeStateAuthority": "rust",
-  "runtimeStateScope": "single-process-controlled-two-thread-wait-queue",
+  "runtimeStateScope": "single-process-controlled-two-thread-wait-message-queues",
   "runtimeStateOwns": [
     "process",
     "thread-last-error",
@@ -21,7 +21,8 @@
     "process-module-graph",
     "process-thread-lifecycle",
     "controlled-thread-registry",
-    "controlled-wait-queue"
+    "controlled-wait-queue",
+    "controlled-message-queue"
   ],
   "callbackFrameStack": true,
   "hostCompletionModel": "scheduler-event",
@@ -311,6 +312,31 @@
     "bgiInstructionCount": 238,
     "bgiReportSha256": "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4"
   },
-  "nextCheckpoint": "runtime-message-queue-foundation",
+  "runtimeMessageQueue": {
+    "schema": "vine.runtime-message-queue.v1",
+    "producerThreadId": 4097,
+    "ownerThreadId": 8192,
+    "messageIds": [1, 2, 3],
+    "queueCapacityPerThread": 4096,
+    "emptySchedulerState": "waiting-message",
+    "wakeSchedulerState": "runnable",
+    "wakeEvent": "message-ready",
+    "firstWakeMessageId": 1,
+    "firstWakeQueueDepth": 1,
+    "secondQueuedMessageCreatesWake": false,
+    "secondWakeMessageId": 3,
+    "processExitMessagesDiscarded": 2,
+    "postClonesWholeQueue": false,
+    "runtimeCoreWasmBytes": 769885,
+    "runtimeCoreWasmSha256": "db29e4846e40dc840bcf79ad70e613e2c32d251fcb05aeece1bf94ba09299db3",
+    "browserWorkerGuestInstructions": 46,
+    "browserWorkerExitCode": 0,
+    "browserBenchmarkDecision": "go",
+    "browserBenchmarkThresholdFailures": 0,
+    "bgiSupportedCallCount": 17,
+    "bgiInstructionCount": 238,
+    "bgiReportSha256": "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4"
+  },
+  "nextCheckpoint": "runtime-heap-backing-foundation",
   "pausedBgiCheckpoint": "eighteenth-supported-win32-call-return"
 }
