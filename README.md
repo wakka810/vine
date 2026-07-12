@@ -110,9 +110,19 @@ cover 68 dirty pages／399 changed bytes and finish at generation `82`; the
 175,123-byte report has SHA-256
 `26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c`.
 
-Eighteen Kernel32 contracts now use the generic Rust dispatcher. This includes
+The cumulative private-heap profile dispatches that reached allocation through
+the existing transaction, returns zeroed guest address `0x20000000`, and maps
+its first 4 KiB page into the v86 mirror. It completes 39 calls, including a
+second `DecodePointer`, then stops at dynamic
+`FlsSetValue(0, 0x20000000)` at instruction 644. Its 40 writeback batches cover
+70 dirty pages／415 changed bytes; 18 host deltas finish at generation `87`.
+The 183,102-byte report has SHA-256
+`d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`.
+
+Nineteen Kernel32 contracts now use the generic Rust dispatcher. This includes
 clock／identity, startup, heap, module／export, TLS, pointer encoding／decoding,
-critical-section, and dynamic FLS-allocation calls. The dispatcher owns endpoint lookup, checked frame decoding,
+critical-section, dynamic FLS-allocation, and reached private-heap allocation.
+The dispatcher owns endpoint lookup, checked frame decoding,
 pointer and name／ordinal validation, guest writes, return cleanup, LastError
 policy, and identity-preserving faults.
 
@@ -186,9 +196,9 @@ cancellation. A controlled raw message queue adds global sequence identity,
 owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. Private heaps now
 have bounded guest-memory backing; mapped images, bounded PE32 export resolution,
 guest／runtime import binding, and DLL process attach failure unwind／retry／detach
-are also process-owned foundations. The next runtime-kernel checkpoint connects
-the reached `HeapAlloc(0x68010001, 8, 0x214)` call to the existing bounded
-private-heap allocator. Bespoke numbered BGI checkpoint expansion remains paused.
+are also process-owned foundations. The next runtime-kernel checkpoint stores
+the reached `FlsSetValue(0, 0x20000000)` value in controlled per-thread FLS
+state. Bespoke numbered BGI checkpoint expansion remains paused.
 
 ## Requirements
 
@@ -320,6 +330,9 @@ preserves all three earlier reports, and stops fail-closed at dynamic
 `npm run check:runtime:bgi-fiber-local-storage-allocation` allocates logical FLS
 index `0`, preserves all four earlier reports, and stops fail-closed at
 `HeapAlloc(0x68010001, 8, 0x214)` after 37 completed calls.
+`npm run check:runtime:bgi-private-heap-allocation` returns zeroed guest pointer
+`0x20000000`, preserves all five earlier reports, and stops fail-closed at
+dynamic `FlsSetValue(0, 0x20000000)` after 39 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

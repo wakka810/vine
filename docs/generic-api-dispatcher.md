@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, and FLS-allocation capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, and private-heap-allocation capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-fiber-local-storage-allocation`
-- Scope: frozen 17-call equivalence plus 37 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-private-heap-allocation`
+- Scope: frozen 17-call equivalence plus 39 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -49,16 +49,18 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `TlsAlloc` | 1 | allocates a process TLS index |
 | `TlsSetValue` | 1 | stores a current-thread endpoint value |
 | `EncodePointer` | 6 | allocates stable process pointer tokens |
-| `DecodePointer` | 1 | resolves only registered process tokens to their original source |
+| `DecodePointer` | 2 | resolves only registered process tokens to their original source |
 | `InitializeCriticalSectionAndSpinCount` | 14 | creates process-owned synchronization state and exact x86 bytes |
 | `EnterCriticalSection` | controlled test | acquires or recursively enters for the current thread |
 | `LeaveCriticalSection` | controlled test | decrements recursion and releases at zero |
 | `FlsAlloc` | 1 | allocates a bounded process-owned logical FLS slot and retains its callback |
+| `HeapAlloc` | 1 | allocates the reached zeroed block through transactional guest-memory backing |
 
-All 18 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 19 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-37 BGI calls, including six `EncodePointer` occurrences, 14 critical-section
-initializations, one `DecodePointer`, and one dynamic `FlsAlloc`. Enter／leave semantics are fixed by native evidence and the
+39 BGI calls, including six `EncodePointer` occurrences, 14 critical-section
+initializations, two `DecodePointer` calls, dynamic `FlsAlloc`, and one
+`HeapAlloc`. Enter／leave semantics are fixed by native evidence and the
 controlled public test because the bounded BGI continuation has not reached those
 endpoints. The title harness still performs callsite provenance checks, automatic
 v86 dirty-page synchronization, and evidence serialization around the common
@@ -102,6 +104,7 @@ numbered or API-specific request／receipt mode:
 npm run check:runtime:bgi-critical-section-synchronization
 npm run check:runtime:bgi-pointer-decoding
 npm run check:runtime:bgi-fiber-local-storage-allocation
+npm run check:runtime:bgi-private-heap-allocation
 ```
 
 ## RuntimeState authority
@@ -115,6 +118,8 @@ One `RuntimeState` is created at cumulative-session start. It owns:
   controlled thread ownership, and recursion state.
 - bounded process-owned FLS slots keyed by logical index, with retained optional
   guest cleanup callbacks.
+- bounded private-heap backing and reached guest allocation metadata, with
+  `GuestMemory` as byte and mapping authority.
 
 The Rust profile preloads the logical runtime KERNEL32 module and installed FLS endpoints. `HeapCreate` and `TlsAlloc` allocate through runtime-owned deterministic allocators. `GetModuleHandleW` and `GetProcAddress` resolve state by canonical module and exact export name. No handler receives a result value from the JSON protocol.
 
@@ -122,7 +127,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 18 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 19 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -134,11 +139,12 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The six tests cover all 18 APIs, the five original shapes, output writes,
+The seven tests cover all 19 APIs, the five original shapes, output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
 bytes, same-thread recursion, release, structured contention, dynamic/static ID
-collision, executable FLS callbacks, and bounded FLS allocation.
+collision, executable FLS callbacks, bounded FLS allocation, and the reached
+transactional private-heap allocation with mutation-free variant rejection.
 
 The cumulative private-corpus command is:
 
@@ -207,11 +213,29 @@ and stops at instruction 618 on static endpoint ID `75`／
 `HeapAlloc(0x68010001,8,0x214)`. Full evidence is in
 [bgi-fiber-local-storage-allocation.md](bgi-fiber-local-storage-allocation.md).
 
+The private-heap-allocation capability profile is:
+
+```powershell
+npm run check:runtime:bgi-private-heap-allocation
+```
+
+It accepts only `HeapAlloc(0x68010001,HEAP_ZERO_MEMORY,0x214)`, returns guest
+pointer `0x20000000`, and applies the existing allocator's reserve/commit/zero
+delta to the v86 mirror. The profile completes 39 calls, including a second
+`DecodePointer`, uses 40 writeback batches／70 dirty pages／415 changed bytes and
+18 host deltas, and ends at generation `87`. Its 183,102-byte report has
+SHA-256 `d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`
+and stops at instruction 644 on dynamic endpoint ID `3`／
+`FlsSetValue(0,0x20000000)`. Full evidence is in
+[bgi-private-heap-allocation.md](bgi-private-heap-allocation.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
 - The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
-- Private heaps have bounded guest-memory backing, but guest `HeapAlloc` dispatch and broad allocator policy remain absent.
+- Private heaps have bounded guest-memory backing and the reached zeroed
+  `HeapAlloc` variant; other sizes/flags, free/destroy/realloc dispatch, and
+  broad allocator policy remain absent.
 - FLS values/free/callback teardown and TLS free/thread lifecycle, critical-section
   deletion／contention blocking, and arbitrary export pages are absent.
 - Host completion is connected to controlled Worker／browser services; general
@@ -219,17 +243,17 @@ and stops at instruction 618 on static endpoint ID `75`／
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
   Rust byte authority, automatic v86 writeback, and binary transport are now
   fixed by ADR-003 and the memory-writeback checkpoint.
-- The generic session has passed FLS allocation. Its first unsupported cluster
-  is Kernel32 private-heap allocation; bespoke checkpoint
+- The generic session has passed the reached private-heap allocation. Its first
+  unsupported cluster is dynamic Kernel32 FLS value storage; bespoke checkpoint
   expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-private-heap-allocation` at static
-`HeapAlloc(0x68010001,8,0x214)`. It must connect the reached Win32 contract to
-the existing bounded `RuntimeHeap` transaction and continue through the same
-generic loop without introducing a second allocator. Existing import,
-bootstrap, DLL lifecycle, bidirectional memory sync, frozen 17-call report,
-generic 96,244-byte report, critical-section 167,719-byte report,
-pointer-decoding 171,356-byte report, and FLS-allocation 175,123-byte report
-remain the regression boundary.
+The next proof is `kernel32-fiber-local-storage-value` at dynamic
+`FlsSetValue(0,0x20000000)`. It must store the reached heap pointer in the
+controlled current thread's logical FLS slot through the same dynamic dispatcher
+and continue to the next exact stop. Existing import, bootstrap, DLL lifecycle,
+bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
+critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
+FLS-allocation 175,123-byte report, and private-heap 183,102-byte report remain
+the regression boundary.

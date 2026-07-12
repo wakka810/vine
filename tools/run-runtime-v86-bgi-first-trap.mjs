@@ -52,6 +52,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-critical-section-synchronization",
         "kernel32-pointer-decoding",
         "kernel32-fiber-local-storage-allocation",
+        "kernel32-private-heap-allocation",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -63,7 +64,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
@@ -89,6 +90,11 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const privateHeapAllocationEnabled =
+  genericRuntimeCapability === "kernel32-private-heap-allocation";
+const fiberLocalStorageAllocationEnabled =
+  privateHeapAllocationEnabled ||
+  genericRuntimeCapability === "kernel32-fiber-local-storage-allocation";
 const wasmPath = path.resolve(
   positionalArguments[0] ??
     path.join(root, ".work", "v86-adapter-source", "build", "v86-fallback.wasm"),
@@ -101,7 +107,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+    ? privateHeapAllocationEnabled
+      ? "v86-bgi-private-heap-allocation"
+      : fiberLocalStorageAllocationEnabled
       ? "v86-bgi-fiber-local-storage-allocation"
       : genericRuntimeCapability === "kernel32-pointer-decoding"
         ? "v86-bgi-pointer-decoding"
@@ -1277,6 +1285,45 @@ const fiberLocalStorageAllocationExpected = {
   reportBytes: 175_123,
   reportSha256: "26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c",
 };
+const privateHeapAllocationExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 39,
+  decodeCalls: 2,
+  heapAllocationCalls: 1,
+  heapHandle: 0x68010001,
+  flags: 0x8,
+  byteLength: 0x214,
+  guestAddress: 0x20000000,
+  allocationInstructionCount: 618,
+  allocationReturnAddress: 0x100ac3cc,
+  writebackBatches: 40,
+  dirtyPages: 70,
+  changedBytes: 415,
+  hostDeltaBatches: 18,
+  finalGeneration: 87,
+  heapDelta: {
+    sequence: 38,
+    fromGeneration: 82,
+    generation: 85,
+    mappingOperations: 2,
+    address: 0x20000000,
+    owner: 10,
+    payloadSha256: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
+  },
+  firstUnsupported: {
+    capabilityCluster: "kernel32-fiber-local-storage",
+    endpointId: 3,
+    endpointAddress: 0x7f020020,
+    module: "kernel32.dll",
+    name: "FlsSetValue",
+    arguments: [0, 0x20000000],
+    returnAddress: 0x100a5955,
+    instructionCount: 644,
+    faultCode: "dynamic-export-contract-missing",
+  },
+  reportBytes: 183_102,
+  reportSha256: "d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -1603,7 +1650,7 @@ async function run() {
     "--expect-sha256",
     expected.source.sha256,
     "--prepare-memory-pages",
-    String(expected.memory.reflectedPages),
+    String(expected.memory.reflectedPages + Number(privateHeapAllocationEnabled)),
     "--materialize-image-base",
     `0x${expected.image.loadBase.toString(16)}`,
     "--bind-name",
@@ -1738,6 +1785,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (privateHeapAllocationEnabled) {
+        validatePrivateHeapAllocationResult(genericResult);
       } else {
         validateFiberLocalStorageAllocationResult(genericResult);
       }
@@ -1748,7 +1797,9 @@ async function run() {
         assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
       } else {
         const capabilityExpected =
-          genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+          privateHeapAllocationEnabled
+            ? privateHeapAllocationExpected
+            : fiberLocalStorageAllocationEnabled
             ? fiberLocalStorageAllocationExpected
             : genericRuntimeCapability === "kernel32-pointer-decoding"
               ? pointerDecodingExpected
@@ -1763,7 +1814,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+          : privateHeapAllocationEnabled
+            ? "bgi private-heap allocation"
+            : fiberLocalStorageAllocationEnabled
             ? "bgi fiber-local-storage allocation"
             : genericRuntimeCapability === "kernel32-pointer-decoding"
               ? "bgi pointer decoding"
@@ -2107,7 +2160,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+        : privateHeapAllocationEnabled
+          ? 6
+          : fiberLocalStorageAllocationEnabled
           ? 5
           : genericRuntimeCapability === "kernel32-pointer-decoding"
             ? 4
@@ -2339,6 +2394,11 @@ function decodeRuntimeHostDelta(control, payload) {
       owner: view.getUint32(offset + 4, true),
       regionKind: view.getUint32(offset + 8, true),
       protectionFlags: view.getUint32(offset + 12, true),
+      protection: {
+        read: Boolean(view.getUint32(offset + 12, true) & 1),
+        write: Boolean(view.getUint32(offset + 12, true) & 2),
+        execute: Boolean(view.getUint32(offset + 12, true) & 4),
+      },
       address: view.getUint32(offset + 16, true),
       byteLength: safeNumber(view.getBigUint64(offset + 20, true), "mapping byte length"),
     });
@@ -2375,8 +2435,41 @@ function decodeRuntimeHostDelta(control, payload) {
 }
 
 function applyRuntimeHostDelta(context, delta) {
-  assert.deepEqual(delta.mappingOperations, []);
-  for (const dirty of delta.dirtyPages) {
+  const dirtyByAddress = new Map(delta.dirtyPages.map((dirty) => [dirty.address, dirty]));
+  for (const operation of delta.mappingOperations) {
+    const end = checkedEnd(
+      operation.address,
+      operation.byteLength,
+      0x1_0000_0000,
+      "runtime host mapping operation",
+    );
+    if (operation.operation === 1) {
+      assert.equal(operation.regionKind, 7, "runtime host reserve is not a heap region");
+      assert.deepEqual(operation.protection, {
+        read: false,
+        write: false,
+        execute: false,
+      });
+      continue;
+    }
+    assert.equal(operation.operation, 2, "unsupported runtime host mapping operation");
+    for (let address = operation.address; address < end; address += page.size) {
+      const dirty = dirtyByAddress.get(address);
+      assert(dirty, "committed runtime host page has no bytes");
+      assert.equal(dirty.owner, operation.owner);
+      assert.equal(dirty.ownerSealed, false);
+      assert.deepEqual(dirty.protection, operation.protection);
+      context.mapRuntimePage(
+        address,
+        operation.owner,
+        operation.protection,
+        dirty.bytes,
+        `host-committed-owner-${operation.owner}`,
+      );
+      dirtyByAddress.delete(address);
+    }
+  }
+  for (const dirty of dirtyByAddress.values()) {
     assert.equal(dirty.ownerSealed, true);
     const mapping = context.mappings.get(dirty.address);
     assert(mapping, `host dirty page 0x${dirty.address.toString(16)} is unmapped`);
@@ -2731,6 +2824,90 @@ function validateFiberLocalStorageAllocationResult(result) {
   );
 }
 
+function validatePrivateHeapAllocationResult(result) {
+  const expected = privateHeapAllocationExpected;
+  const allocations = result.supportedCalls.filter(({ symbol }) => symbol === "HeapAlloc");
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  assert.equal(
+    result.supportedCalls.filter(({ symbol }) => symbol === "DecodePointer").length,
+    expected.decodeCalls,
+  );
+  const lastDecode = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "DecodePointer",
+  ).at(-1);
+  assert.deepEqual(lastDecode.arguments, [0xec010005]);
+  assert.deepEqual(lastDecode.result, { action: "set", value: 0x7f020020 });
+
+  assert.equal(allocations.length, expected.heapAllocationCalls);
+  assert.deepEqual(allocations[0].arguments, [
+    expected.heapHandle,
+    expected.flags,
+    expected.byteLength,
+  ]);
+  assert.deepEqual(allocations[0].result, {
+    action: "set",
+    value: expected.guestAddress,
+  });
+  assert.equal(allocations[0].implementationId, "kernel32.heap-alloc.v1");
+  assert.equal(allocations[0].lastError, 87);
+  assert.deepEqual(allocations[0].guestWrites, []);
+  assert.equal(allocations[0].stackPointerAfter, allocations[0].stackPointerBefore + 16);
+  assert.equal(allocations[0].trapInstructionCount, expected.allocationInstructionCount);
+  assert.equal(allocations[0].returnAddress, expected.allocationReturnAddress);
+
+  const heapDelta = result.hostDeltas.find(({ mappingOperations }) => mappingOperations !== 0);
+  assert(heapDelta, "HeapAlloc did not emit a host mapping delta");
+  assert.equal(heapDelta.sequence, expected.heapDelta.sequence);
+  assert.equal(heapDelta.fromGeneration, expected.heapDelta.fromGeneration);
+  assert.equal(heapDelta.generation, expected.heapDelta.generation);
+  assert.equal(heapDelta.mappingOperations, expected.heapDelta.mappingOperations);
+  assert.deepEqual(heapDelta.dirtyPages, [
+    { address: expected.heapDelta.address, owner: expected.heapDelta.owner },
+  ]);
+  assert.equal(heapDelta.payloadBytes, page.size);
+  assert.equal(heapDelta.payloadSha256, expected.heapDelta.payloadSha256);
+  assert.deepEqual(heapDelta.cacheEffects, {
+    flushTlb: true,
+    invalidateInstructionFetch: true,
+    invalidateGeneratedCode: true,
+  });
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "dynamic-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.name, unsupported.name);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-dynamic-export-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -2752,7 +2929,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : genericRuntimeCapability === "kernel32-fiber-local-storage-allocation"
+        : privateHeapAllocationEnabled
+          ? "vine.v86-bgi-private-heap-allocation"
+          : fiberLocalStorageAllocationEnabled
           ? "vine.v86-bgi-fiber-local-storage-allocation"
           : genericRuntimeCapability === "kernel32-pointer-decoding"
             ? "vine.v86-bgi-pointer-decoding"
@@ -3275,30 +3454,39 @@ async function prepareV86(offer) {
     }
     return table;
   };
-  for (const reflected of offer.reflection.pages) {
-    const virtualBase = reflected.address;
-    checkedGuestEnd(virtualBase, page.size, "reflected page");
+  const mapRuntimePage = (virtualBase, owner, protection, bytes, role) => {
+    checkedGuestEnd(virtualBase, page.size, role);
     assert.equal(virtualBase & (page.size - 1), 0);
     assert(!mappings.has(virtualBase), `duplicate mapping 0x${virtualBase.toString(16)}`);
+    assert.equal(bytes.length, page.size, `${role} is not one guest page`);
     const table = ensurePageTable(virtualBase);
     const tableIndex = (virtualBase >>> 12) & 0x3ff;
-    const physicalBase = allocatePhysicalPage(`reflected-owner-${reflected.owner}`);
+    const physicalBase = allocatePhysicalPage(role);
     writePhysicalU32(
       table + tableIndex * 4,
       physicalBase |
         page.present |
         page.user |
-        (reflected.protection.write ? page.writable : 0),
-      "reflected page table entry",
+        (protection.write ? page.writable : 0),
+      `${role} page table entry`,
     );
-    physicalMemory.set(Uint8Array.from(reflected.bytes), physicalBase);
+    physicalMemory.set(Uint8Array.from(bytes), physicalBase);
     mappings.set(virtualBase, {
-      owner: reflected.owner,
+      owner,
       physicalBase,
       pteAddress: table + tableIndex * 4,
-      protection: { ...reflected.protection },
-      role: `reflected-owner-${reflected.owner}`,
+      protection: { ...protection },
+      role,
     });
+  };
+  for (const reflected of offer.reflection.pages) {
+    mapRuntimePage(
+      reflected.address,
+      reflected.owner,
+      reflected.protection,
+      reflected.bytes,
+      `reflected-owner-${reflected.owner}`,
+    );
   }
 
   const mappingFor = (address, label) => {
@@ -3406,6 +3594,7 @@ async function prepareV86(offer) {
     allocations,
     hostImportCalls,
     mappings,
+    mapRuntimePage,
     pageDirectory,
     pageTables,
     physicalMemory,

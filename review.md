@@ -1046,6 +1046,26 @@ byte-identicalである。`FlsGetValue`／`FlsSetValue`／`FlsFree`、per-thread
 teardownは未実装のまま保持し、次はexisting bounded private-heap backingへreached
 `HeapAlloc` contractを接続する。
 
+### Step 14 — reached private-heap allocation
+
+**完了（2026-07-13）:** existing heap-lifecycle traceのBGI caller return RVA
+`0xAC3CC`で`HeapAlloc(nativeHeap,0x8,0x214)`、nonnull result、LastError
+`0 -> 0`を再確認した。直後の`0x800` allocationは別variantとしてdeferする。
+
+Rust common dispatcherへthree-argument stdcall contractを追加し、exact
+`HEAP_ZERO_MEMORY`／`0x214`だけをexisting `ExecutionSession` heap transactionへ
+接続した。Allocation ID `1`、zeroed guest pointer `0x20000000`、aligned length
+`0x218`を返す。Other flags／sizesはstate／memory mutation前にstructured unsupportedと
+なる。Lazy 16 MiB reserve／one-page commitはbinary host deltaでv86へmapする。
+
+same generic sessionは19 contracts／39 calls、40 writeback batches／70 dirty pages／
+415 changed bytes、18 host deltas、final generation `87`を通した。second
+`DecodePointer(0xEC010005)`後、instruction 644のdynamic endpoint ID `3`／
+`KERNEL32.dll!FlsSetValue(0,0x20000000)`で停止した。183,102-byte reportの
+SHA-256は`d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`
+である。先行5 reportsはbyte-identicalである。次はreached current-thread FLS value
+storeをsame dynamic dispatcherへ接続し、later `HeapAlloc(0x800)`は先取りしない。
+
 ---
 
 ## 8. P0完了のDefinition of Done

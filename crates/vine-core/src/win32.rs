@@ -9,8 +9,8 @@ use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
-    LOGICAL_PRIVATE_HEAP_NAMESPACE, RuntimeCriticalSection, X86_CRITICAL_SECTION_BYTE_LENGTH,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    LOGICAL_PRIVATE_HEAP_NAMESPACE, RuntimeCriticalSection, RuntimeHeapInitialization,
+    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -22,6 +22,7 @@ pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-perfo
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
 pub const HEAP_CREATE_IMPLEMENTATION: &str = "kernel32.heap-create.v1";
+pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v1";
 pub const GET_MODULE_HANDLE_W_IMPLEMENTATION: &str = "kernel32.get-module-handle-w.v1";
 pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1";
 pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
@@ -35,6 +36,8 @@ pub const ENTER_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.enter-critical
 pub const LEAVE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.leave-critical-section.v1";
 
 const HEAP_ENABLE_TERMINATION_ON_CORRUPTION: u32 = 1;
+const HEAP_ZERO_MEMORY: u32 = 0x0000_0008;
+const REACHED_HEAP_ALLOC_BYTE_LENGTH: u32 = 0x0000_0214;
 const MAX_MODULE_NAME_CODE_UNITS: usize = 64;
 const MAX_EXPORT_NAME_BYTES: usize = 64;
 
@@ -58,6 +61,7 @@ pub fn dispatch_kernel32_api(
             handle_heap_set_information(contract, frame, session)
         }
         HEAP_CREATE_IMPLEMENTATION => handle_heap_create(contract, frame, session),
+        HEAP_ALLOC_IMPLEMENTATION => handle_heap_alloc(contract, frame, session),
         GET_MODULE_HANDLE_W_IMPLEMENTATION => handle_get_module_handle_w(contract, frame, session),
         GET_PROC_ADDRESS_IMPLEMENTATION => handle_get_proc_address(contract, frame, session),
         TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
@@ -104,6 +108,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
         "HeapCreate" => heap_create_contract(endpoint)?,
+        "HeapAlloc" => heap_alloc_contract(endpoint)?,
         "GetModuleHandleW" => get_module_handle_w_contract(endpoint)?,
         "GetProcAddress" => get_proc_address_contract(endpoint)?,
         "TlsAlloc" => tls_alloc_contract(endpoint)?,
@@ -222,6 +227,29 @@ fn handle_heap_create(
         namespace: heap.namespace,
         value: heap.handle,
     }))
+}
+
+fn handle_heap_alloc(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let heap = required_argument(contract, frame, 0, "heap handle")?;
+    let flags = required_argument(contract, frame, 1, "heap allocation flags")?;
+    let byte_length = required_argument(contract, frame, 2, "heap allocation byte length")?;
+    if flags != HEAP_ZERO_MEMORY || byte_length != REACHED_HEAP_ALLOC_BYTE_LENGTH {
+        return Err(ApiFault::unsupported(
+            "win32-heap",
+            "heap-alloc-variant-unsupported",
+            "only the reached HEAP_ZERO_MEMORY 0x214-byte allocation is implemented",
+        ));
+    }
+    let allocation = session
+        .allocate_private_heap_block(heap, byte_length, RuntimeHeapInitialization::Zeroed)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
+        allocation.address.0,
+    )))
 }
 
 fn handle_get_module_handle_w(
@@ -700,6 +728,20 @@ pub fn heap_create_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract
             nullable: false,
         },
         HEAP_CREATE_IMPLEMENTATION,
+    )
+}
+
+pub fn heap_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "HeapAlloc",
+        vec![
+            logical_handle("heap", LOGICAL_PRIVATE_HEAP_NAMESPACE, false),
+            u32_argument("flags"),
+            u32_argument("byteLength"),
+        ],
+        ApiReturnSchema::OpaquePointer { nullable: false },
+        HEAP_ALLOC_IMPLEMENTATION,
     )
 }
 

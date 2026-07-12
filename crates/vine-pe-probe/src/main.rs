@@ -81,6 +81,7 @@ enum GenericRuntimeCapability {
     CriticalSectionSynchronization,
     PointerDecoding,
     FiberLocalStorageAllocation,
+    PrivateHeapAllocation,
 }
 
 struct GenericRuntimeProcess {
@@ -2356,7 +2357,10 @@ fn run_v86_generic_runtime_session(
     }
     if matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::FiberLocalStorageAllocation)
+        Some(
+            GenericRuntimeCapability::FiberLocalStorageAllocation
+                | GenericRuntimeCapability::PrivateHeapAllocation
+        )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
             process
@@ -2601,6 +2605,7 @@ fn runtime_capability_enables_endpoint(
                 GenericRuntimeCapability::CriticalSectionSynchronization
                     | GenericRuntimeCapability::PointerDecoding
                     | GenericRuntimeCapability::FiberLocalStorageAllocation
+                    | GenericRuntimeCapability::PrivateHeapAllocation
             )
         ),
         "DecodePointer" => matches!(
@@ -2608,11 +2613,19 @@ fn runtime_capability_enables_endpoint(
             Some(
                 GenericRuntimeCapability::PointerDecoding
                     | GenericRuntimeCapability::FiberLocalStorageAllocation
+                    | GenericRuntimeCapability::PrivateHeapAllocation
             )
         ),
         "FlsAlloc" => matches!(
             enabled,
-            Some(GenericRuntimeCapability::FiberLocalStorageAllocation)
+            Some(
+                GenericRuntimeCapability::FiberLocalStorageAllocation
+                    | GenericRuntimeCapability::PrivateHeapAllocation
+            )
+        ),
+        "HeapAlloc" => matches!(
+            enabled,
+            Some(GenericRuntimeCapability::PrivateHeapAllocation)
         ),
         _ => true,
     }
@@ -2624,7 +2637,10 @@ fn runtime_capability_enables_dynamic_endpoint(
 ) -> bool {
     matches!(
         enabled,
-        Some(GenericRuntimeCapability::FiberLocalStorageAllocation)
+        Some(
+            GenericRuntimeCapability::FiberLocalStorageAllocation
+                | GenericRuntimeCapability::PrivateHeapAllocation
+        )
     ) && endpoint.module.eq_ignore_ascii_case("kernel32.dll")
         && endpoint.name == "FlsAlloc"
 }
@@ -7760,6 +7776,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-fiber-local-storage-allocation" => {
                     GenericRuntimeCapability::FiberLocalStorageAllocation
                 }
+                "kernel32-private-heap-allocation" => {
+                    GenericRuntimeCapability::PrivateHeapAllocation
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
@@ -7970,7 +7989,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

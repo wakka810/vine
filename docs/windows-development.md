@@ -51,13 +51,14 @@
 - focused pointer-encoding evidence、controlled encoded-NULL token `0xEC010001`、TLS state preservation、same ID `89`／`EncodePointer(0x100A9608)` next call
 - executable process-initializer source validation、token `0xEC010002`／guest global store、same ID `89`／`EncodePointer(0x7F020000)` next call
 - persistent generic runtimeでcritical-section 14 objects、strict `DecodePointer` inverse、dynamic `FlsAlloc` dispatchを累積実行し、bounded process-owned FLS index `0`／callback `0x100A5666`を保持してID `75`／`HeapAlloc(0x68010001,8,0x214)` next trap
+- reached `HeapAlloc`をexisting Rust transactionへ接続し、zeroed guest pointer `0x20000000`、lazy reserve／commit host delta、second `DecodePointer`を通してdynamic `FlsSetValue(0,0x20000000)` next trap
 - 初回full reflection後のdirty-page-only `MemoryDelta`、通常RW／NX 8-byte writeのlive v86 readback、generation単位acknowledgement
 - Rust byte authority／v86 execution mirror、binary reflection／delta／writeback、PTE Dirty scanによるstack／heap／surface／RWXの連続2-slice multi-page reconciliation
 - process environment／PE materialization／import bindingのsnapshot transaction、failpoint rollback、same-memory retry
 - `check:fast`／`check:fixture-e2e`／`check:adapter`／`check:private-corpus`、Linux public CI、PE planner fuzz／randomized memory contract
 - valid low-alignment PEのstructured unsupported stopと、cross-page NX instructionのconservative execute gate
 
-general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB、native-oracled command-line bytes、controlled startup-info／heap-policy／private-heap／loaded-module、four dynamic-export variants、one logical TLS index／thread value、process pointer token inverse、bounded logical FLS slotまで進んだ。Frozen numbered evidenceは17 API returnで固定し、separate runtime-kernel profileは37 calls後の`HeapAlloc`へ到達した。guest HeapAlloc、general TLS／FLS value／free／callback teardown、general pointer-cookie semanticsは未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md)、[bgi-fiber-local-storage-allocation.md](bgi-fiber-local-storage-allocation.md)、[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md) を正とする。
+general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB、native-oracled command-line bytes、controlled startup-info／heap-policy／private-heap／loaded-module、four dynamic-export variants、one logical TLS index／thread value、process pointer token inverse、bounded logical FLS slot、one reached heap blockまで進んだ。Frozen numbered evidenceは17 API returnで固定し、separate runtime-kernel profileは19 contracts／39 calls後の`FlsSetValue(0,0x20000000)`へ到達した。broad HeapAlloc、general TLS／FLS value／free／callback teardown、general pointer-cookie semanticsは未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md)、[bgi-private-heap-allocation.md](bgi-private-heap-allocation.md)、[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md) を正とする。
 
 ## 2. Windows toolchain
 

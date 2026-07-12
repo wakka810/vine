@@ -7,10 +7,11 @@ review Step 9のseventh foundationとして、既存のtyped logical private hea
 free／reuse、invalid／double free、heap destroy、process-exit teardownを一つのauthoritative
 boundaryで固定する。
 
-このcheckpointはguest `HeapAlloc`／`HeapFree`／`HeapDestroy` dispatchを追加しない。既存の
-`HeapCreate(0, 0x1000, 0)`はmetadata-onlyのままreturnするため、frozen BGI 17-call reportと
-generationは変わらない。最初のcore allocation operationがlazy backingを作り、後続のWin32
-handlerが使う実装境界だけを先に成立させる。
+このfoundation自体はguest dispatchを追加せず、`HeapCreate(0, 0x1000, 0)`をmetadata-onlyの
+ままreturnする境界として成立した。続く
+[bgi-private-heap-allocation.md](bgi-private-heap-allocation.md)は、reached
+`HeapAlloc(0x68010001,HEAP_ZERO_MEMORY,0x214)`だけをsame transactionへ接続した。
+`HeapFree`／`HeapDestroy`／`HeapReAlloc`とbroad allocator policyは未実装のままである。
 
 ## Controlled address and memory policy
 
@@ -56,8 +57,8 @@ Initialization policy:
 | freed block poison | `0xDD` |
 
 `0xA5`／`0xDD`はVineのdeterministic diagnostic policyであり、native Windowsが同じbytesを返すという
-主張ではない。`HEAP_ZERO_MEMORY`はfuture handlerで`Zeroed`へmapし、flagなしはnonzero policyへ
-mapする。Zero-byte allocation semanticsはbroad allocator policyまでexplicit unsupportedである。
+主張ではない。Reached `HEAP_ZERO_MEMORY` handlerは`Zeroed`へmapする。Flagなしを含む
+他variantとzero-byte allocation semanticsはbroad allocator policyまでexplicit unsupportedである。
 
 Freeはexact live baseを要求する。同じfree-block baseのsecond freeは
 `heap-allocation-double-free`、interior／foreign／unknown pointerは
@@ -109,6 +110,9 @@ Production regression on the same implementation:
   `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`
 - BGI reflection SHA-256
   `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`
+- BGI private-heap capability: one reached allocation at `0x20000000`, 39 calls,
+  final generation `87`, report SHA-256
+  `d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`
 - version 1 browser benchmark: `go`, threshold failures `0`; integer `135,545,128` ips,
   production API `11,400/s`
 - Rust runtime core Wasm: 772,038 bytes／SHA-256
@@ -119,8 +123,9 @@ regression evidence, not a replacement baseline.
 
 ## Non-claims and next dependency
 
-This checkpoint does not implement guest API marshalling, Win32 allocation flags beyond the future
-zero/nonzero mapping, zero-size behavior, realloc, size／validate／compact／walk, heap lock, LFH,
+The reached guest `HeapAlloc` marshalling exists only for `HEAP_ZERO_MEMORY` plus byte length
+`0x214`. This foundation still does not implement other allocation flags／sizes, failure return,
+zero-size behavior, realloc, size／validate／compact／walk, heap lock, LFH,
 serialization, concurrent allocation, corruption termination, guard pages, per-block decommit, or a
 full-title capacity profile. It is partial evidence for `REQ-MEM-01`／`REQ-API-02` and `P3-WIN-01`,
 not their completion.

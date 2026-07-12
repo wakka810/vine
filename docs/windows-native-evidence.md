@@ -976,3 +976,27 @@ structured stopする。175,123-byte reportのSHA-256は
 `26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c`で2回一致し、
 先行4 reportsはbyte-identicalである。詳細は
 [bgi-fiber-local-storage-allocation.md](bgi-fiber-local-storage-allocation.md)を正とする。
+
+## 47. BGI private-heap allocation
+
+existing opt-in heap-lifecycle traceは6,870,828 bytes／21,822 lines／SHA-256
+`9bdf000eedb8844a6e8db4732d025e7dd3a33854bea47175e26c5d5a3e678682`
+である。BGI caller return RVA `0xAC3CC`のfirst paired callは
+`HeapAlloc(nativeHeap,0x8,0x214)`、native result `0x04A405C0`、LastError
+`0 -> 0`である。直後のpaired callはsame caller／flags、size `0x800`、result
+`0x04A407E0`であり、later variantとしてdeferする。Native handle／resultsは破棄する。
+
+Rust common dispatcherはlogical heap `0x68010001`、exact
+`HEAP_ZERO_MEMORY`／`0x214`だけをexisting `ExecutionSession` transactionへ渡す。
+Allocation ID `1`、guest address `0x20000000`、aligned length `0x218`を返し、16 MiB
+reserveとone-page RW／NX commitをgeneration `82 -> 85`のbinary host deltaとして
+v86 mirrorへ適用する。Other flags／sizesはmutation前に
+`heap-alloc-variant-unsupported`となる。
+
+`npm run check:runtime:bgi-private-heap-allocation`は19 contracts／39 calls、40
+writeback batches／70 dirty pages／415 changed bytes、18 host deltas、final generation
+`87`を通す。second `DecodePointer(0xEC010005)`がdynamic endpoint ID `3`／
+`0x7F020020`を返し、instruction `644`で`FlsSetValue(0,0x20000000)`へ到達する。
+183,102-byte reportのSHA-256は
+`d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`
+である。詳細は[bgi-private-heap-allocation.md](bgi-private-heap-allocation.md)を正とする。
