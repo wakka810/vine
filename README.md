@@ -4,7 +4,7 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-sixteenth-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-seventeenth-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
 330 imports to deterministic runtime-owned `UD2` thunks, installs four ordered
 dynamic-export endpoints, and reflects 389 sealed pages into source-built v86.
@@ -64,6 +64,10 @@ A sixteenth checked stdcall validates the exact direct-IAT call and retained TLS
 state, discards two observed process-cookie-dependent native results, and
 returns deterministic encoded-NULL token `0xEC010001`. Fifty-five instructions
 later BGI reaches thunk ID `89` again with non-NULL argument `0x100A9608`.
+A seventeenth checked stdcall validates that executable process-initializer
+function, returns distinct token `0xEC010002`, and observes BGI store it at
+`0x100FF62C`. Nine instructions later the same thunk is reached for controlled
+dynamic endpoint ID `1`, `FlsAlloc` at `0x7F020000`.
 Fourteen static endpoints are declared; the other 316 retain exact identity as
 explicit traps. Memory generation remains `30`.
 
@@ -83,9 +87,9 @@ The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next API checkpoint is the second thunk ID `89` call for
-`KERNEL32.dll!EncodePointer(0x100A9608)`, after focused native result,
-LastError, source-role, and first-consumer evidence.
+The next API checkpoint is the third thunk ID `89` call for
+`KERNEL32.dll!EncodePointer(0x7F020000)`, using the measured native `FlsAlloc`
+encoding while preserving both earlier logical encoded pointers.
 
 ## Requirements
 
@@ -191,6 +195,9 @@ unsupported thunk ID `89` for `EncodePointer(NULL)`.
 NULL call, returns deterministic token `0xEC010001` without importing the
 native process cookie, retains the TLS value, and stops at the next non-NULL
 `EncodePointer(0x100A9608)` call.
+`npm run check:runtime:bgi-seventeenth-win32-call` validates that executable
+guest function, returns token `0xEC010002`, observes its guest global store,
+and stops at `EncodePointer(0x7F020000)` for the `FlsAlloc` endpoint.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

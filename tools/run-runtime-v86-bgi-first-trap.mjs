@@ -35,7 +35,11 @@ const dispatchGetProcAddressFourthOnly = commandArguments.includes(
 const dispatchTlsAllocOnly = commandArguments.includes("--dispatch-tls-alloc");
 const dispatchTlsSetValueOnly = commandArguments.includes("--dispatch-tls-set-value");
 const dispatchEncodePointerOnly = commandArguments.includes("--dispatch-encode-pointer");
-const dispatchEncodePointer = dispatchEncodePointerOnly;
+const dispatchEncodePointerSecondOnly = commandArguments.includes(
+  "--dispatch-encode-pointer-second",
+);
+const dispatchEncodePointerSecond = dispatchEncodePointerSecondOnly;
+const dispatchEncodePointer = dispatchEncodePointerOnly || dispatchEncodePointerSecond;
 const dispatchTlsSetValue = dispatchTlsSetValueOnly || dispatchEncodePointer;
 const dispatchTlsAlloc = dispatchTlsAllocOnly || dispatchTlsSetValue;
 const dispatchGetProcAddressFourth =
@@ -138,6 +142,12 @@ assert.equal(
   Number(dispatchEncodePointerOnly),
   "--dispatch-encode-pointer may be specified only once",
 );
+assert.equal(
+  commandArguments.filter((argument) => argument === "--dispatch-encode-pointer-second")
+    .length,
+  Number(dispatchEncodePointerSecondOnly),
+  "--dispatch-encode-pointer-second may be specified only once",
+);
 assert(
   Number(dispatchSystemTimeOnly) +
     Number(dispatchProcessIdOnly) +
@@ -154,7 +164,8 @@ assert(
     Number(dispatchGetProcAddressFourthOnly) +
     Number(dispatchTlsAllocOnly) +
     Number(dispatchTlsSetValueOnly) +
-    Number(dispatchEncodePointerOnly) <=
+    Number(dispatchEncodePointerOnly) +
+    Number(dispatchEncodePointerSecondOnly) <=
     1,
   "dispatch modes are mutually exclusive",
 );
@@ -175,11 +186,12 @@ const positionalArguments = commandArguments.filter(
     argument !== "--dispatch-get-proc-address-fourth" &&
     argument !== "--dispatch-tls-alloc" &&
     argument !== "--dispatch-tls-set-value" &&
-    argument !== "--dispatch-encode-pointer",
+    argument !== "--dispatch-encode-pointer" &&
+    argument !== "--dispatch-encode-pointer-second",
 );
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address | --dispatch-get-proc-address-second | --dispatch-get-proc-address-third | --dispatch-get-proc-address-fourth | --dispatch-tls-alloc | --dispatch-tls-set-value | --dispatch-encode-pointer] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--dispatch-system-time | --dispatch-process-id | --dispatch-thread-id | --dispatch-tick-count | --dispatch-performance-counter | --dispatch-startup-info | --dispatch-heap-set-information | --dispatch-heap-create | --dispatch-module-handle | --dispatch-get-proc-address | --dispatch-get-proc-address-second | --dispatch-get-proc-address-third | --dispatch-get-proc-address-fourth | --dispatch-tls-alloc | --dispatch-tls-set-value | --dispatch-encode-pointer | --dispatch-encode-pointer-second] [WASM] [BGI.exe]",
 );
 const wasmPath = path.resolve(
   positionalArguments[0] ??
@@ -192,7 +204,9 @@ const bgiPath = path.resolve(
 const outputDirectory = path.join(
   root,
   ".work",
-  dispatchEncodePointer
+  dispatchEncodePointerSecond
+    ? "v86-bgi-seventeenth-win32-call"
+    : dispatchEncodePointer
     ? "v86-bgi-sixteenth-win32-call"
     : dispatchTlsSetValue
     ? "v86-bgi-fifteenth-win32-call"
@@ -632,6 +646,54 @@ const controlledEncodedNull = {
     firstConsumer: {
       wrapperReturnRva: 0x000a4fd6,
       operation: "mov-esi-eax-and-pass-as-initialization-sentinel",
+    },
+  },
+};
+const controlledEncodedProcessInitializer = {
+  owner: "checkpoint-pointer-encoding",
+  variantId: "encodepointer-process-initializer-function-token",
+  namespace: "vine.logical-encoded-pointer.v1",
+  value: 0xec010002,
+  sourceKind: "guest-executable-function",
+  sourcePointer: 0x100a9608,
+  sourcePageAddress: 0x100a9000,
+  sourceFunctionPrefix: [
+    0x6a, 0x08, 0x68, 0xf8, 0xb2, 0x0e, 0x10, 0xe8, 0x5c, 0xbc, 0xff, 0xff, 0xe8, 0x33,
+    0xc0, 0xff, 0xff,
+  ],
+  sourceRole: "process-initializer-guest-function",
+  encodedStoreAddress: 0x100ff62c,
+  lifetime: "process-runtime",
+  processCookieMaterialization: "not-imported",
+  nativeResultImported: false,
+  preserveLastError: true,
+  nativeObservation: {
+    source: "focused-frida-pointer-encoding-2026-07-12",
+    traceBytes: 2_213_858,
+    traceLines: 6_979,
+    traceSha256: "71a79c89aa9511cf0eca37c952d24130765212705ab34be08de56b1529045fa3",
+    confirmationTraceBytes: 312_314,
+    confirmationTraceLines: 1_040,
+    confirmationTraceSha256:
+      "4309d18d16ad3dc6b5390df421d7edc4137c712221cea65378b91774e31ef04c",
+    callerRva: 0x000a9697,
+    sourceRva: 0x000a9608,
+    nativeArguments: [0x003a9608, 0x003a9608],
+    nativeResults: [0x6f766e99, 0x71094a70],
+    nativeResultRole: "process-cookie-dependent-values-observed-and-discarded",
+    lastErrorSamples: [
+      { before: 0, after: 0 },
+      { before: 87, after: 87 },
+    ],
+    firstConsumer: {
+      instructionRva: 0x000a9697,
+      operation: "store-encoded-result-to-process-global",
+      destinationRva: 0x000ff62c,
+    },
+    downstreamConsumer: {
+      decodeCallRva: 0x000a966c,
+      indirectCallRva: 0x000a9674,
+      operation: "decode-global-and-call-process-initializer",
     },
   },
 };
@@ -1278,6 +1340,51 @@ const expected = {
     reportBytes: 129_530,
     reportSha256: "310d90e97f3b33b8c466d0a0e769fb4fe85a4b3cb2a55f191a0480d662f0032b",
   },
+  seventeenthCall: {
+    offerLineBytes: 4_922_920,
+    reflectionReceiptLineBytes: 1_860,
+    requestLineBytes: 9_136,
+    receiptLineBytes: 2_574,
+    sourceFunctionPrefixSha256:
+      "ca74fa61a06f6555a4ec69ea76cdb33d4e1a461a970975d416644ecbeaf43b68",
+    stackPageContentSha256: "3091514821863563f1c42861b1835da0639a0aecf15286732f71dec102615893",
+    stackReconciledChangedBytes: 32,
+    encodedStoreValueBefore: 0,
+    encodedStorePageContentSha256:
+      "d8e3945ee6c5f229abe4f6e66c9ff547432323a81c23457829ec236d83674b10",
+    nextTerminal: {
+      kind: "owned-import-thunk",
+      thunk: {
+        id: 89,
+        address: 0x7f000580,
+        requesterOwner: 1,
+        module: "KERNEL32.dll",
+        iatRva: 0x000d120c,
+        iatAddress: 0x100d120c,
+        originalIatValue: 0x000ef9b0,
+        kind: "name",
+        name: "EncodePointer",
+        hint: 234,
+        nameRva: 0x000ef9b0,
+      },
+      returnAddress: 0x100a58dc,
+      stackWords: [
+        0x100a58dc,
+        0x7f020000,
+        0,
+        0,
+        0x100a375b,
+        0xe93f6d87,
+        0,
+        0,
+      ],
+    },
+    instructionCount: 238,
+    executeStops: 9,
+    budgetStops: 8,
+    reportBytes: 140_660,
+    reportSha256: "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+  },
 };
 
 const page = {
@@ -1563,6 +1670,9 @@ async function run() {
           "--encode-pointer-return-session",
         ]
       : []),
+    ...(dispatchEncodePointerSecond
+      ? ["--encode-pointer-second-return-session"]
+      : []),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -1801,6 +1911,19 @@ async function run() {
           offer,
           tlsAllocation,
           tlsValue,
+          continueSession: dispatchEncodePointerSecond,
+        })
+      : null;
+    const encodedProcessInitializer = dispatchEncodePointerSecond
+      ? await dispatchSeventeenthEncodePointerCall({
+          child,
+          context,
+          encodedNull,
+          execution: encodedNull.continuation,
+          nextMessage,
+          offer,
+          tlsAllocation,
+          tlsValue,
         })
       : null;
     const processExit = await exit;
@@ -1810,7 +1933,37 @@ async function run() {
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
     const ownerSummaries = summarizeOwners(offer.reflection.pages);
-    const report = dispatchEncodePointer
+    const report = dispatchEncodePointerSecond
+      ? buildSeventeenthEncodePointerReport({
+          context,
+          dynamicExport,
+          encodedNull,
+          encodedProcessInitializer,
+          execution,
+          fourthDynamicExport,
+          heapPolicy,
+          invalidationCalls,
+          loadedModule,
+          monotonicClock,
+          offer,
+          offerMessage,
+          ownerSummaries,
+          performanceCounter,
+          privateHeap,
+          processIdentity,
+          processStartup,
+          receipt,
+          receiptMessage,
+          secondDynamicExport,
+          sourceAfter,
+          sourceBefore,
+          systemTime,
+          thirdDynamicExport,
+          threadIdentity,
+          tlsAllocation,
+          tlsValue,
+        })
+      : dispatchEncodePointer
       ? buildSixteenthEncodePointerReport({
           context,
           dynamicExport,
@@ -2225,7 +2378,12 @@ async function run() {
       };
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    const expectedReport = dispatchEncodePointer
+    const expectedReport = dispatchEncodePointerSecond
+      ? {
+          bytes: expected.seventeenthCall.reportBytes,
+          sha256: expected.seventeenthCall.reportSha256,
+        }
+      : dispatchEncodePointer
       ? { bytes: expected.sixteenthCall.reportBytes, sha256: expected.sixteenthCall.reportSha256 }
       : dispatchTlsSetValue
       ? { bytes: expected.fifteenthCall.reportBytes, sha256: expected.fifteenthCall.reportSha256 }
@@ -2263,7 +2421,14 @@ async function run() {
       assert.equal(sha256(reportBytes), expectedReport.sha256);
     }
     fs.writeFileSync(reportPath, reportBytes);
-    if (dispatchEncodePointer) {
+    if (dispatchEncodePointerSecond) {
+      console.log(
+        `v86 BGI seventeenth Win32 call passed: encoded process initializer token ` +
+          `0x${encodedProcessInitializer.encodedPointer.value.toString(16)}, next terminal ` +
+          `${encodedProcessInitializer.continuation.terminal.kind} after ` +
+          `${encodedProcessInitializer.continuation.instructionCount} total instructions`,
+      );
+    } else if (dispatchEncodePointer) {
       console.log(
         `v86 BGI sixteenth Win32 call passed: encoded NULL token ` +
           `0x${encodedNull.encodedPointer.value.toString(16)}, next terminal ` +
@@ -2553,7 +2718,9 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  const expectedOfferLineBytes = dispatchEncodePointer
+  const expectedOfferLineBytes = dispatchEncodePointerSecond
+    ? expected.seventeenthCall.offerLineBytes
+    : dispatchEncodePointer
     ? expected.sixteenthCall.offerLineBytes
     : dispatchTlsSetValue
     ? expected.fifteenthCall.offerLineBytes
@@ -3022,7 +3189,9 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
   assert.equal(offer.reflection.invalidation.generation, receipt.acknowledgedGeneration);
-  const expectedReceiptLineBytes = dispatchEncodePointer
+  const expectedReceiptLineBytes = dispatchEncodePointerSecond
+    ? expected.seventeenthCall.reflectionReceiptLineBytes
+    : dispatchEncodePointer
     ? expected.sixteenthCall.reflectionReceiptLineBytes
     : dispatchTlsSetValue
     ? expected.fifteenthCall.reflectionReceiptLineBytes
@@ -6726,6 +6895,7 @@ async function dispatchFifteenthTlsSetValueCall({
 
 async function dispatchSixteenthEncodePointerCall({
   child,
+  continueSession,
   context,
   execution,
   nextMessage,
@@ -6819,7 +6989,11 @@ async function dispatchSixteenthEncodePointerCall({
   if (expected.sixteenthCall.requestLineBytes !== null) {
     assert.equal(Buffer.byteLength(requestLine) - 1, expected.sixteenthCall.requestLineBytes);
   }
-  child.stdin.end(requestLine);
+  if (continueSession) {
+    child.stdin.write(requestLine);
+  } else {
+    child.stdin.end(requestLine);
+  }
 
   const receiptMessage = await nextMessage("EncodePointer return receipt");
   const receipt = receiptMessage.message;
@@ -6930,6 +7104,315 @@ async function dispatchSixteenthEncodePointerCall({
     preservedTlsSlot: receipt.preservedTlsSlot,
     preservedTlsThreadValue: receipt.preservedTlsThreadValue,
     nativeObservation: controlledEncodedNull.nativeObservation,
+    receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
+    resume,
+    continuation,
+  };
+}
+
+async function dispatchSeventeenthEncodePointerCall({
+  child,
+  context,
+  encodedNull,
+  execution,
+  nextMessage,
+  offer,
+  tlsAllocation,
+  tlsValue,
+}) {
+  const trapped = execution.finalState;
+  const argumentBytes = 4;
+  const framePages = context.preflightVirtualRange(
+    trapped.esp,
+    4 + argumentBytes,
+    "read",
+    "second EncodePointer stdcall frame",
+  );
+  assert.equal(framePages.length, 1);
+  assert.equal(framePages[0].owner, expected.stack.owner);
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "second EncodePointer return address",
+  );
+  const sourcePointer = context.readVirtualU32(
+    trapped.esp + 4,
+    "second EncodePointer source pointer",
+  );
+  assert.equal(returnAddress, execution.terminal.returnAddress);
+  assert.equal(sourcePointer, controlledEncodedProcessInitializer.sourcePointer);
+
+  const callSequence = context.readVirtualBytes(
+    returnAddress - 11,
+    11,
+    "second EncodePointer push-function / direct IAT call sequence",
+  );
+  assert.equal(callSequence[0], 0x68);
+  const callView = new DataView(
+    callSequence.buffer,
+    callSequence.byteOffset,
+    callSequence.byteLength,
+  );
+  assert.equal(callView.getUint32(1, true), sourcePointer);
+  assert.deepEqual([...callSequence.subarray(5, 7)], [0xff, 0x15]);
+  assert.equal(callView.getUint32(7, true), execution.terminal.thunk.iatAddress);
+  assert.equal(
+    context.readVirtualU32(
+      execution.terminal.thunk.iatAddress,
+      "second EncodePointer bound IAT",
+    ),
+    execution.terminal.thunk.address,
+  );
+
+  const sourcePages = context.preflightVirtualRange(
+    sourcePointer,
+    controlledEncodedProcessInitializer.sourceFunctionPrefix.length,
+    "execute",
+    "process-initializer source function",
+  );
+  assert.equal(sourcePages.length, 1);
+  assert.equal(sourcePages[0].address, controlledEncodedProcessInitializer.sourcePageAddress);
+  assert.equal(sourcePages[0].owner, expected.image.owner);
+  assert.equal(sourcePages[0].protection.execute, true);
+  const sourceFunctionPrefix = context.readVirtualBytes(
+    sourcePointer,
+    controlledEncodedProcessInitializer.sourceFunctionPrefix.length,
+    "process-initializer source function prefix",
+  );
+  assert.deepEqual(
+    [...sourceFunctionPrefix],
+    controlledEncodedProcessInitializer.sourceFunctionPrefix,
+  );
+  const sourceFunctionPrefixSha256 = sha256(sourceFunctionPrefix);
+  if (expected.seventeenthCall.sourceFunctionPrefixSha256 !== null) {
+    assert.equal(
+      sourceFunctionPrefixSha256,
+      expected.seventeenthCall.sourceFunctionPrefixSha256,
+    );
+  }
+
+  const endpointStoreAddresses = tlsAllocation.request.endpointStoreAddresses;
+  const endpointAddresses = tlsAllocation.request.endpointAddresses;
+  for (let index = 0; index < endpointStoreAddresses.length; index += 1) {
+    assert.equal(
+      context.readVirtualU32(
+        endpointStoreAddresses[index],
+        `preserved dynamic endpoint ${index + 1} before second EncodePointer`,
+      ),
+      endpointAddresses[index],
+    );
+  }
+  assert.equal(
+    context.readVirtualU32(
+      tlsValue.request.tlsIndexStoreAddress,
+      "logical TLS index before second EncodePointer",
+    ),
+    controlledTlsValue.index.value,
+  );
+
+  const encodedStoreAddress = controlledEncodedProcessInitializer.encodedStoreAddress;
+  const encodedStorePages = context.preflightVirtualRange(
+    encodedStoreAddress,
+    4,
+    "write",
+    "process-initializer encoded pointer store",
+  );
+  assert.equal(encodedStorePages.length, 1);
+  assert.equal(encodedStorePages[0].owner, expected.image.owner);
+  const encodedStoreBefore = context.readVirtualU32(
+    encodedStoreAddress,
+    "process-initializer encoded pointer before second EncodePointer return",
+  );
+  assert.equal(encodedStoreBefore, expected.seventeenthCall.encodedStoreValueBefore);
+
+  const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
+  assert.equal(stackPageAddress, expected.stack.base);
+  const stackPageBytes = context.readVirtualBytes(
+    stackPageAddress,
+    page.size,
+    "current v86 stack page before second EncodePointer return",
+  );
+  const stackPageContentSha256 = sha256(stackPageBytes);
+  const request = {
+    schema: "vine.v86-encode-pointer-second-return-request",
+    schemaVersion: 1,
+    reflectedGeneration: expected.sixthCall.deltaGeneration,
+    thunkId: execution.terminal.thunk.id,
+    thunkAddress: execution.terminal.thunk.address,
+    stackPointer: trapped.esp,
+    returnAddress,
+    argumentBytes,
+    sourcePointer,
+    sourcePageAddress: sourcePages[0].address,
+    sourcePageOwner: sourcePages[0].owner,
+    sourceFunctionPrefix: [...sourceFunctionPrefix],
+    stackPageAddress,
+    stackPageOwner: framePages[0].owner,
+    stackPageBytes: [...stackPageBytes],
+    pointerEncodingOwner: controlledEncodedProcessInitializer.owner,
+    variantId: controlledEncodedProcessInitializer.variantId,
+    encodedPointerNamespace: controlledEncodedProcessInitializer.namespace,
+    encodedPointerValue: controlledEncodedProcessInitializer.value,
+    expectedEncodedNullNamespace: controlledEncodedNull.namespace,
+    expectedEncodedNullValue: controlledEncodedNull.value,
+    expectedTlsIndex: controlledTlsValue.index.value,
+    expectedTlsThreadId: controlledTlsValue.threadIdentity.threadId,
+    expectedTlsValueEndpoint: controlledTlsValue.endpoint.address,
+    preserveLastError: controlledEncodedProcessInitializer.preserveLastError,
+  };
+  const requestLine = `${JSON.stringify(request)}\n`;
+  assert(Buffer.byteLength(requestLine) <= 48 * 1024);
+  if (expected.seventeenthCall.requestLineBytes !== null) {
+    assert.equal(Buffer.byteLength(requestLine) - 1, expected.seventeenthCall.requestLineBytes);
+  }
+  child.stdin.end(requestLine);
+
+  const receiptMessage = await nextMessage("second EncodePointer return receipt");
+  const receipt = receiptMessage.message;
+  assert.equal(receipt.schema, "vine.v86-encode-pointer-second-return-receipt");
+  assert.equal(receipt.schemaVersion, 1);
+  validateThunk(receipt.thunk, expected.sixteenthCall.nextTerminal.thunk, false);
+  assert.equal(receipt.callingConvention, "stdcall");
+  assert.equal(receipt.argumentBytes, argumentBytes);
+  assert.equal(receipt.stackPointer, trapped.esp);
+  assert.equal(receipt.returnAddress, returnAddress);
+  assert.deepEqual(receipt.sourceFunctionPrefix, [...sourceFunctionPrefix]);
+  const encodedPointer = {
+    owner: controlledEncodedProcessInitializer.owner,
+    variantId: controlledEncodedProcessInitializer.variantId,
+    namespace: controlledEncodedProcessInitializer.namespace,
+    value: controlledEncodedProcessInitializer.value,
+    sourceKind: controlledEncodedProcessInitializer.sourceKind,
+    sourcePointer: controlledEncodedProcessInitializer.sourcePointer,
+    lifetime: controlledEncodedProcessInitializer.lifetime,
+    processCookieMaterialization:
+      controlledEncodedProcessInitializer.processCookieMaterialization,
+    nativeResultImported: controlledEncodedProcessInitializer.nativeResultImported,
+  };
+  assert.deepEqual(receipt.encodedPointer, encodedPointer);
+  assert.deepEqual(receipt.preservedEncodedNull, encodedNull.encodedPointer);
+  assert.deepEqual(receipt.preservedTlsSlot, tlsValue.slotAfter);
+  assert.deepEqual(receipt.preservedTlsThreadValue, tlsValue.threadValue);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledEncodedProcessInitializer.preserveLastError,
+  );
+  assert.equal(receipt.result, controlledEncodedProcessInitializer.value);
+  assert.deepEqual(receipt.stackReconciliation, {
+    generation: expected.sixthCall.deltaGeneration,
+    address: stackPageAddress,
+    owner: expected.stack.owner,
+    bytesReconciled: page.size,
+    changedBytes: receipt.stackReconciliation.changedBytes,
+    contentSha256: stackPageContentSha256,
+  });
+  if (expected.seventeenthCall.stackReconciledChangedBytes !== null) {
+    assert.equal(
+      receipt.stackReconciliation.changedBytes,
+      expected.seventeenthCall.stackReconciledChangedBytes,
+    );
+    assert.equal(stackPageContentSha256, expected.seventeenthCall.stackPageContentSha256);
+  }
+  assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(receipt.stats.dirtyPages, 0);
+  assert.equal(receipt.stats.pendingInvalidation, undefined);
+  if (expected.seventeenthCall.receiptLineBytes !== null) {
+    assert.equal(receiptMessage.lineBytes, expected.seventeenthCall.receiptLineBytes);
+  }
+
+  const resume = resumeSecondEncodePointerStdcallResult(
+    context,
+    trapped,
+    returnAddress,
+    receipt.result,
+  );
+  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  assert.equal(
+    context.readVirtualU32(
+      encodedStoreAddress,
+      "stored process-initializer encoded pointer after second EncodePointer",
+    ),
+    controlledEncodedProcessInitializer.value,
+  );
+  const encodedStorePageAddress = (encodedStoreAddress & ~(page.size - 1)) >>> 0;
+  const encodedStorePageBytes = context.readVirtualBytes(
+    encodedStorePageAddress,
+    page.size,
+    "process-initializer encoded pointer store page after continuation",
+  );
+  const encodedStorePageContentSha256 = sha256(encodedStorePageBytes);
+  if (expected.seventeenthCall.encodedStorePageContentSha256 !== null) {
+    assert.equal(
+      encodedStorePageContentSha256,
+      expected.seventeenthCall.encodedStorePageContentSha256,
+    );
+  }
+  for (let index = 0; index < endpointStoreAddresses.length; index += 1) {
+    assert.equal(
+      context.readVirtualU32(
+        endpointStoreAddresses[index],
+        `preserved dynamic endpoint ${index + 1} after second EncodePointer`,
+      ),
+      endpointAddresses[index],
+    );
+  }
+  assert.equal(
+    context.readVirtualU32(
+      tlsValue.request.tlsIndexStoreAddress,
+      "logical TLS index after second EncodePointer",
+    ),
+    controlledTlsValue.index.value,
+  );
+  assert.equal(continuation.terminal.kind, "owned-import-thunk");
+  if (expected.seventeenthCall.nextTerminal !== null) {
+    assert.deepEqual(continuation.terminal, expected.seventeenthCall.nextTerminal);
+  }
+  if (expected.seventeenthCall.instructionCount !== null) {
+    assert.equal(continuation.instructionCount, expected.seventeenthCall.instructionCount);
+    assert.equal(continuation.executeStops, expected.seventeenthCall.executeStops);
+    assert.equal(continuation.budgetStops, expected.seventeenthCall.budgetStops);
+  }
+
+  return {
+    request: {
+      schema: request.schema,
+      schemaVersion: request.schemaVersion,
+      reflectedGeneration: request.reflectedGeneration,
+      thunkId: request.thunkId,
+      thunkAddress: request.thunkAddress,
+      stackPointer: request.stackPointer,
+      returnAddress: request.returnAddress,
+      argumentBytes: request.argumentBytes,
+      arguments: [sourcePointer],
+      callProvenance: "push-imm32-direct-iat",
+      sourcePageAddress: request.sourcePageAddress,
+      sourcePageOwner: request.sourcePageOwner,
+      sourceFunctionPrefix: request.sourceFunctionPrefix,
+      sourceFunctionPrefixSha256,
+      sourceRole: controlledEncodedProcessInitializer.sourceRole,
+      stackPageAddress,
+      stackPageOwner: request.stackPageOwner,
+      stackPageContentSha256,
+      expectedEncodedNullNamespace: request.expectedEncodedNullNamespace,
+      expectedEncodedNullValue: request.expectedEncodedNullValue,
+      expectedTlsIndex: request.expectedTlsIndex,
+      expectedTlsThreadId: request.expectedTlsThreadId,
+      expectedTlsValueEndpoint: request.expectedTlsValueEndpoint,
+      lineBytes: Buffer.byteLength(requestLine) - 1,
+    },
+    encodedPointer: receipt.encodedPointer,
+    preservedEncodedNull: receipt.preservedEncodedNull,
+    preservedTlsSlot: receipt.preservedTlsSlot,
+    preservedTlsThreadValue: receipt.preservedTlsThreadValue,
+    encodedStore: {
+      address: encodedStoreAddress,
+      valueBefore: encodedStoreBefore,
+      valueAfter: controlledEncodedProcessInitializer.value,
+      pageAddress: encodedStorePageAddress,
+      pageOwner: encodedStorePages[0].owner,
+      pageContentSha256: encodedStorePageContentSha256,
+    },
+    nativeObservation: controlledEncodedProcessInitializer.nativeObservation,
     receipt: { ...receipt, lineBytes: receiptMessage.lineBytes },
     resume,
     continuation,
@@ -7351,6 +7834,40 @@ function resumeEncodePointerStdcallResult(context, trapped, returnAddress, resul
     encodedPointerNamespace: controlledEncodedNull.namespace,
     sourceKind: controlledEncodedNull.sourceKind,
     processCookieMaterialization: controlledEncodedNull.processCookieMaterialization,
+    lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
+  };
+}
+
+function resumeSecondEncodePointerStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  result,
+) {
+  const argumentBytes = 4;
+  const restored = restoreStdcall(
+    context,
+    trapped,
+    returnAddress,
+    argumentBytes,
+    result,
+    "second EncodePointer",
+  );
+  assert.equal(restored.resumed.eax, result);
+  return {
+    callingConvention: "stdcall",
+    argumentBytes,
+    returnAddress,
+    stackPointerBefore: trapped.esp,
+    stackPointerAfter: restored.resumedEsp,
+    eaxBefore: trapped.eax,
+    eaxAfter: restored.resumed.eax,
+    resultSource: controlledEncodedProcessInitializer.owner,
+    encodedPointerNamespace: controlledEncodedProcessInitializer.namespace,
+    sourceKind: controlledEncodedProcessInitializer.sourceKind,
+    sourceRole: controlledEncodedProcessInitializer.sourceRole,
+    processCookieMaterialization:
+      controlledEncodedProcessInitializer.processCookieMaterialization,
     lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
   };
 }
@@ -8286,6 +8803,46 @@ function buildSixteenthEncodePointerReport({ encodedNull, ...fifteenthCallArgume
       code: "next-runtime-reachable-owned-trap",
       message:
         "BGI returned from sixteen checked Kernel32 calls through EncodePointer(NULL), retained the initial-thread TLS endpoint value, and reached the next identity-owned runtime trap without dispatching it",
+    },
+  };
+}
+
+function buildSeventeenthEncodePointerReport({
+  encodedProcessInitializer,
+  ...sixteenthCallArguments
+}) {
+  const sixteenthCall = buildSixteenthEncodePointerReport(sixteenthCallArguments);
+  return {
+    ...sixteenthCall,
+    schema: "vine.v86-bgi-seventeenth-win32-call",
+    contract: {
+      ...sixteenthCall.contract,
+      encodedPointerCount: 2,
+      encodedProcessInitializerToken: controlledEncodedProcessInitializer.value,
+      processInitializerSourceRole: controlledEncodedProcessInitializer.sourceRole,
+      executableSourceValidated: true,
+      encodedResultGuestStoreObserved: true,
+      nativeProcessCookieImported: false,
+      supportedServiceDispatches: 17,
+    },
+    sixteenthContinuation: sixteenthCall.continuation,
+    encodeProcessInitializer: {
+      request: encodedProcessInitializer.request,
+      encodedPointer: encodedProcessInitializer.encodedPointer,
+      preservedEncodedNull: encodedProcessInitializer.preservedEncodedNull,
+      preservedTlsSlot: encodedProcessInitializer.preservedTlsSlot,
+      preservedTlsThreadValue: encodedProcessInitializer.preservedTlsThreadValue,
+      encodedStore: encodedProcessInitializer.encodedStore,
+      nativeObservation: encodedProcessInitializer.nativeObservation,
+      receipt: encodedProcessInitializer.receipt,
+      resume: encodedProcessInitializer.resume,
+    },
+    continuation: encodedProcessInitializer.continuation,
+    stop: {
+      stage: "runtime-trap",
+      code: "next-runtime-reachable-owned-trap",
+      message:
+        "BGI returned from seventeen checked Kernel32 calls through EncodePointer(process initializer), stored the controlled encoded guest-function token, and reached the next identity-owned runtime trap without dispatching it",
     },
   };
 }

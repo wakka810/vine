@@ -49,12 +49,13 @@
 - focused TLS lifecycle evidence、typed logical TLS index `0` allocation、all four store preservation、static ID `68`／`TlsSetValue(0,0x7F020010)` next trap
 - initial-thread TLS endpoint metadata、three-page reconciliation、BOOL `TlsSetValue` return、static ID `89`／`EncodePointer(NULL)` next trap
 - focused pointer-encoding evidence、controlled encoded-NULL token `0xEC010001`、TLS state preservation、same ID `89`／`EncodePointer(0x100A9608)` next call
+- executable process-initializer source validation、token `0xEC010002`／guest global store、same ID `89`／`EncodePointer(0x7F020000)` next call
 - 初回full reflection後のdirty-page-only `MemoryDelta`、通常RW／NX 8-byte writeのlive v86 readback、generation単位acknowledgement
 - process environment／PE materialization／import bindingのsnapshot transaction、failpoint rollback、same-memory retry
 - `check:fast`／`check:fixture-e2e`／`check:adapter`／`check:private-corpus`、Linux public CI、PE planner fuzz／randomized memory contract
 - valid low-alignment PEのstructured unsupported stopと、cross-page NX instructionのconservative execute gate
 
-general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB、native-oracled command-line bytes、controlled startup-info／heap-policy／private-heap／loaded-module、four dynamic-export variants、one logical TLS index／thread value、one encoded-NULL tokenまで進んだ。BGIは全330 importsをowned trapsへbindし、runtime-reachable APIを16回returnしたが17件目以降とgeneral TLS／FLS／pointer encoding semanticsは未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-sixteenth-win32-call.md](v86-bgi-sixteenth-win32-call.md) を正とする。
+general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB、native-oracled command-line bytes、controlled startup-info／heap-policy／private-heap／loaded-module、four dynamic-export variants、one logical TLS index／thread value、two encoded-pointer tokensまで進んだ。BGIは全330 importsをowned trapsへbindし、runtime-reachable APIを17回returnしたが18件目以降とgeneral TLS／FLS／pointer encoding semanticsは未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md) と [v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md) を正とする。
 
 ## 2. Windows toolchain
 
@@ -137,6 +138,7 @@ npm run check:runtime:bgi-thirteenth-win32-call
 npm run check:runtime:bgi-fourteenth-win32-call
 npm run check:runtime:bgi-fifteenth-win32-call
 npm run check:runtime:bgi-sixteenth-win32-call
+npm run check:runtime:bgi-seventeenth-win32-call
 ```
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
@@ -181,7 +183,7 @@ node tools/summarize-windows-trace.mjs `
 5. `W4 First interaction`: DirectInput または message input を一つ通す。
 6. `W5 First audio`: DirectSound または到達した WinMM 経路で一つの buffer を再生する。
 7. `W6 Persistence`: title-local file open／read と save write／restart read を一つ通す。
-8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding／BGI firstからsixteenth Win32 call verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。330 importsをowned thunksへbindし、base 388-page bootstrapにone dynamic-export pageを加えてsource-v86へ渡す。controlled clock／identity／startup-info／heap-policy／private-heap／loaded-module／four dynamic-export lookups／TLS allocation／initial value／encoded-NULL tokenを16件returnし、second `EncodePointer(0x100A9608)` callまで実行する。17件目のAPI returnは未実装である。
+8. `W7 Sakura startup` [PE32 load-plan／guest-memory／materialization／full trap binding／BGI firstからseventeenth Win32 call verified; controlled fixture callback return verified]: immutable BGI.exeからplanを作り、`0x10000000`の380 pagesへsource copy／zero-fill／18,199 `HIGHLOW`を適用する。330 importsをowned thunksへbindし、base 388-page bootstrapにone dynamic-export pageを加えてsource-v86へ渡す。controlled clock／identity／startup-info／heap-policy／private-heap／loaded-module／four dynamic-export lookups／TLS allocation／initial value／two encoded-pointer tokensを17件returnし、third `EncodePointer(0x7F020000)` callまで実行する。18件目のAPI returnは未実装である。
 
 各 checkpoint の automated test は原則 1 本にする。追加 test は、実際の regression、calling convention／fault ordering の曖昧さ、または title failure を最小化した場合だけ作る。
 
@@ -195,6 +197,6 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
-初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first sixteen Kernel32 returnsまで固定した。次はexact `EncodePointer(0x100A9608)`のnative behavior／source role／first consumerを測定する。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first seventeen Kernel32 returnsまで固定した。次はexact `EncodePointer(0x7F020000)`へcontrolled `FlsAlloc` endpoint tokenを返し、process-initializer global pageをreconcileする。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

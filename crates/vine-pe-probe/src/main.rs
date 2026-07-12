@@ -50,6 +50,7 @@ struct Arguments {
     tls_alloc_return_session: bool,
     tls_set_value_return_session: bool,
     encode_pointer_return_session: bool,
+    encode_pointer_second_return_session: bool,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -76,6 +77,7 @@ struct V86ReturnSessionOptions<'a> {
     tls_alloc: bool,
     tls_set_value: bool,
     encode_pointer: bool,
+    encode_pointer_second: bool,
     dynamic_export_thunks: &'a [DynamicExportThunk],
 }
 
@@ -1239,6 +1241,7 @@ struct X86LogicalEncodedPointer {
 impl X86LogicalEncodedPointer {
     const NAMESPACE: &str = "vine.logical-encoded-pointer.v1";
     const ENCODED_NULL: u32 = 0xec01_0001;
+    const ENCODED_PROCESS_INITIALIZER: u32 = 0xec01_0002;
 }
 
 #[derive(Serialize)]
@@ -1252,6 +1255,57 @@ struct V86EncodePointerReturnReceipt {
     stack_pointer: GuestAddress,
     return_address: GuestAddress,
     encoded_pointer: X86LogicalEncodedPointer,
+    preserved_tls_slot: X86LogicalTlsSlot,
+    preserved_tls_thread_value: X86LogicalTlsThreadValue,
+    preserve_last_error: bool,
+    result: u32,
+    stack_reconciliation: GuestPageReconciliation,
+    stats: MemoryStats,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct V86EncodePointerSecondReturnRequest {
+    schema: String,
+    schema_version: u32,
+    reflected_generation: u64,
+    thunk_id: u32,
+    thunk_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    argument_bytes: u32,
+    source_pointer: u32,
+    source_page_address: u32,
+    source_page_owner: u32,
+    source_function_prefix: Vec<u8>,
+    stack_page_address: u32,
+    stack_page_owner: u32,
+    stack_page_bytes: Vec<u8>,
+    pointer_encoding_owner: String,
+    variant_id: String,
+    encoded_pointer_namespace: String,
+    encoded_pointer_value: u32,
+    expected_encoded_null_namespace: String,
+    expected_encoded_null_value: u32,
+    expected_tls_index: u32,
+    expected_tls_thread_id: u32,
+    expected_tls_value_endpoint: u32,
+    preserve_last_error: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V86EncodePointerSecondReturnReceipt {
+    schema: &'static str,
+    schema_version: u32,
+    thunk: ImportThunk,
+    calling_convention: &'static str,
+    argument_bytes: u32,
+    stack_pointer: GuestAddress,
+    return_address: GuestAddress,
+    source_function_prefix: Vec<u8>,
+    encoded_pointer: X86LogicalEncodedPointer,
+    preserved_encoded_null: X86LogicalEncodedPointer,
     preserved_tls_slot: X86LogicalTlsSlot,
     preserved_tls_thread_value: X86LogicalTlsThreadValue,
     preserve_last_error: bool,
@@ -1807,6 +1861,7 @@ fn run_v86_reflection_session(
             tls_alloc: arguments.tls_alloc_return_session,
             tls_set_value: arguments.tls_set_value_return_session,
             encode_pointer: arguments.encode_pointer_return_session,
+            encode_pointer_second: arguments.encode_pointer_second_return_session,
             dynamic_export_thunks: &dynamic_export_thunks,
         };
         run_v86_system_time_delta_session(
@@ -4677,6 +4732,7 @@ fn run_v86_tls_set_value_return_session(
             memory,
             binding,
             message_limit,
+            return_sessions,
             logical_tls_slot,
             &thread_value,
         )?;
@@ -4689,6 +4745,7 @@ fn run_v86_encode_pointer_return_session(
     memory: &mut GuestMemory,
     binding: &ImportBinding,
     message_limit: usize,
+    return_sessions: V86ReturnSessionOptions<'_>,
     logical_tls_slot: &X86LogicalTlsSlot,
     tls_thread_value: &X86LogicalTlsThreadValue,
 ) -> Result<(), LoaderError> {
@@ -4830,7 +4887,216 @@ fn run_v86_encode_pointer_return_session(
             argument_bytes: request.argument_bytes,
             stack_pointer: GuestAddress(request.stack_pointer),
             return_address: GuestAddress(request.return_address),
+            encoded_pointer: encoded_pointer.clone(),
+            preserved_tls_slot: logical_tls_slot.clone(),
+            preserved_tls_thread_value: tls_thread_value.clone(),
+            preserve_last_error: request.preserve_last_error,
+            result,
+            stack_reconciliation,
+            stats: memory.stats(),
+        },
+        message_limit,
+    )?;
+    if return_sessions.encode_pointer_second {
+        run_v86_encode_pointer_second_return_session(
+            input,
+            memory,
+            binding,
+            message_limit,
+            logical_tls_slot,
+            tls_thread_value,
+            &encoded_pointer,
+        )?;
+    }
+    Ok(())
+}
+
+fn run_v86_encode_pointer_second_return_session(
+    input: &mut impl BufRead,
+    memory: &mut GuestMemory,
+    binding: &ImportBinding,
+    message_limit: usize,
+    logical_tls_slot: &X86LogicalTlsSlot,
+    tls_thread_value: &X86LogicalTlsThreadValue,
+    encoded_null: &X86LogicalEncodedPointer,
+) -> Result<(), LoaderError> {
+    const OWNER_ID: &str = "checkpoint-pointer-encoding";
+    const VARIANT_ID: &str = "encodepointer-process-initializer-function-token";
+    const SOURCE_POINTER: u32 = 0x100a_9608;
+    const SOURCE_PAGE_ADDRESS: u32 = 0x100a_9000;
+    const SOURCE_FUNCTION_PREFIX: [u8; 17] = [
+        0x6a, 0x08, 0x68, 0xf8, 0xb2, 0x0e, 0x10, 0xe8, 0x5c, 0xbc, 0xff, 0xff, 0xe8, 0x33, 0xc0,
+        0xff, 0xff,
+    ];
+
+    if encoded_null.owner != OWNER_ID
+        || encoded_null.variant_id != "encodepointer-null-process-token"
+        || encoded_null.namespace != X86LogicalEncodedPointer::NAMESPACE
+        || encoded_null.value != X86LogicalEncodedPointer::ENCODED_NULL
+        || encoded_null.source_kind != "null"
+        || encoded_null.source_pointer != 0
+        || encoded_null.lifetime != "process-runtime"
+        || encoded_null.process_cookie_materialization != "not-imported"
+        || encoded_null.native_result_imported
+        || logical_tls_slot.owner != "checkpoint-thread-local-storage"
+        || logical_tls_slot.variant_id != "tlsalloc-first-controlled-index"
+        || logical_tls_slot.index.namespace != X86LogicalTlsIndex::NAMESPACE
+        || logical_tls_slot.index.value != X86LogicalTlsIndex::FIRST_INDEX
+        || logical_tls_slot.index.failure_sentinel != X86LogicalTlsIndex::FAILURE_SENTINEL
+        || logical_tls_slot.lifecycle != "allocated"
+        || logical_tls_slot.storage_scope != "thread"
+        || logical_tls_slot.initialized_thread_values != 1
+        || logical_tls_slot.backing_materialization != "initial-thread-value-metadata"
+        || tls_thread_value.thread_identity_owner != "checkpoint-thread-identity"
+        || tls_thread_value.thread_id != 8192
+        || tls_thread_value.index_namespace != X86LogicalTlsIndex::NAMESPACE
+        || tls_thread_value.index != logical_tls_slot.index.value
+        || tls_thread_value.value_kind != "dynamic-export-endpoint"
+        || tls_thread_value.endpoint.namespace != "vine.dynamic-export-endpoint.v1"
+        || tls_thread_value.endpoint.id.0 != 2
+        || tls_thread_value.endpoint.address.0 != 0x7f02_0010
+        || !tls_thread_value
+            .endpoint
+            .module
+            .eq_ignore_ascii_case("kernel32.dll")
+        || tls_thread_value.endpoint.name != "FlsGetValue"
+        || tls_thread_value.endpoint.lifetime != "process-runtime"
+        || !tls_thread_value.endpoint.owner_sealed
+        || tls_thread_value.lifecycle != "set"
+    {
+        return Err(LoaderError::runtime_defect(
+            "win32-pointer-encoding",
+            "prior-pointer-or-tls-state-mismatch",
+            "second EncodePointer return session did not retain the encoded NULL and initial-thread TLS state",
+        ));
+    }
+
+    let request: V86EncodePointerSecondReturnRequest = read_protocol_message(
+        input,
+        48 * 1024,
+        "win32-pointer-encoding",
+        "encode-pointer-second-return-request",
+        "controlled process-initializer function encoding request",
+    )?;
+    if request.schema != "vine.v86-encode-pointer-second-return-request"
+        || request.schema_version != 1
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-pointer-encoding",
+            "encode-pointer-second-return-request-schema-unsupported",
+            "second pointer encoding request must use vine.v86-encode-pointer-second-return-request version 1",
+        ));
+    }
+    if request.argument_bytes != 4 || request.source_pointer != SOURCE_POINTER {
+        return Err(LoaderError::invalid_input(
+            "abi-gateway",
+            "encode-pointer-second-argument-mismatch",
+            "controlled second EncodePointer supports only the process-initializer guest function",
+        ));
+    }
+    if request.source_page_address != SOURCE_PAGE_ADDRESS
+        || request.source_page_owner != binding.image_owner.0
+        || request.source_function_prefix != SOURCE_FUNCTION_PREFIX
+        || request.pointer_encoding_owner != OWNER_ID
+        || request.variant_id != VARIANT_ID
+        || request.encoded_pointer_namespace != X86LogicalEncodedPointer::NAMESPACE
+        || request.encoded_pointer_value != X86LogicalEncodedPointer::ENCODED_PROCESS_INITIALIZER
+        || request.expected_encoded_null_namespace != encoded_null.namespace
+        || request.expected_encoded_null_value != encoded_null.value
+        || request.expected_tls_index != logical_tls_slot.index.value
+        || request.expected_tls_thread_id != tls_thread_value.thread_id
+        || request.expected_tls_value_endpoint != tls_thread_value.endpoint.address.0
+        || !request.preserve_last_error
+    {
+        return Err(LoaderError::invalid_input(
+            "win32-pointer-encoding",
+            "encode-pointer-second-variant-unsupported",
+            "controlled pointer encoding supports only the retained state and process-initializer guest function token",
+        ));
+    }
+
+    let thunk = binding
+        .thunks
+        .iter()
+        .find(|thunk| thunk.id.0 == request.thunk_id)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "thunk-dispatch",
+                "encode-pointer-second-thunk-id-unowned",
+                "second pointer encoding request does not name an owned import thunk",
+            )
+        })?
+        .clone();
+    if thunk.address.0 != request.thunk_address
+        || !thunk.module.eq_ignore_ascii_case("KERNEL32.dll")
+        || thunk.disposition != ImportThunkDisposition::DeclaredRuntimeExport
+        || !matches!(&thunk.target, ImportTarget::Name { name, .. } if name == "EncodePointer")
+    {
+        return Err(LoaderError::invalid_input(
+            "thunk-dispatch",
+            "encode-pointer-second-thunk-identity-mismatch",
+            "second pointer encoding request does not match the declared EncodePointer thunk",
+        ));
+    }
+
+    let (stack_reconciliation, source_function_prefix) = {
+        let mut transaction = memory.begin_transaction();
+        let stack_reconciliation = transaction
+            .reconcile_reflected_page(
+                request.reflected_generation,
+                MemoryOwnerId(request.stack_page_owner),
+                GuestAddress(request.stack_page_address),
+                &request.stack_page_bytes,
+            )
+            .map_err(memory_error)?;
+        validate_stdcall_iat_frame(
+            &transaction,
+            &thunk,
+            request.stack_pointer,
+            request.return_address,
+            &[request.source_pointer],
+        )?;
+        let source_function_prefix = transaction
+            .fetch(
+                GuestAddress(request.source_pointer),
+                SOURCE_FUNCTION_PREFIX.len(),
+            )
+            .map_err(memory_error)?;
+        if source_function_prefix != SOURCE_FUNCTION_PREFIX {
+            return Err(LoaderError::invalid_input(
+                "win32-pointer-encoding",
+                "process-initializer-function-prefix-mismatch",
+                "encoded source did not match the controlled executable process-initializer function",
+            ));
+        }
+        transaction.commit_transaction();
+        (stack_reconciliation, source_function_prefix)
+    };
+
+    let encoded_pointer = X86LogicalEncodedPointer {
+        owner: request.pointer_encoding_owner,
+        variant_id: request.variant_id,
+        namespace: X86LogicalEncodedPointer::NAMESPACE,
+        value: X86LogicalEncodedPointer::ENCODED_PROCESS_INITIALIZER,
+        source_kind: "guest-executable-function",
+        source_pointer: request.source_pointer,
+        lifetime: "process-runtime",
+        process_cookie_materialization: "not-imported",
+        native_result_imported: false,
+    };
+    let result = encoded_pointer.value;
+    write_protocol_message(
+        &V86EncodePointerSecondReturnReceipt {
+            schema: "vine.v86-encode-pointer-second-return-receipt",
+            schema_version: 1,
+            thunk,
+            calling_convention: "stdcall",
+            argument_bytes: request.argument_bytes,
+            stack_pointer: GuestAddress(request.stack_pointer),
+            return_address: GuestAddress(request.return_address),
+            source_function_prefix,
             encoded_pointer,
+            preserved_encoded_null: encoded_null.clone(),
             preserved_tls_slot: logical_tls_slot.clone(),
             preserved_tls_thread_value: tls_thread_value.clone(),
             preserve_last_error: request.preserve_last_error,
@@ -5481,6 +5747,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut tls_alloc_return_session = false;
     let mut tls_set_value_return_session = false;
     let mut encode_pointer_return_session = false;
+    let mut encode_pointer_second_return_session = false;
     let mut large_image_reflection = false;
     let mut install_callback_return_sentinel = false;
     let mut install_process_entry_return_sentinel = false;
@@ -5619,6 +5886,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 return Err(usage_error());
             }
             encode_pointer_return_session = true;
+        } else if argument == "--encode-pointer-second-return-session" {
+            if encode_pointer_second_return_session {
+                return Err(usage_error());
+            }
+            encode_pointer_second_return_session = true;
         } else if argument == "--large-image-reflection" {
             if large_image_reflection {
                 return Err(usage_error());
@@ -5746,6 +6018,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if encode_pointer_return_session && !tls_set_value_return_session {
         return Err(usage_error());
     }
+    if encode_pointer_second_return_session && !encode_pointer_return_session {
+        return Err(usage_error());
+    }
     if controlled_command_line.is_some() && !install_controlled_process_parameters {
         return Err(usage_error());
     }
@@ -5775,6 +6050,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         tls_alloc_return_session,
         tls_set_value_return_session,
         encode_pointer_return_session,
+        encode_pointer_second_return_session,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -5857,7 +6133,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session [--get-module-handle-w-return-session [--get-proc-address-return-session [--get-proc-address-second-return-session [--get-proc-address-third-return-session [--get-proc-address-fourth-return-session [--tls-alloc-return-session [--tls-set-value-return-session [--encode-pointer-return-session]]]]]]]]]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--system-time-delta-session [--process-id-return-session [--thread-id-return-session [--tick-count-return-session [--performance-counter-return-session [--startup-info-return-session [--heap-set-information-return-session [--heap-create-return-session [--get-module-handle-w-return-session [--get-proc-address-return-session [--get-proc-address-second-return-session [--get-proc-address-third-return-session [--get-proc-address-fourth-return-session [--tls-alloc-return-session [--tls-set-value-return-session [--encode-pointer-return-session [--encode-pointer-second-return-session]]]]]]]]]]]]]]]]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

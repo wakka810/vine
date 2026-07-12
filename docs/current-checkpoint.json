@@ -1,9 +1,9 @@
 {
   "schema": "vine.current-checkpoint",
   "schemaVersion": 1,
-  "checkpoint": "bgi-sixteenth-win32-call",
-  "entryInstructionCount": 229,
-  "supportedCallCount": 16,
+  "checkpoint": "bgi-seventeenth-win32-call",
+  "entryInstructionCount": 238,
+  "supportedCallCount": 17,
   "lastSupportedCallId": 89,
   "lastSupportedCall": "KERNEL32.dll!EncodePointer",
   "memoryGeneration": 30,
@@ -49,11 +49,15 @@
   "controlledPointerEncodingVariant": "encodepointer-null-process-token",
   "logicalEncodedPointerNamespace": "vine.logical-encoded-pointer.v1",
   "logicalEncodedNull": 3959488513,
+  "controlledProcessInitializerEncodingVariant": "encodepointer-process-initializer-function-token",
+  "processInitializerSource": 269129224,
+  "logicalEncodedProcessInitializer": 3959488514,
+  "encodedProcessInitializerStoreAddress": 269481516,
   "nativeProcessCookieImported": false,
   "ownedTrapId": 89,
   "ownedTrap": "KERNEL32.dll!EncodePointer",
   "ownedTrapSymbol": "EncodePointer",
-  "ownedTrapArgument": 269129224,
+  "ownedTrapArgument": 2130837504,
   "memoryProtocol": "memory-delta-v1",
-  "nextCheckpoint": "seventeenth-supported-win32-call-return"
+  "nextCheckpoint": "eighteenth-supported-win32-call-return"
 }

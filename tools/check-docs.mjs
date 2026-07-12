@@ -14,9 +14,9 @@ try {
   if (
     checkpoint.schema !== "vine.current-checkpoint" ||
     checkpoint.schemaVersion !== 1 ||
-    checkpoint.checkpoint !== "bgi-sixteenth-win32-call" ||
-    checkpoint.entryInstructionCount !== 229 ||
-    checkpoint.supportedCallCount !== 16 ||
+    checkpoint.checkpoint !== "bgi-seventeenth-win32-call" ||
+    checkpoint.entryInstructionCount !== 238 ||
+    checkpoint.supportedCallCount !== 17 ||
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
@@ -70,12 +70,17 @@ try {
       "encodepointer-null-process-token" ||
     checkpoint.logicalEncodedPointerNamespace !== "vine.logical-encoded-pointer.v1" ||
     checkpoint.logicalEncodedNull !== 0xec01_0001 ||
+    checkpoint.controlledProcessInitializerEncodingVariant !==
+      "encodepointer-process-initializer-function-token" ||
+    checkpoint.processInitializerSource !== 0x100a_9608 ||
+    checkpoint.logicalEncodedProcessInitializer !== 0xec01_0002 ||
+    checkpoint.encodedProcessInitializerStoreAddress !== 0x100f_f62c ||
     checkpoint.nativeProcessCookieImported !== false ||
     checkpoint.ownedTrapId !== 89 ||
     checkpoint.ownedTrap !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.ownedTrapSymbol !== "EncodePointer" ||
-    checkpoint.ownedTrapArgument !== 0x100a9608 ||
-    checkpoint.nextCheckpoint !== "seventeenth-supported-win32-call-return"
+    checkpoint.ownedTrapArgument !== 0x7f02_0000 ||
+    checkpoint.nextCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");
   }
