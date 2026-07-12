@@ -160,6 +160,12 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 
 controlled bootstrapはproduction-owned image／control／stackにtyped one-page TEB／PEB／process-parameters／command-lineを加え、CPU state ABIでFS baseをrestoreしてnative-oracled fields、UTF-16 bytes、entry returnを通した。single processにはexplicit lifecycleとcontrolled two-thread logical registryを追加した。second threadはunique TID／typed handle／LastError／TLS／callback／scheduler laneを持つがCPU context／stack／TEBは持たない。general stack reserve／growth／guard、guest-created thread parameters、loader list、TLS cleanup、bidirectional dirty-page ownershipは未実装なので、`REQ-BOOT-01`／`REQ-BOOT-02`等はpartialである。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)、[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)を正とする。
 
+controlled wait queueはtyped thread handleへのone-object registration、nonsignaled suspend、thread exit
+signalによるrunnable wake、already-signaled completion、process-exit cancellationをRust metadataで
+通す。guest wait API、event／mutex／semaphore／timer、timeout、wait-any／wait-all、alertable waitは
+未実装なので`REQ-API-03`はpartialのままである。詳細は
+[runtime-wait-queue.md](runtime-wait-queue.md)を正とする。
+
 ### 7.4 Windows userspace compatibility
 
 | ID | 要件 | 優先度 |

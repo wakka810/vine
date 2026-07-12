@@ -82,7 +82,9 @@ controlled process／logical thread registry, per-thread LastError, clock and st
 profile, heap／module／endpoint registries, TLS values, and deterministic encoded
 pointers. Nested callback frames are LIFO and asynchronous host completion is a
 scheduler event that restores the prior runnable／callback state. Private JSON
-request values remain evidence assertions, not API result sources.
+request values remain evidence assertions, not API result sources. A controlled
+one-object wait queue now moves a logical lane from runnable to waiting and back
+when another thread's waitable object is signaled.
 
 The foundation below that checkpoint uses Rust `GuestMemory` as byte authority
 and v86 paging as a bounded execution mirror. Initial reflection, host delta,
@@ -116,7 +118,8 @@ heap slope of 136 bytes/minute, and a worst main-thread heartbeat gap of
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
-edition label. General DLL/export lifecycle, CPU-context-backed multi-thread scheduling, BGI
+edition label. General DLL/export lifecycle, CPU-context-backed multi-thread scheduling,
+general wait/message semantics, BGI
 browser execution, production graphics/audio/storage semantics, and full title
 play remain unimplemented.
 The 17 checkpoint expectations now live in a versioned manifest shared by the
@@ -136,7 +139,9 @@ bootstrap, running, exit request, and waitable completion, with atomic cleanup
 and thread-before-process terminal ordering. A controlled second-thread registry
 adds unique TIDs, typed handles, isolated LastError／TLS／callback lanes, explicit
 selection, thread-only exit, and deterministic all-lane process termination.
-The next runtime-kernel checkpoint introduces a controlled wait queue.
+A controlled wait queue adds monotonic registration identity, object-indexed
+FIFO ownership, exact signal/wake events, already-signaled completion, and exit
+cancellation. The next runtime-kernel checkpoint introduces per-thread message queues.
 The third thunk ID `89` call for
 `KERNEL32.dll!EncodePointer(0x7F020000)` remains the next BGI trap, but bespoke
 API checkpoint expansion is paused until the P0 runtime-kernel gates are met.

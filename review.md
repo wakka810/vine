@@ -929,6 +929,11 @@ unique TID／typed handle、per-thread LastError／TLS／callback／scheduler la
 selection、thread-only exit、TID昇順のall-lane process terminationをatomic Rust contractで
 固定した。CPU context／stack／TEB、wait queue、DLL thread callbackは未実装である。
 
+**Foundation 5完了（2026-07-12）:** typed process／thread objectをcontrolled wait queueへ
+接続した。monotonic registration、object-indexed FIFO、`WaitingObject` lane、別thread exitの
+signalによるdeterministic wake／exact event、already-signaled path、process-exit cancellationを
+atomic Rust contractで固定した。wait-any／wait-all／timeout／message wakeは未実装である。
+
 - module graph
 - process／thread lifecycle
 - handles

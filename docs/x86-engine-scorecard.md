@@ -382,7 +382,7 @@ commit `a0d99e5`のclean worktree、Chrome `150.0.7871.115`でversion 1 benchmar
 
 ## 8. 次の adapter slice
 
-現在の source adapter は exact-budget execution、exception detail、versioned CPU state、binary bidirectional page synchronizationを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first seventeen checked stdcall returnsまで進んだ。同じRust／v86 boundaryはChrome Runtime Worker vertical slice、30分stress、version 1 performance gateを通し、v86継続を`go`とした。Step 9のtyped object／handle、process-owned module graph、controlled lifecycle／two-thread registry foundationsもbrowser／BGI regressionを維持した。BGI continuationは凍結したまま、次のruntime checkpointはwait-queue foundationである。
+現在の source adapter は exact-budget execution、exception detail、versioned CPU state、binary bidirectional page synchronizationを提供する。controlled reflectionはzero-base fault比較を保持し、typed Rust bootstrap、entry completion、BGIの389-page dynamic-endpoint mode、first seventeen checked stdcall returnsまで進んだ。同じRust／v86 boundaryはChrome Runtime Worker vertical slice、30分stress、version 1 performance gateを通し、v86継続を`go`とした。Step 9のtyped object／handle、process-owned module graph、controlled lifecycle／two-thread registry／one-object wait-queue foundationsもbrowser／BGI regressionを維持した。BGI continuationは凍結したまま、次のruntime checkpointはmessage-queue foundationである。
 
 ```text
 classify general STOP_THUNK / STOP_CALLBACK_RETURN / STOP_FAULT

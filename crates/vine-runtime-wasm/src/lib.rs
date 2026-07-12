@@ -466,7 +466,10 @@ impl BrowserRuntime {
             .runtime
             .terminate_current_process(exit_code)
             .map_err(error_string)?;
-        if termination.host_requests_cancelled != 0 || termination.callback_frames_cancelled != 0 {
+        if termination.host_requests_cancelled != 0
+            || termination.callback_frames_cancelled != 0
+            || termination.wait_registrations_cancelled != 0
+        {
             return Err("clean process exit discarded runtime work".to_owned());
         }
         Ok(json!({

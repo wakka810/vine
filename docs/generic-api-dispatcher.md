@@ -129,7 +129,7 @@ depth-2 callback, cancellation, watchdog, pixel, audio pulse, persistent byte,
 and clean exit. The Step 8 versioned benchmark passed every threshold and kept
 v86 as the exchangeable baseline. `RuntimeState` now owns generation-tagged
 object／handle lifetime, a process module graph, controlled lifecycle, and a
-two-thread logical registry. The next proof is controlled wait registration and
-wake between those lanes. Existing import, bootstrap, bidirectional memory sync, 13-contract／
+two-thread logical registry with one-object wait/wake. The next proof is a
+controlled per-thread message queue. Existing import, bootstrap, bidirectional memory sync, 13-contract／
 17-call semantic checks, 238 instructions, and both private evidence digests
 remain the regression boundary.

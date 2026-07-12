@@ -95,6 +95,7 @@ process exit, concurrent guest execution, TLS／FLS cleanup callbacks, DLL threa
 waiter registration, timeout, wait-any／wait-all, APC, or message wake. It is partial evidence for
 `P1-SCH-01`／`P3-WIN-02`, not their completion.
 
-The next dependency is a controlled wait-queue foundation: register one selected thread as a waiter,
-signal from the other registered thread, and resume the waiter deterministically. Per-thread CPU
-bootstrap remains a separate dependency before guest-created threads can execute.
+The controlled wait-queue dependency is now implemented in
+[runtime-wait-queue.md](runtime-wait-queue.md): one selected thread waits on the other thread object
+and resumes deterministically after signal. The next dependency is a controlled per-thread message
+queue. Per-thread CPU bootstrap remains separate before guest-created threads can execute.

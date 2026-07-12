@@ -113,5 +113,6 @@ partial evidence for `P1-SCH-01`／`P3-WIN-02`, not their completion.
 
 The controlled multi-thread registry dependency is now implemented in
 [runtime-thread-registry.md](runtime-thread-registry.md): one additional logical thread preserves
-per-thread state and typed object lifetime, and all lanes terminate deterministically. The next
-dependency is wait registration／wake between the separate waiter and signaler.
+per-thread state and typed object lifetime, and all lanes terminate deterministically. The controlled
+wait registration／wake dependency is implemented in [runtime-wait-queue.md](runtime-wait-queue.md).
+The next dependency is per-thread message ownership and empty-queue wake.

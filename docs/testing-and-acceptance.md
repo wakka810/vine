@@ -236,6 +236,13 @@ exit、2 laneのpending work cleanup、TID昇順thread signal＋process-last sig
 これはCPU context／stack／TEB、guest `CreateThread`、wait queue、last-thread semantics、DLL thread
 callbackの代用ではない。詳細は[runtime-thread-registry.md](runtime-thread-registry.md)を正とする。
 
+controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
+one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact
+signal／runnable wake／one event、already-signaled immediate completion、process-exit cancellationを
+1 testで固定する。これはevent／mutex／semaphore、multiple waiters、timeout、wait-any／wait-all、
+alertable wait、message wake、guest APIの代用ではない。詳細は
+[runtime-wait-queue.md](runtime-wait-queue.md)を正とする。
+
 ### 5.4 CPU と ABI tests
 
 CPU test vector は instruction encoding、initial register／flags／memory、expected result／fault を持つ。
