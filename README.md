@@ -4,7 +4,7 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-fifteenth-win32-call`. Rust owns and materializes
+The current checkpoint is `bgi-sixteenth-win32-call`. Rust owns and materializes
 the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
 330 imports to deterministic runtime-owned `UD2` thunks, installs four ordered
 dynamic-export endpoints, and reflects 389 sealed pages into source-built v86.
@@ -60,7 +60,11 @@ reaches thunk ID `68`, `KERNEL32.dll!TlsSetValue`, with arguments
 store page, and BGI's TLS-index global, then associates endpoint ID `2` with
 controlled thread ID `8192` and returns BOOL `1`. Nine instructions later BGI
 reaches thunk ID `89`, `KERNEL32.dll!EncodePointer`, with argument `NULL`.
-Thirteen static endpoints are declared; the other 317 retain exact identity as
+A sixteenth checked stdcall validates the exact direct-IAT call and retained TLS
+state, discards two observed process-cookie-dependent native results, and
+returns deterministic encoded-NULL token `0xEC010001`. Fifty-five instructions
+later BGI reaches thunk ID `89` again with non-NULL argument `0x100A9608`.
+Fourteen static endpoints are declared; the other 316 retain exact identity as
 explicit traps. Memory generation remains `30`.
 
 The foundation below that checkpoint now has an incremental `MemoryDelta`
@@ -79,8 +83,9 @@ The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
 edition label. General DLL/export lifecycle, Win32 services, scheduler, browser
 runtime, graphics, audio, storage, and full title play remain unimplemented.
-The next API checkpoint is thunk ID `89` for `KERNEL32.dll!EncodePointer`, after
-focused native result, LastError, and first-consumer evidence.
+The next API checkpoint is the second thunk ID `89` call for
+`KERNEL32.dll!EncodePointer(0x100A9608)`, after focused native result,
+LastError, source-role, and first-consumer evidence.
 
 ## Requirements
 
@@ -182,6 +187,10 @@ preserves all four endpoint stores, and stops at unsupported thunk ID `68` for
 `npm run check:runtime:bgi-fifteenth-win32-call` records that endpoint as the
 initial controlled thread's logical TLS value, returns BOOL `1`, and stops at
 unsupported thunk ID `89` for `EncodePointer(NULL)`.
+`npm run check:runtime:bgi-sixteenth-win32-call` validates that direct-IAT
+NULL call, returns deterministic token `0xEC010001` without importing the
+native process cookie, retains the TLS value, and stops at the next non-NULL
+`EncodePointer(0x100A9608)` call.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

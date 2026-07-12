@@ -249,6 +249,12 @@ if (selectedObservations.has("tls-lifecycle")) {
     ["TlsSetValue", [null, null]],
   );
 }
+if (selectedObservations.has("pointer-encoding")) {
+  hooks["kernel32.dll"].push(
+    ["EncodePointer", [null]],
+    ["DecodePointer", [null]],
+  );
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -374,6 +380,8 @@ function attachHook(module, name, decoders) {
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||
               (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||
+              ((name === "EncodePointer" || name === "DecodePointer") &&
+                selectedObservations.has("pointer-encoding")) ||
               (name === "GetProcAddress" && selectedObservations.has("dynamic-export"))
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
             : {};

@@ -20,6 +20,7 @@ SUPPORTED_OBSERVATIONS = (
     "module-handle",
     "dynamic-export",
     "tls-lifecycle",
+    "pointer-encoding",
 )
 
 
