@@ -127,5 +127,6 @@ invalidation, or module object retirement. It is partial evidence for `REQ-PE-05
 their completion.
 
 The controlled process／initial-thread lifecycle dependency is now implemented in
-[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md). The next dependency is
-an additional controlled thread registry before wait queues and DLL thread callbacks.
+[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md), and the additional
+controlled thread registry is implemented in [runtime-thread-registry.md](runtime-thread-registry.md).
+The next dependency is a wait queue; DLL thread callbacks remain later work.

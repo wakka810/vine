@@ -111,6 +111,7 @@ termination across multiple lanes, suspend／resume, priorities, TLS／FLS clean
 thread/process detach, waiter registration, timeout, wait-any／wait-all, APC, or message wake. It is
 partial evidence for `P1-SCH-01`／`P3-WIN-02`, not their completion.
 
-The next dependency is a controlled multi-thread registry foundation: create and select one
-additional logical thread, preserve per-thread state and typed object lifetime, and terminate all
-lanes deterministically. Wait registration／wake follows once a separate waiter and signaler exist.
+The controlled multi-thread registry dependency is now implemented in
+[runtime-thread-registry.md](runtime-thread-registry.md): one additional logical thread preserves
+per-thread state and typed object lifetime, and all lanes terminate deterministically. The next
+dependency is wait registration／wake between the separate waiter and signaler.

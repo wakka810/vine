@@ -20,9 +20,9 @@ try {
     checkpoint.lastSupportedCallId !== 89 ||
     checkpoint.lastSupportedCall !== "KERNEL32.dll!EncodePointer" ||
     checkpoint.memoryGeneration !== 30 ||
-    checkpoint.runtimeKernelCheckpoint !== "runtime-process-thread-lifecycle-foundation" ||
+    checkpoint.runtimeKernelCheckpoint !== "runtime-thread-registry-foundation" ||
     checkpoint.runtimeStateAuthority !== "rust" ||
-    checkpoint.runtimeStateScope !== "single-process-controlled-initial-thread" ||
+    checkpoint.runtimeStateScope !== "single-process-controlled-two-thread-registry" ||
     JSON.stringify(checkpoint.runtimeStateOwns) !==
       JSON.stringify([
         "process",
@@ -34,6 +34,7 @@ try {
         "typed-object-handle-lifetimes",
         "process-module-graph",
         "process-thread-lifecycle",
+        "controlled-thread-registry",
       ]) ||
     checkpoint.callbackFrameStack !== true ||
     checkpoint.hostCompletionModel !== "scheduler-event" ||
@@ -324,7 +325,43 @@ try {
         bgiReportSha256:
           "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
       }) ||
-    checkpoint.nextCheckpoint !== "runtime-thread-registry-foundation" ||
+    JSON.stringify(checkpoint.runtimeThreadRegistry) !==
+      JSON.stringify({
+        schema: "vine.runtime-thread-registry.v1",
+        initialThreadId: 8192,
+        secondThreadId: 4097,
+        secondThreadHandle: "0x54010002",
+        perThreadState: [
+          "last-error",
+          "tls-values",
+          "callback-frames",
+          "scheduler-lane",
+        ],
+        explicitCurrentThreadSelection: true,
+        threadOnlyExitCode: 23,
+        processTerminationOrder: [
+          "thread:4097",
+          "thread:8192",
+          "process:4096",
+        ],
+        controlledCancelledHostRequests: 2,
+        controlledCancelledCallbackFrames: 2,
+        controlledDiscardedSchedulerEvents: 0,
+        wholeRuntimeStateClone: false,
+        maximumPlannedWaitObjectRecords: 3,
+        runtimeCoreWasmBytes: 732779,
+        runtimeCoreWasmSha256:
+          "dcbade608dc66c75c3179d4d7b67d7c0ddc32891c6769b1fdc38e20dd70d4ab8",
+        browserWorkerGuestInstructions: 46,
+        browserWorkerExitCode: 0,
+        browserBenchmarkDecision: "go",
+        browserBenchmarkThresholdFailures: 0,
+        bgiSupportedCallCount: 17,
+        bgiInstructionCount: 238,
+        bgiReportSha256:
+          "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+      }) ||
+    checkpoint.nextCheckpoint !== "runtime-wait-queue-foundation" ||
     checkpoint.pausedBgiCheckpoint !== "eighteenth-supported-win32-call-return"
   ) {
     errors.push("docs/current-checkpoint.json: unsupported or inconsistent checkpoint values");

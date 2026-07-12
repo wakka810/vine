@@ -115,5 +115,6 @@ for `REQ-API-02`／`REQ-API-03` and `P3-WIN-01`, not their completion.
 
 The process-owned module graph and controlled process／initial-thread lifecycle dependencies are now
 implemented in [runtime-module-graph.md](runtime-module-graph.md) and
-[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md). The next dependency is
-an additional controlled thread registry before wait queues.
+[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md). The additional controlled
+thread registry is implemented in [runtime-thread-registry.md](runtime-thread-registry.md); the next
+dependency is a wait queue over those typed thread／object identities.

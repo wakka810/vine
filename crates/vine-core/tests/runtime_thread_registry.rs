@@ -1,0 +1,268 @@
+use vine_core::{
+    GuestAddress, LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout, RuntimeBootstrap,
+    RuntimeClockState, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
+    RuntimeProcessLifecycleState, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeThreadLifecycleState, RuntimeTlsValue, RuntimeWaitState, SchedulerThreadState,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
+};
+
+const PROCESS_ID: u32 = 4096;
+const INITIAL_THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
+const SECOND_THREAD_ID: RuntimeThreadId = RuntimeThreadId(4097);
+
+#[test]
+fn thread_registry_isolates_thread_state_and_terminates_all_lanes_deterministically() {
+    let mut runtime = running_runtime();
+    let process_handle = runtime.process_handle().expect("process handle");
+    let initial_handle = runtime
+        .current_thread_handle()
+        .expect("initial thread handle");
+    let tls_index = runtime.allocate_tls_index().expect("controlled TLS index");
+    runtime.set_current_last_error(11).unwrap();
+    runtime.set_tls_value(tls_index, 0x1111).unwrap();
+    let initial_frame = runtime
+        .push_callback_frame(GuestAddress(0x1000_1000), GuestAddress(0x7f01_0000))
+        .expect("initial thread callback");
+
+    let second_handle = runtime
+        .register_thread(SECOND_THREAD_ID, 22)
+        .expect("register controlled second thread");
+    assert_eq!(second_handle, RuntimeHandle(0x5401_0002));
+    assert_eq!(
+        runtime.thread_state(SECOND_THREAD_ID).unwrap().lifecycle,
+        RuntimeThreadLifecycleState::Running
+    );
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(SECOND_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    assert!(
+        runtime
+            .thread_state(SECOND_THREAD_ID)
+            .unwrap()
+            .tls_values
+            .is_empty()
+    );
+    assert!(
+        runtime
+            .thread_state(SECOND_THREAD_ID)
+            .unwrap()
+            .callback_frames
+            .is_empty()
+    );
+
+    let before_duplicate = runtime.clone();
+    assert_eq!(
+        runtime
+            .register_thread(SECOND_THREAD_ID, 33)
+            .expect_err("duplicate TID is rejected without allocating another handle")
+            .code,
+        "thread-id-duplicate"
+    );
+    assert_eq!(runtime, before_duplicate);
+
+    runtime
+        .select_thread(SECOND_THREAD_ID)
+        .expect("select second thread");
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+    assert_eq!(runtime.current_last_error().unwrap(), 22);
+    assert_eq!(
+        runtime
+            .tls_value(tls_index)
+            .expect_err("second thread does not inherit initial TLS")
+            .code,
+        "tls-value-uninitialized"
+    );
+    runtime.set_current_last_error(33).unwrap();
+    runtime.set_tls_value(tls_index, 0x2222).unwrap();
+    let second_frame = runtime
+        .push_callback_frame(GuestAddress(0x2000_1000), GuestAddress(0x7f01_0010))
+        .expect("second thread callback");
+    assert_eq!(second_frame.thread_id, SECOND_THREAD_ID);
+
+    runtime
+        .select_thread(INITIAL_THREAD_ID)
+        .expect("restore initial callback lane");
+    assert_eq!(runtime.current_last_error().unwrap(), 11);
+    assert_eq!(
+        runtime.tls_value(tls_index).unwrap(),
+        &RuntimeTlsValue::Raw { value: 0x1111 }
+    );
+    assert_eq!(
+        runtime.current_thread_state().unwrap().callback_frames,
+        vec![initial_frame]
+    );
+    runtime
+        .pop_callback_frame(initial_frame.id)
+        .expect("retire initial callback");
+
+    runtime
+        .select_thread(SECOND_THREAD_ID)
+        .expect("restore second callback lane");
+    assert_eq!(runtime.current_last_error().unwrap(), 33);
+    assert_eq!(
+        runtime.tls_value(tls_index).unwrap(),
+        &RuntimeTlsValue::Raw { value: 0x2222 }
+    );
+    assert_eq!(
+        runtime.current_thread_state().unwrap().callback_frames,
+        vec![second_frame]
+    );
+    runtime
+        .pop_callback_frame(second_frame.id)
+        .expect("retire second callback");
+    runtime
+        .request_current_thread_exit(23)
+        .expect("request second thread exit");
+    runtime
+        .complete_current_thread_exit()
+        .expect("complete second thread exit");
+    assert_eq!(
+        runtime.process().lifecycle,
+        RuntimeProcessLifecycleState::Running
+    );
+    assert_eq!(
+        runtime.thread_state(SECOND_THREAD_ID).unwrap().lifecycle,
+        RuntimeThreadLifecycleState::Exited { exit_code: 23 }
+    );
+    assert_eq!(
+        runtime
+            .object_wait_state(second_handle, RuntimeObjectKind::Thread)
+            .unwrap(),
+        RuntimeWaitState::Signaled { exit_code: 23 }
+    );
+    assert_eq!(
+        runtime
+            .object_wait_state(process_handle, RuntimeObjectKind::Process)
+            .unwrap(),
+        RuntimeWaitState::Nonsignaled
+    );
+    let before_exited_selection = runtime.clone();
+    assert_eq!(
+        runtime
+            .select_thread(SECOND_THREAD_ID)
+            .expect_err("exited thread cannot become current")
+            .code,
+        "thread-selection-state-invalid"
+    );
+    assert_eq!(runtime, before_exited_selection);
+    runtime
+        .select_thread(INITIAL_THREAD_ID)
+        .expect("select surviving initial thread");
+    assert_eq!(runtime.current_thread_handle().unwrap(), initial_handle);
+
+    let mut process_exit = running_runtime();
+    let process_handle = process_exit.process_handle().unwrap();
+    let initial_handle = process_exit.current_thread_handle().unwrap();
+    let second_handle = process_exit
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register process-exit second thread");
+    process_exit
+        .push_callback_frame(GuestAddress(0x1000_2000), GuestAddress(0x7f01_0000))
+        .unwrap();
+    process_exit
+        .begin_host_request("initial-thread.pending")
+        .unwrap();
+    process_exit.select_thread(SECOND_THREAD_ID).unwrap();
+    process_exit
+        .push_callback_frame(GuestAddress(0x2000_2000), GuestAddress(0x7f01_0010))
+        .unwrap();
+    process_exit
+        .begin_host_request("second-thread.pending")
+        .unwrap();
+    process_exit.select_thread(INITIAL_THREAD_ID).unwrap();
+
+    let termination = process_exit
+        .terminate_current_process(7)
+        .expect("terminate all controlled lanes");
+    assert_eq!(termination.initiating_thread_id, INITIAL_THREAD_ID);
+    assert_eq!(termination.host_requests_cancelled, 2);
+    assert_eq!(termination.callback_frames_cancelled, 2);
+    assert_eq!(termination.scheduler_events_discarded, 0);
+    assert_eq!(
+        termination
+            .thread_cancellations
+            .iter()
+            .map(|cancellation| cancellation.thread_id)
+            .collect::<Vec<_>>(),
+        vec![SECOND_THREAD_ID, INITIAL_THREAD_ID]
+    );
+    for (thread_id, handle) in [
+        (SECOND_THREAD_ID, second_handle),
+        (INITIAL_THREAD_ID, initial_handle),
+    ] {
+        assert_eq!(
+            process_exit.thread_state(thread_id).unwrap().lifecycle,
+            RuntimeThreadLifecycleState::Exited { exit_code: 7 }
+        );
+        assert_eq!(
+            process_exit.scheduler_state_for_thread(thread_id).unwrap(),
+            SchedulerThreadState::Terminated { exit_code: 7 }
+        );
+        assert_eq!(
+            process_exit
+                .object_wait_state(handle, RuntimeObjectKind::Thread)
+                .unwrap(),
+            RuntimeWaitState::Signaled { exit_code: 7 }
+        );
+    }
+    assert_eq!(
+        process_exit.process().lifecycle,
+        RuntimeProcessLifecycleState::Exited { exit_code: 7 }
+    );
+    assert_eq!(
+        process_exit
+            .object_wait_state(process_handle, RuntimeObjectKind::Process)
+            .unwrap(),
+        RuntimeWaitState::Signaled { exit_code: 7 }
+    );
+    assert!(process_exit.registries().host_requests.is_empty());
+    assert!(process_exit.scheduler().events.is_empty());
+
+    let mut rejected_process_exit = running_runtime();
+    rejected_process_exit
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register negative-path second thread");
+    rejected_process_exit
+        .request_current_thread_exit(19)
+        .expect("leave initial thread exit pending");
+    rejected_process_exit
+        .select_thread(SECOND_THREAD_ID)
+        .expect("select live thread after initial exit request");
+    let before_rejected_process_exit = rejected_process_exit.clone();
+    assert_eq!(
+        rejected_process_exit
+            .terminate_current_process(7)
+            .expect_err("process exit rejects a preexisting thread-exit transition")
+            .code,
+        "process-exit-thread-state-invalid"
+    );
+    assert_eq!(rejected_process_exit, before_rejected_process_exit);
+}
+
+fn running_runtime() -> RuntimeState {
+    let mut runtime = RuntimeState::new(RuntimeBootstrap {
+        process_id: RuntimeProcessId(PROCESS_ID),
+        initial_thread_id: INITIAL_THREAD_ID,
+        initial_last_error: 87,
+        address_space: ProcessAddressSpaceLayout::vine_v1(),
+        clock: RuntimeClockState {
+            wall_clock_file_time: 134_282_016_000_000_000,
+            tick_count: 3_600_000,
+            performance_counter: 12_345_678_901,
+        },
+        startup_info: RuntimeStartupInfo {
+            profile_id: "runtime-thread-registry-test".to_owned(),
+            bytes: vec![0; X86_STARTUP_INFO_W_BYTE_LENGTH],
+        },
+        encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
+        encoded_pointer_token_prefix: 0xec01_0000,
+    })
+    .expect("initialized controlled runtime");
+    runtime
+        .start_initial_thread()
+        .expect("start controlled initial thread");
+    runtime
+}

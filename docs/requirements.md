@@ -158,7 +158,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | REQ-ABI-04 | SEH / unwind / vectored exception の必要範囲を corpus で決定し、未対応経路を明示停止する | Must |
 | REQ-ABI-05 | varargs は API ごとに format／argument contract と上限を定義して検証し、schema のない汎用 variadic bridge を暗黙に許可しない | Must |
 
-controlled bootstrapはproduction-owned image／control／stackにtyped one-page TEB／PEB／process-parameters／command-lineを加え、CPU state ABIでFS baseをrestoreしてnative-oracled fields、UTF-16 bytes、entry returnを通した。single process／initial threadにはexplicit bootstrap／running／exit request／completionを追加した。general stack reserve／growth／guard、multi-thread lifecycle／parameters、loader list、TLS cleanup、bidirectional dirty-page ownershipは未実装なので、`REQ-BOOT-01`／`REQ-BOOT-02`等はpartialである。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)と[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)を正とする。
+controlled bootstrapはproduction-owned image／control／stackにtyped one-page TEB／PEB／process-parameters／command-lineを加え、CPU state ABIでFS baseをrestoreしてnative-oracled fields、UTF-16 bytes、entry returnを通した。single processにはexplicit lifecycleとcontrolled two-thread logical registryを追加した。second threadはunique TID／typed handle／LastError／TLS／callback／scheduler laneを持つがCPU context／stack／TEBは持たない。general stack reserve／growth／guard、guest-created thread parameters、loader list、TLS cleanup、bidirectional dirty-page ownershipは未実装なので、`REQ-BOOT-01`／`REQ-BOOT-02`等はpartialである。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)、[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)を正とする。
 
 ### 7.4 Windows userspace compatibility
 

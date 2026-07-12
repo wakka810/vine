@@ -78,7 +78,7 @@ lookup, checked frame decoding, pointer and name／ordinal validation, guest
 writes, return cleanup, LastError policy, and identity-preserving faults.
 
 Those calls now share one authoritative Rust `RuntimeState`. It owns the
-controlled process／initial thread, per-thread LastError, clock and startup
+controlled process／logical thread registry, per-thread LastError, clock and startup
 profile, heap／module／endpoint registries, TLS values, and deterministic encoded
 pointers. Nested callback frames are LIFO and asynchronous host completion is a
 scheduler event that restores the prior runnable／callback state. Private JSON
@@ -116,7 +116,7 @@ heap slope of 136 bytes/minute, and a worst main-thread heartbeat gap of
 
 The development profile is Windows 11 Pro 25H2, although the current OS API
 reports Home; the observed build is recorded separately from that unresolved
-edition label. General DLL/export lifecycle, multi-thread scheduling, BGI
+edition label. General DLL/export lifecycle, CPU-context-backed multi-thread scheduling, BGI
 browser execution, production graphics/audio/storage semantics, and full title
 play remain unimplemented.
 The 17 checkpoint expectations now live in a versioned manifest shared by the
@@ -133,8 +133,10 @@ graph now adds canonical basename identity, main／guest／runtime classes,
 dependency and reference ownership, and deterministic dependency-first attach／
 reverse detach metadata. Process／initial-thread lifecycle now separates
 bootstrap, running, exit request, and waitable completion, with atomic cleanup
-and thread-before-process terminal ordering. The next runtime-kernel checkpoint
-adds a controlled second thread before wait queues are introduced.
+and thread-before-process terminal ordering. A controlled second-thread registry
+adds unique TIDs, typed handles, isolated LastError／TLS／callback lanes, explicit
+selection, thread-only exit, and deterministic all-lane process termination.
+The next runtime-kernel checkpoint introduces a controlled wait queue.
 The third thunk ID `89` call for
 `KERNEL32.dll!EncodePointer(0x7F020000)` remains the next BGI trap, but bespoke
 API checkpoint expansion is paused until the P0 runtime-kernel gates are met.

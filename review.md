@@ -922,7 +922,12 @@ mapping／export／forwarder／`DllMain`は未実装のまま、Worker／BGI／b
 scheduler `initialized`／`terminating`、explicit start、exit request／completion、pending
 host／callback cleanup、request中のnonsignaled object、thread／process terminal signalを
 targeted atomic planで固定した。RuntimeState全体はcloneせず、Worker／BGI／benchmarkを
-維持した。multi-thread／wait／DLL detachは未実装である。
+維持した。
+
+**Foundation 4完了（2026-07-12）:** controlled second thread registryを導入した。
+unique TID／typed handle、per-thread LastError／TLS／callback／scheduler lane、explicit
+selection、thread-only exit、TID昇順のall-lane process terminationをatomic Rust contractで
+固定した。CPU context／stack／TEB、wait queue、DLL thread callbackは未実装である。
 
 - module graph
 - process／thread lifecycle
