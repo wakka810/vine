@@ -8,6 +8,7 @@ import { build } from "esbuild";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.join(root, "browser", "runtime-worker");
+const benchmarkSource = path.join(root, "browser", "v86-benchmark");
 const output = path.join(root, ".work", "browser-runtime");
 const assets = {
   runtimeCore: path.join(
@@ -38,6 +39,8 @@ await build({
   entryPoints: {
     main: path.join(source, "main.ts"),
     "runtime-worker": path.join(source, "runtime-worker.ts"),
+    "benchmark-main": path.join(benchmarkSource, "benchmark-main.ts"),
+    "benchmark-worker": path.join(benchmarkSource, "benchmark-worker.ts"),
   },
   bundle: true,
   entryNames: "[name]",
@@ -52,6 +55,20 @@ await build({
 await Promise.all([
   copyFile(path.join(source, "index.html"), path.join(output, "index.html")),
   copyFile(path.join(source, "styles.css"), path.join(output, "styles.css")),
+  copyFile(path.join(benchmarkSource, "index.html"), path.join(output, "benchmark.html")),
+  copyFile(path.join(benchmarkSource, "benchmark.css"), path.join(output, "benchmark.css")),
+  copyFile(
+    path.join(benchmarkSource, "audio-probe-worklet.js"),
+    path.join(output, "audio-probe-worklet.js"),
+  ),
+  copyFile(
+    path.join(root, "fixtures", "benchmarks", "v86-browser-v1.json"),
+    path.join(output, "v86-browser-v1.json"),
+  ),
+  copyFile(
+    path.join(root, "docs", "current-checkpoint.json"),
+    path.join(output, "current-checkpoint.json"),
+  ),
   copyFile(assets.runtimeCore, path.join(output, "runtime-core.wasm")),
   copyFile(assets.v86Adapter, path.join(output, "v86-adapter.wasm")),
   copyFile(assets.fixture, path.join(output, "browser-vertical.exe")),
@@ -68,6 +85,13 @@ const manifest = {
         "styles.css",
         "main.js",
         "runtime-worker.js",
+        "benchmark.html",
+        "benchmark.css",
+        "benchmark-main.js",
+        "benchmark-worker.js",
+        "audio-probe-worklet.js",
+        "v86-browser-v1.json",
+        "current-checkpoint.json",
         "runtime-core.wasm",
         "v86-adapter.wasm",
         "browser-vertical.exe",
