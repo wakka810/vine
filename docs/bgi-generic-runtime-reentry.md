@@ -131,8 +131,8 @@ The deterministic generic report is 96,244 bytes with SHA-256
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-seventeenth-win32-call
-npm run check:runtime:bgi-generic-runtime-reentry
+npm run check:runtime:bgi -- --checkpoint bgi-seventeenth-win32-call
+npm run check:runtime:bgi -- --profile baseline
 ```
 
 The generic command was run twice and produced the same report digest. The source

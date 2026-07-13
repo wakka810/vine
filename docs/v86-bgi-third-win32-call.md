@@ -66,7 +66,7 @@ The primary source fingerprint remains unchanged. The earlier first-trap, first-
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-third-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-third-win32-call
 ```
 
 `npm run check:private-corpus` runs all four cumulative BGI contracts. Generated protocol messages and reports remain under `.work/` and are not committed.

@@ -33,6 +33,14 @@ assert.ok(
   validateCurrentCheckpoint(stale).some((error) => error.includes("must match")),
 );
 
+const missingLatestEvidence = structuredClone(manifest);
+delete missingLatestEvidence.activeRuntimeCheckpoint.latestEvidence;
+assert.ok(
+  validateCurrentCheckpoint(missingLatestEvidence).some((error) =>
+    error.includes("latestEvidence"),
+  ),
+);
+
 const bypassedScheduler = structuredClone(manifest);
 bypassedScheduler.browserCheckpoint.browserRuntimeEvidence.rustSchedulerTransitions = 1;
 assert.ok(

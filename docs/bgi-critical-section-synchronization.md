@@ -147,7 +147,7 @@ cargo test -p vine-core --test api_dispatcher --locked
 The capability profile reuses the existing generic runtime mode:
 
 ```powershell
-npm run check:runtime:bgi-critical-section-synchronization
+npm run check:runtime:bgi -- --profile kernel32-critical-section-synchronization
 ```
 
 It registers 16 Kernel32 contracts, validates the frozen 17-call semantics,

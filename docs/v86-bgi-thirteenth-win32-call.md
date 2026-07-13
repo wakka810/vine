@@ -76,7 +76,7 @@ The zero-argument frame is evidence for the next checkpoint only. `TlsAlloc` is 
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-thirteenth-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-thirteenth-win32-call
 ```
 
 Two consecutive runs produced the same 103,179-byte report and SHA-256. The twelfth report remains 89,289 bytes with SHA-256 `28aa2899a7e4fb403c5d839b21e0bb19c05563b9bd19604372bbf1a16a39fbb4`. Raw reports stay under `.work/`.

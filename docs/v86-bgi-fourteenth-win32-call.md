@@ -81,7 +81,7 @@ The first two arguments exactly pair Vine's logical index `0` with Vine's `FlsGe
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-fourteenth-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-fourteenth-win32-call
 ```
 
 Two consecutive runs produced the same 110,236-byte report and SHA-256. The thirteenth report remains 103,179 bytes with SHA-256 `1cfe9d56fd5c5f9494ffdcc017c6ad189e2900b70125f0eda67d3839326230d4`.

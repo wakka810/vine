@@ -104,7 +104,7 @@ cargo test -p vine-core --test api_dispatcher --locked
 The cumulative capability profile is:
 
 ```powershell
-npm run check:runtime:bgi-pointer-decoding
+npm run check:runtime:bgi -- --profile kernel32-pointer-decoding
 ```
 
 It enables the 13 baseline contracts, the three critical-section contracts,

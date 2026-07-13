@@ -103,7 +103,7 @@ stdcall cleanup, and mutation-free rejection of the observed `0x800` variant.
 ## Generic BGI continuation
 
 ```powershell
-npm run check:runtime:bgi-private-heap-allocation
+npm run check:runtime:bgi -- --profile kernel32-private-heap-allocation
 ```
 
 | Evidence | Result |

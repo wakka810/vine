@@ -80,7 +80,7 @@ This non-NULL input is outside the controlled NULL variant and is evidence for t
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-sixteenth-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-sixteenth-win32-call
 ```
 
 Two consecutive pinned runs produced the same 129,530-byte report and SHA-256. A separate fifteenth-mode run retained its 120,499-byte report and SHA-256 `25907e7ae254788313d0feccdae9dac152592c3210ea5bf6956a6b1cac9f960f`.

@@ -1354,7 +1354,7 @@
     "reportBytes": 280475,
     "reportSha256": "ce9d4271db746b1b7d377bb3e42a861f9c611367e5fcfefba0f19b35fca5aee1"
   },
-  "bgiSetHandleCount": {
+  "latestEvidence": {
     "schema": "vine.v86-bgi-set-handle-count.v1",
     "nativePrimaryTraceBytes": 233779,
     "nativePrimaryTraceLines": 779,

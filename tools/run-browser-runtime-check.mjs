@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { bgiProfileOutputDirectory } from "./bgi-checkpoint-command.mjs";
 import { loadCurrentCheckpoint } from "./current-checkpoint.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,7 +28,7 @@ const bgiPolicyPath = path.join(
 const bgiOracleReportPath = path.join(
   root,
   ".work",
-  "v86-bgi-set-handle-count",
+  bgiProfileOutputDirectory(checkpoint.activeRuntimeCheckpoint.profile),
   "report.json",
 );
 const bgiBenchmarkConfigurationPath = path.join(

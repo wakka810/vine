@@ -72,7 +72,7 @@ no guest write, no runtime／memory mutation, and default-policy rejection.
 ## Generic continuation
 
 ```powershell
-npm run check:runtime:bgi-standard-output-file-type
+npm run check:runtime:bgi -- --profile kernel32-standard-output-file-type
 ```
 
 | Evidence | Result |

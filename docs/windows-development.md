@@ -131,25 +131,14 @@ npm run check:runtime:bootstrap-params-first-stop
 npm run check:runtime:bootstrap-params
 npm run check:runtime:memory-delta
 npm run check:runtime:memory-writeback
-npm run check:runtime:bgi-first-trap
-npm run check:runtime:bgi-first-win32-call
-npm run check:runtime:bgi-second-win32-call
-npm run check:runtime:bgi-third-win32-call
-npm run check:runtime:bgi-fourth-win32-call
-npm run check:runtime:bgi-fifth-win32-call
-npm run check:runtime:bgi-sixth-win32-call
-npm run check:runtime:bgi-seventh-win32-call
-npm run check:runtime:bgi-eighth-win32-call
-npm run check:runtime:bgi-ninth-win32-call
-npm run check:runtime:bgi-tenth-win32-call
-npm run check:runtime:bgi-eleventh-win32-call
-npm run check:runtime:bgi-twelfth-win32-call
-npm run check:runtime:bgi-thirteenth-win32-call
-npm run check:runtime:bgi-fourteenth-win32-call
-npm run check:runtime:bgi-fifteenth-win32-call
-npm run check:runtime:bgi-sixteenth-win32-call
-npm run check:runtime:bgi-seventeenth-win32-call
+npm run check:runtime:bgi
+npm run check:runtime:bgi -- --checkpoint bgi-first-trap
+npm run check:runtime:bgi -- --checkpoint bgi-seventeenth-win32-call
+npm run check:runtime:bgi -- --profile baseline
 ```
+
+Historical checkpoint／capability reproduction uses the same command with
+`--checkpoint`／`--profile`; permanent npm aliases are not added.
 
 最初の Windows checkpoint は 2026-07-10 に成立した。全 tool の version、canonical check、BGI fingerprint は [windows-native-evidence.md](windows-native-evidence.md) に記録している。
 

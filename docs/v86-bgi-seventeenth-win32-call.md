@@ -88,7 +88,7 @@ The native traces observe this same call with native `FlsAlloc` address `0x758CD
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-seventeenth-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-seventeenth-win32-call
 ```
 
 Two consecutive pinned runs produced the same 140,660-byte report and SHA-256. A separate sixteenth-mode run retained its 129,530-byte report and SHA-256 `310d90e97f3b33b8c466d0a0e769fb4fe85a4b3cb2a55f191a0480d662f0032b`.

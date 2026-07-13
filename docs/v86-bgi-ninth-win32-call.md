@@ -94,7 +94,7 @@ The immutable source fingerprint, reflection SHA-256 `f68f79bb13b3c5a11a2d145a8e
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-ninth-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-ninth-win32-call
 ```
 
 Two consecutive runs produced the same 56,729-byte report and SHA-256. `npm run check:private-corpus` runs the first-trap contract and all nine cumulative call-return contracts. Raw traces and generated reports remain under `.work/` and are not committed.

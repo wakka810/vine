@@ -82,7 +82,7 @@ The one-argument frame is `EncodePointer(NULL)`. It is evidence for the next che
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-fifteenth-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-fifteenth-win32-call
 ```
 
 Two consecutive runs produced the same 120,499-byte report and SHA-256. The fourteenth report remains 110,236 bytes with SHA-256 `4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb`.

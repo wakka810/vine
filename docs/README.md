@@ -59,7 +59,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [guest-memory-ingress.md](guest-memory-ingress.md) | production memory ingressが何を所有するか | sparse region／page API、fault／invalidation、fixture／BGI layout evidence |
 | [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | bidirectional dirty pages、binary transport、generation ack、rollback |
 | [memory-writeback.md](memory-writeback.md) | guest writeをどうRust authorityへ戻すか | PTE Dirty discovery、atomic multi-page reconciliation、two-slice evidence |
-| [generic-api-dispatcher.md](generic-api-dispatcher.md) | API固有checkpointを共通runtimeへどう移すか | 23 contracts、RuntimeState、manifest／generic runner、dynamic endpoint dispatch |
+| [generic-api-dispatcher.md](generic-api-dispatcher.md) | API固有checkpointを共通runtimeへどう移すか | RuntimeState、manifest-driven generic runner、dynamic endpoint dispatch |
 | [bgi-generic-runtime-reentry.md](bgi-generic-runtime-reentry.md) | frozen BGI evidenceをproduction runtimeへどう戻すか | process module graph、automatic binary writeback、21 generic calls、critical-section first stop |
 | [bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md) | reached x86 critical sectionをどう所有するか | native 24-byte oracle、process-owned recursion、14 BGI initializations、DecodePointer first stop |
 | [bgi-pointer-decoding.md](bgi-pointer-decoding.md) | process pointer tokenをどう逆引きするか | native inverse evidence、strict owned-token lookup、FlsAlloc dynamic stop |

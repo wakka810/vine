@@ -129,7 +129,7 @@ ID collision.
 The cumulative capability profile is:
 
 ```powershell
-npm run check:runtime:bgi-fiber-local-storage-allocation
+npm run check:runtime:bgi -- --profile kernel32-fiber-local-storage-allocation
 ```
 
 It enables the 13 baseline contracts, three critical-section contracts,

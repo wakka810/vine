@@ -109,7 +109,7 @@ guest writes, and mutation-free rejection of an unregistered logical handle.
 ## Generic BGI continuation
 
 ```powershell
-npm run check:runtime:bgi-file-type
+npm run check:runtime:bgi -- --profile kernel32-file-type
 ```
 
 | Evidence | Result |

@@ -116,7 +116,7 @@ output-file-type rejection.
 ## Generic BGI continuation
 
 ```powershell
-npm run check:runtime:bgi-standard-output-handle
+npm run check:runtime:bgi -- --profile kernel32-standard-output-handle
 ```
 
 | Evidence | Result |

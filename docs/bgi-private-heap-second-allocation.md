@@ -98,7 +98,7 @@ protection, or sealed-state identity changes.
 ## Generic BGI continuation
 
 ```powershell
-npm run check:runtime:bgi-private-heap-second-allocation
+npm run check:runtime:bgi -- --profile kernel32-private-heap-second-allocation
 ```
 
 | Evidence | Result |

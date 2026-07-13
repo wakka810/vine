@@ -72,7 +72,7 @@ The primary source fingerprint remains unchanged. All earlier cumulative report 
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-fifth-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-fifth-win32-call
 ```
 
 `npm run check:private-corpus` runs all six cumulative BGI contracts. Generated protocol messages and reports remain under `.work/` and are not committed.

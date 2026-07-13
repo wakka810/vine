@@ -17,7 +17,7 @@ full JSON byte identityはsemantic gateではない。semantic testとstructured
 | `memoryAuthorityEvidence` | Rust byte authority、binary transport、transaction evidence |
 | `browserCheckpoint` | controlled Browser Worker state。BGI workloadの状態を別フィールドで明示する |
 | `engineDecisionEvidence` | v86 adapterを継続する判断と、その測定artifact |
-| `activeRuntimeCheckpoint` | current runtime profile、capability一覧、latest semantic evidence |
+| `activeRuntimeCheckpoint` | current runtime profile、capability一覧、generic `latestEvidence` |
 | `nextStructuredStop` | 次のunsupported API、argument、instruction、reason |
 
 root直下へ旧schemaの`checkpoint`、`runtimeKernelCheckpoint`、`nextCheckpoint`を再追加しない。
@@ -32,8 +32,10 @@ historical、active、browserを同じ意味のcurrent checkpointとして扱わ
 
 現在のcanonical commandは`check:runtime:bgi-browser`である。これは`check:runtime:bgi`をNode
 semantic oracleとして再生成した後、同じprofileをChrome Runtime Workerで実行して比較する。
-API固有のscript群はhistorical compatibility entry pointとして残るが、current stateの再現commandには
-使用しない。
+`check:runtime:bgi`は引数なしでmanifestのactive profile／policy／latest report directoryを選ぶ。
+Historical reproductionは同じcommandの`--checkpoint <id>`または`--profile <capability>`を使い、
+API固有のnpm aliasは置かない。新しいcapability checkpointでは`latestEvidence`、profile、policy、
+API一覧、next stopをmanifest内で更新し、runnerやBrowser oracle pathへAPI名を追加しない。
 
 ## Browser non-claim
 

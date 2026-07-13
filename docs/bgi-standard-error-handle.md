@@ -89,7 +89,7 @@ unsupported-selector rejection.
 ## Generic continuation
 
 ```powershell
-npm run check:runtime:bgi-standard-error-handle
+npm run check:runtime:bgi -- --profile kernel32-standard-error-handle
 ```
 
 | Evidence | Result |

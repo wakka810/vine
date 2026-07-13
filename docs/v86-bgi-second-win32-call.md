@@ -65,7 +65,7 @@ The primary source fingerprint remains unchanged. The earlier stop-before-dispat
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-second-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-second-win32-call
 ```
 
 `npm run check:private-corpus` runs all three cumulative BGI contracts. Generated protocol messages and reports remain under `.work/` and are not committed.

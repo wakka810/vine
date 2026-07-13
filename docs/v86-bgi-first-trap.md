@@ -69,7 +69,7 @@ The source adapter and primary title must already be present:
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-first-trap
+npm run check:runtime:bgi -- --checkpoint bgi-first-trap
 ```
 
 Generated protocol data and the report remain under `.work/v86-bgi-first-trap/` and are not committed.

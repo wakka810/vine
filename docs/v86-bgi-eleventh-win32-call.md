@@ -79,7 +79,7 @@ The stdcall return changes EAX from `0x7F020000` to endpoint `0x7F020010` and mo
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-eleventh-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-eleventh-win32-call
 ```
 
 Two consecutive runs produced the same 76,844-byte report and SHA-256. The tenth report remains 65,858 bytes with SHA-256 `54bcc15a033dbe870b81d1c2637949d71568d048202d8f3cc355097ca76332cf`. Raw reports stay under `.work/`.

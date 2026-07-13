@@ -101,7 +101,7 @@ unmapped, and page-crossing unaligned targets.
 ## Generic BGI continuation
 
 ```powershell
-npm run check:runtime:bgi-interlocked-increment
+npm run check:runtime:bgi -- --profile kernel32-interlocked-increment
 ```
 
 | Evidence | Result |

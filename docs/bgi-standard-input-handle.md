@@ -124,7 +124,7 @@ no guest memory mutation, and mutation-free rejection of standard output.
 ## Generic BGI continuation
 
 ```powershell
-npm run check:runtime:bgi-standard-input-handle
+npm run check:runtime:bgi -- --profile kernel32-standard-input-handle
 ```
 
 | Evidence | Result |

@@ -33,6 +33,20 @@ npm run serve:runtime:browser-worker
 npm run check:runtime:browser-worker:stress
 ```
 
+The single Node BGI checkpoint command selects the active manifest profile by
+default. Historical evidence uses arguments instead of npm aliases:
+
+```powershell
+npm run check:runtime:bgi
+npm run check:runtime:bgi -- --checkpoint bgi-seventeenth-win32-call
+npm run check:runtime:bgi -- --profile kernel32-standard-error-file-type
+```
+
+`--profile baseline` selects the generic runtime re-entry before the first
+capability profile. `--checkpoint` and `--profile` are mutually exclusive. The
+Browser runner derives the Node oracle report directory from the same active
+profile.
+
 The last command adds a 30-minute repeated lifecycle soak and is not part of the
 ordinary short gate. Its exact evidence and non-claims are recorded in
 [browser-runtime-worker.md](browser-runtime-worker.md).

@@ -93,7 +93,7 @@ unknown-index rejection, and unchanged guest memory.
 ## Generic BGI continuation
 
 ```powershell
-npm run check:runtime:bgi-fiber-local-storage-value
+npm run check:runtime:bgi -- --profile kernel32-fiber-local-storage-value
 ```
 
 | Evidence | Result |

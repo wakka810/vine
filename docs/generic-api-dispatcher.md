@@ -107,16 +107,16 @@ Each cumulative capability is enabled by a capability-named profile, not a
 numbered or API-specific request／receipt mode:
 
 ```powershell
-npm run check:runtime:bgi-critical-section-synchronization
-npm run check:runtime:bgi-pointer-decoding
-npm run check:runtime:bgi-fiber-local-storage-allocation
-npm run check:runtime:bgi-private-heap-allocation
-npm run check:runtime:bgi-fiber-local-storage-value
-npm run check:runtime:bgi-interlocked-increment
-npm run check:runtime:bgi-private-heap-second-allocation
-npm run check:runtime:bgi-standard-input-handle
-npm run check:runtime:bgi-file-type
-npm run check:runtime:bgi-standard-output-handle
+npm run check:runtime:bgi -- --profile kernel32-critical-section-synchronization
+npm run check:runtime:bgi -- --profile kernel32-pointer-decoding
+npm run check:runtime:bgi -- --profile kernel32-fiber-local-storage-allocation
+npm run check:runtime:bgi -- --profile kernel32-private-heap-allocation
+npm run check:runtime:bgi -- --profile kernel32-fiber-local-storage-value
+npm run check:runtime:bgi -- --profile kernel32-interlocked-increment
+npm run check:runtime:bgi -- --profile kernel32-private-heap-second-allocation
+npm run check:runtime:bgi -- --profile kernel32-standard-input-handle
+npm run check:runtime:bgi -- --profile kernel32-file-type
+npm run check:runtime:bgi -- --profile kernel32-standard-output-handle
 ```
 
 ## RuntimeState authority
@@ -169,7 +169,7 @@ reuse, standard-error rejection, and mutation-free output-file-type rejection.
 The cumulative private-corpus command is:
 
 ```powershell
-npm run check:runtime:bgi-seventeenth-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-seventeenth-win32-call
 ```
 
 Before and after migration it reaches the same trap after 238 instructions. The report remains 140,660 bytes with SHA-256 `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`; reflection SHA-256 remains `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`.
@@ -177,7 +177,7 @@ Before and after migration it reaches the same trap after 238 instructions. The 
 The Step 10 semantic run is separate:
 
 ```powershell
-npm run check:runtime:bgi-generic-runtime-reentry
+npm run check:runtime:bgi -- --profile baseline
 ```
 
 It validates the frozen 17 calls, returns four more `EncodePointer` calls through
@@ -192,7 +192,7 @@ historical evidence serialization are now independent.
 The critical-section capability profile is:
 
 ```powershell
-npm run check:runtime:bgi-critical-section-synchronization
+npm run check:runtime:bgi -- --profile kernel32-critical-section-synchronization
 ```
 
 It completes 35 calls, including 14 contiguous
@@ -206,7 +206,7 @@ runtime evidence is in [bgi-critical-section-synchronization.md](bgi-critical-se
 The pointer-decoding capability profile is:
 
 ```powershell
-npm run check:runtime:bgi-pointer-decoding
+npm run check:runtime:bgi -- --profile kernel32-pointer-decoding
 ```
 
 It resolves controlled token `0xEC010003` to its registered source
@@ -221,7 +221,7 @@ evidence is in [bgi-pointer-decoding.md](bgi-pointer-decoding.md).
 The FLS-allocation capability profile is:
 
 ```powershell
-npm run check:runtime:bgi-fiber-local-storage-allocation
+npm run check:runtime:bgi -- --profile kernel32-fiber-local-storage-allocation
 ```
 
 It returns logical index `0` for callback `0x100A5666`, preserves LastError,
@@ -236,7 +236,7 @@ and stops at instruction 618 on static endpoint ID `75`／
 The private-heap-allocation capability profile is:
 
 ```powershell
-npm run check:runtime:bgi-private-heap-allocation
+npm run check:runtime:bgi -- --profile kernel32-private-heap-allocation
 ```
 
 It accepts only `HeapAlloc(0x68010001,HEAP_ZERO_MEMORY,0x214)`, returns guest
@@ -252,7 +252,7 @@ and stops at instruction 644 on dynamic endpoint ID `3`／
 The FLS-value capability profile is:
 
 ```powershell
-npm run check:runtime:bgi-fiber-local-storage-value
+npm run check:runtime:bgi -- --profile kernel32-fiber-local-storage-value
 ```
 
 It stores `0x20000000` in logical slot `0` for controlled thread `8192`, returns
@@ -269,7 +269,7 @@ and stops at instruction 707 on static endpoint ID `124`／
 The InterlockedIncrement capability profile is:
 
 ```powershell
-npm run check:runtime:bgi-interlocked-increment
+npm run check:runtime:bgi -- --profile kernel32-interlocked-increment
 ```
 
 It returns three reached wrapping increments with exact before/after evidence:
@@ -286,7 +286,7 @@ and stops at instruction 934 on the already measured
 The second private-heap-allocation profile is:
 
 ```powershell
-npm run check:runtime:bgi-private-heap-second-allocation
+npm run check:runtime:bgi -- --profile kernel32-private-heap-second-allocation
 ```
 
 It replaces only the profile's HeapAlloc implementation ID with the versioned
@@ -303,7 +303,7 @@ is in [bgi-private-heap-second-allocation.md](bgi-private-heap-second-allocation
 The standard-input-handle profile is:
 
 ```powershell
-npm run check:runtime:bgi-standard-input-handle
+npm run check:runtime:bgi -- --profile kernel32-standard-input-handle
 ```
 
 It accepts only `STD_INPUT_HANDLE`, returns logical handle `0x53010001`,
@@ -317,7 +317,7 @@ and stops at instruction 1403 on `GetFileType(0x53010001)`. Full evidence is in
 The file-type profile is:
 
 ```powershell
-npm run check:runtime:bgi-file-type
+npm run check:runtime:bgi -- --profile kernel32-file-type
 ```
 
 It classifies only logical stdin `0x53010001` as `FILE_TYPE_CHAR (2)`, then
@@ -331,7 +331,7 @@ is in [bgi-file-type.md](bgi-file-type.md).
 The standard-output-handle profile is:
 
 ```powershell
-npm run check:runtime:bgi-standard-output-handle
+npm run check:runtime:bgi -- --profile kernel32-standard-output-handle
 ```
 
 It uses the same `kernel32.get-std-handle.v2` semantic contract with the
@@ -347,7 +347,7 @@ and stops at instruction 1447 on `GetFileType(0x53010002)`. Full evidence is in
 The standard-output-file-type profile is:
 
 ```powershell
-npm run check:runtime:bgi-standard-output-file-type
+npm run check:runtime:bgi -- --profile kernel32-standard-output-file-type
 ```
 
 It uses the same `kernel32.get-file-type.v2` handler with the versioned
@@ -363,7 +363,7 @@ is in [bgi-standard-output-file-type.md](bgi-standard-output-file-type.md).
 The standard-error-handle profile is:
 
 ```powershell
-npm run check:runtime:bgi-standard-error-handle
+npm run check:runtime:bgi -- --profile kernel32-standard-error-handle
 ```
 
 It uses the same `kernel32.get-std-handle.v2` handler with the versioned
@@ -378,7 +378,7 @@ and stops at instruction 1492 on `GetFileType(0x53010003)`. Full evidence is in
 The standard-error-file-type profile is:
 
 ```powershell
-npm run check:runtime:bgi-standard-error-file-type
+npm run check:runtime:bgi -- --profile kernel32-standard-error-file-type
 ```
 
 It reuses `kernel32.get-file-type.v2` with the versioned
@@ -394,7 +394,7 @@ and stops at instruction 1516 on `SetHandleCount(32)`. Full evidence is in
 The SetHandleCount profile is:
 
 ```powershell
-npm run check:runtime:bgi-set-handle-count
+npm run check:runtime:bgi -- --profile kernel32-set-handle-count
 ```
 
 It uses `kernel32.set-handle-count.v1` with the versioned

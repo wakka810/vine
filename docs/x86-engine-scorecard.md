@@ -264,7 +264,7 @@ instruction budget `3`でentry `0x10001000`を実行し、2 execute stop／1 bud
 
 これはmeasured command-line support bandであり、general process parameters、loader／thread lifecycleを実装しない。BGI execution continuationは[v86-bgi-first-trap.md](v86-bgi-first-trap.md)で別に固定した。
 
-`npm run check:runtime:bgi-first-trap`はopt-in 400-page Rust limit／8 MiB protocol-line limitでBGIの388 sealed pagesをgeneration `24`へreflectする。2 MiB adapter poolはv86のVGA MMIO hole `[0xA0000,0xC0000)`を除外し、directory 1、tables 4、reflected pages 388の393 allocationsを使う。4,904,602-byte offerのcontent SHA-256は`f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0`である。
+`npm run check:runtime:bgi -- --checkpoint bgi-first-trap`はopt-in 400-page Rust limit／8 MiB protocol-line limitでBGIの388 sealed pagesをgeneration `24`へreflectする。2 MiB adapter poolはv86のVGA MMIO hole `[0xA0000,0xC0000)`を除外し、directory 1、tables 4、reflected pages 388の393 allocationsを使う。4,904,602-byte offerのcontent SHA-256は`f68f79bb13b3c5a11a2d145a8ee772a0bfd5c04dfec7502f50065cc748bc3cb0`である。
 
 entry `0x100A383E`はinstruction budget `1`で全境界のlogical execute permissionを検査し、19 execute stop／18 budget stop／19命令でexact owned thunk ID `104`／`KERNEL32.dll!GetSystemTimeAsFileTime`／`0x7F000670`へ到達した。runnerはESP `0x006FFFD0`、return `0x100A88D2`、raw stack wordsを記録し、API dispatch／returnを行わない。9,592-byte reportのSHA-256は`4ed39b15de85c188b52dbafd0eda9c35e4d88f3c4aa8a9079c98f6d9d9f03840`である。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
 
@@ -276,93 +276,93 @@ entry `0x100A383E`はinstruction budget `1`で全境界のlogical execute permis
 
 ### B19. First BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-first-win32-call`はID `104`のexact one-argument stdcall frame／IAT callを検査し、controlled UTC sampleを8-byte `FILETIME`として返す。outputがlive stack上にあるため、generation `24`／owner `4`のcurrent v86 pageをRustへreconcileしてからgeneration `25`のone-page deltaを発行する。11 guest-changed bytesを保持したfull page、zero mapping／cache effects、Rust acknowledgementを検査する。
+`npm run check:runtime:bgi -- --checkpoint bgi-first-win32-call`はID `104`のexact one-argument stdcall frame／IAT callを検査し、controlled UTC sampleを8-byte `FILETIME`として返す。outputがlive stack上にあるため、generation `24`／owner `4`のcurrent v86 pageをRustへreconcileしてからgeneration `25`のone-page deltaを発行する。11 guest-changed bytesを保持したfull page、zero mapping／cache effects、Rust acknowledgementを検査する。
 
 stdcall return後4命令、entryから累計23命令でID `103`／`KERNEL32.dll!GetCurrentProcessId`へ到達する。14,540-byte reportのSHA-256は`7457cdfb50affd0003a3860e6959d5803cc9e7edd1c9bb0358454a6046984c16`である。これはone fixed page writeback／clock sample／API returnであり、general dirty tracking、clock、ABI gateway、process identityを実装しない。詳細は[v86-bgi-first-win32-call.md](v86-bgi-first-win32-call.md)を正とする。
 
 ### B20. Second BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-second-win32-call`はID `103`のzero-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-process-identity`のcontrolled PID `4096`をEAXへ返す。generation `25`のlive stack pageを再reconcileし、4 changed bytesをsemantic memoryへ取り込むが、host writeがないためgeneration `25`／dirty 0を保持する。
+`npm run check:runtime:bgi -- --checkpoint bgi-second-win32-call`はID `103`のzero-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-process-identity`のcontrolled PID `4096`をEAXへ返す。generation `25`のlive stack pageを再reconcileし、4 changed bytesをsemantic memoryへ取り込むが、host writeがないためgeneration `25`／dirty 0を保持する。
 
 return後3命令、entryから累計26命令でID `149`／`KERNEL32.dll!GetCurrentThreadId`へ到達する。18,472-byte reportのSHA-256は`bbce0252bd7215b0643118c49bef61c724e3c8c0f80279ede1cd5c3ba1b94e67`である。これはone controlled process identity／API returnであり、general process／handle／thread modelを実装しない。詳細は[v86-bgi-second-win32-call.md](v86-bgi-second-win32-call.md)を正とする。
 
 ### B21. Third BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-third-win32-call`はID `149`のzero-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-thread-identity`のcontrolled TID `8192`をEAXへ返す。generation `25`のlive stack pageを再reconcileし、1 changed byteをsemantic memoryへ取り込むが、host writeがないためgeneration `25`／dirty 0を保持する。
+`npm run check:runtime:bgi -- --checkpoint bgi-third-win32-call`はID `149`のzero-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-thread-identity`のcontrolled TID `8192`をEAXへ返す。generation `25`のlive stack pageを再reconcileし、1 changed byteをsemantic memoryへ取り込むが、host writeがないためgeneration `25`／dirty 0を保持する。
 
 return後3命令、entryから累計29命令でID `13`／`KERNEL32.dll!GetTickCount`へ到達する。22,383-byte reportのSHA-256は`d6bf15bec208ed1ced26970ff96a9d9f0faebbcec55da19cfbf27588b452d4fa`である。これはone controlled thread identity／API returnであり、general process／thread／TEB client-ID／scheduler modelを実装しない。詳細は[v86-bgi-third-win32-call.md](v86-bgi-third-win32-call.md)を正とする。
 
 ### B22. Fourth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-fourth-win32-call`はID `13`のzero-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-monotonic-clock`のcontrolled tick count `3,600,000`をEAXへ返す。sample ID `uptime-ms-3600000`をfixed wall-clock sampleとpairし、generation `25`のlive stack pageから1 changed byteをreconcileするが、host writeがないためgeneration `25`／dirty 0を保持する。
+`npm run check:runtime:bgi -- --checkpoint bgi-fourth-win32-call`はID `13`のzero-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-monotonic-clock`のcontrolled tick count `3,600,000`をEAXへ返す。sample ID `uptime-ms-3600000`をfixed wall-clock sampleとpairし、generation `25`のlive stack pageから1 changed byteをreconcileするが、host writeがないためgeneration `25`／dirty 0を保持する。
 
 return後5命令、entryから累計34命令でID `157`／`KERNEL32.dll!QueryPerformanceCounter`へ到達する。26,558-byte reportのSHA-256は`79924bf3817104a9d2762b730534d8f74dc1ca1adfd17aa75c3855bcdf9bf111`である。これはone controlled monotonic sample／API returnであり、general clock／timer／scheduler／snapshot modelを実装しない。詳細は[v86-bgi-fourth-win32-call.md](v86-bgi-fourth-win32-call.md)を正とする。
 
 ### B23. Fifth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-fifth-win32-call`はID `157`のone-argument stdcall frame／IAT callをadapterとRustで検査し、controlled counter `12,345,678,901`をstack上の8-byte outputへ書く。generation `25`のlive pageから5 changed bytesをreconcileし、generation `26`のone-page delta／ack後にBOOL `1`を返す。
+`npm run check:runtime:bgi -- --checkpoint bgi-fifth-win32-call`はID `157`のone-argument stdcall frame／IAT callをadapterとRustで検査し、controlled counter `12,345,678,901`をstack上の8-byte outputへ書く。generation `25`のlive pageから5 changed bytesをreconcileし、generation `26`のone-page delta／ack後にBOOL `1`を返す。
 
 return後44命令、entryから累計78命令でID `83`／`KERNEL32.dll!GetStartupInfoW`へ到達する。31,427-byte reportのSHA-256は`eb1e83e3a2a75483d2606ce7e92eca36acfdc8d15b69a8381813e8c738974ad1`である。これはone controlled performance-counter sample／API returnであり、frequency、general clock／timer／scheduler／snapshot modelを実装しない。詳細は[v86-bgi-fifth-win32-call.md](v86-bgi-fifth-win32-call.md)を正とする。
 
 ### B24. Sixth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-sixth-win32-call`はnative BGIのtarget caller RVA `0xA36E7`で68-byte x86 `STARTUPINFOW`が全書込されることをfocused traceで確認する。runtime側はID `83`のone-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-process-startup`のprofile `startupinfow-v68-zero-optional-fields`を書き込む。generation `26`のlive pageから31 changed bytesをreconcileし、generation `27`のone-page delta／ack後にVOID policyでEAXを保持する。
+`npm run check:runtime:bgi -- --checkpoint bgi-sixth-win32-call`はnative BGIのtarget caller RVA `0xA36E7`で68-byte x86 `STARTUPINFOW`が全書込されることをfocused traceで確認する。runtime側はID `83`のone-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-process-startup`のprofile `startupinfow-v68-zero-optional-fields`を書き込む。generation `26`のlive pageから31 changed bytesをreconcileし、generation `27`のone-page delta／ack後にVOID policyでEAXを保持する。
 
 return後9命令、entryから累計87命令でID `84`／`KERNEL32.dll!HeapSetInformation`へ到達する。39,031-byte reportのSHA-256は`208e5930bdb17da0242fd4567dd8900467eb512992a1930a7e8ede7107c8232c`である。これはone controlled startup-info profile／API returnであり、general process creation、desktop、image path、console／standard handlesを実装しない。詳細は[v86-bgi-sixth-win32-call.md](v86-bgi-sixth-win32-call.md)を正とする。
 
 ### B25. Seventh BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-seventh-win32-call`はnative BGI target caller RVA `0xA36FC`でarguments `[NULL,1,NULL,0]`、BOOL `1`、LastError `87 -> 87`をfocused traceで確認する。runtime側はID `84`のfour-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-process-heap-policy`のexact termination-on-corruption variantだけを受け付ける。generation `27`のlive pageから12 changed bytesをreconcileするが、guest writeがないためgeneration `27`／dirty 0を保持してBOOL `1`を返す。
+`npm run check:runtime:bgi -- --checkpoint bgi-seventh-win32-call`はnative BGI target caller RVA `0xA36FC`でarguments `[NULL,1,NULL,0]`、BOOL `1`、LastError `87 -> 87`をfocused traceで確認する。runtime側はID `84`のfour-argument stdcall frame／IAT callをadapterとRustで検査し、owner `checkpoint-process-heap-policy`のexact termination-on-corruption variantだけを受け付ける。generation `27`のlive pageから12 changed bytesをreconcileするが、guest writeがないためgeneration `27`／dirty 0を保持してBOOL `1`を返す。
 
 return後21命令、entryから累計108命令でID `102`／`KERNEL32.dll!HeapCreate`へ到達する。43,980-byte reportのSHA-256は`09fab7aeda311661aef516ff3ff2156e0fa3293c6c495e5e601503ca44fabc7f`である。これはone controlled process heap-policy selection／API returnであり、general heap allocator、corruption termination、LastError modelを実装しない。詳細は[v86-bgi-seventh-win32-call.md](v86-bgi-seventh-win32-call.md)を正とする。
 
 ### B26. Eighth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-eighth-win32-call`はnative BGI target caller RVA `0xA8886`でarguments `[0,0x1000,0]`、nonzero host result、LastError `0 -> 0`、first allocation consumerをfocused heap-lifecycle traceで確認する。runtime側はID `102`のthree-argument stdcall frame／IAT callをadapterとRustで検査し、generation `27`のlive pageから8 changed bytesをreconcileする。owner `checkpoint-process-private-heaps`のbounded metadataへtyped logical handle `0x68010001`を作り、guest writeなしでgeneration `27`／dirty 0を保持してreturnする。
+`npm run check:runtime:bgi -- --checkpoint bgi-eighth-win32-call`はnative BGI target caller RVA `0xA8886`でarguments `[0,0x1000,0]`、nonzero host result、LastError `0 -> 0`、first allocation consumerをfocused heap-lifecycle traceで確認する。runtime側はID `102`のthree-argument stdcall frame／IAT callをadapterとRustで検査し、generation `27`のlive pageから8 changed bytesをreconcileする。owner `checkpoint-process-private-heaps`のbounded metadataへtyped logical handle `0x68010001`を作り、guest writeなしでgeneration `27`／dirty 0を保持してreturnする。
 
 return後14命令、entryから累計122命令でID `72`／`KERNEL32.dll!GetModuleHandleW`へ到達する。49,699-byte reportのSHA-256は`f8c8ca1e678bb1e118248a6626825ddf585dc240aa59e1abc428429cbab3a1ad`である。これはone controlled logical private-heap creation／API returnであり、native pointer、heap backing／allocation、general loader、LastError modelを実装しない。詳細は[v86-bgi-eighth-win32-call.md](v86-bgi-eighth-win32-call.md)を正とする。
 
 ### B27. Ninth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-ninth-win32-call`はnative BGI target caller RVA `0xA5811`で`GetModuleHandleW(L"KERNEL32.DLL")`、nonzero host HMODULE、LastError `87 -> 87`、immediate `GetProcAddress(...,"FlsAlloc")` consumerをfocused traceで確認する。runtime側はID `72`のone-argument stdcall frame／IAT callとbounded UTF-16 nameをadapterとRustで検査し、generation `27`のlive pageから9 changed bytesをreconcileする。owner `checkpoint-loaded-modules`のbounded metadataへtyped logical handle `0x4D010001`を作り、guest writeなしでgeneration `27`／dirty 0を保持してreturnする。
+`npm run check:runtime:bgi -- --checkpoint bgi-ninth-win32-call`はnative BGI target caller RVA `0xA5811`で`GetModuleHandleW(L"KERNEL32.DLL")`、nonzero host HMODULE、LastError `87 -> 87`、immediate `GetProcAddress(...,"FlsAlloc")` consumerをfocused traceで確認する。runtime側はID `72`のone-argument stdcall frame／IAT callとbounded UTF-16 nameをadapterとRustで検査し、generation `27`のlive pageから9 changed bytesをreconcileする。owner `checkpoint-loaded-modules`のbounded metadataへtyped logical handle `0x4D010001`を作り、guest writeなしでgeneration `27`／dirty 0を保持してreturnする。
 
 return後9命令、entryから累計131命令でID `150`／`KERNEL32.dll!GetProcAddress`へ到達する。56,729-byte reportのSHA-256は`147a3599cf942af03034c7f410d333b35c0360812936e39a7473c43008d8d5be`である。これはone controlled logical loaded-module lookup／API returnであり、native HMODULE、guest system-DLL image、general loader／export／LastError modelを実装しない。詳細は[v86-bgi-ninth-win32-call.md](v86-bgi-ninth-win32-call.md)を正とする。
 
 ### B28. Tenth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-tenth-win32-call`はnative BGI caller RVA `0xA582F`の`GetProcAddress(nativeKernel32,"FlsAlloc")`と続く3件のFLS lookup、LastError `87 -> 87`をfocused traceで確認する。runtime側はseparate owner／arenaへID `1`／`0x7F020000`の`kernel32.dll!FlsAlloc` RX endpointをsealし、389-page generation `27` reflectionをadapterへ渡す。ID `150`のtwo-argument frame、logical module、bounded ASCII name、14-byte register-indirect IAT provenanceをadapterとRustで検査し、generation `30`のlive pageから15 changed bytesをreconcileする。
+`npm run check:runtime:bgi -- --checkpoint bgi-tenth-win32-call`はnative BGI caller RVA `0xA582F`の`GetProcAddress(nativeKernel32,"FlsAlloc")`と続く3件のFLS lookup、LastError `87 -> 87`をfocused traceで確認する。runtime側はseparate owner／arenaへID `1`／`0x7F020000`の`kernel32.dll!FlsAlloc` RX endpointをsealし、389-page generation `27` reflectionをadapterへ渡す。ID `150`のtwo-argument frame、logical module、bounded ASCII name、14-byte register-indirect IAT provenanceをadapterとRustで検査し、generation `30`のlive pageから15 changed bytesをreconcileする。
 
 host pointerではなくidentity-preserving endpointを返した5命令後、entryから累計136命令でsame ID `150`／`GetProcAddress(...,"FlsGetValue")`へ到達する。65,858-byte reportのSHA-256は`54bcc15a033dbe870b81d1c2637949d71568d048202d8f3cc355097ca76332cf`である。これはone controlled dynamic export lookup／API returnであり、general export／forwarder resolution、endpoint dispatch、FLS semantics、LastError modelを実装しない。詳細は[v86-bgi-tenth-win32-call.md](v86-bgi-tenth-win32-call.md)を正とする。
 
 ### B29. Eleventh BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-eleventh-win32-call`はordered `FlsAlloc`／`FlsGetValue` endpointsをsame RX pageへatomic installし、first endpointのID／address／identity／lifetimeを保持する。second ID `150`のpersistent ESI target、13-byte call sequence、bounded ASCII nameをadapterとRustで検査する。generation `30` stack pageとBGI writable image pageをone transactionでreconcileし、slot `0x100FEEBC`がfirst endpoint `0x7F020000`を保持することをrequired invariantとする。
+`npm run check:runtime:bgi -- --checkpoint bgi-eleventh-win32-call`はordered `FlsAlloc`／`FlsGetValue` endpointsをsame RX pageへatomic installし、first endpointのID／address／identity／lifetimeを保持する。second ID `150`のpersistent ESI target、13-byte call sequence、bounded ASCII nameをadapterとRustで検査する。generation `30` stack pageとBGI writable image pageをone transactionでreconcileし、slot `0x100FEEBC`がfirst endpoint `0x7F020000`を保持することをrequired invariantとする。
 
 ID `2`／`0x7F020010`を返し、BGIのsecond store後5命令、entryから累計141命令でsame ID `150`／`GetProcAddress(...,"FlsSetValue")`へ到達する。76,844-byte reportのSHA-256は`40d37072965e4ceefd760ac8111006e9cfeacab62a43fca621c2f7e3d81359b5`である。これはsecond controlled dynamic lookup／two-page reconciliationであり、general dirty discovery、endpoint dispatch、FLS semanticsを実装しない。詳細は[v86-bgi-eleventh-win32-call.md](v86-bgi-eleventh-win32-call.md)を正とする。
 
 ### B30. Twelfth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-twelfth-win32-call`はordered pageへID `3`／`FlsSetValue`を追加し、first two endpointsを保持する。third ID `150`のpersistent ESI target、13-byte sequence、bounded ASCII nameをadapterとRustで検査する。generation `30`のstack／image pagesをone transactionでreconcileし、first／second guest storesが`0x7F020000`／`0x7F020010`を保持することをrequired invariantとする。
+`npm run check:runtime:bgi -- --checkpoint bgi-twelfth-win32-call`はordered pageへID `3`／`FlsSetValue`を追加し、first two endpointsを保持する。third ID `150`のpersistent ESI target、13-byte sequence、bounded ASCII nameをadapterとRustで検査する。generation `30`のstack／image pagesをone transactionでreconcileし、first／second guest storesが`0x7F020000`／`0x7F020010`を保持することをrequired invariantとする。
 
 ID `3`／`0x7F020020`を返し、BGIのthird store後5命令、entryから累計146命令でsame ID `150`／`GetProcAddress(...,"FlsFree")`へ到達する。89,289-byte reportのSHA-256は`28aa2899a7e4fb403c5d839b21e0bb19c05563b9bd19604372bbf1a16a39fbb4`である。これはthird controlled dynamic lookup／two-page reconciliationであり、general dirty discovery、endpoint dispatch、FLS semanticsを実装しない。詳細は[v86-bgi-twelfth-win32-call.md](v86-bgi-twelfth-win32-call.md)を正とする。
 
 ### B31. Thirteenth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-thirteenth-win32-call`はordered pageへID `4`／`FlsFree`を追加し、first three endpoints／storesを保持する。fourth ID `150`のpersistent ESI target、13-byte sequence、bounded ASCII name、generation `30`のstack／image pagesをadapterとRustで検査する。
+`npm run check:runtime:bgi -- --checkpoint bgi-thirteenth-win32-call`はordered pageへID `4`／`FlsFree`を追加し、first three endpoints／storesを保持する。fourth ID `150`のpersistent ESI target、13-byte sequence、bounded ASCII name、generation `30`のstack／image pagesをadapterとRustで検査する。
 
 ID `4`／`0x7F020030`を返してBGI storeを観測し、12命令後、entryから累計158命令でstatic unsupported ID `70`／`TlsAlloc`へ到達する。103,179-byte reportのSHA-256は`1cfe9d56fd5c5f9494ffdcc017c6ad189e2900b70125f0eda67d3839326230d4`である。これはfourth controlled lookupであり、TLS／FLS semanticsを実装しない。詳細は[v86-bgi-thirteenth-win32-call.md](v86-bgi-thirteenth-win32-call.md)を正とする。
 
-`npm run check:runtime:bgi-fourteenth-win32-call`はfocused TLS traceの`TlsAlloc()`／LastError preserve／immediate first consumerをoracleとする。exact ID `70`のzero-argument frame／IATとall four endpoint storesをchecked処理し、native index `0x1C`を捨ててnamespace `vine.logical-tls-index.v1`のindex `0`を返す。7命令後、累計165命令でID `68`／`TlsSetValue(0,0x7F020010)`へ到達する。110,236-byte reportのSHA-256は`4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb`である。詳細は[v86-bgi-fourteenth-win32-call.md](v86-bgi-fourteenth-win32-call.md)を正とする。
+`npm run check:runtime:bgi -- --checkpoint bgi-fourteenth-win32-call`はfocused TLS traceの`TlsAlloc()`／LastError preserve／immediate first consumerをoracleとする。exact ID `70`のzero-argument frame／IATとall four endpoint storesをchecked処理し、native index `0x1C`を捨ててnamespace `vine.logical-tls-index.v1`のindex `0`を返す。7命令後、累計165命令でID `68`／`TlsSetValue(0,0x7F020010)`へ到達する。110,236-byte reportのSHA-256は`4d2ec198114434d1f46e97d07bb3c91861122462682eecad268a810b16ade0bb`である。詳細は[v86-bgi-fourteenth-win32-call.md](v86-bgi-fourteenth-win32-call.md)を正とする。
 
-`npm run check:runtime:bgi-fifteenth-win32-call`はID `68`のlive ESI call、logical index `0`、FlsGetValue endpoint ID `2`、initial thread ID `8192`をchecked処理する。stack／endpoint-store／TLS-index-storeの3 pagesをtransactional reconcileしてone thread-value metadataを作り、BOOL `1`を返す。9命令後、累計174命令でID `89`／`EncodePointer(NULL)`へ到達する。120,499-byte reportのSHA-256は`25907e7ae254788313d0feccdae9dac152592c3210ea5bf6956a6b1cac9f960f`である。詳細は[v86-bgi-fifteenth-win32-call.md](v86-bgi-fifteenth-win32-call.md)を正とする。
+`npm run check:runtime:bgi -- --checkpoint bgi-fifteenth-win32-call`はID `68`のlive ESI call、logical index `0`、FlsGetValue endpoint ID `2`、initial thread ID `8192`をchecked処理する。stack／endpoint-store／TLS-index-storeの3 pagesをtransactional reconcileしてone thread-value metadataを作り、BOOL `1`を返す。9命令後、累計174命令でID `89`／`EncodePointer(NULL)`へ到達する。120,499-byte reportのSHA-256は`25907e7ae254788313d0feccdae9dac152592c3210ea5bf6956a6b1cac9f960f`である。詳細は[v86-bgi-fifteenth-win32-call.md](v86-bgi-fifteenth-win32-call.md)を正とする。
 
 ### B32. Sixteenth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-sixteenth-win32-call`はtwo focused pointer tracesのprocess-dependent native resultsをdiscardし、ID `89`のdirect-IAT frame `[0x100A5467,NULL]`、retained TLS slot／thread valueをchecked処理する。namespace `vine.logical-encoded-pointer.v1`のdeterministic token `0xEC010001`を返し、stack pageを13 bytes reconcileする。55命令後、累計229命令でsame ID `89`／`EncodePointer(0x100A9608)`へ到達する。129,530-byte reportのSHA-256は`310d90e97f3b33b8c466d0a0e769fb4fe85a4b3cb2a55f191a0480d662f0032b`である。詳細は[v86-bgi-sixteenth-win32-call.md](v86-bgi-sixteenth-win32-call.md)を正とする。
+`npm run check:runtime:bgi -- --checkpoint bgi-sixteenth-win32-call`はtwo focused pointer tracesのprocess-dependent native resultsをdiscardし、ID `89`のdirect-IAT frame `[0x100A5467,NULL]`、retained TLS slot／thread valueをchecked処理する。namespace `vine.logical-encoded-pointer.v1`のdeterministic token `0xEC010001`を返し、stack pageを13 bytes reconcileする。55命令後、累計229命令でsame ID `89`／`EncodePointer(0x100A9608)`へ到達する。129,530-byte reportのSHA-256は`310d90e97f3b33b8c466d0a0e769fb4fe85a4b3cb2a55f191a0480d662f0032b`である。詳細は[v86-bgi-sixteenth-win32-call.md](v86-bgi-sixteenth-win32-call.md)を正とする。
 
 ### B33. Seventeenth BGI Win32 call return: Verified ingress
 
-`npm run check:runtime:bgi-seventeenth-win32-call`はsame native tracesとstatic disassemblyからsource `0x100A9608`をexecutable process-initializer functionとして分類する。11-byte direct-IAT frame、17-byte source prefix、prior encoded-NULL／TLS stateをchecked処理し、token `0xEC010002`を返す。BGI global `0x100FF62C`へのstoreを観測し、9命令後、累計238命令でsame ID `89`／`EncodePointer(0x7F020000)`へ到達する。140,660-byte reportのSHA-256は`ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`である。詳細は[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
+`npm run check:runtime:bgi -- --checkpoint bgi-seventeenth-win32-call`はsame native tracesとstatic disassemblyからsource `0x100A9608`をexecutable process-initializer functionとして分類する。11-byte direct-IAT frame、17-byte source prefix、prior encoded-NULL／TLS stateをchecked処理し、token `0xEC010002`を返す。BGI global `0x100FF62C`へのstoreを観測し、9命令後、累計238命令でsame ID `89`／`EncodePointer(0x7F020000)`へ到達する。140,660-byte reportのSHA-256は`ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`である。詳細は[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
 
 ### B34. Automatic binary CPU writeback: Verified ingress
 

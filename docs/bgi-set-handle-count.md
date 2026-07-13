@@ -77,7 +77,7 @@ no guest write, no runtime／memory mutation, and default-policy rejection.
 ## Generic continuation
 
 ```powershell
-npm run check:runtime:bgi-set-handle-count
+npm run check:runtime:bgi -- --profile kernel32-set-handle-count
 ```
 
 | Evidence | Result |

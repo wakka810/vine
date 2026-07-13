@@ -100,7 +100,7 @@ The immutable source fingerprint and every earlier checkpoint report hash remain
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-tenth-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-tenth-win32-call
 ```
 
 Two consecutive runs produced the same 65,858-byte report and SHA-256. `npm run check:private-corpus` runs the first-trap contract and all ten cumulative call-return contracts. Raw traces and generated reports remain under `.work/` and are not committed.

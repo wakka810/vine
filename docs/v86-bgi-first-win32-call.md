@@ -80,10 +80,10 @@ The source adapter and primary title must already be present:
 
 ```powershell
 npm run prepare:engine
-npm run check:runtime:bgi-first-win32-call
+npm run check:runtime:bgi -- --checkpoint bgi-first-win32-call
 ```
 
-`npm run check:runtime:bgi-first-trap` remains the prior stop-before-dispatch contract and retains its 9,592-byte report hash. Generated data remains under `.work/` and is not committed.
+`npm run check:runtime:bgi -- --checkpoint bgi-first-trap` remains the prior stop-before-dispatch contract and retains its 9,592-byte report hash. Generated data remains under `.work/` and is not committed.
 
 ## 7. Non-claims and next checkpoint
 
