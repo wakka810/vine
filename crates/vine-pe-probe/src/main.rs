@@ -102,6 +102,7 @@ enum GenericRuntimeCapability {
     EnvironmentStringsW,
     WideCharToMultiByte,
     PrivateHeapSize1,
+    GetLastError,
 }
 
 struct GenericRuntimeProcess {
@@ -2441,7 +2442,8 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::CommandLineA
             | GenericRuntimeCapability::EnvironmentStringsW
             | GenericRuntimeCapability::WideCharToMultiByte
-            | GenericRuntimeCapability::PrivateHeapSize1,
+            | GenericRuntimeCapability::PrivateHeapSize1
+            | GenericRuntimeCapability::GetLastError,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2885,11 +2887,13 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
+    let get_last_error_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetLastError));
     let wide_char_to_multi_byte_enabled = matches!(
         enabled,
         Some(
             GenericRuntimeCapability::WideCharToMultiByte
                 | GenericRuntimeCapability::PrivateHeapSize1
+                | GenericRuntimeCapability::GetLastError
         )
     );
     let environment_strings_w_enabled = matches!(
@@ -2898,6 +2902,7 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::EnvironmentStringsW
                 | GenericRuntimeCapability::WideCharToMultiByte
                 | GenericRuntimeCapability::PrivateHeapSize1
+                | GenericRuntimeCapability::GetLastError
         )
     );
     let command_line_a_enabled = matches!(
@@ -2907,6 +2912,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::EnvironmentStringsW
                 | GenericRuntimeCapability::WideCharToMultiByte
                 | GenericRuntimeCapability::PrivateHeapSize1
+                | GenericRuntimeCapability::GetLastError
         )
     );
     let enabled = match enabled {
@@ -2914,7 +2920,8 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::CommandLineA
             | GenericRuntimeCapability::EnvironmentStringsW
             | GenericRuntimeCapability::WideCharToMultiByte
-            | GenericRuntimeCapability::PrivateHeapSize1,
+            | GenericRuntimeCapability::PrivateHeapSize1
+            | GenericRuntimeCapability::GetLastError,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3050,6 +3057,7 @@ fn runtime_capability_enables_endpoint(
         "GetCommandLineA" => command_line_a_enabled,
         "GetEnvironmentStringsW" | "FreeEnvironmentStringsW" => environment_strings_w_enabled,
         "WideCharToMultiByte" => wide_char_to_multi_byte_enabled,
+        "GetLastError" => get_last_error_enabled,
         _ => true,
     }
 }
@@ -8441,6 +8449,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-environment-strings-w" => GenericRuntimeCapability::EnvironmentStringsW,
                 "kernel32-wide-char-to-multi-byte" => GenericRuntimeCapability::WideCharToMultiByte,
                 "kernel32-private-heap-size-1" => GenericRuntimeCapability::PrivateHeapSize1,
+                "kernel32-get-last-error" => GenericRuntimeCapability::GetLastError,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -23,14 +23,14 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 67 | 67 |
-| Guest instructions at next stop | 1,687 | 1,687 |
+| Supported calls | 68 | 68 |
+| Guest instructions at next stop | 1,695 | 1,695 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 247 | 129 |
+| Final memory generation | 248 | 130 |
 | Host delta batches | 32 | 32 |
-| Final memory content SHA-256 | `db234b2791244b2ca04dc20c957d3636a04b8a75ab506194d08ee03065bed7f2` | same |
+| Final memory content SHA-256 | `ea204befffc2c6eebbf5aed3a6e11f792644a35bce5c54a23c996678f2ccb909` | same |
 | Next capability cluster | `kernel32-api-contract` | same |
-| Next API | `KERNEL32.dll!GetLastError` | same |
+| Next API | `KERNEL32.dll!TlsGetValue` | same |
 | Fault | `endpoint-contract-missing` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
@@ -40,19 +40,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 196
-writeback batches; the Node oracle reconciles only at 68 trap boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 197
+writeback batches; the Node oracle reconciles only at 69 trap boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 240 CPU slices, 172 budget yields, 721 validated Worker
-state transitions, 299 Rust/Wasm bridge operations, and a maximum observed slice
-of 2.520 ms. The main-thread heartbeat recorded 38 samples with a 22.830 ms
+The successful run used 241 CPU slices, 172 budget yields, 724 validated Worker
+state transitions, 301 Rust/Wasm bridge operations, and a maximum observed slice
+of 1.610 ms. The main-thread heartbeat recorded 35 samples with a 17.990 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,360 to 717,398 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 2,162
+changed from 628,738 to 717,714 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 2,151
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -94,7 +94,7 @@ report hash is artifact identity only.
 
 ## Non-claims
 
-- no `GetLastError` contract or later `HeapFree` dispatch is implemented
+- no `TlsGetValue` contract or later `HeapFree` dispatch is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
 - the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

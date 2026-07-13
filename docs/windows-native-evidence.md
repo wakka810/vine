@@ -1364,3 +1364,37 @@ Chrome Runtime Workerも67 ordered callsとsame stop／memoryを再現し、240 
 299 Wasm crossings、final generation `247`、cancel／watchdog後pending work 0を通す。3分gateは
 2,162 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-private-heap-size-1.md](bgi-private-heap-size-1.md)を正とする。
+
+## 62. BGI GetLastError
+
+focused `get-last-error` observerのcomplete capturesは8,083,335
+bytes／19,771 lines／SHA-256
+`871e44f554e8a889cc77bf547e2898a0edb6434cec7aec8cdc529305946af325`と
+8,062,489 bytes／19,757 lines／SHA-256
+`1f29ca901ab1791ed3ed50a9cf27e5b9f47b9191b3984c4cfbaabd43d6560b57`
+である。Summariesは9,848／9,841 balanced API pairsとdiagnostics zeroを保持する。
+
+両runの最初のBGI callはreturn RVA `0xA55DD`でLastError `87`を読み、result `87`を返し、
+return後もLastError `87`を保つ。Immediate consumerは`push dword ptr [global]`、
+`mov edi,eax`、local helper call、indirect callの4命令であり、EAX resultはEDIへ保持される。
+Controlled x86 oracleでLastError sentinel `0`、`87`、`122`、`0x12345678`を注入すると、
+全callがfull 32-bit sentinelを返して同じ値を保つ。Native absolute address、thread ID、
+hot-call count、timingはrun identityでありsemantic oracleにしない。
+
+Runtimeの`kernel32.get-last-error.v1`はpolicy-independentなzero-argument stdcall contractである。
+Selected `RuntimeThread`が所有するLastErrorを読み、full 32-bit returnを作り、
+`LastErrorPolicy::Preserve`、guest write 0、runtime／memory mutation 0を保つ。Active compatibility
+policyは以前のheap／process-view／code-page variantsだけを構成し、BGI observed valueをhandlerへ
+埋め込まない。
+
+`npm run check:runtime:bgi -- --profile kernel32-get-last-error`は29 contracts／68 calls、
+69 writebacks／115 dirty pages／1,179 changed bytes、32 host deltas、final generation `130`を通す。
+instruction `1695`でID `69`／`TlsGetValue(0)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`ea204befffc2c6eebbf5aed3a6e11f792644a35bce5c54a23c996678f2ccb909`、312,644-byte
+reportのSHA-256は`29b3517baa9bc71d3b34b523f0a57c0cb17a0ff09e1dba9a842a0fc1339516b6`である。
+
+Chrome Runtime Workerも68 ordered callsとsame stop／memoryを再現し、241 slices、172 yields、
+301 Wasm crossings、final generation `248`、cancel／watchdog後pending work 0を通す。3分gateは
+2,151 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-get-last-error.md](bgi-get-last-error.md)を正とする。

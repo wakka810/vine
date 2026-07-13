@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, and one-byte uninitialized private-heap capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte uninitialized private heap, and GetLastError capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-private-heap-size-1`
-- Scope: frozen 17-call equivalence plus 67 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-get-last-error`
+- Scope: frozen 17-call equivalence plus 68 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -157,7 +157,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 28 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 29 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -473,7 +473,7 @@ host deltas, and ends at generation `124`. Its 295,762-byte report has SHA-256
 and stops at instruction 1591 on `HeapAlloc(0x68010001, 0, 1)`. Full evidence is
 in [bgi-wide-char-to-multi-byte.md](bgi-wide-char-to-multi-byte.md).
 
-The current one-byte private-heap profile is:
+The preceding one-byte private-heap profile is:
 
 ```powershell
 npm run check:runtime:bgi -- --profile kernel32-private-heap-size-1
@@ -489,6 +489,21 @@ generation `129`. Its 308,984-byte report has SHA-256
 and stops at instruction 1687 on the missing `GetLastError` contract. Full
 evidence is in [bgi-private-heap-size-1.md](bgi-private-heap-size-1.md).
 
+The current thread LastError profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-get-last-error
+```
+
+`kernel32.get-last-error.v1` reads the selected Rust runtime thread's LastError,
+returns the full 32-bit value, preserves it, and performs no runtime or memory
+mutation. It needs no compatibility-policy option. The profile completes 68
+calls, uses 69 writeback batches／115 dirty pages／1,179 changed bytes and 32 host
+deltas, and ends at generation `130`. Its 312,644-byte report has SHA-256
+`29b3517baa9bc71d3b34b523f0a57c0cb17a0ff09e1dba9a842a0fc1339516b6`
+and stops at instruction 1695 on the missing `TlsGetValue(0)` contract. Full
+evidence is in [bgi-get-last-error.md](bgi-get-last-error.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -497,7 +512,7 @@ evidence is in [bgi-private-heap-size-1.md](bgi-private-heap-size-1.md).
   allocations, and one flags-zero deterministic-uninitialized allocation
   enabled by policy; other sizes/flags,
   free/destroy/realloc dispatch, and broad allocator policy remain absent.
-- FLS get/free/callback teardown and TLS free/thread lifecycle, critical-section
+- FLS get/free/callback teardown and TLS get/free/thread lifecycle, critical-section
   deletion／contention blocking, and arbitrary export pages are absent. Only the
   reached FLS value store is implemented.
 - Host completion is connected to controlled Worker／browser services; general
@@ -517,15 +532,15 @@ evidence is in [bgi-private-heap-size-1.md](bgi-private-heap-size-1.md).
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
   pointers, and nonzero conversion flags remain absent. Its first unsupported
-  operation is `GetLastError()`; bespoke
+  operation is `TlsGetValue(0)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-get-last-error` at `GetLastError()`. It must first
-fix the reached native return and LastError relation, then add a zero-argument
-target-independent contract over Rust-owned per-thread state without broadening
-adjacent error APIs.
+The next proof is `kernel32-tls-get-value` at `TlsGetValue(0)`. It must first fix
+the native return／LastError behavior and consumer, then connect the existing
+allocated index and selected-thread TLS value without broadening free／failure
+or callback teardown semantics.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -538,4 +553,5 @@ report is 257,878 bytes. The stdout-file-type and stderr-handle reports are
 267,223 and 271,184 bytes respectively; the stderr-file-type report is 280,475
 bytes, the SetHandleCount report is 284,215 bytes, the GetCommandLineA report is
 288,041 bytes, the environment-strings report is 291,793 bytes, the Windows-932
-report is 295,762 bytes, and the current one-byte heap report is 308,984 bytes.
+report is 295,762 bytes, the one-byte heap report is 308,984 bytes, and the
+current GetLastError report is 312,644 bytes.

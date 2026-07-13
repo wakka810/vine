@@ -27,7 +27,7 @@ identifies the resulting artifact but does not define guest semantics.
 
 ## Semantic and ordering gates
 
-The current BGI Node／Chrome comparison checks all 67 guest-visible call results,
+The current BGI Node／Chrome comparison checks all 68 guest-visible call results,
 arguments, writes, LastError values, instruction stop, final memory content, and
 structured fault independently of report serialization. That call stream is an
 exact BGI-required sequence.

@@ -29,6 +29,7 @@ pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
     "kernel32.get-system-time-as-file-time.v1";
 pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
+pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
 pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
@@ -98,6 +99,7 @@ pub fn dispatch_kernel32_api_with_policy(
         }
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
+        GET_LAST_ERROR_IMPLEMENTATION => handle_get_last_error(contract, session),
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
         GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
@@ -166,6 +168,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetSystemTimeAsFileTime" => get_system_time_as_file_time_contract(endpoint)?,
         "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
+        "GetLastError" => get_last_error_contract(endpoint)?,
         "GetTickCount" => get_tick_count_contract(endpoint)?,
         "GetStdHandle" => get_std_handle_contract(endpoint)?,
         "GetFileType" => get_file_type_contract(endpoint)?,
@@ -224,6 +227,17 @@ fn handle_get_current_process_id(session: &ExecutionSession<'_>) -> Result<ApiIm
 fn handle_get_current_thread_id(session: &ExecutionSession<'_>) -> Result<ApiImmediate, ApiFault> {
     Ok(ApiImmediate::new(ApiReturnValue::U32(
         session.runtime().current_thread_id().0,
+    )))
+}
+
+fn handle_get_last_error(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    Ok(ApiImmediate::new(ApiReturnValue::U32(
+        session
+            .last_error()
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
     )))
 }
 
@@ -1300,6 +1314,16 @@ pub fn get_current_thread_id_contract(
         Vec::new(),
         ApiReturnSchema::U32,
         GET_CURRENT_THREAD_ID_IMPLEMENTATION,
+    )
+}
+
+pub fn get_last_error_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetLastError",
+        Vec::new(),
+        ApiReturnSchema::U32,
+        GET_LAST_ERROR_IMPLEMENTATION,
     )
 }
 

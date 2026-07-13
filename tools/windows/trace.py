@@ -30,6 +30,7 @@ SUPPORTED_OBSERVATIONS = (
     "command-line-a",
     "environment-strings-w",
     "wide-char-to-multi-byte",
+    "get-last-error",
 )
 
 

@@ -94,6 +94,9 @@ The one-byte heap policy uses the existing `kernel32.heap-alloc.v2` handler and
 adds only `(flags=0, byteLength=1)`. Allocation initialization, alignment,
 capacity, identity, and mutation rollback remain semantic implementation
 behavior; native caller／pointer／consumer relations remain evidence data.
+`GetLastError` uses one policy-independent semantic handler. It returns the
+selected Rust runtime thread's full 32-bit LastError and preserves that state;
+there is no reached value, caller, or allowlist entry in compatibility policy.
 
 Policy JSON parsing and validation is covered independently:
 

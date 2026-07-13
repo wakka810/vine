@@ -637,6 +637,13 @@ wideCharSelection.find(
 ).selectedObservations = ["wide-char-to-multi-byte"];
 assert.doesNotThrow(() => summarizeTrace(encode(wideCharSelection)));
 
+const getLastErrorSelection = structuredClone(events);
+getLastErrorSelection[0].arguments.observations = ["get-last-error"];
+getLastErrorSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["get-last-error"];
+assert.doesNotThrow(() => summarizeTrace(encode(getLastErrorSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

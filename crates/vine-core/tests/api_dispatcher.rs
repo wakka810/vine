@@ -4,9 +4,10 @@ use vine_core::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDirection, ApiDispatcher,
     ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiOwnedTrap,
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
-    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession, GUEST_PAGE_SIZE,
-    GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CompatibilityPolicy,
+    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
+    GET_LAST_ERROR_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
+    GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget, ImportThunk,
+    ImportThunkDisposition, ImportThunkId, Kernel32CompatibilityPolicy,
     Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
     Kernel32WideCharToMultiBytePolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
     LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
@@ -506,6 +507,101 @@ fn fls_set_value_contract_owns_current_thread_values() {
     assert_eq!(runtime, runtime_before_rejection);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
     assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
+fn get_last_error_reads_selected_thread_state_without_mutation() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_0581]),
+        (STACK_BASE + 0x20, vec![0x1000_0582]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x58);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetLastError IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetLastError".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetLastError endpoint");
+    assert_eq!(contract.implementation_id, GET_LAST_ERROR_IMPLEMENTATION);
+    assert!(contract.abi.arguments.is_empty());
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let memory_before = memory.stats();
+    let runtime_before = runtime.clone();
+
+    let initial = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+    );
+    assert_eq!(initial.eax, RegisterUpdate::Set(INITIAL_LAST_ERROR));
+    assert_eq!(initial.stack_pointer, GuestAddress(frames[0].0 + 4));
+    assert_eq!(initial.last_error, INITIAL_LAST_ERROR);
+    assert!(initial.guest_writes.is_empty());
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+
+    let second_thread = RuntimeThreadId(THREAD_ID + 1);
+    runtime
+        .register_thread(second_thread, 0x5678)
+        .expect("register second LastError lane");
+    runtime
+        .select_thread(second_thread)
+        .expect("select second LastError lane");
+    let second_before = runtime.clone();
+    let second = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(second.eax, RegisterUpdate::Set(0x5678));
+    assert_eq!(second.stack_pointer, GuestAddress(frames[1].0 + 4));
+    assert_eq!(second.last_error, 0x5678);
+    assert!(second.guest_writes.is_empty());
+    assert_eq!(runtime, second_before);
+    assert_eq!(memory.stats(), memory_before);
+
+    runtime
+        .select_thread(RuntimeThreadId(THREAD_ID))
+        .expect("restore initial LastError lane");
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
 }
 
 #[test]

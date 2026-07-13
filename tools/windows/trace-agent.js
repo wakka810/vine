@@ -25,6 +25,10 @@ let environmentStringsOracleLastError = null;
 let wideCharOracleScheduled = false;
 let wideCharOracleSentinel = null;
 let wideCharOracleLastError = null;
+let getLastErrorOracleScheduled = false;
+let getLastErrorOracleSentinel = null;
+let getLastErrorOracleResult = null;
+let getLastErrorOracleLastError = null;
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -250,6 +254,34 @@ function snapshotOptionalBool(pointer) {
     };
   } catch (error) {
     return { pointer: pointer.toString(), isNull: false, error: error.message };
+  }
+}
+
+function snapshotInstructions(address, maximumInstructions) {
+  try {
+    const instructions = [];
+    let cursor = address;
+    for (let index = 0; index < maximumInstructions; index += 1) {
+      const instruction = Instruction.parse(cursor);
+      instructions.push({
+        address: instruction.address.toString(),
+        mnemonic: instruction.mnemonic,
+        opStr: instruction.opStr,
+        size: instruction.size,
+      });
+      cursor = instruction.next;
+    }
+    return {
+      address: address.toString(),
+      maximumInstructions,
+      instructions,
+    };
+  } catch (error) {
+    return {
+      address: address.toString(),
+      maximumInstructions,
+      error: error.message,
+    };
   }
 }
 
@@ -721,6 +753,9 @@ if (selectedObservations.has("wide-char-to-multi-byte")) {
     [null, null, null, null, null, null, null, null],
   ]);
 }
+if (selectedObservations.has("get-last-error")) {
+  hooks["kernel32.dll"].push(["GetLastError", []]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -863,6 +898,14 @@ function attachHook(module, name, decoders) {
       if (this.traceWideCharOracle) {
         this.lastError = wideCharOracleSentinel;
       }
+      this.traceGetLastErrorOracle =
+        getLastErrorOracleSentinel !== null &&
+        selectedObservations.has("get-last-error") &&
+        name === "GetLastError" &&
+        caller.module === "frida-agent.dll";
+      if (this.traceGetLastErrorOracle) {
+        this.lastError = getLastErrorOracleSentinel;
+      }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
@@ -878,7 +921,15 @@ function attachHook(module, name, decoders) {
             }
           : null;
       const observation =
-        name === "GetStartupInfoW"
+        name === "GetLastError" && selectedObservations.has("get-last-error")
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              immediateConsumer:
+                caller.module.toLowerCase() === "bgi.exe"
+                  ? snapshotInstructions(this.returnAddress, 4)
+                  : null,
+            }
+        : name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
           : selectedObservations.has("critical-section") &&
               name.includes("CriticalSection")
@@ -976,6 +1027,10 @@ function attachHook(module, name, decoders) {
       }
       if (this.traceWideCharOracle) {
         wideCharOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceGetLastErrorOracle) {
+        getLastErrorOracleResult = result.toUInt32();
+        getLastErrorOracleLastError = Number(lastError) >>> 0;
       }
       const wideCharResult =
         this.traceWideCharConversion === null ? null : signed32(result);
@@ -1377,6 +1432,67 @@ function scheduleWideCharOracle(module) {
   });
 }
 
+function scheduleGetLastErrorOracle(module) {
+  if (getLastErrorOracleScheduled) {
+    return;
+  }
+  getLastErrorOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetLastError");
+      if (address === null) {
+        throw new Error("GetLastError export is unavailable");
+      }
+      const getLastError = new NativeFunction(
+        address,
+        "uint32",
+        [],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        getLastErrorOracleSentinel = sentinel;
+        getLastErrorOracleResult = null;
+        getLastErrorOracleLastError = null;
+        try {
+          const result = Number(getLastError()) >>> 0;
+          if (
+            getLastErrorOracleResult === null ||
+            getLastErrorOracleLastError === null
+          ) {
+            throw new Error("GetLastError oracle did not pass through the hook");
+          }
+          return {
+            sentinel,
+            result,
+            hookResult: getLastErrorOracleResult,
+            lastErrorAfter: getLastErrorOracleLastError,
+            resultMatchesSentinel: result === sentinel,
+            hookResultMatchesSentinel: getLastErrorOracleResult === sentinel,
+            preservesLastError: getLastErrorOracleLastError === sentinel,
+          };
+        } finally {
+          getLastErrorOracleSentinel = null;
+          getLastErrorOracleResult = null;
+          getLastErrorOracleLastError = null;
+        }
+      };
+      const calls = [0, 87, 122, 0x12345678].map(invoke);
+      emit("get-last-error-oracle", {
+        profile: "x86-thread-last-error-read-v1",
+        calls,
+        allResultsMatch: calls.every(
+          (call) =>
+            call.resultMatchesSentinel &&
+            call.hookResultMatchesSentinel &&
+            call.preservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("get-last-error-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleCriticalSectionOracle(module) {
   if (criticalSectionOracleScheduled) {
     return;
@@ -1500,6 +1616,12 @@ Process.attachModuleObserver({
       selectedObservations.has("wide-char-to-multi-byte")
     ) {
       scheduleWideCharOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("get-last-error")
+    ) {
+      scheduleGetLastErrorOracle(module);
     }
   },
 });

@@ -26,6 +26,7 @@ const supportedObservations = new Set([
   "command-line-a",
   "environment-strings-w",
   "wide-char-to-multi-byte",
+  "get-last-error",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",
