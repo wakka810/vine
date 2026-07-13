@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-input-handle, and file-type capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-input-handle, file-type, and standard-output-handle capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-file-type`
-- Scope: frozen 17-call equivalence plus 54 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-standard-output-handle`
+- Scope: frozen 17-call equivalence plus 55 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -57,15 +57,15 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `FlsSetValue` | 1 | stores an opaque value in the selected thread's allocated FLS slot |
 | `HeapAlloc` | 2 | allocates the first two reached zeroed blocks through transactional guest-memory backing |
 | `InterlockedIncrement` | 3 | performs a checked wrapping LONG update in guest memory |
-| `GetStdHandle` | 1 | returns the process-owned logical standard input identity |
+| `GetStdHandle` | 2 | returns versioned process-owned logical input／output identities |
 | `GetFileType` | 1 | classifies only the registered logical stdin as character |
 
 All 23 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-54 BGI calls, including six `EncodePointer` occurrences, 15 critical-section
+55 BGI calls, including six `EncodePointer` occurrences, 15 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
 two `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
-critical-section／thread／startup occurrences plus one `GetStdHandle` and one
+critical-section／thread／startup occurrences plus two `GetStdHandle` and one
 `GetFileType`.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The title harness still performs callsite provenance checks, automatic
@@ -116,6 +116,7 @@ npm run check:runtime:bgi-interlocked-increment
 npm run check:runtime:bgi-private-heap-second-allocation
 npm run check:runtime:bgi-standard-input-handle
 npm run check:runtime:bgi-file-type
+npm run check:runtime:bgi-standard-output-handle
 ```
 
 ## RuntimeState authority
@@ -131,7 +132,7 @@ One `RuntimeState` is created at cumulative-session start. It owns:
   guest cleanup callbacks.
 - bounded private-heap backing and reached guest allocation metadata, with
   `GuestMemory` as byte and mapping authority.
-- the reached process standard input identity, without importing a host handle.
+- the reached process standard input／output identities, without importing host handles.
 
 The Rust profile preloads the logical runtime KERNEL32 module and installed FLS endpoints. `HeapCreate` and `TlsAlloc` allocate through runtime-owned deterministic allocators. `GetModuleHandleW` and `GetProcAddress` resolve state by canonical module and exact export name. No handler receives a result value from the JSON protocol.
 
@@ -151,7 +152,7 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The eleven tests cover all 23 APIs, the five original shapes, output writes,
+The twelve tests cover all 23 APIs, the five original shapes, output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
 bytes, same-thread recursion, release, structured contention, dynamic/static ID
@@ -162,6 +163,8 @@ mutation-free later-variant rejection, plus the process-owned standard input
 identity and unreached-selector rejection.
 The file-type test additionally fixes registered-stdin classification and
 unknown-logical-handle rejection.
+The stdout test fixes the versioned two-selector profile, logical identity
+reuse, standard-error rejection, and mutation-free output-file-type rejection.
 
 The cumulative private-corpus command is:
 
@@ -325,6 +328,22 @@ deltas, and ends at generation `112`. Its 252,994-byte report has SHA-256
 and stops at instruction 1439 on `GetStdHandle(STD_OUTPUT_HANDLE)`. Full evidence
 is in [bgi-file-type.md](bgi-file-type.md).
 
+The standard-output-handle profile is:
+
+```powershell
+npm run check:runtime:bgi-standard-output-handle
+```
+
+It preserves the frozen input-only contract and selects
+`kernel32.get-std-handle-input-output.v1` only for this profile. Logical stdout
+is `0x53010002`; standard error and output file type remain unsupported. The
+profile completes 55 calls, uses 56 writeback batches／95 dirty pages／943 changed
+bytes and 28 host deltas, and ends at generation `113`. Its 257,008-byte report
+has SHA-256
+`0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`
+and stops at instruction 1447 on `GetFileType(0x53010002)`. Full evidence is in
+[bgi-standard-output-handle.md](bgi-standard-output-handle.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -343,22 +362,23 @@ is in [bgi-file-type.md](bgi-file-type.md).
 - `InterlockedIncrement` is implemented only for the checked 32-bit LONG shape
   in the single cooperative Runtime Worker. Adjacent interlocked APIs and
   cross-worker shared-memory atomicity are absent.
-- The generic session owns only the reached standard input identity and its
-  character classification. Output/error identities, `SetStdHandle`, close
-  behavior, broader file type, console semantics, and file I/O remain absent.
-  Its first unsupported operation is `GetStdHandle(STD_OUTPUT_HANDLE)`; bespoke
+- The generic session owns only the reached standard input／output identities
+  and stdin character classification. Error identity, `SetStdHandle`, close
+  behavior, output／broader file type, console semantics, and file I/O remain
+  absent. Its first unsupported operation is `GetFileType(stdout)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-standard-output-handle` at
-`GetStdHandle(STD_OUTPUT_HANDLE)`. It must measure the native result／LastError
-and immediate consumer, then add only a process-owned logical stdout identity
-without adding stderr, output classification, console writes, or redirection.
+The next proof is `kernel32-standard-output-file-type` at
+`GetFileType(0x53010002)`. It must measure the reached native classification and
+consumer, then classify only logical stdout without adding stderr, console
+writes, redirection, close behavior, or general file I/O.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
 FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
 195,821-byte report, InterlockedIncrement 234,775-byte report, second-heap
-239,789-byte report, standard-input 243,749-byte report, and file-type
-252,994-byte report remain the regression boundary.
+239,789-byte report, standard-input 243,749-byte report, file-type
+252,994-byte report, and standard-output 257,008-byte report remain the
+regression boundary.

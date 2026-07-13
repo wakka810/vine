@@ -1107,3 +1107,23 @@ final generation `112`を通す。Existing 15th critical-section initialization�
 252,994-byte reportのSHA-256は
 `dff76ce6eb289bdc4e57e6013c113906d9b0cee80eaa8cbf23948dcccd7efbcf`
 である。詳細は[bgi-file-type.md](bgi-file-type.md)を正とする。
+
+## 53. BGI standard output handle
+
+existing opt-in `standard-handle` tracesは279,633 bytes／928 lines／SHA-256
+`ececb814fe84a5f1495f3c6fa1fd41801fed12deee8b2699f961db4418f36de9`と246,261
+bytes／820 lines／SHA-256
+`e5979f91d1f77977fc93d9785679190bafefd9afb3b82ec83c27eba9fa42766e`である。BGI
+caller return RVA `0xA87B6`の`STD_OUTPUT_HANDLE`は両captureで`0x234`、
+LastError `87 -> 87`を返す。file-type capturesはoutput handle `0x234`／`0x23C`を
+`GetFileType`へ渡すことも固定する。Native handle値はdiscardする。
+
+Rust common dispatcherはnew profileだけをversioned
+`kernel32.get-std-handle-input-output.v1`へ接続し、process-owned logical stdout
+`0x53010002`を返す。Input-only profileと先行11 reportsは不変である。
+`npm run check:runtime:bgi-standard-output-handle`は23 contracts／55 calls、56
+writeback batches／95 dirty pages／943 changed bytes、28 host deltas、final generation `113`を
+通す。instruction `1447`でID `101`／`GetFileType(0x53010002)`を
+`file-type-standard-handle-unsupported`として停止する。257,008-byte reportの
+SHA-256は`0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`
+である。詳細は[bgi-standard-output-handle.md](bgi-standard-output-handle.md)を正とする。

@@ -1179,6 +1179,27 @@ ID `94`／`GetStdHandle(STD_OUTPUT_HANDLE)`でinput-only contractがmutation-fre
 先行10 reportsはbyte-identicalである。次はstdout identityだけをnative測定／versioned contractへ
 接続し、stderr／output file type／console writeを先取りしない。
 
+### Step 20 — reached standard output handle
+
+**完了（2026-07-13）:** existing focused `standard-handle` trace 2件でBGI caller
+return RVA `0xA87B6`の`STD_OUTPUT_HANDLE`がnative result `0x234`、LastError
+`87 -> 87`を返すことを固定した。Later file-type tracesはoutput handles `0x234`／
+`0x23C`をsame `GetFileType` consumerへ渡すため、native valueはdiscardする。
+
+`kernel32.get-std-handle-input-output.v1`はexisting one-argument ABIを保ち、inputと
+output selectorsだけをprocess-owned identities `0x53010001`／`0x53010002`へ解決する。
+Frozen input-only implementationは変更しない。Representative testはstdout reuse、LastError
+preserve、guest write 0、stderr rejection、`GetFileType(stdout)`のmutation-free rejectionを固定する。
+
+same generic sessionは23 contracts／55 calls、56 writeback batches／95 dirty pages／943
+changed bytes、28 host deltas、final generation `113`を通した。instruction 1447のID
+`101`／`GetFileType(0x53010002)`でstdin-only contractが
+`file-type-standard-handle-unsupported`としてmutation-free停止した。257,008-byte
+reportのSHA-256は
+`0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`である。
+先行11 reportsはbyte-identicalである。次はstdout file typeだけをversioned
+classificationへ接続し、stderr／console writes／redirection／broad file I/Oを先取りしない。
+
 ---
 
 ## 8. P0完了のDefinition of Done

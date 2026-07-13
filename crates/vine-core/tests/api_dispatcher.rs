@@ -12,11 +12,12 @@ use vine_core::{
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MemoryLimits, MemoryOwnerId,
     MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
     RUNTIME_FLS_INDEX_LIMIT, RUNTIME_STANDARD_INPUT_HANDLE, RUNTIME_STANDARD_INPUT_SELECTOR,
-    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint,
-    RuntimeHeap, RuntimeHeapAllocationId, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
+    RUNTIME_STANDARD_OUTPUT_HANDLE, RUNTIME_STANDARD_OUTPUT_SELECTOR, ReentrancyPolicy,
+    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap,
+    RuntimeHeapAllocationId, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState,
-    StackCleanup, dispatch_kernel32_api, heap_alloc_first_two_reached_contract,
-    kernel32_contract_for_endpoint,
+    StackCleanup, dispatch_kernel32_api, get_std_handle_input_output_contract,
+    heap_alloc_first_two_reached_contract, kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -806,6 +807,152 @@ fn get_std_handle_contract_owns_only_reached_standard_input_identity() {
 }
 
 #[test]
+fn get_std_handle_extended_contract_adds_only_process_owned_standard_output_identity() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (
+            STACK_BASE,
+            vec![0x1000_0881, RUNTIME_STANDARD_OUTPUT_SELECTOR],
+        ),
+        (
+            STACK_BASE + 0x20,
+            vec![0x1000_0882, RUNTIME_STANDARD_OUTPUT_SELECTOR],
+        ),
+        (STACK_BASE + 0x40, vec![0x1000_0883, 0xffff_fff4]),
+        (
+            STACK_BASE + 0x60,
+            vec![0x1000_0884, RUNTIME_STANDARD_OUTPUT_HANDLE],
+        ),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+
+    let standard_handle_endpoint_address = GuestAddress(ENDPOINT_BASE + 0x80);
+    let file_type_endpoint_address = GuestAddress(ENDPOINT_BASE + 0x90);
+    for (iat_address, endpoint_address) in [
+        (IAT_BASE, standard_handle_endpoint_address),
+        (IAT_BASE + 4, file_type_endpoint_address),
+    ] {
+        memory
+            .write_initialization(
+                owner,
+                GuestAddress(iat_address),
+                &endpoint_address.0.to_le_bytes(),
+            )
+            .expect("initialize standard-handle endpoint IAT");
+    }
+    let standard_handle_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: standard_handle_endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetStdHandle".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let file_type_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(2),
+        address: file_type_endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(4),
+        iat_address: GuestAddress(IAT_BASE + 4),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetFileType".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let standard_handle_contract =
+        get_std_handle_input_output_contract(standard_handle_endpoint.clone())
+            .expect("extended GetStdHandle contract");
+    let file_type_contract = kernel32_contract_for_endpoint(file_type_endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetFileType endpoint");
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new(
+        [standard_handle_endpoint.clone(), file_type_endpoint.clone()],
+        [standard_handle_contract, file_type_contract],
+    )
+    .expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let memory_before = memory.stats();
+
+    for frame in &frames[..2] {
+        let completion = dispatch_owned(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &standard_handle_endpoint,
+            frame.0,
+            frame.1[0],
+        );
+        assert_eq!(
+            completion.eax,
+            RegisterUpdate::Set(RUNTIME_STANDARD_OUTPUT_HANDLE)
+        );
+        assert_eq!(completion.stack_pointer, GuestAddress(frame.0 + 8));
+        assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+        assert!(completion.guest_writes.is_empty());
+    }
+    assert_eq!(runtime.process().standard_handles.len(), 1);
+    let standard_output = runtime
+        .standard_handle_by_value(RUNTIME_STANDARD_OUTPUT_HANDLE)
+        .expect("logical standard output handle");
+    assert_eq!(standard_output.owner, "runtime-process-standard-handles");
+    assert_eq!(standard_output.variant_id, "standard-output-logical-v1");
+    assert_eq!(standard_output.namespace, LOGICAL_STANDARD_HANDLE_NAMESPACE);
+    assert_eq!(standard_output.selector, RUNTIME_STANDARD_OUTPUT_SELECTOR);
+    assert_eq!(memory.stats(), memory_before);
+
+    let runtime_before_rejections = runtime.clone();
+    let standard_error_rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&standard_handle_endpoint, frames[2].0, frames[2].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        standard_error_rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "standard-handle-selector-unsupported"
+    ));
+    let output_file_type_rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&file_type_endpoint, frames[3].0, frames[3].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        output_file_type_rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "file-type-standard-handle-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before_rejections);
+    assert_eq!(memory.stats(), memory_before);
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+}
+
+#[test]
 fn get_file_type_contract_classifies_only_process_owned_standard_input() {
     let (mut memory, owner) = initialized_memory();
     let frames = [
@@ -849,7 +996,7 @@ fn get_file_type_contract_classifies_only_process_owned_standard_input() {
     let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
     let mut runtime = controlled_runtime(controlled_startup_info());
     runtime
-        .ensure_standard_input_handle(RUNTIME_STANDARD_INPUT_SELECTOR)
+        .ensure_standard_handle(RUNTIME_STANDARD_INPUT_SELECTOR)
         .expect("register logical standard input");
     let runtime_before = runtime.clone();
     let memory_before = memory.stats();

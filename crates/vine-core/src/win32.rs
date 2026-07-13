@@ -12,8 +12,8 @@ use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
-    RUNTIME_STANDARD_INPUT_SELECTOR, RuntimeCriticalSection, RuntimeHeapInitialization,
-    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeCriticalSection,
+    RuntimeHeapInitialization, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -22,6 +22,8 @@ pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-pr
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
 pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle-input.v1";
+pub const GET_STD_HANDLE_INPUT_OUTPUT_IMPLEMENTATION: &str =
+    "kernel32.get-std-handle-input-output.v1";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type-standard-input.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
@@ -63,7 +65,18 @@ pub fn dispatch_kernel32_api(
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
-        GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(contract, frame, session),
+        GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(
+            contract,
+            frame,
+            session,
+            ReachedStandardHandleProfile::InputOnly,
+        ),
+        GET_STD_HANDLE_INPUT_OUTPUT_IMPLEMENTATION => handle_get_std_handle(
+            contract,
+            frame,
+            session,
+            ReachedStandardHandleProfile::InputAndOutput,
+        ),
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(contract, frame, session),
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
@@ -190,18 +203,19 @@ fn handle_get_std_handle(
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
+    profile: ReachedStandardHandleProfile,
 ) -> Result<ApiImmediate, ApiFault> {
     let selector = required_argument(contract, frame, 0, "standard handle selector")?;
-    if selector != RUNTIME_STANDARD_INPUT_SELECTOR {
+    if !profile.accepts(selector) {
         return Err(ApiFault::unsupported(
             "win32-standard-handle",
             "standard-handle-selector-unsupported",
-            "only the reached STD_INPUT_HANDLE selector is implemented",
+            profile.unsupported_message(),
         ));
     }
     let standard_handle = session
         .runtime_mut()
-        .ensure_standard_input_handle(selector)
+        .ensure_standard_handle(selector)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
         .clone();
     Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
@@ -218,11 +232,40 @@ fn handle_get_file_type(
     const FILE_TYPE_CHAR: u32 = 2;
 
     let handle = required_argument(contract, frame, 0, "standard handle")?;
-    session
+    let standard_handle = session
         .runtime()
         .standard_handle_by_value(handle)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if standard_handle.selector != RUNTIME_STANDARD_INPUT_SELECTOR {
+        return Err(ApiFault::unsupported(
+            "win32-file-type",
+            "file-type-standard-handle-unsupported",
+            "only the reached standard input file type is implemented",
+        ));
+    }
     Ok(ApiImmediate::new(ApiReturnValue::U32(FILE_TYPE_CHAR)))
+}
+
+#[derive(Clone, Copy)]
+enum ReachedStandardHandleProfile {
+    InputOnly,
+    InputAndOutput,
+}
+
+impl ReachedStandardHandleProfile {
+    fn accepts(self, selector: u32) -> bool {
+        selector == RUNTIME_STANDARD_INPUT_SELECTOR
+            || matches!(self, Self::InputAndOutput) && selector == RUNTIME_STANDARD_OUTPUT_SELECTOR
+    }
+
+    fn unsupported_message(self) -> &'static str {
+        match self {
+            Self::InputOnly => "only the reached STD_INPUT_HANDLE selector is implemented",
+            Self::InputAndOutput => {
+                "only the reached STD_INPUT_HANDLE and STD_OUTPUT_HANDLE selectors are implemented"
+            }
+        }
+    }
 }
 
 fn handle_query_performance_counter(
@@ -790,6 +833,22 @@ pub fn get_tick_count_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
 }
 
 pub fn get_std_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    get_std_handle_contract_with_implementation(endpoint, GET_STD_HANDLE_IMPLEMENTATION)
+}
+
+pub fn get_std_handle_input_output_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    get_std_handle_contract_with_implementation(
+        endpoint,
+        GET_STD_HANDLE_INPUT_OUTPUT_IMPLEMENTATION,
+    )
+}
+
+fn get_std_handle_contract_with_implementation(
+    endpoint: ApiEndpointIdentity,
+    implementation_id: &str,
+) -> Result<ApiContract, ApiFault> {
     kernel32_contract(
         endpoint,
         "GetStdHandle",
@@ -798,7 +857,7 @@ pub fn get_std_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
             namespace: LOGICAL_STANDARD_HANDLE_NAMESPACE.to_owned(),
             nullable: false,
         },
-        GET_STD_HANDLE_IMPLEMENTATION,
+        implementation_id,
     )
 }
 

@@ -51,12 +51,15 @@ pub const X86_CRITICAL_SECTION_BYTE_LENGTH: usize = 24;
 pub const RUNTIME_CRITICAL_SECTION_LIMIT: usize = 4096;
 pub const RUNTIME_STANDARD_INPUT_SELECTOR: u32 = 0xffff_fff6;
 pub const RUNTIME_STANDARD_INPUT_HANDLE: u32 = 0x5301_0001;
+pub const RUNTIME_STANDARD_OUTPUT_SELECTOR: u32 = 0xffff_fff5;
+pub const RUNTIME_STANDARD_OUTPUT_HANDLE: u32 = 0x5301_0002;
 
 const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
 const RUNTIME_PRIVATE_HEAP_OWNER: &str = "runtime-process-private-heaps";
 const RUNTIME_PRIVATE_HEAP_VARIANT: &str = "heap-create-metadata-v1";
 const RUNTIME_STANDARD_HANDLE_OWNER: &str = "runtime-process-standard-handles";
 const RUNTIME_STANDARD_INPUT_VARIANT: &str = "standard-input-logical-v1";
+const RUNTIME_STANDARD_OUTPUT_VARIANT: &str = "standard-output-logical-v1";
 const MAX_RUNTIME_THREAD_MESSAGES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -2376,17 +2379,27 @@ impl RuntimeState {
         self.process.heap_termination_on_corruption = enabled;
     }
 
-    pub fn ensure_standard_input_handle(
+    pub fn ensure_standard_handle(
         &mut self,
         selector: u32,
     ) -> Result<&RuntimeStandardHandle, RuntimeStateError> {
-        if selector != RUNTIME_STANDARD_INPUT_SELECTOR {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-standard-handle",
-                "standard-handle-selector-unsupported",
-                "only the reached standard input selector is supported",
-            ));
-        }
+        let (handle, variant_id) = match selector {
+            RUNTIME_STANDARD_INPUT_SELECTOR => (
+                RUNTIME_STANDARD_INPUT_HANDLE,
+                RUNTIME_STANDARD_INPUT_VARIANT,
+            ),
+            RUNTIME_STANDARD_OUTPUT_SELECTOR => (
+                RUNTIME_STANDARD_OUTPUT_HANDLE,
+                RUNTIME_STANDARD_OUTPUT_VARIANT,
+            ),
+            _ => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-standard-handle",
+                    "standard-handle-selector-unsupported",
+                    "only the reached standard input and output selectors are supported",
+                ));
+            }
+        };
         if self.process.lifecycle != RuntimeProcessLifecycleState::Running
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
         {
@@ -2402,9 +2415,9 @@ impl RuntimeState {
             .entry(selector)
             .or_insert_with(|| RuntimeStandardHandle {
                 owner: RUNTIME_STANDARD_HANDLE_OWNER.to_owned(),
-                variant_id: RUNTIME_STANDARD_INPUT_VARIANT.to_owned(),
+                variant_id: variant_id.to_owned(),
                 namespace: LOGICAL_STANDARD_HANDLE_NAMESPACE.to_owned(),
-                handle: RUNTIME_STANDARD_INPUT_HANDLE,
+                handle,
                 selector,
             }))
     }
