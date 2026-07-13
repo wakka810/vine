@@ -28,6 +28,7 @@ const supportedObservations = new Set([
   "wide-char-to-multi-byte",
   "get-last-error",
   "set-last-error",
+  "get-acp",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

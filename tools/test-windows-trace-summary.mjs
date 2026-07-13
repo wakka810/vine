@@ -651,6 +651,13 @@ setLastErrorSelection.find(
 ).selectedObservations = ["set-last-error"];
 assert.doesNotThrow(() => summarizeTrace(encode(setLastErrorSelection)));
 
+const getAcpSelection = structuredClone(events);
+getAcpSelection[0].arguments.observations = ["get-acp"];
+getAcpSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["get-acp"];
+assert.doesNotThrow(() => summarizeTrace(encode(getAcpSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

@@ -1511,3 +1511,36 @@ Chrome Runtime Workerも81 ordered callsとsame stop／memoryを再現し、274 
 344 Wasm crossings、final generation `278`、cancel／watchdog後pending work 0を通す。3分gateは
 2,086 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-set-last-error.md](bgi-set-last-error.md)を正とする。
+
+## 66. BGI GetACP
+
+focused `get-acp` observerのaccepted complete capturesは269,228 bytes／875
+lines／SHA-256
+`91030f4ca8afb53e285739bdacadc8d3e8bef7ee35730eb3b2d605529e6363f3`と269,229
+bytes／875 lines／SHA-256
+`a5f3c00132344a43c51467ef4f3e83309edd49140fd6f2391891c84aea54b2b4`
+である。Summariesはどちらも401 balanced API pairs、max depth `3`、one oracle、
+diagnostics zeroを保持する。
+
+BGI callはreturn RVA `0xA6F72`、argumentなし、result `932`、LastError
+`87 -> 87`である。Local cleanup RVA `0xA6F4F`はEAXを保ってreturnし、
+outer frame caller RVA `0xA71AF`は`mov [ebp+8],eax`で値を保存した後、
+`cmp eax,[ebx+4]`でcached active code pageと比較する。
+
+Controlled x86 oracleはLastError sentinel `0`、`87`、`122`、`0x12345678`の
+全callでresult `932`が安定し、hookと`SystemFunction`のLastErrorが各sentinelを
+保つことを固定する。Runtimeの`kernel32.get-acp.v1`はzero-argument U32 stdcall
+contractで、versioned compatibility policyが所有するactive ANSI code pageだけを読む。
+LastError／guest memory／runtime stateは変更せず、policy-disabled時はmutation前に停止する。
+
+`npm run check:runtime:bgi -- --profile kernel32-get-acp`は33 contracts／82 calls、83
+writebacks／134 dirty pages／1,430 changed bytes、34 host deltas、final generation `146`を通す。
+instruction `1978`でID `75`／`HeapAlloc(0x68010001,0,0x220)`を
+`heap-alloc-variant-unsupported`として停止する。Memory SHA-256は
+`7ed5262e4eef60c3f665765d5741872b595205c5022193ec4633194e5ffa25ea`、367,384-byte
+reportのSHA-256は`b897324ff6b85383b2b51be1505e84868e53d9fa5488e5d8f0f4da0ed36b476d`である。
+
+Chrome Runtime Workerも82 ordered callsとsame stop／memoryを再現し、280 slices、197 yields、
+351 Wasm crossings、final generation `284`、cancel／watchdog後pending work 0を通す。3分gateは
+2,066 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-get-acp.md](bgi-get-acp.md)を正とする。

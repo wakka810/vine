@@ -237,6 +237,11 @@ impl Kernel32CompatibilityPolicy {
         self.wide_char_to_multi_byte.as_ref()
     }
 
+    pub fn active_code_page(&self) -> Option<u32> {
+        self.wide_char_to_multi_byte
+            .map(|conversion| conversion.active_code_page)
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocations.iter().any(|allocation| {
             allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)

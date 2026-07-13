@@ -3,7 +3,7 @@
 ## Status
 
 - Status: implemented controlled policy boundary
-- Date: 2026-07-13
+- Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
 - Active policy: `fixtures/runtime-policies/kernel32-private-heap-size-1-v1.json`
@@ -109,6 +109,11 @@ storage. The reached slot, value, and dynamic endpoint address are not policy.
 32-bit argument only to the selected Rust runtime thread through the generic
 dispatcher LastError policy. Reached value `87`, caller RVA, occurrence count,
 and native EAX values remain evidence and do not select an implementation branch.
+`GetACP` uses one policy-backed semantic handler. It reads the active ANSI code
+page already present in the conversion policy, returns it without state or guest
+memory mutation, and preserves LastError. A policy without that capability stops
+before mutation. The native caller, observed value `932`, consumer, and call
+position remain evidence rather than handler branches.
 
 Policy JSON parsing and validation is covered independently:
 
@@ -128,7 +133,7 @@ stop remain evidence fields only.
 This boundary does not implement broad `HeapAlloc`, general handle-table sizing,
 broad file classification, file I/O, non-ASCII command-line conversion, host
 environment import, environment mutation／ANSI environment strings, arbitrary
-code pages／conversion flags／explicit default-character pointers, or a general
+code-page selection or mutation／conversion flags／explicit default-character pointers, or a general
 Windows console. Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

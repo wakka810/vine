@@ -5,10 +5,10 @@ use vine_core::{
     ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiOwnedTrap,
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
-    FLS_GET_VALUE_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress,
-    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget,
-    ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CompatibilityPolicy,
-    Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
+    FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION,
+    GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
+    HostRequest, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
+    Kernel32CompatibilityPolicy, Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
     Kernel32WideCharToMultiBytePolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
     LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MemoryLimits, MemoryOwnerId,
@@ -869,6 +869,101 @@ fn set_last_error_writes_only_the_selected_thread_without_guest_memory_mutation(
         .select_thread(second_thread)
         .expect("restore second LastError lane");
     assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+}
+
+#[test]
+fn get_acp_reads_only_the_policy_owned_active_code_page() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_0589]),
+        (STACK_BASE + 0x20, vec![0x1000_058a]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x5c);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetACP IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetACP".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetACP endpoint");
+    assert_eq!(contract.implementation_id, GET_ACP_IMPLEMENTATION);
+    assert!(contract.abi.arguments.is_empty());
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "public-get-acp-v1".to_owned();
+    policy.ansi_command_line = true;
+    policy.wide_environment_strings = true;
+    policy.wide_char_to_multi_byte = Some(Kernel32WideCharToMultiBytePolicy {
+        active_code_page: 932,
+        maximum_source_code_units: 65_536,
+    });
+    policy.validate().expect("valid active-code-page policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(87).unwrap();
+    let runtime_before = runtime.clone();
+    let memory_before = memory.stats();
+
+    let completion = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(completion.eax, RegisterUpdate::Set(932));
+    assert_eq!(completion.stack_pointer, GuestAddress(frames[0].0 + 4));
+    assert_eq!(completion.last_error, 87);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+
+    let disabled = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[1].0, frames[1].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "get-acp-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
 }
 
 #[test]

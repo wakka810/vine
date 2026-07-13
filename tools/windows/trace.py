@@ -32,6 +32,7 @@ SUPPORTED_OBSERVATIONS = (
     "wide-char-to-multi-byte",
     "get-last-error",
     "set-last-error",
+    "get-acp",
 )
 
 

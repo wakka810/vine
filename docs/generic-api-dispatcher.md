@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte uninitialized private heap, GetLastError, TlsGetValue, FlsGetValue, and SetLastError capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte uninitialized private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, and GetACP capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-set-last-error`
-- Scope: frozen 17-call equivalence plus 81 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-get-acp`
+- Scope: frozen 17-call equivalence plus 82 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -64,17 +64,22 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `GetEnvironmentStringsW` | 1 | acquires one process-owned copy lease for the controlled UTF-16 environment block |
 | `FreeEnvironmentStringsW` | 0 reached; public semantic contract | retires only the exact active copy lease and returns BOOL success |
 | `WideCharToMultiByte` | 1 | performs a host-locale-independent Windows-932 size query; conversion variants share the same public contract |
+| `GetLastError` | 3 | reads selected-thread LastError without mutation |
+| `TlsGetValue` | 3 | reads the selected thread's allocated TLS value and applies Win32 LastError semantics |
+| `FlsGetValue` | 3 | reads initialized selected-thread FLS storage and applies Win32 LastError semantics |
+| `SetLastError` | 3 | writes the full selected-thread LastError value without guest-memory mutation |
+| `GetACP` | 1 | returns the policy-owned active ANSI code page without mutation |
 
-All 28 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 33 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-64 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
+82 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
 two `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
 critical-section／thread／startup occurrences plus three `GetStdHandle`, three
 `GetFileType`, `SetHandleCount`, `GetCommandLineA`, and
-`GetEnvironmentStringsW` and one `WideCharToMultiByte` size query. The conversion
-and `FreeEnvironmentStringsW` contracts are installed, but the cumulative BGI
-session requests its one-byte destination allocation before those later calls.
+`GetEnvironmentStringsW`, one `WideCharToMultiByte` size query, three each of
+`GetLastError`, `TlsGetValue`, `FlsGetValue`, and `SetLastError`, plus one
+`GetACP`. `FreeEnvironmentStringsW` is installed as the paired public contract.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The source-v86 Node oracle harness still performs callsite provenance checks and
 adapter-specific dirty-page synchronization around the common semantic path.
@@ -157,7 +162,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 32 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 33 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -169,7 +174,7 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The semantic tests cover all 31 APIs, the five original shapes, fixed and
+The semantic tests cover all 33 APIs, the five original shapes, fixed and
 bounded-dynamic output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
@@ -557,6 +562,23 @@ dirty pages／1,370 changed bytes and 34 host deltas, and ends at generation
 and stops at instruction 1936 on missing `GetACP()`. Full evidence is in
 [bgi-set-last-error.md](bgi-set-last-error.md).
 
+The current active-code-page read profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-get-acp
+```
+
+`kernel32.get-acp.v1` reads only the active ANSI code page exposed by the
+versioned compatibility policy. It returns `932`, preserves LastError `87`,
+writes no guest byte, and rejects a policy without an active code page before
+mutation. The profile completes 82 calls, uses 83 writeback batches／134 dirty
+pages／1,430 changed bytes and 34 host deltas, and ends at generation `146`. Its
+367,384-byte report has SHA-256
+`b897324ff6b85383b2b51be1505e84868e53d9fa5488e5d8f0f4da0ed36b476d`
+and stops at instruction 1978 on unsupported
+`HeapAlloc(0x68010001,0,0x220)`. Full evidence is in
+[bgi-get-acp.md](bgi-get-acp.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -586,14 +608,15 @@ and stops at instruction 1936 on missing `GetACP()`. Full evidence is in
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
   pointers, and nonzero conversion flags remain absent. Its first unsupported
-  operation is `SetLastError(87)`; bespoke
+  operation is `HeapAlloc(0x68010001,0,0x220)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-get-acp` at `GetACP()`. It must first fix the native
-active-code-page result, LastError behavior, and immediate consumer, then expose
-only the existing policy-owned Windows-932 value without importing host locale.
+The next proof is `kernel32-private-heap-size-544` at
+`HeapAlloc(0x68010001,0,0x220)`. It must first fix the native allocation result,
+initialization, consumer, and lifetime relation, then add only the reached
+flag/size pair to compatibility policy data.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -608,5 +631,5 @@ bytes, the SetHandleCount report is 284,215 bytes, the GetCommandLineA report is
 288,041 bytes, the environment-strings report is 291,793 bytes, the Windows-932
 report is 295,762 bytes, the one-byte heap report is 308,984 bytes, the
 GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
-the FlsGetValue report is 320,070 bytes, and the current SetLastError report is
-363,609 bytes.
+    the FlsGetValue report is 320,070 bytes, the SetLastError report is 363,609
+    bytes, and the current GetACP report is 367,384 bytes.

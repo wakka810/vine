@@ -40,6 +40,11 @@ let setLastErrorOracleEaxBefore = null;
 let setLastErrorOracleEaxAfter = null;
 let setLastErrorOracleLastErrorAfter = null;
 let setLastErrorConsumerRecorded = false;
+let getAcpOracleScheduled = false;
+let getAcpOracleSentinel = null;
+let getAcpOracleResult = null;
+let getAcpOracleLastError = null;
+let getAcpConsumerRecorded = false;
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -296,6 +301,43 @@ function snapshotInstructions(address, maximumInstructions) {
   }
 }
 
+function snapshotInstructionsFollowingDirectJump(address, maximumInstructions) {
+  const entry = snapshotInstructions(address, maximumInstructions);
+  try {
+    const instruction = Instruction.parse(address);
+    const operand = instruction.operands?.[0] ?? null;
+    if (instruction.mnemonic !== "jmp" || operand?.type !== "imm") {
+      return { entry, directJumpTarget: null };
+    }
+    const target = ptr(operand.value);
+    return {
+      entry,
+      directJumpTarget: snapshotInstructions(target, maximumInstructions),
+    };
+  } catch (error) {
+    return {
+      entry,
+      directJumpTarget: { error: error.message },
+    };
+  }
+}
+
+function snapshotX86FrameCallerContinuation(context, maximumInstructions) {
+  if (Process.arch !== "ia32" || context.ebp === undefined) {
+    return { error: "x86 EBP frame is unavailable" };
+  }
+  try {
+    const framePointer = ptr(context.ebp);
+    const address = framePointer.add(Process.pointerSize).readPointer();
+    return {
+      framePointer: framePointer.toString(),
+      ...snapshotInstructions(address, maximumInstructions),
+    };
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
 function snapshotTlsGetValueCall(caller, returnAddress, lastErrorBefore) {
   const recordsConsumer =
     !tlsGetValueConsumerRecorded && caller.module.toLowerCase() === "bgi.exe";
@@ -335,6 +377,26 @@ function snapshotSetLastErrorCall(caller, returnAddress, lastErrorBefore, eaxBef
     eaxBefore: eaxBefore.toUInt32(),
     immediateConsumer: recordsConsumer
       ? snapshotInstructions(returnAddress, 6)
+      : null,
+  };
+}
+
+function snapshotGetAcpCall(caller, returnAddress, lastErrorBefore, context) {
+  const recordsConsumer =
+    !getAcpConsumerRecorded && caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    getAcpConsumerRecorded = true;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    immediateConsumer: recordsConsumer
+      ? {
+          apiContinuation: snapshotInstructionsFollowingDirectJump(
+            returnAddress,
+            32,
+          ),
+          frameCallerContinuation: snapshotX86FrameCallerContinuation(context, 8),
+        }
       : null,
   };
 }
@@ -813,6 +875,9 @@ if (selectedObservations.has("get-last-error")) {
 if (selectedObservations.has("set-last-error")) {
   hooks["kernel32.dll"].push(["SetLastError", [null]]);
 }
+if (selectedObservations.has("get-acp")) {
+  hooks["kernel32.dll"].push(["GetACP", []]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -972,6 +1037,14 @@ function attachHook(module, name, decoders) {
         setLastErrorOracleArgument = args[0].toUInt32();
         setLastErrorOracleEaxBefore = this.context.eax.toUInt32();
       }
+      this.traceGetAcpOracle =
+        getAcpOracleSentinel !== null &&
+        selectedObservations.has("get-acp") &&
+        name === "GetACP" &&
+        caller.module === "frida-agent.dll";
+      if (this.traceGetAcpOracle) {
+        this.lastError = getAcpOracleSentinel;
+      }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
@@ -1006,6 +1079,13 @@ function attachHook(module, name, decoders) {
                   ? snapshotInstructions(this.returnAddress, 4)
                   : null,
             }
+        : name === "GetACP" && selectedObservations.has("get-acp")
+          ? snapshotGetAcpCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+            )
         : name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
           : selectedObservations.has("critical-section") &&
@@ -1112,6 +1192,10 @@ function attachHook(module, name, decoders) {
       if (this.traceSetLastErrorOracle) {
         setLastErrorOracleEaxAfter = result.toUInt32();
         setLastErrorOracleLastErrorAfter = Number(lastError) >>> 0;
+      }
+      if (this.traceGetAcpOracle) {
+        getAcpOracleResult = result.toUInt32();
+        getAcpOracleLastError = Number(lastError) >>> 0;
       }
       const wideCharResult =
         this.traceWideCharConversion === null ? null : signed32(result);
@@ -1648,6 +1732,65 @@ function scheduleSetLastErrorOracle(module) {
   });
 }
 
+function scheduleGetAcpOracle(module) {
+  if (getAcpOracleScheduled) {
+    return;
+  }
+  getAcpOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetACP");
+      if (address === null) {
+        throw new Error("GetACP export is unavailable");
+      }
+      const getAcp = new SystemFunction(address, "uint32", [], "stdcall");
+      const invoke = (sentinel) => {
+        getAcpOracleSentinel = sentinel;
+        getAcpOracleResult = null;
+        getAcpOracleLastError = null;
+        try {
+          const outcome = getAcp();
+          const result = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (getAcpOracleResult === null || getAcpOracleLastError === null) {
+            throw new Error("GetACP oracle did not pass through the hook");
+          }
+          return {
+            sentinel,
+            result,
+            hookResult: getAcpOracleResult,
+            hookLastErrorAfter: getAcpOracleLastError,
+            systemLastError,
+            hookResultMatches: getAcpOracleResult === result,
+            hookPreservesLastError: getAcpOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          getAcpOracleSentinel = null;
+          getAcpOracleResult = null;
+          getAcpOracleLastError = null;
+        }
+      };
+      const calls = [0, 87, 122, 0x12345678].map(invoke);
+      const activeCodePage = calls[0].result;
+      emit("get-acp-oracle", {
+        profile: "x86-active-code-page-read-v1",
+        activeCodePage,
+        calls,
+        allResultsStable: calls.every(
+          (call) => call.result === activeCodePage && call.hookResultMatches,
+        ),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("get-acp-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleTlsLifecycleOracle(module) {
   if (tlsLifecycleOracleScheduled) {
     return;
@@ -2007,6 +2150,12 @@ Process.attachModuleObserver({
       selectedObservations.has("set-last-error")
     ) {
       scheduleSetLastErrorOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("get-acp")
+    ) {
+      scheduleGetAcpOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

@@ -74,6 +74,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-tls-get-value",
         "kernel32-fls-get-value",
         "kernel32-set-last-error",
+        "kernel32-get-acp",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -100,6 +101,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "kernel32-get-acp" ||
     genericRuntimeCapability === "kernel32-set-last-error" ||
     genericRuntimeCapability === "kernel32-fls-get-value" ||
     genericRuntimeCapability === "kernel32-tls-get-value" ||
@@ -160,8 +162,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getAcpEnabled = genericRuntimeCapability === "kernel32-get-acp";
 const setLastErrorEnabled =
-  genericRuntimeCapability === "kernel32-set-last-error";
+  getAcpEnabled || genericRuntimeCapability === "kernel32-set-last-error";
 const flsGetValueEnabled =
   setLastErrorEnabled || genericRuntimeCapability === "kernel32-fls-get-value";
 const tlsGetValueEnabled =
@@ -227,7 +230,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? setLastErrorEnabled
+    ? getAcpEnabled
+      ? "v86-bgi-get-acp"
+      : setLastErrorEnabled
       ? "v86-bgi-set-last-error"
       : flsGetValueEnabled
       ? "v86-bgi-fls-get-value"
@@ -2060,6 +2065,34 @@ const setLastErrorExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const getAcpExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 82,
+  instructionCounts: [1936],
+  returnAddress: 0x100a6f72,
+  activeCodePage: 932,
+  lastError: 87,
+  writebackBatches: 83,
+  dirtyPages: 134,
+  changedBytes: 1430,
+  hostDeltaBatches: 34,
+  finalGeneration: 146,
+  memoryContentSha256: "7ed5262e4eef60c3f665765d5741872b595205c5022193ec4633194e5ffa25ea",
+  reportBytes: 367_384,
+  reportSha256: "b897324ff6b85383b2b51be1505e84868e53d9fa5488e5d8f0f4da0ed36b476d",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-private-heap-allocation",
+    endpointId: 75,
+    endpointAddress: 0x7f0004a0,
+    module: "kernel32.dll",
+    symbol: "HeapAlloc",
+    iatAddress: 0x100d11d4,
+    arguments: [0x68010001, 0, 0x220],
+    returnAddress: 0x100a4a33,
+    instructionCount: 1978,
+    faultCode: "heap-alloc-variant-unsupported",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2522,6 +2555,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getAcpEnabled) {
+        validateGetAcpResult(genericResult);
       } else if (setLastErrorEnabled) {
         validateSetLastErrorResult(genericResult);
       } else if (flsGetValueEnabled) {
@@ -2569,7 +2604,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : setLastErrorEnabled
+          : getAcpEnabled
+            ? "bgi GetACP"
+            : setLastErrorEnabled
             ? "bgi SetLastError"
             : flsGetValueEnabled
             ? "bgi FlsGetValue"
@@ -2972,7 +3009,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : setLastErrorEnabled
+        : getAcpEnabled
+          ? 20
+          : setLastErrorEnabled
           ? 19
           : flsGetValueEnabled
           ? 18
@@ -5010,6 +5049,64 @@ function validateSetLastErrorResult(result) {
   );
 }
 
+function validateGetAcpResult(result) {
+  const expected = getAcpExpected;
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetACP");
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, expected.instructionCounts.length);
+  for (const [index, call] of calls.entries()) {
+    assert.equal(call.occurrence, index + 1);
+    assert.deepEqual(call.arguments, []);
+    assert.deepEqual(call.result, {
+      action: "set",
+      value: expected.activeCodePage,
+    });
+    assert.equal(call.implementationId, "kernel32.get-acp.v1");
+    assert.equal(call.lastError, expected.lastError);
+    assert.deepEqual(call.guestWrites, []);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 4);
+    assert.equal(call.trapInstructionCount, expected.instructionCounts[index]);
+    assert.equal(call.returnAddress, expected.returnAddress);
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -5031,7 +5128,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : setLastErrorEnabled
+        : getAcpEnabled
+          ? "vine.v86-bgi-get-acp"
+          : setLastErrorEnabled
           ? "vine.v86-bgi-set-last-error"
           : flsGetValueEnabled
           ? "vine.v86-bgi-fls-get-value"
