@@ -27,6 +27,7 @@ SUPPORTED_OBSERVATIONS = (
     "standard-handle",
     "file-type",
     "set-handle-count",
+    "command-line-a",
 )
 
 

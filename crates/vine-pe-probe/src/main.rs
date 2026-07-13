@@ -12,28 +12,30 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use vine_core::{
     ApiContract, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass,
-    ApiImmediateCompletion, ApiOwnedTrap, ApiSymbol, ApiTrap, CallbackReturnSentinel,
-    CpuWritebackReceipt, DispatchOutcome, DynamicExportThunk, ExecutionSession, GuestAddress,
-    GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation,
-    GuestWriteResult, ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget,
-    ImportThunk, ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
-    Kernel32CompatibilityPolicy, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
-    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
-    ModuleSnapshot, Pe32Limits, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
-    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeModule,
-    RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeProcessId,
-    RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue,
-    SchedulerThreadState, UnsupportedPoint, bind_pe32_imports,
-    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    ApiImmediateCompletion, ApiOwnedTrap, ApiSymbol, ApiTrap, CONTROLLED_COMMAND_LINE,
+    CallbackReturnSentinel, CpuWritebackReceipt, DispatchOutcome, DynamicExportThunk,
+    ExecutionSession, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
+    GuestPageReconciliation, GuestWriteResult, ImageMaterialization, ImageMemoryLayout,
+    ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition, InitialProcessEnvironment,
+    InitialThreadStack, Kernel32CompatibilityPolicy, LoaderError, LoaderErrorClass,
+    LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
+    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
+    RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,
+    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
+    RuntimeHeapAllocation, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
+    RuntimeModuleImageErrorClass, RuntimeProcessId, RuntimeProcessLifecycleState,
+    RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
+    RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue, SchedulerThreadState,
+    UnsupportedPoint, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
+    build_pe32_load_plan, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
+    encode_pointer_contract, get_current_process_id_contract, get_current_thread_id_contract,
+    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
+    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
+    heap_set_information_contract, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
+    install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
     install_dynamic_export_thunks, install_runtime_return_sentinels,
     kernel32_contract_for_endpoint, materialize_pe32_image, query_performance_counter_contract,
@@ -95,6 +97,7 @@ enum GenericRuntimeCapability {
     StandardErrorHandle,
     StandardErrorFileType,
     SetHandleCount,
+    CommandLineA,
 }
 
 struct GenericRuntimeProcess {
@@ -1667,6 +1670,10 @@ fn run_v86_reflection_session(
     const MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
     let generic_runtime_reentry = arguments.generic_runtime_reentry;
     let generic_runtime_capability = arguments.generic_runtime_capability;
+    let ansi_command_line_enabled = arguments
+        .kernel32_policy
+        .as_ref()
+        .is_some_and(Kernel32CompatibilityPolicy::allows_ansi_command_line);
     let kernel32_policy = arguments.kernel32_policy;
     let supported_call_count = arguments
         .checkpoint_session
@@ -1793,15 +1800,22 @@ fn run_v86_reflection_session(
         None
     };
     let initial_process_environment = if arguments.install_controlled_process_parameters {
-        Some(
-            if let Some(command_line) = arguments.controlled_command_line.as_deref() {
-                install_controlled_process_environment_with_command_line(&mut memory, command_line)
-                    .map_err(memory_error)?
-            } else {
-                install_controlled_process_environment_with_parameters(&mut memory)
-                    .map_err(memory_error)?
-            },
-        )
+        Some(if ansi_command_line_enabled {
+            install_controlled_process_environment_with_command_line_and_ansi(
+                &mut memory,
+                arguments
+                    .controlled_command_line
+                    .as_deref()
+                    .unwrap_or(CONTROLLED_COMMAND_LINE),
+            )
+            .map_err(memory_error)?
+        } else if let Some(command_line) = arguments.controlled_command_line.as_deref() {
+            install_controlled_process_environment_with_command_line(&mut memory, command_line)
+                .map_err(memory_error)?
+        } else {
+            install_controlled_process_environment_with_parameters(&mut memory)
+                .map_err(memory_error)?
+        })
     } else {
         arguments
             .install_controlled_process_environment
@@ -1847,6 +1861,20 @@ fn run_v86_reflection_session(
         Vec::new()
     };
     if let Some(runtime) = generic_runtime.as_mut() {
+        if ansi_command_line_enabled {
+            runtime
+                .runtime
+                .register_initial_process_environment(
+                    initial_process_environment.as_ref().ok_or_else(|| {
+                        LoaderError::runtime_defect(
+                            "runtime-reentry",
+                            "initial-process-environment-missing",
+                            "ANSI command-line capability requires an initial process environment",
+                        )
+                    })?,
+                )
+                .map_err(runtime_state_error)?;
+        }
         let callback_return = callback_return_sentinel.as_ref().ok_or_else(|| {
             LoaderError::runtime_defect(
                 "runtime-reentry",
@@ -2390,6 +2418,13 @@ fn run_v86_generic_runtime_session(
     enabled_capability: Option<GenericRuntimeCapability>,
     kernel32_policy: Kernel32CompatibilityPolicy,
 ) -> Result<(), LoaderError> {
+    let endpoint_capability = enabled_capability;
+    let enabled_capability = match enabled_capability {
+        Some(GenericRuntimeCapability::CommandLineA) => {
+            Some(GenericRuntimeCapability::SetHandleCount)
+        }
+        capability => capability,
+    };
     let endpoints = process
         .binding
         .imports
@@ -2410,7 +2445,7 @@ fn run_v86_generic_runtime_session(
         else {
             continue;
         };
-        if runtime_capability_enables_endpoint(enabled_capability, endpoint) {
+        if runtime_capability_enables_endpoint(endpoint_capability, endpoint) {
             contracts.push(contract);
         }
     }
@@ -2830,6 +2865,13 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
+    let command_line_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::CommandLineA));
+    let enabled = match enabled {
+        Some(GenericRuntimeCapability::CommandLineA) => {
+            Some(GenericRuntimeCapability::SetHandleCount)
+        }
+        capability => capability,
+    };
     let vine_core::ApiSymbol::Name { name } = &endpoint.symbol else {
         return true;
     };
@@ -2959,6 +3001,7 @@ fn runtime_capability_enables_endpoint(
             )
         ),
         "SetHandleCount" => matches!(enabled, Some(GenericRuntimeCapability::SetHandleCount)),
+        "GetCommandLineA" => command_line_a_enabled,
         _ => true,
     }
 }
@@ -8346,6 +8389,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::StandardErrorFileType
                 }
                 "kernel32-set-handle-count" => GenericRuntimeCapability::SetHandleCount,
+                "kernel32-command-line-a" => GenericRuntimeCapability::CommandLineA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

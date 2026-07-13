@@ -200,27 +200,27 @@ or after one preflighted batch, never between its mapping and dirty-page commits
 
 ## Private BGI result
 
-`npm run check:runtime:bgi-browser` now executes the current 61-call generic BGI
+`npm run check:runtime:bgi-browser` now executes the current 62-call generic BGI
 session in this same Runtime Worker. Rust/Wasm owns PE load, process/module/heap
 state, Kernel32 dispatch, and guest bytes; Node supplies only an independently
 generated semantic oracle. Chrome reaches the same unsupported
-`GetCommandLineA()` call after 1,526 instructions, with equal ordered API
-results and final memory content SHA-256. The bounded Worker loop uses 216 slices,
-154 periodic yields, and 649 checked transitions while the main-thread heartbeat
+`GetEnvironmentStringsW()` call after 1,536 instructions, with equal ordered API
+results and final memory content SHA-256. The bounded Worker loop uses 218 slices,
+155 periodic yields, and 655 checked transitions while the main-thread heartbeat
 remains active.
 
-The Chrome memory generation ends at 225 rather than the Node oracle's 121
+The Chrome memory generation ends at 227 rather than the Node oracle's 122
 because Chrome reconciles dirty pages at every 8-instruction budget boundary.
 This difference is synchronization identity, not guest-visible state. Separate
 cancel and watchdog probes stop after 8 and 4 instructions and confirm Rust
 process exit, module detach, and zero pending host/callback work. Detailed
 evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
 
-The separate 180-second BGI workload gate repeats this complete session 2,220
-times in the same Worker. It records p95 session latency 74.555 ms, p99
-maximum slice 0.580 ms, main heap slope -104,603 bytes/min, Worker heap slope
-2,839,834 bytes/min, backing-storage slope 1,292,093 bytes/min, stable Rust/engine
-linear-memory sizes, and 271 bridge operations per session. All version 1
+The separate 180-second BGI workload gate repeats this complete session 2,210
+times in the same Worker. It records p95 session latency 74.540 ms, p99
+maximum slice 0.655 ms, main heap slope -289,345 bytes/min, Worker heap slope
+2,239,374 bytes/min, backing-storage slope 2,247,835 bytes/min, stable Rust/engine
+linear-memory sizes, and 274 bridge operations per session. All version 1
 thresholds pass; details are in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md).
 

@@ -22,6 +22,8 @@ const supportedObservations = new Set([
   "interlocked-increment",
   "standard-handle",
   "file-type",
+  "set-handle-count",
+  "command-line-a",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

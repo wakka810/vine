@@ -19,7 +19,8 @@ aligned first-fitへfallbackする。fixed v1 registrationはfallbackせずstruc
 
 ## Version 1 registry
 
-process bootstrapは次の36 recordsを登録する。
+base runtime bootstrapは36 recordsを登録し、ANSI command-line profileはmaterialized initial
+process environmentを37番目のpermanent root recordとして追加する。
 
 | Purpose | Classification | Records | Policy |
 |---|---|---:|---|
@@ -28,6 +29,7 @@ process bootstrapは次の36 recordsを登録する。
 | dynamic exports | runtime control | 1 | preferred v1 range、permanent、executable |
 | private heap band | heap | 1 | preferred v1 range、permanent |
 | private heap slots | heap | 32 children | 16 MiB per slot、permanent |
+| initial process environment | process environment | 1 when enabled | existing contiguous 4-page materialization、permanent |
 
 `RuntimeHeapBacking`はhandle slotからbaseを再計算せず、対応するheap-slot recordのIDとrangeを保存する。
 GuestMemoryのreserve／commit／decommit／releaseはこのidentityへ帰属できる。現在のheap mappingはrecord
@@ -44,9 +46,10 @@ testはresult addressを固定せず、alignment、guard metadata、non-overlap�
 invalid requestとexhaustionはregistryを変更しない。explicit allocationだけをreleaseでき、live childを
 持つparentとpermanent v1 recordはreleaseできない。
 
-このcheckpointは既存control arenaをregistryへ登録し、heap backingをallocation identityへ接続する。
+このcheckpointは既存control arenaをregistryへ登録し、heap backingとactive initial process environmentを
+allocation identityへ接続する。
 import／callback／dynamic-export installerのGuestMemory transaction APIはまだallocation recordを引数に
-取らない。image、initial stack、TEB／PEB／process parametersの実mappingをregistryへ登録する作業も、
+取らない。imageとinitial stackの実mapping登録、environment mapping operationのallocation ID接続は、
 各subsystemを次に変更するcheckpointで行う。
 
 ## Regression

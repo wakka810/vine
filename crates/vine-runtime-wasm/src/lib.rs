@@ -19,8 +19,10 @@ use vine_core::{
     RuntimeModuleId, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState,
     RuntimeThreadId, SchedulerThreadState, StackCleanup, bind_pe32_imports, build_pe32_load_plan,
     dispatch_kernel32_api_with_policy, install_controlled_initial_stack,
-    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
-    install_runtime_return_sentinels, kernel32_contract_for_endpoint, materialize_pe32_image,
+    install_controlled_process_environment_with_command_line,
+    install_controlled_process_environment_with_command_line_and_ansi,
+    install_dynamic_export_thunks, install_runtime_return_sentinels,
+    kernel32_contract_for_endpoint, materialize_pe32_image,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -289,9 +291,21 @@ impl BrowserRuntime {
         let sentinels = install_runtime_return_sentinels(&mut memory).map_err(error_string)?;
         let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
             .map_err(error_string)?;
-        let environment =
+        let environment = if kernel32_policy.allows_ansi_command_line() {
+            install_controlled_process_environment_with_command_line_and_ansi(
+                &mut memory,
+                "BGI.exe",
+            )
+        } else {
             install_controlled_process_environment_with_command_line(&mut memory, "BGI.exe")
+        }
+        .map_err(error_string)?;
+        if kernel32_policy.allows_ansi_command_line() {
+            process
+                .runtime
+                .register_initial_process_environment(&environment)
                 .map_err(error_string)?;
+        }
         let dynamic_thunks = install_dynamic_export_thunks(
             &mut memory,
             &[
@@ -307,7 +321,7 @@ impl BrowserRuntime {
             &dynamic_thunks,
             sentinels.callback_return.address,
         )?;
-        let (dispatcher, routes, endpoints) = build_bgi_dispatcher(&process)?;
+        let (dispatcher, routes, endpoints) = build_bgi_dispatcher(&process, &kernel32_policy)?;
         let reflection = memory.pending_reflection().map_err(error_string)?;
         let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
         let metadata = json!({
@@ -1114,7 +1128,10 @@ fn finalize_bgi_runtime_process(
     Ok(())
 }
 
-fn build_bgi_dispatcher(process: &BgiRuntimeProcess) -> Result<BgiDispatcher, String> {
+fn build_bgi_dispatcher(
+    process: &BgiRuntimeProcess,
+    kernel32_policy: &Kernel32CompatibilityPolicy,
+) -> Result<BgiDispatcher, String> {
     let mut endpoints = process
         .binding
         .imports
@@ -1126,6 +1143,15 @@ fn build_bgi_dispatcher(process: &BgiRuntimeProcess) -> Result<BgiDispatcher, St
     }
     let mut contracts = endpoints
         .iter()
+        .filter(|endpoint| {
+            kernel32_policy.allows_ansi_command_line()
+                || !endpoint.matches(
+                    "kernel32.dll",
+                    &vine_core::ApiSymbol::Name {
+                        name: "GetCommandLineA".to_owned(),
+                    },
+                )
+        })
         .filter_map(|endpoint| kernel32_contract_for_endpoint(endpoint.clone()).transpose())
         .collect::<Result<Vec<_>, _>>()
         .map_err(api_fault_string)?;

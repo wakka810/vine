@@ -1231,3 +1231,31 @@ structured stopを再現する。Unchanged 3分gateは2,220 sessions／failure 0
 instructions、watchdog 4 instructions、pending work 0は不変である。詳細は
 [bgi-set-handle-count.md](bgi-set-handle-count.md)と
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
+
+## 58. BGI GetCommandLineA
+
+opt-in `command-line-a` tracesは2,252,782 bytes／7,070 lines／SHA-256
+`ad7babe19c454f8c2888cc97da47e830f527d8761904c02cd9dd180ce8c7fd84`と
+251,449 bytes／812 lines／SHA-256
+`9172c5a03ad171f54d5dc1586267f7e5f578aa0e620e5c295db60747400668ee`
+である。BGI caller return RVA `0xA3786`は30-byte NUL-terminated CP932
+`"V:\softs\サクラノ詩\BGI.exe"`を返し、LastErrorはそれぞれ`0 -> 0`／
+`87 -> 87`である。Oracleの反復A/W callsはencodingごとにstable pointerを返し、A/W pointerは
+distinctだがdecoded stringは同一である。Absolute pointerとhost pathはimportしない。
+
+Callerはresultをglobal `0x00553520`へ保存する。RVA `0xA81D2`以降はそのpointerを再読し、NUL、
+space、double quoteを走査してexecutable tokenをskipする。RVA `0xA84C6`以降も同じpointerから
+argc／argvを構築するため、process-lifetime stable readable pointerが必要である。
+
+Current runtimeは既存process-parameter authority `BGI.exe`からsame-page ASCII view
+`0x7FFDD010`を作り、four process-environment pagesをpermanent allocator recordへ登録する。
+`kernel32.get-command-line-a.v1`はzero-argument stdcall、LastError preserve、call中guest write 0で
+pointerを返す。`npm run check:runtime:bgi -- --profile kernel32-command-line-a`は25 contracts／62 calls、
+63 writebacks／107 dirty pages／1,001 changed bytes、30 host deltas、final generation `122`を通す。
+instruction `1536`でID `98`／`GetEnvironmentStringsW()`へ停止する。288,041-byte reportの
+SHA-256は`efa02444d94353422ff0d9a842045025a89a0adb9cf7f90f6d3a87a616b84668`である。
+
+Chrome Runtime Workerも62 ordered calls、same memory SHA-256
+`33986edc39e1f5ecb9f050add5e9f534d2e1d81cc31d003ccd5060e1d30806f2`、same stopを再現する。
+218 slices、155 budget yields、274 Wasm crossings、final generation `227`で、cancel／watchdog後も
+pending work 0である。詳細は[bgi-command-line-a.md](bgi-command-line-a.md)を正とする。

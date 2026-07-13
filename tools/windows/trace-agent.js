@@ -16,6 +16,71 @@ const activeCallsByThread = new Map();
 let criticalSectionOracleScheduled = false;
 let criticalSectionOracleSentinel = null;
 let criticalSectionOracleLastError = null;
+let commandLineOracleScheduled = false;
+const commandLineFirstPointers = new Map();
+const commandLineLatestPointers = new Map();
+
+function snapshotNulTerminatedString(pointer, encoding) {
+  const maximumBytes = 4096;
+  const unitBytes = encoding === "utf16" ? 2 : 1;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      encoding,
+      maximumBytes,
+      error: "null pointer",
+    };
+  }
+  try {
+    let byteLengthWithNul = null;
+    for (let offset = 0; offset + unitBytes <= maximumBytes; offset += unitBytes) {
+      const terminator =
+        unitBytes === 1
+          ? pointer.add(offset).readU8() === 0
+          : pointer.add(offset).readU16() === 0;
+      if (terminator) {
+        byteLengthWithNul = offset + unitBytes;
+        break;
+      }
+    }
+    if (byteLengthWithNul === null) {
+      return {
+        pointer: pointer.toString(),
+        encoding,
+        maximumBytes,
+        error: "terminator not found within bounded observation",
+      };
+    }
+    const buffer = pointer.readByteArray(byteLengthWithNul);
+    const bytes = [...new Uint8Array(buffer)];
+    const api = encoding === "utf16" ? "GetCommandLineW" : "GetCommandLineA";
+    const firstPointer = commandLineFirstPointers.get(api) ?? pointer.toString();
+    commandLineFirstPointers.set(api, firstPointer);
+    commandLineLatestPointers.set(api, pointer.toString());
+    const otherApi = api === "GetCommandLineA" ? "GetCommandLineW" : "GetCommandLineA";
+    const otherPointer = commandLineLatestPointers.get(otherApi) ?? null;
+    return {
+      pointer: pointer.toString(),
+      encoding,
+      maximumBytes,
+      byteLengthWithNul,
+      bytes,
+      string: readString(pointer, encoding),
+      equalsFirstPointer: pointer.toString() === firstPointer,
+      otherApi,
+      otherPointer,
+      equalsOtherEncodingPointer:
+        otherPointer === null ? null : pointer.toString() === otherPointer,
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      encoding,
+      maximumBytes,
+      error: error.message,
+    };
+  }
+}
 
 function emit(kind, fields = {}) {
   send({
@@ -342,6 +407,12 @@ if (selectedObservations.has("file-type")) {
 if (selectedObservations.has("set-handle-count")) {
   hooks["kernel32.dll"].push(["SetHandleCount", [null]]);
 }
+if (selectedObservations.has("command-line-a")) {
+  hooks["kernel32.dll"].push(
+    ["GetCommandLineA", []],
+    ["GetCommandLineW", []],
+  );
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -493,6 +564,9 @@ function attachHook(module, name, decoders) {
           : name === "SetHandleCount" &&
               selectedObservations.has("set-handle-count")
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
+          : (name === "GetCommandLineA" || name === "GetCommandLineW") &&
+              selectedObservations.has("command-line-a")
+            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||
               (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||
@@ -550,6 +624,15 @@ function attachHook(module, name, decoders) {
           : {
               interlockedTargetAfter: snapshotLong(this.traceInterlockedPointer),
             }),
+        ...((name === "GetCommandLineA" || name === "GetCommandLineW") &&
+        selectedObservations.has("command-line-a")
+          ? {
+              commandLine: snapshotNulTerminatedString(
+                result,
+                name === "GetCommandLineW" ? "utf16" : "ansi",
+              ),
+            }
+          : {}),
       };
       finishCall(
         this.traceFrame,
@@ -565,6 +648,63 @@ function attachHook(module, name, decoders) {
         attachIdirect3d9(result);
       }
     },
+  });
+}
+
+function scheduleCommandLineOracle(module) {
+  if (commandLineOracleScheduled) {
+    return;
+  }
+  commandLineOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const getExport = (name) => {
+        const result = findExport(module, name);
+        if (result === null) {
+          throw new Error(`${name} export is unavailable`);
+        }
+        return result;
+      };
+      const getCommandLineA = new NativeFunction(
+        getExport("GetCommandLineA"),
+        "pointer",
+        [],
+        "stdcall",
+      );
+      const getCommandLineW = new NativeFunction(
+        getExport("GetCommandLineW"),
+        "pointer",
+        [],
+        "stdcall",
+      );
+      const observations = [];
+      for (const [api, encoding, operation] of [
+        ["GetCommandLineA", "ansi", getCommandLineA],
+        ["GetCommandLineA", "ansi", getCommandLineA],
+        ["GetCommandLineW", "utf16", getCommandLineW],
+        ["GetCommandLineW", "utf16", getCommandLineW],
+      ]) {
+        const pointer = operation();
+        observations.push({
+          api,
+          commandLine: snapshotNulTerminatedString(pointer, encoding),
+        });
+      }
+      emit("command-line-oracle", {
+        profile: "x86-process-lifetime-stability-v1",
+        observations,
+        ansiPointerStable:
+          observations[0].commandLine.pointer === observations[1].commandLine.pointer,
+        utf16PointerStable:
+          observations[2].commandLine.pointer === observations[3].commandLine.pointer,
+        ansiAndUtf16PointersDistinct:
+          observations[0].commandLine.pointer !== observations[2].commandLine.pointer,
+        stringsEqual:
+          observations[0].commandLine.string === observations[2].commandLine.string,
+      });
+    } catch (error) {
+      emit("command-line-oracle-error", { error: error.message });
+    }
   });
 }
 
@@ -673,6 +813,12 @@ Process.attachModuleObserver({
       selectedObservations.has("critical-section")
     ) {
       scheduleCriticalSectionOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("command-line-a")
+    ) {
+      scheduleCommandLineOracle(module);
     }
   },
 });

@@ -25,6 +25,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub standard_handle_file_types: Vec<Kernel32StandardHandleFileType>,
     #[serde(default)]
     pub set_handle_counts: Vec<u32>,
+    #[serde(default)]
+    pub ansi_command_line: bool,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
 }
 
@@ -68,6 +70,7 @@ impl Kernel32CompatibilityPolicy {
                 file_type: 2,
             }],
             set_handle_counts: Vec::new(),
+            ansi_command_line: false,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
                 byte_lengths: vec![0x214],
@@ -192,6 +195,10 @@ impl Kernel32CompatibilityPolicy {
         self.set_handle_counts.contains(&count)
     }
 
+    pub fn allows_ansi_command_line(&self) -> bool {
+        self.ansi_command_line
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocations.iter().any(|allocation| {
             allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
@@ -224,6 +231,7 @@ mod tests {
         );
         assert!(policy.allows_heap_allocation(HEAP_ZERO_MEMORY, 0x214));
         assert!(!policy.allows_set_handle_count(32));
+        assert!(!policy.allows_ansi_command_line());
 
         let mut duplicate = policy;
         duplicate.heap_allocations[0].byte_lengths.push(0x214);

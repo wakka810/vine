@@ -609,6 +609,20 @@ fileTypeSelection.find(
 ).selectedObservations = ["file-type"];
 assert.doesNotThrow(() => summarizeTrace(encode(fileTypeSelection)));
 
+const setHandleCountSelection = structuredClone(events);
+setHandleCountSelection[0].arguments.observations = ["set-handle-count"];
+setHandleCountSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["set-handle-count"];
+assert.doesNotThrow(() => summarizeTrace(encode(setHandleCountSelection)));
+
+const commandLineSelection = structuredClone(events);
+commandLineSelection[0].arguments.observations = ["command-line-a"];
+commandLineSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["command-line-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(commandLineSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

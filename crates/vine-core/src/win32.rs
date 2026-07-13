@@ -31,6 +31,7 @@ pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
 pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
 pub const SET_HANDLE_COUNT_IMPLEMENTATION: &str = "kernel32.set-handle-count.v1";
+pub const GET_COMMAND_LINE_A_IMPLEMENTATION: &str = "kernel32.get-command-line-a.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
@@ -91,6 +92,7 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
         SET_HANDLE_COUNT_IMPLEMENTATION => handle_set_handle_count(policy, contract, frame),
+        GET_COMMAND_LINE_A_IMPLEMENTATION => handle_get_command_line_a(contract, session),
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
         }
@@ -149,6 +151,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetStdHandle" => get_std_handle_contract(endpoint)?,
         "GetFileType" => get_file_type_contract(endpoint)?,
         "SetHandleCount" => set_handle_count_contract(endpoint)?,
+        "GetCommandLineA" => get_command_line_a_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
@@ -279,6 +282,39 @@ fn handle_set_handle_count(
         ));
     }
     Ok(ApiImmediate::new(ApiReturnValue::U32(count)))
+}
+
+fn handle_get_command_line_a(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let command_line = session
+        .runtime()
+        .process_command_line()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let bytes = session
+        .memory()
+        .read(
+            command_line.ansi_buffer_address,
+            usize::try_from(command_line.ansi_byte_length_with_nul).map_err(|_| {
+                ApiFault::runtime_defect(
+                    "win32-command-line",
+                    "ansi-command-line-length-not-representable",
+                    "runtime ANSI command-line length does not fit host accounting",
+                )
+            })?,
+        )
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    if bytes.last() != Some(&0) || bytes[..bytes.len().saturating_sub(1)].contains(&0) {
+        return Err(ApiFault::unsupported(
+            "win32-command-line",
+            "ansi-command-line-mutation-unsupported",
+            "the process-owned ANSI command-line view no longer has its bounded NUL-terminated shape",
+        ));
+    }
+    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
+        command_line.ansi_buffer_address.0,
+    )))
 }
 
 fn handle_query_performance_counter(
@@ -876,6 +912,16 @@ pub fn set_handle_count_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCon
         vec![u32_argument("handleCount")],
         ApiReturnSchema::U32,
         SET_HANDLE_COUNT_IMPLEMENTATION,
+    )
+}
+
+pub fn get_command_line_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetCommandLineA",
+        Vec::new(),
+        ApiReturnSchema::OpaquePointer { nullable: false },
+        GET_COMMAND_LINE_A_IMPLEMENTATION,
     )
 }
 

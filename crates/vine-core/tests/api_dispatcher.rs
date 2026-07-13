@@ -18,7 +18,9 @@ use vine_core::{
     RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId, RuntimeModule,
     RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
     RuntimeTlsValue, Rva, SchedulerThreadState, StackCleanup, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
+    dispatch_kernel32_api_with_policy,
+    install_controlled_process_environment_with_command_line_and_ansi,
+    kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -1495,6 +1497,106 @@ fn set_handle_count_policy_returns_reached_count_without_mutation() {
 }
 
 #[test]
+fn get_command_line_a_returns_stable_process_owned_ascii_view_without_mutation() {
+    let (mut memory, owner) = initialized_memory_with_environment_capacity();
+    let frames = [
+        (STACK_BASE, vec![0x1000_0961]),
+        (STACK_BASE + 0x20, vec![0x1000_0962]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0xd0);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetCommandLineA IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetCommandLineA".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetCommandLineA endpoint");
+    let environment = install_controlled_process_environment_with_command_line_and_ansi(
+        &mut memory,
+        "fixture.exe",
+    )
+    .expect("process environment");
+    let parameters = environment
+        .process_parameters
+        .as_ref()
+        .expect("process parameters");
+    let ansi = parameters.ansi.as_ref().expect("ASCII command-line view");
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let registered = runtime
+        .register_initial_process_environment(&environment)
+        .expect("register process environment")
+        .clone();
+    assert_eq!(
+        registered.command_line.ansi_buffer_address,
+        ansi.buffer_address
+    );
+    assert_ne!(
+        registered.command_line.ansi_buffer_address,
+        registered.command_line.wide_buffer_address
+    );
+    assert_eq!(
+        runtime
+            .process_address_space_allocator()
+            .allocation(registered.address_allocation_id)
+            .expect("process environment allocation")
+            .purpose,
+        vine_core::ProcessAddressAllocationPurpose::ProcessEnvironment
+    );
+    let runtime_before = runtime.clone();
+    let memory_before = memory.stats();
+
+    for (stack_pointer, words) in &frames {
+        let completion = dispatch_owned(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoint,
+            *stack_pointer,
+            words[0],
+        );
+        assert_eq!(completion.eax, RegisterUpdate::Set(ansi.buffer_address.0));
+        assert_eq!(completion.stack_pointer, GuestAddress(*stack_pointer + 4));
+        assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+        assert!(completion.guest_writes.is_empty());
+    }
+    assert_eq!(
+        memory
+            .read(ansi.buffer_address, ansi.byte_length_with_nul as usize)
+            .expect("read ANSI command line"),
+        b"fixture.exe\0"
+    );
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
 fn interlocked_increment_contract_wraps_and_rejects_invalid_targets_before_mutation() {
     const ZERO_TARGET: u32 = OUTPUT_BASE;
     const WRAP_TARGET: u32 = OUTPUT_BASE + 4;
@@ -2092,6 +2194,34 @@ fn initialized_memory() -> (GuestMemory, MemoryOwnerId) {
         max_physical_pages: 4,
         max_regions: 4,
         max_owners: 4,
+        max_access_bytes: 0x4000,
+    })
+    .expect("memory");
+    let owner = memory
+        .create_owner(MemoryOwnerKind::Runtime)
+        .expect("runtime owner");
+    let range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Runtime, MEMORY_BASE, 0x3000)
+        .expect("runtime reservation");
+    memory
+        .commit(
+            owner,
+            range,
+            PageProtection {
+                read: true,
+                write: true,
+                execute: false,
+            },
+        )
+        .expect("runtime commit");
+    (memory, owner)
+}
+
+fn initialized_memory_with_environment_capacity() -> (GuestMemory, MemoryOwnerId) {
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 8,
+        max_regions: 8,
+        max_owners: 8,
         max_access_bytes: 0x4000,
     })
     .expect("memory");

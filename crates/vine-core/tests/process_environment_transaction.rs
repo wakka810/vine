@@ -1,6 +1,7 @@
 use vine_core::{
     GuestMemory, GuestMemoryErrorClass, MemoryLimits,
     install_controlled_process_environment_with_command_line,
+    install_controlled_process_environment_with_command_line_and_ansi,
 };
 
 #[test]
@@ -53,16 +54,43 @@ fn rejects_invalid_command_lines_before_mutation_and_allows_retry() {
     );
     assert_eq!(memory.stats(), before);
 
+    let non_ascii = install_controlled_process_environment_with_command_line_and_ansi(
+        &mut memory,
+        "非ascii.exe",
+    )
+    .expect_err("non-ASCII ANSI view");
+    assert_eq!(non_ascii.class, GuestMemoryErrorClass::InvalidRequest);
+    assert_eq!(non_ascii.code, "ansi-command-line-non-ascii-unsupported");
+    assert_eq!(memory.stats(), before);
+
+    let combined_view_too_long = "x".repeat(1_360);
+    let combined_view_error = install_controlled_process_environment_with_command_line_and_ansi(
+        &mut memory,
+        &combined_view_too_long,
+    )
+    .expect_err("combined UTF-16 and ANSI page capacity");
+    assert_eq!(
+        combined_view_error.class,
+        GuestMemoryErrorClass::InvalidRequest
+    );
+    assert_eq!(
+        combined_view_error.code,
+        "ansi-command-line-view-does-not-fit"
+    );
+    assert_eq!(memory.stats(), before);
+
     let environment =
-        install_controlled_process_environment_with_command_line(&mut memory, "retry.exe")
+        install_controlled_process_environment_with_command_line_and_ansi(&mut memory, "retry.exe")
             .expect("retry on the same GuestMemory");
     assert!(environment.owners_sealed);
+    let parameters = environment.process_parameters.expect("process parameters");
+    assert_eq!(parameters.command_line, "retry.exe");
     assert_eq!(
-        environment
-            .process_parameters
-            .expect("process parameters")
-            .command_line,
-        "retry.exe"
+        parameters
+            .ansi
+            .expect("ANSI command-line view")
+            .byte_length_with_nul,
+        10
     );
 }
 

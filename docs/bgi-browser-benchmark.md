@@ -4,15 +4,15 @@
 
 - Status: threshold passed
 - Date: 2026-07-13
-- Workload: current 61-call private BGI generic session
+- Workload: current 62-call private BGI generic session
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-v1.json`](../fixtures/benchmarks/bgi-browser-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
 This gate repeats the complete current BGI session in one Chrome Dedicated
 Worker. Each session starts from a new Rust runtime and v86 mirror, dispatches
-61 ordered calls over 1,526 guest instructions, performs 271 Rust/Wasm bridge
-operations, and reaches the same `GetCommandLineA()` structured stop.
+62 ordered calls over 1,536 guest instructions, performs 274 Rust/Wasm bridge
+operations, and reaches the same `GetEnvironmentStringsW()` structured stop.
 Every repetition checks the call count, instruction count, crossing count,
 memory digest, next API and fault, and zero pending work before its compact
 summary is retained.
@@ -39,30 +39,30 @@ required sample is a failure. Report schema version 2 also stores a structured
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 2,220 sessions with no
+The authoritative clean-profile Chrome run completed 2,210 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 2,220 |
+| Completed sessions | >= 120 | 2,210 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 36 |
-| Session latency p95 | <= 3,000 ms | 74.555 ms |
-| Maximum slice p99 | <= 10 ms | 0.580 ms |
-| Main heartbeat gap | <= 75 ms | 17.880 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 6,380,251 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | -104,603.15 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 28,022,452 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 2,839,834.22 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 57,671,680 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 44,248,276 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 1,292,093.31 bytes/min |
+| Session latency p95 | <= 3,000 ms | 74.540 ms |
+| Maximum slice p99 | <= 10 ms | 0.655 ms |
+| Main heartbeat gap | <= 75 ms | 18.980 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 6,511,144 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | -289,345.48 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 29,388,868 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 2,239,373.74 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 57,409,536 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 43,617,573 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 2,247,835.23 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 9,764,864 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 996,234 bytes with SHA-256
-`874e91a2e3c644b176504c807cf26271a12278a091d79858c8f20bb7cd8ced90`.
+The exact report is 991,524 bytes with SHA-256
+`4f0da435916a362e4a07f39212b845c17c30131a751fe9735e369cf25bac2874`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -79,7 +79,7 @@ Artifact hash, source revision, and ABI are Worker-level invariants, so the
 loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
-storage to 44,248,276 bytes and improved p95 latency without changing any
+storage to 43,617,573 bytes and improved p95 latency without changing any
 threshold.
 
 ## Environment
@@ -103,7 +103,7 @@ commit.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 1,519,513 | `479faa4d393c9fd21aa68fec8ab063e378ac6bb43907e7c54753404c07de830b` |
+| Rust runtime core Wasm | 1,534,588 | `21b1dbc05060d4aa98427b3015430bbfaeea8160beaf4a382bd4499f72972934` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
 | Runtime Worker bundle | 85,911 | `498ecbb38a0465c8df1c4356f4db3f023613295b9b86db0555f0f5aaac8c9ec8` |
 | BGI benchmark bundle | 8,103 | `6e9609ff158505efb5e91f7a14acf7cb534c9e6d9a36a22692e5f48ad4740e56` |
@@ -136,7 +136,7 @@ profile plus a loopback-only server and DevTools endpoint.
 - The reached path has no title rendering, audio, input, VFS, or COM workload.
 - A passing slope threshold does not prove that V8 heap capacity has reached a
   permanent plateau; longer scenario-specific gates remain required.
-- `GetCommandLineA` and all title output remain outside this workload.
+- `GetEnvironmentStringsW` and all title output remain outside this workload.
 
 ## Yield correction
 

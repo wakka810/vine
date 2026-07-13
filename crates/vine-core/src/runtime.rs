@@ -7,6 +7,7 @@ use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
 use crate::dynamic_exports::{
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
 };
+use crate::environment::{CONTROLLED_ANSI_COMMAND_LINE_ENCODING, InitialProcessEnvironment};
 use crate::imports::{ImportThunkArena, ImportThunkId, RuntimeExport};
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
@@ -869,6 +870,25 @@ pub struct RuntimeStartupInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeCommandLine {
+    pub source_authority: String,
+    pub wide_buffer_address: GuestAddress,
+    pub wide_length_bytes: u16,
+    pub ansi_buffer_address: GuestAddress,
+    pub ansi_byte_length_with_nul: u32,
+    pub ansi_encoding: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeProcessEnvironment {
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub range: RuntimeAddressRange,
+    pub command_line: RuntimeCommandLine,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeBootstrap {
     pub process_id: RuntimeProcessId,
     pub initial_thread_id: RuntimeThreadId,
@@ -1442,6 +1462,8 @@ pub struct RuntimeProcessState {
     pub address_space: ProcessAddressSpaceLayout,
     pub clock: RuntimeClockState,
     pub startup_info: RuntimeStartupInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment: Option<RuntimeProcessEnvironment>,
     pub heap_termination_on_corruption: bool,
     pub heaps: BTreeMap<u32, RuntimeHeap>,
     pub modules: BTreeMap<u32, RuntimeModule>,
@@ -1561,6 +1583,7 @@ impl RuntimeState {
                 address_space: bootstrap.address_space,
                 clock: bootstrap.clock,
                 startup_info: bootstrap.startup_info,
+                environment: None,
                 heap_termination_on_corruption: false,
                 heaps: BTreeMap::new(),
                 modules: BTreeMap::new(),
@@ -1618,6 +1641,172 @@ impl RuntimeState {
 
     pub fn process_address_space_allocator(&self) -> &ProcessAddressSpaceAllocator {
         &self.address_space_allocator
+    }
+
+    pub fn register_initial_process_environment(
+        &mut self,
+        environment: &InitialProcessEnvironment,
+    ) -> Result<&RuntimeProcessEnvironment, RuntimeStateError> {
+        if self.process.environment.is_some() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-environment",
+                "process-environment-already-registered",
+                "runtime process environment may be registered only once",
+            ));
+        }
+        if matches!(
+            self.process.lifecycle,
+            RuntimeProcessLifecycleState::ExitRequested { .. }
+                | RuntimeProcessLifecycleState::Exited { .. }
+        ) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-environment",
+                "process-environment-lifecycle-state-invalid",
+                "runtime process environment cannot be registered during process exit",
+            ));
+        }
+        if !environment.owners_sealed {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "process-environment-owner-unsealed",
+                "runtime process environment requires sealed guest-memory owners",
+            ));
+        }
+        let parameters = environment.process_parameters.as_ref().ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "process-parameters-missing",
+                "runtime process command line requires initial process parameters",
+            )
+        })?;
+        if !parameters.owners_sealed {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "process-parameter-owner-unsealed",
+                "runtime process parameters require sealed guest-memory owners",
+            ));
+        }
+        let ansi = parameters.ansi.as_ref().ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "ansi-command-line-unavailable",
+                "the controlled process command line has no deterministic ANSI view",
+            )
+        })?;
+        if ansi.encoding != CONTROLLED_ANSI_COMMAND_LINE_ENCODING
+            || !parameters.command_line.is_ascii()
+            || usize::try_from(ansi.byte_length_with_nul).ok()
+                != parameters.command_line.len().checked_add(1)
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "ansi-command-line-metadata-invalid",
+                "initial ANSI command-line metadata does not match the controlled ASCII authority",
+            ));
+        }
+        let ansi_end = u64::from(ansi.buffer_address.0)
+            .checked_add(u64::from(ansi.byte_length_with_nul))
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-process-environment",
+                    "ansi-command-line-range-overflow",
+                    "initial ANSI command-line range overflowed x86 accounting",
+                )
+            })?;
+        if ansi.buffer_address == parameters.command_line_buffer_address
+            || u64::from(ansi.buffer_address.0) < u64::from(parameters.command_line_range.start().0)
+            || ansi_end > parameters.command_line_range.end()
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "ansi-command-line-range-invalid",
+                "initial ANSI command-line view must be distinct and contained by the command-line allocation",
+            ));
+        }
+
+        let mut ranges = [
+            parameters.process_parameters_range,
+            parameters.command_line_range,
+            environment.teb_range,
+            environment.peb_range,
+        ];
+        ranges.sort_by_key(|range| range.start().0);
+        if ranges
+            .windows(2)
+            .any(|pair| pair[0].end() != u64::from(pair[1].start().0))
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "process-environment-range-discontiguous",
+                "initial process-environment pages must form one contiguous allocation",
+            ));
+        }
+        let base = ranges[0].start();
+        let byte_length = ranges[3]
+            .end()
+            .checked_sub(u64::from(base.0))
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-process-environment",
+                    "process-environment-range-order-invalid",
+                    "sorted process-environment ranges have an invalid order",
+                )
+            })?;
+        let range = RuntimeAddressRange::new(base, byte_length)?;
+        let mut allocator = self.address_space_allocator.clone();
+        let allocation = allocator.reserve(ProcessAddressAllocationRequest {
+            purpose: ProcessAddressAllocationPurpose::ProcessEnvironment,
+            owner: "runtime-initial-process-environment".to_owned(),
+            preferred_address: Some(base),
+            search_range: range,
+            reserve_size: byte_length,
+            alignment: GUEST_PAGE_SIZE as u32,
+            guard_pages: 0,
+            classification: ProcessAddressAllocationClassification::ProcessEnvironment,
+            lifetime: ProcessAddressAllocationLifetime::Process,
+            release_policy: ProcessAddressAllocationReleasePolicy::Permanent,
+            executable: false,
+        })?;
+        if allocation.range != range {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-process-environment",
+                "process-environment-preferred-address-lost",
+                "process address allocator did not preserve the materialized environment range",
+            ));
+        }
+        let registered = RuntimeProcessEnvironment {
+            address_allocation_id: allocation.id,
+            range,
+            command_line: RuntimeCommandLine {
+                source_authority: "rtl-user-process-parameters-command-line".to_owned(),
+                wide_buffer_address: parameters.command_line_buffer_address,
+                wide_length_bytes: parameters.command_line_length_bytes,
+                ansi_buffer_address: ansi.buffer_address,
+                ansi_byte_length_with_nul: ansi.byte_length_with_nul,
+                ansi_encoding: ansi.encoding.clone(),
+            },
+        };
+        self.address_space_allocator = allocator;
+        self.process.environment = Some(registered);
+        Ok(self
+            .process
+            .environment
+            .as_ref()
+            .expect("registered process environment"))
+    }
+
+    pub fn process_command_line(&self) -> Result<&RuntimeCommandLine, RuntimeStateError> {
+        self.process
+            .environment
+            .as_ref()
+            .map(|environment| &environment.command_line)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-process-environment",
+                    "process-command-line-unregistered",
+                    "runtime process has no registered command-line authority",
+                )
+            })
     }
 
     pub fn current_thread_id(&self) -> RuntimeThreadId {

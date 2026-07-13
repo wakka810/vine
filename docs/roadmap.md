@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは24 contracts／61 callsをcommon dispatcherからreturnして`GetCommandLineA()`へ到達した。同じcurrent sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとのordered completion／memory digest一致、heartbeat、cancel／watchdog teardownを通した。protocol v4はexplicit execution state machineを維持し、production loopをpinned ExecutionEngine contractへ移した。timer clamp非依存yieldによる3分／2,220-session workload gateはsession／slice分布、main／Worker heapとbacking-storage slope、linear memory、Wasm crossing thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは25 contracts／62 callsをcommon dispatcherからreturnして`GetEnvironmentStringsW()`へ到達した。同じcurrent sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとのordered completion／memory digest一致、heartbeat、cancel／watchdog teardownを通した。protocol v4はexplicit execution state machineを維持し、production loopをpinned ExecutionEngine contractへ移した。timer clamp非依存yieldによる3分／2,210-session workload gateは直前profileでsession／slice分布、main／Worker heapとbacking-storage slope、linear memory、Wasm crossing thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -979,19 +979,20 @@ capture時artifact identityとしてのみ保持する。後続Browser oracle in
 257,878 bytes／SHA-256
 `564c3425f01b35e86717b68335b18f8bcd3d30d996717a1d0848028104cf0a2b`である。
 
-current 61-call sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとの
+current 62-call sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとの
 ordered completion／memory digest一致、main heartbeat、cancel／watchdog teardownを通した。続く
-3分／2,220-session BGI workload gateはfailure 0で、session／slice分布、main／Worker heapとbacking
-storage slope、Rust／execution-engine linear memory、271 Wasm crossings/sessionの全version 1 thresholdを通した。
+3分／2,210-session BGI workload gateはfailure 0で、session／slice分布、main／Worker heapとbacking
+storage slope、Rust／execution-engine linear memory、274 Wasm crossings/sessionの全version 1 thresholdを通した。
 これはfull-play、long-idle、title outputの完了を意味しない。
 
 1. [完了] `GetFileType(0x53010002)`のnative `FILE_TYPE_PIPE`／LastError／immediate consumerを固定し、registered logical stdoutだけをversioned file-type contractへ接続した。57 calls／generation `116`を通し、instruction 1484の`GetStdHandle(STD_ERROR_HANDLE)`へ進んだ。
 2. [完了] `GetStdHandle(STD_ERROR_HANDLE)`のnative identity `0x238`／LastError `87 -> 87`／`GetFileType` consumerを固定し、logical stderr `0x53010003`だけを既存contractへ追加した。58 calls／generation `117`を通し、instruction 1492の`GetFileType(0x53010003)`へ進んだ。
 3. [完了] `GetFileType(0x53010003)`のnative `FILE_TYPE_PIPE`／LastError／consumerを固定し、registered logical stderrだけを既存file-type contractへ追加した。60 calls／generation `120`を通し、instruction 1516の`SetHandleCount(32)`へ進んだ。
 4. [完了] `SetHandleCount(32)`のnative return `32`／LastError `87 -> 87`／discarded consumerを固定し、policy-enabled synchronous contractだけを追加した。61 calls／generation `121`を通し、instruction 1526の`GetCommandLineA()`へ進んだ。
-5. `GetCommandLineA()`のnative pointer relation／returned bytes／LastError／consumerを固定し、existing process-parameter authorityへANSI viewだけを接続する。Host pointer、broad environment、command-line mutationを同時に追加しない。
+5. [完了] `GetCommandLineA()`のstable A/W pointer relation、ANSI bytes、LastError preserve、retained consumerを固定し、existing process-parameter authorityからASCII viewを派生した。62 calls／generation `122`を通し、instruction 1536の`GetEnvironmentStringsW()`へ進んだ。
+6. `GetEnvironmentStringsW()`のnative block shape／ordering／double-NUL termination／LastError／consumer／paired freeを固定し、controlled process environmentだけをprocess-owned wide blockへ接続する。Host environment import、ANSI block、mutationを同時に追加しない。
 
-frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated eighteenth-call expansionはpauseを続ける。`SetHandleCount(32)`は完了し、現在はreached `GetCommandLineA()`を進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
+frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated eighteenth-call expansionはpauseを続ける。`GetCommandLineA()`は完了し、現在はreached `GetEnvironmentStringsW()`を進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
 
 ## 23. 完了の定義
 

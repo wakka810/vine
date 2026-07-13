@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, and SetHandleCount capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, and GetCommandLineA capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-set-handle-count`
-- Scope: frozen 17-call equivalence plus 61 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-command-line-a`
+- Scope: frozen 17-call equivalence plus 62 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -140,6 +140,7 @@ One `RuntimeState` is created at cumulative-session start. It owns:
 - bounded private-heap backing and reached guest allocation metadata, with
   `GuestMemory` as byte and mapping authority.
 - the reached process standard input／output identities, without importing host handles.
+- a process-owned ANSI command-line pointer derived from the UTF-16 process-parameter authority.
 
 The Rust profile preloads the logical runtime KERNEL32 module and installed FLS endpoints. `HeapCreate` and `TlsAlloc` allocate through runtime-owned deterministic allocators. `GetModuleHandleW` and `GetProcAddress` resolve state by canonical module and exact export name. No handler receives a result value from the JSON protocol.
 
@@ -147,7 +148,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 24 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 25 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -433,18 +434,19 @@ and stops at instruction 1526 on `GetCommandLineA()`. Full evidence is in
   cross-worker shared-memory atomicity are absent.
 - The generic session owns only the reached standard input／output／error
   identities, stdin character classification, and stdout／stderr pipe
-  classifications plus the policy-enabled `SetHandleCount(32)` no-op contract.
+  classifications, the policy-enabled `SetHandleCount(32)` no-op contract, and
+  the process-owned ASCII command-line view.
   General handle-table sizing, `SetStdHandle`, close behavior, broader file type,
   console semantics, and file I/O remain absent. Its first unsupported
-  operation is `GetCommandLineA()`; bespoke
+  operation is `GetEnvironmentStringsW()`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-command-line-a` at `GetCommandLineA()`. It must first
-fix the native pointer relation, returned bytes, LastError, and immediate
-consumer, then connect the existing process-parameter authority without
-importing a host pointer or broad environment semantics.
+The next proof is `kernel32-environment-strings-w` at
+`GetEnvironmentStringsW()`. It must first fix the native environment block
+shape, ordering, double-NUL termination, ownership, LastError, paired free, and
+immediate consumer without importing the host environment.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -455,4 +457,5 @@ FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
 regression uses field assertions; the replayed policy-bearing standard-output
 report is 257,878 bytes. The stdout-file-type and stderr-handle reports are
 267,223 and 271,184 bytes respectively; the current stderr-file-type report is
-280,475 bytes and the current SetHandleCount report is 284,215 bytes.
+280,475 bytes, the SetHandleCount report is 284,215 bytes, and the current
+GetCommandLineA report is 288,041 bytes.
