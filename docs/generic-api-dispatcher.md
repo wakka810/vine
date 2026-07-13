@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-input-handle, stdin-file-type, standard-output-handle, stdout-file-type, and standard-error-handle capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, and SetHandleCount capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-standard-error-file-type`
-- Scope: frozen 17-call equivalence plus 60 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-set-handle-count`
+- Scope: frozen 17-call equivalence plus 61 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -391,6 +391,21 @@ report has SHA-256
 and stops at instruction 1516 on `SetHandleCount(32)`. Full evidence is in
 [bgi-standard-error-file-type.md](bgi-standard-error-file-type.md).
 
+The SetHandleCount profile is:
+
+```powershell
+npm run check:runtime:bgi-set-handle-count
+```
+
+It uses `kernel32.set-handle-count.v1` with the versioned
+`kernel32-set-handle-count-v1` policy. Count `32` returns unchanged with
+LastError preserved and no runtime／memory mutation. The profile completes 61
+calls, uses 62 writeback batches／105 dirty pages／992 changed bytes and 30 host
+deltas, and ends at generation `121`. Its 284,215-byte report has SHA-256
+`91be62c168dd5296fa549a8bf553975853dfef506bcb3ce7670a7b8843f82f3b`
+and stops at instruction 1526 on `GetCommandLineA()`. Full evidence is in
+[bgi-set-handle-count.md](bgi-set-handle-count.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -411,17 +426,18 @@ and stops at instruction 1516 on `SetHandleCount(32)`. Full evidence is in
   cross-worker shared-memory atomicity are absent.
 - The generic session owns only the reached standard input／output／error
   identities, stdin character classification, and stdout／stderr pipe
-  classifications. `SetHandleCount`, `SetStdHandle`, close behavior, broader
-  file type, console semantics, and file I/O remain absent. Its first unsupported
-  operation is `SetHandleCount(32)`; bespoke
+  classifications plus the policy-enabled `SetHandleCount(32)` no-op contract.
+  General handle-table sizing, `SetStdHandle`, close behavior, broader file type,
+  console semantics, and file I/O remain absent. Its first unsupported
+  operation is `GetCommandLineA()`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-set-handle-count` at `SetHandleCount(32)`. It must
-first fix the native return, LastError, and immediate consumer, then implement
-only the reached synchronous contract without inferring general handle-table
-sizing, console behavior, or file I/O.
+The next proof is `kernel32-command-line-a` at `GetCommandLineA()`. It must first
+fix the native pointer relation, returned bytes, LastError, and immediate
+consumer, then connect the existing process-parameter authority without
+importing a host pointer or broad environment semantics.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -432,4 +448,4 @@ FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
 regression uses field assertions; the replayed policy-bearing standard-output
 report is 257,878 bytes. The stdout-file-type and stderr-handle reports are
 267,223 and 271,184 bytes respectively; the current stderr-file-type report is
-280,475 bytes.
+280,475 bytes and the current SetHandleCount report is 284,215 bytes.

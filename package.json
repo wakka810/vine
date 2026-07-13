@@ -72,6 +72,7 @@
     "check:runtime:bgi-standard-output-file-type": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-standard-output-file-type",
     "check:runtime:bgi-standard-error-handle": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-standard-error-handle",
     "check:runtime:bgi-standard-error-file-type": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-standard-error-file-type",
+    "check:runtime:bgi-set-handle-count": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --runtime-capability kernel32-set-handle-count",
     "check:runtime:window-loader": "node tools/run-runtime-window-loader-slice.mjs",
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "typecheck:runtime:browser-worker": "tsc -p browser/runtime-worker/tsconfig.json",

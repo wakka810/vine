@@ -13,13 +13,13 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `bgi-standard-error-file-type`: 60 calls across 23 API contracts, memory generation 120 |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (1807 sessions) |
+| Active runtime | `bgi-set-handle-count`: 61 calls across 24 API contracts, memory generation 121 |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (1579 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `KERNEL32.dll!SetHandleCount(0x00000020)` at instruction 1516: `endpoint-contract-missing` |
+| Next structured stop | `KERNEL32.dll!GetCommandLineA()` at instruction 1526: `endpoint-contract-missing` |
 
-The active semantic report is 280,475 bytes with SHA-256
-`ce9d4271db746b1b7d377bb3e42a861f9c611367e5fcfefba0f19b35fca5aee1`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 284,215 bytes with SHA-256
+`91be62c168dd5296fa549a8bf553975853dfef506bcb3ce7670a7b8843f82f3b`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
@@ -46,6 +46,7 @@ The active semantic report is 280,475 bytes with SHA-256
 - `KERNEL32.dll!InterlockedIncrement`
 - `KERNEL32.dll!GetStdHandle`
 - `KERNEL32.dll!GetFileType`
+- `KERNEL32.dll!SetHandleCount`
 
 ### Reproduce Current Checkpoint
 
@@ -214,6 +215,9 @@ fail-closed at `GetStdHandle(STD_ERROR_HANDLE)` after 57 completed calls.
 `npm run check:runtime:bgi-standard-error-file-type` classifies that logical
 stderr as `FILE_TYPE_PIPE`, preserves the prior policies and reports, and stops
 fail-closed at `SetHandleCount(32)` after 60 completed calls.
+`npm run check:runtime:bgi-set-handle-count` returns the policy-enabled count
+`32`, preserves state and LastError, and stops fail-closed at `GetCommandLineA()`
+after 61 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

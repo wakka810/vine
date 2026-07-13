@@ -27,7 +27,7 @@ const bgiPolicyPath = path.join(
 const bgiOracleReportPath = path.join(
   root,
   ".work",
-  "v86-bgi-standard-error-file-type",
+  "v86-bgi-set-handle-count",
   "report.json",
 );
 const bgiBenchmarkConfigurationPath = path.join(

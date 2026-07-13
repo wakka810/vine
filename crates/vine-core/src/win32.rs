@@ -30,6 +30,7 @@ pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thr
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
 pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
+pub const SET_HANDLE_COUNT_IMPLEMENTATION: &str = "kernel32.set-handle-count.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
@@ -89,6 +90,7 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
         GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
+        SET_HANDLE_COUNT_IMPLEMENTATION => handle_set_handle_count(policy, contract, frame),
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
         }
@@ -146,6 +148,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetTickCount" => get_tick_count_contract(endpoint)?,
         "GetStdHandle" => get_std_handle_contract(endpoint)?,
         "GetFileType" => get_file_type_contract(endpoint)?,
+        "SetHandleCount" => set_handle_count_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
@@ -257,6 +260,25 @@ fn handle_get_file_type(
             )
         })?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(file_type)))
+}
+
+fn handle_set_handle_count(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let count = required_argument(contract, frame, 0, "handle count")?;
+    if !policy.allows_set_handle_count(count) {
+        return Err(ApiFault::unsupported(
+            "win32-handle-table",
+            "set-handle-count-unsupported",
+            format!(
+                "compatibility policy {} does not enable SetHandleCount({count})",
+                policy.id
+            ),
+        ));
+    }
+    Ok(ApiImmediate::new(ApiReturnValue::U32(count)))
 }
 
 fn handle_query_performance_counter(
@@ -844,6 +866,16 @@ pub fn get_file_type_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContra
         )],
         ApiReturnSchema::U32,
         GET_FILE_TYPE_IMPLEMENTATION,
+    )
+}
+
+pub fn set_handle_count_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "SetHandleCount",
+        vec![u32_argument("handleCount")],
+        ApiReturnSchema::U32,
+        SET_HANDLE_COUNT_IMPLEMENTATION,
     )
 }
 

@@ -339,6 +339,9 @@ if (selectedObservations.has("standard-handle")) {
 if (selectedObservations.has("file-type")) {
   hooks["kernel32.dll"].push(["GetFileType", [null]]);
 }
+if (selectedObservations.has("set-handle-count")) {
+  hooks["kernel32.dll"].push(["SetHandleCount", [null]]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -486,6 +489,9 @@ function attachHook(module, name, decoders) {
               selectedObservations.has("standard-handle")
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
           : name === "GetFileType" && selectedObservations.has("file-type")
+            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
+          : name === "SetHandleCount" &&
+              selectedObservations.has("set-handle-count")
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||

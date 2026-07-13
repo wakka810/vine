@@ -26,6 +26,7 @@ SUPPORTED_OBSERVATIONS = (
     "interlocked-increment",
     "standard-handle",
     "file-type",
+    "set-handle-count",
 )
 
 

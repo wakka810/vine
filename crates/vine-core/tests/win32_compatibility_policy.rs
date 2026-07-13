@@ -16,13 +16,14 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!(
             "../../../fixtures/runtime-policies/kernel32-standard-error-file-type-v1.json"
         ),
+        include_str!("../../../fixtures/runtime-policies/kernel32-set-handle-count-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
         policy.validate().unwrap();
     }
 
-    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[5]).unwrap();
+    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[6]).unwrap();
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_INPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_OUTPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_ERROR_SELECTOR));
@@ -40,4 +41,5 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     );
     assert!(active.allows_heap_allocation(0x8, 0x214));
     assert!(active.allows_heap_allocation(0x8, 0x800));
+    assert!(active.allows_set_handle_count(32));
 }

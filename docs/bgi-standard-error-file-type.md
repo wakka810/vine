@@ -126,3 +126,7 @@ fault:              endpoint-contract-missing
 The next checkpoint must measure the reached native result, LastError, and
 consumer before adding only this one API contract. It must not infer general
 handle-table sizing, file I/O, or console behavior.
+
+That checkpoint is now complete in
+[bgi-set-handle-count.md](bgi-set-handle-count.md). This file remains the
+historical stderr-file-type checkpoint.

@@ -23,6 +23,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub id: String,
     pub standard_handle_selectors: Vec<u32>,
     pub standard_handle_file_types: Vec<Kernel32StandardHandleFileType>,
+    #[serde(default)]
+    pub set_handle_counts: Vec<u32>,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
 }
 
@@ -65,6 +67,7 @@ impl Kernel32CompatibilityPolicy {
                 selector: RUNTIME_STANDARD_INPUT_SELECTOR,
                 file_type: 2,
             }],
+            set_handle_counts: Vec::new(),
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
                 byte_lengths: vec![0x214],
@@ -94,6 +97,7 @@ impl Kernel32CompatibilityPolicy {
         if self.standard_handle_selectors.is_empty()
             || self.standard_handle_selectors.len() > MAX_POLICY_ENTRIES
             || self.standard_handle_file_types.len() > MAX_POLICY_ENTRIES
+            || self.set_handle_counts.len() > MAX_POLICY_ENTRIES
             || self.heap_allocations.is_empty()
             || self.heap_allocations.len() > MAX_POLICY_ENTRIES
         {
@@ -135,6 +139,18 @@ impl Kernel32CompatibilityPolicy {
             }
         }
 
+        let handle_counts = self
+            .set_handle_counts
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        if handle_counts.len() != self.set_handle_counts.len() || handle_counts.contains(&0) {
+            return Err(policy_error(
+                "kernel32-policy-set-handle-counts-invalid",
+                "SetHandleCount variants must be unique nonzero counts",
+            ));
+        }
+
         let mut heap_variants = BTreeSet::new();
         for allocation in &self.heap_allocations {
             if !matches!(allocation.flags, 0 | HEAP_ZERO_MEMORY)
@@ -172,6 +188,10 @@ impl Kernel32CompatibilityPolicy {
             .map(|entry| entry.file_type)
     }
 
+    pub fn allows_set_handle_count(&self, count: u32) -> bool {
+        self.set_handle_counts.contains(&count)
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocations.iter().any(|allocation| {
             allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
@@ -203,6 +223,7 @@ mod tests {
             Some(2)
         );
         assert!(policy.allows_heap_allocation(HEAP_ZERO_MEMORY, 0x214));
+        assert!(!policy.allows_set_handle_count(32));
 
         let mut duplicate = policy;
         duplicate.heap_allocations[0].byte_lengths.push(0x214);

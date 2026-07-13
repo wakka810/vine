@@ -64,6 +64,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-standard-output-file-type",
         "kernel32-standard-error-handle",
         "kernel32-standard-error-file-type",
+        "kernel32-set-handle-count",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -90,7 +91,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-standard-error-file-type"
+    genericRuntimeCapability === "kernel32-set-handle-count"
+      ? "kernel32-set-handle-count-v1.json"
+      : genericRuntimeCapability === "kernel32-standard-error-file-type"
       ? "kernel32-standard-error-file-type-v1.json"
       : genericRuntimeCapability === "kernel32-standard-error-handle"
       ? "kernel32-standard-error-v1.json"
@@ -136,7 +139,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const setHandleCountEnabled =
+  genericRuntimeCapability === "kernel32-set-handle-count";
 const standardErrorFileTypeEnabled =
+  setHandleCountEnabled ||
   genericRuntimeCapability === "kernel32-standard-error-file-type";
 const standardErrorHandleEnabled =
   standardErrorFileTypeEnabled ||
@@ -181,7 +187,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? standardErrorFileTypeEnabled
+    ? setHandleCountEnabled
+      ? "v86-bgi-set-handle-count"
+      : standardErrorFileTypeEnabled
       ? "v86-bgi-standard-error-file-type"
       : standardErrorHandleEnabled
       ? "v86-bgi-standard-error-handle"
@@ -1716,6 +1724,32 @@ const standardErrorFileTypeExpected = {
   reportBytes: 280_475,
   reportSha256: "ce9d4271db746b1b7d377bb3e42a861f9c611367e5fcfefba0f19b35fca5aee1",
 };
+const setHandleCountExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 61,
+  count: 32,
+  instructionCount: 1516,
+  returnAddress: 0x100a881f,
+  writebackBatches: 62,
+  dirtyPages: 105,
+  changedBytes: 992,
+  hostDeltaBatches: 30,
+  finalGeneration: 121,
+  firstUnsupported: {
+    endpointId: 85,
+    endpointAddress: 0x7f000540,
+    module: "kernel32.dll",
+    symbol: "GetCommandLineA",
+    iatAddress: 0x100d11fc,
+    arguments: [],
+    returnAddress: 0x100a3786,
+    instructionCount: 1526,
+    faultCode: "endpoint-contract-missing",
+  },
+  memoryContentSha256: "3e0e3dc6fc0420af4cf1bc4233d8fc267311f3926abc18b91ce839ce2ff083b3",
+  reportBytes: 284_215,
+  reportSha256: "91be62c168dd5296fa549a8bf553975853dfef506bcb3ce7670a7b8843f82f3b",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2178,6 +2212,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setHandleCountEnabled) {
+        validateSetHandleCountResult(genericResult);
       } else if (standardErrorFileTypeEnabled) {
         validateStandardErrorFileTypeResult(genericResult);
       } else if (standardErrorHandleEnabled) {
@@ -2207,7 +2243,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : standardErrorFileTypeEnabled
+          : setHandleCountEnabled
+            ? "bgi set handle count"
+            : standardErrorFileTypeEnabled
             ? "bgi standard error file type"
             : standardErrorHandleEnabled
             ? "bgi standard error handle"
@@ -2586,7 +2624,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : fileTypeEnabled
+        : setHandleCountEnabled
+          ? 11
+          : fileTypeEnabled
           ? 10
           : standardInputHandleEnabled
           ? 9
@@ -3994,6 +4034,58 @@ function validateStandardErrorFileTypeResult(result) {
   );
 }
 
+function validateSetHandleCountResult(result) {
+  const expected = setHandleCountExpected;
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "SetHandleCount");
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].arguments, [expected.count]);
+  assert.deepEqual(calls[0].result, { action: "set", value: expected.count });
+  assert.equal(calls[0].implementationId, "kernel32.set-handle-count.v1");
+  assert.equal(calls[0].lastError, 87);
+  assert.deepEqual(calls[0].guestWrites, []);
+  assert.equal(calls[0].stackPointerAfter, calls[0].stackPointerBefore + 8);
+  assert.equal(calls[0].trapInstructionCount, expected.instructionCount);
+  assert.equal(calls[0].returnAddress, expected.returnAddress);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -4015,7 +4107,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : standardErrorFileTypeEnabled
+        : setHandleCountEnabled
+          ? "vine.v86-bgi-set-handle-count"
+          : standardErrorFileTypeEnabled
           ? "vine.v86-bgi-standard-error-file-type"
           : standardErrorHandleEnabled
           ? "vine.v86-bgi-standard-error-handle"

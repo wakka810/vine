@@ -1204,3 +1204,30 @@ structured stopを再現する。Unchanged 3分gateは1,807 sessions／failure 0
 instructions、watchdog 4 instructions、pending work 0は不変である。詳細は
 [bgi-standard-error-file-type.md](bgi-standard-error-file-type.md)と
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
+
+## 57. BGI SetHandleCount
+
+opt-in `set-handle-count` tracesは233,779 bytes／779 lines／SHA-256
+`ce0ced493ed1af598d5f4b3e6b3aad3ab811b84991cc69fbfe4bf5d98b649a71`と
+234,327 bytes／779 lines／SHA-256
+`8f09c81e20837926d02d8584954641db726932eb7d7f1aa5eebb6ab9e152f4e8`
+である。両captureともBGI caller return RVA `0xA881F`、argument `32`、result `32`、
+LastError `87 -> 87`を返す。CallerはIAT call直後の`xor eax,eax`でresultを破棄して
+function return `0`を作る。Native handle-table stateはimportしない。
+
+Rust common dispatcherはsingle `kernel32.set-handle-count.v1`へversioned
+`kernel32-set-handle-count-v1` policyを渡し、enabled count `32`を同値で返す。
+Historical policiesとunlisted countはruntime／memory mutation前にstructured unsupportedとなる。
+`npm run check:runtime:bgi-set-handle-count`は24 contracts／61 calls、62 writeback
+batches／105 dirty pages／992 changed bytes、30 host deltas、final generation `121`を通す。
+instruction `1526`でID `85`／`GetCommandLineA()`を`endpoint-contract-missing`として
+停止する。284,215-byte reportのSHA-256は
+`91be62c168dd5296fa549a8bf553975853dfef506bcb3ce7670a7b8843f82f3b`である。
+
+Chrome Runtime Workerも61 ordered calls、same final memory SHA-256
+`3e0e3dc6fc0420af4cf1bc4233d8fc267311f3926abc18b91ce839ce2ff083b3`、same
+structured stopを再現する。Unchanged 3分gateは1,579 sessions／failure 0、p95
+`110.975 ms`、271 Wasm crossings/sessionで全thresholdを通した。cancel 8
+instructions、watchdog 4 instructions、pending work 0は不変である。詳細は
+[bgi-set-handle-count.md](bgi-set-handle-count.md)と
+[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。

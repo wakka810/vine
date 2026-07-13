@@ -1,0 +1,27 @@
+{
+  "schema": "vine.kernel32-compatibility-policy",
+  "schemaVersion": 1,
+  "id": "kernel32-set-handle-count-v1",
+  "standardHandleSelectors": [4294967286, 4294967285, 4294967284],
+  "standardHandleFileTypes": [
+    {
+      "selector": 4294967286,
+      "fileType": 2
+    },
+    {
+      "selector": 4294967285,
+      "fileType": 3
+    },
+    {
+      "selector": 4294967284,
+      "fileType": 3
+    }
+  ],
+  "setHandleCounts": [32],
+  "heapAllocations": [
+    {
+      "flags": 8,
+      "byteLengths": [532, 2048]
+    }
+  ]
+}

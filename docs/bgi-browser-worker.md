@@ -22,14 +22,14 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 60 | 60 |
-| Guest instructions at next stop | 1,516 | 1,516 |
+| Supported calls | 61 | 61 |
+| Guest instructions at next stop | 1,526 | 1,526 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 224 | 120 |
+| Final memory generation | 225 | 121 |
 | Host delta batches | 30 | 30 |
-| Final memory content SHA-256 | `5bb58fba2f503a84550a71e0ba35f11049e77ebb9038461db91f04d0dfb3bb61` | same |
+| Final memory content SHA-256 | `3e0e3dc6fc0420af4cf1bc4233d8fc267311f3926abc18b91ce839ce2ff083b3` | same |
 | Next capability cluster | `kernel32-api-contract` | same |
-| Next API | `KERNEL32.dll!SetHandleCount` | same |
+| Next API | `KERNEL32.dll!GetCommandLineA` | same |
 | Fault | `endpoint-contract-missing` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
@@ -39,18 +39,18 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 175
-writeback batches; the Node oracle reconciles only at 61 trap boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 176
+writeback batches; the Node oracle reconciles only at 62 trap boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 214 CPU slices, 153 budget yields, 269 Rust/Wasm bridge
-operations, and a maximum observed slice of 2.055 ms. The main-thread heartbeat
-recorded 41 samples with a 21.03 ms maximum gap while the Worker ran. A
-single-run `usedJSHeapSize` observation changed from 628,738 to 708,542 bytes;
-this remains run identity. The separate versioned BGI workload gate repeats 1,807
+The successful run used 216 CPU slices, 154 budget yields, 271 Rust/Wasm bridge
+operations, and a maximum observed slice of 1.920 ms. The main-thread heartbeat
+recorded 35 samples with a 23.155 ms maximum gap while the Worker ran. A
+single-run `usedJSHeapSize` observation changed from 628,738 to 708,682 bytes;
+this remains run identity. The separate versioned BGI workload gate repeats 1,579
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -77,7 +77,7 @@ report hash is artifact identity only.
 
 ## Non-claims
 
-- no `SetHandleCount` behavior or capability after the current stop is implemented
+- no `GetCommandLineA` behavior or capability after the current stop is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
 - the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

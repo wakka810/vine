@@ -73,6 +73,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-standard-output-file-type.md](bgi-standard-output-file-type.md) | reached stdout typeをどう分類するか | native FILE_TYPE_PIPE、logical lookup、MessageChannel yield、stderr first stop |
 | [bgi-standard-error-handle.md](bgi-standard-error-handle.md) | reached stderr identityをどう所有するか | native result／consumer、logical stderr、error type first stop |
 | [bgi-standard-error-file-type.md](bgi-standard-error-file-type.md) | reached stderr typeをどう分類するか | native FILE_TYPE_PIPE、logical lookup、SetHandleCount first stop |
+| [bgi-set-handle-count.md](bgi-set-handle-count.md) | reached handle countをどう返すか | native result／discarded consumer、versioned count policy、GetCommandLineA first stop |
 | [browser-runtime-worker.md](browser-runtime-worker.md) | Chrome内でruntime全経路をどこまで通せるか | Worker guest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdog、30分stress |
 | [bgi-browser-worker.md](bgi-browser-worker.md) | current BGI sessionをChromeへ移せたか | Rust/Wasm authority、Node semantic oracle、memory digest、heartbeat、cancel／watchdog |
 | [bgi-browser-benchmark.md](bgi-browser-benchmark.md) | BGI Browser workloadの性能／memoryはgate内か | 3分反復、session／slice分布、main／Worker heap slope、linear memory、Wasm crossing |
