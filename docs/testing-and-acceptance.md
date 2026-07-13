@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph、controlled process／initial-thread lifecycle contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。production title Runtime Workerと対応browser matrixは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、current 55-call BGI Chrome Worker semantic equivalence、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph、controlled process／initial-thread lifecycle contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。title steady-memory matrixと次capability以降のbrowser pathは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -399,6 +399,12 @@ fixed `GetMessageA`はcandidateをzero metadataのMSGへmaterialize／dequeueし
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、2 deferred host completions、depth-2 callback、automatic writeback、Canvas／Web Audio／IndexedDB、pending cancel、watchdog、entry sentinelを通す。46 instructions／10 slices／3 yields、30分／11,326 sessionsのevidenceは[browser-runtime-worker.md](browser-runtime-worker.md)を正とする。これは`AC-P1-04`、`AC-P1-05`、`AC-P1-07`、`AC-P1-10`へのpartial evidenceであり、general wait／wake、host timeout、versioned performance threshold、title workloadを代用しない。
+
+private BGI Worker contractはcurrent generic profileをChrome内Rust/Wasm authorityで実行する。Nodeは
+oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatcher／memory stateを所有しない。
+55 ordered completions、1,447 instructions、final memory content digest、next structured faultを比較し、
+8-instruction cancelと4-instruction watchdogでprocess exit／module detach／pending work zeroを要求する。
+詳細は[bgi-browser-worker.md](bgi-browser-worker.md)を正とし、単発heap値をsteady-memory gateへ昇格しない。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch

@@ -213,6 +213,7 @@ struct GenericRuntimeFault {
     endpoint: GenericRuntimeEndpoint,
     fault: ApiFault,
     memory: MemoryStats,
+    memory_content_sha256: String,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -3147,6 +3148,10 @@ fn write_generic_runtime_fault(
     fault: ApiFault,
 ) -> Result<(), LoaderError> {
     let capability_cluster = runtime_capability_cluster(&endpoint);
+    let memory_content_sha256 = memory
+        .current_reflection()
+        .map_err(memory_error)?
+        .content_sha256;
     write_runtime_json_frame(
         RUNTIME_FRAME_API_FAULT,
         &GenericRuntimeFault {
@@ -3156,6 +3161,7 @@ fn write_generic_runtime_fault(
             endpoint,
             fault,
             memory: memory.stats(),
+            memory_content_sha256,
         },
     )
 }

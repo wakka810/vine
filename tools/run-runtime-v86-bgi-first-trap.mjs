@@ -156,6 +156,7 @@ const wasmPath = path.resolve(
 );
 const bgiPath = path.resolve(
   positionalArguments[1] ??
+    process.env.VINE_BGI_EXE ??
     "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe",
 );
 const outputDirectory = path.join(
@@ -2823,6 +2824,7 @@ function validateGenericRuntimeFault(fault, endpoint, generation) {
   assert.equal(fault.memory.acknowledgedGeneration, generation);
   assert.equal(fault.memory.dirtyPages, 0);
   assert.equal(fault.memory.pendingInvalidation, undefined);
+  assert.match(fault.memoryContentSha256, /^[0-9a-f]{64}$/u);
 }
 
 function restoreGenericApiCompletion(context, trapped, completion) {
@@ -3738,6 +3740,8 @@ function buildGenericRuntimeReentryReport({
       capabilityCluster: genericResult.fault.capabilityCluster,
       endpoint: genericResult.fault.endpoint,
       fault: genericResult.fault.fault,
+      memory: genericResult.fault.memory,
+      memoryContentSha256: genericResult.fault.memoryContentSha256,
       instructionCount: genericResult.terminal.instructionCount,
       terminal: genericResult.terminal.terminal,
     },

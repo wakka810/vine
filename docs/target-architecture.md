@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB／process-parameters bootstrap、binary bidirectional memory synchronization、controlled process lifecycle／two-thread logical registry／one-object wait／raw message queue／private-heap backing／two reached HeapAlloc blocks／selected-thread FLS value／checked InterlockedIncrement／logical standard input／output handles／stdin file typeがある。controlled fixtureではChrome Runtime Worker内のguest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdogまで成立した。per-thread CPU bootstrap／general multi-thread／wait-any／wait-all／timeout、User32 message semantics、standard error、output／broad file type／file I/O、broad heap／FLS semantics、adjacent interlocked operations、DLL／export lifecycle、BGI browser execution、Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／stackとminimum typed TEB／PEB／process-parameters bootstrap、binary bidirectional memory synchronization、controlled process lifecycle／two-thread logical registry／one-object wait／raw message queue／private-heap backing／two reached HeapAlloc blocks／selected-thread FLS value／checked InterlockedIncrement／logical standard input／output handles／stdin file typeがある。controlled fixtureに加え、current BGI generic sessionの55 callsとnext structured stopをChrome Runtime WorkerでNode oracleとsemantic一致させ、cancel／watchdog cleanupまで通した。per-thread CPU bootstrap／general multi-thread／wait-any／wait-all／timeout、User32 message semantics、standard error、output／broad file type／file I/O、broad heap／FLS semantics、adjacent interlocked operations、title rendering／audio／VFS／COM、full-play Win32 runtimeは存在しない
 
 ## 2. アーキテクチャ原則
 

@@ -27,6 +27,7 @@ The focused Worker commands are:
 
 ```powershell
 npm run check:runtime:browser-worker
+npm run check:runtime:bgi-browser
 npm run serve:runtime:browser-worker
 npm run check:runtime:browser-worker:stress
 ```

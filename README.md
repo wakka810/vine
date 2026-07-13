@@ -14,12 +14,12 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active runtime | `bgi-standard-output-handle`: 55 calls across 23 API contracts, memory generation 113 |
-| Browser | `controlled-public-fixture` passed; BGI session `not-started` |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed` |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `KERNEL32.dll!GetFileType(0x53010002)` at instruction 1447: `file-type-standard-handle-unsupported` |
 
-The active semantic report is 257,475 bytes with SHA-256
-`c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 257,878 bytes with SHA-256
+`564c3425f01b35e86717b68335b18f8bcd3d30d996717a1d0848028104cf0a2b`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
@@ -50,7 +50,7 @@ The active semantic report is 257,475 bytes with SHA-256
 ### Reproduce Current Checkpoint
 
 ```sh
-npm run check:runtime:bgi -- --profile kernel32-standard-output-handle
+npm run check:runtime:bgi-browser
 ```
 <!-- END GENERATED CURRENT STATUS -->
 

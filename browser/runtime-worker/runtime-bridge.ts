@@ -6,18 +6,27 @@ export type RegisterUpdate =
 
 export interface ApiCompletion {
   implementationId: string;
+  frame?: {
+    stackPointer: number;
+    arguments: Array<{ words: number[] }>;
+  };
   instructionPointer: number;
   stackPointer: number;
   eax: RegisterUpdate;
   edx: RegisterUpdate;
   eflags: RegisterUpdate;
   readonly lastError: number;
+  guestWrites?: Array<{
+    write: { address: number; bytes: number[] };
+  }>;
 }
 
 export interface PreparedMetadata {
   kind: "prepared";
   schemaVersion: 1;
+  workload?: "controlled-fixture" | "private-bgi";
   entryPoint: number;
+  fsBase?: number;
   generation: number;
   stackTop: number;
   initialStackPointer: number;
@@ -25,7 +34,12 @@ export interface PreparedMetadata {
   entrySentinel: number;
   pageCount: number;
   regions: MemoryRegionSnapshot[];
-  endpoints: Array<{ id: number; address: number }>;
+  endpoints: Array<{
+    id: number;
+    address: number;
+    module?: string;
+    symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+  }>;
 }
 
 export interface BridgeOutput<T = Record<string, unknown>> {
@@ -45,6 +59,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_payload_ptr(): number;
   vine_bridge_payload_len(): number;
   vine_bridge_prepare(length: number): number;
+  vine_bridge_prepare_bgi(executableLength: number, policyLength: number): number;
   vine_bridge_acknowledge(low: number, high: number): number;
   vine_bridge_reconcile_writeback(controlLength: number, payloadLength: number): number;
   vine_bridge_advance_mapping_fixture(stage: number): number;
@@ -69,6 +84,7 @@ function splitU64(value: bigint): [number, number] {
 
 export class RuntimeBridge {
   readonly #exports: RuntimeBridgeExports;
+  #callCount = 0;
 
   private constructor(exports: RuntimeBridgeExports) {
     this.#exports = exports;
@@ -85,6 +101,16 @@ export class RuntimeBridge {
   prepare(fixture: Uint8Array): BridgeOutput<PreparedMetadata> {
     this.#setInput([fixture]);
     return this.#invoke(() => this.#exports.vine_bridge_prepare(fixture.byteLength));
+  }
+
+  prepareBgi(
+    executable: Uint8Array,
+    policy: Uint8Array,
+  ): BridgeOutput<PreparedMetadata> {
+    this.#setInput([executable, policy]);
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_prepare_bgi(executable.byteLength, policy.byteLength),
+    );
   }
 
   acknowledge<T = Record<string, unknown>>(generation: bigint): BridgeOutput<T> {
@@ -137,6 +163,10 @@ export class RuntimeBridge {
     return this.#invoke(() => this.#exports.vine_bridge_finish(exitCode));
   }
 
+  callCount(): number {
+    return this.#callCount;
+  }
+
   #setInput(parts: Uint8Array[]): void {
     const length = parts.reduce((total, part) => total + part.byteLength, 0);
     const status = this.#exports.vine_bridge_input_resize(length);
@@ -153,6 +183,7 @@ export class RuntimeBridge {
   }
 
   #invoke<T>(operation: () => number): BridgeOutput<T> {
+    this.#callCount += 1;
     const status = operation();
     const metadata = this.#readJson<T>();
     if (status !== 0) {

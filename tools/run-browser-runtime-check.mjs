@@ -8,10 +8,22 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { loadCurrentCheckpoint } from "./current-checkpoint.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assetsRoot = path.join(root, ".work", "browser-runtime");
 const serveOnly = process.argv.includes("--serve");
+const bgiMode = process.argv.includes("--bgi");
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
+const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
+const bgiPath = path.resolve(
+  process.env.VINE_BGI_EXE ?? "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe",
+);
+const bgiPolicyPath = path.join(
+  root,
+  checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
+);
+const bgiOracleReportPath = path.join(root, ".work", "v86-bgi-standard-output-handle", "report.json");
 
 function optionValue(name) {
   const index = process.argv.indexOf(name);
@@ -347,6 +359,95 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
   }
 }
 
+async function waitForBgiCheckpoint(client, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  let snapshot = null;
+  while (Date.now() < deadline) {
+    snapshot = await evaluate(client, `window.__vineBgiCheck`);
+    if (snapshot?.error !== null && snapshot?.error !== undefined) {
+      throw new Error(`BGI browser runtime failed: ${snapshot.error}`);
+    }
+    if (snapshot?.result !== null && snapshot?.result !== undefined) {
+      return snapshot.result;
+    }
+    await wait(50);
+  }
+  throw new Error(`BGI browser runtime timed out: ${JSON.stringify(snapshot)}`);
+}
+
+async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
+  const target = await createDebugTarget(
+    browserWebSocketUrl,
+    `${baseUrl}bgi-check.html?scenario=${scenario}`,
+  );
+  const client = await connectDevTools(target.webSocketDebuggerUrl);
+  try {
+    await client.send("Runtime.enable");
+    await client.send("Page.enable");
+    const evidence = await waitForBgiCheckpoint(client);
+    assert.equal(evidence.scenario, scenario);
+    assert.equal(evidence.report.pendingHostCalls, 0);
+    assert.equal(evidence.report.pendingCallbacks, 0);
+    assert(evidence.statuses.some(({ phase }) => phase === "running"));
+    if (scenario === "success") {
+      assert.equal(evidence.report.outcome, "structured-stop");
+      assert.equal(evidence.report.supportedCalls.length, 55);
+      assert.equal(evidence.report.firstUnsupported?.capabilityCluster, "kernel32-api-contract");
+      assert(evidence.report.maximumSliceMilliseconds > 0);
+      assert(evidence.report.wasmBridgeCalls > 0);
+      assert(evidence.heartbeatSamples > 0, "main heartbeat did not advance during BGI");
+    } else {
+      assert.equal(
+        evidence.report.outcome,
+        scenario === "watchdog" ? "watchdog" : "cancelled",
+      );
+    }
+    return evidence;
+  } finally {
+    client.close();
+  }
+}
+
+function normalizeBgiCall(call) {
+  return {
+    sequence: call.sequence,
+    module: call.module.toLowerCase(),
+    symbol: call.symbol,
+    arguments: call.arguments,
+    result: call.result,
+    implementationId: call.implementationId,
+    returnAddress: call.returnAddress,
+    stackPointerBefore: call.stackPointerBefore,
+    stackPointerAfter: call.stackPointerAfter,
+    lastError: call.lastError,
+    guestWrites: call.guestWrites.map(({ address, bytes }) => ({ address, bytes })),
+  };
+}
+
+function validateBgiEquivalence(browser, oracle) {
+  assert.deepEqual(
+    browser.report.supportedCalls.map(normalizeBgiCall),
+    oracle.supportedContinuation.map(normalizeBgiCall),
+    "Chrome Worker call semantics differ from the Node oracle",
+  );
+  const browserStop = browser.report.firstUnsupported;
+  const oracleStop = oracle.firstUnsupported;
+  assert(browserStop !== null, "Chrome Worker omitted its structured stop");
+  assert.equal(browserStop.instructionCount, oracleStop.instructionCount);
+  assert.equal(browser.report.instructions, oracleStop.instructionCount);
+  assert.equal(browser.report.initialGeneration, oracle.process.memory.generation);
+  assert(browser.report.finalGeneration >= browser.report.initialGeneration);
+  assert.equal(browserStop.memoryContentSha256, oracleStop.memoryContentSha256);
+  assert.equal(browserStop.capabilityCluster, oracleStop.capabilityCluster);
+  assert.equal(browserStop.endpoint.id, oracleStop.endpoint.endpoint.id);
+  assert.equal(browserStop.endpoint.address, oracleStop.endpoint.endpoint.address);
+  assert.equal(browserStop.endpoint.module, oracleStop.endpoint.endpoint.module);
+  assert.deepEqual(browserStop.endpoint.symbol, oracleStop.endpoint.endpoint.symbol);
+  assert.equal(browserStop.fault.class, oracleStop.fault.class);
+  assert.equal(browserStop.fault.stage, oracleStop.fault.stage);
+  assert.equal(browserStop.fault.code, oracleStop.fault.code);
+}
+
 async function runStress(client, durationMilliseconds) {
   const result = await evaluate(
     client,
@@ -382,9 +483,16 @@ function createServer() {
   return http.createServer(async (request, response) => {
     try {
       const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-      const name = pathname === "/" ? "index.html" : pathname.slice(1);
-      const file = path.resolve(assetsRoot, name);
-      assert(file.startsWith(`${path.resolve(assetsRoot)}${path.sep}`), "invalid asset path");
+      let file;
+      if (bgiMode && pathname === "/private/BGI.exe") {
+        file = bgiPath;
+      } else if (bgiMode && pathname === "/private/kernel32-policy.json") {
+        file = bgiPolicyPath;
+      } else {
+        const name = pathname === "/" ? "index.html" : pathname.slice(1);
+        file = path.resolve(assetsRoot, name);
+        assert(file.startsWith(`${path.resolve(assetsRoot)}${path.sep}`), "invalid asset path");
+      }
       const bytes = await readFile(file);
       response.writeHead(200, {
         "Cache-Control": "no-store",
@@ -476,6 +584,17 @@ async function waitForShutdown() {
 }
 
 assert(fs.existsSync(path.join(assetsRoot, "index.html")), "browser runtime is not built");
+if (bgiMode) {
+  assert(fs.existsSync(path.join(assetsRoot, "bgi-check.html")), "BGI browser check is not built");
+  assert(fs.existsSync(bgiPath), `BGI source is missing at ${bgiPath}`);
+  assert(fs.existsSync(bgiPolicyPath), `BGI policy is missing at ${bgiPolicyPath}`);
+  assert(fs.existsSync(bgiOracleReportPath), "Node BGI oracle report is missing");
+  assert(
+    !fs.existsSync(path.join(assetsRoot, "BGI.exe")) &&
+      !fs.existsSync(path.join(assetsRoot, "private", "BGI.exe")),
+    "private BGI source must not be copied into the browser build",
+  );
+}
 assert(Number.isFinite(stressMilliseconds) && stressMilliseconds >= 0, "--stress-ms is invalid");
 const requestedPort = serveOnly ? Number(optionValue("--port") ?? 4173) : 0;
 const { server, port } = await startServer(requestedPort);
@@ -514,43 +633,87 @@ if (serveOnly) {
       "--window-size=1280,800",
       "about:blank",
     ]);
-    const success = await runProbe(chrome.browserWebSocketUrl, url, "success", true);
-    const cancellation = await runProbe(chrome.browserWebSocketUrl, url, "cancel-pending");
-    const watchdog = await runProbe(chrome.browserWebSocketUrl, url, "watchdog");
-    let stress = null;
-    if (stressMilliseconds > 0) {
-      const target = await createDebugTarget(chrome.browserWebSocketUrl, `${url}?scenario=success`);
-      const client = await connectDevTools(target.webSocketDebuggerUrl);
-      try {
-        await client.send("Runtime.enable");
-        await client.send("Page.enable");
-        await waitForRuntime(client);
-        await clickRun(client);
-        await waitForCheckpoint(client);
-        stress = await runStress(client, stressMilliseconds);
-      } finally {
-        client.close();
+    if (bgiMode) {
+      const sourceBefore = await readFile(bgiPath);
+      const oracleBytes = await readFile(bgiOracleReportPath);
+      const oracle = JSON.parse(oracleBytes);
+      const success = await runBgiProbe(chrome.browserWebSocketUrl, url, "success");
+      const cancellation = await runBgiProbe(
+        chrome.browserWebSocketUrl,
+        url,
+        "cancel-pending",
+      );
+      const watchdog = await runBgiProbe(chrome.browserWebSocketUrl, url, "watchdog");
+      console.log(
+        `BGI browser generations ${success.report.initialGeneration}->${success.report.finalGeneration}; ` +
+          `writebacks=${success.report.writebackBatches}/${success.report.writebackPages}, ` +
+          `mappingDeltas=${success.report.mappingDeltas}`,
+      );
+      validateBgiEquivalence(success, oracle);
+      const sourceAfter = await readFile(bgiPath);
+      assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the browser session");
+      const report = {
+        schema: "vine.browser-bgi-runtime-worker",
+        schemaVersion: 1,
+        runtimeProtocol: "vine.browser-runtime-worker.v2",
+        measuredAt: new Date().toISOString(),
+        chromeVersion: version,
+        source: { bytes: sourceBefore.byteLength, sha256: hash(sourceBefore) },
+        nodeOracle: {
+          path: path.relative(root, bgiOracleReportPath),
+          bytes: oracleBytes.byteLength,
+          sha256: hash(oracleBytes),
+        },
+        success,
+        cancellation,
+        watchdog,
+      };
+      const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
+      await writeFile(path.join(assetsRoot, "bgi-browser-report.json"), reportBytes);
+      console.log(
+        `BGI Chrome Worker equivalence passed: calls=${success.report.supportedCalls.length}, ` +
+          `instructions=${success.report.instructions}, generation=${success.report.finalGeneration}, ` +
+          `cancel/watchdog=clean, Chrome=${version}, reportSha256=${hash(reportBytes)}`,
+      );
+    } else {
+      const success = await runProbe(chrome.browserWebSocketUrl, url, "success", true);
+      const cancellation = await runProbe(chrome.browserWebSocketUrl, url, "cancel-pending");
+      const watchdog = await runProbe(chrome.browserWebSocketUrl, url, "watchdog");
+      let stress = null;
+      if (stressMilliseconds > 0) {
+        const target = await createDebugTarget(chrome.browserWebSocketUrl, `${url}?scenario=success`);
+        const client = await connectDevTools(target.webSocketDebuggerUrl);
+        try {
+          await client.send("Runtime.enable");
+          await client.send("Page.enable");
+          await waitForRuntime(client);
+          await clickRun(client);
+          await waitForCheckpoint(client);
+          stress = await runStress(client, stressMilliseconds);
+        } finally {
+          client.close();
+        }
       }
+      const report = {
+        schema: "vine.browser-runtime-worker",
+        schemaVersion: 2,
+        runtimeProtocol: "vine.browser-runtime-worker.v2",
+        measuredAt: new Date().toISOString(),
+        chromeVersion: version,
+        success,
+        cancellation,
+        watchdog,
+        stress,
+      };
+      const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
+      await writeFile(path.join(assetsRoot, "browser-report.json"), reportBytes);
+      console.log(
+        `browser Worker vertical slice passed: instructions=${success.evidence.report.instructions}, ` +
+          `yields=${success.evidence.report.budgetYields}, callbacks=2/depth2, ` +
+          `pixel=rgba(255,0,0,255), audio=880Hz, storage=0x5a, ` +
+          `cancel/watchdog=clean, Chrome=${version}, reportSha256=${hash(reportBytes)}`,
+      );
     }
-    const report = {
-      schema: "vine.browser-runtime-worker",
-      schemaVersion: 2,
-      runtimeProtocol: "vine.browser-runtime-worker.v2",
-      measuredAt: new Date().toISOString(),
-      chromeVersion: version,
-      success,
-      cancellation,
-      watchdog,
-      stress,
-    };
-    const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-    await writeFile(path.join(assetsRoot, "browser-report.json"), reportBytes);
-    console.log(
-      `browser Worker vertical slice passed: instructions=${success.evidence.report.instructions}, ` +
-        `yields=${success.evidence.report.budgetYields}, callbacks=2/depth2, ` +
-        `pixel=rgba(255,0,0,255), audio=880Hz, storage=0x5a, ` +
-        `cancel/watchdog=clean, Chrome=${version}, reportSha256=${hash(reportBytes)}`,
-    );
   } finally {
     try {
       await stopChrome(chrome);

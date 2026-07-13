@@ -13,6 +13,7 @@ import {
 } from "./memory-transport.js";
 
 const physicalPoolBytes = 2 * 1024 * 1024;
+const excludedPhysicalRanges = [{ start: 0x000a_0000, end: 0x000c_0000 }] as const;
 const pageFlags = { present: 1, writable: 2, user: 4, dirty: 0x40 } as const;
 const adapterPrivateOffset = { instructionCounter: 664, memorySize: 812 } as const;
 const stateWord = {
@@ -660,6 +661,7 @@ export class V86Mirror {
       words[stateWord.segmentLimitBase + index] = 0xffff_ffff;
       words[stateWord.segmentMetaBase + index] = 0xf2;
     }
+    words[stateWord.segmentOffsetBase + 4] = (prepared.fsBase ?? 0) >>> 0;
     words[stateWord.segmentMetaBase + 1] = 0xfa;
     words[stateWord.controlRegisterBase] =
       (words[stateWord.controlRegisterBase] ?? 0) | 0x8001_0001;
@@ -733,6 +735,11 @@ export class V86Mirror {
     if (reused !== undefined) {
       this.#physicalMemory.fill(0, reused, reused + memoryPageSize);
       return reused;
+    }
+    for (const excluded of excludedPhysicalRanges) {
+      if (this.#nextPhysicalPage >= excluded.start && this.#nextPhysicalPage < excluded.end) {
+        this.#nextPhysicalPage = excluded.end;
+      }
     }
     invariant(
       this.#nextPhysicalPage + memoryPageSize <= physicalPoolBytes,

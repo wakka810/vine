@@ -104,8 +104,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (browser.status !== "passed") {
     errors.push("browserCheckpoint.status must be passed");
   }
-  if (browser.bgiSession !== "not-started") {
-    errors.push("browserCheckpoint.bgiSession must explicitly describe BGI state");
+  if (browser.bgiSession !== "semantic-equivalence-passed") {
+    errors.push("browserCheckpoint.bgiSession must identify passed semantic equivalence");
   }
   if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v2") {
     errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v2");
@@ -154,6 +154,73 @@ export function validateCurrentCheckpoint(manifest) {
     mappingCacheEffects.generatedCodeInvalidations < 1
   ) {
     errors.push("browser mapping-operation evidence is incomplete");
+  }
+  const bgiBrowserEvidence = requireRecord(
+    browser.bgiRuntimeEvidence,
+    "browserCheckpoint.bgiRuntimeEvidence",
+    errors,
+  );
+  for (const field of [
+    "guestInstructions",
+    "cpuSlices",
+    "budgetYields",
+    "supportedCalls",
+    "writebackBatches",
+    "writebackPages",
+    "hostDeltaBatches",
+    "initialGeneration",
+    "finalGeneration",
+    "nodeFinalGeneration",
+    "wasmBridgeCalls",
+    "heartbeatSamples",
+    "cancelInstructions",
+    "watchdogInstructions",
+    "pendingHostCallsAfterCleanup",
+    "pendingCallbacksAfterCleanup",
+    "nodeOracleReportBytes",
+    "browserReportBytes",
+  ]) {
+    requireInteger(
+      bgiBrowserEvidence[field],
+      `browserCheckpoint.bgiRuntimeEvidence.${field}`,
+      errors,
+    );
+  }
+  const bgiMappingOperations = requireRecord(
+    bgiBrowserEvidence.mappingOperations,
+    "browserCheckpoint.bgiRuntimeEvidence.mappingOperations",
+    errors,
+  );
+  for (const variant of mappingVariants) {
+    requireInteger(
+      bgiMappingOperations[variant],
+      `browserCheckpoint.bgiRuntimeEvidence.mappingOperations.${variant}`,
+      errors,
+    );
+  }
+  for (const field of [
+    "sourceSha256",
+    "memoryContentSha256",
+    "nodeOracleReportSha256",
+    "browserReportSha256",
+  ]) {
+    requireSha256(
+      bgiBrowserEvidence[field],
+      `browserCheckpoint.bgiRuntimeEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    bgiBrowserEvidence.nodeRole !== "semantic-oracle-only" ||
+    bgiBrowserEvidence.runtimeStateAuthority !== "rust-wasm-in-runtime-worker" ||
+    bgiMappingOperations.reserve !== 1 ||
+    bgiMappingOperations.commit !== 1 ||
+    bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
+    bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
+    bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
+    bgiBrowserEvidence.dllLifecycleAfterCleanup !== "process-detached"
+  ) {
+    errors.push("browser BGI authority or teardown evidence is invalid");
   }
 
   const engine = requireRecord(
@@ -297,6 +364,13 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.canonicalReproductionCommand",
     errors,
   );
+  if (
+    active.canonicalReproductionCommand !== "npm run check:runtime:bgi-browser" ||
+    bgiBrowserEvidence.supportedCalls !== active.genericDispatcherCallOccurrenceCount ||
+    bgiBrowserEvidence.guestInstructions !== root.nextStructuredStop?.instructionCount
+  ) {
+    errors.push("browser BGI evidence must match the active runtime checkpoint");
+  }
 
   const next = requireRecord(root.nextStructuredStop, "nextStructuredStop", errors);
   requireString(next.nextCheckpoint, "nextStructuredStop.nextCheckpoint", errors);

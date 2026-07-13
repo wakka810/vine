@@ -1,7 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 use vine_core::{
@@ -10,14 +10,17 @@ use vine_core::{
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
     CallbackPolicy, CallingConvention, CpuWritebackReceipt, DispatchOutcome, ExecutionSession,
     GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
-    HostRequest, ImportBinding, InitialThreadStack, LOGICAL_ENCODED_POINTER_NAMESPACE,
-    LastErrorPolicy, MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot,
-    PageProtection, Pe32Limits, ProcessAddressSpaceLayout, ReentrancyPolicy, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeExport, RuntimeExportCatalog,
-    RuntimeHeapInitialization, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo,
-    RuntimeState, RuntimeThreadId, SchedulerThreadState, StackCleanup, bind_pe32_imports,
-    build_pe32_load_plan, install_controlled_initial_stack, install_runtime_return_sentinels,
-    materialize_pe32_image,
+    HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
+    MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
+    ProcessAddressSpaceLayout, ReentrancyPolicy, RuntimeBootstrap, RuntimeCallbackFrameId,
+    RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport,
+    RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHeapInitialization, RuntimeModule,
+    RuntimeModuleId, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState,
+    RuntimeThreadId, SchedulerThreadState, StackCleanup, bind_pe32_imports, build_pe32_load_plan,
+    dispatch_kernel32_api_with_policy, install_controlled_initial_stack,
+    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
+    install_runtime_return_sentinels, kernel32_contract_for_endpoint, materialize_pe32_image,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -31,6 +34,10 @@ const DEFERRED_ADD: &str = "browser-fixture-deferred-add-v1";
 const CALL_CALLBACK: &str = "browser-fixture-call-callback-v1";
 const COMMIT_OUTPUTS: &str = "browser-fixture-commit-outputs-v1";
 const MAPPING_FIXTURE_STAGE_COUNT: u32 = 7;
+const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
+const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
+const BGI_MAX_PHYSICAL_PAGES: usize = 400;
+const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
 thread_local! {
     static BRIDGE: RefCell<Bridge> = const { RefCell::new(Bridge::new()) };
@@ -94,6 +101,28 @@ impl Bridge {
         self.set_output(metadata, reflection.control, reflection.page_bytes)
     }
 
+    fn prepare_bgi(
+        &mut self,
+        executable_length: usize,
+        policy_length: usize,
+    ) -> Result<(), String> {
+        let total_length = executable_length
+            .checked_add(policy_length)
+            .ok_or_else(|| "BGI bridge input length overflowed".to_owned())?;
+        let input = self
+            .input
+            .get(..total_length)
+            .ok_or_else(|| "BGI input lengths exceed the bridge buffer".to_owned())?;
+        let (executable, policy) = input.split_at(executable_length);
+        let policy: Kernel32CompatibilityPolicy =
+            serde_json::from_slice(policy).map_err(|error| error.to_string())?;
+        policy.validate().map_err(error_string)?;
+        let (runtime, metadata, reflection) =
+            BrowserRuntime::prepare_bgi(executable.to_vec(), policy)?;
+        self.runtime = Some(runtime);
+        self.set_output(metadata, reflection.control, reflection.page_bytes)
+    }
+
     fn runtime_mut(&mut self) -> Result<&mut BrowserRuntime, String> {
         self.runtime
             .as_mut()
@@ -104,6 +133,7 @@ impl Bridge {
 struct EndpointRoute {
     id: u32,
     argument_bytes: u32,
+    endpoint: ApiEndpointIdentity,
 }
 
 struct ActiveCallback {
@@ -121,6 +151,27 @@ struct BrowserMappingFixture {
     backing_page: Option<GuestRange>,
 }
 
+#[derive(Clone)]
+enum BrowserRuntimeTarget {
+    ControlledFixture,
+    Bgi {
+        kernel32_policy: Kernel32CompatibilityPolicy,
+    },
+}
+
+struct BgiRuntimeProcess {
+    runtime: RuntimeState,
+    binding: RuntimeGuestImportBinding,
+    module_handles: Vec<u32>,
+    attach_order: Vec<RuntimeModuleId>,
+}
+
+type BgiDispatcher = (
+    ApiDispatcher,
+    BTreeMap<GuestAddress, EndpointRoute>,
+    Vec<ApiEndpointIdentity>,
+);
+
 struct BrowserRuntime {
     memory: GuestMemory,
     runtime: RuntimeState,
@@ -132,6 +183,7 @@ struct BrowserRuntime {
     pending_host: Option<ApiDeferredCall>,
     callbacks: Vec<ActiveCallback>,
     mapping_fixture: BrowserMappingFixture,
+    target: BrowserRuntimeTarget,
 }
 
 impl BrowserRuntime {
@@ -177,8 +229,10 @@ impl BrowserRuntime {
         let metadata = json!({
             "kind": "prepared",
             "schemaVersion": 1,
+            "workload": "controlled-fixture",
             "source": snapshot.identity(),
             "entryPoint": materialization.entry_point_address.0,
+            "fsBase": 0,
             "generation": reflection.invalidation.generation,
             "stackTop": stack.stack_top.0,
             "initialStackPointer": stack.initial_esp.0,
@@ -200,6 +254,96 @@ impl BrowserRuntime {
                 pending_host: None,
                 callbacks: Vec::new(),
                 mapping_fixture: BrowserMappingFixture::default(),
+                target: BrowserRuntimeTarget::ControlledFixture,
+            },
+            metadata,
+            reflection_buffers,
+        ))
+    }
+
+    fn prepare_bgi(
+        executable: Vec<u8>,
+        kernel32_policy: Kernel32CompatibilityPolicy,
+    ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
+        let loader_limits = Pe32Limits::default();
+        let snapshot =
+            ModuleSnapshot::from_bytes(executable, &loader_limits).map_err(error_string)?;
+        snapshot
+            .verify_expected_sha256(BGI_SHA256)
+            .map_err(error_string)?;
+        let plan = build_pe32_load_plan(&snapshot, loader_limits).map_err(error_string)?;
+        let mut memory = GuestMemory::new(MemoryLimits {
+            max_physical_pages: BGI_MAX_PHYSICAL_PAGES,
+            ..MemoryLimits::default()
+        })
+        .map_err(error_string)?;
+        let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, BGI_LOAD_BASE)
+            .map_err(error_string)?;
+        let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
+        let mut process =
+            prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
+        let sentinels = install_runtime_return_sentinels(&mut memory).map_err(error_string)?;
+        let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
+            .map_err(error_string)?;
+        let environment =
+            install_controlled_process_environment_with_command_line(&mut memory, "BGI.exe")
+                .map_err(error_string)?;
+        let dynamic_thunks = install_dynamic_export_thunks(
+            &mut memory,
+            &[
+                ("kernel32.dll", "FlsAlloc"),
+                ("kernel32.dll", "FlsGetValue"),
+                ("kernel32.dll", "FlsSetValue"),
+                ("kernel32.dll", "FlsFree"),
+            ],
+        )
+        .map_err(error_string)?;
+        finalize_bgi_runtime_process(
+            &mut process,
+            &dynamic_thunks,
+            sentinels.callback_return.address,
+        )?;
+        let (dispatcher, routes, endpoints) = build_bgi_dispatcher(&process)?;
+        let reflection = memory.pending_reflection().map_err(error_string)?;
+        let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
+        let metadata = json!({
+            "kind": "prepared",
+            "schemaVersion": 1,
+            "workload": "private-bgi",
+            "source": snapshot.identity(),
+            "entryPoint": materialization.entry_point_address.0,
+            "fsBase": environment.teb_address.0,
+            "generation": reflection.invalidation.generation,
+            "contentSha256": reflection.content_sha256,
+            "stackTop": stack.stack_top.0,
+            "initialStackPointer": stack.initial_esp.0,
+            "callbackSentinel": sentinels.callback_return.address.0,
+            "entrySentinel": sentinels.process_entry_return.address.0,
+            "pageCount": reflection.pages.len(),
+            "regions": memory.region_snapshots(),
+            "endpoints": endpoints,
+            "runtime": {
+                "processId": process.runtime.process_id().0,
+                "threadId": process.runtime.current_thread_id().0,
+                "moduleCount": process.runtime.process().modules.len(),
+                "dependencyEdges": process.binding.dependency_edges.len(),
+                "attachOrder": process.attach_order,
+                "kernel32Policy": kernel32_policy.id,
+            },
+        });
+        Ok((
+            Self {
+                memory,
+                runtime: process.runtime,
+                dispatcher,
+                routes,
+                callback_sentinel: sentinels.callback_return.address,
+                entry_sentinel: sentinels.process_entry_return.address,
+                stack,
+                pending_host: None,
+                callbacks: Vec::new(),
+                mapping_fixture: BrowserMappingFixture::default(),
+                target: BrowserRuntimeTarget::Bgi { kernel32_policy },
             },
             metadata,
             reflection_buffers,
@@ -419,79 +563,91 @@ impl BrowserRuntime {
         if self.pending_host.is_some() {
             return Err("guest dispatch attempted while a host request is pending".to_owned());
         }
-        let route = self
+        let (route_id, argument_bytes, endpoint) = self
             .routes
             .get(&endpoint_address)
+            .map(|route| (route.id, route.argument_bytes, route.endpoint.clone()))
             .ok_or_else(|| format!("unowned API endpoint {:#010x}", endpoint_address.0))?;
         let trap = ApiTrap {
-            endpoint_id: vine_core::ImportThunkId(route.id),
+            endpoint_id: vine_core::ImportThunkId(route_id),
             endpoint_address,
             stack_pointer,
             return_address,
-            argument_bytes: route.argument_bytes,
+            argument_bytes,
         };
         let callback_sentinel = self.callback_sentinel;
+        let target = self.target.clone();
         let dispatcher = &self.dispatcher;
         let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
         let outcome =
             dispatcher.dispatch(
                 trap,
                 &mut session,
-                |contract, frame, session| match contract.implementation_id.as_str() {
-                    DEFERRED_ADD | COMMIT_OUTPUTS => {
-                        let service = if contract.implementation_id == DEFERRED_ADD {
-                            "browser.deferred-add"
-                        } else {
-                            "browser.commit-outputs"
-                        };
-                        let request = match session.runtime_mut().begin_host_request(service) {
-                            Ok(request) => request,
-                            Err(error) => {
-                                return ApiHandlerResult::Fault(ApiFault::runtime_defect(
-                                    "browser-runtime",
-                                    "host-request-state-invalid",
-                                    error.to_string(),
-                                ));
+                |contract, frame, session| match &target {
+                    BrowserRuntimeTarget::Bgi { kernel32_policy } => {
+                        dispatch_kernel32_api_with_policy(kernel32_policy, contract, frame, session)
+                    }
+                    BrowserRuntimeTarget::ControlledFixture => {
+                        match contract.implementation_id.as_str() {
+                            DEFERRED_ADD | COMMIT_OUTPUTS => {
+                                let service = if contract.implementation_id == DEFERRED_ADD {
+                                    "browser.deferred-add"
+                                } else {
+                                    "browser.commit-outputs"
+                                };
+                                let request = match session
+                                    .runtime_mut()
+                                    .begin_host_request(service)
+                                {
+                                    Ok(request) => request,
+                                    Err(error) => {
+                                        return ApiHandlerResult::Fault(ApiFault::runtime_defect(
+                                            "browser-runtime",
+                                            "host-request-state-invalid",
+                                            error.to_string(),
+                                        ));
+                                    }
+                                };
+                                let payload = frame
+                                    .arguments
+                                    .iter()
+                                    .flat_map(|argument| {
+                                        argument.words.iter().flat_map(|word| word.to_le_bytes())
+                                    })
+                                    .collect();
+                                ApiHandlerResult::Deferred(HostRequest {
+                                    request_id: request.request_id,
+                                    service: request.service,
+                                    payload,
+                                })
                             }
-                        };
-                        let payload = frame
-                            .arguments
-                            .iter()
-                            .flat_map(|argument| {
-                                argument.words.iter().flat_map(|word| word.to_le_bytes())
-                            })
-                            .collect();
-                        ApiHandlerResult::Deferred(HostRequest {
-                            request_id: request.request_id,
-                            service: request.service,
-                            payload,
-                        })
-                    }
-                    CALL_CALLBACK => {
-                        let target = frame.argument_u32(0).unwrap_or(0);
-                        let value = frame.argument_u32(1).unwrap_or(0);
-                        if let Err(error) = session.memory().validate_access(
-                            GuestAddress(target),
-                            1,
-                            vine_core::MemoryAccess::Execute,
-                        ) {
-                            return ApiHandlerResult::Fault(ApiFault::invalid_call(
+                            CALL_CALLBACK => {
+                                let target = frame.argument_u32(0).unwrap_or(0);
+                                let value = frame.argument_u32(1).unwrap_or(0);
+                                if let Err(error) = session.memory().validate_access(
+                                    GuestAddress(target),
+                                    1,
+                                    vine_core::MemoryAccess::Execute,
+                                ) {
+                                    return ApiHandlerResult::Fault(ApiFault::invalid_call(
+                                        "browser-runtime",
+                                        "callback-target-not-executable",
+                                        error.to_string(),
+                                    ));
+                                }
+                                ApiHandlerResult::GuestCallback(GuestCallbackRequest {
+                                    target: GuestAddress(target),
+                                    arguments: vec![value],
+                                    return_sentinel: callback_sentinel,
+                                })
+                            }
+                            _ => ApiHandlerResult::Fault(ApiFault::unsupported(
                                 "browser-runtime",
-                                "callback-target-not-executable",
-                                error.to_string(),
-                            ));
+                                "fixture-service-unsupported",
+                                "browser fixture reached an unknown service",
+                            )),
                         }
-                        ApiHandlerResult::GuestCallback(GuestCallbackRequest {
-                            target: GuestAddress(target),
-                            arguments: vec![value],
-                            return_sentinel: callback_sentinel,
-                        })
                     }
-                    _ => ApiHandlerResult::Fault(ApiFault::unsupported(
-                        "browser-runtime",
-                        "fixture-service-unsupported",
-                        "browser fixture reached an unknown service",
-                    )),
                 },
             );
         match outcome {
@@ -523,10 +679,50 @@ impl BrowserRuntime {
             }
             DispatchOutcome::GuestCallback(call) => self.begin_callback(call),
             DispatchOutcome::Immediate(completion) => {
-                Ok((completion_metadata("api-complete", &completion), None))
+                let delta = self.pending_delta()?;
+                let metadata = match &self.target {
+                    BrowserRuntimeTarget::ControlledFixture => {
+                        completion_metadata("api-complete", &completion)
+                    }
+                    BrowserRuntimeTarget::Bgi { .. } => json!({
+                        "kind": "api-complete",
+                        "endpoint": endpoint,
+                        "completion": completion,
+                        "memory": self.memory.stats(),
+                    }),
+                };
+                Ok((metadata, delta))
             }
-            DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
+            DispatchOutcome::Fault(fault) => match &self.target {
+                BrowserRuntimeTarget::ControlledFixture => Err(api_fault_string(fault)),
+                BrowserRuntimeTarget::Bgi { .. } => {
+                    let reflection = self.memory.current_reflection().map_err(error_string)?;
+                    Ok((
+                        json!({
+                            "kind": "api-fault",
+                            "endpoint": endpoint,
+                            "capabilityCluster": runtime_capability_cluster(&endpoint),
+                            "fault": fault,
+                            "memory": self.memory.stats(),
+                            "memoryContentSha256": reflection.content_sha256,
+                        }),
+                        None,
+                    ))
+                }
+            },
         }
+    }
+
+    fn pending_delta(&mut self) -> Result<Option<MemoryDeltaBuffers>, String> {
+        if self.memory.stats().pending_invalidation.is_none() {
+            return Ok(None);
+        }
+        self.memory
+            .pending_delta()
+            .map_err(error_string)?
+            .encode_binary()
+            .map(Some)
+            .map_err(error_string)
     }
 
     fn begin_callback(
@@ -663,18 +859,44 @@ impl BrowserRuntime {
     fn cancel(&mut self, exit_code: u32) -> Result<Value, String> {
         self.pending_host = None;
         self.callbacks.clear();
-        if !self.runtime.process().heaps.is_empty() {
+        let cancellation = if matches!(&self.target, BrowserRuntimeTarget::Bgi { .. }) {
+            if self.runtime.dll_lifecycle_phase() == RuntimeDllLifecyclePhase::ProcessAttached {
+                match self
+                    .runtime
+                    .begin_dll_process_detach(self.callback_sentinel)
+                    .map_err(error_string)?
+                {
+                    RuntimeDllLifecycleAction::Complete { completion }
+                        if completion.phase == RuntimeDllLifecyclePhase::ProcessDetached
+                            && completion.callback_order.is_empty() => {}
+                    _ => {
+                        return Err(
+                            "BGI cancellation did not complete callback-free detach".to_owned()
+                        );
+                    }
+                }
+            }
+            let cancellation = self
+                .runtime
+                .request_current_process_exit(exit_code)
+                .map_err(error_string)?;
             ExecutionSession::new(&mut self.memory, &mut self.runtime)
                 .teardown_process_heaps()
                 .map_err(error_string)?;
-        }
-        let cancellation = self
-            .runtime
-            .terminate_current_process(exit_code)
-            .map_err(error_string)?;
+            self.runtime
+                .complete_current_process_exit()
+                .map_err(error_string)?;
+            cancellation
+        } else {
+            self.runtime
+                .terminate_current_process(exit_code)
+                .map_err(error_string)?
+        };
         Ok(json!({
             "kind": "cancelled",
             "cancellation": cancellation,
+            "processLifecycle": self.runtime.process().lifecycle,
+            "dllLifecycle": self.runtime.dll_lifecycle_phase(),
             "pendingHostCalls": usize::from(self.pending_host.is_some()),
             "pendingCallbacks": self.callbacks.len(),
         }))
@@ -713,6 +935,255 @@ fn mapping_operation_name(operation: &MappingOperation) -> &'static str {
         MappingOperation::Protect { .. } => "protect",
         MappingOperation::Decommit { .. } => "decommit",
         MappingOperation::Release { .. } => "release",
+    }
+}
+
+fn runtime_catalog_for_load_plan(
+    loader: &vine_core::LoaderIngressReport,
+) -> Result<RuntimeExportCatalog, String> {
+    let mut keys = BTreeSet::new();
+    let mut exports = Vec::new();
+    for module in &loader.load_plan.imports {
+        for symbol in &module.symbols {
+            let key = match &symbol.target {
+                ImportTarget::Name { name, .. } => {
+                    format!("{}!name:{name}", module.name.to_ascii_lowercase())
+                }
+                ImportTarget::Ordinal { ordinal } => {
+                    format!("{}!ordinal:{ordinal}", module.name.to_ascii_lowercase())
+                }
+            };
+            if !keys.insert(key) {
+                continue;
+            }
+            exports.push(match &symbol.target {
+                ImportTarget::Name { name, .. } => {
+                    RuntimeExport::named(module.name.clone(), name.clone())
+                }
+                ImportTarget::Ordinal { ordinal } => {
+                    RuntimeExport::ordinal(module.name.clone(), *ordinal)
+                }
+            });
+        }
+    }
+    RuntimeExportCatalog::new(exports).map_err(error_string)
+}
+
+fn prepare_bgi_runtime_process(
+    memory: &mut GuestMemory,
+    loader: &vine_core::LoaderIngressReport,
+    materialization: &vine_core::ImageMaterialization,
+    runtime_catalog: &RuntimeExportCatalog,
+) -> Result<BgiRuntimeProcess, String> {
+    let mut runtime = controlled_bgi_runtime_state()?;
+    let mut module_handles = vec![BGI_KERNEL32_HANDLE];
+    let mut canonical_modules = BTreeSet::from(["kernel32.dll".to_owned()]);
+    let mut next_module_slot = 2_u16;
+    for imported in &loader.load_plan.imports {
+        let canonical_name = imported.name.to_ascii_lowercase();
+        if !canonical_modules.insert(canonical_name.clone()) {
+            continue;
+        }
+        let handle = bgi_module_handle(next_module_slot)?;
+        next_module_slot = next_module_slot
+            .checked_add(1)
+            .ok_or_else(|| "BGI runtime module handle slots are exhausted".to_owned())?;
+        runtime
+            .load_module(RuntimeModule {
+                owner: "bgi-browser-runtime".to_owned(),
+                variant_id: "runtime-system-import-v1".to_owned(),
+                namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+                handle,
+                requested_name: imported.name.clone(),
+                canonical_name,
+                runtime_system_module: true,
+            })
+            .map_err(error_string)?;
+        module_handles.push(handle);
+    }
+    let main_module_handle = bgi_module_handle(next_module_slot)?;
+    runtime
+        .register_main_module(RuntimeModule {
+            owner: "bgi-browser-runtime".to_owned(),
+            variant_id: "mapped-main-executable-v1".to_owned(),
+            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            handle: main_module_handle,
+            requested_name: "BGI.exe".to_owned(),
+            canonical_name: "bgi.exe".to_owned(),
+            runtime_system_module: false,
+        })
+        .map_err(error_string)?;
+    module_handles.push(main_module_handle);
+    let binding = ExecutionSession::new(memory, &mut runtime)
+        .bind_guest_module_imports(main_module_handle, loader, materialization, runtime_catalog)
+        .map_err(error_string)?;
+    ExecutionSession::new(memory, &mut runtime)
+        .register_module_image(main_module_handle, loader, materialization)
+        .map_err(error_string)?;
+    Ok(BgiRuntimeProcess {
+        runtime,
+        binding,
+        module_handles,
+        attach_order: Vec::new(),
+    })
+}
+
+fn controlled_bgi_runtime_state() -> Result<RuntimeState, String> {
+    let mut startup_info = vec![0; 68];
+    startup_info[..4].copy_from_slice(&68_u32.to_le_bytes());
+    let mut runtime = RuntimeState::new(RuntimeBootstrap {
+        process_id: RuntimeProcessId(PROCESS_ID),
+        initial_thread_id: RuntimeThreadId(THREAD_ID),
+        initial_last_error: 87,
+        address_space: ProcessAddressSpaceLayout::vine_v1(),
+        clock: RuntimeClockState {
+            wall_clock_file_time: 134_282_016_000_000_000,
+            tick_count: 3_600_000,
+            performance_counter: 12_345_678_901,
+        },
+        startup_info: RuntimeStartupInfo {
+            profile_id: "startupinfow-v68-zero-optional-fields".to_owned(),
+            bytes: startup_info,
+        },
+        encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
+        encoded_pointer_token_prefix: 0xec01_0000,
+    })
+    .map_err(error_string)?;
+    runtime
+        .load_module(RuntimeModule {
+            owner: "runtime-loaded-modules".to_owned(),
+            variant_id: "runtime-system-module-v1".to_owned(),
+            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            handle: BGI_KERNEL32_HANDLE,
+            requested_name: "KERNEL32.DLL".to_owned(),
+            canonical_name: "kernel32.dll".to_owned(),
+            runtime_system_module: true,
+        })
+        .map_err(error_string)?;
+    runtime.start_initial_thread().map_err(error_string)?;
+    Ok(runtime)
+}
+
+fn bgi_module_handle(slot: u16) -> Result<u32, String> {
+    if slot == 0 {
+        return Err("BGI runtime module handle slot cannot be zero".to_owned());
+    }
+    Ok(0x4d01_0000 | u32::from(slot))
+}
+
+fn finalize_bgi_runtime_process(
+    process: &mut BgiRuntimeProcess,
+    dynamic_thunks: &[vine_core::DynamicExportThunk],
+    callback_return_sentinel: GuestAddress,
+) -> Result<(), String> {
+    for thunk in dynamic_thunks {
+        process
+            .runtime
+            .register_dynamic_export_thunk(thunk)
+            .map_err(error_string)?;
+    }
+    for handle in &process.module_handles {
+        process
+            .runtime
+            .mark_module_ready(*handle)
+            .map_err(error_string)?;
+    }
+    let completion = match process
+        .runtime
+        .begin_dll_process_attach(callback_return_sentinel)
+        .map_err(error_string)?
+    {
+        RuntimeDllLifecycleAction::Complete { completion } => completion,
+        RuntimeDllLifecycleAction::Callback { .. } => {
+            return Err("BGI system-module graph unexpectedly requested DllMain".to_owned());
+        }
+        RuntimeDllLifecycleAction::AttachFailed { .. } => {
+            return Err("BGI system-module graph failed process attach".to_owned());
+        }
+    };
+    if completion.phase != RuntimeDllLifecyclePhase::ProcessAttached
+        || !completion.callback_order.is_empty()
+    {
+        return Err("BGI system-module graph did not complete callback-free attach".to_owned());
+    }
+    process.attach_order = completion.graph_order;
+    Ok(())
+}
+
+fn build_bgi_dispatcher(process: &BgiRuntimeProcess) -> Result<BgiDispatcher, String> {
+    let mut endpoints = process
+        .binding
+        .imports
+        .iter()
+        .filter_map(ApiEndpointIdentity::from_runtime_guest_import)
+        .collect::<Vec<_>>();
+    if endpoints.len() != process.binding.imports.len() {
+        return Err("BGI browser binding contains a non-runtime endpoint".to_owned());
+    }
+    let mut contracts = endpoints
+        .iter()
+        .filter_map(|endpoint| kernel32_contract_for_endpoint(endpoint.clone()).transpose())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(api_fault_string)?;
+    for name in ["FlsAlloc", "FlsGetValue", "FlsSetValue", "FlsFree"] {
+        let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
+            process
+                .runtime
+                .dynamic_endpoint_by_name("kernel32.dll", name)
+                .map_err(error_string)?,
+        );
+        if matches!(name, "FlsAlloc" | "FlsSetValue") {
+            let contract = kernel32_contract_for_endpoint(endpoint.clone())
+                .map_err(api_fault_string)?
+                .ok_or_else(|| format!("BGI dynamic endpoint {name} has no Kernel32 contract"))?;
+            contracts.push(contract);
+        }
+        endpoints.push(endpoint);
+    }
+    let mut routes = BTreeMap::new();
+    for endpoint in &endpoints {
+        let argument_bytes = contracts
+            .iter()
+            .find(|contract| contract.endpoint == *endpoint)
+            .map(|contract| contract.abi.argument_bytes().map_err(api_fault_string))
+            .transpose()?
+            .unwrap_or(0);
+        routes.insert(
+            endpoint.address,
+            EndpointRoute {
+                id: endpoint.id.0,
+                argument_bytes,
+                endpoint: endpoint.clone(),
+            },
+        );
+    }
+    let dispatcher = ApiDispatcher::new(endpoints.clone(), contracts).map_err(api_fault_string)?;
+    Ok((dispatcher, routes, endpoints))
+}
+
+fn runtime_capability_cluster(endpoint: &ApiEndpointIdentity) -> String {
+    let module = endpoint.module.to_ascii_lowercase();
+    match &endpoint.symbol {
+        vine_core::ApiSymbol::Name { name }
+            if module == "kernel32.dll"
+                && matches!(name.as_str(), "EncodePointer" | "DecodePointer") =>
+        {
+            "kernel32-pointer-encoding".to_owned()
+        }
+        vine_core::ApiSymbol::Name { name }
+            if module == "kernel32.dll" && name.starts_with("Fls") =>
+        {
+            "kernel32-fiber-local-storage".to_owned()
+        }
+        vine_core::ApiSymbol::Name { name }
+            if module == "kernel32.dll" && name.contains("CriticalSection") =>
+        {
+            "kernel32-critical-section-synchronization".to_owned()
+        }
+        vine_core::ApiSymbol::Name { name } if module == "kernel32.dll" && name == "HeapAlloc" => {
+            "kernel32-private-heap-allocation".to_owned()
+        }
+        _ => format!("{}-api-contract", module.trim_end_matches(".dll")),
     }
 }
 
@@ -777,6 +1248,7 @@ fn build_dispatcher(
             EndpointRoute {
                 id: endpoint.id.0,
                 argument_bytes: contract.abi.argument_bytes().map_err(api_fault_string)?,
+                endpoint: endpoint.clone(),
             },
         );
         contracts.push(contract);
@@ -915,6 +1387,11 @@ pub extern "C" fn vine_bridge_payload_len() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_prepare(input_length: u32) -> u32 {
     run_bridge(|bridge| bridge.prepare(input_length as usize))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_prepare_bgi(executable_length: u32, policy_length: u32) -> u32 {
+    run_bridge(|bridge| bridge.prepare_bgi(executable_length as usize, policy_length as usize))
 }
 
 #[unsafe(no_mangle)]

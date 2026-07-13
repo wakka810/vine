@@ -30,12 +30,15 @@ historical、active、browserを同じ意味のcurrent checkpointとして扱わ
 3. `npm run check:docs`でschema、cross-field count、path、READMEの一致を検査する。
 4. manifestが生成した`canonicalReproductionCommand`を実行し、semantic outcomeとnext stopを確認する。
 
-現在のgeneric BGI commandは`check:runtime:bgi`一つであり、`--profile`はmanifestのactive profileを
-選ぶ。API固有のscript群はhistorical compatibility entry pointとして残るが、current stateの
-再現commandには使用しない。
+現在のcanonical commandは`check:runtime:bgi-browser`である。これは`check:runtime:bgi`をNode
+semantic oracleとして再生成した後、同じprofileをChrome Runtime Workerで実行して比較する。
+API固有のscript群はhistorical compatibility entry pointとして残るが、current stateの再現commandには
+使用しない。
 
 ## Browser non-claim
 
 `browserCheckpoint.status`は`browserCheckpoint.workload`にだけ適用する。
-controlled public fixtureの`passed`をBGI Browser executionの成功として扱わない。
-`browserCheckpoint.bgiSession`が明示的に更新されるまで、BGI Browser checkpointは未開始である。
+controlled public fixtureの`passed`をBGI Browser executionの成功として扱わない。現在の
+`browserCheckpoint.bgiSession = semantic-equivalence-passed`は、private source fingerprint、ordered
+completion、最終memory digest、structured stop、cancel／watchdog teardownをChromeで確認した結果である。
+full play、title output、steady-memory slopeはこのstatusに含めない。

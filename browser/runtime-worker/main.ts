@@ -560,6 +560,8 @@ function outcomeLabel(outcome: SessionReport["outcome"]): string {
   switch (outcome) {
     case "completed":
       return "Process exited cleanly";
+    case "structured-stop":
+      return "Structured compatibility stop";
     case "cancelled":
       return "Session cancelled cleanly";
     case "watchdog":

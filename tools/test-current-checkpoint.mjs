@@ -48,6 +48,23 @@ assert.ok(
   ),
 );
 
+const browserAuthorityMovedToNode = structuredClone(manifest);
+browserAuthorityMovedToNode.browserCheckpoint.bgiRuntimeEvidence.runtimeStateAuthority =
+  "node";
+assert.ok(
+  validateCurrentCheckpoint(browserAuthorityMovedToNode).some((error) =>
+    error.includes("authority or teardown"),
+  ),
+);
+
+const mismatchedBrowserCalls = structuredClone(manifest);
+mismatchedBrowserCalls.browserCheckpoint.bgiRuntimeEvidence.supportedCalls -= 1;
+assert.ok(
+  validateCurrentCheckpoint(mismatchedBrowserCalls).some((error) =>
+    error.includes("active runtime checkpoint"),
+  ),
+);
+
 const exposedMessages = structuredClone(manifest);
 exposedMessages.activeRuntimeCheckpoint.runtimeMessageQueue.mutableCollectionVisibility =
   "public";

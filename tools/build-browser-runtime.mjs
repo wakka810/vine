@@ -38,6 +38,7 @@ await mkdir(output, { recursive: true });
 await build({
   entryPoints: {
     main: path.join(source, "main.ts"),
+    "bgi-check": path.join(source, "bgi-check.ts"),
     "runtime-worker": path.join(source, "runtime-worker.ts"),
     "benchmark-main": path.join(benchmarkSource, "benchmark-main.ts"),
     "benchmark-worker": path.join(benchmarkSource, "benchmark-worker.ts"),
@@ -54,6 +55,7 @@ await build({
 
 await Promise.all([
   copyFile(path.join(source, "index.html"), path.join(output, "index.html")),
+  copyFile(path.join(source, "bgi-check.html"), path.join(output, "bgi-check.html")),
   copyFile(path.join(source, "styles.css"), path.join(output, "styles.css")),
   copyFile(path.join(benchmarkSource, "index.html"), path.join(output, "benchmark.html")),
   copyFile(path.join(benchmarkSource, "benchmark.css"), path.join(output, "benchmark.css")),
@@ -84,6 +86,8 @@ const manifest = {
         "index.html",
         "styles.css",
         "main.js",
+        "bgi-check.html",
+        "bgi-check.js",
         "runtime-worker.js",
         "benchmark.html",
         "benchmark.css",

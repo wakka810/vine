@@ -2,14 +2,15 @@
 
 ## Status
 
-- Status: Verified controlled vertical checkpoint
+- Status: Verified controlled fixture and private BGI semantic checkpoint
 - Date: 2026-07-13
 - Browser: Chrome `150.0.7871.115`
 - Protocol: `vine.browser-runtime-worker` version `2`
-- Runtime core: Rust/Wasm, zero imports, 991,337 bytes
+- Runtime core: Rust/Wasm, zero imports, 1,516,032 bytes
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
 - Evidence: `.work/browser-runtime/browser-report.json`
+- BGI evidence: `.work/browser-runtime/bgi-browser-report.json`
 - Stress evidence: `.work/browser-runtime/browser-stress-report.json`
 
 This checkpoint runs guest CPU execution inside Chrome rather than presenting a
@@ -18,8 +19,8 @@ generic API dispatch, asynchronous host completion, nested guest callbacks,
 Canvas, Web Audio, IndexedDB, cancellation, watchdog termination, and exact
 process exit in one controlled browser application.
 
-It does not claim a general Win32 process, BGI browser execution, a production
-renderer or mixer, or title-workload performance. The fixture APIs are
+It does not claim a general Win32 process, title rendering, a production
+renderer or mixer, or title-workload steady performance. The fixture APIs are
 checkpoint services and are not counted as implemented Windows APIs.
 
 ## Runtime path
@@ -130,6 +131,23 @@ and also leaves both counts at zero. Neither path fabricates a guest return.
 Mapping application contains no event-loop yield: cancellation can occur before
 or after one preflighted batch, never between its mapping and dirty-page commits.
 
+## Private BGI result
+
+`npm run check:runtime:bgi-browser` now executes the current 55-call generic BGI
+session in this same Runtime Worker. Rust/Wasm owns PE load, process/module/heap
+state, Kernel32 dispatch, and guest bytes; Node supplies only an independently
+generated semantic oracle. Chrome reaches the same unsupported
+`GetFileType(0x53010002)` call after 1,447 instructions, with equal ordered API
+results and final memory content SHA-256. The bounded Worker loop uses 204 slices
+and 148 periodic yields while the main-thread heartbeat remains active.
+
+The Chrome memory generation ends at 212 rather than the Node oracle's 113
+because Chrome reconciles dirty pages at every 8-instruction budget boundary.
+This difference is synchronization identity, not guest-visible state. Separate
+cancel and watchdog probes stop after 8 and 4 instructions and confirm Rust
+process exit, module detach, and zero pending host/callback work. Detailed
+evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
+
 ## 30-minute stress
 
 `npm run check:runtime:browser-worker:stress` repeated the complete successful
@@ -162,6 +180,7 @@ go/no-go benchmark.
 
 ```powershell
 npm run check:runtime:browser-worker
+npm run check:runtime:bgi-browser
 npm run serve:runtime:browser-worker
 npm run check:runtime:browser-worker:stress
 ```
@@ -176,7 +195,8 @@ stress command adds the 30-minute repeated lifecycle run.
 
 - title-workload Worker physical backing and memory ceiling beyond the controlled session
 - general process, thread, DLL, heap, wait, message, and object lifecycle
-- BGI execution through this browser runtime path
+- BGI steady-memory and growth-slope measurement
+- the next unsupported BGI capability and title output path
 
 The Step 8 synthetic matrix, background-tab probe, AudioWorklet deadline probe,
 and active steady-memory measurement passed their version 1 thresholds. See

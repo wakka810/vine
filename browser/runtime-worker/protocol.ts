@@ -1,9 +1,13 @@
 export const protocolVersion = 2 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
+export type SessionWorkload = "controlled-fixture" | "private-bgi";
 
 export interface SessionConfiguration {
   mode: SessionMode;
+  workload?: SessionWorkload;
+  executableUrl?: string;
+  policyUrl?: string;
   instructionBudget: number;
   watchdogInstructionLimit: number;
   watchdogWallMilliseconds: number;
@@ -55,7 +59,7 @@ export interface HostRequestMessage {
 }
 
 export interface SessionReport {
-  outcome: "completed" | "cancelled" | "watchdog" | "fault";
+  outcome: "completed" | "structured-stop" | "cancelled" | "watchdog" | "fault";
   exitCode: number | null;
   elapsedMilliseconds: number;
   instructions: number;
@@ -84,9 +88,32 @@ export interface SessionReport {
     generatedCodeInvalidations: number;
   };
   mirrorRebuilds: number;
+  initialGeneration: number;
   finalGeneration: number;
   pendingHostCalls: number;
   pendingCallbacks: number;
+  maximumSliceMilliseconds: number;
+  wasmBridgeCalls: number;
+  supportedCalls: Array<{
+    sequence: number;
+    module: string;
+    symbol: string;
+    arguments: number[];
+    result: { action: "preserve" } | { action: "set"; value: number };
+    implementationId: string;
+    returnAddress: number;
+    stackPointerBefore: number;
+    stackPointerAfter: number;
+    lastError: number;
+    guestWrites: Array<{ address: number; bytes: number[] }>;
+  }>;
+  firstUnsupported: {
+    capabilityCluster: string;
+    endpoint: unknown;
+    fault: unknown;
+    instructionCount: number;
+    memoryContentSha256: string;
+  } | null;
   error: string | null;
 }
 

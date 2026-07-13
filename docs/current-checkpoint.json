@@ -105,14 +105,14 @@
   },
   "browserCheckpoint": {
   "status": "passed",
-  "workload": "controlled-public-fixture",
-  "bgiSession": "not-started",
+  "workload": "private-bgi-generic-session",
+  "bgiSession": "semantic-equivalence-passed",
   "browserRuntimeProtocol": "vine.browser-runtime-worker.v2",
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {
     "imports": 0,
-    "bytes": 991337,
-    "sha256": "063d0de36c64315c6dadb1deb35fefeb18ebc5b236c083c2f55b5b2a2c561e89"
+    "bytes": 1516032,
+    "sha256": "83c8a1d31c632c6d063c62864ef22a114491e7d26611d837444403e00144a870"
   },
   "browserRuntimeFixture": {
     "bytes": 2560,
@@ -158,6 +158,52 @@
     "watchdogInstructions": 4,
     "watchdogPendingHostCallsAfterCleanup": 0,
     "watchdogPendingCallbacksAfterCleanup": 0
+  },
+  "bgiRuntimeEvidence": {
+    "chromeVersion": "150.0.7871.115",
+    "sourceBytes": 1193472,
+    "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+    "nodeRole": "semantic-oracle-only",
+    "runtimeStateAuthority": "rust-wasm-in-runtime-worker",
+    "guestInstructions": 1447,
+    "cpuSlices": 204,
+    "budgetYields": 148,
+    "supportedCalls": 55,
+    "writebackBatches": 165,
+    "writebackPages": 201,
+    "hostDeltaBatches": 28,
+    "mappingOperations": {
+      "reserve": 1,
+      "commit": 1,
+      "protect": 0,
+      "decommit": 0,
+      "release": 0
+    },
+    "initialGeneration": 27,
+    "finalGeneration": 212,
+    "nodeFinalGeneration": 113,
+    "generationEquivalence": "not-required-across-different-slice-reconciliation-boundaries",
+    "memoryContentSha256": "db2bc5a3d444739b1328defc5e18829d567f3a4ab6f8ff42ee939f1c30656def",
+    "nextCapabilityCluster": "kernel32-api-contract",
+    "nextApi": "KERNEL32.dll!GetFileType",
+    "nextFaultCode": "file-type-standard-handle-unsupported",
+    "wasmBridgeCalls": 252,
+    "maximumSliceMilliseconds": 2.6099999845027924,
+    "elapsedMilliseconds": 1850.9800000190735,
+    "heartbeatSamples": 244,
+    "maximumHeartbeatGapMilliseconds": 23.319999992847443,
+    "usedJsHeapBytesBefore": 628738,
+    "usedJsHeapBytesAfter": 720434,
+    "cancelInstructions": 8,
+    "watchdogInstructions": 4,
+    "pendingHostCallsAfterCleanup": 0,
+    "pendingCallbacksAfterCleanup": 0,
+    "processLifecycleAfterCleanup": "exited",
+    "dllLifecycleAfterCleanup": "process-detached",
+    "nodeOracleReportBytes": 257878,
+    "nodeOracleReportSha256": "564c3425f01b35e86717b68335b18f8bcd3d30d996717a1d0848028104cf0a2b",
+    "browserReportBytes": 51397,
+    "browserReportSha256": "d1371ed3617972efa068c2046a23ebd31198536c3ef8cef33113cd1bfd8c0655"
   },
   "browserStressEvidence": {
     "durationMilliseconds": 1800073.5,
@@ -1103,10 +1149,10 @@
     "fileIoImplemented": false,
     "apiSpecificReconciliationLists": false,
     "apiSpecificRequestsOrReceipts": false,
-    "reportBytes": 257475,
-    "reportSha256": "c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a"
+    "reportBytes": 257878,
+    "reportSha256": "564c3425f01b35e86717b68335b18f8bcd3d30d996717a1d0848028104cf0a2b"
   },
-  "canonicalReproductionCommand": "npm run check:runtime:bgi -- --profile kernel32-standard-output-handle"
+  "canonicalReproductionCommand": "npm run check:runtime:bgi-browser"
   },
   "nextStructuredStop": {
     "nextCheckpoint": "kernel32-standard-output-file-type",

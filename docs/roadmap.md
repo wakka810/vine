@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは23 contracts／55 callsをcommon dispatcherからreturnして`GetFileType(0x53010002)`へ到達した。17-call checkpoint manifest／generic runner、changed-state memory transaction、Chrome Worker vertical、v86 browser go gateは成立し、visual critical scenarioとdevice-level COM continuationは未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは23 contracts／55 callsをcommon dispatcherからreturnして`GetFileType(0x53010002)`へ到達した。同じcurrent sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとのordered completion／memory digest一致、heartbeat、cancel／watchdog teardownを通した。BGI steady-memory slope、visual critical scenarioとdevice-level COM continuationは未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 

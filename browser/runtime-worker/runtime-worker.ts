@@ -52,6 +52,27 @@ interface GuestCallbackMetadata {
 interface CompletionMetadata {
   kind: "api-complete";
   completion: ApiCompletion;
+  endpoint?: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+  };
+  memory?: { generation: number; acknowledgedGeneration: number };
+}
+
+interface ApiFaultMetadata {
+  kind: "api-fault";
+  endpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+  };
+  capabilityCluster: string;
+  fault: unknown;
+  memory: { generation: number; acknowledgedGeneration: number };
+  memoryContentSha256: string;
 }
 
 interface HostCompletionMetadata {
@@ -108,6 +129,8 @@ interface CancellationMetadata {
   };
   pendingHostCalls: number;
   pendingCallbacks: number;
+  processLifecycle: { state: string; exitCode?: number };
+  dllLifecycle: string;
 }
 
 interface ProcessExitMetadata {
@@ -178,6 +201,10 @@ class BrowserRuntimeSession {
       generatedCodeInvalidations: 0,
     },
     mirrorRebuilds: 0,
+    initialGeneration: 0,
+    maximumSliceMilliseconds: 0,
+    supportedCalls: [] as SessionReport["supportedCalls"],
+    firstUnsupported: null as SessionReport["firstUnsupported"],
   };
 
   constructor(sessionId: number, configuration: SessionConfiguration) {
@@ -187,25 +214,49 @@ class BrowserRuntimeSession {
 
   async run(): Promise<void> {
     try {
-      this.#status("loading", "Loading Rust runtime, v86 adapter, and controlled PE32 image");
+      const workload = this.#configuration.workload ?? "controlled-fixture";
+      this.#status("loading", `Loading Rust runtime, v86 adapter, and ${workload}`);
       const coreUrl = new URL("./runtime-core.wasm", import.meta.url);
       const adapterUrl = new URL("./v86-adapter.wasm", import.meta.url);
-      const fixtureUrl = new URL("./browser-vertical.exe", import.meta.url);
-      const [bridge, mirror, fixtureResponse] = await Promise.all([
+      const executableUrl = new URL(
+        workload === "private-bgi"
+          ? this.#configuration.executableUrl ?? "./private/BGI.exe"
+          : "./browser-vertical.exe",
+        import.meta.url,
+      );
+      const [bridge, mirror, executableResponse] = await Promise.all([
         RuntimeBridge.instantiate(coreUrl),
         V86Mirror.instantiate(adapterUrl),
-        fetch(fixtureUrl),
+        fetch(executableUrl),
       ]);
-      invariant(fixtureResponse.ok, `fixture fetch failed with ${fixtureResponse.status}`);
+      invariant(
+        executableResponse.ok,
+        `executable fetch failed with ${executableResponse.status}`,
+      );
       if (this.#terminal) {
         return;
       }
       this.#bridge = bridge;
       this.#mirror = mirror;
-      const fixture = new Uint8Array(await fixtureResponse.arrayBuffer());
-      const preparedOutput = bridge.prepare(fixture);
+      const executable = new Uint8Array(await executableResponse.arrayBuffer());
+      const preparedOutput =
+        workload === "private-bgi"
+          ? bridge.prepareBgi(
+              executable,
+              await this.#fetchPolicy(
+                new URL(
+                  this.#configuration.policyUrl ?? "./private/kernel32-policy.json",
+                  import.meta.url,
+                ),
+              ),
+            )
+          : bridge.prepare(executable);
       this.#runtimePrepared = true;
       this.#prepared = preparedOutput.metadata;
+      invariant(
+        (preparedOutput.metadata.workload ?? "controlled-fixture") === workload,
+        "prepared workload mismatch",
+      );
       const reflection = decodeReflection(preparedOutput.control, preparedOutput.payload);
       invariant(
         reflection.generation === BigInt(preparedOutput.metadata.generation),
@@ -218,7 +269,10 @@ class BrowserRuntimeSession {
       mirror.install(reflection, preparedOutput.metadata);
       bridge.acknowledge(reflection.generation);
       this.#generation = reflection.generation;
-      this.#runMappingContract();
+      this.#report.initialGeneration = Number(reflection.generation);
+      if (workload === "controlled-fixture") {
+        this.#runMappingContract();
+      }
       this.#status("running", "Guest entry is running in bounded Worker slices");
       await this.#runGuest();
     } catch (error) {
@@ -227,6 +281,12 @@ class BrowserRuntimeSession {
       }
       this.#fail(error instanceof Error ? error : new Error(String(error)));
     }
+  }
+
+  async #fetchPolicy(url: URL): Promise<Uint8Array> {
+    const response = await fetch(url);
+    invariant(response.ok, `runtime policy fetch failed with ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   completeHost(message: HostCompletionMessage): void {
@@ -258,7 +318,12 @@ class BrowserRuntimeSession {
     const endpointAddresses = new Set(prepared.endpoints.map(({ address }) => address));
     while (!this.#terminal) {
       this.#checkWatchdog();
+      const sliceStartedAt = performance.now();
       const slice = mirror.execute(this.#configuration.instructionBudget);
+      this.#report.maximumSliceMilliseconds = Math.max(
+        this.#report.maximumSliceMilliseconds,
+        performance.now() - sliceStartedAt,
+      );
       this.#report.instructions += slice.instructions;
       this.#report.slices += 1;
       this.#reconcileDirtyPages();
@@ -302,7 +367,7 @@ class BrowserRuntimeSession {
     const mirror = this.#requireMirror();
     const returnAddress = mirror.readU32(stackPointer);
     const output = this.#requireBridge().dispatch<
-      HostRequestMetadata | GuestCallbackMetadata | CompletionMetadata
+      HostRequestMetadata | GuestCallbackMetadata | CompletionMetadata | ApiFaultMetadata
     >(endpoint, stackPointer, returnAddress);
     const metadata = output.metadata;
     switch (metadata.kind) {
@@ -334,7 +399,7 @@ class BrowserRuntimeSession {
         break;
       }
       case "guest-callback": {
-        this.#applyDelta(output);
+        this.#applyRequiredDelta(output);
         this.#report.callbackEntries += 1;
         this.#report.maximumCallbackDepth = Math.max(
           this.#report.maximumCallbackDepth,
@@ -344,12 +409,88 @@ class BrowserRuntimeSession {
         this.#status("callback", `Guest callback depth ${metadata.depth}`);
         break;
       }
-      case "api-complete":
+      case "api-complete": {
+        this.#applyOptionalDelta(output);
+        if (this.#requirePrepared().workload === "private-bgi") {
+          this.#recordBgiCompletion(metadata);
+        }
         mirror.applyCompletion(metadata.completion);
+        break;
+      }
+      case "api-fault":
+        this.#completeStructuredStop(metadata, output);
         break;
       default:
         throw new Error("runtime bridge returned an unknown dispatch outcome");
     }
+  }
+
+  #recordBgiCompletion(metadata: CompletionMetadata): void {
+    const endpoint = metadata.endpoint;
+    invariant(endpoint !== undefined, "BGI completion omitted its endpoint identity");
+    invariant(endpoint.symbol.kind === "name", "BGI reached an ordinal API completion");
+    invariant(
+      metadata.memory?.generation === Number(this.#generation) &&
+        metadata.memory.acknowledgedGeneration <= Number(this.#generation),
+      "BGI completion memory generation mismatch",
+    );
+    const completion = metadata.completion;
+    const frame = completion.frame;
+    const guestWrites = completion.guestWrites;
+    invariant(frame !== undefined, "BGI completion omitted its decoded ABI frame");
+    invariant(guestWrites !== undefined, "BGI completion omitted its guest writes");
+    this.#report.supportedCalls.push({
+      sequence: this.#report.supportedCalls.length + 1,
+      module: endpoint.module,
+      symbol: endpoint.symbol.name,
+      arguments: frame.arguments.flatMap(({ words }) => words),
+      result: completion.eax,
+      implementationId: completion.implementationId,
+      returnAddress: completion.instructionPointer,
+      stackPointerBefore: frame.stackPointer,
+      stackPointerAfter: completion.stackPointer,
+      lastError: completion.lastError,
+      guestWrites: guestWrites.map(({ write }) => ({
+        address: write.address,
+        bytes: write.bytes,
+      })),
+    });
+  }
+
+  #completeStructuredStop(
+    metadata: ApiFaultMetadata,
+    output: Pick<BridgeOutput<unknown>, "control" | "payload">,
+  ): void {
+    invariant(this.#requirePrepared().workload === "private-bgi", "fixture returned a structured stop");
+    invariant(
+      output.control.byteLength === 0 && output.payload.byteLength === 0,
+      "unsupported BGI call returned a memory delta",
+    );
+    invariant(
+      metadata.memory.generation === Number(this.#generation) &&
+        metadata.memory.acknowledgedGeneration === Number(this.#generation),
+      "unsupported BGI call changed or failed to acknowledge memory",
+    );
+    this.#report.firstUnsupported = {
+      capabilityCluster: metadata.capabilityCluster,
+      endpoint: metadata.endpoint,
+      fault: metadata.fault,
+      instructionCount: this.#report.instructions,
+      memoryContentSha256: metadata.memoryContentSha256,
+    };
+    const cancellation = this.#requireBridge().cancel<CancellationMetadata>().metadata;
+    invariant(cancellation.kind === "cancelled", "structured-stop cleanup metadata is invalid");
+    invariant(cancellation.pendingHostCalls === 0, "structured-stop cleanup retained host work");
+    invariant(cancellation.pendingCallbacks === 0, "structured-stop cleanup retained callbacks");
+    invariant(cancellation.processLifecycle.state === "exited", "BGI process did not exit");
+    invariant(cancellation.dllLifecycle === "process-detached", "BGI modules did not detach");
+    this.#finish({
+      outcome: "structured-stop",
+      exitCode: null,
+      pendingHostCalls: cancellation.pendingHostCalls,
+      pendingCallbacks: cancellation.pendingCallbacks,
+      error: null,
+    });
   }
 
   #completeCallback(result: number): void {
@@ -480,10 +621,25 @@ class BrowserRuntimeSession {
     this.#report.writebackPages += pages.length;
   }
 
-  #applyDelta(output: Pick<BridgeOutput<unknown>, "control" | "payload">): void {
+  #applyRequiredDelta(output: Pick<BridgeOutput<unknown>, "control" | "payload">): void {
     invariant(output.control.byteLength > 0, "guest callback did not return its stack delta");
+    this.#applyOptionalDelta(output);
+  }
+
+  #applyOptionalDelta(output: Pick<BridgeOutput<unknown>, "control" | "payload">): void {
+    if (output.control.byteLength === 0) {
+      invariant(output.payload.byteLength === 0, "host delta payload has no control descriptor");
+      return;
+    }
     const delta = decodeHostDelta(output.control, output.payload);
     invariant(delta.fromGeneration === this.#generation, "host delta base generation mismatch");
+    if (this.#requirePrepared().workload === "private-bgi") {
+      this.#report.mappingDeltas += 1;
+      this.#report.mappingDirtyPages += delta.pages.length;
+      for (const operation of delta.mappingOperations) {
+        this.#report.mappingOperations[operation.operation] += 1;
+      }
+    }
     this.#applyAuthoritativeDelta(delta);
   }
 
@@ -610,6 +766,10 @@ class BrowserRuntimeSession {
         pendingCallbacks = metadata.pendingCallbacks;
         invariant(pendingHostCalls === 0, "cancellation retained a host request");
         invariant(pendingCallbacks === 0, "cancellation retained a callback");
+        if (this.#prepared?.workload === "private-bgi") {
+          invariant(metadata.processLifecycle.state === "exited", "BGI cancellation did not exit");
+          invariant(metadata.dllLifecycle === "process-detached", "BGI cancellation did not detach");
+        }
       } catch (cancelError) {
         error = `${detail}; cleanup failed: ${String(cancelError)}`;
       }
@@ -669,6 +829,7 @@ class BrowserRuntimeSession {
         ...terminal,
         elapsedMilliseconds: performance.now() - this.#startedAt,
         ...this.#report,
+        wasmBridgeCalls: this.#bridge?.callCount() ?? 0,
         finalGeneration: Number(this.#generation),
       },
     };
@@ -745,9 +906,14 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
               generatedCodeInvalidations: 0,
             },
             mirrorRebuilds: 0,
+            initialGeneration: 0,
             finalGeneration: 0,
             pendingHostCalls: 0,
             pendingCallbacks: 0,
+            maximumSliceMilliseconds: 0,
+            wasmBridgeCalls: 0,
+            supportedCalls: [],
+            firstUnsupported: null,
             error: "another runtime session is active",
           },
         });

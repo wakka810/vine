@@ -130,13 +130,13 @@ npm run check:runtime:bgi-standard-output-handle
 | CPU-changed bytes | 943 |
 | Host delta batches | 28 |
 | Final synchronized generation | 113 |
-| Report bytes | 257,475 |
-| Report SHA-256 | `c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a` |
+| Report bytes | 257,878 |
+| Report SHA-256 | `564c3425f01b35e86717b68335b18f8bcd3d30d996717a1d0848028104cf0a2b` |
 
 The stdout completion itself emits no guest write or host delta. The additional
 writeback contains ordinary guest stack activity while the consumer call is
-prepared. All eleven earlier reports remain byte-identical, including the
-252,994-byte stdin file-type report.
+prepared. Historical report hashes remain artifact identities; ordered
+completion, memory content, and the structured stop are the semantic gate.
 
 ## Next structured stop
 
