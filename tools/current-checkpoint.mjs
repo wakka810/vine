@@ -191,6 +191,18 @@ export function validateCurrentCheckpoint(manifest) {
       "activeRuntimeCheckpoint.allSupportedCallsUseGenericDispatcher must be true",
     );
   }
+  const messages = requireRecord(
+    active.runtimeMessageQueue,
+    "activeRuntimeCheckpoint.runtimeMessageQueue",
+    errors,
+  );
+  if (
+    messages.schema !== "vine.runtime-message-queue.v2" ||
+    messages.mutableCollectionVisibility !== "private" ||
+    messages.crossSubsystemMutation !== "plan-preflight-commit"
+  ) {
+    errors.push("active runtime message subsystem boundary is invalid");
+  }
   const latestEvidence = requireRecord(
     active.bgiStandardOutputHandle,
     "activeRuntimeCheckpoint.bgiStandardOutputHandle",

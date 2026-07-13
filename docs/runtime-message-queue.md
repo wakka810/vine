@@ -19,15 +19,30 @@ window ownership、filter、paint generation、WM_QUIT semanticsを検証しな�
 - opaque `hwnd`
 - `message`, `w_param`, `l_param`
 
-Queueは`RuntimeThreadState`が所有するbounded `VecDeque`で、controlled capacityは4,096 messages／
-threadである。registration時はemptyで、thread switch後もtarget owner recordに残る。IDsはoverflow
-前に停止し、host pointerやJavaScript objectをguest metadataへ入れない。
+Queueとprocess-global ID allocatorは`runtime/messages.rs`のprivate `RuntimeMessages`が所有する。
+mutable `BTreeMap<RuntimeThreadId, VecDeque<_>>`は`RuntimeState`、thread subsystem、schedulerへ公開しない。
+read-only inspectionは`queued_thread_messages`が返すcopy snapshotを使う。controlled capacityは4,096
+messages／threadであり、registration時はemptyである。IDsはoverflow前に停止し、host pointerや
+JavaScript objectをguest metadataへ入れない。
+
+## Mutation boundary
+
+`RuntimeMessages`はqueue／allocatorだけを検査して`RuntimeMessagePostPlan`、receive plan、clear planを
+返す。plan作成はstateを変更しない。aggregate rootの`RuntimeState`はprocess／source thread／target
+thread／scheduler laneをpreflightし、message planをcommitした後、必要な場合だけ`MessageReady`と
+`Runnable`を反映する。message subsystemはscheduler mapを直接mutateせず、schedulerはqueueを直接
+mutateしない。
+
+thread registrationはmessage queueの重複をobjects／thread／scheduler commit前にpreflightする。
+thread exitはclear planのmessage countをcancellation receiptへ入れ、同じcoordinator commitでqueue、
+host request、callback、wait、event、lifecycleをretireする。
 
 ## Enqueue and wake
 
 `post_thread_message`はrunning processのrunnable／in-callback sourceと、registered running targetを
-preflightする。Targetがrunnable、host/object wait、callback中ならFIFOへappendするだけで、その
-scheduler reasonを上書きしない。
+preflightする。capacity、ID overflow、waiting/queue consistencyのfailureはqueue、ID allocator、thread、
+scheduler eventを一切変更しない。Targetがrunnable、host/object wait、callback中ならFIFOへappend
+するだけで、そのscheduler reasonを上書きしない。
 
 Targetが`WaitingMessage`ならqueueがemptyであることを再検査し、first messageをappendしたsame
 commitでlaneを`Runnable`へ戻し、`RuntimeSchedulerEvent::MessageReady`を1件enqueueする。後続
@@ -67,22 +82,14 @@ emptyである。Post operationはqueue全体や`RuntimeState`をcloneせず、o
 Representative contract:
 
 ```powershell
+cargo test -p vine-core runtime::messages::tests --locked
 cargo test -p vine-core --test runtime_message_queue --locked
 ```
 
-Production regression on the same implementation:
-
-- Chrome Worker: 46 instructions、cancel／watchdog／clean exit、exit code `0`
-- BGI: 17 calls／238 instructions; report SHA-256
-  `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`
-- BGI reflection SHA-256
-  `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`
-- version 1 browser benchmark regression: `go`, threshold failures `0`
-- Rust runtime core Wasm: 769,885 bytes／SHA-256
-  `db29e4846e40dc840bcf79ad70e613e2c32d251fcb05aeece1bf94ba09299db3`
-
-The clean commit `a0d99e5` report remains the engine decision authority. Worker report identity is
-not embedded in `current-checkpoint.json` because its build manifest hashes that file.
+Subsystem tests fix non-mutating plan、FIFO identity、receive commit、missing-owner rejection。
+Integration tests fix first-message wake、no duplicate wake、exit cleanup and capacity rejection
+across message／thread／scheduler state。Current production regressionは
+[`current-checkpoint.json`](current-checkpoint.json)のcanonical commandを使う。
 
 ## Non-claims and next dependency
 

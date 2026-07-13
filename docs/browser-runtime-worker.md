@@ -6,7 +6,7 @@
 - Date: 2026-07-12
 - Browser: Chrome `150.0.7871.115`
 - Protocol: `vine.browser-runtime-worker` version `2`
-- Runtime core: Rust/Wasm, zero imports, 808,587 bytes
+- Runtime core: Rust/Wasm, zero imports, 811,512 bytes
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
 - Evidence: `.work/browser-runtime/browser-report.json`

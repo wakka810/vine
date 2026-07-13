@@ -28,6 +28,13 @@ use crate::module_images::{
 use crate::pe32::{ExportLookup, ImportTarget, LoaderIngressReport};
 use crate::snapshot::ModuleIdentity;
 
+mod messages;
+
+use messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessages};
+pub use messages::{
+    RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage,
+};
+
 pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
 pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1";
 pub const LOGICAL_TLS_INDEX_NAMESPACE: &str = "vine.logical-tls-index.v1";
@@ -60,7 +67,6 @@ const RUNTIME_PRIVATE_HEAP_VARIANT: &str = "heap-create-metadata-v1";
 const RUNTIME_STANDARD_HANDLE_OWNER: &str = "runtime-process-standard-handles";
 const RUNTIME_STANDARD_INPUT_VARIANT: &str = "standard-input-logical-v1";
 const RUNTIME_STANDARD_OUTPUT_VARIANT: &str = "standard-output-logical-v1";
-const MAX_RUNTIME_THREAD_MESSAGES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -213,37 +219,6 @@ pub enum RuntimeWaitDisposition {
     Pending {
         registration: RuntimeWaitRegistration,
     },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
-pub struct RuntimeMessageId(pub u64);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeThreadMessage {
-    pub id: RuntimeMessageId,
-    pub source_thread_id: RuntimeThreadId,
-    pub target_thread_id: RuntimeThreadId,
-    pub hwnd: u32,
-    pub message: u32,
-    pub w_param: u32,
-    pub l_param: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeMessageWake {
-    pub thread_id: RuntimeThreadId,
-    pub message_id: RuntimeMessageId,
-    pub queue_depth: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "kebab-case")]
-pub enum RuntimeMessageReceiveDisposition {
-    Message { message: RuntimeThreadMessage },
-    Blocked,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1387,6 +1362,7 @@ struct RuntimeThreadExitRequestPlan {
     thread_id: RuntimeThreadId,
     next_thread: RuntimeThreadState,
     cancelled_wait: Option<RuntimeWaitRegistration>,
+    message_clear: RuntimeMessageClearPlan,
     cancellation: RuntimeCancellation,
 }
 
@@ -1479,7 +1455,6 @@ pub struct RuntimeThreadState {
     pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
     pub fls_values: BTreeMap<u32, u32>,
     pub callback_frames: Vec<RuntimeCallbackFrame>,
-    pub message_queue: VecDeque<RuntimeThreadMessage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1524,6 +1499,7 @@ pub struct RuntimeState {
     process: RuntimeProcessState,
     threads: BTreeMap<RuntimeThreadId, RuntimeThreadState>,
     scheduler: RuntimeScheduler,
+    messages: RuntimeMessages,
     objects: RuntimeObjectTable,
     module_graph: RuntimeModuleGraph,
     #[serde(skip)]
@@ -1549,7 +1525,6 @@ pub struct RuntimeState {
     next_callback_frame_id: u64,
     next_host_request_id: u64,
     next_wait_registration_id: u64,
-    next_message_id: u64,
 }
 
 impl RuntimeState {
@@ -1599,7 +1574,6 @@ impl RuntimeState {
             tls_values: BTreeMap::new(),
             fls_values: BTreeMap::new(),
             callback_frames: Vec::new(),
-            message_queue: VecDeque::new(),
         };
         Ok(Self {
             process: RuntimeProcessState {
@@ -1627,6 +1601,7 @@ impl RuntimeState {
                 object_waiters: BTreeMap::new(),
                 events: VecDeque::new(),
             },
+            messages: RuntimeMessages::new(bootstrap.initial_thread_id),
             objects,
             module_graph: RuntimeModuleGraph::default(),
             module_images: RuntimeModuleImageRegistry::default(),
@@ -1650,7 +1625,6 @@ impl RuntimeState {
             next_callback_frame_id: 1,
             next_host_request_id: 1,
             next_wait_registration_id: 1,
-            next_message_id: 1,
         })
     }
 
@@ -2100,6 +2074,7 @@ impl RuntimeState {
                 format!("runtime thread ID {} is already registered", thread_id.0),
             ));
         }
+        self.messages.preflight_register_thread(thread_id)?;
         let thread_key = RuntimeObjectKey::Thread {
             thread_id: thread_id.0,
         };
@@ -2120,12 +2095,12 @@ impl RuntimeState {
                 tls_values: BTreeMap::new(),
                 fls_values: BTreeMap::new(),
                 callback_frames: Vec::new(),
-                message_queue: VecDeque::new(),
             },
         );
         self.scheduler
             .threads
             .insert(thread_id, SchedulerThreadState::Runnable);
+        self.messages.commit_register_thread(thread_id);
         Ok(handle)
     }
 
@@ -2292,52 +2267,18 @@ impl RuntimeState {
                 "message target requires matching live thread and scheduler states",
             ));
         }
-        if target_thread.message_queue.len() >= MAX_RUNTIME_THREAD_MESSAGES {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-message",
-                "message-queue-capacity-exceeded",
-                "runtime thread message queue reached its controlled capacity",
-            ));
-        }
-        if target_scheduler_state == SchedulerThreadState::WaitingMessage
-            && !target_thread.message_queue.is_empty()
-        {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-message",
-                "waiting-message-thread-queue-nonempty",
-                "message-waiting thread must have an empty queue",
-            ));
-        }
-        let id = RuntimeMessageId(self.next_message_id);
-        let next_message_id = self.next_message_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-message",
-                "message-id-overflow",
-                "runtime message ID space is exhausted",
-            )
-        })?;
-        let posted = RuntimeThreadMessage {
-            id,
+        let plan = self.messages.plan_post(
             source_thread_id,
             target_thread_id,
             hwnd,
             message,
             w_param,
             l_param,
-        };
-        let queue_depth = {
-            let target = self.threads.get_mut(&target_thread_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-message",
-                    "message-target-disappeared",
-                    "message target disappeared after complete registry preflight",
-                )
-            })?;
-            target.message_queue.push_back(posted);
-            target.message_queue.len()
-        };
-        self.next_message_id = next_message_id;
-        if target_scheduler_state == SchedulerThreadState::WaitingMessage {
+            target_scheduler_state == SchedulerThreadState::WaitingMessage,
+        )?;
+        let posted = plan.message;
+        self.messages.commit_post(plan);
+        if plan.wake_target {
             self.scheduler
                 .threads
                 .insert(target_thread_id, SchedulerThreadState::Runnable);
@@ -2345,8 +2286,8 @@ impl RuntimeState {
                 .events
                 .push_back(RuntimeSchedulerEvent::MessageReady(RuntimeMessageWake {
                     thread_id: target_thread_id,
-                    message_id: id,
-                    queue_depth,
+                    message_id: posted.id,
+                    queue_depth: plan.queue_depth,
                 }));
         }
         Ok(posted)
@@ -2366,13 +2307,23 @@ impl RuntimeState {
             ));
         }
         let thread_id = self.current_thread_id();
-        if let Some(message) = self.current_thread_mut()?.message_queue.pop_front() {
+        let plan = self.messages.plan_receive(thread_id)?;
+        if let RuntimeMessageReceivePlan::Message { message, .. } = plan {
+            self.messages.commit_receive(thread_id, message.id);
             return Ok(RuntimeMessageReceiveDisposition::Message { message });
         }
         self.scheduler
             .threads
             .insert(thread_id, SchedulerThreadState::WaitingMessage);
         Ok(RuntimeMessageReceiveDisposition::Blocked)
+    }
+
+    pub fn queued_thread_messages(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<Vec<RuntimeThreadMessage>, RuntimeStateError> {
+        self.thread_state(thread_id)?;
+        self.messages.snapshot(thread_id)
     }
 
     pub fn set_heap_termination_on_corruption(&mut self, enabled: bool) {
@@ -4974,8 +4925,8 @@ impl RuntimeState {
         let cancelled_wait = self.plan_thread_wait_cancellation(thread_id, scheduler_state)?;
         let callback_frames_cancelled = next_thread.callback_frames.len();
         next_thread.callback_frames.clear();
-        let messages_discarded = next_thread.message_queue.len();
-        next_thread.message_queue.clear();
+        let message_clear = self.messages.plan_clear(thread_id)?;
+        let messages_discarded = message_clear.message_count;
         next_thread.lifecycle = RuntimeThreadLifecycleState::ExitRequested { exit_code };
         let host_requests_cancelled = self
             .registries
@@ -4993,6 +4944,7 @@ impl RuntimeState {
             thread_id,
             next_thread,
             cancelled_wait,
+            message_clear,
             cancellation: RuntimeCancellation {
                 thread_id,
                 exit_code,
@@ -5006,6 +4958,7 @@ impl RuntimeState {
     }
 
     fn commit_thread_exit_request(&mut self, plan: RuntimeThreadExitRequestPlan) {
+        self.messages.commit_clear(plan.message_clear);
         self.registries
             .host_requests
             .retain(|_, request| request.thread_id != plan.thread_id);
@@ -5047,7 +5000,7 @@ impl RuntimeState {
                 .values()
                 .any(|request| request.thread_id == thread_id)
             || !next_thread.callback_frames.is_empty()
-            || !next_thread.message_queue.is_empty()
+            || !self.messages.is_empty(thread_id)?
             || self
                 .scheduler
                 .wait_registrations

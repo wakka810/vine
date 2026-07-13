@@ -40,6 +40,15 @@ assert.ok(
   ),
 );
 
+const exposedMessages = structuredClone(manifest);
+exposedMessages.activeRuntimeCheckpoint.runtimeMessageQueue.mutableCollectionVisibility =
+  "public";
+assert.ok(
+  validateCurrentCheckpoint(exposedMessages).some((error) =>
+    error.includes("message subsystem boundary"),
+  ),
+);
+
 const sample = `before\n${README_STATUS_START}\nstale\n${README_STATUS_END}\nafter\n`;
 assert.equal(
   replaceReadmeStatus(sample, rendered),

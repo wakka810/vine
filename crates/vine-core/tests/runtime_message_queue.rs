@@ -57,13 +57,7 @@ fn message_queue_preserves_fifo_owner_and_wakes_only_on_empty_transition() {
         SchedulerThreadState::Runnable
     );
     assert_eq!(
-        runtime
-            .thread_state(INITIAL_THREAD_ID)
-            .unwrap()
-            .message_queue
-            .iter()
-            .copied()
-            .collect::<Vec<_>>(),
+        runtime.queued_thread_messages(INITIAL_THREAD_ID).unwrap(),
         vec![first, second]
     );
 
@@ -110,9 +104,8 @@ fn message_queue_preserves_fifo_owner_and_wakes_only_on_empty_transition() {
     );
     assert!(
         runtime
-            .thread_state(INITIAL_THREAD_ID)
+            .queued_thread_messages(INITIAL_THREAD_ID)
             .unwrap()
-            .message_queue
             .is_empty()
     );
 
@@ -181,12 +174,49 @@ fn message_queue_preserves_fifo_owner_and_wakes_only_on_empty_transition() {
     );
     assert!(
         process_exit
-            .thread_state(INITIAL_THREAD_ID)
+            .queued_thread_messages(INITIAL_THREAD_ID)
             .unwrap()
-            .message_queue
             .is_empty()
     );
     assert!(process_exit.scheduler().events.is_empty());
+}
+
+#[test]
+fn message_capacity_rejection_is_cross_subsystem_atomic() {
+    let mut runtime = running_runtime();
+    runtime
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register controlled capacity producer");
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+
+    for message in 0..4096 {
+        runtime
+            .post_thread_message(INITIAL_THREAD_ID, 0, message, 0, 0)
+            .expect("fill controlled message capacity");
+    }
+    let before_rejection = runtime.clone();
+    assert_eq!(
+        runtime
+            .post_thread_message(INITIAL_THREAD_ID, 0, 4096, 0, 0)
+            .expect_err("capacity overflow must fail before commit")
+            .code,
+        "message-queue-capacity-exceeded"
+    );
+    assert_eq!(runtime, before_rejection);
+    assert_eq!(
+        runtime
+            .queued_thread_messages(INITIAL_THREAD_ID)
+            .unwrap()
+            .len(),
+        4096
+    );
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    assert!(runtime.scheduler().events.is_empty());
 }
 
 fn running_runtime() -> RuntimeState {
