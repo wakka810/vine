@@ -41,6 +41,8 @@ API固有のscript群はhistorical compatibility entry pointとして残るが�
 controlled public fixtureの`passed`をBGI Browser executionの成功として扱わない。現在の
 `browserCheckpoint.bgiSession = semantic-equivalence-passed`は、private source fingerprint、ordered
 completion、最終memory digest、structured stop、cancel／watchdog teardownをChromeで確認した結果である。
-`browserCheckpoint.bgiBenchmark = threshold-passed`は、別のversioned 3分 workload gateでsession／slice
-分布、main／Worker memory slope、linear memory、Wasm crossingを確認した結果である。どちらのstatusも
+`browserCheckpoint.bgiBenchmark`は別のversioned 3分 workload gateのoutcomeである。
+`threshold-passed`はsession／slice分布、main／Worker memory slope、linear memory、Wasm crossingの
+全threshold合格、`threshold-blocked`はfailure IDを伴う未完了checkpointを表す。現在の57-call
+workloadはtimer clamp非依存のWorker yieldへ修正後に全thresholdを通した。どちらのstatusも
 full play、title output、long-idle steady memoryを含めない。

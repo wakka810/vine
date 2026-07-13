@@ -24,7 +24,12 @@ const bgiPolicyPath = path.join(
   root,
   checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
 );
-const bgiOracleReportPath = path.join(root, ".work", "v86-bgi-standard-output-handle", "report.json");
+const bgiOracleReportPath = path.join(
+  root,
+  ".work",
+  "v86-bgi-standard-output-file-type",
+  "report.json",
+);
 const bgiBenchmarkConfigurationPath = path.join(
   root,
   "fixtures",
@@ -417,7 +422,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert(evidence.statuses.some(({ phase }) => phase === "running"));
     if (scenario === "success") {
       assert.equal(evidence.report.outcome, "structured-stop");
-      assert.equal(evidence.report.supportedCalls.length, 55);
+      assert.equal(
+        evidence.report.supportedCalls.length,
+        checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
+      );
       assert.equal(evidence.report.firstUnsupported?.capabilityCluster, "kernel32-api-contract");
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);

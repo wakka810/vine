@@ -61,6 +61,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-standard-input-handle",
         "kernel32-file-type",
         "kernel32-standard-output-handle",
+        "kernel32-standard-output-file-type",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -87,7 +88,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-standard-output-handle"
+    genericRuntimeCapability === "kernel32-standard-output-file-type"
+      ? "kernel32-standard-output-file-type-v1.json"
+      : genericRuntimeCapability === "kernel32-standard-output-handle"
       ? "kernel32-standard-output-v1.json"
       : [
             "kernel32-private-heap-second-allocation",
@@ -127,7 +130,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const standardOutputFileTypeEnabled =
+  genericRuntimeCapability === "kernel32-standard-output-file-type";
 const standardOutputHandleEnabled =
+  standardOutputFileTypeEnabled ||
   genericRuntimeCapability === "kernel32-standard-output-handle";
 const fileTypeEnabled =
   standardOutputHandleEnabled ||
@@ -163,7 +169,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? standardOutputHandleEnabled
+    ? standardOutputFileTypeEnabled
+      ? "v86-bgi-standard-output-file-type"
+      : standardOutputHandleEnabled
       ? "v86-bgi-standard-output-handle"
       : fileTypeEnabled
       ? "v86-bgi-file-type"
@@ -1595,6 +1603,41 @@ const standardOutputHandleExpected = {
   reportBytes: 257_008,
   reportSha256: "0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d",
 };
+const standardOutputFileTypeExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 57,
+  outputHandle: 0x53010002,
+  outputSelector: 0xfffffff5,
+  outputFileType: 3,
+  instructionCount: 1447,
+  returnAddress: 0x100a87c8,
+  writebackBatches: 58,
+  dirtyPages: 99,
+  changedBytes: 966,
+  hostDeltaBatches: 29,
+  finalGeneration: 116,
+  criticalSection: {
+    occurrence: 16,
+    address: 0x20000264,
+    spinCount: 4000,
+    instructionCount: 1461,
+    returnAddress: 0x100a87f6,
+  },
+  firstUnsupported: {
+    endpointId: 94,
+    endpointAddress: 0x7f0005d0,
+    module: "kernel32.dll",
+    symbol: "GetStdHandle",
+    iatAddress: 0x100d1220,
+    arguments: [0xfffffff4],
+    returnAddress: 0x100a87b6,
+    instructionCount: 1484,
+    faultCode: "standard-handle-selector-unsupported",
+  },
+  memoryContentSha256: "909cca3e66d023f7bc2a6b9c8ab9f2435b17338fa850a14823983f513b1c1b68",
+  reportBytes: 267_223,
+  reportSha256: "0bc3770b1da0af519e4065021c11cc423427b9855d9ceedac6d9b00053837301",
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2057,6 +2100,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (standardOutputFileTypeEnabled) {
+        validateStandardOutputFileTypeResult(genericResult);
       } else if (standardOutputHandleEnabled) {
         validateStandardOutputHandleResult(genericResult);
       } else if (fileTypeEnabled) {
@@ -2080,7 +2125,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : standardOutputHandleEnabled
+          : standardOutputFileTypeEnabled
+            ? "bgi standard output file type"
+            : standardOutputHandleEnabled
             ? "bgi standard output handle"
             : fileTypeEnabled
             ? "bgi file type"
@@ -3648,6 +3695,82 @@ function validateStandardOutputHandleResult(result) {
   );
 }
 
+function validateStandardOutputFileTypeResult(result) {
+  const expected = standardOutputFileTypeExpected;
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetFileType");
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].arguments, [expected.outputHandle]);
+  assert.deepEqual(calls[1].result, { action: "set", value: expected.outputFileType });
+  assert.equal(calls[1].implementationId, "kernel32.get-file-type.v2");
+  assert.equal(calls[1].lastError, 87);
+  assert.deepEqual(calls[1].guestWrites, []);
+  assert.equal(calls[1].stackPointerAfter, calls[1].stackPointerBefore + 8);
+  assert.equal(calls[1].trapInstructionCount, expected.instructionCount);
+  assert.equal(calls[1].returnAddress, expected.returnAddress);
+  assert.deepEqual(calls[1].fileType, {
+    standardHandle: {
+      owner: "runtime-process-standard-handles",
+      variantId: "standard-output-logical-v1",
+      namespace: "vine.logical-standard-handle.v1",
+      handle: expected.outputHandle,
+      selector: expected.outputSelector,
+    },
+    fileType: expected.outputFileType,
+  });
+
+  const criticalSection = result.supportedCalls.at(-1);
+  assert.equal(criticalSection.symbol, "InitializeCriticalSectionAndSpinCount");
+  assert.equal(criticalSection.occurrence, expected.criticalSection.occurrence);
+  assert.deepEqual(criticalSection.arguments, [
+    expected.criticalSection.address,
+    expected.criticalSection.spinCount,
+  ]);
+  assert.deepEqual(criticalSection.result, { action: "set", value: 1 });
+  assert.equal(
+    criticalSection.trapInstructionCount,
+    expected.criticalSection.instructionCount,
+  );
+  assert.equal(criticalSection.returnAddress, expected.criticalSection.returnAddress);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -3669,7 +3792,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : standardOutputHandleEnabled
+        : standardOutputFileTypeEnabled
+          ? "vine.v86-bgi-standard-output-file-type"
+          : standardOutputHandleEnabled
           ? "vine.v86-bgi-standard-output-handle"
           : fileTypeEnabled
           ? "vine.v86-bgi-file-type"

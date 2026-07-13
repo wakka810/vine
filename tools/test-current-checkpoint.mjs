@@ -74,6 +74,15 @@ assert.ok(
   ),
 );
 
+const structuredBenchmarkBlocker = structuredClone(manifest);
+structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmark = "threshold-blocked";
+structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkEvidence.completedSessions = 100;
+structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkEvidence.thresholdFailures = 1;
+structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkEvidence.thresholdFailureIds = [
+  "minimum-completed-sessions",
+];
+assert.deepEqual(validateCurrentCheckpoint(structuredBenchmarkBlocker), []);
+
 const mismatchedBenchmarkCrossings = structuredClone(manifest);
 mismatchedBenchmarkCrossings.browserCheckpoint.bgiBenchmarkEvidence.wasmBridgeCallsPerSession -= 1;
 assert.ok(

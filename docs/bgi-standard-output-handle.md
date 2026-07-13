@@ -152,3 +152,7 @@ instruction:        1447
 The next checkpoint must measure and model only the reached stdout
 classification. It must not add standard error, console writes, redirection,
 close behavior, or general file I/O at the same time.
+
+That checkpoint is now complete in
+[bgi-standard-output-file-type.md](bgi-standard-output-file-type.md). This file
+remains the historical stdout-identity checkpoint.

@@ -26,6 +26,14 @@ import {
 import { MirrorAccessFault, V86Mirror, v86StopReason } from "./v86-mirror.js";
 
 const worker = self as DedicatedWorkerGlobalScope;
+const yieldChannel = new MessageChannel();
+const yieldResolvers: Array<() => void> = [];
+yieldChannel.port1.addEventListener("message", () => {
+  const resolve = yieldResolvers.shift();
+  invariant(resolve !== undefined, "Worker yield channel received an unowned task");
+  resolve();
+});
+yieldChannel.port1.start();
 
 interface HostRequestMetadata {
   kind: "host-request";
@@ -153,7 +161,10 @@ function post(message: WorkerToMainMessage): void {
 }
 
 function yieldToWorkerLoop(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  return new Promise((resolve) => {
+    yieldResolvers.push(resolve);
+    yieldChannel.port2.postMessage(null);
+  });
 }
 
 class BrowserRuntimeSession {

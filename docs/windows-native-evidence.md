@@ -1125,5 +1125,30 @@ Current Rust common dispatcherはsingle `kernel32.get-std-handle.v2`へ
 writeback batches／95 dirty pages／943 changed bytes、28 host deltas、final generation `113`を
 通す。instruction `1447`でID `101`／`GetFileType(0x53010002)`を
 `file-type-standard-handle-unsupported`として停止する。Current policy-bearing
-257,475-byte reportのSHA-256は`c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a`
+257,878-byte reportのSHA-256は`564c3425f01b35e86717b68335b18f8bcd3d30d996717a1d0848028104cf0a2b`
 である。詳細は[bgi-standard-output-handle.md](bgi-standard-output-handle.md)を正とする。
+
+## 54. BGI standard output file type
+
+same opt-in `file-type` tracesのoutput handles `0x234`／`0x23C`は、BGI caller return RVA
+`0xA87C8`でいずれも`FILE_TYPE_PIPE (3)`、LastError `87 -> 87`を返す。Consumerはlow byteを
+分類し、handleを保持した後、16番目のcritical sectionを初期化して`STD_ERROR_HANDLE`を要求する。
+Native handle値はprocess-specificなのでdiscardする。
+
+Rust common dispatcherはregistered logical stdout `0x53010002`だけをexisting
+`kernel32.get-file-type.v2`でresolveし、versioned
+`kernel32-standard-output-file-type-v1` policyから`3`を返す。Default policy、unknown handle、
+standard errorはmutation前にstructured unsupportedとなる。
+`npm run check:runtime:bgi-standard-output-file-type`は23 contracts／57 calls、58 writeback
+batches／99 dirty pages／966 changed bytes、29 host deltas、final generation `116`を通す。
+instruction `1484`でID `94`／`GetStdHandle(STD_ERROR_HANDLE)`を
+`standard-handle-selector-unsupported`として停止する。267,223-byte reportのSHA-256は
+`0bc3770b1da0af519e4065021c11cc423427b9855d9ceedac6d9b00053837301`である。
+
+Chrome Runtime Workerも57 ordered calls、same final memory SHA-256
+`909cca3e66d023f7bc2a6b9c8ab9f2435b17338fa850a14823983f513b1c1b68`、same structured stopを
+再現する。slice-boundary yieldを`setTimeout(0)`からlocal `MessageChannel` taskへ移した後、
+unchanged 3分gateは1,750 sessions／failure 0、p95 `97.010 ms`で全thresholdを通した。
+cancel 8 instructions、watchdog 4 instructions、pending work 0は不変である。詳細は
+[bgi-standard-output-file-type.md](bgi-standard-output-file-type.md)と
+[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。

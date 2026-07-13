@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、current 55-call BGI Chrome Worker semantic equivalence、3分BGI workload performance／memory threshold、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph、controlled process／initial-thread lifecycle contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。full-play steady-memoryと次capability以降のbrowser pathは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、57-call BGI Chrome Worker semantic equivalence／3分workload threshold、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph、controlled process／initial-thread lifecycle contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。full-play steady-memoryと次capability以降のbrowser pathは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -318,6 +318,12 @@ output file typeのmutation-free rejectionを固定する。Private BGI profile�
 `GetFileType(0x53010002)`で停止する。詳細は
 [bgi-standard-output-handle.md](bgi-standard-output-handle.md)を正とする。
 
+Reached stdout file typeの代表Rust contractはregistered logical stdout
+`0x53010002`、`FILE_TYPE_PIPE (3)`、one-argument stdcall、LastError preserve、memory不変、
+default policyのmutation-free rejectionを固定する。Private BGI profileは23 contracts／57 calls、
+generation `116`まで進み、instruction 1484の`GetStdHandle(STD_ERROR_HANDLE)`で停止する。詳細は
+[bgi-standard-output-file-type.md](bgi-standard-output-file-type.md)を正とする。
+
 ### 5.4 CPU と ABI tests
 
 CPU test vector は instruction encoding、initial register／flags／memory、expected result／fault を持つ。
@@ -402,12 +408,12 @@ W3 representative browser contractは、このW2 harnessが成功後にemitす�
 
 private BGI Worker contractはcurrent generic profileをChrome内Rust/Wasm authorityで実行する。Nodeは
 oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatcher／memory stateを所有しない。
-55 ordered completions、1,447 instructions、final memory content digest、next structured faultを比較し、
+57 ordered completions、1,484 instructions、final memory content digest、next structured faultを比較し、
 8-instruction cancelと4-instruction watchdogでprocess exit／module detach／pending work zeroを要求する。
 詳細は[bgi-browser-worker.md](bgi-browser-worker.md)を正とする。単発heap値はsemantic
 report identityに留め、別のversion 1 BGI workload gateが同じWorkerで完全sessionを3分反復する。
-168 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
-回帰slope、Worker backing storage、Rust／v86 linear memory、252 crossings/sessionをversioned
+1,750 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
+回帰slope、Worker backing storage、Rust／v86 linear memory、260 crossings/sessionをversioned
 thresholdで判定する。必要sampleが取得不能ならfailし、全thresholdのobserved valueと判定理由を
 reportへ保存する。詳細は[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
 
@@ -604,7 +610,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。frozen controlled CPUはprimary titleの17 API return、separate runtime-kernel profileは23 contracts／55 calls、strict pointer inverse、one bounded FLS slot／selected-thread value、two reached zeroed heap blocks、three checked LONG increments、logical stdin／stdout／FILE_TYPE_CHAR、stdout `GetFileType` first stopまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／broad guest heap APIとtitle capacity／system-DLL image／snapshot、title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。frozen controlled CPUはprimary titleの17 API return、separate runtime-kernel profileは23 contracts／57 calls、strict pointer inverse、one bounded FLS slot／selected-thread value、two reached zeroed heap blocks、three checked LONG increments、logical stdin／stdout／FILE_TYPE_CHAR／FILE_TYPE_PIPEまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／broad guest heap APIとtitle capacity／system-DLL image／snapshot、full title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
@@ -620,7 +626,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
-現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の17 frozen API return、four ordered dynamic endpoint identities、logical TLS／encoded-pointer／FLS allocation／selected-thread value／reached heap／interlocked／stdin／stdout stateとstdin file typeを処理し、separate generic dispatcherは55 callsまで進むが、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の17 frozen API return、four ordered dynamic endpoint identities、logical TLS／encoded-pointer／FLS allocation／selected-thread value／reached heap／interlocked／stdin／stdout stateとstdin／stdout file typeを処理し、separate generic dispatcherは57 callsまで進むが、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 
 ### AC-P3: Win32 substrate and persistence complete
 

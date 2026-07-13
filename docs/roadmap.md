@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは23 contracts／55 callsをcommon dispatcherからreturnして`GetFileType(0x53010002)`へ到達した。同じcurrent sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとのordered completion／memory digest一致、heartbeat、cancel／watchdog teardownを通した。3分／168 sessionのversioned workload gateはsession／slice分布、main／Worker heapとbacking-storage slope、linear memory、Wasm crossing thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは23 contracts／57 callsをcommon dispatcherからreturnして`GetStdHandle(STD_ERROR_HANDLE)`へ到達した。同じcurrent sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとのordered completion／memory digest一致、heartbeat、cancel／watchdog teardownを通した。timer clamp非依存yieldによる3分／1,750-session workload gateはsession／slice分布、main／Worker heapとbacking-storage slope、linear memory、Wasm crossing thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -973,19 +973,22 @@ bytes、28 host deltas、final generation `113`を通した。instruction 1447�
 `0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`を固定した。
 
 後続architecture correctionでWin32 semanticsとcompatibility policyを分離した。55-call
-semantic resultとnext stopは不変で、current policy-bearing reportは257,475 bytes／SHA-256
+semantic resultとnext stopは不変で、その時点のpolicy-bearing reportは257,475 bytes／SHA-256
 `c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a`である。旧hashは
-capture時artifact identityとしてのみ保持する。
+capture時artifact identityとしてのみ保持する。後続Browser oracle integration後のcurrent replayは
+257,878 bytes／SHA-256
+`564c3425f01b35e86717b68335b18f8bcd3d30d996717a1d0848028104cf0a2b`である。
 
-current 55-call sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとの
+current 57-call sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとの
 ordered completion／memory digest一致、main heartbeat、cancel／watchdog teardownを通した。続く
-3分／168-session BGI workload gateはfailure 0で、session／slice分布、main／Worker heapとbacking
-storage slope、Rust／v86 linear memory、252 Wasm crossings/sessionの全version 1 thresholdを通した。
+3分／1,750-session BGI workload gateはfailure 0で、session／slice分布、main／Worker heapとbacking
+storage slope、Rust／v86 linear memory、260 Wasm crossings/sessionの全version 1 thresholdを通した。
 これはfull-play、long-idle、title outputの完了を意味しない。
 
-1. `GetFileType(0x53010002)`のnative `FILE_TYPE_PIPE`／LastError／immediate consumerを固定し、registered logical stdoutだけをversioned file-type contractへ接続してsame generic sessionの次のexact stopまで進める。Standard error、console writes、redirection、close、broad file I/Oを同時に追加しない。
+1. [完了] `GetFileType(0x53010002)`のnative `FILE_TYPE_PIPE`／LastError／immediate consumerを固定し、registered logical stdoutだけをversioned file-type contractへ接続した。57 calls／generation `116`を通し、instruction 1484の`GetStdHandle(STD_ERROR_HANDLE)`へ進んだ。
+2. `GetStdHandle(STD_ERROR_HANDLE)`のnative identity／LastError／consumerを固定し、logical stderrだけを既存contractへ追加する。Console writes、redirection、close、broad file I/Oを同時に追加しない。
 
-frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated eighteenth-call expansionはpauseを続ける。Standard output handleは完了し、現在はreached stdout file typeを進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
+frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated eighteenth-call expansionはpauseを続ける。Standard output file typeは完了し、現在はreached standard error handleを進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
 
 ## 23. 完了の定義
 

@@ -113,8 +113,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (browser.bgiSession !== "semantic-equivalence-passed") {
     errors.push("browserCheckpoint.bgiSession must identify passed semantic equivalence");
   }
-  if (browser.bgiBenchmark !== "threshold-passed") {
-    errors.push("browserCheckpoint.bgiBenchmark must identify a passed threshold gate");
+  if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
+    errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
   if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v2") {
     errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v2");
@@ -241,6 +241,11 @@ export function validateCurrentCheckpoint(manifest) {
     "browserCheckpoint.bgiBenchmarkEvidence.chromeVersion",
     errors,
   );
+  const benchmarkFailureIds = requireStringArray(
+    bgiBenchmarkEvidence.thresholdFailureIds,
+    "browserCheckpoint.bgiBenchmarkEvidence.thresholdFailureIds",
+    errors,
+  );
   for (const field of [
     "schemaVersion",
     "durationMilliseconds",
@@ -303,7 +308,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.failedSessions !== 0 ||
     bgiBenchmarkEvidence.mainHeapSamples < 2 ||
     bgiBenchmarkEvidence.workerHeapSamples < 2 ||
-    bgiBenchmarkEvidence.thresholdFailures !== 0 ||
+    bgiBenchmarkEvidence.thresholdFailures !== benchmarkFailureIds.length ||
+    (browser.bgiBenchmark === "threshold-passed" && benchmarkFailureIds.length !== 0) ||
+    (browser.bgiBenchmark === "threshold-blocked" && benchmarkFailureIds.length === 0) ||
     bgiBenchmarkEvidence.wasmBridgeCallsPerSession !== bgiBrowserEvidence.wasmBridgeCalls ||
     bgiBenchmarkEvidence.runtimeCoreWasmSha256 !== browser.browserRuntimeCoreWasm?.sha256
   ) {
@@ -423,8 +430,8 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("active Kernel32 compatibility policy boundary is invalid");
   }
   const latestEvidence = requireRecord(
-    active.bgiStandardOutputHandle,
-    "activeRuntimeCheckpoint.bgiStandardOutputHandle",
+    active.bgiStandardOutputFileType,
+    "activeRuntimeCheckpoint.bgiStandardOutputFileType",
     errors,
   );
   if (latestEvidence.implementedApiContractCount !== APIs.length) {
@@ -438,12 +445,12 @@ export function validateCurrentCheckpoint(manifest) {
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,
-    "activeRuntimeCheckpoint.bgiStandardOutputHandle.finalMemoryGeneration",
+    "activeRuntimeCheckpoint.bgiStandardOutputFileType.finalMemoryGeneration",
     errors,
   );
   requireSha256(
     latestEvidence.reportSha256,
-    "activeRuntimeCheckpoint.bgiStandardOutputHandle.reportSha256",
+    "activeRuntimeCheckpoint.bgiStandardOutputFileType.reportSha256",
     errors,
   );
   requireString(
@@ -484,7 +491,7 @@ export function loadCurrentCheckpoint(file) {
 export function renderReadmeStatus(manifest) {
   const historical = manifest.historicalBaseline;
   const active = manifest.activeRuntimeCheckpoint;
-  const latest = active.bgiStandardOutputHandle;
+  const latest = active.bgiStandardOutputFileType;
   const browser = manifest.browserCheckpoint;
   const engine = manifest.engineDecisionEvidence.v86EngineGate;
   const next = manifest.nextStructuredStop;

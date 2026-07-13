@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-input-handle, file-type, and standard-output-handle capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-input-handle, stdin-file-type, standard-output-handle, and stdout-file-type capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-standard-output-handle`
-- Scope: frozen 17-call equivalence plus 55 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-standard-output-file-type`
+- Scope: frozen 17-call equivalence plus 57 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -338,11 +338,27 @@ It uses the same `kernel32.get-std-handle.v2` semantic contract with the
 versioned `kernel32-standard-output-v1` policy. Logical stdout is `0x53010002`;
 standard error and output file type remain unsupported. The
 profile completes 55 calls, uses 56 writeback batches／95 dirty pages／943 changed
-bytes and 28 host deltas, and ends at generation `113`. Its 257,475-byte report
+bytes and 28 host deltas, and ends at generation `113`. Its 257,878-byte report
 has SHA-256
-`c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a`
+`564c3425f01b35e86717b68335b18f8bcd3d30d996717a1d0848028104cf0a2b`
 and stops at instruction 1447 on `GetFileType(0x53010002)`. Full evidence is in
 [bgi-standard-output-handle.md](bgi-standard-output-handle.md).
+
+The standard-output-file-type profile is:
+
+```powershell
+npm run check:runtime:bgi-standard-output-file-type
+```
+
+It uses the same `kernel32.get-file-type.v2` handler with the versioned
+`kernel32-standard-output-file-type-v1` policy. Registered logical stdout alone
+returns `FILE_TYPE_PIPE (3)` with LastError preserved and no guest write. The
+profile completes 57 calls, uses 58 writeback batches／99 dirty pages／966 changed
+bytes and 29 host deltas, and ends at generation `116`. Its 267,223-byte report
+has SHA-256
+`0bc3770b1da0af519e4065021c11cc423427b9855d9ceedac6d9b00053837301`
+and stops at instruction 1484 on `GetStdHandle(STD_ERROR_HANDLE)`. Full evidence
+is in [bgi-standard-output-file-type.md](bgi-standard-output-file-type.md).
 
 ## Deliberate exclusions
 
@@ -362,18 +378,19 @@ and stops at instruction 1447 on `GetFileType(0x53010002)`. Full evidence is in
 - `InterlockedIncrement` is implemented only for the checked 32-bit LONG shape
   in the single cooperative Runtime Worker. Adjacent interlocked APIs and
   cross-worker shared-memory atomicity are absent.
-- The generic session owns only the reached standard input／output identities
-  and stdin character classification. Error identity, `SetStdHandle`, close
-  behavior, output／broader file type, console semantics, and file I/O remain
-  absent. Its first unsupported operation is `GetFileType(stdout)`; bespoke
+- The generic session owns only the reached standard input／output identities,
+  stdin character classification, and stdout pipe classification. Error
+  identity, `SetStdHandle`, close behavior, broader file type, console semantics,
+  and file I/O remain absent. Its first unsupported operation is
+  `GetStdHandle(STD_ERROR_HANDLE)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-standard-output-file-type` at
-`GetFileType(0x53010002)`. It must measure the reached native classification and
-consumer, then classify only logical stdout without adding stderr, console
-writes, redirection, close behavior, or general file I/O.
+The next proof is `kernel32-standard-error-handle` at
+`GetStdHandle(0xfffffff4)`. It must measure and model only the reached logical
+stderr identity without adding console writes, redirection, close behavior, or
+general file I/O.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -381,5 +398,5 @@ FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
 195,821-byte report, InterlockedIncrement 234,775-byte report, second-heap
 239,789-byte report, standard-input 243,749-byte report, and file-type
 252,994-byte report remain historical artifact identities. Current semantic
-regression uses field assertions; the policy-bearing standard-output report is
-257,475 bytes.
+regression uses field assertions; the replayed policy-bearing standard-output
+report is 257,878 bytes.

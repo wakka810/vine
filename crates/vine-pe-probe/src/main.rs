@@ -91,6 +91,7 @@ enum GenericRuntimeCapability {
     StandardInputHandle,
     FileType,
     StandardOutputHandle,
+    StandardOutputFileType,
 }
 
 struct GenericRuntimeProcess {
@@ -2421,6 +2422,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::StandardInputHandle
                 | GenericRuntimeCapability::FileType
                 | GenericRuntimeCapability::StandardOutputHandle
+                | GenericRuntimeCapability::StandardOutputFileType
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2450,6 +2452,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::StandardInputHandle
                 | GenericRuntimeCapability::FileType
                 | GenericRuntimeCapability::StandardOutputHandle
+                | GenericRuntimeCapability::StandardOutputFileType
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2560,6 +2563,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::StandardInputHandle
                             | GenericRuntimeCapability::FileType
                             | GenericRuntimeCapability::StandardOutputHandle
+                            | GenericRuntimeCapability::StandardOutputFileType
                     )
                 ) && endpoint.matches(
                     "kernel32.dll",
@@ -2603,6 +2607,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::StandardInputHandle
                                     | GenericRuntimeCapability::FileType
                                     | GenericRuntimeCapability::StandardOutputHandle
+                                    | GenericRuntimeCapability::StandardOutputFileType
                             )
                         ) && endpoint.matches(
                             "kernel32.dll",
@@ -2620,6 +2625,7 @@ fn run_v86_generic_runtime_session(
                                 GenericRuntimeCapability::StandardInputHandle
                                     | GenericRuntimeCapability::FileType
                                     | GenericRuntimeCapability::StandardOutputHandle
+                                    | GenericRuntimeCapability::StandardOutputFileType
                             )
                         ) && endpoint.matches(
                             "kernel32.dll",
@@ -2636,6 +2642,7 @@ fn run_v86_generic_runtime_session(
                             Some(
                                 GenericRuntimeCapability::FileType
                                     | GenericRuntimeCapability::StandardOutputHandle
+                                    | GenericRuntimeCapability::StandardOutputFileType
                             )
                         ) && endpoint.matches(
                             "kernel32.dll",
@@ -2821,6 +2828,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardInputHandle
                     | GenericRuntimeCapability::FileType
                     | GenericRuntimeCapability::StandardOutputHandle
+                    | GenericRuntimeCapability::StandardOutputFileType
             )
         ),
         "DecodePointer" => matches!(
@@ -2835,6 +2843,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardInputHandle
                     | GenericRuntimeCapability::FileType
                     | GenericRuntimeCapability::StandardOutputHandle
+                    | GenericRuntimeCapability::StandardOutputFileType
             )
         ),
         "FlsAlloc" => matches!(
@@ -2848,6 +2857,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardInputHandle
                     | GenericRuntimeCapability::FileType
                     | GenericRuntimeCapability::StandardOutputHandle
+                    | GenericRuntimeCapability::StandardOutputFileType
             )
         ),
         "HeapAlloc" => matches!(
@@ -2860,6 +2870,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardInputHandle
                     | GenericRuntimeCapability::FileType
                     | GenericRuntimeCapability::StandardOutputHandle
+                    | GenericRuntimeCapability::StandardOutputFileType
             )
         ),
         "FlsSetValue" => matches!(
@@ -2871,6 +2882,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardInputHandle
                     | GenericRuntimeCapability::FileType
                     | GenericRuntimeCapability::StandardOutputHandle
+                    | GenericRuntimeCapability::StandardOutputFileType
             )
         ),
         "InterlockedIncrement" => matches!(
@@ -2881,6 +2893,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardInputHandle
                     | GenericRuntimeCapability::FileType
                     | GenericRuntimeCapability::StandardOutputHandle
+                    | GenericRuntimeCapability::StandardOutputFileType
             )
         ),
         "GetStdHandle" => matches!(
@@ -2889,12 +2902,15 @@ fn runtime_capability_enables_endpoint(
                 GenericRuntimeCapability::StandardInputHandle
                     | GenericRuntimeCapability::FileType
                     | GenericRuntimeCapability::StandardOutputHandle
+                    | GenericRuntimeCapability::StandardOutputFileType
             )
         ),
         "GetFileType" => matches!(
             enabled,
             Some(
-                GenericRuntimeCapability::FileType | GenericRuntimeCapability::StandardOutputHandle
+                GenericRuntimeCapability::FileType
+                    | GenericRuntimeCapability::StandardOutputHandle
+                    | GenericRuntimeCapability::StandardOutputFileType
             )
         ),
         _ => true,
@@ -2919,7 +2935,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::PrivateHeapSecondAllocation
             | GenericRuntimeCapability::StandardInputHandle
             | GenericRuntimeCapability::FileType
-            | GenericRuntimeCapability::StandardOutputHandle,
+            | GenericRuntimeCapability::StandardOutputHandle
+            | GenericRuntimeCapability::StandardOutputFileType,
         ) => {
             matches!(endpoint.name.as_str(), "FlsAlloc" | "FlsSetValue")
         }
@@ -8272,6 +8289,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-standard-input-handle" => GenericRuntimeCapability::StandardInputHandle,
                 "kernel32-file-type" => GenericRuntimeCapability::FileType,
                 "kernel32-standard-output-handle" => GenericRuntimeCapability::StandardOutputHandle,
+                "kernel32-standard-output-file-type" => {
+                    GenericRuntimeCapability::StandardOutputFileType
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

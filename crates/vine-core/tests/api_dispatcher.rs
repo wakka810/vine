@@ -1081,6 +1081,108 @@ fn get_file_type_contract_classifies_only_process_owned_standard_input() {
 }
 
 #[test]
+fn get_file_type_policy_classifies_process_owned_standard_output_as_pipe() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (
+            STACK_BASE,
+            vec![0x1000_0921, RUNTIME_STANDARD_OUTPUT_HANDLE],
+        ),
+        (
+            STACK_BASE + 0x20,
+            vec![0x1000_0922, RUNTIME_STANDARD_OUTPUT_HANDLE],
+        ),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x90);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetFileType IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetFileType".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetFileType endpoint");
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let output_file_type_policy = compatibility_policy(
+        "standard-output-file-type-test",
+        vec![
+            RUNTIME_STANDARD_INPUT_SELECTOR,
+            RUNTIME_STANDARD_OUTPUT_SELECTOR,
+        ],
+        vec![
+            (RUNTIME_STANDARD_INPUT_SELECTOR, 2),
+            (RUNTIME_STANDARD_OUTPUT_SELECTOR, 3),
+        ],
+        vec![(0x8, vec![0x214, 0x800])],
+    );
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime
+        .ensure_standard_handle(RUNTIME_STANDARD_OUTPUT_SELECTOR)
+        .expect("register logical standard output");
+    let runtime_before = runtime.clone();
+    let memory_before = memory.stats();
+
+    let completion = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &output_file_type_policy,
+    );
+    assert_eq!(completion.eax, RegisterUpdate::Set(3));
+    assert_eq!(completion.stack_pointer, GuestAddress(frames[0].0 + 8));
+    assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+
+    let default_policy_rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[1].0, frames[1].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        default_policy_rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "file-type-standard-handle-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+}
+
+#[test]
 fn interlocked_increment_contract_wraps_and_rejects_invalid_targets_before_mutation() {
     const ZERO_TARGET: u32 = OUTPUT_BASE;
     const WRAP_TARGET: u32 = OUTPUT_BASE + 4;
