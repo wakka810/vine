@@ -18,6 +18,12 @@ import {
   type MemoryRegionSnapshot,
 } from "./memory-transport.js";
 import {
+  ExecutionStateMachine,
+  type HostCompletionPolicy,
+  type HostDelivery,
+  PendingHostRequestTable,
+} from "./execution-state.js";
+import {
   type ApiCompletion,
   type BridgeOutput,
   type PreparedMetadata,
@@ -177,14 +183,12 @@ class BrowserRuntimeSession {
   #generation = 0n;
   #terminal = false;
   #runtimePrepared = false;
-  #pendingHostDelivery:
-    | {
-        requestId: string;
-        threadId: number;
-        resolve: (result: number) => void;
-        reject: (error: Error) => void;
-      }
-    | null = null;
+  #currentThreadId = 0;
+  #apiResumeState: "ready" | "guest-callback" | null = null;
+  readonly #execution = new ExecutionStateMachine();
+  readonly #pendingHostRequests = new PendingHostRequestTable();
+  #watchdogContext: SessionReport["watchdogContext"] = null;
+  #watchdogTimer: number | null = null;
   readonly #report = {
     instructions: 0,
     slices: 0,
@@ -265,6 +269,18 @@ class BrowserRuntimeSession {
       this.#runtimePrepared = true;
       this.#prepared = preparedOutput.metadata;
       invariant(
+        Number.isInteger(preparedOutput.metadata.runtime.processId) &&
+          preparedOutput.metadata.runtime.processId > 0,
+        "prepared runtime process ID is invalid",
+      );
+      invariant(
+        Number.isInteger(preparedOutput.metadata.runtime.threadId) &&
+          preparedOutput.metadata.runtime.threadId > 0,
+        "prepared runtime thread ID is invalid",
+      );
+      this.#currentThreadId = preparedOutput.metadata.runtime.threadId;
+      this.#armWatchdog();
+      invariant(
         (preparedOutput.metadata.workload ?? "controlled-fixture") === workload,
         "prepared workload mismatch",
       );
@@ -301,22 +317,32 @@ class BrowserRuntimeSession {
   }
 
   completeHost(message: HostCompletionMessage): void {
-    if (this.#terminal || this.#pendingHostDelivery === null) {
-      return;
+    if (this.#terminal) {
+      throw new Error("host completion arrived after the runtime session stopped");
     }
-    if (
-      message.requestId !== this.#pendingHostDelivery.requestId ||
-      message.threadId !== this.#pendingHostDelivery.threadId
-    ) {
-      this.#pendingHostDelivery.reject(
-        new Error("host completion transport identity mismatch"),
+    try {
+      invariant(
+        this.#execution.state() === "waiting-host",
+        "host completion arrived outside the waiting-host state",
       );
-      this.#pendingHostDelivery = null;
+      const pending = this.#pendingHostRequests.complete(
+        message.requestId,
+        message.threadId,
+        message.result,
+      );
+      this.#execution.transition("host-completion", {
+        cause: "browser-host-completion",
+        threadId: pending.threadId,
+        requestId: pending.requestId,
+      });
+      pending.resolve({
+        result: message.result >>> 0,
+        completionPolicy: pending.completionPolicy,
+      });
+    } catch (error) {
+      this.#fail(error instanceof Error ? error : new Error(String(error)));
       return;
     }
-    const pending = this.#pendingHostDelivery;
-    this.#pendingHostDelivery = null;
-    pending.resolve(message.result >>> 0);
   }
 
   cancel(): void {
@@ -329,6 +355,18 @@ class BrowserRuntimeSession {
     const endpointAddresses = new Set(prepared.endpoints.map(({ address }) => address));
     while (!this.#terminal) {
       this.#checkWatchdog();
+      if (this.#execution.state() === "ready") {
+        this.#execution.transition("running", {
+          cause: "execute-slice",
+          threadId: this.#currentThreadId,
+        });
+      } else {
+        invariant(
+          this.#execution.state() === "guest-callback",
+          `guest execution cannot start from ${this.#execution.state()}`,
+        );
+      }
+      const sliceState = this.#execution.state();
       const sliceStartedAt = performance.now();
       const slice = mirror.execute(this.#configuration.instructionBudget);
       this.#report.maximumSliceMilliseconds = Math.max(
@@ -341,6 +379,11 @@ class BrowserRuntimeSession {
       this.#checkWatchdog();
 
       if (slice.reason === v86StopReason.budget) {
+        const resumeState = sliceState === "running" ? "ready" : "guest-callback";
+        this.#execution.transition("budget-yield", {
+          cause: "instruction-budget",
+          threadId: this.#currentThreadId,
+        });
         this.#report.budgetYields += 1;
         if (this.#report.budgetYields % 16 === 0) {
           this.#status(
@@ -349,6 +392,13 @@ class BrowserRuntimeSession {
           );
         }
         await yieldToWorkerLoop();
+        if (this.#terminal) {
+          throw new SessionStopped("session ended during a budget yield");
+        }
+        this.#execution.transition(resumeState, {
+          cause: "worker-yield-complete",
+          threadId: this.#currentThreadId,
+        });
         continue;
       }
 
@@ -362,10 +412,21 @@ class BrowserRuntimeSession {
       );
       const address = slice.state.instructionPointer;
       if (endpointAddresses.has(address)) {
+        this.#apiResumeState = sliceState === "running" ? "ready" : "guest-callback";
+        this.#execution.transition("api-trap", {
+          cause: "owned-api-trap",
+          threadId: this.#currentThreadId,
+        });
         await this.#dispatchApi(address, slice.state.esp);
       } else if (address === prepared.callbackSentinel) {
+        invariant(sliceState === "guest-callback", "callback return escaped callback execution");
+        this.#execution.transition("callback-return", {
+          cause: "callback-return-sentinel",
+          threadId: this.#currentThreadId,
+        });
         this.#completeCallback(slice.state.eax);
       } else if (address === prepared.entrySentinel) {
+        invariant(sliceState === "running", "process entry returned from a callback");
         this.#completeProcess(slice.state.eax);
       } else {
         throw new Error(`guest reached unowned #UD at 0x${address.toString(16)}`);
@@ -386,13 +447,13 @@ class BrowserRuntimeSession {
         invariant(output.control.byteLength === 0, "host request unexpectedly returned a delta");
         this.#report.hostRequests += 1;
         this.#status("waiting-host", metadata.service);
-        const result = await this.#waitForHost(metadata);
+        const delivery = await this.#waitForHost(metadata);
         if (this.#terminal) {
           throw new SessionStopped("session ended while waiting for the host");
         }
         const completion = this.#requireBridge().completeHost<HostCompletionMetadata>(
           BigInt(metadata.requestId),
-          result,
+          delivery.result,
         ).metadata;
         invariant(completion.kind === "host-complete", "invalid host completion metadata");
         invariant(
@@ -404,12 +465,26 @@ class BrowserRuntimeSession {
             completion.scheduler.state === "in-callback",
           "Rust did not authorize guest resume after host completion",
         );
+        const resumeState =
+          completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+        const expectedResumeState =
+          delivery.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
+        invariant(
+          resumeState === expectedResumeState,
+          "Rust host completion disagrees with the recorded completion policy",
+        );
         this.#report.rustSchedulerTransitions += 1;
         mirror.applyCompletion(completion.completion);
+        this.#execution.transition(resumeState, {
+          cause: "rust-host-resume",
+          threadId: completion.threadId,
+          requestId: metadata.requestId,
+        });
         this.#status("running", `${metadata.service} completed`);
         break;
       }
       case "guest-callback": {
+        this.#takeApiResumeState();
         this.#applyRequiredDelta(output);
         this.#report.callbackEntries += 1;
         this.#report.maximumCallbackDepth = Math.max(
@@ -417,18 +492,28 @@ class BrowserRuntimeSession {
           metadata.depth,
         );
         mirror.enterCallback(metadata.target, metadata.stackPointer);
+        this.#execution.transition("guest-callback", {
+          cause: "guest-callback-enter",
+          threadId: this.#currentThreadId,
+        });
         this.#status("callback", `Guest callback depth ${metadata.depth}`);
         break;
       }
       case "api-complete": {
+        const resumeState = this.#takeApiResumeState();
         this.#applyOptionalDelta(output);
         if (this.#requirePrepared().workload === "private-bgi") {
           this.#recordBgiCompletion(metadata);
         }
         mirror.applyCompletion(metadata.completion);
+        this.#execution.transition(resumeState, {
+          cause: "synchronous-api-complete",
+          threadId: this.#currentThreadId,
+        });
         break;
       }
       case "api-fault":
+        this.#takeApiResumeState();
         this.#completeStructuredStop(metadata, output);
         break;
       default:
@@ -512,6 +597,10 @@ class BrowserRuntimeSession {
     ).metadata;
     invariant(metadata.kind === "callback-complete", "invalid callback completion metadata");
     this.#requireMirror().applyCompletion(metadata.completion);
+    this.#execution.transition(metadata.remainingDepth > 0 ? "guest-callback" : "ready", {
+      cause: metadata.remainingDepth > 0 ? "nested-callback-resume" : "callback-stack-empty",
+      threadId: this.#currentThreadId,
+    });
     this.#status("running", `Callback returned; depth ${metadata.remainingDepth}`);
   }
 
@@ -696,11 +785,8 @@ class BrowserRuntimeSession {
     this.#report.mirrorRebuilds += 1;
   }
 
-  #waitForHost(metadata: HostRequestMetadata): Promise<number> {
-    invariant(
-      this.#pendingHostDelivery === null,
-      "more than one browser host delivery is pending",
-    );
+  #waitForHost(metadata: HostRequestMetadata): Promise<HostDelivery> {
+    invariant(this.#execution.state() === "api-trap", "host request escaped API trap state");
     invariant(
       /^(0|[1-9][0-9]*)$/.test(metadata.requestId) &&
         BigInt(metadata.requestId) <= 0xffff_ffff_ffff_ffffn,
@@ -737,36 +823,82 @@ class BrowserRuntimeSession {
       service: metadata.service,
       arguments: metadata.arguments,
     };
-    post(request);
+    const apiResumeState = this.#takeApiResumeState();
+    const completionPolicy: HostCompletionPolicy =
+      apiResumeState === "guest-callback" ? "resume-callback" : "resume-ready";
     return new Promise((resolve, reject) => {
-      this.#pendingHostDelivery = {
+      this.#pendingHostRequests.register({
         requestId: metadata.requestId,
         threadId: metadata.threadId,
+        service: metadata.service,
+        completionPolicy,
+        cancelState: "active",
         resolve,
         reject,
-      };
+      });
+      this.#execution.transition("waiting-host", {
+        cause: "rust-host-request",
+        threadId: metadata.threadId,
+        requestId: metadata.requestId,
+      });
+      post(request);
     });
+  }
+
+  #takeApiResumeState(): "ready" | "guest-callback" {
+    const resumeState = this.#apiResumeState;
+    invariant(resumeState !== null, "API trap omitted its resume state");
+    this.#apiResumeState = null;
+    return resumeState;
   }
 
   #checkWatchdog(): void {
     const elapsed = performance.now() - this.#startedAt;
-    if (
-      this.#report.instructions > this.#configuration.watchdogInstructionLimit ||
-      elapsed > this.#configuration.watchdogWallMilliseconds
-    ) {
-      this.#terminate(
-        "watchdog",
-        `Watchdog stopped the session after ${this.#report.instructions} instructions`,
-      );
+    if (this.#report.instructions > this.#configuration.watchdogInstructionLimit) {
+      this.#triggerWatchdog("instruction limit");
       throw new SessionStopped("watchdog terminated the guest");
     }
+    if (elapsed > this.#configuration.watchdogWallMilliseconds) {
+      this.#triggerWatchdog("wall-clock limit");
+      throw new SessionStopped("watchdog terminated the guest");
+    }
+  }
+
+  #armWatchdog(): void {
+    invariant(this.#watchdogTimer === null, "watchdog timer is already armed");
+    const elapsed = performance.now() - this.#startedAt;
+    const remaining = Math.max(0, this.#configuration.watchdogWallMilliseconds - elapsed);
+    this.#watchdogTimer = worker.setTimeout(() => {
+      this.#watchdogTimer = null;
+      this.#triggerWatchdog("wall-clock limit");
+    }, remaining);
+  }
+
+  #triggerWatchdog(reason: "instruction limit" | "wall-clock limit"): void {
+    if (this.#terminal) {
+      return;
+    }
+    const execution = this.#execution.snapshot();
+    const pending = this.#pendingHostRequests.first();
+    this.#watchdogContext = {
+      threadId: this.#currentThreadId,
+      requestId: pending?.requestId ?? null,
+      lastTransition: execution.lastTransition,
+    };
+    this.#terminate(
+      "watchdog",
+      `Watchdog ${reason} stopped thread ${this.#currentThreadId} after ` +
+        `${this.#report.instructions} instructions; state=${execution.state}; ` +
+        `request=${pending?.requestId ?? "none"}; last=` +
+        `${execution.lastTransition?.from ?? "none"}->${execution.lastTransition?.to ?? "none"}`,
+    );
   }
 
   #terminate(outcome: "cancelled" | "watchdog", detail: string): void {
     if (this.#terminal) {
       return;
     }
-    let pendingHostCalls = Number(this.#pendingHostDelivery !== null);
+    let pendingHostCalls = this.#pendingHostRequests.size();
     let pendingCallbacks = 0;
     let error: string | null = detail;
     if (this.#runtimePrepared && this.#bridge !== null) {
@@ -785,8 +917,7 @@ class BrowserRuntimeSession {
         error = `${detail}; cleanup failed: ${String(cancelError)}`;
       }
     }
-    this.#pendingHostDelivery?.reject(new SessionStopped(detail));
-    this.#pendingHostDelivery = null;
+    this.#pendingHostRequests.rejectAll(new SessionStopped(detail));
     this.#finish({
       outcome,
       exitCode: null,
@@ -800,7 +931,7 @@ class BrowserRuntimeSession {
     if (this.#terminal) {
       return;
     }
-    let pendingHostCalls = Number(this.#pendingHostDelivery !== null);
+    let pendingHostCalls = this.#pendingHostRequests.size();
     let pendingCallbacks = 0;
     if (this.#runtimePrepared && this.#bridge !== null) {
       try {
@@ -811,8 +942,7 @@ class BrowserRuntimeSession {
         error = new Error(`${error.message}; cleanup failed: ${String(cancelError)}`);
       }
     }
-    this.#pendingHostDelivery?.reject(new SessionStopped(error.message));
-    this.#pendingHostDelivery = null;
+    this.#pendingHostRequests.rejectAll(new SessionStopped(error.message));
     this.#finish({
       outcome: "fault",
       exitCode: null,
@@ -831,6 +961,16 @@ class BrowserRuntimeSession {
     if (this.#terminal) {
       return;
     }
+    if (this.#watchdogTimer !== null) {
+      worker.clearTimeout(this.#watchdogTimer);
+      this.#watchdogTimer = null;
+    }
+    this.#execution.stop({
+      cause: `session-${terminal.outcome}`,
+      threadId: this.#currentThreadId === 0 ? null : this.#currentThreadId,
+      requestId: this.#pendingHostRequests.first()?.requestId ?? null,
+    });
+    const execution = this.#execution.snapshot();
     this.#terminal = true;
     const message: SessionFinishedMessage = {
       type: "session-finished",
@@ -840,6 +980,11 @@ class BrowserRuntimeSession {
         ...terminal,
         elapsedMilliseconds: performance.now() - this.#startedAt,
         ...this.#report,
+        executionState: execution.state,
+        executionTransitionCount: execution.transitionCount,
+        lastExecutionTransition: execution.lastTransition,
+        pendingHostRequestRecords: this.#pendingHostRequests.size(),
+        watchdogContext: this.#watchdogContext,
         wasmBridgeCalls: this.#bridge?.callCount() ?? 0,
         runtimeCoreLinearMemoryBytes: this.#bridge?.linearMemoryBytes() ?? 0,
         v86AdapterLinearMemoryBytes: this.#mirror?.linearMemoryBytes() ?? 0,
@@ -898,6 +1043,11 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             budgetYields: 0,
             hostRequests: 0,
             rustSchedulerTransitions: 0,
+            executionState: "stopped",
+            executionTransitionCount: 0,
+            lastExecutionTransition: null,
+            pendingHostRequestRecords: 0,
+            watchdogContext: null,
             callbackEntries: 0,
             maximumCallbackDepth: 0,
             writebackBatches: 0,

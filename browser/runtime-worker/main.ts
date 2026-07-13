@@ -145,9 +145,9 @@ async function startSession(mode: SessionMode = "success"): Promise<RuntimeEvide
 
   const configuration = {
     mode,
-    instructionBudget: mode === "watchdog" ? 4 : 8,
-    watchdogInstructionLimit: mode === "watchdog" ? 1 : 100_000,
-    watchdogWallMilliseconds: 10_000,
+    instructionBudget: 8,
+    watchdogInstructionLimit: 100_000,
+    watchdogWallMilliseconds: mode === "watchdog" ? 100 : 10_000,
   };
   const message: MainToWorkerMessage = {
     type: "start-session",
@@ -177,6 +177,9 @@ async function handleHostRequest(message: HostRequestMessage): Promise<void> {
   addTimeline("host", `${message.service} [${message.arguments.join(", ")}]`);
   if (activeMode === "cancel-pending") {
     window.setTimeout(cancelSession, 20);
+    return;
+  }
+  if (activeMode === "watchdog") {
     return;
   }
   let result = 0;
@@ -362,11 +365,27 @@ function validateEvidence(mode: SessionMode, evidence: RuntimeEvidence): Error |
   if (report.pendingHostCalls !== 0 || report.pendingCallbacks !== 0) {
     return new Error("runtime cleanup retained suspended work");
   }
+  if (
+    report.executionState !== "stopped" ||
+    report.executionTransitionCount === 0 ||
+    report.lastExecutionTransition?.to !== "stopped" ||
+    report.pendingHostRequestRecords !== 0
+  ) {
+    return new Error("runtime execution state machine did not stop cleanly");
+  }
   if (mode === "cancel-pending") {
     return report.outcome === "cancelled" ? null : new Error("pending request was not cancelled");
   }
   if (mode === "watchdog") {
-    return report.outcome === "watchdog" ? null : new Error("watchdog did not terminate the guest");
+    return report.outcome === "watchdog" &&
+      (report.watchdogContext?.threadId ?? 0) > 0 &&
+      report.watchdogContext?.requestId !== null &&
+      report.watchdogContext?.lastTransition?.to === "waiting-host"
+      ? null
+      : new Error("watchdog did not report the timed-out host request");
+  }
+  if (report.watchdogContext !== null) {
+    return new Error("non-watchdog session retained watchdog context");
   }
   if (hostServiceError !== null) {
     return hostServiceError;

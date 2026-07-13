@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 export const PRIVATE_TARGET_EVIDENCE_SCHEMA = "vine.private-target-evidence";
-export const PRIVATE_TARGET_EVIDENCE_VERSION = 1;
+export const PRIVATE_TARGET_EVIDENCE_VERSION = 2;
 
 const GIT_OBJECT_ID = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
@@ -62,6 +62,79 @@ function requireStringArray(value, label, errors) {
 function checkEqual(actual, expected, label, errors) {
   if (actual !== expected) {
     errors.push(`${label} must equal ${JSON.stringify(expected)}`);
+  }
+}
+
+function validateExecutionStateMachine(value, label, errors) {
+  const stateMachine = requireRecord(value, label, errors);
+  for (const scenario of ["success", "cancellation", "watchdog"]) {
+    const outcome = requireRecord(
+      stateMachine[scenario],
+      `${label}.${scenario}`,
+      errors,
+    );
+    checkEqual(
+      outcome.finalState,
+      "stopped",
+      `${label}.${scenario}.finalState`,
+      errors,
+    );
+    requireInteger(
+      outcome.transitionCount,
+      `${label}.${scenario}.transitionCount`,
+      errors,
+      1,
+    );
+    checkEqual(
+      outcome.lastTransitionTo,
+      "stopped",
+      `${label}.${scenario}.lastTransitionTo`,
+      errors,
+    );
+    checkEqual(
+      outcome.pendingHostRequestRecords,
+      0,
+      `${label}.${scenario}.pendingHostRequestRecords`,
+      errors,
+    );
+    if (scenario !== "watchdog") {
+      checkEqual(
+        outcome.watchdogContext,
+        null,
+        `${label}.${scenario}.watchdogContext`,
+        errors,
+      );
+      continue;
+    }
+    const context = requireRecord(
+      outcome.watchdogContext,
+      `${label}.watchdog.watchdogContext`,
+      errors,
+    );
+    requireInteger(
+      context.threadId,
+      `${label}.watchdog.watchdogContext.threadId`,
+      errors,
+      1,
+    );
+    if (
+      context.requestId !== null &&
+      (typeof context.requestId !== "string" || !/^(0|[1-9][0-9]*)$/u.test(context.requestId))
+    ) {
+      errors.push(`${label}.watchdog.watchdogContext.requestId must be null or a decimal ID`);
+    }
+    const transition = requireRecord(
+      context.lastTransition,
+      `${label}.watchdog.watchdogContext.lastTransition`,
+      errors,
+    );
+    for (const field of ["from", "to", "cause"]) {
+      requireString(
+        transition[field],
+        `${label}.watchdog.watchdogContext.lastTransition.${field}`,
+        errors,
+      );
+    }
   }
 }
 
@@ -291,6 +364,11 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     browser.finalGeneration,
     expectedBrowser.finalGeneration,
     "evidence.semantic.browser.finalGeneration",
+    errors,
+  );
+  validateExecutionStateMachine(
+    browser.executionStateMachine,
+    "evidence.semantic.browser.executionStateMachine",
     errors,
   );
   checkEqual(

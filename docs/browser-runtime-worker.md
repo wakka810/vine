@@ -5,8 +5,8 @@
 - Status: Verified controlled fixture and private BGI semantic checkpoint
 - Date: 2026-07-13
 - Browser: Chrome `150.0.7871.115`
-- Protocol: `vine.browser-runtime-worker` version `2`
-- Runtime core: Rust/Wasm, zero imports, 1,516,032 bytes
+- Protocol: `vine.browser-runtime-worker` version `3`
+- Runtime core: Rust/Wasm, zero imports, 1,519,513 bytes
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
 - Evidence: `.work/browser-runtime/browser-report.json`
@@ -71,6 +71,31 @@ Decommit and release both produce a code-bearing unmapped-access stop on a stale
 probe. A current full reflection rebuild preserves the CPU context and proves
 the receipt-loss recovery path without changing Rust acknowledgement state.
 
+## Execution state contract
+
+Protocol version 3 drives the active scheduler lane through an explicit state
+machine: `ready`, `running`, `budget-yield`, `api-trap`, `waiting-host`,
+`host-completion`, `guest-callback`, `callback-return`, `stopping`, and
+`stopped`. Prepared Rust metadata supplies the owning process and thread IDs.
+TypeScript combines that lane identity with Worker lifecycle state; it does not
+replace the Rust scheduler authority.
+
+Every transition is checked against a closed adjacency table before state,
+sequence, or last-transition metadata is changed. API traps remember whether a
+synchronous completion resumes `ready` or a nested `guest-callback`. Permitted
+async starts enter a table whose records contain request ID, thread ID, service,
+cancel state, and `resume-ready`／`resume-callback` policy. Completion must match
+both identities. Wrong-thread, duplicate, cancelled-late, unknown, and reused
+request completions are rejected without completing another record.
+
+Cancellation retires every active delivery record before final reporting.
+Success, cancellation, structured stop, watchdog, and fault all pass through
+`stopping -> stopped`; terminal reports require zero pending request records.
+Only a watchdog report may contain diagnostic context, which records the cause
+thread, current request when one exists, and the last transition observed
+before termination. The current Worker executes one CPU lane, but request
+ownership is no longer represented by a global single pending slot.
+
 ## Fixture contract
 
 The reproducible PE32/i386 fixture imports three symbols from
@@ -90,7 +115,7 @@ exit code `0`. The native Windows self-oracle also exits `0`.
 
 Host operations never expose a Promise to the guest stack. `RuntimeState`
 enters `WaitingHost`, records a request ID and resume state, and returns to the
-Worker. Protocol version 2 transports the lossless decimal request ID, owning
+Worker. Protocol version 3 transports the lossless decimal request ID, owning
 thread ID, bounded copied scalar payload, and matching Rust `waiting-host`
 authorization. TypeScript retains only a browser-delivery Promise. A typed
 completion restores the Rust scheduler state and completes the saved generic
@@ -107,6 +132,8 @@ The clean-profile Chrome check recorded:
 | CPU slices / periodic budget yields | 10 / 3 |
 | Deferred host requests | 2 |
 | Rust-authorized wait / resume transitions | 2 |
+| Worker transitions, success / cancel / watchdog | 31 / 5 / 5 |
+| Final Worker state / pending request records | `stopped` / 0 |
 | Guest callback entries / maximum depth | 2 / 2 |
 | Automatic writeback batches / pages | 7 / 9 |
 | Mapping deltas / dirty pages | 7 / 3 |
@@ -129,6 +156,10 @@ It reaches one host request after four guest instructions, then Rust cancellatio
 retires the request and leaves pending host calls and callbacks at zero. A
 separate instruction-ceiling probe triggers the watchdog after four instructions
 and also leaves both counts at zero. Neither path fabricates a guest return.
+The wall-clock watchdog expires while the first host request is pending. It
+identifies thread `8192`, request `1`, and the last
+`api-trap -> waiting-host` transition before retiring that request. Non-watchdog
+reports contain no watchdog context.
 Mapping application contains no event-loop yield: cancellation can occur before
 or after one preflighted batch, never between its mapping and dirty-page commits.
 
@@ -139,8 +170,9 @@ session in this same Runtime Worker. Rust/Wasm owns PE load, process/module/heap
 state, Kernel32 dispatch, and guest bytes; Node supplies only an independently
 generated semantic oracle. Chrome reaches the same unsupported
 `GetCommandLineA()` call after 1,526 instructions, with equal ordered API
-results and final memory content SHA-256. The bounded Worker loop uses 216 slices
-and 154 periodic yields while the main-thread heartbeat remains active.
+results and final memory content SHA-256. The bounded Worker loop uses 216 slices,
+154 periodic yields, and 649 checked transitions while the main-thread heartbeat
+remains active.
 
 The Chrome memory generation ends at 225 rather than the Node oracle's 121
 because Chrome reconciles dirty pages at every 8-instruction budget boundary.
@@ -149,10 +181,10 @@ cancel and watchdog probes stop after 8 and 4 instructions and confirm Rust
 process exit, module detach, and zero pending host/callback work. Detailed
 evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
 
-The separate 180-second BGI workload gate repeats this complete session 1,579
-times in the same Worker. It records p95 session latency 110.975 ms, p99
-maximum slice 0.800 ms, main heap slope -308,407 bytes/min, Worker heap slope
-2,761,708 bytes/min, backing-storage slope 5,462,044 bytes/min, stable Rust/v86
+The separate 180-second BGI workload gate repeats this complete session 2,090
+times in the same Worker. It records p95 session latency 79.545 ms, p99
+maximum slice 0.545 ms, main heap slope 124,705 bytes/min, Worker heap slope
+546,371 bytes/min, backing-storage slope 989,237 bytes/min, stable Rust/v86
 linear-memory sizes, and 271 bridge operations per session. All version 1
 thresholds pass; details are in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md).

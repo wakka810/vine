@@ -102,16 +102,18 @@ host memory delta.
 Chrome reproduces all 61 ordered completions and the same memory digest at
 instruction 1,526. It uses 216 slices, 154 budget yields, 176 writeback batches
 over 215 dirty pages, 271 Rust/Wasm bridge operations, and final generation 225.
-Cancel remains at 8 instructions and the watchdog at 4 instructions with zero
-pending work. The 55,974-byte Browser report has SHA-256
-`07bc22b02f1bbfa50b5ae52b76004ff9093c4a7a93288a0db72b5fa89b60f4a6`.
+The protocol v3 execution state machine records 649／4／3 transitions for
+success／cancel／watchdog, with all paths stopped and zero pending request
+records. Cancel remains at 8 instructions and the watchdog at 4 instructions.
+The 57,409-byte Browser report has SHA-256
+`9bf2e353cfe43ae400d7bdff37de5fb831c024faf9a8cc2319e08fc8ec277988`.
 
-The unchanged 180-second version 1 gate completed 1,579 sessions with no
-failure: p95 session latency 110.975 ms, p99 maximum slice 0.800 ms, main heap
-slope -308,407 bytes/min, Worker heap slope 2,761,708 bytes/min, and Worker
-backing slope 5,462,044 bytes/min. All 16 thresholds passed. The 704,615-byte
+The unchanged 180-second version 1 gate completed 2,090 sessions with no
+failure: p95 session latency 79.545 ms, p99 maximum slice 0.545 ms, main heap
+slope 124,705 bytes/min, Worker heap slope 546,371 bytes/min, and Worker
+backing slope 989,237 bytes/min. All 16 thresholds passed. The 927,780-byte
 report has SHA-256
-`18a6375ffa6d6e4582df15fc974ce02dccf0d830729f7eed2ca339b0360bd0db`.
+`f6e07c36cd189edf9bcd5bf6104b7499232609b58e044cb4c1c1d141d64d4558`.
 Detailed evidence is in [bgi-browser-benchmark.md](bgi-browser-benchmark.md).
 
 ## Next structured stop

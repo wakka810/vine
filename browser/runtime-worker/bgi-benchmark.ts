@@ -210,6 +210,12 @@ function validateSession(report: SessionReport, expected: any): void {
   invariant(isRecord(fault), "BGI next fault is malformed");
   invariant(report.outcome === "structured-stop", report.error ?? "BGI session did not stop cleanly");
   invariant(report.pendingHostCalls === 0 && report.pendingCallbacks === 0, "BGI retained work");
+  invariant(
+    report.executionState === "stopped" &&
+      report.lastExecutionTransition?.to === "stopped" &&
+      report.pendingHostRequestRecords === 0,
+    "BGI execution state did not stop cleanly",
+  );
   invariant(report.supportedCalls.length === expected.supportedCalls, "BGI call count changed");
   invariant(report.instructions === expected.guestInstructions, "BGI instruction count changed");
   invariant(report.wasmBridgeCalls === expected.wasmBridgeCalls, "BGI Wasm crossing count changed");

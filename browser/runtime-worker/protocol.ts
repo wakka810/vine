@@ -1,4 +1,6 @@
-export const protocolVersion = 2 as const;
+import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
+
+export const protocolVersion = 3 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "private-bgi";
@@ -67,6 +69,15 @@ export interface SessionReport {
   budgetYields: number;
   hostRequests: number;
   rustSchedulerTransitions: number;
+  executionState: ExecutionState;
+  executionTransitionCount: number;
+  lastExecutionTransition: ExecutionTransition | null;
+  pendingHostRequestRecords: number;
+  watchdogContext: {
+    threadId: number;
+    requestId: string | null;
+    lastTransition: ExecutionTransition | null;
+  } | null;
   callbackEntries: number;
   maximumCallbackDepth: number;
   writebackBatches: number;

@@ -18,6 +18,12 @@ const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
 const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
+const runtimeProtocol = "vine.browser-runtime-worker.v3";
+assert.equal(
+  checkpoint.browserCheckpoint.browserRuntimeProtocol,
+  runtimeProtocol,
+  "current checkpoint does not identify the built Runtime Worker protocol",
+);
 const bgiPath = path.resolve(
   process.env.VINE_BGI_EXE ?? "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe",
 );
@@ -323,6 +329,29 @@ async function captureScreenshot(client, name) {
   return { file: path.relative(root, file), bytes: bytes.byteLength, sha256: hash(bytes) };
 }
 
+function assertExecutionStateMachine(report, scenario) {
+  assert.equal(report.executionState, "stopped");
+  assert(report.executionTransitionCount > 0, "execution state machine did not transition");
+  assert.equal(report.lastExecutionTransition?.to, "stopped");
+  assert.equal(report.pendingHostRequestRecords, 0);
+  if (scenario === "watchdog") {
+    assert(report.watchdogContext !== null, "watchdog context is missing");
+    assert(
+      Number.isSafeInteger(report.watchdogContext.threadId) &&
+        report.watchdogContext.threadId > 0,
+      "watchdog thread identity is invalid",
+    );
+    assert(
+      report.watchdogContext.requestId === null ||
+        /^(0|[1-9][0-9]*)$/u.test(report.watchdogContext.requestId),
+      "watchdog request identity is invalid",
+    );
+    assert(report.watchdogContext.lastTransition !== null, "watchdog transition is missing");
+  } else {
+    assert.equal(report.watchdogContext, null, "non-watchdog report retained watchdog context");
+  }
+}
+
 async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false) {
   const target = await createDebugTarget(browserWebSocketUrl, `${baseUrl}?scenario=${mode}`);
   const client = await connectDevTools(target.webSocketDebuggerUrl);
@@ -336,6 +365,11 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
     const evidence = JSON.parse(snapshot.report);
     assert.equal(evidence.report.pendingHostCalls, 0);
     assert.equal(evidence.report.pendingCallbacks, 0);
+    assertExecutionStateMachine(evidence.report, mode);
+    if (mode === "watchdog") {
+      assert.notEqual(evidence.report.watchdogContext.requestId, null);
+      assert.equal(evidence.report.watchdogContext.lastTransition?.to, "waiting-host");
+    }
     assert.equal(evidence.report.mappingDeltas, 7);
     assert.deepEqual(evidence.report.mappingOperations, {
       reserve: 1,
@@ -420,6 +454,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.scenario, scenario);
     assert.equal(evidence.report.pendingHostCalls, 0);
     assert.equal(evidence.report.pendingCallbacks, 0);
+    assertExecutionStateMachine(evidence.report, scenario);
     assert(evidence.statuses.some(({ phase }) => phase === "running"));
     if (scenario === "success") {
       assert.equal(evidence.report.outcome, "structured-stop");
@@ -1059,8 +1094,8 @@ if (serveOnly) {
         assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the browser session");
         const report = {
           schema: "vine.browser-bgi-runtime-worker",
-          schemaVersion: 1,
-          runtimeProtocol: "vine.browser-runtime-worker.v2",
+          schemaVersion: 2,
+          runtimeProtocol,
           measuredAt: new Date().toISOString(),
           chromeVersion: version,
           source: { bytes: sourceBefore.byteLength, sha256: hash(sourceBefore) },
@@ -1102,8 +1137,8 @@ if (serveOnly) {
       }
       const report = {
         schema: "vine.browser-runtime-worker",
-        schemaVersion: 2,
-        runtimeProtocol: "vine.browser-runtime-worker.v2",
+        schemaVersion: 3,
+        runtimeProtocol,
         measuredAt: new Date().toISOString(),
         chromeVersion: version,
         success,

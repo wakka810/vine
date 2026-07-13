@@ -34,6 +34,10 @@ export interface PreparedMetadata {
   entrySentinel: number;
   pageCount: number;
   regions: MemoryRegionSnapshot[];
+  runtime: {
+    processId: number;
+    threadId: number;
+  };
   endpoints: Array<{
     id: number;
     address: number;

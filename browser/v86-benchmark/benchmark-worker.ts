@@ -143,6 +143,10 @@ function prepared(entryPoint: number, pages: ReflectedPage[]): PreparedMetadata 
       kind: "runtime",
       range: { start: page_.address, byteLength: memoryPageSize },
     })),
+    runtime: {
+      processId: 1,
+      threadId: 1,
+    },
     endpoints: [],
   };
 }

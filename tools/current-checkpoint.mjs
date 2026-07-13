@@ -53,6 +53,72 @@ function requireStringArray(value, label, errors) {
   return value;
 }
 
+function validateExecutionStateMachine(value, label, errors) {
+  const stateMachine = requireRecord(value, label, errors);
+  for (const scenario of ["success", "cancellation", "watchdog"]) {
+    const outcome = requireRecord(
+      stateMachine[scenario],
+      `${label}.${scenario}`,
+      errors,
+    );
+    if (outcome.finalState !== "stopped") {
+      errors.push(`${label}.${scenario}.finalState must be stopped`);
+    }
+    requireInteger(
+      outcome.transitionCount,
+      `${label}.${scenario}.transitionCount`,
+      errors,
+      1,
+    );
+    if (outcome.lastTransitionTo !== "stopped") {
+      errors.push(`${label}.${scenario}.lastTransitionTo must be stopped`);
+    }
+    requireInteger(
+      outcome.pendingHostRequestRecords,
+      `${label}.${scenario}.pendingHostRequestRecords`,
+      errors,
+    );
+    if (outcome.pendingHostRequestRecords !== 0) {
+      errors.push(`${label}.${scenario} must not retain host request records`);
+    }
+    if (scenario !== "watchdog") {
+      if (outcome.watchdogContext !== null) {
+        errors.push(`${label}.${scenario}.watchdogContext must be null`);
+      }
+      continue;
+    }
+    const context = requireRecord(
+      outcome.watchdogContext,
+      `${label}.watchdog.watchdogContext`,
+      errors,
+    );
+    requireInteger(
+      context.threadId,
+      `${label}.watchdog.watchdogContext.threadId`,
+      errors,
+      1,
+    );
+    if (
+      context.requestId !== null &&
+      (typeof context.requestId !== "string" || !/^(0|[1-9][0-9]*)$/u.test(context.requestId))
+    ) {
+      errors.push(`${label}.watchdog.watchdogContext.requestId must be null or a decimal ID`);
+    }
+    const transition = requireRecord(
+      context.lastTransition,
+      `${label}.watchdog.watchdogContext.lastTransition`,
+      errors,
+    );
+    for (const field of ["from", "to", "cause"]) {
+      requireString(
+        transition[field],
+        `${label}.watchdog.watchdogContext.lastTransition.${field}`,
+        errors,
+      );
+    }
+  }
+}
+
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
@@ -116,8 +182,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v2") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v2");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v3") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v3");
   }
   requireString(browser.workload, "browserCheckpoint.workload", errors);
   const browserEvidence = requireRecord(
@@ -133,6 +199,11 @@ export function validateCurrentCheckpoint(manifest) {
   if (browserEvidence.rustSchedulerTransitions !== browserEvidence.hostRequests) {
     errors.push("browser scheduler transitions must authorize every completed host request");
   }
+  validateExecutionStateMachine(
+    browserEvidence.executionStateMachine,
+    "browserCheckpoint.browserRuntimeEvidence.executionStateMachine",
+    errors,
+  );
   const mappingOperations = requireRecord(
     browserEvidence.mappingOperations,
     "browserCheckpoint.browserRuntimeEvidence.mappingOperations",
@@ -207,6 +278,11 @@ export function validateCurrentCheckpoint(manifest) {
       errors,
     );
   }
+  validateExecutionStateMachine(
+    bgiBrowserEvidence.executionStateMachine,
+    "browserCheckpoint.bgiRuntimeEvidence.executionStateMachine",
+    errors,
+  );
   for (const field of [
     "sourceSha256",
     "memoryContentSha256",

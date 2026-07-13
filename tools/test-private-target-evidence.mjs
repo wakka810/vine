@@ -105,6 +105,7 @@ function validEvidence() {
         finalGeneration: browser.finalGeneration,
         memoryContentSha256: browser.memoryContentSha256,
         wasmBridgeCalls: 1,
+        executionStateMachine: structuredClone(browser.executionStateMachine),
       },
       memoryEquivalent: true,
       nextStructuredStop: structuredClone(checkpoint.nextStructuredStop),
@@ -196,6 +197,20 @@ for (const [label, evidence, expected] of [
       value.semantic.cleanup.pendingHostCalls = 1;
     }),
     "pendingHostCalls",
+  ],
+  [
+    "unfinished browser execution lane",
+    mutated((value) => {
+      value.semantic.browser.executionStateMachine.success.finalState = "running";
+    }),
+    "executionStateMachine.success.finalState",
+  ],
+  [
+    "missing watchdog context",
+    mutated((value) => {
+      value.semantic.browser.executionStateMachine.watchdog.watchdogContext = null;
+    }),
+    "watchdogContext",
   ],
   [
     "performance promoted to semantic gate",

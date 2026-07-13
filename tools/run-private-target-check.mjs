@@ -149,6 +149,46 @@ function hex32(value) {
   return `0x${value.toString(16)}`;
 }
 
+function executionStateEvidence(report) {
+  const context = report.watchdogContext;
+  return {
+    finalState: report.executionState,
+    transitionCount: report.executionTransitionCount,
+    lastTransitionTo: report.lastExecutionTransition?.to ?? null,
+    pendingHostRequestRecords: report.pendingHostRequestRecords,
+    watchdogContext:
+      context === null
+        ? null
+        : {
+            threadId: context.threadId,
+            requestId: context.requestId,
+            lastTransition:
+              context.lastTransition === null
+                ? null
+                : {
+                    from: context.lastTransition.from,
+                    to: context.lastTransition.to,
+                    cause: context.lastTransition.cause,
+                  },
+          },
+  };
+}
+
+function assertExecutionStateReport(report, scenario) {
+  assert.equal(report.executionState, "stopped");
+  assert(report.executionTransitionCount > 0, "execution state machine did not transition");
+  assert.equal(report.lastExecutionTransition?.to, "stopped");
+  assert.equal(report.pendingHostRequestRecords, 0);
+  if (scenario === "watchdog") {
+    assert(report.watchdogContext !== null, "watchdog context is missing");
+    assert(Number.isSafeInteger(report.watchdogContext.threadId));
+    assert(report.watchdogContext.threadId > 0);
+    assert(report.watchdogContext.lastTransition !== null, "watchdog transition is missing");
+  } else {
+    assert.equal(report.watchdogContext, null, "non-watchdog report retained watchdog context");
+  }
+}
+
 function assertReportSemantics({ checkpoint, nodeReport, browserReport, policy, source }) {
   const active = checkpoint.activeRuntimeCheckpoint;
   const expectedBrowser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
@@ -185,6 +225,8 @@ function assertReportSemantics({ checkpoint, nodeReport, browserReport, policy, 
   assert.equal(nodeReport.firstUnsupported.fault.code, expectedNext.reason);
 
   assert.equal(browserReport.runtimeProtocol, checkpoint.browserCheckpoint.browserRuntimeProtocol);
+  assert.equal(browserReport.schema, "vine.browser-bgi-runtime-worker");
+  assert.equal(browserReport.schemaVersion, 2);
   assert.equal(browserReport.success.report.outcome, "structured-stop");
   assert.equal(
     browserReport.success.report.supportedCalls.length,
@@ -212,6 +254,9 @@ function assertReportSemantics({ checkpoint, nodeReport, browserReport, policy, 
   assert.equal(browserReport.cancellation.report.pendingCallbacks, 0);
   assert.equal(browserReport.watchdog.report.pendingHostCalls, 0);
   assert.equal(browserReport.watchdog.report.pendingCallbacks, 0);
+  assertExecutionStateReport(browserReport.success.report, "success");
+  assertExecutionStateReport(browserReport.cancellation.report, "cancellation");
+  assertExecutionStateReport(browserReport.watchdog.report, "watchdog");
   assert.equal(
     nodeReport.firstUnsupported.memoryContentSha256,
     browserUnsupported.memoryContentSha256,
@@ -422,6 +467,11 @@ const evidence = finalizePrivateTargetEvidence({
       memoryContentSha256:
         browserReport.success.report.firstUnsupported.memoryContentSha256,
       wasmBridgeCalls: browserReport.success.report.wasmBridgeCalls,
+      executionStateMachine: {
+        success: executionStateEvidence(browserReport.success.report),
+        cancellation: executionStateEvidence(browserReport.cancellation.report),
+        watchdog: executionStateEvidence(browserReport.watchdog.report),
+      },
     },
     memoryEquivalent: true,
     nextStructuredStop: structuredClone(checkpoint.nextStructuredStop),

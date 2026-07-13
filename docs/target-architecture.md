@@ -43,6 +43,14 @@ scheduler transitionはRustだけが決定する。Rustは`waiting-host`とreque
 TypeScriptはbrowser eventをdeliveryする。completion後の`runnable`または`in-callback`復帰もRustが
 検証してからCPU contextへ適用する。Worker event loopは独自にguest threadをwakeしない。
 
+Worker protocol version 3は、そのRust scheduler laneを`ready`、`running`、`budget-yield`、
+`api-trap`、`waiting-host`、`host-completion`、`guest-callback`、`callback-return`、
+`stopping`、`stopped`の閉じたtransition graphで駆動する。illegal transitionはstate mutation前に
+拒否する。host deliveryはglobal optionではなくrequest ID／thread ID／cancel state／completion
+policyを持つtableへ置き、wrong-thread、duplicate、cancel後のlate completionを区別して拒否する。
+terminal reportは必ず`stopped`かつpending record zeroとし、watchdogだけが原因thread、active
+request、直前transitionのdiagnostic contextを持つ。
+
 現在のcontrolled Browser sessionはsingle CPU laneだけを実行し、scheduler切替用の永続CPU context
 recordをまだ持たない。live contextはexecution mirrorのstate bufferにだけ存在する。複数threadのCPU
 resumeを導入する前に、per-thread Rust recordへのsave／restoreを追加し、このauthority表を満たす。
@@ -232,7 +240,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsとnative-oracled command-line bytesを実行した。v86のexecute-permission gapにはslice-boundary gateを保持し、PTE Dirty bitでmulti-page mutationをRust authorityへ戻す。controlled Chrome Runtime Workerは同じbinary boundaryで46 guest instructions、3 periodic yields、2 deferred completions、depth-2 callback、7 writeback batches、clean exitを通した。current 61-call BGI sessionも同じWorker内のRust/Wasm authorityでNode oracleとsemanticに一致し、timer clamp非依存yieldによる3分／1,579-session workload gateはsession／slice、memory slope、linear memory、Wasm crossing thresholdを通した。general process parameters、stack growth、snapshot、broad ABI、title output、full-play performanceは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[browser-runtime-worker.md](browser-runtime-worker.md)、[bgi-browser-benchmark.md](bgi-browser-benchmark.md)、[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
+固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsとnative-oracled command-line bytesを実行した。v86のexecute-permission gapにはslice-boundary gateを保持し、PTE Dirty bitでmulti-page mutationをRust authorityへ戻す。controlled Chrome Runtime Workerは同じbinary boundaryで46 guest instructions、3 periodic yields、2 deferred completions、depth-2 callback、7 writeback batches、clean exitを通した。current 61-call BGI sessionも同じWorker内のRust/Wasm authorityでNode oracleとsemanticに一致し、timer clamp非依存yieldによる3分／2,090-session workload gateはsession／slice、memory slope、linear memory、Wasm crossing thresholdを通した。general process parameters、stack growth、snapshot、broad ABI、title output、full-play performanceは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[browser-runtime-worker.md](browser-runtime-worker.md)、[bgi-browser-benchmark.md](bgi-browser-benchmark.md)、[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 

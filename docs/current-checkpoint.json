@@ -108,12 +108,12 @@
   "workload": "private-bgi-generic-session",
   "bgiSession": "semantic-equivalence-passed",
   "bgiBenchmark": "threshold-passed",
-  "browserRuntimeProtocol": "vine.browser-runtime-worker.v2",
+  "browserRuntimeProtocol": "vine.browser-runtime-worker.v3",
   "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
       "imports": 0,
-      "bytes": 1519033,
-      "sha256": "f2bca72e9529b130a0894289a5374ff3ee8575b0aedbf31973bf6a3b5cc20ec1"
+      "bytes": 1519513,
+      "sha256": "479faa4d393c9fd21aa68fec8ab063e378ac6bb43907e7c54753404c07de830b"
   },
   "browserRuntimeFixture": {
     "bytes": 2560,
@@ -127,6 +127,37 @@
     "budgetYields": 3,
     "hostRequests": 2,
     "rustSchedulerTransitions": 2,
+    "executionStateMachine": {
+      "success": {
+        "finalState": "stopped",
+        "transitionCount": 31,
+        "lastTransitionTo": "stopped",
+        "pendingHostRequestRecords": 0,
+        "watchdogContext": null
+      },
+      "cancellation": {
+        "finalState": "stopped",
+        "transitionCount": 5,
+        "lastTransitionTo": "stopped",
+        "pendingHostRequestRecords": 0,
+        "watchdogContext": null
+      },
+      "watchdog": {
+        "finalState": "stopped",
+        "transitionCount": 5,
+        "lastTransitionTo": "stopped",
+        "pendingHostRequestRecords": 0,
+        "watchdogContext": {
+          "threadId": 8192,
+          "requestId": "1",
+          "lastTransition": {
+            "from": "api-trap",
+            "to": "waiting-host",
+            "cause": "rust-host-request"
+          }
+        }
+      }
+    },
     "callbackEntries": 2,
     "maximumCallbackDepth": 2,
     "writebackBatches": 7,
@@ -173,6 +204,37 @@
     "writebackBatches": 176,
     "writebackPages": 215,
     "hostDeltaBatches": 30,
+    "executionStateMachine": {
+      "success": {
+        "finalState": "stopped",
+        "transitionCount": 649,
+        "lastTransitionTo": "stopped",
+        "pendingHostRequestRecords": 0,
+        "watchdogContext": null
+      },
+      "cancellation": {
+        "finalState": "stopped",
+        "transitionCount": 4,
+        "lastTransitionTo": "stopped",
+        "pendingHostRequestRecords": 0,
+        "watchdogContext": null
+      },
+      "watchdog": {
+        "finalState": "stopped",
+        "transitionCount": 3,
+        "lastTransitionTo": "stopped",
+        "pendingHostRequestRecords": 0,
+        "watchdogContext": {
+          "threadId": 8192,
+          "requestId": null,
+          "lastTransition": {
+            "from": "ready",
+            "to": "running",
+            "cause": "execute-slice"
+          }
+        }
+      }
+    },
     "mappingOperations": {
       "reserve": 1,
       "commit": 1,
@@ -189,12 +251,12 @@
     "nextApi": "KERNEL32.dll!GetCommandLineA",
     "nextFaultCode": "endpoint-contract-missing",
     "wasmBridgeCalls": 271,
-    "maximumSliceMilliseconds": 1.9199999868869781,
-    "elapsedMilliseconds": 210.3149999976158,
-    "heartbeatSamples": 35,
-    "maximumHeartbeatGapMilliseconds": 23.155000001192093,
-    "usedJsHeapBytesBefore": 628738,
-    "usedJsHeapBytesAfter": 708682,
+    "maximumSliceMilliseconds": 1.7249999940395355,
+    "elapsedMilliseconds": 161.4350000023842,
+    "heartbeatSamples": 34,
+    "maximumHeartbeatGapMilliseconds": 17.844999998807907,
+    "usedJsHeapBytesBefore": 628360,
+    "usedJsHeapBytesAfter": 710526,
     "cancelInstructions": 8,
     "watchdogInstructions": 4,
     "pendingHostCallsAfterCleanup": 0,
@@ -203,8 +265,8 @@
     "dllLifecycleAfterCleanup": "process-detached",
     "nodeOracleReportBytes": 284215,
     "nodeOracleReportSha256": "91be62c168dd5296fa549a8bf553975853dfef506bcb3ce7670a7b8843f82f3b",
-    "browserReportBytes": 55974,
-    "browserReportSha256": "07bc22b02f1bbfa50b5ae52b76004ff9093c4a7a93288a0db72b5fa89b60f4a6"
+    "browserReportBytes": 57409,
+    "browserReportSha256": "9bf2e353cfe43ae400d7bdff37de5fb831c024faf9a8cc2319e08fc8ec277988"
   },
   "bgiBenchmarkEvidence": {
     "schema": "vine.browser-bgi-benchmark-report",
@@ -213,34 +275,34 @@
     "configurationSha256": "44d985f746ce06ed6e6d7f76ac35deb75e937e9bfbfa31419366855c27a2f922",
     "chromeVersion": "150.0.7871.115",
     "durationMilliseconds": 180000,
-    "completedSessions": 1579,
+    "completedSessions": 2090,
     "failedSessions": 0,
     "mainHeapSamples": 38,
     "workerHeapSamples": 36,
-    "sessionP95Milliseconds": 110.97499999403954,
-    "sliceP99Milliseconds": 0.7999999821186066,
-    "maximumHeartbeatGapMilliseconds": 38.16999998688698,
-    "mainHeapMaximumBytes": 7736469,
-    "mainHeapSlopeBytesPerMinute": -308407.4160595546,
-    "workerHeapMaximumBytes": 27817088,
-    "workerHeapSlopeBytesPerMinute": 2761707.8723064046,
-    "workerHeapCapacityMaximumBytes": 57147392,
-    "workerBackingStorageMaximumBytes": 53153431,
-    "workerBackingStorageSlopeBytesPerMinute": 5462043.8093188265,
+    "sessionP95Milliseconds": 79.5450000166893,
+    "sliceP99Milliseconds": 0.5449999868869781,
+    "maximumHeartbeatGapMilliseconds": 17.96000000834465,
+    "mainHeapMaximumBytes": 6769103,
+    "mainHeapSlopeBytesPerMinute": 124705.17433883685,
+    "workerHeapMaximumBytes": 28409500,
+    "workerHeapSlopeBytesPerMinute": 546370.6702782098,
+    "workerHeapCapacityMaximumBytes": 57409536,
+    "workerBackingStorageMaximumBytes": 53384367,
+    "workerBackingStorageSlopeBytesPerMinute": 989236.5803553173,
     "runtimeCoreLinearMemoryBytes": 9764864,
     "v86AdapterLinearMemoryBytes": 11796480,
     "wasmBridgeCallsPerSession": 271,
     "thresholdFailures": 0,
     "thresholdFailureIds": [],
-    "runtimeCoreWasmSha256": "f2bca72e9529b130a0894289a5374ff3ee8575b0aedbf31973bf6a3b5cc20ec1",
-    "runtimeWorkerBytes": 64685,
-    "runtimeWorkerSha256": "862dad699640312fa2fb8db1573e9ccd6e314029cd29465e5d3ed3f68e789bd0",
-    "benchmarkMainBytes": 7103,
-    "benchmarkMainSha256": "7902ebcea4cf91c1873f58911c76f99c05d05517fd0609027463c5f5c8c04d07",
+    "runtimeCoreWasmSha256": "479faa4d393c9fd21aa68fec8ab063e378ac6bb43907e7c54753404c07de830b",
+    "runtimeWorkerBytes": 77472,
+    "runtimeWorkerSha256": "4f9c5b5a3743a4d0bc832ea98ffb5eddbd40c6cb8aa06fada58699c4b8cddea1",
+    "benchmarkMainBytes": 7303,
+    "benchmarkMainSha256": "1c155c4ac9894a7a8306abf7e3679464bd78d72ce5943bfd01b04fcd6fb909c7",
     "v86AdapterWasmBytes": 1882836,
     "v86AdapterWasmSha256": "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
-    "reportBytes": 704615,
-    "reportSha256": "18a6375ffa6d6e4582df15fc974ce02dccf0d830729f7eed2ca339b0360bd0db"
+    "reportBytes": 927780,
+    "reportSha256": "f6e07c36cd189edf9bcd5bf6104b7499232609b58e044cb4c1c1d141d64d4558"
   },
   "browserStressEvidence": {
     "durationMilliseconds": 1800073.5,

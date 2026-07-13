@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは24 contracts／61 callsをcommon dispatcherからreturnして`GetCommandLineA()`へ到達した。同じcurrent sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとのordered completion／memory digest一致、heartbeat、cancel／watchdog teardownを通した。timer clamp非依存yieldによる3分／1,579-session workload gateはsession／slice分布、main／Worker heapとbacking-storage slope、linear memory、Wasm crossing thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは24 contracts／61 callsをcommon dispatcherからreturnして`GetCommandLineA()`へ到達した。同じcurrent sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとのordered completion／memory digest一致、heartbeat、cancel／watchdog teardownを通した。explicit protocol v3 execution state machineとtimer clamp非依存yieldによる3分／2,090-session workload gateはsession／slice分布、main／Worker heapとbacking-storage slope、linear memory、Wasm crossing thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -981,7 +981,7 @@ capture時artifact identityとしてのみ保持する。後続Browser oracle in
 
 current 61-call sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとの
 ordered completion／memory digest一致、main heartbeat、cancel／watchdog teardownを通した。続く
-3分／1,579-session BGI workload gateはfailure 0で、session／slice分布、main／Worker heapとbacking
+3分／2,090-session BGI workload gateはfailure 0で、session／slice分布、main／Worker heapとbacking
 storage slope、Rust／v86 linear memory、271 Wasm crossings/sessionの全version 1 thresholdを通した。
 これはfull-play、long-idle、title outputの完了を意味しない。
 

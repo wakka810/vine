@@ -37,30 +37,30 @@ required sample is a failure.
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 1,579 sessions with no
+The authoritative clean-profile Chrome run completed 2,090 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 1,579 |
+| Completed sessions | >= 120 | 2,090 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 36 |
-| Session latency p95 | <= 3,000 ms | 110.975 ms |
-| Maximum slice p99 | <= 10 ms | 0.800 ms |
-| Main heartbeat gap | <= 75 ms | 38.170 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 7,736,469 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | -308,407.42 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 27,817,088 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 2,761,707.87 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 57,147,392 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 53,153,431 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 5,462,043.81 bytes/min |
+| Session latency p95 | <= 3,000 ms | 79.545 ms |
+| Maximum slice p99 | <= 10 ms | 0.545 ms |
+| Main heartbeat gap | <= 75 ms | 17.960 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 6,769,103 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 124,705.17 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 28,409,500 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 546,370.67 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 57,409,536 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 53,384,367 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 989,236.58 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 9,764,864 bytes |
 | v86 linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 704,615 bytes with SHA-256
-`18a6375ffa6d6e4582df15fc974ce02dccf0d830729f7eed2ca339b0360bd0db`.
+The exact report is 927,780 bytes with SHA-256
+`f6e07c36cd189edf9bcd5bf6104b7499232609b58e044cb4c1c1d141d64d4558`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate.
 
@@ -75,19 +75,20 @@ are the regression gate.
 | Chrome | `150.0.7871.115` |
 | Node.js | `v24.18.0` |
 
-The report records repository commit `0c1aed1610a9359ee72452b12286ccc320b9e310`
-with a dirty tree because the evidence was captured after the stderr-file-type
-commit and before this SetHandleCount checkpoint commit. Exact generated
-artifacts are independently fingerprinted below.
+The report records the repository base and dirty state present during the
+pre-commit checkpoint measurement. That Git value is run identity rather than
+the semantic gate; exact generated artifacts are independently fingerprinted
+below, and commit-bound BGI evidence is generated after the implementation
+commit.
 
 ## Artifact identity
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 1,519,033 | `f2bca72e9529b130a0894289a5374ff3ee8575b0aedbf31973bf6a3b5cc20ec1` |
+| Rust runtime core Wasm | 1,519,513 | `479faa4d393c9fd21aa68fec8ab063e378ac6bb43907e7c54753404c07de830b` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
-| Runtime Worker bundle | 64,685 | `862dad699640312fa2fb8db1573e9ccd6e314029cd29465e5d3ed3f68e789bd0` |
-| BGI benchmark bundle | 7,103 | `7902ebcea4cf91c1873f58911c76f99c05d05517fd0609027463c5f5c8c04d07` |
+| Runtime Worker bundle | 77,472 | `4f9c5b5a3743a4d0bc832ea98ffb5eddbd40c6cb8aa06fada58699c4b8cddea1` |
+| BGI benchmark bundle | 7,303 | `1c155c4ac9894a7a8306abf7e3679464bd78d72ce5943bfd01b04fcd6fb909c7` |
 | Version 1 configuration | 915 | `44d985f746ce06ed6e6d7f76ac35deb75e937e9bfbfa31419366855c27a2f922` |
 
 The private executable is never copied into the browser build or Git. The

@@ -241,6 +241,10 @@ impl BrowserRuntime {
             "pageCount": reflection.pages.len(),
             "regions": memory.region_snapshots(),
             "endpoints": binding.thunks,
+            "runtime": {
+                "processId": runtime.process_id().0,
+                "threadId": runtime.current_thread_id().0,
+            },
         });
         Ok((
             Self {
