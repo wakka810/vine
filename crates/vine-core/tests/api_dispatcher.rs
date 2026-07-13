@@ -5,9 +5,9 @@ use vine_core::{
     ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiOwnedTrap,
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
-    GET_LAST_ERROR_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
-    GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget, ImportThunk,
-    ImportThunkDisposition, ImportThunkId, Kernel32CompatibilityPolicy,
+    FLS_GET_VALUE_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress,
+    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget,
+    ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CompatibilityPolicy,
     Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
     Kernel32WideCharToMultiBytePolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
     LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
@@ -466,7 +466,7 @@ fn fls_set_value_contract_owns_current_thread_values() {
             .fls_value(0)
             .expect_err("FLS values are thread-local")
             .code,
-        "fls-value-uninitialized"
+        "fls-thread-storage-uninitialized"
     );
     let second = dispatch_owned(
         &dispatcher,
@@ -508,6 +508,160 @@ fn fls_set_value_contract_owns_current_thread_values() {
     assert_eq!(runtime, runtime_before_rejection);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
     assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
+fn fls_get_value_models_thread_storage_and_win32_last_error() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_0491, 0]),
+        (STACK_BASE + 0x20, vec![0x1000_0492, 1]),
+        (STACK_BASE + 0x40, vec![0x1000_0493, u32::MAX]),
+        (STACK_BASE + 0x60, vec![0x1000_0494, 0]),
+        (STACK_BASE + 0x80, vec![0x1000_0495, 0]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let dynamic = RuntimeDynamicEndpoint {
+        namespace: DYNAMIC_EXPORT_ENDPOINT_NAMESPACE.to_owned(),
+        id: 2,
+        address: GuestAddress(0x7f02_0010),
+        module: "kernel32.dll".to_owned(),
+        name: "FlsGetValue".to_owned(),
+        lifetime: "process-runtime".to_owned(),
+    };
+    let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(&dynamic);
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented FlsGetValue endpoint");
+    assert_eq!(contract.implementation_id, FLS_GET_VALUE_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(
+        contract.abi.return_value,
+        ApiReturnSchema::OpaquePointer { nullable: true }
+    );
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    assert_eq!(
+        runtime
+            .allocate_fls_slot(None)
+            .expect("first logical FLS slot")
+            .index,
+        0
+    );
+    runtime
+        .set_fls_value(0, 0x2000_0000)
+        .expect("set main-thread FLS value");
+    assert_eq!(
+        runtime
+            .allocate_fls_slot(None)
+            .expect("second logical FLS slot")
+            .index,
+        1
+    );
+    let memory_before = memory.stats();
+
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(0).unwrap();
+    let initial = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+    );
+    assert_eq!(initial.eax, RegisterUpdate::Set(0x2000_0000));
+    assert_eq!(initial.stack_pointer, GuestAddress(frames[0].0 + 8));
+    assert_eq!(initial.last_error, 0);
+    assert!(initial.guest_writes.is_empty());
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_before);
+
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(0).unwrap();
+    let unset = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(unset.eax, RegisterUpdate::Set(0));
+    assert_eq!(unset.last_error, 0);
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_before);
+
+    runtime.set_current_last_error(122).unwrap();
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(87).unwrap();
+    let invalid = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+    );
+    assert_eq!(invalid.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid.last_error, 87);
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_before);
+
+    let second_thread = RuntimeThreadId(THREAD_ID + 1);
+    runtime
+        .register_thread(second_thread, 0x5678)
+        .expect("register second FLS lane");
+    runtime
+        .select_thread(second_thread)
+        .expect("select second FLS lane");
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(87).unwrap();
+    let uninitialized_thread = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[3].0,
+        frames[3].1[0],
+    );
+    assert_eq!(uninitialized_thread.eax, RegisterUpdate::Set(0));
+    assert_eq!(uninitialized_thread.last_error, 87);
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_before);
+
+    runtime
+        .set_fls_value(0, 0x2345_6789)
+        .expect("set second-thread FLS value");
+    runtime.set_current_last_error(122).unwrap();
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(0).unwrap();
+    let second = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[4].0,
+        frames[4].1[0],
+    );
+    assert_eq!(second.eax, RegisterUpdate::Set(0x2345_6789));
+    assert_eq!(second.last_error, 0);
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_before);
+
+    runtime
+        .select_thread(RuntimeThreadId(THREAD_ID))
+        .expect("restore initial FLS lane");
+    assert_eq!(runtime.fls_value(0).unwrap(), 0x2000_0000);
 }
 
 #[test]

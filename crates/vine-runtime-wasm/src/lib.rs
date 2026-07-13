@@ -1172,7 +1172,7 @@ fn build_bgi_dispatcher(
                 .dynamic_endpoint_by_name("kernel32.dll", name)
                 .map_err(error_string)?,
         );
-        if matches!(name, "FlsAlloc" | "FlsSetValue") {
+        if matches!(name, "FlsAlloc" | "FlsGetValue" | "FlsSetValue") {
             let contract = kernel32_contract_for_endpoint(endpoint.clone())
                 .map_err(api_fault_string)?
                 .ok_or_else(|| format!("BGI dynamic endpoint {name} has no Kernel32 contract"))?;

@@ -201,6 +201,18 @@ const tlsGetValueKernel32Library = path.join(
   outputDirectory,
   "tls-get-value-kernel32.lib",
 );
+const flsGetValueFixtureDirectory = path.join(
+  root,
+  "fixtures",
+  "pe32",
+  "fls-get-value",
+);
+const flsGetValueObject = path.join(outputDirectory, "fixture-fls-get-value.obj");
+const flsGetValueExe = path.join(outputDirectory, "fls-get-value.exe");
+const flsGetValueKernel32Library = path.join(
+  outputDirectory,
+  "fls-get-value-kernel32.lib",
+);
 const windowImportLibraries = ["kernel32", "user32", "gdi32"].map(
   (name) => ({
     definition: path.join(windowFixtureDirectory, `${name}.def`),
@@ -267,6 +279,10 @@ compilePeObject(
   path.join(tlsGetValueFixtureDirectory, "fixture-tls.c"),
   tlsGetValueObject,
 );
+compilePeObject(
+  path.join(flsGetValueFixtureDirectory, "fixture-fls.c"),
+  flsGetValueObject,
+);
 
 for (const { definition, library } of windowImportLibraries) {
   run("llvm-dlltool", [
@@ -298,6 +314,16 @@ run("llvm-dlltool", [
   path.join(tlsGetValueFixtureDirectory, "kernel32.def"),
   "-l",
   tlsGetValueKernel32Library,
+]);
+
+run("llvm-dlltool", [
+  "-m",
+  "i386",
+  "-k",
+  "-d",
+  path.join(flsGetValueFixtureDirectory, "kernel32.def"),
+  "-l",
+  flsGetValueKernel32Library,
 ]);
 
 run("lld-link", [
@@ -456,6 +482,19 @@ run("lld-link", [
   tlsGetValueKernel32Library,
 ]);
 
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${flsGetValueExe}`,
+  flsGetValueObject,
+  flsGetValueKernel32Library,
+]);
+
 let nativeAbiExitCode = null;
 let browserVerticalNativeExitCode = null;
 let dllLifecycleNativeExitCode = null;
@@ -463,6 +502,7 @@ let windowPixelNativeExitCode = null;
 let bootstrapFsNativeExitCode = null;
 let bootstrapParamsNativeExitCode = null;
 let tlsGetValueNativeExitCode = null;
+let flsGetValueNativeExitCode = null;
 if (process.platform === "win32") {
   run(exeFile, [], { timeoutMs: 10_000 });
   nativeAbiExitCode = 0;
@@ -478,6 +518,8 @@ if (process.platform === "win32") {
   bootstrapParamsNativeExitCode = 0;
   run(tlsGetValueExe, [], { timeoutMs: 10_000 });
   tlsGetValueNativeExitCode = 0;
+  run(flsGetValueExe, [], { timeoutMs: 10_000 });
+  flsGetValueNativeExitCode = 0;
 }
 
 const exeInspection = run("llvm-readobj", [
@@ -539,6 +581,11 @@ const tlsGetValueInspection = run("llvm-readobj", [
   "--coff-imports",
   tlsGetValueExe,
 ]);
+const flsGetValueInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  flsGetValueExe,
+]);
 
 const requiredExeEvidence = [
   "Format: COFF-i386",
@@ -569,6 +616,25 @@ for (const expected of [
 ]) {
   if (!browserExeInspection.includes(expected)) {
     throw new Error(`browser vertical PE32 inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+  "Name: kernel32.dll",
+  "Symbol: FlsAlloc",
+  "Symbol: FlsSetValue",
+  "Symbol: FlsGetValue",
+  "Symbol: FlsFree",
+  "Symbol: CreateThread",
+  "Symbol: WaitForSingleObject",
+  "Symbol: GetExitCodeThread",
+  "Symbol: SetLastError",
+  "Symbol: GetLastError",
+]) {
+  if (!flsGetValueInspection.includes(expected)) {
+    throw new Error(`FLS GetValue fixture inspection is missing: ${expected}`);
   }
 }
 for (const expected of [
@@ -776,6 +842,16 @@ const report = {
       successLastError: 0,
       invalidIndexLastError: 87,
     },
+    flsGetValueFormat: "PE32/i386",
+    flsGetValueNativeExitCode,
+    flsGetValueOracle: {
+      mainValue: "0x12345678",
+      workerInitialValue: "0x00000000",
+      workerInitialLastError: 87,
+      workerValue: "0x23456789",
+      successLastError: 0,
+      invalidIndexLastError: 87,
+    },
   },
   artifacts: [
     wasmModule,
@@ -797,6 +873,8 @@ const report = {
     bootstrapParamsExe,
     tlsGetValueExe,
     tlsGetValueKernel32Library,
+    flsGetValueExe,
+    flsGetValueKernel32Library,
   ].map(artifact),
 };
 

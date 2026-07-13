@@ -1440,3 +1440,42 @@ Chrome Runtime Workerも69 ordered callsとsame stop／memoryを再現し、242 
 303 Wasm crossings、final generation `249`、cancel／watchdog後pending work 0を通す。3分gateは
 2,145 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-tls-get-value.md](bgi-tls-get-value.md)を正とする。
+
+## 64. BGI FlsGetValue
+
+focused `fls-lifecycle` observerのaccepted complete capturesは441,333
+bytes／1,441 lines／SHA-256
+`318c76a6ce0da8c7c47d335957876a343e74d2b4bf8f82e013407671e615471e`と
+434,981 bytes／1,421 lines／SHA-256
+`0eb6161706e16a84f97325b35021ea2db0084893a8d14e55b929f3b146cf69d2`
+である。Summariesは685／675 balanced API pairsとdiagnostics zeroを保持する。Timeout時に
+unrelated `CreateThread` hookがopenだった中間captureは除外した。
+
+両runの最初のBGI callはreturn RVA `0xA55EC`で、preceding `FlsAlloc`のindexと
+same-thread `FlsSetValue`のvalueを使う。Resultはstored valueと一致し、LastErrorは`0 -> 0`を
+保つ。Immediate consumerは`mov esi,eax`、`test esi,esi`、nonnull success branchであり、NULL時だけ
+`(flags=1,size=0x214)`のlocal private-heap helperへfallbackする。
+
+Controlled oracleはset value `0x12345678`をsame value／LastError `0`、allocated-unsetを
+NULL／LastError `0`、invalid `0xFFFFFFFF`をNULL／LastError `87`として固定する。Separate
+3,072-byte PE32/i386 fixtureのSHA-256は
+`82b7074bb21b71a81af6520888bd7f3d4a930174b2afecec0289a31d91b64f66`で、native exit code `0`を返す。
+New workerはstorage未初期化のためinitial NULL／LastError `87`となり、set後はown value
+`0x23456789`／LastError `0`を返す。Main thread value `0x12345678`は不変である。
+
+Runtimeの`kernel32.fls-get-value.v1`はpolicy-independentなone-argument stdcall contractである。
+Process-owned allocated-index registryとselected-thread storage initializationを検査し、set／unset
+successはLastError `0`、unallocated indexまたはuninitialized thread storageはLastError `87`を返す。
+FLS mapとguest memoryを変更せず、BGI reached index／value／callerはhandlerへ埋め込まない。
+
+`npm run check:runtime:bgi -- --profile kernel32-fls-get-value`は31 contracts／70 calls、71
+writebacks／117 dirty pages／1,183 changed bytes、32 host deltas、final generation `132`を通す。
+instruction `1709`でID `154`／`SetLastError(87)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`de703069e1242705785faa744b240ab843cf6ee1aa7fa78ddf4ea835e2c4e811`、320,070-byte reportの
+SHA-256は`f7672697a5f95f709fc242ce1c31b8f95039152a0d06f516aa042c8dafcacbcf`である。
+
+Chrome Runtime Workerも70 ordered callsとsame stop／memoryを再現し、243 slices、172 yields、
+305 Wasm crossings、final generation `250`、cancel／watchdog後pending work 0を通す。3分gateは
+2,181 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-fls-get-value.md](bgi-fls-get-value.md)を正とする。

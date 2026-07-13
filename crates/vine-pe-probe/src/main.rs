@@ -104,6 +104,7 @@ enum GenericRuntimeCapability {
     PrivateHeapSize1,
     GetLastError,
     TlsGetValue,
+    FlsGetValue,
 }
 
 struct GenericRuntimeProcess {
@@ -2438,6 +2439,10 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
 ) -> Result<(), LoaderError> {
     let endpoint_capability = enabled_capability;
+    let fls_get_value_enabled = matches!(
+        endpoint_capability,
+        Some(GenericRuntimeCapability::FlsGetValue)
+    );
     let enabled_capability = match enabled_capability {
         Some(
             GenericRuntimeCapability::CommandLineA
@@ -2445,7 +2450,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::WideCharToMultiByte
             | GenericRuntimeCapability::PrivateHeapSize1
             | GenericRuntimeCapability::GetLastError
-            | GenericRuntimeCapability::TlsGetValue,
+            | GenericRuntimeCapability::TlsGetValue
+            | GenericRuntimeCapability::FlsGetValue,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2503,6 +2509,25 @@ fn run_v86_generic_runtime_session(
                     "runtime-reentry",
                     "fls-allocation-contract-missing",
                     "the reached dynamic FlsAlloc endpoint has no Kernel32 API contract",
+                )
+            })?;
+        dispatcher_endpoints.push(endpoint);
+        contracts.push(contract);
+    }
+    if fls_get_value_enabled {
+        let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
+            process
+                .runtime
+                .dynamic_endpoint_by_name("kernel32.dll", "FlsGetValue")
+                .map_err(runtime_state_error)?,
+        );
+        let contract = kernel32_contract_for_endpoint(endpoint.clone())
+            .map_err(api_fault)?
+            .ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "fls-get-value-contract-missing",
+                    "the reached dynamic FlsGetValue endpoint has no Kernel32 API contract",
                 )
             })?;
         dispatcher_endpoints.push(endpoint);
@@ -2786,7 +2811,9 @@ fn run_v86_generic_runtime_session(
                         "dynamic runtime trap ID and address identify different endpoints",
                     ));
                 }
-                if !runtime_capability_enables_dynamic_endpoint(enabled_capability, &endpoint) {
+                if !runtime_capability_enables_dynamic_endpoint(enabled_capability, &endpoint)
+                    && !(fls_get_value_enabled && endpoint.name == "FlsGetValue")
+                {
                     write_generic_runtime_fault(
                         memory,
                         GenericRuntimeEndpoint::DynamicExport { endpoint },
@@ -2889,10 +2916,17 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let tls_get_value_enabled = matches!(enabled, Some(GenericRuntimeCapability::TlsGetValue));
+    let tls_get_value_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::TlsGetValue | GenericRuntimeCapability::FlsGetValue)
+    );
     let get_last_error_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::GetLastError | GenericRuntimeCapability::TlsGetValue)
+        Some(
+            GenericRuntimeCapability::GetLastError
+                | GenericRuntimeCapability::TlsGetValue
+                | GenericRuntimeCapability::FlsGetValue
+        )
     );
     let wide_char_to_multi_byte_enabled = matches!(
         enabled,
@@ -2901,6 +2935,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::PrivateHeapSize1
                 | GenericRuntimeCapability::GetLastError
                 | GenericRuntimeCapability::TlsGetValue
+                | GenericRuntimeCapability::FlsGetValue
         )
     );
     let environment_strings_w_enabled = matches!(
@@ -2911,6 +2946,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::PrivateHeapSize1
                 | GenericRuntimeCapability::GetLastError
                 | GenericRuntimeCapability::TlsGetValue
+                | GenericRuntimeCapability::FlsGetValue
         )
     );
     let command_line_a_enabled = matches!(
@@ -2922,6 +2958,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::PrivateHeapSize1
                 | GenericRuntimeCapability::GetLastError
                 | GenericRuntimeCapability::TlsGetValue
+                | GenericRuntimeCapability::FlsGetValue
         )
     );
     let enabled = match enabled {
@@ -2931,7 +2968,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::WideCharToMultiByte
             | GenericRuntimeCapability::PrivateHeapSize1
             | GenericRuntimeCapability::GetLastError
-            | GenericRuntimeCapability::TlsGetValue,
+            | GenericRuntimeCapability::TlsGetValue
+            | GenericRuntimeCapability::FlsGetValue,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3099,6 +3137,10 @@ fn runtime_capability_enables_dynamic_endpoint(
         ) => {
             matches!(endpoint.name.as_str(), "FlsAlloc" | "FlsSetValue")
         }
+        Some(GenericRuntimeCapability::FlsGetValue) => matches!(
+            endpoint.name.as_str(),
+            "FlsAlloc" | "FlsSetValue" | "FlsGetValue"
+        ),
         _ => false,
     }
 }
@@ -8462,6 +8504,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-private-heap-size-1" => GenericRuntimeCapability::PrivateHeapSize1,
                 "kernel32-get-last-error" => GenericRuntimeCapability::GetLastError,
                 "kernel32-tls-get-value" => GenericRuntimeCapability::TlsGetValue,
+                "kernel32-fls-get-value" => GenericRuntimeCapability::FlsGetValue,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

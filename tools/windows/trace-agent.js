@@ -27,6 +27,8 @@ let wideCharOracleSentinel = null;
 let wideCharOracleLastError = null;
 let tlsLifecycleOracleScheduled = false;
 let tlsGetValueConsumerRecorded = false;
+let flsLifecycleOracleScheduled = false;
+let flsGetValueConsumerRecorded = false;
 let getLastErrorOracleScheduled = false;
 let getLastErrorOracleSentinel = null;
 let getLastErrorOracleResult = null;
@@ -292,6 +294,20 @@ function snapshotTlsGetValueCall(caller, returnAddress, lastErrorBefore) {
     !tlsGetValueConsumerRecorded && caller.module.toLowerCase() === "bgi.exe";
   if (recordsConsumer) {
     tlsGetValueConsumerRecorded = true;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    immediateConsumer: recordsConsumer
+      ? snapshotInstructions(returnAddress, 6)
+      : null,
+  };
+}
+
+function snapshotFlsGetValueCall(caller, returnAddress, lastErrorBefore) {
+  const recordsConsumer =
+    !flsGetValueConsumerRecorded && caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    flsGetValueConsumerRecorded = true;
   }
   return {
     lastErrorBefore: Number(lastErrorBefore) >>> 0,
@@ -937,7 +953,9 @@ function attachHook(module, name, decoders) {
             }
           : null;
       const observation =
-        name === "TlsGetValue" && selectedObservations.has("tls-lifecycle")
+        name === "FlsGetValue" && selectedObservations.has("fls-lifecycle")
+          ? snapshotFlsGetValueCall(caller, this.returnAddress, this.lastError)
+        : name === "TlsGetValue" && selectedObservations.has("tls-lifecycle")
           ? snapshotTlsGetValueCall(caller, this.returnAddress, this.lastError)
         : name === "GetLastError" && selectedObservations.has("get-last-error")
           ? {
@@ -1623,6 +1641,118 @@ function scheduleTlsLifecycleOracle(module) {
   });
 }
 
+function scheduleFlsLifecycleOracle(module) {
+  if (flsLifecycleOracleScheduled) {
+    return;
+  }
+  flsLifecycleOracleScheduled = true;
+  setImmediate(() => {
+    const allocatedIndices = [];
+    let flsFree = null;
+    let finalized = false;
+    const finish = (error, observation = null) => {
+      if (finalized) {
+        return;
+      }
+      finalized = true;
+      if (error === null) {
+        emit("fls-get-value-oracle", observation);
+      } else {
+        emit("fls-get-value-oracle-error", { error: error.message });
+      }
+      try {
+        if (flsFree !== null) {
+          for (const index of allocatedIndices.reverse()) {
+            flsFree(index);
+          }
+        }
+      } catch (cleanupError) {
+        emit("fls-get-value-oracle-cleanup-error", {
+          error: cleanupError.message,
+        });
+      }
+    };
+    try {
+      const address = (name) => {
+        const result = findExport(module, name);
+        if (result === null) {
+          throw new Error(`${name} export is unavailable`);
+        }
+        return result;
+      };
+      const flsAlloc = new NativeFunction(
+        address("FlsAlloc"),
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      flsFree = new NativeFunction(
+        address("FlsFree"),
+        "int",
+        ["uint32"],
+        "stdcall",
+      );
+      const flsSetValue = new NativeFunction(
+        address("FlsSetValue"),
+        "int",
+        ["uint32", "pointer"],
+        "stdcall",
+      );
+      const flsGetValue = new SystemFunction(
+        address("FlsGetValue"),
+        "pointer",
+        ["uint32"],
+        "stdcall",
+      );
+      const setLastError = new NativeFunction(
+        address("SetLastError"),
+        "void",
+        ["uint32"],
+        "stdcall",
+      );
+      const allocate = () => {
+        const index = Number(flsAlloc(ptr(0))) >>> 0;
+        if (index === 0xffffffff) {
+          throw new Error("FlsAlloc returned FLS_OUT_OF_INDEXES");
+        }
+        allocatedIndices.push(index);
+        return index;
+      };
+      const read = (id, index, sentinel) => {
+        setLastError(sentinel);
+        const outcome = flsGetValue(index);
+        return {
+          id,
+          index,
+          sentinel,
+          result: outcome.value.toString(),
+          lastError: Number(outcome.lastError) >>> 0,
+        };
+      };
+
+      const mainIndex = allocate();
+      const mainValue = ptr("0x12345678");
+      const mainThreadId = Process.getCurrentThreadId();
+      if (Number(flsSetValue(mainIndex, mainValue)) === 0) {
+        throw new Error("FlsSetValue rejected the main-thread oracle value");
+      }
+      const mainSetRead = read("main-thread-set-value", mainIndex, 87);
+
+      const unsetIndex = allocate();
+      const unsetRead = read("allocated-unset-value", unsetIndex, 122);
+      const invalidRead = read("invalid-index", 0xffffffff, 122);
+      finish(null, {
+        profile: "x86-success-null-and-invalid-v1",
+        threadId: mainThreadId,
+        setValue: mainValue.toString(),
+        calls: [mainSetRead, unsetRead, invalidRead],
+      });
+    } catch (error) {
+      finish(error);
+    }
+  });
+}
+
 function scheduleCriticalSectionOracle(module) {
   if (criticalSectionOracleScheduled) {
     return;
@@ -1758,6 +1888,12 @@ Process.attachModuleObserver({
       selectedObservations.has("tls-lifecycle")
     ) {
       scheduleTlsLifecycleOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("fls-lifecycle")
+    ) {
+      scheduleFlsLifecycleOracle(module);
     }
   },
 });

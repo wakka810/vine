@@ -52,6 +52,7 @@ pub const TLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.tls-set-value.v1";
 pub const ENCODE_POINTER_IMPLEMENTATION: &str = "kernel32.encode-pointer.v1";
 pub const DECODE_POINTER_IMPLEMENTATION: &str = "kernel32.decode-pointer.v1";
 pub const FLS_ALLOC_IMPLEMENTATION: &str = "kernel32.fls-alloc.v1";
+pub const FLS_GET_VALUE_IMPLEMENTATION: &str = "kernel32.fls-get-value.v1";
 pub const FLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.fls-set-value.v1";
 pub const INTERLOCKED_INCREMENT_IMPLEMENTATION: &str = "kernel32.interlocked-increment.v1";
 pub const INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION: &str =
@@ -133,6 +134,7 @@ pub fn dispatch_kernel32_api_with_policy(
         ENCODE_POINTER_IMPLEMENTATION => handle_encode_pointer(contract, frame, session),
         DECODE_POINTER_IMPLEMENTATION => handle_decode_pointer(contract, frame, session),
         FLS_ALLOC_IMPLEMENTATION => handle_fls_alloc(contract, frame, session),
+        FLS_GET_VALUE_IMPLEMENTATION => handle_fls_get_value(contract, frame, session),
         FLS_SET_VALUE_IMPLEMENTATION => handle_fls_set_value(contract, frame, session),
         INTERLOCKED_INCREMENT_IMPLEMENTATION => {
             handle_interlocked_increment(contract, frame, session)
@@ -193,6 +195,7 @@ pub fn kernel32_contract_for_endpoint(
         "EncodePointer" => encode_pointer_contract(endpoint)?,
         "DecodePointer" => decode_pointer_contract(endpoint)?,
         "FlsAlloc" => fls_alloc_contract(endpoint)?,
+        "FlsGetValue" => fls_get_value_contract(endpoint)?,
         "FlsSetValue" => fls_set_value_contract(endpoint)?,
         "InterlockedIncrement" => interlocked_increment_contract(endpoint)?,
         "InitializeCriticalSectionAndSpinCount" => {
@@ -1027,6 +1030,30 @@ fn handle_fls_alloc(
     Ok(ApiImmediate::new(ApiReturnValue::U32(slot.index)))
 }
 
+fn handle_fls_get_value(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let index = required_argument(contract, frame, 0, "FLS index")?;
+    match session.runtime().fls_value_or_unset(index) {
+        Ok(value) => Ok(
+            ApiImmediate::new(ApiReturnValue::OpaquePointer(value.unwrap_or(0)))
+                .with_last_error(ERROR_SUCCESS),
+        ),
+        Err(error)
+            if matches!(
+                error.code,
+                "fls-index-unallocated" | "fls-thread-storage-uninitialized"
+            ) =>
+        {
+            Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(0))
+                .with_last_error(ERROR_INVALID_PARAMETER))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
 fn handle_fls_set_value(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -1632,6 +1659,18 @@ pub fn fls_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, 
         ApiReturnSchema::U32,
         FLS_ALLOC_IMPLEMENTATION,
     )
+}
+
+pub fn fls_get_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "FlsGetValue",
+        vec![u32_argument("flsIndex")],
+        ApiReturnSchema::OpaquePointer { nullable: true },
+        FLS_GET_VALUE_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn fls_set_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {

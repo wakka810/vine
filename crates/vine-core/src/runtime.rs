@@ -1476,6 +1476,7 @@ pub struct RuntimeThreadState {
     pub lifecycle: RuntimeThreadLifecycleState,
     pub last_error: u32,
     pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
+    pub fls_storage_initialized: bool,
     pub fls_values: BTreeMap<u32, u32>,
     pub callback_frames: Vec<RuntimeCallbackFrame>,
 }
@@ -1599,6 +1600,7 @@ impl RuntimeState {
             lifecycle: RuntimeThreadLifecycleState::Initialized,
             last_error: bootstrap.initial_last_error,
             tls_values: BTreeMap::new(),
+            fls_storage_initialized: false,
             fls_values: BTreeMap::new(),
             callback_frames: Vec::new(),
         };
@@ -2485,6 +2487,7 @@ impl RuntimeState {
                 lifecycle: RuntimeThreadLifecycleState::Running,
                 last_error: initial_last_error,
                 tls_values: BTreeMap::new(),
+                fls_storage_initialized: false,
                 fls_values: BTreeMap::new(),
                 callback_frames: Vec::new(),
             },
@@ -4362,6 +4365,7 @@ impl RuntimeState {
                 callback,
             },
         );
+        self.current_thread_mut()?.fls_storage_initialized = true;
         self.process.fls_slots.get(&index).ok_or_else(|| {
             RuntimeStateError::runtime_defect(
                 "runtime-fls",
@@ -4406,22 +4410,32 @@ impl RuntimeState {
                 format!("logical FLS index {index} is not allocated"),
             ));
         }
-        Ok(self.current_thread_mut()?.fls_values.insert(index, value))
+        let thread = self.current_thread_mut()?;
+        thread.fls_storage_initialized = true;
+        Ok(thread.fls_values.insert(index, value))
     }
 
     pub fn fls_value(&self, index: u32) -> Result<u32, RuntimeStateError> {
+        self.fls_value_or_unset(index)?.ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-fls",
+                "fls-value-uninitialized",
+                format!("logical FLS index {index} has no value for the current thread"),
+            )
+        })
+    }
+
+    pub fn fls_value_or_unset(&self, index: u32) -> Result<Option<u32>, RuntimeStateError> {
         self.fls_slot(index)?;
-        self.current_thread()?
-            .fls_values
-            .get(&index)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-fls",
-                    "fls-value-uninitialized",
-                    format!("logical FLS index {index} has no value for the current thread"),
-                )
-            })
+        let thread = self.current_thread()?;
+        if !thread.fls_storage_initialized {
+            return Err(RuntimeStateError::not_found(
+                "runtime-fls",
+                "fls-thread-storage-uninitialized",
+                format!("current thread has no FLS storage for logical index {index}"),
+            ));
+        }
+        Ok(thread.fls_values.get(&index).copied())
     }
 
     pub fn set_tls_value(&mut self, index: u32, value: u32) -> Result<(), RuntimeStateError> {

@@ -101,6 +101,10 @@ there is no reached value, caller, or allowlist entry in compatibility policy.
 allocation registry, reads only the selected-thread value, and distinguishes a
 valid NULL from an invalid index through handler-owned LastError `0`／`87`.
 Neither the reached index nor its stored endpoint value appears in policy data.
+`FlsGetValue` is policy-independent as well. It validates the process slot and
+selected thread's FLS-storage lifecycle, returning LastError `0` for an
+initialized set／unset lane and `87` for an invalid index or a thread without FLS
+storage. The reached slot, value, and dynamic endpoint address are not policy.
 
 Policy JSON parsing and validation is covered independently:
 

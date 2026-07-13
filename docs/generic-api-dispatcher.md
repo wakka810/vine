@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte uninitialized private heap, GetLastError, and TlsGetValue capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte uninitialized private heap, GetLastError, TlsGetValue, and FlsGetValue capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-tls-get-value`
-- Scope: frozen 17-call equivalence plus 69 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-fls-get-value`
+- Scope: frozen 17-call equivalence plus 70 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -157,7 +157,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 30 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 31 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -169,7 +169,7 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The semantic tests cover all 30 APIs, the five original shapes, fixed and
+The semantic tests cover all 31 APIs, the five original shapes, fixed and
 bounded-dynamic output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
@@ -522,6 +522,24 @@ report has SHA-256
 and stops at instruction 1703 on the missing dynamic `FlsGetValue(0)` contract.
 Full evidence is in [bgi-tls-get-value.md](bgi-tls-get-value.md).
 
+The current selected-thread FLS read profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-fls-get-value
+```
+
+`kernel32.fls-get-value.v1` validates the process-owned slot and selected
+thread's FLS-storage lifecycle. Initialized set／unset lanes return the stored
+value／NULL with LastError `0`; an invalid index or a new thread without FLS
+storage returns NULL with LastError `87`. `FlsAlloc` and `FlsSetValue` initialize
+the relevant thread lane. The read changes neither FLS state nor guest memory
+and needs no compatibility-policy option. The profile completes 70 calls, uses
+71 writeback batches／117 dirty pages／1,183 changed bytes and 32 host deltas,
+and ends at generation `132`. Its 320,070-byte report has SHA-256
+`f7672697a5f95f709fc242ce1c31b8f95039152a0d06f516aa042c8dafcacbcf`
+and stops at instruction 1709 on missing `SetLastError(87)`. Full evidence is in
+[bgi-fls-get-value.md](bgi-fls-get-value.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -530,10 +548,10 @@ Full evidence is in [bgi-tls-get-value.md](bgi-tls-get-value.md).
   allocations, and one flags-zero deterministic-uninitialized allocation
   enabled by policy; other sizes/flags,
   free/destroy/realloc dispatch, and broad allocator policy remain absent.
-- FLS get/free/callback teardown and TLS free／teardown／guest-thread lifecycle,
-  critical-section deletion／contention blocking, and arbitrary export pages are
-  absent. TLS read is limited to the allocated-index and selected-thread state
-  already owned by the runtime; only the reached FLS value store is implemented.
+- FLS free／callback teardown／fiber switching and TLS free／teardown／guest-thread
+  lifecycle, critical-section deletion／contention blocking, and arbitrary export
+  pages are absent. TLS and FLS reads are limited to process allocation and
+  selected-thread state already owned by the runtime.
 - Host completion is connected to controlled Worker／browser services; general
   VFS, input, graphics, audio, and storage adapters remain absent.
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
@@ -551,15 +569,14 @@ Full evidence is in [bgi-tls-get-value.md](bgi-tls-get-value.md).
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
   pointers, and nonzero conversion flags remain absent. Its first unsupported
-  operation is `FlsGetValue(0)`; bespoke
+  operation is `SetLastError(87)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-fls-get-value` at the process-owned dynamic
-`FlsGetValue(0)` endpoint. It must first fix the native return／LastError behavior
-and consumer, then connect the existing allocated slot and selected-thread FLS
-value without broadening free／callback teardown semantics.
+The next proof is `kernel32-set-last-error` at `SetLastError(87)`. It must first
+fix the native zero-return state transition and immediate consumer, then update
+only the selected-thread LastError field without creating a second authority.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -573,5 +590,5 @@ report is 257,878 bytes. The stdout-file-type and stderr-handle reports are
 bytes, the SetHandleCount report is 284,215 bytes, the GetCommandLineA report is
 288,041 bytes, the environment-strings report is 291,793 bytes, the Windows-932
 report is 295,762 bytes, the one-byte heap report is 308,984 bytes, the
-GetLastError report is 312,644 bytes, and the current TlsGetValue report is
-316,360 bytes.
+GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
+and the current FlsGetValue report is 320,070 bytes.
