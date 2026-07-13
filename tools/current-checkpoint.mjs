@@ -30,6 +30,12 @@ function requireInteger(value, label, errors, minimum = 0) {
   }
 }
 
+function requireFiniteNumber(value, label, errors) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    errors.push(`${label} must be a finite number`);
+  }
+}
+
 function requireSha256(value, label, errors) {
   if (typeof value !== "string" || !SHA256.test(value)) {
     errors.push(`${label} must be a lowercase SHA-256 digest`);
@@ -106,6 +112,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (browser.bgiSession !== "semantic-equivalence-passed") {
     errors.push("browserCheckpoint.bgiSession must identify passed semantic equivalence");
+  }
+  if (browser.bgiBenchmark !== "threshold-passed") {
+    errors.push("browserCheckpoint.bgiBenchmark must identify a passed threshold gate");
   }
   if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v2") {
     errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v2");
@@ -221,6 +230,84 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.dllLifecycleAfterCleanup !== "process-detached"
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
+  }
+  const bgiBenchmarkEvidence = requireRecord(
+    browser.bgiBenchmarkEvidence,
+    "browserCheckpoint.bgiBenchmarkEvidence",
+    errors,
+  );
+  requireString(
+    bgiBenchmarkEvidence.chromeVersion,
+    "browserCheckpoint.bgiBenchmarkEvidence.chromeVersion",
+    errors,
+  );
+  for (const field of [
+    "schemaVersion",
+    "durationMilliseconds",
+    "completedSessions",
+    "failedSessions",
+    "mainHeapSamples",
+    "workerHeapSamples",
+    "mainHeapMaximumBytes",
+    "workerHeapMaximumBytes",
+    "workerHeapCapacityMaximumBytes",
+    "workerBackingStorageMaximumBytes",
+    "wasmBridgeCallsPerSession",
+    "runtimeCoreLinearMemoryBytes",
+    "v86AdapterLinearMemoryBytes",
+    "thresholdFailures",
+    "runtimeWorkerBytes",
+    "benchmarkMainBytes",
+    "v86AdapterWasmBytes",
+    "reportBytes",
+  ]) {
+    requireInteger(
+      bgiBenchmarkEvidence[field],
+      `browserCheckpoint.bgiBenchmarkEvidence.${field}`,
+      errors,
+    );
+  }
+  for (const field of [
+    "sessionP95Milliseconds",
+    "sliceP99Milliseconds",
+    "maximumHeartbeatGapMilliseconds",
+    "mainHeapSlopeBytesPerMinute",
+    "workerHeapSlopeBytesPerMinute",
+    "workerBackingStorageSlopeBytesPerMinute",
+  ]) {
+    requireFiniteNumber(
+      bgiBenchmarkEvidence[field],
+      `browserCheckpoint.bgiBenchmarkEvidence.${field}`,
+      errors,
+    );
+  }
+  for (const field of [
+    "configurationSha256",
+    "runtimeCoreWasmSha256",
+    "runtimeWorkerSha256",
+    "benchmarkMainSha256",
+    "v86AdapterWasmSha256",
+    "reportSha256",
+  ]) {
+    requireSha256(
+      bgiBenchmarkEvidence[field],
+      `browserCheckpoint.bgiBenchmarkEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
+    bgiBenchmarkEvidence.schemaVersion !== 1 ||
+    bgiBenchmarkEvidence.configuration !== "fixtures/benchmarks/bgi-browser-v1.json" ||
+    bgiBenchmarkEvidence.completedSessions < 1 ||
+    bgiBenchmarkEvidence.failedSessions !== 0 ||
+    bgiBenchmarkEvidence.mainHeapSamples < 2 ||
+    bgiBenchmarkEvidence.workerHeapSamples < 2 ||
+    bgiBenchmarkEvidence.thresholdFailures !== 0 ||
+    bgiBenchmarkEvidence.wasmBridgeCallsPerSession !== bgiBrowserEvidence.wasmBridgeCalls ||
+    bgiBenchmarkEvidence.runtimeCoreWasmSha256 !== browser.browserRuntimeCoreWasm?.sha256
+  ) {
+    errors.push("browser BGI benchmark evidence is invalid or inconsistent");
   }
 
   const engine = requireRecord(
@@ -413,7 +500,7 @@ Edit the manifest and run \`npm run docs:generate\`; do not edit this block by h
 |---|---|
 | Historical baseline | \`${historical.checkpoint}\`: ${historical.supportedCallCount} calls, ${historical.entryInstructionCount} instructions |
 | Active runtime | \`${active.runtimeKernelCheckpoint}\`: ${active.genericDispatcherCallOccurrenceCount} calls across ${active.genericDispatcherApiCount} API contracts, memory generation ${latest.finalMemoryGeneration} |
-| Browser | \`${browser.workload}\` ${browser.status}; BGI session \`${browser.bgiSession}\` |
+| Browser | \`${browser.workload}\` ${browser.status}; BGI session \`${browser.bgiSession}\`; benchmark \`${browser.bgiBenchmark}\` (${browser.bgiBenchmarkEvidence.completedSessions} sessions) |
 | Engine evidence | v86 \`${engine.decision}\` from \`${engine.configuration}\` |
 | Next structured stop | \`${next.api}(${next.arguments.join(", ")})\` at instruction ${next.instructionCount}: \`${next.reason}\` |
 

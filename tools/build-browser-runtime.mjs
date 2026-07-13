@@ -39,6 +39,7 @@ await build({
   entryPoints: {
     main: path.join(source, "main.ts"),
     "bgi-check": path.join(source, "bgi-check.ts"),
+    "bgi-benchmark": path.join(source, "bgi-benchmark.ts"),
     "runtime-worker": path.join(source, "runtime-worker.ts"),
     "benchmark-main": path.join(benchmarkSource, "benchmark-main.ts"),
     "benchmark-worker": path.join(benchmarkSource, "benchmark-worker.ts"),
@@ -56,6 +57,7 @@ await build({
 await Promise.all([
   copyFile(path.join(source, "index.html"), path.join(output, "index.html")),
   copyFile(path.join(source, "bgi-check.html"), path.join(output, "bgi-check.html")),
+  copyFile(path.join(source, "bgi-benchmark.html"), path.join(output, "bgi-benchmark.html")),
   copyFile(path.join(source, "styles.css"), path.join(output, "styles.css")),
   copyFile(path.join(benchmarkSource, "index.html"), path.join(output, "benchmark.html")),
   copyFile(path.join(benchmarkSource, "benchmark.css"), path.join(output, "benchmark.css")),
@@ -88,6 +90,8 @@ const manifest = {
         "main.js",
         "bgi-check.html",
         "bgi-check.js",
+        "bgi-benchmark.html",
+        "bgi-benchmark.js",
         "runtime-worker.js",
         "benchmark.html",
         "benchmark.css",

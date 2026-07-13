@@ -14,7 +14,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active runtime | `bgi-standard-output-handle`: 55 calls across 23 API contracts, memory generation 113 |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed` |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (168 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `KERNEL32.dll!GetFileType(0x53010002)` at instruction 1447: `file-type-standard-handle-unsupported` |
 

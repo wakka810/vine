@@ -22,6 +22,7 @@ assert.ok(rendered.startsWith(README_STATUS_START));
 assert.ok(rendered.endsWith(README_STATUS_END));
 assert.ok(rendered.includes(manifest.activeRuntimeCheckpoint.runtimeKernelCheckpoint));
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
+assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
 for (const api of manifest.activeRuntimeCheckpoint.genericDispatcherApis) {
   assert.ok(rendered.includes(`\`${api}\``));
 }
@@ -62,6 +63,22 @@ mismatchedBrowserCalls.browserCheckpoint.bgiRuntimeEvidence.supportedCalls -= 1;
 assert.ok(
   validateCurrentCheckpoint(mismatchedBrowserCalls).some((error) =>
     error.includes("active runtime checkpoint"),
+  ),
+);
+
+const failedBgiBenchmark = structuredClone(manifest);
+failedBgiBenchmark.browserCheckpoint.bgiBenchmarkEvidence.thresholdFailures = 1;
+assert.ok(
+  validateCurrentCheckpoint(failedBgiBenchmark).some((error) =>
+    error.includes("benchmark evidence"),
+  ),
+);
+
+const mismatchedBenchmarkCrossings = structuredClone(manifest);
+mismatchedBenchmarkCrossings.browserCheckpoint.bgiBenchmarkEvidence.wasmBridgeCallsPerSession -= 1;
+assert.ok(
+  validateCurrentCheckpoint(mismatchedBenchmarkCrossings).some((error) =>
+    error.includes("benchmark evidence"),
   ),
 );
 

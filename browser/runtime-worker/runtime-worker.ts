@@ -830,6 +830,8 @@ class BrowserRuntimeSession {
         elapsedMilliseconds: performance.now() - this.#startedAt,
         ...this.#report,
         wasmBridgeCalls: this.#bridge?.callCount() ?? 0,
+        runtimeCoreLinearMemoryBytes: this.#bridge?.linearMemoryBytes() ?? 0,
+        v86AdapterLinearMemoryBytes: this.#mirror?.linearMemoryBytes() ?? 0,
         finalGeneration: Number(this.#generation),
       },
     };
@@ -912,6 +914,8 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             pendingCallbacks: 0,
             maximumSliceMilliseconds: 0,
             wasmBridgeCalls: 0,
+            runtimeCoreLinearMemoryBytes: 0,
+            v86AdapterLinearMemoryBytes: 0,
             supportedCalls: [],
             firstUnsupported: null,
             error: "another runtime session is active",

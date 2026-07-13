@@ -94,6 +94,8 @@ export interface SessionReport {
   pendingCallbacks: number;
   maximumSliceMilliseconds: number;
   wasmBridgeCalls: number;
+  runtimeCoreLinearMemoryBytes: number;
+  v86AdapterLinearMemoryBytes: number;
   supportedCalls: Array<{
     sequence: number;
     module: string;

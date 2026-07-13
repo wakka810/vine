@@ -8,6 +8,7 @@
 - Runtime authority: Rust/Wasm inside the Runtime Worker
 - Node role: semantic oracle only
 - Evidence: `.work/browser-runtime/bgi-browser-report.json`
+- Performance evidence: [bgi-browser-benchmark.md](bgi-browser-benchmark.md)
 
 The current private BGI generic session now executes in the Chrome Runtime
 Worker. The local gate serves the fingerprinted executable directly from its
@@ -49,7 +50,9 @@ The successful run used 204 CPU slices, 148 budget yields, 252 Rust/Wasm bridge
 operations, and a maximum observed slice of 2.61 ms. The main-thread heartbeat
 recorded 244 samples with a 23.32 ms maximum gap while the Worker ran. A
 single-run `usedJSHeapSize` observation changed from 628,738 to 720,434 bytes;
-this is run identity, not steady-memory evidence.
+this remains run identity. The separate versioned BGI workload gate repeats 168
+complete sessions and measures main／Worker heap, backing storage, linear memory,
+slice distribution, heartbeat, and Wasm crossings.
 
 Separate cancellation and watchdog probes stop after 8 and 4 instructions.
 Both retire pending host calls and callbacks, detach the callback-free system
@@ -76,5 +79,5 @@ report hash is artifact identity only.
 
 - no capability after the current `GetFileType` stop is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
-- the one-session heap observation is not a steady-memory or growth-slope gate
+- the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

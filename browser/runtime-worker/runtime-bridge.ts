@@ -167,6 +167,10 @@ export class RuntimeBridge {
     return this.#callCount;
   }
 
+  linearMemoryBytes(): number {
+    return this.#exports.memory.buffer.byteLength;
+  }
+
   #setInput(parts: Uint8Array[]): void {
     const length = parts.reduce((total, part) => total + part.byteLength, 0);
     const status = this.#exports.vine_bridge_input_resize(length);

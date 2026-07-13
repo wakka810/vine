@@ -79,6 +79,8 @@
     "check:runtime:browser-worker": "npm run check:toolchain && npm run prepare:engine && npm run check:runtime:browser-worker:prepared",
     "check:runtime:bgi-browser:prepared": "npm run check:runtime:bgi && npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs --bgi",
     "check:runtime:bgi-browser": "npm run check:toolchain && npm run prepare:engine && npm run check:runtime:bgi-browser:prepared",
+    "check:runtime:bgi-browser-benchmark:prepared": "npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs --bgi-benchmark-ms 180000",
+    "check:runtime:bgi-browser-benchmark": "npm run check:toolchain && npm run prepare:engine && npm run check:runtime:bgi-browser-benchmark:prepared",
     "check:runtime:browser-worker:stress": "npm run build:runtime:browser-worker && node tools/run-browser-runtime-check.mjs --stress-ms 1800000",
     "check:runtime:v86-benchmark:prepared": "npm run build:runtime:browser-worker:prepared && node tools/run-v86-browser-benchmark.mjs",
     "check:runtime:v86-benchmark": "npm run check:toolchain && npm run prepare:engine && npm run check:runtime:v86-benchmark:prepared",

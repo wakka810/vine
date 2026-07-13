@@ -11,6 +11,7 @@
 - Controlled PE32 fixture: `browser-vertical.exe`
 - Evidence: `.work/browser-runtime/browser-report.json`
 - BGI evidence: `.work/browser-runtime/bgi-browser-report.json`
+- BGI benchmark evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 - Stress evidence: `.work/browser-runtime/browser-stress-report.json`
 
 This checkpoint runs guest CPU execution inside Chrome rather than presenting a
@@ -20,7 +21,7 @@ Canvas, Web Audio, IndexedDB, cancellation, watchdog termination, and exact
 process exit in one controlled browser application.
 
 It does not claim a general Win32 process, title rendering, a production
-renderer or mixer, or title-workload steady performance. The fixture APIs are
+renderer or mixer, or full-play steady performance. The fixture APIs are
 checkpoint services and are not counted as implemented Windows APIs.
 
 ## Runtime path
@@ -148,6 +149,14 @@ cancel and watchdog probes stop after 8 and 4 instructions and confirm Rust
 process exit, module detach, and zero pending host/callback work. Detailed
 evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
 
+The separate 180-second BGI workload gate repeats this complete session 168
+times in the same Worker. It records p95 session latency 1,078.85 ms, p99
+maximum slice 2.015 ms, main heap slope 156,924 bytes/min, Worker heap slope
+3,012,733 bytes/min, backing-storage slope 6,250,677 bytes/min, stable Rust/v86
+linear-memory sizes, and 252 bridge operations per session. All version 1
+thresholds pass; details are in
+[bgi-browser-benchmark.md](bgi-browser-benchmark.md).
+
 ## 30-minute stress
 
 `npm run check:runtime:browser-worker:stress` repeated the complete successful
@@ -193,9 +202,9 @@ stress command adds the 30-minute repeated lifecycle run.
 
 ## Remaining gates
 
-- title-workload Worker physical backing and memory ceiling beyond the controlled session
+- full-play Worker physical backing and memory ceiling beyond the three-minute workload gate
 - general process, thread, DLL, heap, wait, message, and object lifecycle
-- BGI steady-memory and growth-slope measurement
+- long-idle heap-capacity plateau and full-play growth slope
 - the next unsupported BGI capability and title output path
 
 The Step 8 synthetic matrix, background-tab probe, AudioWorklet deadline probe,

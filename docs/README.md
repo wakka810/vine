@@ -72,6 +72,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-standard-output-handle.md](bgi-standard-output-handle.md) | reached stdout identityをどう所有するか | versioned selector profile、logical stdout、output type first stop |
 | [browser-runtime-worker.md](browser-runtime-worker.md) | Chrome内でruntime全経路をどこまで通せるか | Worker guest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdog、30分stress |
 | [bgi-browser-worker.md](bgi-browser-worker.md) | current BGI sessionをChromeへ移せたか | Rust/Wasm authority、Node semantic oracle、memory digest、heartbeat、cancel／watchdog |
+| [bgi-browser-benchmark.md](bgi-browser-benchmark.md) | BGI Browser workloadの性能／memoryはgate内か | 3分反復、session／slice分布、main／Worker heap slope、linear memory、Wasm crossing |
 | [pe-loader-ingress.md](pe-loader-ingress.md) | immutable PE32 planをどこまで作れるか | Rust workspace、bounded parser／plan、fixture contract、BGI W7 stop |
 | [pe-materialization.md](pe-materialization.md) | PE image bytesをどこまで構築できるか | source copy、zero-fill、`HIGHLOW`、IAT-original verification、BGI stop |
 | [pe-import-binding.md](pe-import-binding.md) | runtime import endpointをどこまで所有できるか | all-import planning、atomic IAT commit／rollback、unresolved retry、thunk arena／ID |

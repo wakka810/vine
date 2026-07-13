@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、current 55-call BGI Chrome Worker semantic equivalence、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph、controlled process／initial-thread lifecycle contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。title steady-memory matrixと次capability以降のbrowser pathは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、current 55-call BGI Chrome Worker semantic equivalence、3分BGI workload performance／memory threshold、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph、controlled process／initial-thread lifecycle contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。full-play steady-memoryと次capability以降のbrowser pathは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -404,7 +404,12 @@ private BGI Worker contractはcurrent generic profileをChrome内Rust/Wasm autho
 oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatcher／memory stateを所有しない。
 55 ordered completions、1,447 instructions、final memory content digest、next structured faultを比較し、
 8-instruction cancelと4-instruction watchdogでprocess exit／module detach／pending work zeroを要求する。
-詳細は[bgi-browser-worker.md](bgi-browser-worker.md)を正とし、単発heap値をsteady-memory gateへ昇格しない。
+詳細は[bgi-browser-worker.md](bgi-browser-worker.md)を正とする。単発heap値はsemantic
+report identityに留め、別のversion 1 BGI workload gateが同じWorkerで完全sessionを3分反復する。
+168 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
+回帰slope、Worker backing storage、Rust／v86 linear memory、252 crossings/sessionをversioned
+thresholdで判定する。必要sampleが取得不能ならfailし、全thresholdのobserved valueと判定理由を
+reportへ保存する。詳細は[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch

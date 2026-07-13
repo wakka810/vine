@@ -255,6 +255,10 @@ export class V86Mirror {
     return { ...this.#cacheEffectCounts };
   }
 
+  linearMemoryBytes(): number {
+    return this.#wasm.memory.buffer.byteLength;
+  }
+
   execute(instructionBudget: number): SliceResult {
     const beforeState = this.saveState();
     this.#assertExecutableFetchWindow(beforeState.instructionPointer);

@@ -131,5 +131,6 @@ raw throughput equalityは要求しない。
 - 238-instruction BGI checkpointはtitle workload throughputまたはfull-play evidenceではない。
 - current stable Chromeの一つのdesktopだけをreferenceとし、Firefox／mobile Tierを決めない。
 - AudioWorklet delivery message gapはproduction mixer、long-play drift、underrunを代用しない。
-- current threshold passはsnapshot、general heap／stack、process／thread／wait、DLL lifecycle、
-  graphics／audio backend、BGI browser executionを完成扱いにしない。
+- current synthetic threshold passだけではsnapshot、general heap／stack、process／thread／wait、
+  DLL lifecycle、graphics／audio backend、BGI browser executionを成立扱いにしない。BGI executionと
+  workload performanceは後続の独立gateで判定する。

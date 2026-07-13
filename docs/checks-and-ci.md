@@ -28,6 +28,7 @@ The focused Worker commands are:
 ```powershell
 npm run check:runtime:browser-worker
 npm run check:runtime:bgi-browser
+npm run check:runtime:bgi-browser-benchmark
 npm run serve:runtime:browser-worker
 npm run check:runtime:browser-worker:stress
 ```
@@ -35,6 +36,13 @@ npm run check:runtime:browser-worker:stress
 The last command adds a 30-minute repeated lifecycle soak and is not part of the
 ordinary short gate. Its exact evidence and non-claims are recorded in
 [browser-runtime-worker.md](browser-runtime-worker.md).
+
+The BGI benchmark command is a separate three-minute private workload gate. It
+repeats the complete current session, checks semantics on every repetition, and
+applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
+and Wasm-crossing thresholds. Its result and non-claims are recorded in
+[bgi-browser-benchmark.md](bgi-browser-benchmark.md). It is not part of public CI
+because the private executable is never distributed.
 
 The versioned v86 performance gate is separate from the ordinary local short
 gate because it takes about one minute and depends on a stable Chrome process:
