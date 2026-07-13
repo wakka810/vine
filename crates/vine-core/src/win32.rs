@@ -30,6 +30,7 @@ pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
 pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
+pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
 pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
@@ -103,6 +104,7 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_LAST_ERROR_IMPLEMENTATION => handle_get_last_error(contract, session),
+        SET_LAST_ERROR_IMPLEMENTATION => handle_set_last_error(contract, frame),
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
         GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
@@ -174,6 +176,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetLastError" => get_last_error_contract(endpoint)?,
+        "SetLastError" => set_last_error_contract(endpoint)?,
         "GetTickCount" => get_tick_count_contract(endpoint)?,
         "GetStdHandle" => get_std_handle_contract(endpoint)?,
         "GetFileType" => get_file_type_contract(endpoint)?,
@@ -246,6 +249,14 @@ fn handle_get_last_error(
             .last_error()
             .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
     )))
+}
+
+fn handle_set_last_error(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let error = required_argument(contract, frame, 0, "LastError value")?;
+    Ok(ApiImmediate::new(ApiReturnValue::Void).with_last_error(error))
 }
 
 fn handle_get_tick_count(session: &ExecutionSession<'_>) -> Result<ApiImmediate, ApiFault> {
@@ -1375,6 +1386,18 @@ pub fn get_last_error_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         ApiReturnSchema::U32,
         GET_LAST_ERROR_IMPLEMENTATION,
     )
+}
+
+pub fn set_last_error_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "SetLastError",
+        vec![u32_argument("error")],
+        ApiReturnSchema::Void,
+        SET_LAST_ERROR_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn get_tick_count_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {

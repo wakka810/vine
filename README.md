@@ -13,13 +13,13 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `bgi-fls-get-value`: 70 calls across 31 API contracts, memory generation 132 |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (2181 sessions) |
+| Active runtime | `bgi-set-last-error`: 81 calls across 32 API contracts, memory generation 145 |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (2086 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `KERNEL32.dll!SetLastError(0x00000057)` at instruction 1709: `endpoint-contract-missing` |
+| Next structured stop | `KERNEL32.dll!GetACP()` at instruction 1936: `endpoint-contract-missing` |
 
-The active semantic report is 320,070 bytes with SHA-256
-`f7672697a5f95f709fc242ce1c31b8f95039152a0d06f516aa042c8dafcacbcf`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 363,609 bytes with SHA-256
+`a915d7b91d65e6b1d4805bc4f0ab62d6444573693402bed9fd473518f56f9657`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
@@ -54,6 +54,7 @@ The active semantic report is 320,070 bytes with SHA-256
 - `KERNEL32.dll!GetLastError`
 - `KERNEL32.dll!TlsGetValue`
 - `KERNEL32.dll!FlsGetValue`
+- `KERNEL32.dll!SetLastError`
 
 ### Reproduce Current Checkpoint
 

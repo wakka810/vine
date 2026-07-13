@@ -1479,3 +1479,35 @@ Chrome Runtime Workerも70 ordered callsとsame stop／memoryを再現し、243 
 305 Wasm crossings、final generation `250`、cancel／watchdog後pending work 0を通す。3分gateは
 2,181 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-fls-get-value.md](bgi-fls-get-value.md)を正とする。
+
+## 65. BGI SetLastError
+
+focused `set-last-error` observerのcomplete capturesは1,889,260
+bytes／5,671 lines／SHA-256
+`aff200fc1e726988d2fbaee436959835572eef5fb5d99e50fe8d2d5a2afd1022`と
+1,892,095 bytes／5,680 lines／SHA-256
+`59c64d74d12510264e50c282b7f4caaffc47b29c8928dd969137a9dd5fd00841`
+である。Summariesは2,800／2,804 balanced API pairs、max depth `4`、diagnostics zeroを保持する。
+
+最初のBGI callはreturn RVA `0xA5647`、argument `87`でLastErrorを`0 -> 87`へ変更する。
+Immediate consumerは`pop edi`、`mov eax,esi`、`pop esi`、`ret`でhelperをunwindする。
+Native EAXはcallでclobberされ、absolute entry／exit値もrun間で異なるが、consumerがESIから
+直ちに上書きするためsemantic oracleにしない。
+
+Controlled x86 oracleは`0`、`87`、`122`、`0x12345678`の全sentinelでhook argument、
+hook leave LastError、`SystemFunction` captureがfull 32-bit値と一致することを固定する。
+Runtimeの`kernel32.set-last-error.v1`はpolicy-independentなone-argument VOID stdcall contractで、
+generic dispatcherの`FromHandler` policyからselected-thread LastErrorだけを更新する。Guest writeと
+memory generation changeはなく、VOID EAX preserveはnative resultの再現を主張しない。
+
+`npm run check:runtime:bgi -- --profile kernel32-set-last-error`は32 contracts／81 calls、82
+writebacks／132 dirty pages／1,370 changed bytes、34 host deltas、final generation `145`を通す。
+`SetLastError(87)`はinstruction `1709`／`1777`／`1897`の3回をreturnし、instruction `1936`で
+ID `156`／`GetACP()`を`endpoint-contract-missing`として停止する。Memory SHA-256は
+`3f212a5faa9d76896ed9f464e344aafe7c1fae60baae03856815a4c89cb417fe`、363,609-byte reportの
+SHA-256は`a915d7b91d65e6b1d4805bc4f0ab62d6444573693402bed9fd473518f56f9657`である。
+
+Chrome Runtime Workerも81 ordered callsとsame stop／memoryを再現し、274 slices、192 yields、
+344 Wasm crossings、final generation `278`、cancel／watchdog後pending work 0を通す。3分gateは
+2,086 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-set-last-error.md](bgi-set-last-error.md)を正とする。

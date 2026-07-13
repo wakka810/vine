@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte uninitialized private heap, GetLastError, TlsGetValue, and FlsGetValue capabilities implemented
-- Date: 2026-07-13
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte uninitialized private heap, GetLastError, TlsGetValue, FlsGetValue, and SetLastError capabilities implemented
+- Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-fls-get-value`
-- Scope: frozen 17-call equivalence plus 70 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-set-last-error`
+- Scope: frozen 17-call equivalence plus 81 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -157,7 +157,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 31 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 32 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -540,6 +540,23 @@ and ends at generation `132`. Its 320,070-byte report has SHA-256
 and stops at instruction 1709 on missing `SetLastError(87)`. Full evidence is in
 [bgi-fls-get-value.md](bgi-fls-get-value.md).
 
+The current selected-thread LastError write profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-set-last-error
+```
+
+`kernel32.set-last-error.v1` accepts one full 32-bit value, returns VOID, and
+uses `LastErrorPolicy::FromHandler` to update only the selected Rust runtime
+thread. It writes no guest byte and needs no compatibility-policy option. The
+profile reaches the setter three times while reusing existing TLS/FLS and
+critical-section contracts, completes 81 calls, uses 82 writeback batches／132
+dirty pages／1,370 changed bytes and 34 host deltas, and ends at generation
+`145`. Its 363,609-byte report has SHA-256
+`a915d7b91d65e6b1d4805bc4f0ab62d6444573693402bed9fd473518f56f9657`
+and stops at instruction 1936 on missing `GetACP()`. Full evidence is in
+[bgi-set-last-error.md](bgi-set-last-error.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -574,9 +591,9 @@ and stops at instruction 1709 on missing `SetLastError(87)`. Full evidence is in
 
 ## Next checkpoint
 
-The next proof is `kernel32-set-last-error` at `SetLastError(87)`. It must first
-fix the native zero-return state transition and immediate consumer, then update
-only the selected-thread LastError field without creating a second authority.
+The next proof is `kernel32-get-acp` at `GetACP()`. It must first fix the native
+active-code-page result, LastError behavior, and immediate consumer, then expose
+only the existing policy-owned Windows-932 value without importing host locale.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -591,4 +608,5 @@ bytes, the SetHandleCount report is 284,215 bytes, the GetCommandLineA report is
 288,041 bytes, the environment-strings report is 291,793 bytes, the Windows-932
 report is 295,762 bytes, the one-byte heap report is 308,984 bytes, the
 GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
-and the current FlsGetValue report is 320,070 bytes.
+the FlsGetValue report is 320,070 bytes, and the current SetLastError report is
+363,609 bytes.

@@ -73,6 +73,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-get-last-error",
         "kernel32-tls-get-value",
         "kernel32-fls-get-value",
+        "kernel32-set-last-error",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -99,6 +100,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "kernel32-set-last-error" ||
     genericRuntimeCapability === "kernel32-fls-get-value" ||
     genericRuntimeCapability === "kernel32-tls-get-value" ||
     genericRuntimeCapability === "kernel32-get-last-error" ||
@@ -158,8 +160,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const setLastErrorEnabled =
+  genericRuntimeCapability === "kernel32-set-last-error";
 const flsGetValueEnabled =
-  genericRuntimeCapability === "kernel32-fls-get-value";
+  setLastErrorEnabled || genericRuntimeCapability === "kernel32-fls-get-value";
 const tlsGetValueEnabled =
   flsGetValueEnabled || genericRuntimeCapability === "kernel32-tls-get-value";
 const getLastErrorEnabled =
@@ -223,7 +227,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? flsGetValueEnabled
+    ? setLastErrorEnabled
+      ? "v86-bgi-set-last-error"
+      : flsGetValueEnabled
       ? "v86-bgi-fls-get-value"
       : tlsGetValueEnabled
       ? "v86-bgi-tls-get-value"
@@ -2027,6 +2033,33 @@ const flsGetValueExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const setLastErrorExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 81,
+  instructionCounts: [1709, 1777, 1897],
+  returnAddress: 0x100a5647,
+  argument: 87,
+  writebackBatches: 82,
+  dirtyPages: 132,
+  changedBytes: 1370,
+  hostDeltaBatches: 34,
+  finalGeneration: 145,
+  memoryContentSha256: "3f212a5faa9d76896ed9f464e344aafe7c1fae60baae03856815a4c89cb417fe",
+  reportBytes: 363_609,
+  reportSha256: "a915d7b91d65e6b1d4805bc4f0ab62d6444573693402bed9fd473518f56f9657",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 156,
+    endpointAddress: 0x7f0009b0,
+    module: "kernel32.dll",
+    symbol: "GetACP",
+    iatAddress: 0x100d1318,
+    arguments: [],
+    returnAddress: 0x100a6f72,
+    instructionCount: 1936,
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2489,6 +2522,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setLastErrorEnabled) {
+        validateSetLastErrorResult(genericResult);
       } else if (flsGetValueEnabled) {
         validateFlsGetValueResult(genericResult);
       } else if (tlsGetValueEnabled) {
@@ -2534,7 +2569,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : flsGetValueEnabled
+          : setLastErrorEnabled
+            ? "bgi SetLastError"
+            : flsGetValueEnabled
             ? "bgi FlsGetValue"
             : tlsGetValueEnabled
             ? "bgi TlsGetValue"
@@ -2935,7 +2972,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : flsGetValueEnabled
+        : setLastErrorEnabled
+          ? 19
+          : flsGetValueEnabled
           ? 18
           : tlsGetValueEnabled
           ? 17
@@ -4914,6 +4953,63 @@ function validateFlsGetValueResult(result) {
   );
 }
 
+function validateSetLastErrorResult(result) {
+  const expected = setLastErrorExpected;
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "SetLastError",
+  );
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, expected.instructionCounts.length);
+  for (const [index, call] of calls.entries()) {
+    assert.equal(call.occurrence, index + 1);
+    assert.deepEqual(call.arguments, [expected.argument]);
+    assert.deepEqual(call.result, { action: "preserve" });
+    assert.equal(call.implementationId, "kernel32.set-last-error.v1");
+    assert.equal(call.lastError, expected.argument);
+    assert.deepEqual(call.guestWrites, []);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+    assert.equal(call.trapInstructionCount, expected.instructionCounts[index]);
+    assert.equal(call.returnAddress, expected.returnAddress);
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -4935,7 +5031,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : flsGetValueEnabled
+        : setLastErrorEnabled
+          ? "vine.v86-bgi-set-last-error"
+          : flsGetValueEnabled
           ? "vine.v86-bgi-fls-get-value"
           : tlsGetValueEnabled
           ? "vine.v86-bgi-tls-get-value"

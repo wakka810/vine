@@ -31,6 +31,7 @@ SUPPORTED_OBSERVATIONS = (
     "environment-strings-w",
     "wide-char-to-multi-byte",
     "get-last-error",
+    "set-last-error",
 )
 
 

@@ -105,6 +105,7 @@ enum GenericRuntimeCapability {
     GetLastError,
     TlsGetValue,
     FlsGetValue,
+    SetLastError,
 }
 
 struct GenericRuntimeProcess {
@@ -2441,7 +2442,7 @@ fn run_v86_generic_runtime_session(
     let endpoint_capability = enabled_capability;
     let fls_get_value_enabled = matches!(
         endpoint_capability,
-        Some(GenericRuntimeCapability::FlsGetValue)
+        Some(GenericRuntimeCapability::FlsGetValue | GenericRuntimeCapability::SetLastError)
     );
     let enabled_capability = match enabled_capability {
         Some(
@@ -2451,7 +2452,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::PrivateHeapSize1
             | GenericRuntimeCapability::GetLastError
             | GenericRuntimeCapability::TlsGetValue
-            | GenericRuntimeCapability::FlsGetValue,
+            | GenericRuntimeCapability::FlsGetValue
+            | GenericRuntimeCapability::SetLastError,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2916,10 +2918,11 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
+    let set_last_error_enabled = matches!(enabled, Some(GenericRuntimeCapability::SetLastError));
     let tls_get_value_enabled = matches!(
         enabled,
         Some(GenericRuntimeCapability::TlsGetValue | GenericRuntimeCapability::FlsGetValue)
-    );
+    ) || set_last_error_enabled;
     let get_last_error_enabled = matches!(
         enabled,
         Some(
@@ -2927,7 +2930,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TlsGetValue
                 | GenericRuntimeCapability::FlsGetValue
         )
-    );
+    ) || set_last_error_enabled;
     let wide_char_to_multi_byte_enabled = matches!(
         enabled,
         Some(
@@ -2937,7 +2940,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TlsGetValue
                 | GenericRuntimeCapability::FlsGetValue
         )
-    );
+    ) || set_last_error_enabled;
     let environment_strings_w_enabled = matches!(
         enabled,
         Some(
@@ -2948,7 +2951,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TlsGetValue
                 | GenericRuntimeCapability::FlsGetValue
         )
-    );
+    ) || set_last_error_enabled;
     let command_line_a_enabled = matches!(
         enabled,
         Some(
@@ -2960,7 +2963,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TlsGetValue
                 | GenericRuntimeCapability::FlsGetValue
         )
-    );
+    ) || set_last_error_enabled;
     let enabled = match enabled {
         Some(
             GenericRuntimeCapability::CommandLineA
@@ -2969,7 +2972,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::PrivateHeapSize1
             | GenericRuntimeCapability::GetLastError
             | GenericRuntimeCapability::TlsGetValue
-            | GenericRuntimeCapability::FlsGetValue,
+            | GenericRuntimeCapability::FlsGetValue
+            | GenericRuntimeCapability::SetLastError,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3107,6 +3111,7 @@ fn runtime_capability_enables_endpoint(
         "WideCharToMultiByte" => wide_char_to_multi_byte_enabled,
         "GetLastError" => get_last_error_enabled,
         "TlsGetValue" => tls_get_value_enabled,
+        "SetLastError" => set_last_error_enabled,
         _ => true,
     }
 }
@@ -3137,10 +3142,12 @@ fn runtime_capability_enables_dynamic_endpoint(
         ) => {
             matches!(endpoint.name.as_str(), "FlsAlloc" | "FlsSetValue")
         }
-        Some(GenericRuntimeCapability::FlsGetValue) => matches!(
-            endpoint.name.as_str(),
-            "FlsAlloc" | "FlsSetValue" | "FlsGetValue"
-        ),
+        Some(GenericRuntimeCapability::FlsGetValue | GenericRuntimeCapability::SetLastError) => {
+            matches!(
+                endpoint.name.as_str(),
+                "FlsAlloc" | "FlsSetValue" | "FlsGetValue"
+            )
+        }
         _ => false,
     }
 }
@@ -8505,6 +8512,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-get-last-error" => GenericRuntimeCapability::GetLastError,
                 "kernel32-tls-get-value" => GenericRuntimeCapability::TlsGetValue,
                 "kernel32-fls-get-value" => GenericRuntimeCapability::FlsGetValue,
+                "kernel32-set-last-error" => GenericRuntimeCapability::SetLastError,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -33,6 +33,13 @@ let getLastErrorOracleScheduled = false;
 let getLastErrorOracleSentinel = null;
 let getLastErrorOracleResult = null;
 let getLastErrorOracleLastError = null;
+let setLastErrorOracleScheduled = false;
+let setLastErrorOracleActive = false;
+let setLastErrorOracleArgument = null;
+let setLastErrorOracleEaxBefore = null;
+let setLastErrorOracleEaxAfter = null;
+let setLastErrorOracleLastErrorAfter = null;
+let setLastErrorConsumerRecorded = false;
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -311,6 +318,21 @@ function snapshotFlsGetValueCall(caller, returnAddress, lastErrorBefore) {
   }
   return {
     lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    immediateConsumer: recordsConsumer
+      ? snapshotInstructions(returnAddress, 6)
+      : null,
+  };
+}
+
+function snapshotSetLastErrorCall(caller, returnAddress, lastErrorBefore, eaxBefore) {
+  const recordsConsumer =
+    !setLastErrorConsumerRecorded && caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    setLastErrorConsumerRecorded = true;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    eaxBefore: eaxBefore.toUInt32(),
     immediateConsumer: recordsConsumer
       ? snapshotInstructions(returnAddress, 6)
       : null,
@@ -788,6 +810,9 @@ if (selectedObservations.has("wide-char-to-multi-byte")) {
 if (selectedObservations.has("get-last-error")) {
   hooks["kernel32.dll"].push(["GetLastError", []]);
 }
+if (selectedObservations.has("set-last-error")) {
+  hooks["kernel32.dll"].push(["SetLastError", [null]]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -938,6 +963,15 @@ function attachHook(module, name, decoders) {
       if (this.traceGetLastErrorOracle) {
         this.lastError = getLastErrorOracleSentinel;
       }
+      this.traceSetLastErrorOracle =
+        setLastErrorOracleActive &&
+        selectedObservations.has("set-last-error") &&
+        name === "SetLastError" &&
+        caller.module === "frida-agent.dll";
+      if (this.traceSetLastErrorOracle) {
+        setLastErrorOracleArgument = args[0].toUInt32();
+        setLastErrorOracleEaxBefore = this.context.eax.toUInt32();
+      }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
@@ -953,7 +987,14 @@ function attachHook(module, name, decoders) {
             }
           : null;
       const observation =
-        name === "FlsGetValue" && selectedObservations.has("fls-lifecycle")
+        name === "SetLastError" && selectedObservations.has("set-last-error")
+          ? snapshotSetLastErrorCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context.eax,
+            )
+        : name === "FlsGetValue" && selectedObservations.has("fls-lifecycle")
           ? snapshotFlsGetValueCall(caller, this.returnAddress, this.lastError)
         : name === "TlsGetValue" && selectedObservations.has("tls-lifecycle")
           ? snapshotTlsGetValueCall(caller, this.returnAddress, this.lastError)
@@ -1068,6 +1109,10 @@ function attachHook(module, name, decoders) {
         getLastErrorOracleResult = result.toUInt32();
         getLastErrorOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceSetLastErrorOracle) {
+        setLastErrorOracleEaxAfter = result.toUInt32();
+        setLastErrorOracleLastErrorAfter = Number(lastError) >>> 0;
+      }
       const wideCharResult =
         this.traceWideCharConversion === null ? null : signed32(result);
       const observation = {
@@ -1091,6 +1136,9 @@ function attachHook(module, name, decoders) {
           : {
               interlockedTargetAfter: snapshotLong(this.traceInterlockedPointer),
             }),
+        ...(name === "SetLastError" && selectedObservations.has("set-last-error")
+          ? { eaxAfter: result.toUInt32() }
+          : {}),
         ...((name === "GetCommandLineA" || name === "GetCommandLineW") &&
         selectedObservations.has("command-line-a")
           ? {
@@ -1529,6 +1577,77 @@ function scheduleGetLastErrorOracle(module) {
   });
 }
 
+function scheduleSetLastErrorOracle(module) {
+  if (setLastErrorOracleScheduled) {
+    return;
+  }
+  setLastErrorOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const setAddress = findExport(module, "SetLastError");
+      if (setAddress === null) {
+        throw new Error("SetLastError export is unavailable");
+      }
+      const setLastError = new SystemFunction(
+        setAddress,
+        "void",
+        ["uint32"],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        setLastErrorOracleActive = true;
+        setLastErrorOracleArgument = null;
+        setLastErrorOracleEaxBefore = null;
+        setLastErrorOracleEaxAfter = null;
+        setLastErrorOracleLastErrorAfter = null;
+        try {
+          const outcome = setLastError(sentinel);
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            setLastErrorOracleArgument === null ||
+            setLastErrorOracleEaxBefore === null ||
+            setLastErrorOracleEaxAfter === null ||
+            setLastErrorOracleLastErrorAfter === null
+          ) {
+            throw new Error("SetLastError oracle did not pass through the hook");
+          }
+          return {
+            sentinel,
+            hookArgument: setLastErrorOracleArgument,
+            eaxBefore: setLastErrorOracleEaxBefore,
+            eaxAfter: setLastErrorOracleEaxAfter,
+            preservesEax: setLastErrorOracleEaxAfter === setLastErrorOracleEaxBefore,
+            hookLastErrorAfter: setLastErrorOracleLastErrorAfter,
+            systemLastError,
+            argumentMatches: setLastErrorOracleArgument === sentinel,
+            hookLastErrorMatches: setLastErrorOracleLastErrorAfter === sentinel,
+            systemLastErrorMatches: systemLastError === sentinel,
+          };
+        } finally {
+          setLastErrorOracleActive = false;
+          setLastErrorOracleArgument = null;
+          setLastErrorOracleEaxBefore = null;
+          setLastErrorOracleEaxAfter = null;
+          setLastErrorOracleLastErrorAfter = null;
+        }
+      };
+      const calls = [0, 87, 122, 0x12345678].map(invoke);
+      emit("set-last-error-oracle", {
+        profile: "x86-thread-last-error-write-v1",
+        calls,
+        allStateEffectsMatch: calls.every(
+          (call) =>
+            call.argumentMatches &&
+            call.hookLastErrorMatches &&
+            call.systemLastErrorMatches,
+        ),
+      });
+    } catch (error) {
+      emit("set-last-error-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleTlsLifecycleOracle(module) {
   if (tlsLifecycleOracleScheduled) {
     return;
@@ -1882,6 +2001,12 @@ Process.attachModuleObserver({
       selectedObservations.has("get-last-error")
     ) {
       scheduleGetLastErrorOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("set-last-error")
+    ) {
+      scheduleSetLastErrorOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

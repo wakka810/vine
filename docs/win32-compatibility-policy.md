@@ -105,6 +105,10 @@ Neither the reached index nor its stored endpoint value appears in policy data.
 selected thread's FLS-storage lifecycle, returning LastError `0` for an
 initialized set／unset lane and `87` for an invalid index or a thread without FLS
 storage. The reached slot, value, and dynamic endpoint address are not policy.
+`SetLastError` is policy-independent. Its one semantic handler writes the full
+32-bit argument only to the selected Rust runtime thread through the generic
+dispatcher LastError policy. Reached value `87`, caller RVA, occurrence count,
+and native EAX values remain evidence and do not select an implementation branch.
 
 Policy JSON parsing and validation is covered independently:
 
