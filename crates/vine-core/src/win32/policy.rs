@@ -4,8 +4,8 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::{
-    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_STANDARD_INPUT_SELECTOR,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR,
+    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_STANDARD_ERROR_SELECTOR,
+    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_SELECTOR,
 };
 
 pub const KERNEL32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.kernel32-compatibility-policy";
@@ -106,6 +106,7 @@ impl Kernel32CompatibilityPolicy {
         let supported_selectors = BTreeSet::from([
             RUNTIME_STANDARD_INPUT_SELECTOR,
             RUNTIME_STANDARD_OUTPUT_SELECTOR,
+            RUNTIME_STANDARD_ERROR_SELECTOR,
         ]);
         let selectors = self
             .standard_handle_selectors

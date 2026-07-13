@@ -13,13 +13,13 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `bgi-standard-output-file-type`: 57 calls across 23 API contracts, memory generation 116 |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (1750 sessions) |
+| Active runtime | `bgi-standard-error-handle`: 58 calls across 23 API contracts, memory generation 117 |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (1771 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `KERNEL32.dll!GetStdHandle(0xfffffff4)` at instruction 1484: `standard-handle-selector-unsupported` |
+| Next structured stop | `KERNEL32.dll!GetFileType(0x53010003)` at instruction 1492: `file-type-standard-handle-unsupported` |
 
-The active semantic report is 267,223 bytes with SHA-256
-`0bc3770b1da0af519e4065021c11cc423427b9855d9ceedac6d9b00053837301`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 271,184 bytes with SHA-256
+`bfa1da3badbbd96ed5c282bd21c3bb0041fa06834dbad38fe0af32e116432c2f`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
@@ -208,6 +208,9 @@ earlier reports, and stops fail-closed at `GetStdHandle(STD_OUTPUT_HANDLE)` afte
 `npm run check:runtime:bgi-standard-output-file-type` classifies that logical
 stdout as `FILE_TYPE_PIPE`, preserves the prior policies and reports, and stops
 fail-closed at `GetStdHandle(STD_ERROR_HANDLE)` after 57 completed calls.
+`npm run check:runtime:bgi-standard-error-handle` returns logical stderr handle
+`0x53010003`, preserves the prior policies and reports, and stops fail-closed at
+`GetFileType(0x53010003)` after 58 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

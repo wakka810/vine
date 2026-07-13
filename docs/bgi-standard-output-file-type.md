@@ -128,3 +128,7 @@ fault:              standard-handle-selector-unsupported
 The next checkpoint must model only the reached standard-error identity from
 native evidence. It must not infer console writes, redirection, close behavior,
 or broad file semantics.
+
+That checkpoint is now complete in
+[bgi-standard-error-handle.md](bgi-standard-error-handle.md). This file remains
+the historical stdout-file-type checkpoint.

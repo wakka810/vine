@@ -12,13 +12,13 @@ use vine_core::{
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MemoryLimits, MemoryOwnerId,
     MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
-    RUNTIME_FLS_INDEX_LIMIT, RUNTIME_STANDARD_INPUT_HANDLE, RUNTIME_STANDARD_INPUT_SELECTOR,
-    RUNTIME_STANDARD_OUTPUT_HANDLE, RUNTIME_STANDARD_OUTPUT_SELECTOR, ReentrancyPolicy,
-    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap,
-    RuntimeHeapAllocationId, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState,
-    StackCleanup, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
-    kernel32_contract_for_endpoint,
+    RUNTIME_FLS_INDEX_LIMIT, RUNTIME_STANDARD_ERROR_HANDLE, RUNTIME_STANDARD_ERROR_SELECTOR,
+    RUNTIME_STANDARD_INPUT_HANDLE, RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
+    RUNTIME_STANDARD_OUTPUT_SELECTOR, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
+    RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId, RuntimeModule,
+    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeTlsValue, Rva, SchedulerThreadState, StackCleanup, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -994,6 +994,126 @@ fn get_std_handle_policy_adds_only_process_owned_standard_output_identity() {
                 && fault.code == "file-type-standard-handle-unsupported"
     ));
     assert_eq!(runtime, runtime_before_rejections);
+    assert_eq!(memory.stats(), memory_before);
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+}
+
+#[test]
+fn get_std_handle_policy_adds_only_process_owned_standard_error_identity() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (
+            STACK_BASE,
+            vec![0x1000_08a1, RUNTIME_STANDARD_ERROR_SELECTOR],
+        ),
+        (
+            STACK_BASE + 0x20,
+            vec![0x1000_08a2, RUNTIME_STANDARD_ERROR_SELECTOR],
+        ),
+        (STACK_BASE + 0x40, vec![0x1000_08a3, 0xffff_fff3]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0xa0);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetStdHandle IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetStdHandle".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetStdHandle endpoint");
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let error_policy = compatibility_policy(
+        "standard-error-test",
+        vec![
+            RUNTIME_STANDARD_INPUT_SELECTOR,
+            RUNTIME_STANDARD_OUTPUT_SELECTOR,
+            RUNTIME_STANDARD_ERROR_SELECTOR,
+        ],
+        vec![
+            (RUNTIME_STANDARD_INPUT_SELECTOR, 2),
+            (RUNTIME_STANDARD_OUTPUT_SELECTOR, 3),
+        ],
+        vec![(0x8, vec![0x214, 0x800])],
+    );
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let memory_before = memory.stats();
+
+    for frame in &frames[..2] {
+        let completion = dispatch_owned_with_policy(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoint,
+            frame.0,
+            frame.1[0],
+            &error_policy,
+        );
+        assert_eq!(
+            completion.eax,
+            RegisterUpdate::Set(RUNTIME_STANDARD_ERROR_HANDLE)
+        );
+        assert_eq!(completion.stack_pointer, GuestAddress(frame.0 + 8));
+        assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+        assert!(completion.guest_writes.is_empty());
+    }
+    assert_eq!(runtime.process().standard_handles.len(), 1);
+    let standard_error = runtime
+        .standard_handle_by_value(RUNTIME_STANDARD_ERROR_HANDLE)
+        .expect("logical standard error handle");
+    assert_eq!(standard_error.owner, "runtime-process-standard-handles");
+    assert_eq!(standard_error.variant_id, "standard-error-logical-v1");
+    assert_eq!(standard_error.namespace, LOGICAL_STANDARD_HANDLE_NAMESPACE);
+    assert_eq!(standard_error.selector, RUNTIME_STANDARD_ERROR_SELECTOR);
+    assert_eq!(
+        error_policy.standard_handle_file_type(RUNTIME_STANDARD_ERROR_SELECTOR),
+        None
+    );
+    assert_eq!(memory.stats(), memory_before);
+
+    let runtime_before_rejection = runtime.clone();
+    let rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[2].0, frames[2].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&error_policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "standard-handle-selector-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before_rejection);
     assert_eq!(memory.stats(), memory_before);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
 }

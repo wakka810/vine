@@ -1152,3 +1152,29 @@ unchanged 3分gateは1,750 sessions／failure 0、p95 `97.010 ms`で全threshold
 cancel 8 instructions、watchdog 4 instructions、pending work 0は不変である。詳細は
 [bgi-standard-output-file-type.md](bgi-standard-output-file-type.md)と
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
+
+## 55. BGI standard error handle
+
+same opt-in `standard-handle` tracesはBGI caller return RVA `0xA87B6`の
+`STD_ERROR_HANDLE`に対して、両captureでnative result `0x238`、LastError `87 -> 87`を返す。
+Resultは`INVALID_HANDLE_VALUE`／NULL check後、unchangedのままIAT `0x004D123C`／
+`GetFileType`へ渡される。Separate file-type capturesのstderr handles `0x238`／`0x240`は
+ともに`FILE_TYPE_PIPE (3)`を返すが、このcheckpointではclassificationを実装しない。Native
+handle値はdiscardする。
+
+Rust common dispatcherはsingle `kernel32.get-std-handle.v2`へ
+`kernel32-standard-error-v1` policyを渡し、process-owned logical stderr
+`0x53010003`を返す。先行policyとreportsは不変で、stderr file typeはmutation前にstructured
+unsupportedとなる。`npm run check:runtime:bgi-standard-error-handle`は23 contracts／58 calls、
+59 writeback batches／100 dirty pages／971 changed bytes、29 host deltas、final generation `117`を
+通す。instruction `1492`でID `101`／`GetFileType(0x53010003)`を
+`file-type-standard-handle-unsupported`として停止する。271,184-byte reportのSHA-256は
+`bfa1da3badbbd96ed5c282bd21c3bb0041fa06834dbad38fe0af32e116432c2f`である。
+
+Chrome Runtime Workerも58 ordered calls、same final memory SHA-256
+`a97f019fb34b6ab90d9cbf76f35b194674296de83088cb1736cbdbad090b5b12`、same structured stopを
+再現する。Unchanged 3分gateは1,771 sessions／failure 0、p95 `96.485 ms`、262 Wasm
+crossings/sessionで全thresholdを通した。cancel 8 instructions、watchdog 4 instructions、
+pending work 0は不変である。詳細は
+[bgi-standard-error-handle.md](bgi-standard-error-handle.md)と
+[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。

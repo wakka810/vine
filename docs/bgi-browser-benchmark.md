@@ -4,15 +4,15 @@
 
 - Status: threshold passed
 - Date: 2026-07-13
-- Workload: current 57-call private BGI generic session
+- Workload: current 58-call private BGI generic session
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-v1.json`](../fixtures/benchmarks/bgi-browser-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
 This gate repeats the complete current BGI session in one Chrome Dedicated
 Worker. Each session starts from a new Rust runtime and v86 mirror, dispatches
-57 ordered calls over 1,484 guest instructions, performs 260 Rust/Wasm bridge
-operations, and reaches the same `GetStdHandle(0xfffffff4)` structured stop.
+58 ordered calls over 1,492 guest instructions, performs 262 Rust/Wasm bridge
+operations, and reaches the same `GetFileType(0x53010003)` structured stop.
 Every repetition checks the call count, instruction count, crossing count,
 memory digest, next API and fault, and zero pending work before its compact
 summary is retained.
@@ -37,30 +37,30 @@ required sample is a failure.
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 1,750 sessions with no
+The authoritative clean-profile Chrome run completed 1,771 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 1,750 |
+| Completed sessions | >= 120 | 1,771 |
 | Failed sessions | <= 0 | 0 |
-| Main／Worker heap samples | >= 30 each | 38 / 36 |
-| Session latency p95 | <= 3,000 ms | 97.010 ms |
-| Maximum slice p99 | <= 10 ms | 0.810 ms |
-| Main heartbeat gap | <= 75 ms | 20.985 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 6,626,295 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | -295,486.19 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 26,665,220 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 1,981,278.25 bytes/min |
+| Main／Worker heap samples | >= 30 each | 37 / 36 |
+| Session latency p95 | <= 3,000 ms | 96.485 ms |
+| Maximum slice p99 | <= 10 ms | 0.905 ms |
+| Main heartbeat gap | <= 75 ms | 29.835 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 6,353,592 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | -326,902.49 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 26,642,816 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 2,510,663.80 bytes/min |
 | Worker heap capacity maximum | <= 67,108,864 bytes | 57,409,536 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 51,094,197 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 2,506,238.75 bytes/min |
+| Worker backing storage maximum | <= 67,108,864 bytes | 52,368,077 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 1,402,825.01 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 9,764,864 bytes |
 | v86 linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 778,494 bytes with SHA-256
-`223fe48163e9665a2584bce9fbc869d438402ad150446977bdd506f03695a26e`.
+The exact report is 787,612 bytes with SHA-256
+`0ec70344a6880213e5bb504139f0e98c54c6b127a69cca501eaf3337a01c45a3`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate.
 
@@ -75,15 +75,15 @@ are the regression gate.
 | Chrome | `150.0.7871.115` |
 | Node.js | `v24.18.0` |
 
-The report records repository commit `2d65e1cd231b94b21b02b067d6f048e1b8362e7b`
-with a dirty tree because the evidence was captured before the Item 9 checkpoint
+The report records repository commit `5de91d8faca1e4be954e02d60cee4f0c608d7820`
+with a dirty tree because the evidence was captured before the stderr checkpoint
 commit. Exact generated artifacts are independently fingerprinted below.
 
 ## Artifact identity
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 1,516,032 | `83c8a1d31c632c6d063c62864ef22a114491e7d26611d837444403e00144a870` |
+| Rust runtime core Wasm | 1,516,221 | `f2003894d10b5ac9f9d360be244f045a9f1dc1626b4426ab46ac1c514f74a6b7` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
 | Runtime Worker bundle | 64,685 | `862dad699640312fa2fb8db1573e9ccd6e314029cd29465e5d3ed3f68e789bd0` |
 | BGI benchmark bundle | 7,103 | `7902ebcea4cf91c1873f58911c76f99c05d05517fd0609027463c5f5c8c04d07` |
@@ -115,7 +115,7 @@ profile plus a loopback-only server and DevTools endpoint.
 - The reached path has no title rendering, audio, input, VFS, or COM workload.
 - A passing slope threshold does not prove that V8 heap capacity has reached a
   permanent plateau; longer scenario-specific gates remain required.
-- Standard error identity and all title output remain outside this workload.
+- Standard error classification and all title output remain outside this workload.
 
 ## Yield correction
 

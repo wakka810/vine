@@ -9,6 +9,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-heap-two-v1.json",
   "fixtures/runtime-policies/kernel32-standard-output-v1.json",
   "fixtures/runtime-policies/kernel32-standard-output-file-type-v1.json",
+  "fixtures/runtime-policies/kernel32-standard-error-v1.json",
 ];
 
 for (const relative of policyFiles) {

@@ -64,6 +64,8 @@ pub const RUNTIME_STANDARD_INPUT_SELECTOR: u32 = 0xffff_fff6;
 pub const RUNTIME_STANDARD_INPUT_HANDLE: u32 = 0x5301_0001;
 pub const RUNTIME_STANDARD_OUTPUT_SELECTOR: u32 = 0xffff_fff5;
 pub const RUNTIME_STANDARD_OUTPUT_HANDLE: u32 = 0x5301_0002;
+pub const RUNTIME_STANDARD_ERROR_SELECTOR: u32 = 0xffff_fff4;
+pub const RUNTIME_STANDARD_ERROR_HANDLE: u32 = 0x5301_0003;
 
 const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
 const RUNTIME_PRIVATE_HEAP_OWNER: &str = "runtime-process-private-heaps";
@@ -71,6 +73,7 @@ const RUNTIME_PRIVATE_HEAP_VARIANT: &str = "heap-create-metadata-v1";
 const RUNTIME_STANDARD_HANDLE_OWNER: &str = "runtime-process-standard-handles";
 const RUNTIME_STANDARD_INPUT_VARIANT: &str = "standard-input-logical-v1";
 const RUNTIME_STANDARD_OUTPUT_VARIANT: &str = "standard-output-logical-v1";
+const RUNTIME_STANDARD_ERROR_VARIANT: &str = "standard-error-logical-v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -2324,11 +2327,15 @@ impl RuntimeState {
                 RUNTIME_STANDARD_OUTPUT_HANDLE,
                 RUNTIME_STANDARD_OUTPUT_VARIANT,
             ),
+            RUNTIME_STANDARD_ERROR_SELECTOR => (
+                RUNTIME_STANDARD_ERROR_HANDLE,
+                RUNTIME_STANDARD_ERROR_VARIANT,
+            ),
             _ => {
                 return Err(RuntimeStateError::invalid_input(
                     "runtime-standard-handle",
                     "standard-handle-selector-unsupported",
-                    "only the reached standard input and output selectors are supported",
+                    "only the reached standard input, output, and error selectors are supported",
                 ));
             }
         };

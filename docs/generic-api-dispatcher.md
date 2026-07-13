@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-input-handle, stdin-file-type, standard-output-handle, and stdout-file-type capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-input-handle, stdin-file-type, standard-output-handle, stdout-file-type, and standard-error-handle capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-standard-output-file-type`
-- Scope: frozen 17-call equivalence plus 57 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-standard-error-handle`
+- Scope: frozen 17-call equivalence plus 58 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -57,16 +57,16 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `FlsSetValue` | 1 | stores an opaque value in the selected thread's allocated FLS slot |
 | `HeapAlloc` | 2 | allocates the first two reached zeroed blocks through transactional guest-memory backing |
 | `InterlockedIncrement` | 3 | performs a checked wrapping LONG update in guest memory |
-| `GetStdHandle` | 2 | returns versioned process-owned logical input／output identities |
-| `GetFileType` | 1 | classifies only the registered logical stdin as character |
+| `GetStdHandle` | 3 | returns versioned process-owned logical input／output／error identities |
+| `GetFileType` | 2 | classifies registered logical stdin as character and stdout as pipe |
 
 All 23 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-55 BGI calls, including six `EncodePointer` occurrences, 15 critical-section
+58 BGI calls, including six `EncodePointer` occurrences, 16 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
 two `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
-critical-section／thread／startup occurrences plus two `GetStdHandle` and one
-`GetFileType`.
+critical-section／thread／startup occurrences plus three `GetStdHandle` and two
+`GetFileType` calls.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The title harness still performs callsite provenance checks, automatic
 v86 dirty-page synchronization, and evidence serialization around the common
@@ -360,6 +360,21 @@ has SHA-256
 and stops at instruction 1484 on `GetStdHandle(STD_ERROR_HANDLE)`. Full evidence
 is in [bgi-standard-output-file-type.md](bgi-standard-output-file-type.md).
 
+The standard-error-handle profile is:
+
+```powershell
+npm run check:runtime:bgi-standard-error-handle
+```
+
+It uses the same `kernel32.get-std-handle.v2` handler with the versioned
+`kernel32-standard-error-v1` policy. Logical stderr is `0x53010003`; its file
+type remains unsupported. The profile completes 58 calls, uses 59 writeback
+batches／100 dirty pages／971 changed bytes and 29 host deltas, and ends at
+generation `117`. Its 271,184-byte report has SHA-256
+`bfa1da3badbbd96ed5c282bd21c3bb0041fa06834dbad38fe0af32e116432c2f`
+and stops at instruction 1492 on `GetFileType(0x53010003)`. Full evidence is in
+[bgi-standard-error-handle.md](bgi-standard-error-handle.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -378,19 +393,19 @@ is in [bgi-standard-output-file-type.md](bgi-standard-output-file-type.md).
 - `InterlockedIncrement` is implemented only for the checked 32-bit LONG shape
   in the single cooperative Runtime Worker. Adjacent interlocked APIs and
   cross-worker shared-memory atomicity are absent.
-- The generic session owns only the reached standard input／output identities,
-  stdin character classification, and stdout pipe classification. Error
-  identity, `SetStdHandle`, close behavior, broader file type, console semantics,
-  and file I/O remain absent. Its first unsupported operation is
-  `GetStdHandle(STD_ERROR_HANDLE)`; bespoke
+- The generic session owns only the reached standard input／output／error
+  identities, stdin character classification, and stdout pipe classification.
+  Stderr classification, `SetStdHandle`, close behavior, broader file type,
+  console semantics, and file I/O remain absent. Its first unsupported operation is
+  `GetFileType(stderr)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-standard-error-handle` at
-`GetStdHandle(0xfffffff4)`. It must measure and model only the reached logical
-stderr identity without adding console writes, redirection, close behavior, or
-general file I/O.
+The next proof is `kernel32-standard-error-file-type` at
+`GetFileType(0x53010003)`. It must classify only the reached logical stderr
+identity without adding console writes, redirection, close behavior, or general
+file I/O.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -399,4 +414,5 @@ FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
 239,789-byte report, standard-input 243,749-byte report, and file-type
 252,994-byte report remain historical artifact identities. Current semantic
 regression uses field assertions; the replayed policy-bearing standard-output
-report is 257,878 bytes.
+report is 257,878 bytes. The stdout-file-type and stderr-handle reports are
+267,223 and 271,184 bytes respectively.
