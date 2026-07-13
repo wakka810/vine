@@ -109,6 +109,7 @@ enum GenericRuntimeCapability {
     GetAcp,
     PrivateHeapSize544,
     GetCpInfo,
+    MultiByteToWideChar,
 }
 
 struct GenericRuntimeProcess {
@@ -2451,6 +2452,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetAcp
                 | GenericRuntimeCapability::PrivateHeapSize544
                 | GenericRuntimeCapability::GetCpInfo
+                | GenericRuntimeCapability::MultiByteToWideChar
         )
     );
     let enabled_capability = match enabled_capability {
@@ -2465,7 +2467,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SetLastError
             | GenericRuntimeCapability::GetAcp
             | GenericRuntimeCapability::PrivateHeapSize544
-            | GenericRuntimeCapability::GetCpInfo,
+            | GenericRuntimeCapability::GetCpInfo
+            | GenericRuntimeCapability::MultiByteToWideChar,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2930,13 +2933,19 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let get_cp_info_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetCpInfo));
+    let multi_byte_to_wide_char_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::MultiByteToWideChar));
+    let get_cp_info_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::GetCpInfo | GenericRuntimeCapability::MultiByteToWideChar)
+    );
     let get_acp_enabled = matches!(
         enabled,
         Some(
             GenericRuntimeCapability::GetAcp
                 | GenericRuntimeCapability::PrivateHeapSize544
                 | GenericRuntimeCapability::GetCpInfo
+                | GenericRuntimeCapability::MultiByteToWideChar
         )
     );
     let set_last_error_enabled = matches!(
@@ -2946,6 +2955,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetAcp
                 | GenericRuntimeCapability::PrivateHeapSize544
                 | GenericRuntimeCapability::GetCpInfo
+                | GenericRuntimeCapability::MultiByteToWideChar
         )
     );
     let tls_get_value_enabled = matches!(
@@ -3005,7 +3015,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::SetLastError
             | GenericRuntimeCapability::GetAcp
             | GenericRuntimeCapability::PrivateHeapSize544
-            | GenericRuntimeCapability::GetCpInfo,
+            | GenericRuntimeCapability::GetCpInfo
+            | GenericRuntimeCapability::MultiByteToWideChar,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3146,6 +3157,7 @@ fn runtime_capability_enables_endpoint(
         "SetLastError" => set_last_error_enabled,
         "GetACP" => get_acp_enabled,
         "GetCPInfo" => get_cp_info_enabled,
+        "MultiByteToWideChar" => multi_byte_to_wide_char_enabled,
         _ => true,
     }
 }
@@ -3181,7 +3193,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::SetLastError
             | GenericRuntimeCapability::GetAcp
             | GenericRuntimeCapability::PrivateHeapSize544
-            | GenericRuntimeCapability::GetCpInfo,
+            | GenericRuntimeCapability::GetCpInfo
+            | GenericRuntimeCapability::MultiByteToWideChar,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8556,6 +8569,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-get-acp" => GenericRuntimeCapability::GetAcp,
                 "kernel32-private-heap-size-544" => GenericRuntimeCapability::PrivateHeapSize544,
                 "kernel32-get-cp-info" => GenericRuntimeCapability::GetCpInfo,
+                "kernel32-multi-byte-to-wide-char" => GenericRuntimeCapability::MultiByteToWideChar,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -22,8 +22,8 @@ mod policy;
 pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
-    Kernel32WideCharToMultiBytePolicy,
+    Kernel32HeapAllocationPolicy, Kernel32MultiByteToWideCharPolicy,
+    Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -43,6 +43,7 @@ pub const GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str = "kernel32.get-environ
 pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
     "kernel32.free-environment-strings-w.v1";
 pub const WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION: &str = "kernel32.wide-char-to-multi-byte.v1";
+pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to-wide-char.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
@@ -124,6 +125,9 @@ pub fn dispatch_kernel32_api_with_policy(
         WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION => {
             handle_wide_char_to_multi_byte(policy, contract, frame, session)
         }
+        MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION => {
+            handle_multi_byte_to_wide_char(policy, contract, frame, session)
+        }
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
         }
@@ -192,6 +196,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetEnvironmentStringsW" => get_environment_strings_w_contract(endpoint)?,
         "FreeEnvironmentStringsW" => free_environment_strings_w_contract(endpoint)?,
         "WideCharToMultiByte" => wide_char_to_multi_byte_contract(endpoint)?,
+        "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
@@ -792,6 +797,245 @@ fn encode_windows_932(source: &[u16]) -> Result<Vec<Windows932Unit>, ApiFault> {
         }
     }
     Ok(output)
+}
+
+fn handle_multi_byte_to_wide_char(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let code_page = required_argument(contract, frame, 0, "code page")?;
+    let flags = required_argument(contract, frame, 1, "conversion flags")?;
+    let source_address = required_argument(contract, frame, 2, "multibyte source")?;
+    let source_count = required_argument(contract, frame, 3, "multibyte source length")? as i32;
+    let destination_address = required_argument(contract, frame, 4, "UTF-16 destination")?;
+    let destination_units =
+        required_argument(contract, frame, 5, "UTF-16 destination length")? as i32;
+    let conversion = policy.multi_byte_to_wide_char().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-code-page",
+            "multi-byte-to-wide-char-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable MultiByteToWideChar",
+                policy.id
+            ),
+        )
+    })?;
+    let active_code_page = policy.active_code_page().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "win32-code-page",
+            "multi-byte-to-wide-char-policy-layer-invalid",
+            "validated multibyte conversion policy has no active code page",
+        )
+    })?;
+    if code_page != active_code_page || !conversion.allowed_flags.contains(&flags) {
+        return Err(ApiFault::unsupported(
+            "win32-code-page",
+            "multi-byte-to-wide-char-variant-unsupported",
+            format!(
+                "compatibility policy {} enables explicit code page {active_code_page} with flags {:?}, not code page {code_page} and flags {flags:#010x}",
+                policy.id, conversion.allowed_flags
+            ),
+        ));
+    }
+
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if source_address == 0 || source_count == 0 || source_count < -1 || destination_units < 0 {
+        return Ok(multi_byte_failure(ERROR_INVALID_PARAMETER));
+    }
+    let query = destination_address == 0 && destination_units == 0;
+    let conversion_call = destination_address != 0 && destination_units > 0;
+    if !query && !conversion_call {
+        return Ok(multi_byte_failure(ERROR_INVALID_PARAMETER));
+    }
+
+    let source = read_multi_byte_source(
+        contract,
+        session,
+        GuestAddress(source_address),
+        source_count,
+        conversion,
+    )?;
+    let destination_byte_capacity = usize::try_from(destination_units)
+        .map_err(|_| {
+            ApiFault::runtime_defect(
+                "win32-code-page",
+                "multi-byte-destination-count-not-representable",
+                "validated nonnegative UTF-16 destination count does not fit host accounting",
+            )
+        })?
+        .checked_mul(2)
+        .ok_or_else(|| {
+            ApiFault::resource_limit(
+                "win32-code-page",
+                "multi-byte-destination-length-overflow",
+                "UTF-16 destination length overflowed host accounting",
+            )
+        })?;
+    if conversion_call
+        && guest_ranges_overlap(
+            source_address,
+            source.len(),
+            destination_address,
+            destination_byte_capacity,
+        )?
+    {
+        return Ok(multi_byte_failure(ERROR_INVALID_PARAMETER));
+    }
+
+    let decoded = decode_windows_932(&source);
+    let decoded_length = u32::try_from(decoded.len()).map_err(|_| {
+        ApiFault::resource_limit(
+            "win32-code-page",
+            "multi-byte-output-length-not-representable",
+            "Windows-932 UTF-16 output length does not fit the x86 return value",
+        )
+    })?;
+    if query {
+        return Ok(ApiImmediate::new(ApiReturnValue::U32(decoded_length))
+            .with_last_error(preserved_last_error));
+    }
+
+    let capacity = usize::try_from(destination_units).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-code-page",
+            "multi-byte-destination-count-not-representable",
+            "validated positive UTF-16 destination count does not fit host accounting",
+        )
+    })?;
+    let prefix = &decoded[..decoded.len().min(capacity)];
+    let mut output = Vec::with_capacity(prefix.len() * 2);
+    for &unit in prefix {
+        output.extend_from_slice(&unit.to_le_bytes());
+    }
+    if !output.is_empty() {
+        session
+            .memory()
+            .validate_access(
+                GuestAddress(destination_address),
+                output.len(),
+                MemoryAccess::Write,
+            )
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    }
+    let complete = prefix.len() == decoded.len();
+    let mut immediate = ApiImmediate::new(ApiReturnValue::U32(if complete {
+        decoded_length
+    } else {
+        0
+    }))
+    .with_last_error(if complete {
+        preserved_last_error
+    } else {
+        ERROR_INSUFFICIENT_BUFFER
+    });
+    if !output.is_empty() {
+        immediate = immediate.with_guest_write(GuestAddress(destination_address), output);
+    }
+    Ok(immediate)
+}
+
+fn read_multi_byte_source(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+    source: GuestAddress,
+    source_count: i32,
+    policy: &Kernel32MultiByteToWideCharPolicy,
+) -> Result<Vec<u8>, ApiFault> {
+    let maximum = policy.maximum_source_bytes as usize;
+    if source_count == -1 {
+        let mut bytes = Vec::new();
+        for offset in 0..maximum {
+            let address = add_guest_offset(contract, source, offset)?;
+            let byte = session
+                .memory()
+                .read(address, 1)
+                .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+            bytes.push(byte);
+            if byte == 0 {
+                return Ok(bytes);
+            }
+        }
+        return Err(ApiFault::resource_limit(
+            "win32-code-page",
+            "multi-byte-source-not-terminated",
+            format!(
+                "multibyte source did not terminate within the policy limit of {} bytes",
+                policy.maximum_source_bytes
+            ),
+        ));
+    }
+    let byte_length = usize::try_from(source_count).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-code-page",
+            "multi-byte-source-count-not-representable",
+            "validated positive multibyte source count does not fit host accounting",
+        )
+    })?;
+    if byte_length > maximum {
+        return Err(ApiFault::resource_limit(
+            "win32-code-page",
+            "multi-byte-source-limit-exceeded",
+            format!(
+                "multibyte source count {byte_length} exceeds the policy limit of {}",
+                policy.maximum_source_bytes
+            ),
+        ));
+    }
+    session
+        .memory()
+        .validate_access(source, byte_length, MemoryAccess::Read)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    session
+        .memory()
+        .read(source, byte_length)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))
+}
+
+fn decode_windows_932(source: &[u8]) -> Vec<u16> {
+    let mut output = Vec::with_capacity(source.len());
+    let mut index = 0;
+    while index < source.len() {
+        let first = source[index];
+        if is_windows_932_lead_byte(first)
+            && source
+                .get(index + 1)
+                .is_some_and(|&second| is_windows_932_trail_byte(second))
+        {
+            let pair = &source[index..index + 2];
+            let (decoded, _) = SHIFT_JIS.decode_without_bom_handling(pair);
+            output.extend(decoded.encode_utf16());
+            index += 2;
+            continue;
+        }
+        match first {
+            0xa0 => output.push(0xf8f0),
+            0xfd => output.push(0xf8f1),
+            0xfe => output.push(0xf8f2),
+            0xff => output.push(0xf8f3),
+            _ => {
+                let (decoded, _) = SHIFT_JIS.decode_without_bom_handling(&source[index..index + 1]);
+                output.extend(decoded.encode_utf16());
+            }
+        }
+        index += 1;
+    }
+    output
+}
+
+fn is_windows_932_lead_byte(byte: u8) -> bool {
+    matches!(byte, 0x81..=0x9f | 0xe0..=0xfc)
+}
+
+fn is_windows_932_trail_byte(byte: u8) -> bool {
+    matches!(byte, 0x40..=0x7e | 0x80..=0xfc)
+}
+
+fn multi_byte_failure(last_error: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(last_error)
 }
 
 fn guest_ranges_overlap(
@@ -1587,6 +1831,27 @@ pub fn wide_char_to_multi_byte_contract(
     Ok(contract)
 }
 
+pub fn multi_byte_to_wide_char_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "MultiByteToWideChar",
+        vec![
+            u32_argument("codePage"),
+            u32_argument("flags"),
+            dynamic_in_bytes("multiByteSource", true, 1, 1, 1_048_576),
+            u32_argument("multiByteCount"),
+            dynamic_out_bytes("wideCharDestination", true, 2, 2, 2_097_152),
+            u32_argument("wideCharCapacity"),
+        ],
+        ApiReturnSchema::U32,
+        MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
 pub fn query_performance_counter_contract(
     endpoint: ApiEndpointIdentity,
 ) -> Result<ApiContract, ApiFault> {
@@ -2015,6 +2280,29 @@ fn dynamic_out_bytes(
                 maximum_byte_length,
                 pointee: ApiPointeeSchema::Bytes,
                 write_requirement: ApiWriteRequirement::Optional,
+            },
+        },
+    }
+}
+
+fn dynamic_in_bytes(
+    name: &str,
+    nullable: bool,
+    alignment: u32,
+    minimum_byte_length: u32,
+    maximum_byte_length: u32,
+) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::In,
+        value: ApiValueSchema::DynamicPointer {
+            constraint: ApiDynamicPointerConstraint {
+                nullable,
+                alignment,
+                minimum_byte_length,
+                maximum_byte_length,
+                pointee: ApiPointeeSchema::Bytes,
+                write_requirement: ApiWriteRequirement::None,
             },
         },
     }

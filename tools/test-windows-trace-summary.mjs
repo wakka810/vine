@@ -644,6 +644,13 @@ wideCharSelection.find(
 ).selectedObservations = ["wide-char-to-multi-byte"];
 assert.doesNotThrow(() => summarizeTrace(encode(wideCharSelection)));
 
+const multiByteSelection = structuredClone(events);
+multiByteSelection[0].arguments.observations = ["multi-byte-to-wide-char"];
+multiByteSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["multi-byte-to-wide-char"];
+assert.doesNotThrow(() => summarizeTrace(encode(multiByteSelection)));
+
 const getLastErrorSelection = structuredClone(events);
 getLastErrorSelection[0].arguments.observations = ["get-last-error"];
 getLastErrorSelection.find(

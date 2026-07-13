@@ -158,7 +158,7 @@ struct BrowserMappingFixture {
 enum BrowserRuntimeTarget {
     ControlledFixture,
     Bgi {
-        kernel32_policy: Kernel32CompatibilityPolicy,
+        kernel32_policy: Box<Kernel32CompatibilityPolicy>,
     },
 }
 
@@ -367,7 +367,9 @@ impl BrowserRuntime {
                 pending_host: None,
                 callbacks: Vec::new(),
                 mapping_fixture: BrowserMappingFixture::default(),
-                target: BrowserRuntimeTarget::Bgi { kernel32_policy },
+                target: BrowserRuntimeTarget::Bgi {
+                    kernel32_policy: Box::new(kernel32_policy),
+                },
             },
             metadata,
             reflection_buffers,
@@ -1159,6 +1161,7 @@ fn build_bgi_dispatcher(
                     kernel32_policy.allows_wide_environment_strings()
                 }
                 "WideCharToMultiByte" => kernel32_policy.wide_char_to_multi_byte().is_some(),
+                "MultiByteToWideChar" => kernel32_policy.multi_byte_to_wide_char().is_some(),
                 "GetCPInfo" => kernel32_policy.active_code_page_info().is_some(),
                 _ => true,
             }

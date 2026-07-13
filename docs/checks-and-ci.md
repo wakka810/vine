@@ -135,15 +135,17 @@ Private binaries are never added to Git or required by CI.
 Focused native startup／heap evidence is opt-in with
 `py tools/windows/trace.py ... --observe startup-info`,
 `--observe heap-set-information`, `--observe heap-lifecycle`, `--observe heap-allocation`,
-`--observe module-handle`, `--observe dynamic-export`, or `--observe get-cp-info`. The first records the
-68-byte x86 span, the second records the exact policy call, the third hooks
-reached heap lifecycle calls, and the focused allocation observer retains only
-main-executable `HeapAlloc`／`HeapFree` with bounded buffer／caller／lifetime
-metadata. The next option decodes A/W module names, and the final option records
-enter-time LastError for `GetProcAddress`. Heap, module, and
-dynamic-export observations retain the focused LastError evidence. The final
-option retains direct BGI `GetCPInfo` calls and a guarded raw-output／LastError
-self-oracle with bounded x86 consumer frames. Ordinary
+`--observe module-handle`, `--observe dynamic-export`, `--observe get-cp-info`, or
+`--observe multi-byte-to-wide-char`. Startup records the 68-byte x86 span;
+heap-set records the exact policy call; heap-lifecycle hooks reached lifecycle
+calls; and heap-allocation retains only main-executable `HeapAlloc`／`HeapFree`
+with bounded buffer／caller／lifetime metadata. Module-handle decodes A/W names,
+while dynamic-export records enter-time LastError for `GetProcAddress`.
+Heap, module, and dynamic-export observations retain the focused LastError
+evidence. GetCPInfo retains direct BGI calls and a guarded raw-output／LastError
+self-oracle with bounded x86 consumer frames. The multibyte option records the
+six-argument query／conversion pair, bounded bytes／UTF-16 output, consumer
+frames, and a guarded Windows-932 oracle. Ordinary
 traces do not install these hooks.
 
 ## GitHub Actions

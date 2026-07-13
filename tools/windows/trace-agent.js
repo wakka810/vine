@@ -25,6 +25,10 @@ let environmentStringsOracleLastError = null;
 let wideCharOracleScheduled = false;
 let wideCharOracleSentinel = null;
 let wideCharOracleLastError = null;
+let multiByteOracleScheduled = false;
+let multiByteOracleSentinel = null;
+let multiByteOracleLastError = null;
+let multiByteConsumerRecorded = false;
 let tlsLifecycleOracleScheduled = false;
 let tlsGetValueConsumerRecorded = false;
 let flsLifecycleOracleScheduled = false;
@@ -217,6 +221,91 @@ function snapshotWideCharSource(pointer, requestedUnits) {
   }
 }
 
+function snapshotMultiByteSource(pointer, requestedBytes) {
+  const maximumBytes = 1024 * 1024;
+  const maximumRecordedBytes = 4096;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: "null pointer",
+    };
+  }
+  if (requestedBytes === 0 || requestedBytes < -1) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: "invalid multibyte byte count",
+    };
+  }
+  try {
+    let observedBytes = requestedBytes;
+    if (requestedBytes === -1) {
+      observedBytes = null;
+      for (let index = 0; index < maximumBytes; index += 1) {
+        if (pointer.add(index).readU8() === 0) {
+          observedBytes = index + 1;
+          break;
+        }
+      }
+      if (observedBytes === null) {
+        return {
+          pointer: pointer.toString(),
+          requestedBytes,
+          maximumBytes,
+          error: "multibyte NUL not found within bounded observation",
+        };
+      }
+    }
+    if (observedBytes > maximumBytes) {
+      return {
+        pointer: pointer.toString(),
+        requestedBytes,
+        observedBytes,
+        maximumBytes,
+        error: "multibyte input exceeds bounded observation",
+      };
+    }
+    const buffer = pointer.readByteArray(observedBytes);
+    const bytes = [...new Uint8Array(buffer)];
+    let hash = 0x811c9dc5;
+    let nulBytes = 0;
+    let asciiBytes = 0;
+    for (const byte of bytes) {
+      hash = fnv1aByte(hash, byte);
+      if (byte === 0) {
+        nulBytes += 1;
+      }
+      if (byte <= 0x7f) {
+        asciiBytes += 1;
+      }
+    }
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      observedBytes,
+      maximumBytes,
+      contentFnv1a32: `0x${hash.toString(16).padStart(8, "0")}`,
+      nulBytes,
+      asciiBytes,
+      bytes:
+        observedBytes <= maximumRecordedBytes
+          ? bytes
+          : bytes.slice(0, maximumRecordedBytes),
+      bytesTruncated: observedBytes > maximumRecordedBytes,
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: error.message,
+    };
+  }
+}
+
 function snapshotByteBuffer(pointer, requestedBytes) {
   const maximumBytes = 1024 * 1024;
   if (pointer.isNull()) {
@@ -259,6 +348,61 @@ function snapshotByteBuffer(pointer, requestedBytes) {
       pointer: pointer.toString(),
       requestedBytes,
       maximumBytes,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotWideCharBuffer(pointer, requestedUnits) {
+  const maximumUnits = 512 * 1024;
+  const maximumRecordedUnits = 4096;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      requestedUnits,
+      maximumUnits,
+      isNull: true,
+    };
+  }
+  if (requestedUnits < 0 || requestedUnits > maximumUnits) {
+    return {
+      pointer: pointer.toString(),
+      requestedUnits,
+      maximumUnits,
+      error: "UTF-16 buffer length is outside the bounded observation",
+    };
+  }
+  try {
+    const units = Array.from({ length: requestedUnits }, (_, index) =>
+      pointer.add(index * 2).readU16(),
+    );
+    let hash = 0x811c9dc5;
+    let nulUnits = 0;
+    for (const unit of units) {
+      hash = fnv1aByte(hash, unit & 0xff);
+      hash = fnv1aByte(hash, unit >>> 8);
+      if (unit === 0) {
+        nulUnits += 1;
+      }
+    }
+    return {
+      pointer: pointer.toString(),
+      requestedUnits,
+      maximumUnits,
+      isNull: false,
+      contentFnv1a32: `0x${hash.toString(16).padStart(8, "0")}`,
+      nulUnits,
+      units:
+        requestedUnits <= maximumRecordedUnits
+          ? units
+          : units.slice(0, maximumRecordedUnits),
+      unitsTruncated: requestedUnits > maximumRecordedUnits,
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      requestedUnits,
+      maximumUnits,
       error: error.message,
     };
   }
@@ -537,6 +681,52 @@ function snapshotGetCpInfoCall(
     getCpInfo: {
       codePage: codePage.toUInt32(),
       outputBefore: snapshotBoundedRawBytes(output, 32),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              context,
+              4,
+              12,
+            ),
+          }
+        : null,
+    },
+  };
+}
+
+function snapshotMultiByteToWideCharCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  codePage,
+  flags,
+  source,
+  sourceBytes,
+  destination,
+  destinationUnits,
+) {
+  const recordsConsumer =
+    !multiByteConsumerRecorded &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    multiByteConsumerRecorded = true;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    multiByteToWideChar: {
+      codePage: codePage.toUInt32(),
+      flags: flags.toUInt32(),
+      source: snapshotMultiByteSource(source, sourceBytes),
+      destinationBefore: snapshotWideCharBuffer(
+        destination,
+        Math.max(0, destinationUnits),
+      ),
       immediateConsumer: recordsConsumer
         ? {
             apiContinuation: snapshotInstructionsFollowingDirectJump(
@@ -1028,6 +1218,12 @@ if (selectedObservations.has("wide-char-to-multi-byte")) {
     [null, null, null, null, null, null, null, null],
   ]);
 }
+if (selectedObservations.has("multi-byte-to-wide-char")) {
+  hooks["kernel32.dll"].push([
+    "MultiByteToWideChar",
+    [null, null, null, null, null, null],
+  ]);
+}
 if (selectedObservations.has("get-last-error")) {
   hooks["kernel32.dll"].push(["GetLastError", []]);
 }
@@ -1170,6 +1366,11 @@ function attachHook(module, name, decoders) {
         name === "GetCPInfo" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedMultiByteObservation =
+        selectedObservations.has("multi-byte-to-wide-char") &&
+        name === "MultiByteToWideChar" &&
+        caller.module !== null &&
+        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
       if (
         selectedObservations.has("heap-allocation") &&
         !selectedObservations.has("heap-lifecycle") &&
@@ -1183,6 +1384,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("get-cp-info") &&
         name === "GetCPInfo" &&
         !focusedGetCpInfoObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("multi-byte-to-wide-char") &&
+        name === "MultiByteToWideChar" &&
+        !focusedMultiByteObservation
       ) {
         this.traceFrame = null;
         return;
@@ -1211,6 +1420,15 @@ function attachHook(module, name, decoders) {
         caller.module === "frida-agent.dll";
       if (this.traceWideCharOracle) {
         this.lastError = wideCharOracleSentinel;
+      }
+      this.traceMultiByteOracle =
+        multiByteOracleSentinel !== null &&
+        selectedObservations.has("multi-byte-to-wide-char") &&
+        name === "MultiByteToWideChar" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceMultiByteOracle) {
+        this.lastError = multiByteOracleSentinel;
       }
       this.traceGetLastErrorOracle =
         getLastErrorOracleSentinel !== null &&
@@ -1302,6 +1520,17 @@ function attachHook(module, name, decoders) {
               usedDefaultChar: args[7],
             }
           : null;
+      this.traceMultiByteConversion =
+        focusedMultiByteObservation
+          ? {
+              codePage: args[0],
+              flags: args[1],
+              source: args[2],
+              sourceBytes: signed32(args[3]),
+              destination: args[4],
+              destinationUnits: signed32(args[5]),
+            }
+          : null;
       this.traceGetCpInfo =
         focusedGetCpInfoObservation
           ? { codePage: args[0], output: args[1] }
@@ -1351,6 +1580,19 @@ function attachHook(module, name, decoders) {
               this.context,
               this.traceGetCpInfo.codePage,
               this.traceGetCpInfo.output,
+            )
+        : this.traceMultiByteConversion !== null
+          ? snapshotMultiByteToWideCharCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceMultiByteConversion.codePage,
+              this.traceMultiByteConversion.flags,
+              this.traceMultiByteConversion.source,
+              this.traceMultiByteConversion.sourceBytes,
+              this.traceMultiByteConversion.destination,
+              this.traceMultiByteConversion.destinationUnits,
             )
         : name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
@@ -1454,6 +1696,9 @@ function attachHook(module, name, decoders) {
       if (this.traceWideCharOracle) {
         wideCharOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceMultiByteOracle) {
+        multiByteOracleLastError = Number(lastError) >>> 0;
+      }
       if (this.traceGetLastErrorOracle) {
         getLastErrorOracleResult = result.toUInt32();
         getLastErrorOracleLastError = Number(lastError) >>> 0;
@@ -1472,6 +1717,8 @@ function attachHook(module, name, decoders) {
       }
       const wideCharResult =
         this.traceWideCharConversion === null ? null : signed32(result);
+      const multiByteResult =
+        this.traceMultiByteConversion === null ? null : signed32(result);
       const observation = {
         ...(this.traceHeapAllocation === null
           ? {}
@@ -1550,6 +1797,19 @@ function attachHook(module, name, decoders) {
                 ),
                 usedDefaultCharAfter: snapshotOptionalBool(
                   this.traceWideCharConversion.usedDefaultChar,
+                ),
+              },
+            }),
+        ...(this.traceMultiByteConversion === null
+          ? {}
+          : {
+              multiByteToWideChar: {
+                result: multiByteResult,
+                destinationAfter: snapshotWideCharBuffer(
+                  this.traceMultiByteConversion.destination,
+                  multiByteResult > 0
+                    ? multiByteResult
+                    : Math.max(0, this.traceMultiByteConversion.destinationUnits),
                 ),
               },
             }),
@@ -1915,6 +2175,137 @@ function scheduleWideCharOracle(module) {
       });
     } catch (error) {
       emit("wide-char-to-multi-byte-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function scheduleMultiByteOracle(module) {
+  if (multiByteOracleScheduled) {
+    return;
+  }
+  multiByteOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "MultiByteToWideChar");
+      if (address === null) {
+        throw new Error("MultiByteToWideChar export is unavailable");
+      }
+      const multiByteToWideChar = new SystemFunction(
+        address,
+        "int",
+        ["uint32", "uint32", "pointer", "int", "pointer", "int"],
+        "stdcall",
+      );
+      const invoke = ({
+        id,
+        sentinel,
+        sourceBytes,
+        sourceCount,
+        destinationUnits,
+        flags = 1,
+      }) => {
+        const source = Memory.alloc(Math.max(1, sourceBytes.length));
+        source.writeByteArray(sourceBytes.length === 0 ? [0] : sourceBytes);
+        const storageBytes = Math.max(16, destinationUnits * 2 + 16);
+        const storage = Memory.alloc(storageBytes);
+        storage.writeByteArray(Array(storageBytes).fill(0xa5));
+        const destination = destinationUnits === 0 ? ptr(0) : storage.add(8);
+        const storageBefore = snapshotBoundedRawBytes(
+          storage,
+          Math.min(64, storageBytes),
+        );
+        multiByteOracleSentinel = sentinel;
+        multiByteOracleLastError = null;
+        try {
+          const outcome = multiByteToWideChar(
+            932,
+            flags,
+            source,
+            sourceCount,
+            destination,
+            destinationUnits,
+          );
+          const result = Number(outcome.value);
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (multiByteOracleLastError === null) {
+            throw new Error(`${id} did not pass through the conversion hook`);
+          }
+          return {
+            id,
+            sentinel,
+            codePage: 932,
+            flags,
+            sourceBytes,
+            sourceCount,
+            destinationCapacityUnits: destinationUnits,
+            result,
+            hookLastErrorAfter: multiByteOracleLastError,
+            systemLastError,
+            storageOffsetBytes: destinationUnits === 0 ? null : 8,
+            storageBefore,
+            storageAfter: snapshotBoundedRawBytes(
+              storage,
+              Math.min(64, storageBytes),
+            ),
+            destinationAfter: snapshotWideCharBuffer(
+              destination,
+              result > 0 ? result : destinationUnits,
+            ),
+          };
+        } finally {
+          multiByteOracleSentinel = null;
+          multiByteOracleLastError = null;
+        }
+      };
+
+      const asciiJapaneseBytes = [0x41, 0x82, 0xa0, 0];
+      const query = invoke({
+        id: "ascii-japanese-fixed-query",
+        sentinel: 87,
+        sourceBytes: asciiJapaneseBytes,
+        sourceCount: asciiJapaneseBytes.length,
+        destinationUnits: 0,
+      });
+      const conversion = invoke({
+        id: "ascii-japanese-fixed-conversion",
+        sentinel: 88,
+        sourceBytes: asciiJapaneseBytes,
+        sourceCount: asciiJapaneseBytes.length,
+        destinationUnits: query.result,
+      });
+      const nulTerminatedQuery = invoke({
+        id: "ascii-japanese-nul-query",
+        sentinel: 89,
+        sourceBytes: asciiJapaneseBytes,
+        sourceCount: -1,
+        destinationUnits: 0,
+      });
+      const insufficientBuffer = invoke({
+        id: "insufficient-buffer",
+        sentinel: 90,
+        sourceBytes: asciiJapaneseBytes,
+        sourceCount: asciiJapaneseBytes.length,
+        destinationUnits: 1,
+      });
+      const zeroSourceCount = invoke({
+        id: "zero-source-count",
+        sentinel: 91,
+        sourceBytes: [0],
+        sourceCount: 0,
+        destinationUnits: 0,
+      });
+      emit("multi-byte-to-wide-char-oracle", {
+        profile: "x86-cp932-fixed-query-convert-v1",
+        calls: [
+          query,
+          conversion,
+          nulTerminatedQuery,
+          insufficientBuffer,
+          zeroSourceCount,
+        ],
+      });
+    } catch (error) {
+      emit("multi-byte-to-wide-char-oracle-error", { error: error.message });
     }
   });
 }
@@ -2531,6 +2922,12 @@ Process.attachModuleObserver({
       selectedObservations.has("wide-char-to-multi-byte")
     ) {
       scheduleWideCharOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("multi-byte-to-wide-char")
+    ) {
+      scheduleMultiByteOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

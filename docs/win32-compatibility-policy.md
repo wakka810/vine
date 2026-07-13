@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-get-cp-info-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -39,7 +39,7 @@ runtime execution. It contains only target-independent bounded data:
 - enabled `SetHandleCount` values;
 - opt-in deterministic ANSI view of the process-parameter command line;
 - opt-in controlled UTF-16 environment authority and copy lifetime;
-- opt-in active ANSI code page, bounded UTF-16 source limit, and measured code-page information fields;
+- opt-in active ANSI code page, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, and Windows-932 private-use byte mappings;
 - enabled `HeapAlloc` flag and byte-length pairs.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Selectors,
@@ -47,7 +47,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form thirteen monotonic controlled policies:
+The current files form fourteen monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -64,6 +64,7 @@ The current files form thirteen monotonic controlled policies:
 | `kernel32-private-heap-size-1-v1` | stdin, stdout, stderr | preceding options | zeroed `0x214`, `0x800`; flags-zero size `1` |
 | `kernel32-private-heap-size-544-v1` | stdin, stdout, stderr | preceding options | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 | `kernel32-get-cp-info-v1` | stdin, stdout, stderr | preceding options + active Windows-932 CPINFO fields | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
+| `kernel32-multi-byte-to-wide-char-v1` | stdin, stdout, stderr | preceding options + explicit Windows-932 flags `1`／65,536-byte decode bound | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -126,6 +127,14 @@ ranges independently of the native caller and pointer. Only the explicit active
 page is enabled; other pages, disabled metadata, and invalid output ranges stop
 before mutation. Native guard measurements and the BGI classification-table
 consumer remain evidence rather than implementation branches.
+`MultiByteToWideChar` uses one policy-backed six-argument semantic handler for
+both query and conversion. The policy enables explicit Windows-932, flags `1`,
+and a broad source bound; it does not contain the reached 256-byte source,
+pointer, caller, output table, or next stop. The semantic decoder combines
+checked lead/trail pairs with native-observed standalone `0xA0`／`0xFD..0xFF`
+private-use mappings. The public fixture independently covers a Japanese pair,
+the complete native 256-unit table, insufficient-buffer prefix write, invalid
+shape, LastError, and mutation-free unsupported selectors/flags.
 
 Policy JSON parsing and validation is covered independently:
 
@@ -145,8 +154,8 @@ stop remain evidence fields only.
 This boundary does not implement broad `HeapAlloc`, general handle-table sizing,
 broad file classification, file I/O, non-ASCII command-line conversion, host
 environment import, environment mutation／ANSI environment strings, arbitrary
-code-page selection or mutation／conversion flags／explicit default-character pointers,
-`MultiByteToWideChar`, or a general
-Windows console. Adding a policy entry is valid only when
+code-page selection or mutation／other conversion flags／explicit default-character pointers,
+`GetStringTypeW`, broad locale classification, or a general Windows console.
+Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

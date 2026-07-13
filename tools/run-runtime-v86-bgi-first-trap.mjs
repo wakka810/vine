@@ -77,6 +77,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-get-acp",
         "kernel32-private-heap-size-544",
         "kernel32-get-cp-info",
+        "kernel32-multi-byte-to-wide-char",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -103,7 +104,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-get-cp-info"
+    genericRuntimeCapability === "kernel32-multi-byte-to-wide-char"
+      ? "kernel32-multi-byte-to-wide-char-v1.json"
+      : genericRuntimeCapability === "kernel32-get-cp-info"
       ? "kernel32-get-cp-info-v1.json"
       : genericRuntimeCapability === "kernel32-private-heap-size-544"
       ? "kernel32-private-heap-size-544-v1.json"
@@ -168,7 +171,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const getCpInfoEnabled = genericRuntimeCapability === "kernel32-get-cp-info";
+const multiByteToWideCharEnabled =
+  genericRuntimeCapability === "kernel32-multi-byte-to-wide-char";
+const getCpInfoEnabled =
+  multiByteToWideCharEnabled || genericRuntimeCapability === "kernel32-get-cp-info";
 const privateHeapSize544Enabled =
   getCpInfoEnabled || genericRuntimeCapability === "kernel32-private-heap-size-544";
 const getAcpEnabled =
@@ -240,7 +246,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? getCpInfoEnabled
+    ? multiByteToWideCharEnabled
+      ? "v86-bgi-multi-byte-to-wide-char"
+      : getCpInfoEnabled
       ? "v86-bgi-get-cp-info"
       : privateHeapSize544Enabled
       ? "v86-bgi-private-heap-size-544"
@@ -2216,6 +2224,66 @@ const getCpInfoExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const multiByteTableOutputBytes = Array.from({ length: 256 }, (_, byte) => {
+  let unit;
+  if (byte === 0 || (byte >= 0x81 && byte <= 0x9f) || (byte >= 0xe0 && byte <= 0xfc)) {
+    unit = 0x20;
+  } else if (byte <= 0x80) {
+    unit = byte;
+  } else if (byte === 0xa0) {
+    unit = 0xf8f0;
+  } else if (byte <= 0xdf) {
+    unit = 0xff61 + byte - 0xa1;
+  } else {
+    unit = 0xf8f1 + byte - 0xfd;
+  }
+  return [unit & 0xff, unit >>> 8];
+}).flat();
+const multiByteToWideCharExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 94,
+  writebackBatches: 95,
+  dirtyPages: 150,
+  changedBytes: 2741,
+  hostDeltaBatches: 37,
+  finalGeneration: 161,
+  query: {
+    arguments: [932, 1, 0x006ffdd4, 256, 0, 0],
+    instructionCount: 5793,
+    returnAddress: 0x100ad691,
+    result: 256,
+  },
+  conversion: {
+    arguments: [932, 1, 0x006ffdd4, 256, 0x006ff738, 256],
+    instructionCount: 5886,
+    returnAddress: 0x100ad6fb,
+    result: 256,
+    outputBytes: multiByteTableOutputBytes,
+  },
+  outputDelta: {
+    sequence: 94,
+    fromGeneration: 159,
+    generation: 160,
+    pageAddress: 0x006ff000,
+    owner: 4,
+    payloadSha256: "be1040f1774da4926f9f0162ff5f0d72360d3af1ccb2afadd0a2e0c30909b73a",
+  },
+  memoryContentSha256: "eb77024dd956d49c9a1a9f89a0e248220cd6ab6850203978134aeb93b8c4e811",
+  reportBytes: 423_814,
+  reportSha256: "97655782894eca5f4e97a095d1ee3b64619e4f5ecf076c2be91d9b79ca045718",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 108,
+    endpointAddress: 0x7f0006b0,
+    module: "kernel32.dll",
+    symbol: "GetStringTypeW",
+    iatAddress: 0x100d1258,
+    arguments: [1, 0x006ff738, 256, 0x006ff9d4],
+    returnAddress: 0x100ad70d,
+    instructionCount: 5894,
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2678,6 +2746,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (multiByteToWideCharEnabled) {
+        validateMultiByteToWideCharResult(genericResult);
       } else if (getCpInfoEnabled) {
         validateGetCpInfoResult(genericResult);
       } else if (privateHeapSize544Enabled) {
@@ -2731,7 +2801,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : getCpInfoEnabled
+          : multiByteToWideCharEnabled
+            ? "bgi MultiByteToWideChar"
+            : getCpInfoEnabled
             ? "bgi GetCPInfo"
             : privateHeapSize544Enabled
             ? "bgi private-heap size-544 allocation"
@@ -3140,7 +3212,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : getCpInfoEnabled
+        : multiByteToWideCharEnabled
+          ? 22
+          : getCpInfoEnabled
           ? 21
           : getAcpEnabled
           ? 20
@@ -5378,6 +5452,102 @@ function validatePrivateHeapSize544Result(result) {
   );
 }
 
+function validateMultiByteToWideCharResult(result) {
+  const expected = multiByteToWideCharExpected;
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "MultiByteToWideChar",
+  );
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, 2);
+
+  const [query, conversion] = calls;
+  assert.deepEqual(query.arguments, expected.query.arguments);
+  assert.deepEqual(query.result, { action: "set", value: expected.query.result });
+  assert.equal(query.implementationId, "kernel32.multi-byte-to-wide-char.v1");
+  assert.equal(query.lastError, 87);
+  assert.equal(query.stackPointerAfter, query.stackPointerBefore + 28);
+  assert.equal(query.trapInstructionCount, expected.query.instructionCount);
+  assert.equal(query.returnAddress, expected.query.returnAddress);
+  assert.deepEqual(query.guestWrites, []);
+
+  assert.deepEqual(conversion.arguments, expected.conversion.arguments);
+  assert.deepEqual(conversion.result, {
+    action: "set",
+    value: expected.conversion.result,
+  });
+  assert.equal(conversion.implementationId, "kernel32.multi-byte-to-wide-char.v1");
+  assert.equal(conversion.lastError, 87);
+  assert.equal(conversion.stackPointerAfter, conversion.stackPointerBefore + 28);
+  assert.equal(conversion.trapInstructionCount, expected.conversion.instructionCount);
+  assert.equal(conversion.returnAddress, expected.conversion.returnAddress);
+  assert.equal(conversion.guestWrites.length, 1);
+  assert.equal(conversion.guestWrites[0].address, expected.conversion.arguments[4]);
+  assert.deepEqual(conversion.guestWrites[0].bytes, expected.conversion.outputBytes);
+  assert.deepEqual(conversion.guestWrites[0].result, {
+    bytesWritten: expected.conversion.outputBytes.length,
+    dirtyPages: 1,
+    invalidation: {
+      generation: expected.outputDelta.generation,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    },
+  });
+
+  const outputDelta = result.hostDeltas.find(
+    ({ sequence }) => sequence === expected.outputDelta.sequence,
+  );
+  assert(outputDelta, "MultiByteToWideChar output delta is missing");
+  assert.equal(outputDelta.fromGeneration, expected.outputDelta.fromGeneration);
+  assert.equal(outputDelta.generation, expected.outputDelta.generation);
+  assert.equal(outputDelta.mappingOperations, 0);
+  assert.deepEqual(outputDelta.dirtyPages, [
+    {
+      address: expected.outputDelta.pageAddress,
+      owner: expected.outputDelta.owner,
+    },
+  ]);
+  assert.equal(outputDelta.payloadBytes, page.size);
+  assert.equal(outputDelta.payloadSha256, expected.outputDelta.payloadSha256);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validateGetCpInfoResult(result) {
   const expected = getCpInfoExpected;
   const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetCPInfo");
@@ -5524,7 +5694,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : getCpInfoEnabled
+        : multiByteToWideCharEnabled
+          ? "vine.v86-bgi-multi-byte-to-wide-char"
+          : getCpInfoEnabled
           ? "vine.v86-bgi-get-cp-info"
           : privateHeapSize544Enabled
           ? "vine.v86-bgi-private-heap-size-544"

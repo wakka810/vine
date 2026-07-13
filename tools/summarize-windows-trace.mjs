@@ -27,6 +27,7 @@ const supportedObservations = new Set([
   "command-line-a",
   "environment-strings-w",
   "wide-char-to-multi-byte",
+  "multi-byte-to-wide-char",
   "get-last-error",
   "set-last-error",
   "get-acp",

@@ -32,6 +32,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wide_char_to_multi_byte: Option<Kernel32WideCharToMultiBytePolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_byte_to_wide_char: Option<Kernel32MultiByteToWideCharPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_code_page_info: Option<Kernel32CodePageInfoPolicy>,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
 }
@@ -55,6 +57,13 @@ pub struct Kernel32HeapAllocationPolicy {
 pub struct Kernel32WideCharToMultiBytePolicy {
     pub active_code_page: u32,
     pub maximum_source_code_units: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32MultiByteToWideCharPolicy {
+    pub allowed_flags: Vec<u32>,
+    pub maximum_source_bytes: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +103,7 @@ impl Kernel32CompatibilityPolicy {
             ansi_command_line: false,
             wide_environment_strings: false,
             wide_char_to_multi_byte: None,
+            multi_byte_to_wide_char: None,
             active_code_page_info: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
@@ -204,6 +214,14 @@ impl Kernel32CompatibilityPolicy {
                 "active code-page information requires an enabled ACP, a bounded character size, and ordered trailing-zero lead-byte ranges",
             ));
         }
+        if let Some(conversion) = self.multi_byte_to_wide_char.as_ref()
+            && !valid_multi_byte_to_wide_char_policy(conversion, self.active_code_page())
+        {
+            return Err(policy_error(
+                "kernel32-policy-multi-byte-conversion-invalid",
+                "multibyte conversion requires Windows-932 ACP, bounded unique implemented flags, and a bounded nonzero source limit",
+            ));
+        }
 
         let mut heap_variants = BTreeSet::new();
         for allocation in &self.heap_allocations {
@@ -268,6 +286,10 @@ impl Kernel32CompatibilityPolicy {
             .zip(self.active_code_page_info.as_ref())
     }
 
+    pub fn multi_byte_to_wide_char(&self) -> Option<&Kernel32MultiByteToWideCharPolicy> {
+        self.multi_byte_to_wide_char.as_ref()
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocations.iter().any(|allocation| {
             allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
@@ -285,6 +307,23 @@ fn valid_lead_byte_ranges(bytes: &[u8; 12]) -> bool {
         }
     }
     true
+}
+
+fn valid_multi_byte_to_wide_char_policy(
+    policy: &Kernel32MultiByteToWideCharPolicy,
+    active_code_page: Option<u32>,
+) -> bool {
+    let flags = policy
+        .allowed_flags
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    active_code_page == Some(932)
+        && !policy.allowed_flags.is_empty()
+        && policy.allowed_flags.len() <= MAX_POLICY_ENTRIES
+        && flags.len() == policy.allowed_flags.len()
+        && flags.iter().all(|flags| matches!(flags, 0 | 1))
+        && (1..=1_048_576).contains(&policy.maximum_source_bytes)
 }
 
 fn policy_error(
@@ -315,6 +354,7 @@ mod tests {
         assert!(!policy.allows_ansi_command_line());
         assert!(!policy.allows_wide_environment_strings());
         assert!(policy.wide_char_to_multi_byte().is_none());
+        assert!(policy.multi_byte_to_wide_char().is_none());
         assert!(policy.active_code_page_info().is_none());
 
         let mut invalid_environment_layer = policy.clone();
@@ -360,6 +400,32 @@ mod tests {
         assert_eq!(
             invalid_lead_bytes.validate().unwrap_err().code,
             "kernel32-policy-code-page-info-invalid"
+        );
+
+        let mut invalid_multi_byte = policy.clone();
+        invalid_multi_byte.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+            allowed_flags: vec![1],
+            maximum_source_bytes: 65_536,
+        });
+        assert_eq!(
+            invalid_multi_byte.validate().unwrap_err().code,
+            "kernel32-policy-multi-byte-conversion-invalid"
+        );
+
+        invalid_multi_byte.ansi_command_line = true;
+        invalid_multi_byte.wide_environment_strings = true;
+        invalid_multi_byte.wide_char_to_multi_byte = Some(Kernel32WideCharToMultiBytePolicy {
+            active_code_page: 932,
+            maximum_source_code_units: 65_536,
+        });
+        invalid_multi_byte
+            .multi_byte_to_wide_char
+            .as_mut()
+            .unwrap()
+            .allowed_flags = vec![1, 1];
+        assert_eq!(
+            invalid_multi_byte.validate().unwrap_err().code,
+            "kernel32-policy-multi-byte-conversion-invalid"
         );
 
         let mut duplicate = policy;

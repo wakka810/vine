@@ -1617,3 +1617,40 @@ Chrome Runtime Workerも92 ordered callsとsame stop／memoryを再現し、759 
 822 Wasm crossings、final generation `741`、cancel／watchdog後pending work 0を通す。3分gateは
 1,587 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-get-cp-info.md](bgi-get-cp-info.md)を正とする。
+
+## 69. BGI MultiByteToWideChar
+
+focused `multi-byte-to-wide-char` observerのaccepted capturesは50,395
+bytes／84 lines／SHA-256
+`99d1e7d520a13f840cc5d21885beb392c3ef018a62036c4af2573a8866192275`と
+50,419 bytes／84 lines／SHA-256
+`15c9640167a33d93146cd0b014eddf2efa78793c53c334d391c8d5a2f721cf49`
+である。どちらも16 balanced API pairs、diagnostics zeroを保持する。APIはsix-argument
+x86 stdcallであり、preceding unsupported stack snapshotのseventh wordは引数ではない。
+
+BGI RVA `0xAD691`のqueryは`(932,1,source,256,NULL,0)`で256を返し、RVA
+`0xAD6FB`のconversionはsame sourceと256-unit destinationへ256を返す。Sourceは
+FNV-1a `0x80472A65`のstable 256 bytes、outputは512 bytes／SHA-256
+`4684daa1a9839ae6e158ace6c2fcf905ff97e52a684d3f0e808cce56fddf6b00`
+である。成功はrunごとのLastError `0`／`87`を保つ。Native Windows-932はsingle
+`0xA0`を`U+F8F0`、`0xFD..0xFF`を`U+F8F1..U+F8F3`へ写し、WHATWG replacementと
+異なる。OracleはJapanese pair、NUL、success preserve、insufficient-buffer prefix＋`122`、
+zero count＋`87`を固定する。
+
+Policy `kernel32-multi-byte-to-wide-char-v1`はallowed flags `[1]`と65,536-byte boundだけを
+追加する。`kernel32.multi-byte-to-wide-char.v1`はchecked source／destination、query／conversion、
+overlap、partial buffer、Windows private-use mappingsをsemantic contractとして処理し、targetの
+pointer／256-byte value／callerをpolicyへ含めない。
+
+`npm run check:runtime:bgi -- --profile kernel32-multi-byte-to-wide-char`は35 contracts／94
+calls、95 writebacks／150 dirty pages／2,741 changed bytes、37 host deltas、final generation
+`161`を通す。instruction `5894`でID `108`／
+`GetStringTypeW(1,0x006FF738,256,0x006FF9D4)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は`eb77024dd956d49c9a1a9f89a0e248220cd6ab6850203978134aeb93b8c4e811`、
+423,814-byte reportのSHA-256は
+`97655782894eca5f4e97a095d1ee3b64619e4f5ecf076c2be91d9b79ca045718`である。
+
+Chrome Runtime Workerも94 ordered callsとsame stop／memoryを再現し、772 slices、677 yields、
+835 Wasm crossings、final generation `751`、cancel／watchdog後pending work 0を通す。3分gateは
+1,482 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-multi-byte-to-wide-char.md](bgi-multi-byte-to-wide-char.md)を正とする。

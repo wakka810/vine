@@ -9,14 +9,15 @@ use vine_core::{
     GET_LAST_ERROR_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
     GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget, ImportThunk,
     ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
-    Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
-    Kernel32WideCharToMultiBytePolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
-    LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
-    LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MemoryLimits, MemoryOwnerId,
-    MemoryOwnerKind, MemoryRegionKind, PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET,
-    PageProtection, ProcessAddressSpaceLayout, RUNTIME_FLS_INDEX_LIMIT,
-    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_STANDARD_ERROR_HANDLE,
-    RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
+    Kernel32HeapAllocationPolicy, Kernel32MultiByteToWideCharPolicy,
+    Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
+    LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
+    MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
+    PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET, PageProtection, ProcessAddressSpaceLayout,
+    RUNTIME_FLS_INDEX_LIMIT, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
+    RUNTIME_STANDARD_ERROR_HANDLE, RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
     RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId,
@@ -3013,6 +3014,290 @@ fn wide_char_to_multi_byte_models_windows_932_query_conversion_and_failures() {
     ));
     assert_eq!(runtime, runtime_before_unsupported);
     assert_eq!(memory.stats(), memory_before_unsupported);
+}
+
+#[test]
+fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
+    const TARGET_SOURCE: u32 = OUTPUT_BASE + 0x200;
+    const JAPANESE_SOURCE: u32 = OUTPUT_BASE + 0x300;
+    const TARGET_DESTINATION: u32 = OUTPUT_BASE + 0x400;
+    const JAPANESE_DESTINATION: u32 = OUTPUT_BASE + 0x600;
+    const SHORT_DESTINATION: u32 = OUTPUT_BASE + 0x610;
+
+    let mut target_source = (0_u16..=255).map(|byte| byte as u8).collect::<Vec<_>>();
+    for byte in [0_u8]
+        .into_iter()
+        .chain(0x81_u8..=0x9f)
+        .chain(0xe0_u8..=0xfc)
+    {
+        target_source[byte as usize] = b' ';
+    }
+    let mut target_units = (0_u16..=255).collect::<Vec<_>>();
+    target_units[0] = u16::from(b' ');
+    target_units[0x81..=0x9f].fill(u16::from(b' '));
+    target_units[0xa0] = 0xf8f0;
+    for (offset, unit) in target_units[0xa1..=0xdf].iter_mut().enumerate() {
+        *unit = 0xff61 + offset as u16;
+    }
+    target_units[0xe0..=0xfc].fill(u16::from(b' '));
+    target_units[0xfd] = 0xf8f1;
+    target_units[0xfe] = 0xf8f2;
+    target_units[0xff] = 0xf8f3;
+    let target_output = target_units
+        .iter()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect::<Vec<_>>();
+
+    let (mut memory, owner) = initialized_memory();
+    memory
+        .write_initialization(owner, GuestAddress(TARGET_SOURCE), &target_source)
+        .expect("BGI code-page table source");
+    memory
+        .write_initialization(owner, GuestAddress(JAPANESE_SOURCE), &[0x41, 0x82, 0xa0, 0])
+        .expect("Windows-932 multibyte source");
+    for (address, bytes) in [
+        (TARGET_DESTINATION, vec![0xa5; 512]),
+        (JAPANESE_DESTINATION, vec![0xa5; 6]),
+        (SHORT_DESTINATION, vec![0xa5; 2]),
+    ] {
+        memory
+            .write_initialization(owner, GuestAddress(address), &bytes)
+            .expect("UTF-16 destination initialization");
+    }
+
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x104);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize MultiByteToWideChar IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "MultiByteToWideChar".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("MultiByteToWideChar contract");
+    assert_eq!(
+        contract.implementation_id,
+        MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.arguments.len(), 6);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let frames = [
+        vec![0x1000_0b01, 932, 1, TARGET_SOURCE, 256, 0, 0],
+        vec![
+            0x1000_0b02,
+            932,
+            1,
+            TARGET_SOURCE,
+            256,
+            TARGET_DESTINATION,
+            256,
+        ],
+        vec![0x1000_0b03, 932, 1, JAPANESE_SOURCE, 4, 0, 0],
+        vec![
+            0x1000_0b04,
+            932,
+            1,
+            JAPANESE_SOURCE,
+            4,
+            JAPANESE_DESTINATION,
+            3,
+        ],
+        vec![
+            0x1000_0b05,
+            932,
+            1,
+            JAPANESE_SOURCE,
+            4,
+            SHORT_DESTINATION,
+            1,
+        ],
+        vec![0x1000_0b06, 932, 1, JAPANESE_SOURCE, 0, 0, 0],
+        vec![0x1000_0b07, 0, 1, JAPANESE_SOURCE, 4, 0, 0],
+        vec![0x1000_0b08, 932, 0, JAPANESE_SOURCE, 4, 0, 0],
+        vec![
+            0x1000_0b09,
+            932,
+            1,
+            JAPANESE_SOURCE,
+            4,
+            JAPANESE_DESTINATION,
+            0,
+        ],
+        vec![
+            0x1000_0b0a,
+            932,
+            1,
+            JAPANESE_SOURCE,
+            4,
+            JAPANESE_SOURCE + 2,
+            3,
+        ],
+    ];
+    for (index, words) in frames.iter().enumerate() {
+        write_frame(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_BASE + index as u32 * 0x40),
+            words,
+        );
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "public-multi-byte-windows-932-v1".to_owned();
+    policy.ansi_command_line = true;
+    policy.wide_environment_strings = true;
+    policy.wide_char_to_multi_byte = Some(Kernel32WideCharToMultiBytePolicy {
+        active_code_page: 932,
+        maximum_source_code_units: 65_536,
+    });
+    policy.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+        allowed_flags: vec![1],
+        maximum_source_bytes: 65_536,
+    });
+    policy
+        .validate()
+        .expect("valid multibyte conversion policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let dispatch = |index: usize,
+                    memory: &mut GuestMemory,
+                    runtime: &mut RuntimeState|
+     -> vine_core::ApiImmediateCompletion {
+        dispatch_owned_with_policy(
+            &dispatcher,
+            memory,
+            runtime,
+            &endpoint,
+            STACK_BASE + index as u32 * 0x40,
+            frames[index][0],
+            &policy,
+        )
+    };
+
+    let target_query = dispatch(0, &mut memory, &mut runtime);
+    assert_eq!(target_query.eax, RegisterUpdate::Set(256));
+    assert_eq!(target_query.stack_pointer, GuestAddress(STACK_BASE + 28));
+    assert_eq!(target_query.last_error, INITIAL_LAST_ERROR);
+    assert!(target_query.guest_writes.is_empty());
+
+    let target_conversion = dispatch(1, &mut memory, &mut runtime);
+    assert_eq!(target_conversion.eax, RegisterUpdate::Set(256));
+    assert_eq!(target_conversion.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(TARGET_DESTINATION), target_output.len())
+            .expect("BGI UTF-16 code-page table"),
+        target_output
+    );
+
+    let japanese_query = dispatch(2, &mut memory, &mut runtime);
+    assert_eq!(japanese_query.eax, RegisterUpdate::Set(3));
+    assert_eq!(japanese_query.last_error, INITIAL_LAST_ERROR);
+
+    let japanese_conversion = dispatch(3, &mut memory, &mut runtime);
+    assert_eq!(japanese_conversion.eax, RegisterUpdate::Set(3));
+    assert_eq!(japanese_conversion.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(JAPANESE_DESTINATION), 6)
+            .expect("Japanese UTF-16 conversion"),
+        [0x41, 0, 0x42, 0x30, 0, 0]
+    );
+
+    let insufficient = dispatch(4, &mut memory, &mut runtime);
+    assert_eq!(insufficient.eax, RegisterUpdate::Set(0));
+    assert_eq!(insufficient.last_error, 122);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(SHORT_DESTINATION), 2)
+            .expect("partial UTF-16 conversion"),
+        [0x41, 0]
+    );
+
+    let zero_count = dispatch(5, &mut memory, &mut runtime);
+    assert_eq!(zero_count.eax, RegisterUpdate::Set(0));
+    assert_eq!(zero_count.last_error, 87);
+
+    for index in [8_usize, 9] {
+        let memory_before = memory.stats();
+        let invalid = dispatch(index, &mut memory, &mut runtime);
+        assert_eq!(invalid.eax, RegisterUpdate::Set(0));
+        assert_eq!(invalid.last_error, 87);
+        assert!(invalid.guest_writes.is_empty());
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    for index in [6_usize, 7] {
+        let runtime_before = runtime.clone();
+        let memory_before = memory.stats();
+        let unsupported = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(
+                    &endpoint,
+                    STACK_BASE + index as u32 * 0x40,
+                    frames[index][0],
+                ),
+                &mut session,
+                |contract, frame, session| {
+                    dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+                },
+            )
+        };
+        assert!(matches!(
+            unsupported,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == ApiFaultClass::Unsupported
+                    && fault.code == "multi-byte-to-wide-char-variant-unsupported"
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    let runtime_before_disabled = runtime.clone();
+    let memory_before_disabled = memory.stats();
+    let disabled = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, STACK_BASE, frames[0][0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "multi-byte-to-wide-char-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before_disabled);
+    assert_eq!(memory.stats(), memory_before_disabled);
 }
 
 #[test]
