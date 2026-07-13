@@ -49,6 +49,15 @@ assert.ok(
   ),
 );
 
+const detachedHeapAddress = structuredClone(manifest);
+detachedHeapAddress.activeRuntimeCheckpoint.processAddressSpaceAllocator.heapBackingUsesAllocationId =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(detachedHeapAddress).some((error) =>
+    error.includes("address-space allocator boundary"),
+  ),
+);
+
 const sample = `before\n${README_STATUS_START}\nstale\n${README_STATUS_END}\nafter\n`;
 assert.equal(
   replaceReadmeStatus(sample, rendered),

@@ -1,9 +1,10 @@
 use vine_core::{
     ExecutionSession, GuestAddress, GuestMemory, LOGICAL_ENCODED_POINTER_NAMESPACE, MemoryLimits,
-    MemoryOwnerKind, MemoryRegionKind, ProcessAddressSpaceLayout, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
-    RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
-    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RuntimeBootstrap,
-    RuntimeClockState, RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeProcessId,
+    MemoryOwnerKind, MemoryRegionKind, ProcessAddressAllocationPurpose, ProcessAddressSpaceLayout,
+    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PRIVATE_HEAP_ARENA_BASE,
+    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
+    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RuntimeBootstrap, RuntimeClockState,
+    RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeProcessId,
     RuntimeProcessLifecycleState, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
     X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
@@ -52,6 +53,24 @@ fn private_heap_backing_is_atomic_reusable_and_process_owned() {
     assert_eq!(zeroed.address.0 % RUNTIME_PRIVATE_HEAP_ALIGNMENT, 0);
     assert_eq!(zeroed.reserved_byte_length, 0x218);
     let backing = runtime.heap_backing(handle).unwrap().unwrap();
+    let backing_allocation_id = backing.address_allocation_id;
+    let address_allocation = runtime
+        .process_address_space_allocator()
+        .allocation(backing.address_allocation_id)
+        .unwrap();
+    assert_eq!(
+        address_allocation.purpose,
+        ProcessAddressAllocationPurpose::PrivateHeapSlot { slot: 1 }
+    );
+    assert!(
+        address_allocation
+            .range
+            .contains(vine_core::RuntimeAddressRange {
+                base: backing.range.start(),
+                byte_length: backing.range.byte_length(),
+            })
+            .unwrap()
+    );
     assert_eq!(backing.range.start(), RUNTIME_PRIVATE_HEAP_ARENA_BASE);
     assert_eq!(
         backing.range.byte_length(),
@@ -150,6 +169,7 @@ fn private_heap_backing_is_atomic_reusable_and_process_owned() {
         .unwrap();
     acknowledge_delta(&mut memory);
     assert_eq!(teardown.handles, vec![handle]);
+    assert_eq!(teardown.address_allocation_ids, vec![backing_allocation_id]);
     assert_eq!(teardown.allocations_discarded, 2);
     assert_eq!(
         teardown.reserved_bytes_released,

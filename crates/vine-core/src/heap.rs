@@ -74,6 +74,7 @@ fn prepare_allocation_memory(
 ) -> Result<MemoryOwnerId, RuntimeStateError> {
     match plan.backing {
         RuntimeHeapBackingPlan::New {
+            address_allocation_id: _,
             range,
             initial_committed_bytes,
         } => {
@@ -107,6 +108,7 @@ fn prepare_allocation_memory(
         }
         RuntimeHeapBackingPlan::Existing {
             memory_owner,
+            address_allocation_id: _,
             range,
             committed_bytes,
         } => {
@@ -169,7 +171,7 @@ fn destroy_planned_heaps(
 ) -> Result<RuntimeHeapTeardown, RuntimeStateError> {
     let mut transaction = memory.begin_transaction();
     for plan in plans {
-        if let Some((owner, range, _)) = plan.backing {
+        if let Some((_address_allocation_id, owner, range, _)) = plan.backing {
             transaction
                 .release_region(owner, range.start())
                 .map_err(RuntimeStateError::from_memory)?;

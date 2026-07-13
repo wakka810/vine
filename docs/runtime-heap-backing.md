@@ -16,7 +16,8 @@ boundaryで固定する。
 ## Controlled address and memory policy
 
 Version 1 foundationはguest band `[0x20000000, 0x40000000)`を32個の16 MiB slotへ分ける。
-Logical heap handleの16-bit slotを同じarena slotへ対応させるため、first heap
+Logical heap handleの16-bit slotをprocess address-space allocatorの同じheap-slot allocation recordへ
+対応させるため、first heap
 `0x68010001`は`0x20000000`、second heap `0x68010002`は`0x21000000`から始まる。
 
 - growable heapのcontrolled capacityは16 MiB／heap
@@ -26,7 +27,8 @@ Logical heap handleの16-bit slotを同じarena slotへ対応させるため、f
 - committed pagesはRW／NXであり、`GuestMemory`だけがbytes／mapping authorityを持つ
 - live allocation上限は65,536／heap、backing上限は32 heaps
 
-Reservationはfixedである。Image、stack、runtime arena等と衝突した場合、別addressへ黙って
+Version 1 heap-slot recordsはpreferred固定layoutである。Backingはallocation IDとrecord rangeを保持し、
+handleからbaseを直接再計算しない。Image、stack、runtime arena等と衝突した場合、別addressへ黙って
 移動せず`memory-region-overlap`で停止する。Owner creationを含むmemory mutationは
 `GuestMemoryTransaction`でrollbackされ、logical heap metadata、generation、owner／region countを
 変えない。同じheapでcollisionを除去した後にretryできる。

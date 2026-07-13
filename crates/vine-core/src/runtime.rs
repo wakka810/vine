@@ -5,13 +5,9 @@ use serde::Serialize;
 
 use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
 use crate::dynamic_exports::{
-    DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
-    DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
+    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
 };
-use crate::imports::{
-    IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, ImportThunkArena, ImportThunkId,
-    RuntimeExport,
-};
+use crate::imports::{ImportThunkArena, ImportThunkId, RuntimeExport};
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
@@ -28,8 +24,16 @@ use crate::module_images::{
 use crate::pe32::{ExportLookup, ImportTarget, LoaderIngressReport};
 use crate::snapshot::ModuleIdentity;
 
+mod address_space;
 mod messages;
 
+pub use address_space::{
+    ProcessAddressAllocationClassification, ProcessAddressAllocationId,
+    ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
+    ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy,
+    ProcessAddressAllocationRequest, ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout,
+    RuntimeAddressRange,
+};
 use messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessages};
 pub use messages::{
     RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage,
@@ -845,40 +849,6 @@ fn runtime_handle_type_mismatch(
 #[serde(transparent)]
 pub struct RuntimeCallbackFrameId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeAddressRange {
-    pub base: GuestAddress,
-    pub byte_length: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProcessAddressSpaceLayout {
-    pub import_thunks: RuntimeAddressRange,
-    pub callback_returns: RuntimeAddressRange,
-    pub dynamic_exports: RuntimeAddressRange,
-}
-
-impl ProcessAddressSpaceLayout {
-    pub fn vine_v1() -> Self {
-        Self {
-            import_thunks: RuntimeAddressRange {
-                base: IMPORT_THUNK_ARENA_BASE,
-                byte_length: IMPORT_THUNK_ARENA_SIZE,
-            },
-            callback_returns: RuntimeAddressRange {
-                base: CALLBACK_RETURN_ARENA_BASE,
-                byte_length: CALLBACK_RETURN_ARENA_SIZE,
-            },
-            dynamic_exports: RuntimeAddressRange {
-                base: DYNAMIC_EXPORT_ARENA_BASE,
-                byte_length: DYNAMIC_EXPORT_ARENA_SIZE,
-            },
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeClockState {
@@ -965,6 +935,7 @@ pub struct RuntimeHeapAllocation {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeHeapBacking {
     pub memory_owner: MemoryOwnerId,
+    pub address_allocation_id: ProcessAddressAllocationId,
     pub range: GuestRange,
     pub alignment: u32,
     pub committed_bytes: u32,
@@ -978,6 +949,7 @@ pub struct RuntimeHeapBacking {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeHeapTeardown {
     pub handles: Vec<u32>,
+    pub address_allocation_ids: Vec<ProcessAddressAllocationId>,
     pub allocations_discarded: usize,
     pub reserved_bytes_released: u64,
     pub committed_bytes_released: u64,
@@ -1382,11 +1354,13 @@ struct RuntimeProcessExitRequestPlan {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RuntimeHeapBackingPlan {
     New {
+        address_allocation_id: ProcessAddressAllocationId,
         range: GuestRange,
         initial_committed_bytes: u32,
     },
     Existing {
         memory_owner: MemoryOwnerId,
+        address_allocation_id: ProcessAddressAllocationId,
         range: GuestRange,
         committed_bytes: u32,
     },
@@ -1424,7 +1398,7 @@ pub(crate) struct RuntimeHeapFreePlan {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RuntimeHeapDestructionPlan {
     pub handle: u32,
-    pub backing: Option<(MemoryOwnerId, GuestRange, u32)>,
+    pub backing: Option<(ProcessAddressAllocationId, MemoryOwnerId, GuestRange, u32)>,
     pub live_allocations: usize,
 }
 
@@ -1497,6 +1471,7 @@ pub struct RuntimeRegistries {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeState {
     process: RuntimeProcessState,
+    address_space_allocator: ProcessAddressSpaceAllocator,
     threads: BTreeMap<RuntimeThreadId, RuntimeThreadState>,
     scheduler: RuntimeScheduler,
     messages: RuntimeMessages,
@@ -1545,7 +1520,8 @@ impl RuntimeState {
                 "runtime startup profile requires a nonempty identity and one x86 STARTUPINFOW image",
             ));
         }
-        validate_address_space(bootstrap.address_space)?;
+        let address_space_allocator =
+            ProcessAddressSpaceAllocator::vine_v1(bootstrap.address_space)?;
         if bootstrap.encoded_pointer_namespace != LOGICAL_ENCODED_POINTER_NAMESPACE
             || bootstrap.encoded_pointer_token_prefix == 0
             || bootstrap.encoded_pointer_token_prefix & 0xffff != 0
@@ -1590,6 +1566,7 @@ impl RuntimeState {
                 critical_sections: BTreeMap::new(),
                 standard_handles: BTreeMap::new(),
             },
+            address_space_allocator,
             threads: BTreeMap::from([(bootstrap.initial_thread_id, initial_thread)]),
             scheduler: RuntimeScheduler {
                 current_thread_id: bootstrap.initial_thread_id,
@@ -1634,6 +1611,10 @@ impl RuntimeState {
 
     pub fn process(&self) -> &RuntimeProcessState {
         &self.process
+    }
+
+    pub fn process_address_space_allocator(&self) -> &ProcessAddressSpaceAllocator {
+        &self.address_space_allocator
     }
 
     pub fn current_thread_id(&self) -> RuntimeThreadId {
@@ -2524,6 +2505,7 @@ impl RuntimeState {
             previous_high_water_mark,
             next_committed_bytes,
         ) = if let Some(backing) = self.heap_backings.get(&handle) {
+            self.validate_heap_backing_address_allocation(handle, backing)?;
             validate_runtime_heap_backing(heap, backing)?;
             let allocation_id = backing.next_allocation_id;
             allocation_id.0.checked_add(1).ok_or_else(|| {
@@ -2574,6 +2556,7 @@ impl RuntimeState {
             (
                 RuntimeHeapBackingPlan::Existing {
                     memory_owner: backing.memory_owner,
+                    address_allocation_id: backing.address_allocation_id,
                     range: backing.range,
                     committed_bytes: backing.committed_bytes,
                 },
@@ -2602,26 +2585,19 @@ impl RuntimeState {
                     ),
                 ));
             }
-            let slot_offset = u32::from(slot - 1)
-                .checked_mul(RUNTIME_PRIVATE_HEAP_ARENA_STRIDE)
-                .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-heap-backing",
-                        "heap-backing-address-overflow",
-                        "private heap arena slot offset overflowed x86 accounting",
-                    )
-                })?;
-            let base = RUNTIME_PRIVATE_HEAP_ARENA_BASE
-                .0
-                .checked_add(slot_offset)
-                .map(GuestAddress)
-                .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-heap-backing",
-                        "heap-backing-address-overflow",
-                        "private heap arena base overflowed x86 accounting",
-                    )
-                })?;
+            let address_allocation = self.address_space_allocator.allocation_for_purpose(
+                &ProcessAddressAllocationPurpose::PrivateHeapSlot { slot },
+            )?;
+            let base = address_allocation.range.base;
+            if address_allocation.usable_byte_length != u64::from(RUNTIME_PRIVATE_HEAP_ARENA_STRIDE)
+                || address_allocation.classification != ProcessAddressAllocationClassification::Heap
+            {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-heap-backing",
+                    "heap-address-allocation-invalid",
+                    "private heap slot allocation record does not match v1 heap policy",
+                ));
+            }
             let capacity = if heap.maximum_size == 0 {
                 RUNTIME_PRIVATE_HEAP_ARENA_STRIDE
             } else {
@@ -2673,6 +2649,7 @@ impl RuntimeState {
             )?;
             (
                 RuntimeHeapBackingPlan::New {
+                    address_allocation_id: address_allocation.id,
                     range,
                     initial_committed_bytes,
                 },
@@ -2749,6 +2726,7 @@ impl RuntimeState {
 
         match plan.backing {
             RuntimeHeapBackingPlan::New {
+                address_allocation_id,
                 range,
                 initial_committed_bytes: _,
             } => {
@@ -2772,6 +2750,7 @@ impl RuntimeState {
                     plan.handle,
                     RuntimeHeapBacking {
                         memory_owner,
+                        address_allocation_id,
                         range,
                         alignment: RUNTIME_PRIVATE_HEAP_ALIGNMENT,
                         committed_bytes: plan.next_committed_bytes,
@@ -2784,6 +2763,7 @@ impl RuntimeState {
             }
             RuntimeHeapBackingPlan::Existing {
                 memory_owner,
+                address_allocation_id,
                 range,
                 committed_bytes,
             } => {
@@ -2802,6 +2782,7 @@ impl RuntimeState {
                     )
                 })?;
                 if backing.memory_owner != memory_owner
+                    || backing.address_allocation_id != address_allocation_id
                     || backing.range != range
                     || backing.committed_bytes != committed_bytes
                     || backing.high_water_mark != plan.previous_high_water_mark
@@ -3039,6 +3020,7 @@ impl RuntimeState {
         let heap = self.heap(handle)?;
         let backing = self.heap_backings.get(&handle);
         if let Some(backing) = backing {
+            self.validate_heap_backing_address_allocation(handle, backing)?;
             validate_runtime_heap_backing(heap, backing)?;
         } else if heap.live_allocations != 0 {
             return Err(RuntimeStateError::runtime_defect(
@@ -3049,8 +3031,14 @@ impl RuntimeState {
         }
         Ok(RuntimeHeapDestructionPlan {
             handle,
-            backing: backing
-                .map(|backing| (backing.memory_owner, backing.range, backing.committed_bytes)),
+            backing: backing.map(|backing| {
+                (
+                    backing.address_allocation_id,
+                    backing.memory_owner,
+                    backing.range,
+                    backing.committed_bytes,
+                )
+            }),
             live_allocations: backing.map_or(0, |backing| backing.allocations.len()),
         })
     }
@@ -3060,14 +3048,21 @@ impl RuntimeState {
         plans: &[RuntimeHeapDestructionPlan],
     ) -> Result<RuntimeHeapTeardown, RuntimeStateError> {
         let mut handles = Vec::with_capacity(plans.len());
+        let mut address_allocation_ids = Vec::with_capacity(plans.len());
         let mut allocations_discarded = 0usize;
         let mut reserved_bytes_released = 0u64;
         let mut committed_bytes_released = 0u64;
         for plan in plans {
             let heap = self.heap(plan.handle)?;
             let backing = self.heap_backings.get(&plan.handle);
-            let actual_backing = backing
-                .map(|backing| (backing.memory_owner, backing.range, backing.committed_bytes));
+            let actual_backing = backing.map(|backing| {
+                (
+                    backing.address_allocation_id,
+                    backing.memory_owner,
+                    backing.range,
+                    backing.committed_bytes,
+                )
+            });
             if actual_backing != plan.backing
                 || backing.map_or(0, |backing| backing.allocations.len()) != plan.live_allocations
                 || usize::try_from(heap.live_allocations).ok() != Some(plan.live_allocations)
@@ -3088,7 +3083,8 @@ impl RuntimeState {
                         "private heap teardown allocation count overflowed host accounting",
                     )
                 })?;
-            if let Some((_, range, committed_bytes)) = plan.backing {
+            if let Some((address_allocation_id, _, range, committed_bytes)) = plan.backing {
+                address_allocation_ids.push(address_allocation_id);
                 reserved_bytes_released = reserved_bytes_released
                     .checked_add(range.byte_length())
                     .ok_or_else(|| {
@@ -3120,10 +3116,37 @@ impl RuntimeState {
         }
         Ok(RuntimeHeapTeardown {
             handles,
+            address_allocation_ids,
             allocations_discarded,
             reserved_bytes_released,
             committed_bytes_released,
         })
+    }
+
+    fn validate_heap_backing_address_allocation(
+        &self,
+        handle: u32,
+        backing: &RuntimeHeapBacking,
+    ) -> Result<(), RuntimeStateError> {
+        let slot = RuntimeHandle(handle).slot();
+        let allocation = self
+            .address_space_allocator
+            .allocation(backing.address_allocation_id)?;
+        let backing_range = RuntimeAddressRange {
+            base: backing.range.start(),
+            byte_length: backing.range.byte_length(),
+        };
+        if allocation.purpose != (ProcessAddressAllocationPurpose::PrivateHeapSlot { slot })
+            || allocation.classification != ProcessAddressAllocationClassification::Heap
+            || !allocation.range.contains(backing_range)?
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-heap-backing",
+                "heap-address-allocation-mismatch",
+                "private heap backing is not contained by its allocation record",
+            ));
+        }
+        Ok(())
     }
 
     fn require_private_heap_operation_state(&self) -> Result<(), RuntimeStateError> {
@@ -5213,50 +5236,6 @@ impl RuntimeState {
         *entry = state;
         Ok(())
     }
-}
-
-fn validate_address_space(layout: ProcessAddressSpaceLayout) -> Result<(), RuntimeStateError> {
-    let ranges = [
-        ("import-thunks", layout.import_thunks),
-        ("callback-returns", layout.callback_returns),
-        ("dynamic-exports", layout.dynamic_exports),
-    ];
-    let mut checked = Vec::with_capacity(ranges.len());
-    for (name, range) in ranges {
-        let start = u64::from(range.base.0);
-        let end = start
-            .checked_add(range.byte_length)
-            .filter(|end| *end <= u64::from(u32::MAX) + 1)
-            .ok_or_else(|| {
-                RuntimeStateError::invalid_input(
-                    "runtime-state",
-                    "address-space-range-invalid",
-                    format!("process {name} range is empty or crosses the x86 address limit"),
-                )
-            })?;
-        if range.byte_length == 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-state",
-                "address-space-range-invalid",
-                format!("process {name} range is empty or crosses the x86 address limit"),
-            ));
-        }
-        checked.push((name, start, end));
-    }
-    for left in 0..checked.len() {
-        for right in (left + 1)..checked.len() {
-            let (left_name, left_start, left_end) = checked[left];
-            let (right_name, right_start, right_end) = checked[right];
-            if left_start < right_end && right_start < left_end {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-state",
-                    "address-space-ranges-overlap",
-                    format!("process {left_name} and {right_name} ranges overlap"),
-                ));
-            }
-        }
-    }
-    Ok(())
 }
 
 fn align_runtime_heap_value(

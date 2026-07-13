@@ -202,6 +202,12 @@ host の実行権限とは無関係に、guest `EXECUTE` を論理検査する�
 
 current ingressはRust `GuestMemory`をbyte authority、v86 pagingをexecution mirrorとし、page R／W／Xとowner sealをfetch前に検査する。初回reflection、host側mapping／dirty delta、CPU側writebackはbinary control metadataとcontiguous 4 KiB payloadを分離する。bounded slice後は全writable PTE Dirty bitをscanし、owner／generation付きmulti-page batchをRustへatomic reconcileしてgenerationを一度だけ進める。host-originated通常data writeのlive v86 roundtrip、連続2 sliceのstack／heap／surface／RWX writeback、generation／owner付きBGI reconciliationが成立した。pending host delta中のexecution、generation conflict、partial batchはfail-closedであり、Dirty clear後のcancellation／receipt lossはmirrorを破棄してRust authorityから再構築する。Controlled private heapは同じowner／region／transaction／delta boundaryでreserve／commit／write／releaseする。general stack lifecycle、broad heap policy／API、decode-aware execute gate、snapshot generation、O(writable-pages) scanのperformanceは未接続／未判定である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
+Process-wide `ProcessAddressSpaceAllocator`はv1 import／callback／dynamic-export control arenas、private
+heap bandと32 child slotsをallocation recordsとして登録する。Heap backingはrecord IDへ帰属する。
+同じregistryはfixed result addressなしでDLL image、追加stack、COM endpointをaligned search予約できる。
+既存control installerとinitial environmentのmapping commitをrecord-drivenにする移行は未完了である。
+詳細は[process-address-space-allocator.md](process-address-space-allocator.md)を正とする。
+
 ### 6.3 Heap と mapped file
 
 初期heap foundationはruntime-owned allocatorとしてguest memory内へblockを配置する。Version 1は32 x 16 MiB fixed band、8-byte first-fit、monotonic allocation ID、deterministic initialization／free poison、heap／process teardownを実装する。これはguest HeapAlloc semanticsやtitle workload capacityの完了ではない。VFS mapped file、image section、anonymous allocationは同じregion abstractionで表現するが、flush、copy-on-write、sharingのsemanticsは別metadataとする。詳細は[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。

@@ -203,6 +203,20 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active runtime message subsystem boundary is invalid");
   }
+  const addressSpace = requireRecord(
+    active.processAddressSpaceAllocator,
+    "activeRuntimeCheckpoint.processAddressSpaceAllocator",
+    errors,
+  );
+  if (
+    addressSpace.schema !== "vine.process-address-space-allocator.v1" ||
+    addressSpace.authority !== "rust-runtime-kernel" ||
+    addressSpace.totalAllocationCount !==
+      addressSpace.rootAllocationCount + addressSpace.heapSlotAllocationCount ||
+    addressSpace.heapBackingUsesAllocationId !== true
+  ) {
+    errors.push("active process address-space allocator boundary is invalid");
+  }
   const latestEvidence = requireRecord(
     active.bgiStandardOutputHandle,
     "activeRuntimeCheckpoint.bgiStandardOutputHandle",
