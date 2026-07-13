@@ -45,6 +45,11 @@ let getAcpOracleSentinel = null;
 let getAcpOracleResult = null;
 let getAcpOracleLastError = null;
 let getAcpConsumerRecorded = false;
+let getCpInfoOracleScheduled = false;
+let getCpInfoOracleSentinel = null;
+let getCpInfoOracleResult = null;
+let getCpInfoOracleLastError = null;
+let getCpInfoConsumerRecorded = false;
 const observedMainModuleHeapAllocations = new Map();
 
 function snapshotNulTerminatedString(pointer, encoding) {
@@ -259,6 +264,85 @@ function snapshotByteBuffer(pointer, requestedBytes) {
   }
 }
 
+function snapshotBoundedRawBytes(pointer, requestedBytes) {
+  const maximumBytes = 64;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: "null pointer",
+    };
+  }
+  if (
+    !Number.isInteger(requestedBytes) ||
+    requestedBytes < 0 ||
+    requestedBytes > maximumBytes
+  ) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: "raw byte length is outside the bounded observation",
+    };
+  }
+  try {
+    const buffer = pointer.readByteArray(requestedBytes);
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      bytes: [...new Uint8Array(buffer)],
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotMeasuredCpInfo(pointer) {
+  const measuredBytes = 18;
+  const raw = snapshotBoundedRawBytes(pointer, measuredBytes);
+  if (raw.error !== undefined) {
+    return {
+      profile: "measured-x86-cpinfo-fields-v1",
+      measuredBytes,
+      raw,
+    };
+  }
+  try {
+    const leadByte = Array.from({ length: 12 }, (_, index) =>
+      pointer.add(6 + index).readU8(),
+    );
+    const leadBytePairs = Array.from({ length: 6 }, (_, index) => [
+      leadByte[index * 2],
+      leadByte[index * 2 + 1],
+    ]);
+    return {
+      profile: "measured-x86-cpinfo-fields-v1",
+      measuredBytes,
+      raw,
+      fields: {
+        maxCharSize: pointer.readU32(),
+        defaultChar: [pointer.add(4).readU8(), pointer.add(5).readU8()],
+        leadByte,
+        leadBytePairs,
+      },
+    };
+  } catch (error) {
+    return {
+      profile: "measured-x86-cpinfo-fields-v1",
+      measuredBytes,
+      raw,
+      error: error.message,
+    };
+  }
+}
+
 function snapshotOptionalBool(pointer) {
   if (pointer.isNull()) {
     return { pointer: pointer.toString(), isNull: true };
@@ -430,6 +514,43 @@ function snapshotGetAcpCall(caller, returnAddress, lastErrorBefore, context) {
           frameCallerContinuation: snapshotX86FrameCallerContinuation(context, 8),
         }
       : null,
+  };
+}
+
+function snapshotGetCpInfoCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  codePage,
+  output,
+) {
+  const recordsConsumer =
+    !getCpInfoConsumerRecorded &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    getCpInfoConsumerRecorded = true;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    getCpInfo: {
+      codePage: codePage.toUInt32(),
+      outputBefore: snapshotBoundedRawBytes(output, 32),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              context,
+              4,
+              12,
+            ),
+          }
+        : null,
+    },
   };
 }
 
@@ -916,6 +1037,9 @@ if (selectedObservations.has("set-last-error")) {
 if (selectedObservations.has("get-acp")) {
   hooks["kernel32.dll"].push(["GetACP", []]);
 }
+if (selectedObservations.has("get-cp-info")) {
+  hooks["kernel32.dll"].push(["GetCPInfo", [null, null]]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -1041,11 +1165,24 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("heap-allocation") &&
         isFocusedHeapApi &&
         isMainModuleCaller;
+      const focusedGetCpInfoObservation =
+        selectedObservations.has("get-cp-info") &&
+        name === "GetCPInfo" &&
+        caller.module !== null &&
+        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
       if (
         selectedObservations.has("heap-allocation") &&
         !selectedObservations.has("heap-lifecycle") &&
         isFocusedHeapApi &&
         !focusedHeapObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("get-cp-info") &&
+        name === "GetCPInfo" &&
+        !focusedGetCpInfoObservation
       ) {
         this.traceFrame = null;
         return;
@@ -1099,6 +1236,15 @@ function attachHook(module, name, decoders) {
         caller.module === "frida-agent.dll";
       if (this.traceGetAcpOracle) {
         this.lastError = getAcpOracleSentinel;
+      }
+      this.traceGetCpInfoOracle =
+        getCpInfoOracleSentinel !== null &&
+        selectedObservations.has("get-cp-info") &&
+        name === "GetCPInfo" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceGetCpInfoOracle) {
+        this.lastError = getCpInfoOracleSentinel;
       }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
@@ -1156,6 +1302,10 @@ function attachHook(module, name, decoders) {
               usedDefaultChar: args[7],
             }
           : null;
+      this.traceGetCpInfo =
+        focusedGetCpInfoObservation
+          ? { codePage: args[0], output: args[1] }
+          : null;
       const observation =
         this.traceHeapAllocation !== null
           ? {
@@ -1192,6 +1342,15 @@ function attachHook(module, name, decoders) {
               this.returnAddress,
               this.lastError,
               this.context,
+            )
+        : this.traceGetCpInfo !== null
+          ? snapshotGetCpInfoCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceGetCpInfo.codePage,
+              this.traceGetCpInfo.output,
             )
         : name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
@@ -1307,6 +1466,10 @@ function attachHook(module, name, decoders) {
         getAcpOracleResult = result.toUInt32();
         getAcpOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceGetCpInfoOracle) {
+        getCpInfoOracleResult = result.toUInt32();
+        getCpInfoOracleLastError = Number(lastError) >>> 0;
+      }
       const wideCharResult =
         this.traceWideCharConversion === null ? null : signed32(result);
       const observation = {
@@ -1387,6 +1550,20 @@ function attachHook(module, name, decoders) {
                 ),
                 usedDefaultCharAfter: snapshotOptionalBool(
                   this.traceWideCharConversion.usedDefaultChar,
+                ),
+              },
+            }),
+        ...(this.traceGetCpInfo === null
+          ? {}
+          : {
+              getCpInfo: {
+                codePage: this.traceGetCpInfo.codePage.toUInt32(),
+                outputAfter: snapshotBoundedRawBytes(
+                  this.traceGetCpInfo.output,
+                  32,
+                ),
+                measuredOutput: snapshotMeasuredCpInfo(
+                  this.traceGetCpInfo.output,
                 ),
               },
             }),
@@ -1933,6 +2110,80 @@ function scheduleGetAcpOracle(module) {
   });
 }
 
+function scheduleGetCpInfoOracle(module) {
+  if (getCpInfoOracleScheduled) {
+    return;
+  }
+  getCpInfoOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetCPInfo");
+      if (address === null) {
+        throw new Error("GetCPInfo export is unavailable");
+      }
+      const getCpInfo = new SystemFunction(
+        address,
+        "uint32",
+        ["uint32", "pointer"],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        const storage = Memory.alloc(64);
+        storage.writeByteArray(Array(64).fill(0xa5));
+        const output = storage.add(16);
+        const storageBefore = snapshotBoundedRawBytes(storage, 64);
+        getCpInfoOracleSentinel = sentinel;
+        getCpInfoOracleResult = null;
+        getCpInfoOracleLastError = null;
+        try {
+          const outcome = getCpInfo(932, output);
+          const result = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getCpInfoOracleResult === null ||
+            getCpInfoOracleLastError === null
+          ) {
+            throw new Error("GetCPInfo oracle did not pass through the hook");
+          }
+          return {
+            codePage: 932,
+            sentinel,
+            result,
+            hookResult: getCpInfoOracleResult,
+            hookLastErrorAfter: getCpInfoOracleLastError,
+            systemLastError,
+            storageOffset: 16,
+            storageBefore,
+            storageAfter: snapshotBoundedRawBytes(storage, 64),
+            measuredOutput: snapshotMeasuredCpInfo(output),
+            hookResultMatches: getCpInfoOracleResult === result,
+            hookPreservesLastError: getCpInfoOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          getCpInfoOracleSentinel = null;
+          getCpInfoOracleResult = null;
+          getCpInfoOracleLastError = null;
+        }
+      };
+      const calls = [0, 87, 0x12345678].map(invoke);
+      emit("get-cp-info-oracle", {
+        profile: "x86-code-page-932-output-v1",
+        calls,
+        allSucceeded: calls.every(
+          (call) => call.result === 1 && call.hookResultMatches,
+        ),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("get-cp-info-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleTlsLifecycleOracle(module) {
   if (tlsLifecycleOracleScheduled) {
     return;
@@ -2298,6 +2549,12 @@ Process.attachModuleObserver({
       selectedObservations.has("get-acp")
     ) {
       scheduleGetAcpOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("get-cp-info")
+    ) {
+      scheduleGetCpInfoOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

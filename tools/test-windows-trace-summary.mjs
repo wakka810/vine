@@ -665,6 +665,13 @@ getAcpSelection.find(
 ).selectedObservations = ["get-acp"];
 assert.doesNotThrow(() => summarizeTrace(encode(getAcpSelection)));
 
+const getCpInfoSelection = structuredClone(events);
+getCpInfoSelection[0].arguments.observations = ["get-cp-info"];
+getCpInfoSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["get-cp-info"];
+assert.doesNotThrow(() => summarizeTrace(encode(getCpInfoSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, and GetACP capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, and GetCPInfo capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-private-heap-size-544`
-- Scope: frozen 17-call equivalence plus 87 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-get-cp-info`
+- Scope: frozen 17-call equivalence plus 92 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -595,6 +595,23 @@ deltas, and ends at generation `152`. Its 386,921-byte report has SHA-256
 and stops at instruction 4523 on missing `GetCPInfo(932,0x006FF9C0)`. Full
 evidence is in [bgi-private-heap-size-544.md](bgi-private-heap-size-544.md).
 
+The current active-code-page information profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-get-cp-info
+```
+
+`kernel32.get-cp-info.v1` accepts only the explicit page equal to the
+policy-owned ACP and writes the 18 measured CPINFO field bytes through a checked
+output contract. It returns TRUE and preserves LastError `87`; disabled
+metadata, other pages, and invalid output ranges stop before mutation. The
+profile completes 92 calls, uses 93 writeback batches／148 dirty pages／2,690
+changed bytes and 36 host deltas, and ends at generation `158`. Its 407,009-byte
+report has SHA-256
+`da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1`
+and stops at instruction 5793 on missing `MultiByteToWideChar`. Full evidence
+is in [bgi-get-cp-info.md](bgi-get-cp-info.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -619,20 +636,21 @@ evidence is in [bgi-private-heap-size-544.md](bgi-private-heap-size-544.md).
   identities, stdin character classification, and stdout／stderr pipe
   classifications, the policy-enabled `SetHandleCount(32)` no-op contract, and
   the process-owned ASCII command-line view, one controlled wide-environment
-  authority／copy lease, and a policy-owned Windows-932 active code page.
+  authority／copy lease, a policy-owned Windows-932 active code page, and its
+  measured 18-byte code-page information fields.
   General handle-table sizing, `SetStdHandle`, close behavior, broader file type,
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
   pointers, and nonzero conversion flags remain absent. Its first unsupported
-  operation is `GetCPInfo(932,0x006FF9C0)`; bespoke
+  operation is `MultiByteToWideChar(932,1,0x006FFDD4,256,0,0,256)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-get-cp-info` at
-`GetCPInfo(932,0x006FF9C0)`. It must first fix the native output shape,
-LastError relation, and immediate consumer, then add only the reached checked
-guest-memory output contract.
+The next proof is `kernel32-multi-byte-to-wide-char` at
+`MultiByteToWideChar(932,1,0x006FFDD4,256,0,0,256)`. It must first fix source
+content and length semantics, flags, output behavior, result, LastError, and
+the immediate consumer, then add only the reached checked conversion contract.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -648,5 +666,5 @@ bytes, the SetHandleCount report is 284,215 bytes, the GetCommandLineA report is
 report is 295,762 bytes, the one-byte heap report is 308,984 bytes, the
 GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     the FlsGetValue report is 320,070 bytes, the SetLastError report is 363,609
-    bytes, the GetACP report is 367,384 bytes, and the current 544-byte heap
-    report is 386,921 bytes.
+    bytes, the GetACP report is 367,384 bytes, the 544-byte heap report is
+    386,921 bytes, and the current GetCPInfo report is 407,009 bytes.

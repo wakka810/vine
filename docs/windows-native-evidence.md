@@ -1581,3 +1581,39 @@ Chrome Runtime Workerも87 ordered callsとsame stop／memoryを再現し、599 
 663 Wasm crossings、final generation `589`、cancel／watchdog後pending work 0を通す。3分gateは
 1,723 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-private-heap-size-544.md](bgi-private-heap-size-544.md)を正とする。
+
+## 68. BGI GetCPInfo
+
+focused `get-cp-info` observerのaccepted capturesは29,775 bytes／68 lines／SHA-256
+`5689d985a0d780efed7d449144347b73421125aec337e8570f7c8463dc795f46`と
+29,849 bytes／68 lines／SHA-256
+`b930cdafb0443759a3a6db3cbaf6b549ba327de2d85725cf35456c49ea4fc0ef`
+である。どちらも8 balanced API pairs、diagnostics zeroを保持する。Observerはdirect BGI
+callとguarded x86 self-oracleだけを残し、32 raw bytes、LastError、return continuation、four
+bounded EBP framesを記録する。
+
+BGI return RVA `0xA6D13`の`GetCPInfo(932,stack)`はresult `1`、LastError `87 -> 87`である。
+Guarded oracleはsentinel `0`／`87`／`0x12345678`の全callでsuccessとLastError preserveを
+固定し、先頭18 bytesだけが`02 00 00 00 3F 00 81 9F E0 FC 00 00 00 00 00 00 00 00`へ
+書かれ、following 14 bytesと両guardが不変であることを示す。Measured fieldsは
+MaxCharSize `2`、DefaultChar `[0x3F,0]`、lead ranges `0x81..0x9F`／`0xE0..0xFC`である。
+BGI consumerはBOOLを検査し、256-byte tableをclearしてこのinclusive rangeを展開する。
+
+Policy `kernel32-get-cp-info-v1`はactive Windows-932 metadataだけを保持し、
+`kernel32.get-cp-info.v1`はexplicit page一致、4-byte alignment、18-byte writable spanを
+preflightしてTRUEを返す。Other page、policy-disabled、cross-region outputはmutation前に停止する。
+Output host delta sequence `88`はgeneration `152 -> 153`のone stack page、consumer
+writeback sequence `89`はgeneration `153 -> 154`／307 changed bytesである。
+
+`npm run check:runtime:bgi -- --profile kernel32-get-cp-info`は34 contracts／92 calls、93
+writebacks／148 dirty pages／2,690 changed bytes、36 host deltas、final generation `158`を通す。
+instruction `5793`でID `130`／
+`MultiByteToWideChar(932,1,0x006FFDD4,256,0,0,256)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は`1d0a6694d155aed6f9b12989c7d78ba0f6017c556749f218b9b131ac199eb389`、
+407,009-byte reportのSHA-256は
+`da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1`である。
+
+Chrome Runtime Workerも92 ordered callsとsame stop／memoryを再現し、759 slices、666 yields、
+822 Wasm crossings、final generation `741`、cancel／watchdog後pending work 0を通す。3分gateは
+1,587 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-get-cp-info.md](bgi-get-cp-info.md)を正とする。

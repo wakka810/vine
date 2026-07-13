@@ -1159,6 +1159,7 @@ fn build_bgi_dispatcher(
                     kernel32_policy.allows_wide_environment_strings()
                 }
                 "WideCharToMultiByte" => kernel32_policy.wide_char_to_multi_byte().is_some(),
+                "GetCPInfo" => kernel32_policy.active_code_page_info().is_some(),
                 _ => true,
             }
         })

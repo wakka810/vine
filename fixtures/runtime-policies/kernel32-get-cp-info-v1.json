@@ -1,0 +1,42 @@
+{
+  "schema": "vine.kernel32-compatibility-policy",
+  "schemaVersion": 1,
+  "id": "kernel32-get-cp-info-v1",
+  "standardHandleSelectors": [4294967286, 4294967285, 4294967284],
+  "standardHandleFileTypes": [
+    {
+      "selector": 4294967286,
+      "fileType": 2
+    },
+    {
+      "selector": 4294967285,
+      "fileType": 3
+    },
+    {
+      "selector": 4294967284,
+      "fileType": 3
+    }
+  ],
+  "setHandleCounts": [32],
+  "ansiCommandLine": true,
+  "wideEnvironmentStrings": true,
+  "wideCharToMultiByte": {
+    "activeCodePage": 932,
+    "maximumSourceCodeUnits": 65536
+  },
+  "activeCodePageInfo": {
+    "maxCharSize": 2,
+    "defaultChar": [63, 0],
+    "leadByte": [129, 159, 224, 252, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "heapAllocations": [
+    {
+      "flags": 8,
+      "byteLengths": [532, 2048]
+    },
+    {
+      "flags": 0,
+      "byteLengths": [1, 544]
+    }
+  ]
+}

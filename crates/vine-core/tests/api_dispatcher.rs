@@ -5,10 +5,11 @@ use vine_core::{
     ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiOwnedTrap,
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
-    FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION,
-    GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
-    HostRequest, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
-    Kernel32CompatibilityPolicy, Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
+    FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
+    GET_LAST_ERROR_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
+    GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget, ImportThunk,
+    ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
+    Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
     Kernel32WideCharToMultiBytePolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
     LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MemoryLimits, MemoryOwnerId,
@@ -964,6 +965,190 @@ fn get_acp_reads_only_the_policy_owned_active_code_page() {
     ));
     assert_eq!(runtime, runtime_before);
     assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
+fn get_cp_info_writes_only_policy_owned_active_page_fields_and_rejects_before_mutation() {
+    const CPINFO_OUTPUT: u32 = OUTPUT_BASE + 0x200;
+    const CROSS_REGION_OUTPUT: u32 = MEMORY_BASE.0 + 0x2ff4;
+    const EXPECTED_CPINFO: [u8; 18] = [
+        2, 0, 0, 0, b'?', 0, 0x81, 0x9f, 0xe0, 0xfc, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_058b, 932, CPINFO_OUTPUT]),
+        (STACK_BASE + 0x20, vec![0x1000_058c, 65001, CPINFO_OUTPUT]),
+        (STACK_BASE + 0x40, vec![0x1000_058d, 932, CPINFO_OUTPUT]),
+        (
+            STACK_BASE + 0x60,
+            vec![0x1000_058e, 932, CROSS_REGION_OUTPUT],
+        ),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    memory
+        .write_initialization(owner, GuestAddress(CPINFO_OUTPUT), &[0xa5; 32])
+        .expect("initialize CPINFO output and trailing guard");
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x60);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetCPInfo IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetCPInfo".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetCPInfo endpoint");
+    assert_eq!(contract.implementation_id, GET_CP_INFO_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 2);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert!(matches!(
+        contract.abi.arguments[1].value,
+        ApiValueSchema::Pointer { ref constraint }
+            if constraint.byte_length == EXPECTED_CPINFO.len() as u32
+                && constraint.alignment == 4
+    ));
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "public-get-cp-info-v1".to_owned();
+    policy.ansi_command_line = true;
+    policy.wide_environment_strings = true;
+    policy.wide_char_to_multi_byte = Some(Kernel32WideCharToMultiBytePolicy {
+        active_code_page: 932,
+        maximum_source_code_units: 65_536,
+    });
+    policy.active_code_page_info = Some(Kernel32CodePageInfoPolicy {
+        max_char_size: 2,
+        default_char: [b'?', 0],
+        lead_byte: [0x81, 0x9f, 0xe0, 0xfc, 0, 0, 0, 0, 0, 0, 0, 0],
+    });
+    policy
+        .validate()
+        .expect("valid active-code-page information policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(87).unwrap();
+    let runtime_before = runtime.clone();
+
+    let completion = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.stack_pointer, GuestAddress(frames[0].0 + 12));
+    assert_eq!(completion.last_error, 87);
+    assert_eq!(completion.guest_writes.len(), 1);
+    assert_eq!(completion.guest_writes[0].write.address.0, CPINFO_OUTPUT);
+    assert_eq!(completion.guest_writes[0].write.bytes, EXPECTED_CPINFO);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(CPINFO_OUTPUT), EXPECTED_CPINFO.len())
+            .expect("CPINFO fields"),
+        EXPECTED_CPINFO
+    );
+    assert_eq!(
+        memory
+            .read(
+                GuestAddress(CPINFO_OUTPUT + EXPECTED_CPINFO.len() as u32),
+                32 - EXPECTED_CPINFO.len(),
+            )
+            .expect("CPINFO trailing guard"),
+        [0xa5; 14]
+    );
+    assert_eq!(runtime, runtime_before);
+
+    let output_before = memory
+        .read(GuestAddress(CPINFO_OUTPUT), 32)
+        .expect("output before unsupported code page")
+        .to_vec();
+    let runtime_before_unsupported = runtime.clone();
+    let memory_before_unsupported = memory.stats();
+    let unsupported = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[1].0, frames[1].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        unsupported,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "get-cp-info-code-page-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before_unsupported);
+    assert_eq!(memory.stats(), memory_before_unsupported);
+    assert_eq!(
+        memory.read(GuestAddress(CPINFO_OUTPUT), 32).unwrap(),
+        output_before
+    );
+
+    let disabled = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[2].0, frames[2].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "get-cp-info-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before_unsupported);
+    assert_eq!(memory.stats(), memory_before_unsupported);
+
+    let invalid_output = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[3].0, frames[3].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        invalid_output,
+        DispatchOutcome::Fault(ref fault) if fault.class == ApiFaultClass::InvalidCall
+    ));
+    assert_eq!(runtime, runtime_before_unsupported);
+    assert_eq!(memory.stats(), memory_before_unsupported);
 }
 
 #[test]

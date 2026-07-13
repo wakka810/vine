@@ -31,6 +31,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub wide_environment_strings: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wide_char_to_multi_byte: Option<Kernel32WideCharToMultiBytePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_code_page_info: Option<Kernel32CodePageInfoPolicy>,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
 }
 
@@ -53,6 +55,14 @@ pub struct Kernel32HeapAllocationPolicy {
 pub struct Kernel32WideCharToMultiBytePolicy {
     pub active_code_page: u32,
     pub maximum_source_code_units: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32CodePageInfoPolicy {
+    pub max_char_size: u32,
+    pub default_char: [u8; 2],
+    pub lead_byte: [u8; 12],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +94,7 @@ impl Kernel32CompatibilityPolicy {
             ansi_command_line: false,
             wide_environment_strings: false,
             wide_char_to_multi_byte: None,
+            active_code_page_info: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
                 byte_lengths: vec![0x214],
@@ -183,6 +194,16 @@ impl Kernel32CompatibilityPolicy {
                 "wide-character conversion requires the wide environment layer, Windows-932 ACP, and a bounded nonzero source limit",
             ));
         }
+        if let Some(info) = self.active_code_page_info
+            && (self.active_code_page().is_none()
+                || !(1..=4).contains(&info.max_char_size)
+                || !valid_lead_byte_ranges(&info.lead_byte))
+        {
+            return Err(policy_error(
+                "kernel32-policy-code-page-info-invalid",
+                "active code-page information requires an enabled ACP, a bounded character size, and ordered trailing-zero lead-byte ranges",
+            ));
+        }
 
         let mut heap_variants = BTreeSet::new();
         for allocation in &self.heap_allocations {
@@ -242,11 +263,28 @@ impl Kernel32CompatibilityPolicy {
             .map(|conversion| conversion.active_code_page)
     }
 
+    pub fn active_code_page_info(&self) -> Option<(u32, &Kernel32CodePageInfoPolicy)> {
+        self.active_code_page()
+            .zip(self.active_code_page_info.as_ref())
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocations.iter().any(|allocation| {
             allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
         })
     }
+}
+
+fn valid_lead_byte_ranges(bytes: &[u8; 12]) -> bool {
+    let mut terminated = false;
+    for pair in bytes.chunks_exact(2) {
+        match pair {
+            [0, 0] => terminated = true,
+            [first, last] if !terminated && *first != 0 && *first <= *last => {}
+            _ => return false,
+        }
+    }
+    true
 }
 
 fn policy_error(
@@ -277,6 +315,7 @@ mod tests {
         assert!(!policy.allows_ansi_command_line());
         assert!(!policy.allows_wide_environment_strings());
         assert!(policy.wide_char_to_multi_byte().is_none());
+        assert!(policy.active_code_page_info().is_none());
 
         let mut invalid_environment_layer = policy.clone();
         invalid_environment_layer.wide_environment_strings = true;
@@ -293,6 +332,34 @@ mod tests {
         assert_eq!(
             invalid_conversion.validate().unwrap_err().code,
             "kernel32-policy-wide-char-conversion-invalid"
+        );
+
+        let mut missing_active_code_page = policy.clone();
+        missing_active_code_page.active_code_page_info = Some(Kernel32CodePageInfoPolicy {
+            max_char_size: 2,
+            default_char: [b'?', 0],
+            lead_byte: [0x81, 0x9f, 0xe0, 0xfc, 0, 0, 0, 0, 0, 0, 0, 0],
+        });
+        assert_eq!(
+            missing_active_code_page.validate().unwrap_err().code,
+            "kernel32-policy-code-page-info-invalid"
+        );
+
+        let mut invalid_lead_bytes = missing_active_code_page;
+        invalid_lead_bytes.ansi_command_line = true;
+        invalid_lead_bytes.wide_environment_strings = true;
+        invalid_lead_bytes.wide_char_to_multi_byte = Some(Kernel32WideCharToMultiBytePolicy {
+            active_code_page: 932,
+            maximum_source_code_units: 65_536,
+        });
+        invalid_lead_bytes
+            .active_code_page_info
+            .as_mut()
+            .unwrap()
+            .lead_byte = [0x81, 0x9f, 0, 0, 0xe0, 0xfc, 0, 0, 0, 0, 0, 0];
+        assert_eq!(
+            invalid_lead_bytes.validate().unwrap_err().code,
+            "kernel32-policy-code-page-info-invalid"
         );
 
         let mut duplicate = policy;

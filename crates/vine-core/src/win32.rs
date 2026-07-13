@@ -21,8 +21,9 @@ mod policy;
 
 pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
-    Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError, Kernel32HeapAllocationPolicy,
-    Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
+    Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
+    Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
+    Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -32,6 +33,7 @@ pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thr
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
 pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
 pub const GET_ACP_IMPLEMENTATION: &str = "kernel32.get-acp.v1";
+pub const GET_CP_INFO_IMPLEMENTATION: &str = "kernel32.get-cp-info.v1";
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
 pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
@@ -107,6 +109,7 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_LAST_ERROR_IMPLEMENTATION => handle_get_last_error(contract, session),
         SET_LAST_ERROR_IMPLEMENTATION => handle_set_last_error(contract, frame),
         GET_ACP_IMPLEMENTATION => handle_get_acp(policy),
+        GET_CP_INFO_IMPLEMENTATION => handle_get_cp_info(policy, contract, frame),
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
         GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
@@ -180,6 +183,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetLastError" => get_last_error_contract(endpoint)?,
         "SetLastError" => set_last_error_contract(endpoint)?,
         "GetACP" => get_acp_contract(endpoint)?,
+        "GetCPInfo" => get_cp_info_contract(endpoint)?,
         "GetTickCount" => get_tick_count_contract(endpoint)?,
         "GetStdHandle" => get_std_handle_contract(endpoint)?,
         "GetFileType" => get_file_type_contract(endpoint)?,
@@ -274,6 +278,45 @@ fn handle_get_acp(policy: &Kernel32CompatibilityPolicy) -> Result<ApiImmediate, 
         )
     })?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(active_code_page)))
+}
+
+fn handle_get_cp_info(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let code_page = required_argument(contract, frame, 0, "code page")?;
+    let output = required_argument(contract, frame, 1, "CPINFO output")?;
+    let (active_code_page, info) = policy.active_code_page_info().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-code-page",
+            "get-cp-info-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable active code-page information",
+                policy.id
+            ),
+        )
+    })?;
+    if code_page != active_code_page {
+        return Err(ApiFault::unsupported(
+            "win32-code-page",
+            "get-cp-info-code-page-unsupported",
+            format!(
+                "compatibility policy {} enables GetCPInfo only for active code page {active_code_page}, not {code_page}",
+                policy.id
+            ),
+        ));
+    }
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_guest_write(GuestAddress(output), x86_cp_info_bytes(info)))
+}
+
+fn x86_cp_info_bytes(info: &Kernel32CodePageInfoPolicy) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(18);
+    bytes.extend_from_slice(&info.max_char_size.to_le_bytes());
+    bytes.extend_from_slice(&info.default_char);
+    bytes.extend_from_slice(&info.lead_byte);
+    bytes
 }
 
 fn handle_get_tick_count(session: &ExecutionSession<'_>) -> Result<ApiImmediate, ApiFault> {
@@ -1424,6 +1467,19 @@ pub fn get_acp_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, Ap
         Vec::new(),
         ApiReturnSchema::U32,
         GET_ACP_IMPLEMENTATION,
+    )
+}
+
+pub fn get_cp_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetCPInfo",
+        vec![
+            u32_argument("codePage"),
+            out_struct("codePageInfo", "CPINFO.fields", 18),
+        ],
+        ApiReturnSchema::Bool32,
+        GET_CP_INFO_IMPLEMENTATION,
     )
 }
 

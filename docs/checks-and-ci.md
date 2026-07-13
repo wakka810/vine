@@ -135,13 +135,15 @@ Private binaries are never added to Git or required by CI.
 Focused native startup／heap evidence is opt-in with
 `py tools/windows/trace.py ... --observe startup-info`,
 `--observe heap-set-information`, `--observe heap-lifecycle`, `--observe heap-allocation`,
-`--observe module-handle`, or `--observe dynamic-export`. The first records the
+`--observe module-handle`, `--observe dynamic-export`, or `--observe get-cp-info`. The first records the
 68-byte x86 span, the second records the exact policy call, the third hooks
 reached heap lifecycle calls, and the focused allocation observer retains only
 main-executable `HeapAlloc`／`HeapFree` with bounded buffer／caller／lifetime
 metadata. The next option decodes A/W module names, and the final option records
 enter-time LastError for `GetProcAddress`. Heap, module, and
-dynamic-export observations retain the focused LastError evidence. Ordinary
+dynamic-export observations retain the focused LastError evidence. The final
+option retains direct BGI `GetCPInfo` calls and a guarded raw-output／LastError
+self-oracle with bounded x86 consumer frames. Ordinary
 traces do not install these hooks.
 
 ## GitHub Actions

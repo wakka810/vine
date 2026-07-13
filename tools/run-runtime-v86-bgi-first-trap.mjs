@@ -76,6 +76,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-set-last-error",
         "kernel32-get-acp",
         "kernel32-private-heap-size-544",
+        "kernel32-get-cp-info",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -102,7 +103,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-private-heap-size-544"
+    genericRuntimeCapability === "kernel32-get-cp-info"
+      ? "kernel32-get-cp-info-v1.json"
+      : genericRuntimeCapability === "kernel32-private-heap-size-544"
       ? "kernel32-private-heap-size-544-v1.json"
       : genericRuntimeCapability === "kernel32-get-acp" ||
     genericRuntimeCapability === "kernel32-set-last-error" ||
@@ -165,8 +168,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getCpInfoEnabled = genericRuntimeCapability === "kernel32-get-cp-info";
 const privateHeapSize544Enabled =
-  genericRuntimeCapability === "kernel32-private-heap-size-544";
+  getCpInfoEnabled || genericRuntimeCapability === "kernel32-private-heap-size-544";
 const getAcpEnabled =
   privateHeapSize544Enabled || genericRuntimeCapability === "kernel32-get-acp";
 const setLastErrorEnabled =
@@ -236,7 +240,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? privateHeapSize544Enabled
+    ? getCpInfoEnabled
+      ? "v86-bgi-get-cp-info"
+      : privateHeapSize544Enabled
       ? "v86-bgi-private-heap-size-544"
       : getAcpEnabled
       ? "v86-bgi-get-acp"
@@ -2155,6 +2161,61 @@ const privateHeapSize544Expected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const getCpInfoExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 92,
+  codePage: 932,
+  outputAddress: 0x006ff9c0,
+  outputBytes: [
+    2, 0, 0, 0, 0x3f, 0, 0x81, 0x9f, 0xe0, 0xfc, 0, 0, 0, 0, 0, 0, 0, 0,
+  ],
+  instructionCount: 4523,
+  returnAddress: 0x100a6d13,
+  lastError: 87,
+  writebackBatches: 93,
+  dirtyPages: 148,
+  changedBytes: 2690,
+  hostDeltaBatches: 36,
+  finalGeneration: 158,
+  outputDelta: {
+    sequence: 88,
+    fromGeneration: 152,
+    generation: 153,
+    pageAddress: 0x006ff000,
+    owner: 4,
+    payloadSha256: "6581defd12dd1676cc0b42a7597d4a0c7d3e2ba5daf74e2167f8a083e662df4d",
+  },
+  consumerWriteback: {
+    sequence: 89,
+    instructionCount: 5703,
+    fromGeneration: 153,
+    generation: 154,
+    changedBytes: 307,
+    dirtyPages: [{ address: 0x006ff000, owner: 4 }],
+    payloadSha256: "d71dced9e69c9bf404b67af6fef4ee760f2b5975b86c8ee00e02bb2a9c6dc545",
+  },
+  followupCalls: [
+    ["GetLastError", 5703, 0x100a55dd],
+    ["TlsGetValue", 5711, 0x100a54a0],
+    ["FlsGetValue", 5719, 0x100a55ec],
+    ["SetLastError", 5725, 0x100a5647],
+  ],
+  memoryContentSha256: "1d0a6694d155aed6f9b12989c7d78ba0f6017c556749f218b9b131ac199eb389",
+  reportBytes: 407_009,
+  reportSha256: "da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 130,
+    endpointAddress: 0x7f000810,
+    module: "kernel32.dll",
+    symbol: "MultiByteToWideChar",
+    iatAddress: 0x100d12b0,
+    arguments: [932, 1, 0x006ffdd4, 256, 0, 0, 256],
+    returnAddress: 0x100ad691,
+    instructionCount: 5793,
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2617,6 +2678,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getCpInfoEnabled) {
+        validateGetCpInfoResult(genericResult);
       } else if (privateHeapSize544Enabled) {
         validatePrivateHeapSize544Result(genericResult);
       } else if (getAcpEnabled) {
@@ -2668,7 +2731,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : privateHeapSize544Enabled
+          : getCpInfoEnabled
+            ? "bgi GetCPInfo"
+            : privateHeapSize544Enabled
             ? "bgi private-heap size-544 allocation"
             : getAcpEnabled
             ? "bgi GetACP"
@@ -3075,7 +3140,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : getAcpEnabled
+        : getCpInfoEnabled
+          ? 21
+          : getAcpEnabled
           ? 20
           : setLastErrorEnabled
           ? 19
@@ -5311,6 +5378,131 @@ function validatePrivateHeapSize544Result(result) {
   );
 }
 
+function validateGetCpInfoResult(result) {
+  const expected = getCpInfoExpected;
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetCPInfo");
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.deepEqual(call.arguments, [expected.codePage, expected.outputAddress]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.implementationId, "kernel32.get-cp-info.v1");
+  assert.equal(call.lastError, expected.lastError);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 12);
+  assert.equal(call.trapInstructionCount, expected.instructionCount);
+  assert.equal(call.returnAddress, expected.returnAddress);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, expected.outputAddress);
+  assert.deepEqual(call.guestWrites[0].bytes, expected.outputBytes);
+  assert.deepEqual(call.guestWrites[0].result, {
+    bytesWritten: expected.outputBytes.length,
+    dirtyPages: 1,
+    invalidation: {
+      generation: expected.outputDelta.generation,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    },
+  });
+
+  const outputDelta = result.hostDeltas.find(
+    ({ sequence }) => sequence === expected.outputDelta.sequence,
+  );
+  assert(outputDelta, "GetCPInfo output delta is missing");
+  assert.equal(outputDelta.fromGeneration, expected.outputDelta.fromGeneration);
+  assert.equal(outputDelta.generation, expected.outputDelta.generation);
+  assert.equal(outputDelta.mappingOperations, 0);
+  assert.deepEqual(outputDelta.dirtyPages, [
+    {
+      address: expected.outputDelta.pageAddress,
+      owner: expected.outputDelta.owner,
+    },
+  ]);
+  assert.equal(outputDelta.payloadBytes, page.size);
+  assert.equal(outputDelta.payloadSha256, expected.outputDelta.payloadSha256);
+  assert.deepEqual(outputDelta.cacheEffects, {
+    flushTlb: false,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  });
+
+  const consumerWriteback = result.writebacks.find(
+    ({ sequence }) => sequence === expected.consumerWriteback.sequence,
+  );
+  assert(consumerWriteback, "GetCPInfo consumer writeback is missing");
+  assert.equal(
+    consumerWriteback.instructionCount,
+    expected.consumerWriteback.instructionCount,
+  );
+  assert.deepEqual(
+    consumerWriteback.dirtyPages,
+    expected.consumerWriteback.dirtyPages,
+  );
+  assert.equal(
+    consumerWriteback.payloadSha256,
+    expected.consumerWriteback.payloadSha256,
+  );
+  assert.equal(
+    consumerWriteback.receipt.fromGeneration,
+    expected.consumerWriteback.fromGeneration,
+  );
+  assert.equal(
+    consumerWriteback.receipt.generation,
+    expected.consumerWriteback.generation,
+  );
+  assert.equal(
+    consumerWriteback.receipt.changedBytes,
+    expected.consumerWriteback.changedBytes,
+  );
+
+  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+    const followup = result.supportedCalls.find(
+      (candidate) =>
+        candidate.symbol === symbol &&
+        candidate.trapInstructionCount === instructionCount,
+    );
+    assert(followup, `${symbol} follow-up call is missing`);
+    assert.equal(followup.returnAddress, returnAddress);
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -5332,7 +5524,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : privateHeapSize544Enabled
+        : getCpInfoEnabled
+          ? "vine.v86-bgi-get-cp-info"
+          : privateHeapSize544Enabled
           ? "vine.v86-bgi-private-heap-size-544"
           : getAcpEnabled
           ? "vine.v86-bgi-get-acp"

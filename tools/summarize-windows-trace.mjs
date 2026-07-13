@@ -30,6 +30,7 @@ const supportedObservations = new Set([
   "get-last-error",
   "set-last-error",
   "get-acp",
+  "get-cp-info",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

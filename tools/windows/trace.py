@@ -34,6 +34,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-last-error",
     "set-last-error",
     "get-acp",
+    "get-cp-info",
 )
 
 
