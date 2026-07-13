@@ -25,6 +25,8 @@ let environmentStringsOracleLastError = null;
 let wideCharOracleScheduled = false;
 let wideCharOracleSentinel = null;
 let wideCharOracleLastError = null;
+let tlsLifecycleOracleScheduled = false;
+let tlsGetValueConsumerRecorded = false;
 let getLastErrorOracleScheduled = false;
 let getLastErrorOracleSentinel = null;
 let getLastErrorOracleResult = null;
@@ -283,6 +285,20 @@ function snapshotInstructions(address, maximumInstructions) {
       error: error.message,
     };
   }
+}
+
+function snapshotTlsGetValueCall(caller, returnAddress, lastErrorBefore) {
+  const recordsConsumer =
+    !tlsGetValueConsumerRecorded && caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    tlsGetValueConsumerRecorded = true;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    immediateConsumer: recordsConsumer
+      ? snapshotInstructions(returnAddress, 6)
+      : null,
+  };
 }
 
 function readProcessParametersEnvironmentPointer() {
@@ -921,7 +937,9 @@ function attachHook(module, name, decoders) {
             }
           : null;
       const observation =
-        name === "GetLastError" && selectedObservations.has("get-last-error")
+        name === "TlsGetValue" && selectedObservations.has("tls-lifecycle")
+          ? snapshotTlsGetValueCall(caller, this.returnAddress, this.lastError)
+        : name === "GetLastError" && selectedObservations.has("get-last-error")
           ? {
               lastErrorBefore: Number(this.lastError) >>> 0,
               immediateConsumer:
@@ -1493,6 +1511,118 @@ function scheduleGetLastErrorOracle(module) {
   });
 }
 
+function scheduleTlsLifecycleOracle(module) {
+  if (tlsLifecycleOracleScheduled) {
+    return;
+  }
+  tlsLifecycleOracleScheduled = true;
+  setImmediate(() => {
+    const allocatedIndices = [];
+    let tlsFree = null;
+    let finalized = false;
+    const finish = (error, observation = null) => {
+      if (finalized) {
+        return;
+      }
+      finalized = true;
+      if (error === null) {
+        emit("tls-get-value-oracle", observation);
+      } else {
+        emit("tls-get-value-oracle-error", { error: error.message });
+      }
+      try {
+        if (tlsFree !== null) {
+          for (const index of allocatedIndices.reverse()) {
+            tlsFree(index);
+          }
+        }
+      } catch (cleanupError) {
+        emit("tls-get-value-oracle-cleanup-error", {
+          error: cleanupError.message,
+        });
+      }
+    };
+    try {
+      const address = (name) => {
+        const result = findExport(module, name);
+        if (result === null) {
+          throw new Error(`${name} export is unavailable`);
+        }
+        return result;
+      };
+      const tlsAlloc = new NativeFunction(
+        address("TlsAlloc"),
+        "uint32",
+        [],
+        "stdcall",
+      );
+      tlsFree = new NativeFunction(
+        address("TlsFree"),
+        "int",
+        ["uint32"],
+        "stdcall",
+      );
+      const tlsSetValue = new NativeFunction(
+        address("TlsSetValue"),
+        "int",
+        ["uint32", "pointer"],
+        "stdcall",
+      );
+      const tlsGetValue = new SystemFunction(
+        address("TlsGetValue"),
+        "pointer",
+        ["uint32"],
+        "stdcall",
+      );
+      const setLastError = new NativeFunction(
+        address("SetLastError"),
+        "void",
+        ["uint32"],
+        "stdcall",
+      );
+      const allocate = () => {
+        const index = Number(tlsAlloc()) >>> 0;
+        if (index === 0xffffffff) {
+          throw new Error("TlsAlloc returned TLS_OUT_OF_INDEXES");
+        }
+        allocatedIndices.push(index);
+        return index;
+      };
+      const read = (id, index, sentinel) => {
+        setLastError(sentinel);
+        const outcome = tlsGetValue(index);
+        return {
+          id,
+          index,
+          sentinel,
+          result: outcome.value.toString(),
+          lastError: Number(outcome.lastError) >>> 0,
+        };
+      };
+
+      const mainIndex = allocate();
+      const mainValue = ptr("0x12345678");
+      const mainThreadId = Process.getCurrentThreadId();
+      if (Number(tlsSetValue(mainIndex, mainValue)) === 0) {
+        throw new Error("TlsSetValue rejected the main-thread oracle value");
+      }
+      const mainSetRead = read("main-thread-set-value", mainIndex, 87);
+
+      const unsetIndex = allocate();
+      const unsetRead = read("allocated-unset-value", unsetIndex, 122);
+      const invalidRead = read("invalid-index", 0xffffffff, 122);
+      finish(null, {
+        profile: "x86-success-null-and-invalid-v1",
+        threadId: mainThreadId,
+        setValue: mainValue.toString(),
+        calls: [mainSetRead, unsetRead, invalidRead],
+      });
+    } catch (error) {
+      finish(error);
+    }
+  });
+}
+
 function scheduleCriticalSectionOracle(module) {
   if (criticalSectionOracleScheduled) {
     return;
@@ -1622,6 +1752,12 @@ Process.attachModuleObserver({
       selectedObservations.has("get-last-error")
     ) {
       scheduleGetLastErrorOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("tls-lifecycle")
+    ) {
+      scheduleTlsLifecycleOracle(module);
     }
   },
 });

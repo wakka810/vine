@@ -21,7 +21,8 @@ use vine_core::{
     RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId,
     RuntimeHeapInitialization, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState,
-    StackCleanup, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
+    StackCleanup, TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     kernel32_contract_for_endpoint,
@@ -602,6 +603,161 @@ fn get_last_error_reads_selected_thread_state_without_mutation() {
         .select_thread(RuntimeThreadId(THREAD_ID))
         .expect("restore initial LastError lane");
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+}
+
+#[test]
+fn tls_get_value_reads_only_the_selected_thread_and_sets_win32_last_error() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_0591, 0]),
+        (STACK_BASE + 0x20, vec![0x1000_0592, 0]),
+        (STACK_BASE + 0x40, vec![0x1000_0593, 0]),
+        (STACK_BASE + 0x60, vec![0x1000_0594, u32::MAX]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x5c);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize TlsGetValue IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "TlsGetValue".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented TlsGetValue endpoint");
+    assert_eq!(contract.implementation_id, TLS_GET_VALUE_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(
+        contract.abi.return_value,
+        ApiReturnSchema::OpaquePointer { nullable: true }
+    );
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime
+        .register_dynamic_endpoint(RuntimeDynamicEndpoint {
+            namespace: DYNAMIC_EXPORT_ENDPOINT_NAMESPACE.to_owned(),
+            id: 2,
+            address: GuestAddress(0x7f02_0010),
+            module: "kernel32.dll".to_owned(),
+            name: "FlsGetValue".to_owned(),
+            lifetime: "process-runtime".to_owned(),
+        })
+        .expect("register controlled TLS endpoint value");
+    let tls_index = runtime.allocate_tls_index().expect("allocate TLS index");
+    runtime
+        .set_tls_value(tls_index, 0x7f02_0010)
+        .expect("set initial-thread TLS value");
+    let memory_before = memory.stats();
+
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(0).unwrap();
+    let initial = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+    );
+    assert_eq!(initial.eax, RegisterUpdate::Set(0x7f02_0010));
+    assert_eq!(initial.stack_pointer, GuestAddress(frames[0].0 + 8));
+    assert_eq!(initial.last_error, 0);
+    assert!(initial.guest_writes.is_empty());
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_before);
+
+    let second_thread = RuntimeThreadId(THREAD_ID + 1);
+    runtime
+        .register_thread(second_thread, 0x5678)
+        .expect("register second TLS lane");
+    runtime
+        .select_thread(second_thread)
+        .expect("select second TLS lane");
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(0).unwrap();
+    let unset = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(unset.eax, RegisterUpdate::Set(0));
+    assert_eq!(unset.last_error, 0);
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_before);
+
+    runtime
+        .set_tls_value(tls_index, 0x2345_6789)
+        .expect("set second-thread raw TLS value");
+    runtime.set_current_last_error(0x6789).unwrap();
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(0).unwrap();
+    let second = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+    );
+    assert_eq!(second.eax, RegisterUpdate::Set(0x2345_6789));
+    assert_eq!(second.last_error, 0);
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_before);
+
+    runtime.set_current_last_error(122).unwrap();
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(87).unwrap();
+    let invalid = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[3].0,
+        frames[3].1[0],
+    );
+    assert_eq!(invalid.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid.last_error, 87);
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_before);
+
+    runtime
+        .select_thread(RuntimeThreadId(THREAD_ID))
+        .expect("restore initial TLS lane");
+    assert_eq!(
+        runtime.tls_value(tls_index).unwrap(),
+        &RuntimeTlsValue::DynamicEndpoint {
+            endpoint_id: 2,
+            address: GuestAddress(0x7f02_0010),
+        }
+    );
 }
 
 #[test]

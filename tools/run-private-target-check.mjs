@@ -169,6 +169,17 @@ function hex32(value) {
   return `0x${value.toString(16)}`;
 }
 
+function optionalHex32(value) {
+  return value === undefined ? undefined : hex32(value);
+}
+
+function endpointName(endpoint) {
+  const name = endpoint.name ?? endpoint.symbol?.name;
+  assert.equal(typeof name, "string", "endpoint name is missing");
+  assert(name.length > 0, "endpoint name is empty");
+  return name;
+}
+
 function executionStateEvidence(report) {
   const context = report.watchdogContext;
   return {
@@ -242,9 +253,9 @@ function assertReportSemantics({
   assert.equal(nodeReport.firstUnsupported.endpoint.kind, expectedNext.endpointKind);
   assert.equal(nodeEndpoint.id, expectedNext.endpointId);
   assert.equal(hex32(nodeEndpoint.address), expectedNext.endpointAddress);
-  assert.equal(hex32(nodeEndpoint.iatAddress), expectedNext.iatAddress);
+  assert.equal(optionalHex32(nodeEndpoint.iatAddress), expectedNext.iatAddress);
   assert.equal(
-    `${nodeEndpoint.module}!${nodeEndpoint.symbol.name}`.toLowerCase(),
+    `${nodeEndpoint.module}!${endpointName(nodeEndpoint)}`.toLowerCase(),
     expectedNext.api.toLowerCase(),
   );
   assert.equal(hex32(nodeReport.firstUnsupported.terminal.returnAddress), expectedNext.returnAddress);
@@ -269,9 +280,12 @@ function assertReportSemantics({
   assert.equal(browserUnsupported.capabilityCluster, expectedNext.capabilityCluster);
   assert.equal(browserUnsupported.endpoint.id, expectedNext.endpointId);
   assert.equal(hex32(browserUnsupported.endpoint.address), expectedNext.endpointAddress);
-  assert.equal(hex32(browserUnsupported.endpoint.iatAddress), expectedNext.iatAddress);
   assert.equal(
-    `${browserUnsupported.endpoint.module}!${browserUnsupported.endpoint.symbol.name}`.toLowerCase(),
+    optionalHex32(browserUnsupported.endpoint.iatAddress),
+    expectedNext.iatAddress,
+  );
+  assert.equal(
+    `${browserUnsupported.endpoint.module}!${endpointName(browserUnsupported.endpoint)}`.toLowerCase(),
     expectedNext.api.toLowerCase(),
   );
   assert.equal(browserUnsupported.fault.code, expectedNext.reason);

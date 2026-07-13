@@ -4446,16 +4446,27 @@ impl RuntimeState {
     }
 
     pub fn tls_value(&self, index: u32) -> Result<&RuntimeTlsValue, RuntimeStateError> {
-        self.current_thread()?
-            .tls_values
-            .get(&index)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-tls",
-                    "tls-value-uninitialized",
-                    format!("current thread has no value for logical TLS index {index}"),
-                )
-            })
+        self.tls_value_or_unset(index)?.ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-tls",
+                "tls-value-uninitialized",
+                format!("current thread has no value for logical TLS index {index}"),
+            )
+        })
+    }
+
+    pub fn tls_value_or_unset(
+        &self,
+        index: u32,
+    ) -> Result<Option<&RuntimeTlsValue>, RuntimeStateError> {
+        if !self.process.allocated_tls_indices.contains(&index) {
+            return Err(RuntimeStateError::not_found(
+                "runtime-tls",
+                "tls-index-unallocated",
+                format!("logical TLS index {index} is not allocated"),
+            ));
+        }
+        Ok(self.current_thread()?.tls_values.get(&index))
     }
 
     pub fn initialized_tls_thread_count(&self, index: u32) -> usize {

@@ -80,6 +80,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-wide-char-to-multi-byte.md](bgi-wide-char-to-multi-byte.md) | reached UTF-16 conversionをどう固定するか | host-locale-independent Windows-932、bounded dynamic output、HeapAlloc size-1 stop |
 | [bgi-private-heap-size-1.md](bgi-private-heap-size-1.md) | reached one-byte private-heap allocationをどう固定するか | native pointer／consumer／lifetime relation、bounded flags=0 policy、GetLastError stop |
 | [bgi-get-last-error.md](bgi-get-last-error.md) | reached thread LastErrorをどう返すか | zero-argument ABI、selected-thread authority、native sentinel oracle、TlsGetValue stop |
+| [bgi-tls-get-value.md](bgi-tls-get-value.md) | reached TLS valueをどう返すか | set／unset／invalid semantics、selected-thread isolation、native PE32 fixture、FlsGetValue stop |
 | [browser-runtime-worker.md](browser-runtime-worker.md) | Chrome内でruntime全経路をどこまで通せるか | Worker guest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdog、30分stress |
 | [bgi-browser-worker.md](bgi-browser-worker.md) | current BGI sessionをChromeへ移せたか | Rust/Wasm authority、Node semantic oracle、memory digest、heartbeat、cancel／watchdog |
 | [bgi-browser-benchmark.md](bgi-browser-benchmark.md) | BGI Browser workloadの性能／memoryはgate内か | 3分反復、session／slice分布、main／Worker heap slope、linear memory、Wasm crossing |

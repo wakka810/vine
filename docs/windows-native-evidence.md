@@ -1398,3 +1398,45 @@ Chrome Runtime Workerも68 ordered callsとsame stop／memoryを再現し、241 
 301 Wasm crossings、final generation `248`、cancel／watchdog後pending work 0を通す。3分gateは
 2,151 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-get-last-error.md](bgi-get-last-error.md)を正とする。
+
+## 63. BGI TlsGetValue
+
+focused `tls-lifecycle` observerのaccepted complete capturesは5,867,455
+bytes／18,489 lines／SHA-256
+`d9a85cadcd1d1891480e5a3c3285a14b0f111c9f805770faf4866733c24beaa5`と
+6,331,907 bytes／19,955 lines／SHA-256
+`78b951d688dce1ffcaa5a243b1e71e3a062af346d711794ba7f6be8f9afb4ba6`
+である。Summariesは9,207／9,940 balanced API pairsとdiagnostics zeroを保持する。
+Frida-created worker callbackでearly terminationした2 experimental capturesは除外し、上の
+complete main-process capturesで置き換えた。
+
+両runの最初のBGI callはreturn RVA `0xA54A0`で、preceding `TlsAlloc`が返したindexと
+same-thread `TlsSetValue` valueを使う。Resultはstored valueと一致し、LastErrorは`87 -> 0`と
+なる。Immediate consumerは`mov esi,eax`、`test esi,esi`、conditional success branch、
+fallback `DecodePointer` callであり、nonnull resultをESIへ保持して後続indirect callへ渡す。
+
+Controlled x86 oracleはset value `0x12345678`をsame value／LastError `0`として読み、
+allocated-unset indexをNULL／LastError `0`、invalid `0xFFFFFFFF`をNULL／LastError `87`として
+固定する。Separate 3,072-byte PE32/i386 fixtureのSHA-256は
+`83bdaf9f52b246af3924106280feadce6419e1de78b266ea6b36b469cea7e6c3`で、native exit code
+`0`を返す。Main thread value `0x12345678`、worker initial NULL／set value `0x23456789`、
+main value不変を通し、per-thread relationをFrida callback timingに依存せず固定する。
+
+Runtimeの`kernel32.tls-get-value.v1`はpolicy-independentなone-argument stdcall contractである。
+Process-owned allocated-index registryを検査してselected `RuntimeThread`だけを読み、set／unset
+successはLastError `0`、unallocated indexはLastError `87`を返す。TLS mapとguest memoryを変更せず、
+BGI reached index／value／callerはhandlerへ埋め込まない。Missing static IAT contractは従来の
+`endpoint-contract-missing`、process-owned dynamic exportは
+`dynamic-export-contract-missing`としてendpoint identityを保持する。
+
+`npm run check:runtime:bgi -- --profile kernel32-tls-get-value`は30 contracts／69 calls、
+70 writebacks／116 dirty pages／1,180 changed bytes、32 host deltas、final generation `131`を通す。
+instruction `1703`でdynamic endpoint ID `2`／address `0x7F020010`の`FlsGetValue(0)`を
+`dynamic-export-contract-missing`として停止する。Memory SHA-256は
+`3b2a4d71de4d796d93b92b16a2cb0ab1b62b45cab0cdaf173c5d6f09895736ba`、316,360-byte
+reportのSHA-256は`f14401c55cac1c5247050aad297cc19e35cdd2b4f772ccb842568e0de21ee2d9`である。
+
+Chrome Runtime Workerも69 ordered callsとsame stop／memoryを再現し、242 slices、172 yields、
+303 Wasm crossings、final generation `249`、cancel／watchdog後pending work 0を通す。3分gateは
+2,145 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-tls-get-value.md](bgi-tls-get-value.md)を正とする。

@@ -97,6 +97,10 @@ behavior; native caller／pointer／consumer relations remain evidence data.
 `GetLastError` uses one policy-independent semantic handler. It returns the
 selected Rust runtime thread's full 32-bit LastError and preserves that state;
 there is no reached value, caller, or allowlist entry in compatibility policy.
+`TlsGetValue` is also policy-independent. It validates the process-owned TLS
+allocation registry, reads only the selected-thread value, and distinguishes a
+valid NULL from an invalid index through handler-owned LastError `0`／`87`.
+Neither the reached index nor its stored endpoint value appears in policy data.
 
 Policy JSON parsing and validation is covered independently:
 

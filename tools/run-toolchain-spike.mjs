@@ -189,6 +189,18 @@ const bootstrapParamsObject = path.join(
   "fixture-bootstrap-params.obj",
 );
 const bootstrapParamsExe = path.join(outputDirectory, "bootstrap-params.exe");
+const tlsGetValueFixtureDirectory = path.join(
+  root,
+  "fixtures",
+  "pe32",
+  "tls-get-value",
+);
+const tlsGetValueObject = path.join(outputDirectory, "fixture-tls-get-value.obj");
+const tlsGetValueExe = path.join(outputDirectory, "tls-get-value.exe");
+const tlsGetValueKernel32Library = path.join(
+  outputDirectory,
+  "tls-get-value-kernel32.lib",
+);
 const windowImportLibraries = ["kernel32", "user32", "gdi32"].map(
   (name) => ({
     definition: path.join(windowFixtureDirectory, `${name}.def`),
@@ -251,6 +263,10 @@ compilePeObject(
   path.join(bootstrapParamsFixtureDirectory, "fixture-bootstrap-params.c"),
   bootstrapParamsObject,
 );
+compilePeObject(
+  path.join(tlsGetValueFixtureDirectory, "fixture-tls.c"),
+  tlsGetValueObject,
+);
 
 for (const { definition, library } of windowImportLibraries) {
   run("llvm-dlltool", [
@@ -272,6 +288,16 @@ run("llvm-dlltool", [
   lifecycleKernel32Definition,
   "-l",
   lifecycleKernel32Library,
+]);
+
+run("llvm-dlltool", [
+  "-m",
+  "i386",
+  "-k",
+  "-d",
+  path.join(tlsGetValueFixtureDirectory, "kernel32.def"),
+  "-l",
+  tlsGetValueKernel32Library,
 ]);
 
 run("lld-link", [
@@ -417,12 +443,26 @@ run("lld-link", [
   bootstrapParamsObject,
 ]);
 
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${tlsGetValueExe}`,
+  tlsGetValueObject,
+  tlsGetValueKernel32Library,
+]);
+
 let nativeAbiExitCode = null;
 let browserVerticalNativeExitCode = null;
 let dllLifecycleNativeExitCode = null;
 let windowPixelNativeExitCode = null;
 let bootstrapFsNativeExitCode = null;
 let bootstrapParamsNativeExitCode = null;
+let tlsGetValueNativeExitCode = null;
 if (process.platform === "win32") {
   run(exeFile, [], { timeoutMs: 10_000 });
   nativeAbiExitCode = 0;
@@ -436,6 +476,8 @@ if (process.platform === "win32") {
   bootstrapFsNativeExitCode = 0;
   run(bootstrapParamsExe, [], { timeoutMs: 10_000 });
   bootstrapParamsNativeExitCode = 0;
+  run(tlsGetValueExe, [], { timeoutMs: 10_000 });
+  tlsGetValueNativeExitCode = 0;
 }
 
 const exeInspection = run("llvm-readobj", [
@@ -491,6 +533,11 @@ const bootstrapParamsInspection = run("llvm-readobj", [
   "--coff-imports",
   "--coff-exports",
   bootstrapParamsExe,
+]);
+const tlsGetValueInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  tlsGetValueExe,
 ]);
 
 const requiredExeEvidence = [
@@ -622,6 +669,25 @@ if (parseCoffImports(bootstrapParamsInspection).length !== 0) {
 for (const expected of [
   "Format: COFF-i386",
   "Machine: IMAGE_FILE_MACHINE_I386",
+  "Name: kernel32.dll",
+  "Symbol: TlsAlloc",
+  "Symbol: TlsSetValue",
+  "Symbol: TlsGetValue",
+  "Symbol: TlsFree",
+  "Symbol: CreateThread",
+  "Symbol: WaitForSingleObject",
+  "Symbol: GetExitCodeThread",
+  "Symbol: SetLastError",
+  "Symbol: GetLastError",
+]) {
+  if (!tlsGetValueInspection.includes(expected)) {
+    throw new Error(`TLS GetValue fixture inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
   "ImageBase: 0xF1000000",
   "IMAGE_FILE_LARGE_ADDRESS_AWARE",
   "IMAGE_DLL_CHARACTERISTICS_NX_COMPAT",
@@ -701,6 +767,15 @@ const report = {
       commandLine: "process-parameters+0x40",
     },
     bootstrapParamsNativeExitCode,
+    tlsGetValueFormat: "PE32/i386",
+    tlsGetValueNativeExitCode,
+    tlsGetValueOracle: {
+      mainValue: "0x12345678",
+      workerInitialValue: "0x00000000",
+      workerValue: "0x23456789",
+      successLastError: 0,
+      invalidIndexLastError: 87,
+    },
   },
   artifacts: [
     wasmModule,
@@ -720,6 +795,8 @@ const report = {
     memoryExe,
     bootstrapExe,
     bootstrapParamsExe,
+    tlsGetValueExe,
+    tlsGetValueKernel32Library,
   ].map(artifact),
 };
 

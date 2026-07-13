@@ -803,17 +803,7 @@ impl ApiDispatcher {
             );
         }
         let Some(contract) = self.contracts.get(&endpoint.address) else {
-            return DispatchOutcome::Fault(
-                ApiFault::unsupported(
-                    "api-dispatch",
-                    "endpoint-contract-missing",
-                    format!(
-                        "owned endpoint {} has no API contract",
-                        endpoint_label(endpoint)
-                    ),
-                )
-                .with_endpoint(endpoint),
-            );
+            return DispatchOutcome::Fault(missing_endpoint_contract(endpoint));
         };
         if let Err(fault) = validate_bound_iat(session.memory(), endpoint) {
             return DispatchOutcome::Fault(fault);
@@ -922,17 +912,7 @@ impl ApiDispatcher {
             );
         }
         let Some(contract) = self.contracts.get(&endpoint.address) else {
-            return DispatchOutcome::Fault(
-                ApiFault::unsupported(
-                    "api-dispatch",
-                    "endpoint-contract-missing",
-                    format!(
-                        "owned endpoint {} has no API contract",
-                        endpoint_label(endpoint)
-                    ),
-                )
-                .with_endpoint(endpoint),
-            );
+            return DispatchOutcome::Fault(missing_endpoint_contract(endpoint));
         };
         let argument_bytes = match contract.abi.argument_bytes() {
             Ok(argument_bytes) => argument_bytes,
@@ -1028,6 +1008,26 @@ impl ApiDispatcher {
             Err(fault) => DispatchOutcome::Fault(fault),
         }
     }
+}
+
+fn missing_endpoint_contract(endpoint: &ApiEndpointIdentity) -> ApiFault {
+    let (code, message) = match endpoint.binding {
+        ApiEndpointBinding::ImportAddressTable => (
+            "endpoint-contract-missing",
+            format!(
+                "owned endpoint {} has no API contract",
+                endpoint_label(endpoint)
+            ),
+        ),
+        ApiEndpointBinding::DynamicExport => (
+            "dynamic-export-contract-missing",
+            format!(
+                "process-owned dynamic export endpoint {} has no API contract",
+                endpoint_label(endpoint)
+            ),
+        ),
+    };
+    ApiFault::unsupported("api-dispatch", code, message).with_endpoint(endpoint)
 }
 
 fn validate_contract(contract: &ApiContract) -> Result<(), ApiFault> {

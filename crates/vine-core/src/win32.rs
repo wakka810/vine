@@ -47,6 +47,7 @@ pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v2";
 pub const GET_MODULE_HANDLE_W_IMPLEMENTATION: &str = "kernel32.get-module-handle-w.v1";
 pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1";
 pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
+pub const TLS_GET_VALUE_IMPLEMENTATION: &str = "kernel32.tls-get-value.v1";
 pub const TLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.tls-set-value.v1";
 pub const ENCODE_POINTER_IMPLEMENTATION: &str = "kernel32.encode-pointer.v1";
 pub const DECODE_POINTER_IMPLEMENTATION: &str = "kernel32.decode-pointer.v1";
@@ -64,6 +65,7 @@ const MAX_MODULE_NAME_CODE_UNITS: usize = 64;
 const MAX_EXPORT_NAME_BYTES: usize = 64;
 const CP_ACP: u32 = 0;
 const WINDOWS_932_CODE_PAGE: u32 = 932;
+const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 
@@ -126,6 +128,7 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_MODULE_HANDLE_W_IMPLEMENTATION => handle_get_module_handle_w(contract, frame, session),
         GET_PROC_ADDRESS_IMPLEMENTATION => handle_get_proc_address(contract, frame, session),
         TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
+        TLS_GET_VALUE_IMPLEMENTATION => handle_tls_get_value(contract, frame, session),
         TLS_SET_VALUE_IMPLEMENTATION => handle_tls_set_value(contract, frame, session),
         ENCODE_POINTER_IMPLEMENTATION => handle_encode_pointer(contract, frame, session),
         DECODE_POINTER_IMPLEMENTATION => handle_decode_pointer(contract, frame, session),
@@ -185,6 +188,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetModuleHandleW" => get_module_handle_w_contract(endpoint)?,
         "GetProcAddress" => get_proc_address_contract(endpoint)?,
         "TlsAlloc" => tls_alloc_contract(endpoint)?,
+        "TlsGetValue" => tls_get_value_contract(endpoint)?,
         "TlsSetValue" => tls_set_value_contract(endpoint)?,
         "EncodePointer" => encode_pointer_contract(endpoint)?,
         "DecodePointer" => decode_pointer_contract(endpoint)?,
@@ -939,6 +943,25 @@ fn handle_tls_alloc(
     Ok(ApiImmediate::new(ApiReturnValue::U32(index)))
 }
 
+fn handle_tls_get_value(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let index = required_argument(contract, frame, 0, "TLS index")?;
+    match session.runtime().tls_value_or_unset(index) {
+        Ok(value) => Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
+            value.map_or(0, |value| value.raw_value()),
+        ))
+        .with_last_error(ERROR_SUCCESS)),
+        Err(error) if error.code == "tls-index-unallocated" => {
+            Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(0))
+                .with_last_error(ERROR_INVALID_PARAMETER))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
 fn handle_tls_set_value(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -1554,6 +1577,18 @@ pub fn tls_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, 
         ApiReturnSchema::U32,
         TLS_ALLOC_IMPLEMENTATION,
     )
+}
+
+pub fn tls_get_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "TlsGetValue",
+        vec![u32_argument("tlsIndex")],
+        ApiReturnSchema::OpaquePointer { nullable: true },
+        TLS_GET_VALUE_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn tls_set_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {

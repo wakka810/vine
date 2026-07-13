@@ -103,6 +103,7 @@ enum GenericRuntimeCapability {
     WideCharToMultiByte,
     PrivateHeapSize1,
     GetLastError,
+    TlsGetValue,
 }
 
 struct GenericRuntimeProcess {
@@ -2443,7 +2444,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::EnvironmentStringsW
             | GenericRuntimeCapability::WideCharToMultiByte
             | GenericRuntimeCapability::PrivateHeapSize1
-            | GenericRuntimeCapability::GetLastError,
+            | GenericRuntimeCapability::GetLastError
+            | GenericRuntimeCapability::TlsGetValue,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2887,13 +2889,18 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let get_last_error_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetLastError));
+    let tls_get_value_enabled = matches!(enabled, Some(GenericRuntimeCapability::TlsGetValue));
+    let get_last_error_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::GetLastError | GenericRuntimeCapability::TlsGetValue)
+    );
     let wide_char_to_multi_byte_enabled = matches!(
         enabled,
         Some(
             GenericRuntimeCapability::WideCharToMultiByte
                 | GenericRuntimeCapability::PrivateHeapSize1
                 | GenericRuntimeCapability::GetLastError
+                | GenericRuntimeCapability::TlsGetValue
         )
     );
     let environment_strings_w_enabled = matches!(
@@ -2903,6 +2910,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::WideCharToMultiByte
                 | GenericRuntimeCapability::PrivateHeapSize1
                 | GenericRuntimeCapability::GetLastError
+                | GenericRuntimeCapability::TlsGetValue
         )
     );
     let command_line_a_enabled = matches!(
@@ -2913,6 +2921,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::WideCharToMultiByte
                 | GenericRuntimeCapability::PrivateHeapSize1
                 | GenericRuntimeCapability::GetLastError
+                | GenericRuntimeCapability::TlsGetValue
         )
     );
     let enabled = match enabled {
@@ -2921,7 +2930,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::EnvironmentStringsW
             | GenericRuntimeCapability::WideCharToMultiByte
             | GenericRuntimeCapability::PrivateHeapSize1
-            | GenericRuntimeCapability::GetLastError,
+            | GenericRuntimeCapability::GetLastError
+            | GenericRuntimeCapability::TlsGetValue,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3058,6 +3068,7 @@ fn runtime_capability_enables_endpoint(
         "GetEnvironmentStringsW" | "FreeEnvironmentStringsW" => environment_strings_w_enabled,
         "WideCharToMultiByte" => wide_char_to_multi_byte_enabled,
         "GetLastError" => get_last_error_enabled,
+        "TlsGetValue" => tls_get_value_enabled,
         _ => true,
     }
 }
@@ -8450,6 +8461,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-wide-char-to-multi-byte" => GenericRuntimeCapability::WideCharToMultiByte,
                 "kernel32-private-heap-size-1" => GenericRuntimeCapability::PrivateHeapSize1,
                 "kernel32-get-last-error" => GenericRuntimeCapability::GetLastError,
+                "kernel32-tls-get-value" => GenericRuntimeCapability::TlsGetValue,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
