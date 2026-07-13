@@ -44,6 +44,23 @@ and Wasm-crossing thresholds. Its result and non-claims are recorded in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md). It is not part of public CI
 because the private executable is never distributed.
 
+The canonical commit-bound private target gate is:
+
+```powershell
+$env:VINE_BGI_EXE = "V:\softs\サクラノ詩\BGI.exe"
+npm run check:private-target
+```
+
+It requires the private source, runs the current Node oracle and Chrome Runtime
+Worker path, and writes the small versioned
+`docs/private-target-evidence.json`. The result binds
+the semantic outcome and artifact identities to the exact implementation
+commit and tree. Protected runtime inputs must be clean. Explicitly admitted
+unrelated dirty paths remain visible in the result. The three-minute benchmark
+is recorded as a separate observation and is not rerun by this semantic gate.
+The two-commit local workflow and failure policy are defined in
+[private-target-gate.md](private-target-gate.md).
+
 The versioned v86 performance gate is separate from the ordinary local short
 gate because it takes about one minute and depends on a stable Chrome process:
 
@@ -69,14 +86,15 @@ Broader adapter checks are separate:
 npm run check:adapter
 ```
 
-Private title checks are opt-in:
+Historical private prefix checks are opt-in:
 
 ```powershell
 $env:VINE_BGI_EXE = "V:\softs\サクラノ詩\BGI.exe"
 npm run check:private-corpus
 ```
 
-If no private file exists, the command prints the reason and succeeds as an
+`check:private-corpus` is not the checkpoint commit gate. If no private file
+exists, the command prints the reason and succeeds as an
 explicit skip. If BGI exists but the adapter is absent, it fails and requests
 `npm run check:adapter`. When both are present it loads the versioned checkpoint
 manifest and runs the immutable first-trap contract plus the cumulative first

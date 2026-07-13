@@ -344,6 +344,14 @@ policyのmutation-free rejectionを固定する。Private BGI profileは24 contr
 generation `121`まで進み、instruction 1526の`GetCommandLineA()`で停止する。詳細は
 [bgi-set-handle-count.md](bgi-set-handle-count.md)を正とする。
 
+Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
+implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、
+Node／Chrome semantic outcome、Rust／LLVM／v86 identity、next structured stop、memory digest、
+pending work、artifact hashをversion 1 evidenceへまとめる。Runtime入力のdirty state、source
+mismatch、semantic mismatchはhard failureとし、明示許可した無関係pathだけを結果へ残せる。
+Performanceは別のversioned observationであり、semantic passへ混ぜない。詳細は
+[private-target-gate.md](private-target-gate.md)を正とする。
+
 ### 5.4 CPU と ABI tests
 
 CPU test vector は instruction encoding、initial register／flags／memory、expected result／fault を持つ。

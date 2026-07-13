@@ -49,6 +49,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | 文書 | 役割 | 主な内容 |
 |---|---|---|
 | [current-state-manifest.md](current-state-manifest.md) | current stateをどこで更新するか | schema区分、README生成、canonical再現command、検証境界 |
+| [private-target-gate.md](private-target-gate.md) | private primary targetをcommitへどう結ぶか | clean implementation tree、Node／Chrome semantic gate、small evidence manifest、performance分離 |
 | [corpus-inventory.md](corpus-inventory.md) | 何を最初に動かすか | ローカル title inventory、primary target、静的依存、調査待ち evidence |
 | [toolchain-spike.md](toolchain-spike.md) | 何を再現生成できるか | LLVM／Wasm baseline、PE32 fixture、次の engine 比較条件 |
 | [x86-engine-scorecard.md](x86-engine-scorecard.md) | どの x86 engine を先に試すか | 4 候補の比較、v86 実行 evidence、adapter blocker と採用 gate |

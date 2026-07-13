@@ -79,9 +79,11 @@ source adapter and runs the public entry, ABI callback/return, stack, TEB/PEB,
 process-parameters, MemoryDelta, automatic binary CPU writeback, window, and
 browser-presentation paths, including the guest CPU Runtime Worker vertical
 slice.
-`check:adapter` holds the broader adapter checks. `check:private-corpus` runs BGI
-only when `VINE_BGI_EXE` or the documented local path exists; absence is an
-explicit skip. GitHub Actions runs the two public check groups on Linux.
+`check:adapter` holds the broader adapter checks. `check:private-target` is the
+required local commit-bound BGI gate; it fails when the source is unavailable
+and writes a small evidence manifest only after Node／Chrome semantic agreement.
+`check:private-corpus` retains the historical prefix checks and treats absence
+as an explicit skip. GitHub Actions runs the two public check groups on Linux.
 Linux bootstrap checks consume fixture-hash-bound recorded Windows oracle
 evidence and label that provenance; they do not claim to execute PE32 natively.
 Generated reports are written under `.work/` and are not tracked by Git.
