@@ -3,16 +3,14 @@
 ## 文書ステータス
 
 - ステータス: Proposed
-- 基準日: 2026-07-13
-- 対象: current `main` worktree
-- 実装成熟度: W1／W2／W3／W7 PE32 load／memory／entry return／stack／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。MemoryDelta、changed-state transaction journal、Rust byte authority、binary reflection／delta／writeback、automatic PTE Dirty multi-page reconciliation、atomic import binding、authoritative RuntimeState、23 API contract／55 reached call occurrenceのgeneric dispatcher、17-call manifest／generic runner、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser go gate、generation付きtyped object／handle、process-owned module graph、controlled process／initial-thread lifecycle、controlled two-thread registry／one-object wait／raw message queue／private-heap backing、mapped module／bounded PE32 export、controlled guest／runtime import bindingとDLL process attach unwind／retry／detach、critical-section synchronization、process-owned pointer decoding、bounded process-owned FLS allocation、two reached private-heap allocations／thread-local FLS value／checked InterlockedIncrement／logical standard input／output handle／stdin file typeを追加済み。BGIは`GetStdHandle(STD_OUTPUT_HANDLE)`をreturnして`GetFileType(0x53010002)`へ到達したが、broad HeapAlloc policy、standard error、output／broad file type／file I/O、FLS get／free／callback teardown、adjacent interlocked operations、per-thread CPU bootstrap／general multi-thread／wait-any／wait-all／timeout、User32 message semantics、bound multi-module CPU execution、dynamic DLL lifecycle、BGI browser executionはまだない
 - 開発形態: 1 人、完全個人用
-- primary 開発環境: Windows 11 25H2（profileはPro、現checkerはHome）、Chrome、`V:\src\vine`
 - 主目標: fingerprint 済みサクラノ詩 `BGI.exe` の full-play runtime
 
 このディレクトリは、Vine を「Windows 向け VN/ADV 実行ファイルを、元の配布ファイルを原則として変更せずブラウザ上で再ホストする Windows userspace 互換ランタイム」として開発するための基準文書である。
 
-調査基準リビジョン `4e8f29d` にはルートの `README.md` しかなかった。現在は本ドキュメント、Node check、再現生成するPE32 fixtures、固定したv86 source adapter、Windows trace、W1／W2／W3、high-address memory、Rust W7 load／memory／entry return／stack／bootstrap ingress、sealed BGI trap binding、BGI firstからseventeenth Win32 call returnがある。各checkpointは限定したevidenceであり、production Windows compatibility runtimeの完成を示さない。
+現在状態の正本は[`current-checkpoint.json`](current-checkpoint.json)であり、ルート
+READMEのCurrent Statusはそこから生成する。本書と個別checkpoint文書はarchitecture、観測理由、
+non-claimsを記録するが、current call数やnext stopの第二の正本にはしない。
 
 ## プロジェクトの位置づけ
 
@@ -50,6 +48,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 
 | 文書 | 役割 | 主な内容 |
 |---|---|---|
+| [current-state-manifest.md](current-state-manifest.md) | current stateをどこで更新するか | schema区分、README生成、canonical再現command、検証境界 |
 | [corpus-inventory.md](corpus-inventory.md) | 何を最初に動かすか | ローカル title inventory、primary target、静的依存、調査待ち evidence |
 | [toolchain-spike.md](toolchain-spike.md) | 何を再現生成できるか | LLVM／Wasm baseline、PE32 fixture、次の engine 比較条件 |
 | [x86-engine-scorecard.md](x86-engine-scorecard.md) | どの x86 engine を先に試すか | 4 候補の比較、v86 実行 evidence、adapter blocker と採用 gate |

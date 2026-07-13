@@ -4,250 +4,55 @@ Browser-native Windows userspace compatibility runtime for Windows VN/ADV
 executables. The active target is full play of `サクラノ詩/BGI.exe` on
 PE32/i386 in Chrome.
 
-The current checkpoint is `bgi-seventeenth-win32-call`. Rust owns and materializes
-the fingerprinted BGI image, applies 18,199 `HIGHLOW` relocations, binds all
-330 imports to deterministic runtime-owned `UD2` thunks, installs four ordered
-dynamic-export endpoints, and reflects 389 sealed pages into source-built v86.
-BGI executes 19 instructions from entry
-`0x100A383E` and reaches exact thunk ID `104`,
-`KERNEL32.dll!GetSystemTimeAsFileTime`. In this cumulative mode, a controlled
-clock sample is written through a generation `28` stack-page `MemoryDelta`;
-the checked stdcall return
-then executes four more instructions and stops at thunk ID `103`,
-`KERNEL32.dll!GetCurrentProcessId`. A second checked stdcall returns controlled
-process ID `4096`; three more instructions stop at thunk ID `149`,
-`KERNEL32.dll!GetCurrentThreadId`. A third checked stdcall returns controlled
-thread ID `8192`; three more instructions stop at thunk ID `13`,
-`KERNEL32.dll!GetTickCount`. A fourth checked stdcall returns controlled tick
-count `3,600,000`; five more instructions stop at thunk ID `157`,
-`KERNEL32.dll!QueryPerformanceCounter`. A fifth checked stdcall writes counter
-`12,345,678,901` through generation `29`, returns BOOL success, and runs 44
-more instructions to thunk ID `83`, `KERNEL32.dll!GetStartupInfoW`. A sixth
-checked VOID stdcall writes controlled 68-byte x86 `STARTUPINFOW` profile
-`startupinfow-v68-zero-optional-fields` through generation `30`, preserves
-EAX, and runs nine more instructions to thunk ID `84`,
-`KERNEL32.dll!HeapSetInformation`. A seventh checked stdcall accepts only
-`HeapSetInformation(NULL, 1, NULL, 0)`, records the controlled process heap
-policy, returns BOOL success without changing generation `30`, and runs 21
-more instructions to thunk ID `102`, `KERNEL32.dll!HeapCreate`. An eighth
-checked stdcall validates
-`HeapCreate(0, 0x1000, 0)`, creates Rust-owned metadata for logical private
-heap handle `0x68010001` without copying the native host pointer, and runs 14
-more instructions to thunk ID `72`, `KERNEL32.dll!GetModuleHandleW`. A ninth
-checked stdcall reads bounded
-UTF-16 `KERNEL32.DLL`, returns Rust-owned logical loaded-module handle
-`0x4D010001` without copying the native HMODULE, and runs nine more
-instructions to thunk ID `150`, `KERNEL32.dll!GetProcAddress`. A tenth checked
-stdcall validates logical KERNEL32
-handle `0x4D010001`, bounded ASCII `FlsAlloc`, and the register-indirect IAT
-call sequence; it returns identity-preserving guest endpoint `0x7F020000`
-without copying the host function address. Five more instructions reach thunk
-ID `150` again for `FlsGetValue`. An eleventh checked stdcall preserves the
-first endpoint at BGI slot `0x100FEEBC`, validates persistent ESI call
-provenance and bounded ASCII `FlsGetValue`, and returns distinct endpoint
-`0x7F020010`. BGI stores it at `0x100FEEC0`; five instructions later the same
-thunk is reached for `FlsSetValue`. A twelfth checked stdcall preserves both
-prior endpoint stores, validates bounded ASCII `FlsSetValue`, and returns
-endpoint `0x7F020020`. BGI stores it at `0x100FEEC4`; five instructions later
-the same thunk is reached for `FlsFree`. A thirteenth checked stdcall preserves
-all three prior stores and returns endpoint `0x7F020030`. BGI stores it at
-`0x100FEEC8`; twelve instructions later static thunk ID `70` is reached for
-`KERNEL32.dll!TlsAlloc`. A fourteenth checked zero-argument stdcall validates
-the bound IAT and all four endpoint stores, discards native TLS index `0x1C`,
-and returns Vine-owned logical TLS index `0`. Seven instructions later BGI
-reaches thunk ID `68`, `KERNEL32.dll!TlsSetValue`, with arguments
-`[0, 0x7F020010]`. A fifteenth checked stdcall reconciles the stack, endpoint
-store page, and BGI's TLS-index global, then associates endpoint ID `2` with
-controlled thread ID `8192` and returns BOOL `1`. Nine instructions later BGI
-reaches thunk ID `89`, `KERNEL32.dll!EncodePointer`, with argument `NULL`.
-A sixteenth checked stdcall validates the exact direct-IAT call and retained TLS
-state, discards two observed process-cookie-dependent native results, and
-returns deterministic encoded-NULL token `0xEC010001`. Fifty-five instructions
-later BGI reaches thunk ID `89` again with non-NULL argument `0x100A9608`.
-A seventeenth checked stdcall validates that executable process-initializer
-function, returns distinct token `0xEC010002`, and observes BGI store it at
-`0x100FF62C`. Nine instructions later the same thunk is reached for controlled
-dynamic endpoint ID `1`, `FlsAlloc` at `0x7F020000`.
-Fourteen static endpoints are declared; the other 316 retain exact identity as
-explicit traps. Memory generation remains `30`.
+<!-- BEGIN GENERATED CURRENT STATUS -->
+## Current Status
 
-The runtime kernel has advanced beyond that frozen compatibility anchor through
-the separate `bgi-generic-runtime-reentry` semantic run. BGI is registered with
-14 process-owned runtime dependencies and all 330 runtime export endpoints, then
-executes through one persistent Rust runtime session with automatic PTE Dirty
-writeback. It validates the frozen 17 calls, completes four additional
-`EncodePointer` calls, and reaches 21 completed calls before stopping at
-instruction 266 on
-`KERNEL32.dll!InitializeCriticalSectionAndSpinCount(0x100FF630, 4000)`. The
-generic run advances memory generation `30 -> 52` through 22 writeback batches
-and 3 host deltas without an API-specific reconciliation list. Its separate
-96,244-byte report has SHA-256
-`a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa`; the
-frozen 140,660-byte report remains byte-identical.
+This section is generated from [`docs/current-checkpoint.json`](docs/current-checkpoint.json).
+Edit the manifest and run `npm run docs:generate`; do not edit this block by hand.
 
-The critical-section capability profile adds process-owned synchronization.
-Native evidence fixes the 24-byte x86 layout, BOOL／LastError policy, recursive
-same-thread enter／leave, and BGI wrapper RVAs. The generic session initializes 14
-contiguous objects and reaches 35 completed calls before stopping at instruction
-575 on `DecodePointer(0xEC010003)`. It uses 36 writeback batches, 65 dirty pages,
-344 CPU-changed bytes, and 17 host deltas, finishing at generation `80`. Its
-167,719-byte report has SHA-256
-`cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69`.
+| Area | Current state |
+|---|---|
+| Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
+| Active runtime | `bgi-standard-output-handle`: 55 calls across 23 API contracts, memory generation 113 |
+| Browser | `controlled-public-fixture` passed; BGI session `not-started` |
+| Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
+| Next structured stop | `KERNEL32.dll!GetFileType(0x53010002)` at instruction 1447: `file-type-standard-handle-unsupported` |
 
-The cumulative pointer-decoding profile accepts only registered Vine tokens,
-returns `0x7F020000` for `0xEC010003`, and immediately reaches dynamic
-`FlsAlloc(0x100A5666)` at instruction 577. It completes 36 calls through 37
-writeback batches／66 dirty pages／348 changed bytes and generation `81`. Its
-171,356-byte report has SHA-256
-`5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e`.
+The active semantic report is 257,008 bytes with SHA-256
+`0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`. The hash identifies the artifact; semantic checks are the gate.
 
-The cumulative FLS-allocation profile dispatches dynamic `FlsAlloc` through the
-same generic path, validates executable callback `0x100A5666`, preserves
-LastError, and returns process-owned logical index `0` instead of native index
-`9`. It completes 37 calls, then reaches
-`HeapAlloc(0x68010001, 8, 0x214)` at instruction 618. Its 38 writeback batches
-cover 68 dirty pages／399 changed bytes and finish at generation `82`; the
-175,123-byte report has SHA-256
-`26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c`.
+### Supported API Contracts
 
-The cumulative private-heap profile dispatches that reached allocation through
-the existing transaction, returns zeroed guest address `0x20000000`, and maps
-its first 4 KiB page into the v86 mirror. It completes 39 calls, including a
-second `DecodePointer`, then stops at dynamic
-`FlsSetValue(0, 0x20000000)` at instruction 644. Its 40 writeback batches cover
-70 dirty pages／415 changed bytes; 18 host deltas finish at generation `87`.
-The 183,102-byte report has SHA-256
-`d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`.
+- `KERNEL32.dll!GetSystemTimeAsFileTime`
+- `KERNEL32.dll!GetCurrentProcessId`
+- `KERNEL32.dll!GetCurrentThreadId`
+- `KERNEL32.dll!GetTickCount`
+- `KERNEL32.dll!QueryPerformanceCounter`
+- `KERNEL32.dll!GetStartupInfoW`
+- `KERNEL32.dll!HeapSetInformation`
+- `KERNEL32.dll!HeapCreate`
+- `KERNEL32.dll!GetModuleHandleW`
+- `KERNEL32.dll!GetProcAddress`
+- `KERNEL32.dll!TlsAlloc`
+- `KERNEL32.dll!TlsSetValue`
+- `KERNEL32.dll!EncodePointer`
+- `KERNEL32.dll!DecodePointer`
+- `KERNEL32.dll!InitializeCriticalSectionAndSpinCount`
+- `KERNEL32.dll!EnterCriticalSection`
+- `KERNEL32.dll!LeaveCriticalSection`
+- `KERNEL32.dll!FlsAlloc`
+- `KERNEL32.dll!FlsSetValue`
+- `KERNEL32.dll!HeapAlloc`
+- `KERNEL32.dll!InterlockedIncrement`
+- `KERNEL32.dll!GetStdHandle`
+- `KERNEL32.dll!GetFileType`
 
-The cumulative FLS-value profile stores `0x20000000` in logical slot `0` for
-controlled thread `8192`, returns BOOL `1`, and preserves LastError. Existing
-contracts then pass a second module lookup and one critical-section entry before
-stopping at `InterlockedIncrement(0x100F08E0)` at instruction 707. It completes
-42 calls through 43 writeback batches／75 dirty pages／497 changed bytes and 19
-host deltas, finishing at generation `91`. The 195,821-byte report has SHA-256
-`f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f`.
+### Reproduce Current Checkpoint
 
-The cumulative InterlockedIncrement profile checks three native-matching LONG
-updates at `0x100F08E0`, `0x100F0F70`, and `0x100F0EBC`, then continues existing
-critical-section, thread, and startup contracts. It completes 50 calls through
-51 writeback batches／86 dirty pages／667 changed bytes and 26 host deltas,
-finishing at generation `106`. The 234,775-byte report has SHA-256
-`4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643`
-and stops fail-closed at `HeapAlloc(0x68010001, 8, 0x800)`.
-
-The cumulative second-allocation profile keeps the first block and returns
-zeroed allocation ID `2` at `0x20000218`. Its dirty-only unsealed-owner delta
-requires no remap. It completes 51 calls through 52 writeback batches／89 dirty
-pages／906 changed bytes and 27 host deltas, finishing at generation `108`. The
-239,789-byte report has SHA-256
-`fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8`
-and stops at `GetStdHandle(STD_INPUT_HANDLE)` at instruction 1395.
-
-The cumulative standard-input profile returns process-owned logical handle
-`0x53010001` without exposing native handle `0x208`. It completes 52 calls
-through 53 writeback batches／90 dirty pages／911 changed bytes and 27 host
-deltas, finishing at generation `109`. The 243,749-byte report has SHA-256
-`5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e`
-and stops at `GetFileType(0x53010001)` at instruction 1403.
-
-The cumulative file-type profile classifies registered logical stdin as
-`FILE_TYPE_CHAR (2)`, then returns the existing 15th critical-section
-initialization. It completes 54 calls through 55 writeback batches／94 dirty
-pages／938 changed bytes and 28 host deltas, finishing at generation `112`. The
-252,994-byte report has SHA-256
-`dff76ce6eb289bdc4e57e6013c113906d9b0cee80eaa8cbf23948dcccd7efbcf`
-and stops at `GetStdHandle(STD_OUTPUT_HANDLE)` at instruction 1439.
-
-The cumulative standard-output profile selects a versioned two-selector
-contract and returns process-owned logical stdout `0x53010002`. It completes 55
-calls through 56 writeback batches／95 dirty pages／943 changed bytes and 28 host
-deltas, finishing at generation `113`. The 257,008-byte report has SHA-256
-`0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`
-and stops at `GetFileType(0x53010002)` at instruction 1447.
-
-Twenty-three Kernel32 contracts now use the generic Rust dispatcher. This includes
-clock／identity, startup, heap, module／export, TLS, pointer encoding／decoding,
-critical-section, dynamic FLS allocation／value storage, two reached private-heap
-allocations, checked `InterlockedIncrement`, logical standard input／output
-lookup, and stdin file-type classification.
-The dispatcher owns endpoint lookup, checked frame decoding,
-pointer and name／ordinal validation, guest writes, return cleanup, LastError
-policy, and identity-preserving faults.
-
-Those calls now share one authoritative Rust `RuntimeState`. It owns the
-controlled process／logical thread registry, per-thread LastError, clock and startup
-profile, heap／module／endpoint registries, per-thread TLS／FLS values, deterministic encoded
-pointers with strict inverse lookup, guest-address-keyed critical sections, and
-bounded process-owned FLS slots with retained cleanup callbacks. Nested callback frames are LIFO and asynchronous host completion is a
-scheduler event that restores the prior runnable／callback state. Private JSON
-request values remain evidence assertions, not API result sources. A controlled
-one-object wait queue now moves a logical lane from runnable to waiting and back
-when another thread's waitable object is signaled. Per-thread bounded raw message
-FIFOs add empty-queue blocking and first-message wake without claiming User32 APIs.
-
-The foundation below that checkpoint uses Rust `GuestMemory` as byte authority
-and v86 paging as a bounded execution mirror. Initial reflection, host delta,
-and CPU writeback use binary control buffers plus contiguous page payloads.
-After every bounded CPU slice, the host scans writable PTE Dirty bits without
-an API-specific page list and atomically reconciles changed pages by owner and
-generation. A public two-slice fixture writes across stack, heap, surface, and
-RWX pages, discovers exactly 7 then 4 dirty pages, and advances Rust generation
-`18 -> 21` around one intervening host delta. The earlier fixture still writes
-eight bytes to a non-executable data page, transfers one 4 KiB delta to v86,
-and has guest x86 read back `0x8877665544332211`. A conservative 15-byte execute
-window also stops cross-page instruction fetch when the next page is
-non-executable.
-Multi-owner bootstrap, PE materialization, and import commit paths use a
-changed-state／frame before-image rollback journal. Transaction start copies no
-committed page bytes; a 1,024-page scaling contract records 4 KiB only after the
-first changed page. Import planning is read-only and reports every unresolved import;
-IAT and thunk changes are all-or-nothing, so extending a catalog and retrying on
-the same image is supported before the first successful bind.
-
-A controlled PE32 fixture now runs inside a Chrome Runtime Worker through the
-same Rust memory and generic dispatcher boundaries. The browser path completes
-46 guest instructions in 10 bounded slices with three periodic yields, two
-deferred host services, a depth-2 nested callback, seven automatic writeback
-batches, Canvas RGBA readback, an 880 Hz Web Audio pulse, IndexedDB byte `0x5a`,
-and exact clean exit. Pending-request cancellation and a four-instruction
-watchdog both leave no suspended host request or callback. A 30-minute repeated
-lifecycle stress completed 11,326 sessions with zero failures, a measured JS
-heap slope of 136 bytes/minute, and a worst main-thread heartbeat gap of
-16.28 ms.
-
-The development profile is Windows 11 Pro 25H2, although the current OS API
-reports Home; the observed build is recorded separately from that unresolved
-edition label. General DLL/export lifecycle, CPU-context-backed multi-thread scheduling,
-general wait/message semantics, BGI
-browser execution, production graphics/audio/storage semantics, and full title
-play remain unimplemented.
-The 17 checkpoint expectations now live in a versioned manifest shared by the
-Node and Rust runners. Stable npm checkpoint commands select one generic session
-by ID; API-specific dispatch flags are no longer used. A clean stable-Chrome
-benchmark now records a `go` decision for the exchangeable v86 baseline:
-134.1M integer instructions/s, 11,279 production API roundtrips/s, 14.58 MB
-active steady memory, a 0.985 hidden-tab throughput ratio, and a 51.315 ms
-maximum AudioWorklet delivery gap. A generation-tagged typed object／handle
-table now separates process／thread object lifetime from closable handles,
-rejects stale generations and type aliases, preserves wait signals across
-reopen, and validates the existing heap／module handles. A process-owned module
-graph now adds canonical basename identity, main／guest／runtime classes,
-dependency and reference ownership, and deterministic dependency-first attach／
-reverse detach metadata. Process／initial-thread lifecycle now separates
-bootstrap, running, exit request, and waitable completion, with atomic cleanup
-and thread-before-process terminal ordering. A controlled second-thread registry
-adds unique TIDs, typed handles, isolated LastError／TLS／callback lanes, explicit
-selection, thread-only exit, and deterministic all-lane process termination.
-A controlled wait queue adds monotonic registration identity, object-indexed
-FIFO ownership, exact signal/wake events, already-signaled completion, and exit
-cancellation. A controlled raw message queue adds global sequence identity,
-owner-thread FIFO dequeue, reblock／rewake, and exit cleanup. Private heaps now
-have bounded guest-memory backing; mapped images, bounded PE32 export resolution,
-guest／runtime import binding, and DLL process attach failure unwind／retry／detach
-are also process-owned foundations. The next runtime-kernel checkpoint measures
-only `GetFileType(logical stdout)` without adding stderr, console writes,
-redirection, or broad file behavior. Bespoke numbered BGI checkpoint expansion
-remains paused.
+```sh
+npm run check:runtime:bgi -- --profile kernel32-standard-output-handle
+```
+<!-- END GENERATED CURRENT STATUS -->
 
 ## Requirements
 
