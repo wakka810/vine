@@ -9,11 +9,12 @@ use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall, ApiHandlerResult,
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
     CallbackPolicy, CallingConvention, CpuWritebackReceipt, DispatchOutcome, ExecutionSession,
-    GuestAddress, GuestCallbackRequest, GuestMemory, HostCompletion, HostRequest, ImportBinding,
-    InitialThreadStack, LOGICAL_ENCODED_POINTER_NAMESPACE, LastErrorPolicy, MemoryDeltaBuffers,
-    MemoryLimits, ModuleSnapshot, Pe32Limits, ProcessAddressSpaceLayout, ReentrancyPolicy,
-    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeExport,
-    RuntimeExportCatalog, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo,
+    GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
+    HostRequest, ImportBinding, InitialThreadStack, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    LastErrorPolicy, MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot,
+    PageProtection, Pe32Limits, ProcessAddressSpaceLayout, ReentrancyPolicy, RuntimeBootstrap,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeExport, RuntimeExportCatalog,
+    RuntimeHeapInitialization, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo,
     RuntimeState, RuntimeThreadId, SchedulerThreadState, StackCleanup, bind_pe32_imports,
     build_pe32_load_plan, install_controlled_initial_stack, install_runtime_return_sentinels,
     materialize_pe32_image,
@@ -29,6 +30,7 @@ const CANCEL_EXIT_CODE: u32 = 0xc000_013a;
 const DEFERRED_ADD: &str = "browser-fixture-deferred-add-v1";
 const CALL_CALLBACK: &str = "browser-fixture-call-callback-v1";
 const COMMIT_OUTPUTS: &str = "browser-fixture-commit-outputs-v1";
+const MAPPING_FIXTURE_STAGE_COUNT: u32 = 7;
 
 thread_local! {
     static BRIDGE: RefCell<Bridge> = const { RefCell::new(Bridge::new()) };
@@ -110,6 +112,15 @@ struct ActiveCallback {
     stack_pointer: GuestAddress,
 }
 
+#[derive(Default)]
+struct BrowserMappingFixture {
+    next_stage: u32,
+    heap_handle: Option<u32>,
+    allocation_address: Option<GuestAddress>,
+    backing_owner: Option<vine_core::MemoryOwnerId>,
+    backing_page: Option<GuestRange>,
+}
+
 struct BrowserRuntime {
     memory: GuestMemory,
     runtime: RuntimeState,
@@ -120,6 +131,7 @@ struct BrowserRuntime {
     stack: InitialThreadStack,
     pending_host: Option<ApiDeferredCall>,
     callbacks: Vec<ActiveCallback>,
+    mapping_fixture: BrowserMappingFixture,
 }
 
 impl BrowserRuntime {
@@ -173,6 +185,7 @@ impl BrowserRuntime {
             "callbackSentinel": sentinels.callback_return.address.0,
             "entrySentinel": sentinels.process_entry_return.address.0,
             "pageCount": reflection.pages.len(),
+            "regions": memory.region_snapshots(),
             "endpoints": binding.thunks,
         });
         Ok((
@@ -186,6 +199,7 @@ impl BrowserRuntime {
                 stack,
                 pending_host: None,
                 callbacks: Vec::new(),
+                mapping_fixture: BrowserMappingFixture::default(),
             },
             metadata,
             reflection_buffers,
@@ -218,6 +232,182 @@ impl BrowserRuntime {
             "dirtyPages": self.memory.stats().dirty_pages,
         });
         Ok((metadata, receipt))
+    }
+
+    fn advance_mapping_fixture(
+        &mut self,
+        requested_stage: u32,
+    ) -> Result<(Value, MemoryDeltaBuffers), String> {
+        if requested_stage != self.mapping_fixture.next_stage
+            || requested_stage >= MAPPING_FIXTURE_STAGE_COUNT
+        {
+            return Err("browser mapping fixture stage is out of order".to_owned());
+        }
+        let stats = self.memory.stats();
+        if stats.generation != stats.acknowledged_generation {
+            return Err(
+                "browser mapping fixture requires the previous delta acknowledgement".to_owned(),
+            );
+        }
+
+        let (stage, probe_address) = match requested_stage {
+            0 => {
+                let handle = self
+                    .runtime
+                    .allocate_private_heap(0, GUEST_PAGE_SIZE as u32, 0)
+                    .map_err(error_string)?
+                    .handle;
+                let allocation = ExecutionSession::new(&mut self.memory, &mut self.runtime)
+                    .allocate_private_heap_block(handle, 0x214, RuntimeHeapInitialization::Zeroed)
+                    .map_err(error_string)?;
+                let backing = self
+                    .runtime
+                    .heap_backing(handle)
+                    .map_err(error_string)?
+                    .ok_or_else(|| "lazy heap allocation did not create a backing".to_owned())?;
+                self.mapping_fixture.heap_handle = Some(handle);
+                self.mapping_fixture.allocation_address = Some(allocation.address);
+                self.mapping_fixture.backing_owner = Some(backing.memory_owner);
+                self.mapping_fixture.backing_page = Some(
+                    GuestRange::new(backing.range.start(), GUEST_PAGE_SIZE)
+                        .map_err(error_string)?,
+                );
+                ("lazy-heap-map", allocation.address)
+            }
+            1 => {
+                let handle = self.mapping_fixture_heap_handle()?;
+                let address = self.mapping_fixture_allocation_address()?;
+                ExecutionSession::new(&mut self.memory, &mut self.runtime)
+                    .free_private_heap_block(handle, address)
+                    .map_err(error_string)?;
+                ("heap-dirty-only", address)
+            }
+            2 => {
+                self.memory
+                    .protect(
+                        self.mapping_fixture_backing_owner()?,
+                        self.mapping_fixture_backing_page()?,
+                        PageProtection {
+                            read: true,
+                            write: false,
+                            execute: false,
+                        },
+                    )
+                    .map_err(error_string)?;
+                (
+                    "heap-protect-read-only",
+                    self.mapping_fixture_allocation_address()?,
+                )
+            }
+            3 => {
+                self.memory
+                    .protect(
+                        self.mapping_fixture_backing_owner()?,
+                        self.mapping_fixture_backing_page()?,
+                        PageProtection {
+                            read: true,
+                            write: true,
+                            execute: false,
+                        },
+                    )
+                    .map_err(error_string)?;
+                (
+                    "heap-protect-read-write",
+                    self.mapping_fixture_allocation_address()?,
+                )
+            }
+            4 => {
+                self.memory
+                    .decommit(
+                        self.mapping_fixture_backing_owner()?,
+                        self.mapping_fixture_backing_page()?,
+                    )
+                    .map_err(error_string)?;
+                ("heap-decommit", self.mapping_fixture_allocation_address()?)
+            }
+            5 => {
+                self.memory
+                    .commit(
+                        self.mapping_fixture_backing_owner()?,
+                        self.mapping_fixture_backing_page()?,
+                        PageProtection {
+                            read: true,
+                            write: true,
+                            execute: false,
+                        },
+                    )
+                    .map_err(error_string)?;
+                ("heap-recommit", self.mapping_fixture_allocation_address()?)
+            }
+            6 => {
+                let handle = self.mapping_fixture_heap_handle()?;
+                let address = self.mapping_fixture_allocation_address()?;
+                ExecutionSession::new(&mut self.memory, &mut self.runtime)
+                    .destroy_private_heap(handle)
+                    .map_err(error_string)?;
+                ("heap-release", address)
+            }
+            _ => return Err("browser mapping fixture stage is unsupported".to_owned()),
+        };
+
+        let delta = self.memory.pending_delta().map_err(error_string)?;
+        let mapping_operations = delta
+            .mapping_operations
+            .iter()
+            .map(mapping_operation_name)
+            .collect::<Vec<_>>();
+        let metadata = json!({
+            "kind": "mapping-fixture-delta",
+            "stageIndex": requested_stage,
+            "stage": stage,
+            "fromGeneration": delta.from_generation,
+            "generation": delta.generation,
+            "mappingOperations": mapping_operations,
+            "dirtyPages": delta.dirty_pages.len(),
+            "cacheEffects": delta.cache_effects,
+            "probeAddress": probe_address.0,
+        });
+        let buffers = delta.encode_binary().map_err(error_string)?;
+        self.mapping_fixture.next_stage += 1;
+        Ok((metadata, buffers))
+    }
+
+    fn current_reflection(&self) -> Result<(Value, vine_core::MemoryReflectionBuffers), String> {
+        let reflection = self.memory.current_reflection().map_err(error_string)?;
+        let stats = self.memory.stats();
+        let metadata = json!({
+            "kind": "current-reflection",
+            "generation": reflection.invalidation.generation,
+            "acknowledgedGeneration": stats.acknowledged_generation,
+            "pageCount": reflection.pages.len(),
+            "regions": self.memory.region_snapshots(),
+        });
+        let buffers = reflection.encode_binary().map_err(error_string)?;
+        Ok((metadata, buffers))
+    }
+
+    fn mapping_fixture_heap_handle(&self) -> Result<u32, String> {
+        self.mapping_fixture
+            .heap_handle
+            .ok_or_else(|| "browser mapping fixture heap is unavailable".to_owned())
+    }
+
+    fn mapping_fixture_allocation_address(&self) -> Result<GuestAddress, String> {
+        self.mapping_fixture
+            .allocation_address
+            .ok_or_else(|| "browser mapping fixture allocation is unavailable".to_owned())
+    }
+
+    fn mapping_fixture_backing_owner(&self) -> Result<vine_core::MemoryOwnerId, String> {
+        self.mapping_fixture
+            .backing_owner
+            .ok_or_else(|| "browser mapping fixture owner is unavailable".to_owned())
+    }
+
+    fn mapping_fixture_backing_page(&self) -> Result<GuestRange, String> {
+        self.mapping_fixture
+            .backing_page
+            .ok_or_else(|| "browser mapping fixture backing page is unavailable".to_owned())
     }
 
     fn dispatch(
@@ -473,6 +663,11 @@ impl BrowserRuntime {
     fn cancel(&mut self, exit_code: u32) -> Result<Value, String> {
         self.pending_host = None;
         self.callbacks.clear();
+        if !self.runtime.process().heaps.is_empty() {
+            ExecutionSession::new(&mut self.memory, &mut self.runtime)
+                .teardown_process_heaps()
+                .map_err(error_string)?;
+        }
         let cancellation = self
             .runtime
             .terminate_current_process(exit_code)
@@ -508,6 +703,16 @@ impl BrowserRuntime {
             "pendingHostCalls": 0,
             "pendingCallbacks": 0,
         }))
+    }
+}
+
+fn mapping_operation_name(operation: &MappingOperation) -> &'static str {
+    match operation {
+        MappingOperation::Reserve { .. } => "reserve",
+        MappingOperation::Commit { .. } => "commit",
+        MappingOperation::Protect { .. } => "protect",
+        MappingOperation::Decommit { .. } => "decommit",
+        MappingOperation::Release { .. } => "release",
     }
 }
 
@@ -739,6 +944,22 @@ pub extern "C" fn vine_bridge_reconcile_writeback(control_length: u32, payload_l
             .runtime_mut()?
             .reconcile_writeback(control, payload)?;
         bridge.set_output(metadata, Vec::new(), Vec::new())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_advance_mapping_fixture(stage: u32) -> u32 {
+    run_bridge(|bridge| {
+        let (metadata, delta) = bridge.runtime_mut()?.advance_mapping_fixture(stage)?;
+        bridge.set_output(metadata, delta.control, delta.page_bytes)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_current_reflection() -> u32 {
+    run_bridge(|bridge| {
+        let (metadata, reflection) = bridge.runtime_mut()?.current_reflection()?;
+        bridge.set_output(metadata, reflection.control, reflection.page_bytes)
     })
 }
 

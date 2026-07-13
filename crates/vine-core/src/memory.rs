@@ -713,6 +713,14 @@ pub struct MemoryReflectionPage {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryRegionSnapshot {
+    pub owner: MemoryOwnerId,
+    pub kind: MemoryRegionKind,
+    pub range: GuestRange,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryReflection {
@@ -2845,6 +2853,17 @@ impl GuestMemory {
         }
     }
 
+    pub fn region_snapshots(&self) -> Vec<MemoryRegionSnapshot> {
+        self.regions
+            .values()
+            .map(|region| MemoryRegionSnapshot {
+                owner: region.owner,
+                kind: region.kind,
+                range: region.range,
+            })
+            .collect()
+    }
+
     pub fn pending_reflection(&mut self) -> Result<MemoryReflection, GuestMemoryError> {
         if self.initial_reflection_acknowledged {
             return Err(GuestMemoryError::conflict(
@@ -2860,6 +2879,28 @@ impl GuestMemory {
                 "memory reflection requires a pending memory generation",
             )
         })?;
+        let reflection = self.build_reflection(invalidation, false)?;
+        self.record_offered_generation(invalidation.generation, true);
+        Ok(reflection)
+    }
+
+    pub fn current_reflection(&self) -> Result<MemoryReflection, GuestMemoryError> {
+        self.build_reflection(
+            MemoryInvalidation {
+                generation: self.generation,
+                data_tlb: true,
+                instruction_fetch: true,
+                generated_code: true,
+            },
+            true,
+        )
+    }
+
+    fn build_reflection(
+        &self,
+        invalidation: MemoryInvalidation,
+        force_dirty: bool,
+    ) -> Result<MemoryReflection, GuestMemoryError> {
         let mut pages = Vec::with_capacity(self.pages.len());
         let mut hasher = Sha256::new();
         for (&virtual_page, page) in &self.pages {
@@ -2876,24 +2917,20 @@ impl GuestMemory {
             let protection_bits = u8::from(page.protection.read)
                 | u8::from(page.protection.write) << 1
                 | u8::from(page.protection.execute) << 2;
+            let dirty = force_dirty || page.dirty_generation.is_some();
             hasher.update(address.0.to_le_bytes());
             hasher.update(page.owner.0.to_le_bytes());
-            hasher.update([
-                protection_bits,
-                u8::from(owner.sealed),
-                u8::from(page.dirty_generation.is_some()),
-            ]);
+            hasher.update([protection_bits, u8::from(owner.sealed), u8::from(dirty)]);
             hasher.update(&bytes);
             pages.push(MemoryReflectionPage {
                 address,
                 owner: page.owner,
                 owner_sealed: owner.sealed,
                 protection: page.protection,
-                dirty: page.dirty_generation.is_some(),
+                dirty,
                 bytes,
             });
         }
-        self.record_offered_generation(invalidation.generation, true);
         Ok(MemoryReflection {
             invalidation,
             page_size: GUEST_PAGE_SIZE,

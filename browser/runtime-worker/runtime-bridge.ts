@@ -1,3 +1,5 @@
+import type { MemoryRegionSnapshot } from "./memory-transport.js";
+
 export type RegisterUpdate =
   | { action: "preserve" }
   | { action: "set"; value: number };
@@ -22,6 +24,7 @@ export interface PreparedMetadata {
   callbackSentinel: number;
   entrySentinel: number;
   pageCount: number;
+  regions: MemoryRegionSnapshot[];
   endpoints: Array<{ id: number; address: number }>;
 }
 
@@ -44,6 +47,8 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_prepare(length: number): number;
   vine_bridge_acknowledge(low: number, high: number): number;
   vine_bridge_reconcile_writeback(controlLength: number, payloadLength: number): number;
+  vine_bridge_advance_mapping_fixture(stage: number): number;
+  vine_bridge_current_reflection(): number;
   vine_bridge_dispatch(endpoint: number, stackPointer: number, returnAddress: number): number;
   vine_bridge_complete_host(low: number, high: number, result: number): number;
   vine_bridge_complete_callback(sentinel: number, result: number): number;
@@ -95,6 +100,14 @@ export class RuntimeBridge {
     return this.#invoke(() =>
       this.#exports.vine_bridge_reconcile_writeback(control.byteLength, payload.byteLength),
     );
+  }
+
+  advanceMappingFixture<T = Record<string, unknown>>(stage: number): BridgeOutput<T> {
+    return this.#invoke(() => this.#exports.vine_bridge_advance_mapping_fixture(stage));
+  }
+
+  currentReflection<T = Record<string, unknown>>(): BridgeOutput<T> {
+    return this.#invoke(() => this.#exports.vine_bridge_current_reflection());
   }
 
   dispatch<T = Record<string, unknown>>(

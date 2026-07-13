@@ -67,6 +67,23 @@ export interface SessionReport {
   maximumCallbackDepth: number;
   writebackBatches: number;
   writebackPages: number;
+  mappingDeltas: number;
+  mappingOperations: {
+    reserve: number;
+    commit: number;
+    protect: number;
+    decommit: number;
+    release: number;
+  };
+  mappingDirtyPages: number;
+  mappingAtomicRejections: number;
+  mappingStaleAccessStops: number;
+  mappingCacheEffects: {
+    tlbFlushes: number;
+    instructionFetchInvalidations: number;
+    generatedCodeInvalidations: number;
+  };
+  mirrorRebuilds: number;
   finalGeneration: number;
   pendingHostCalls: number;
   pendingCallbacks: number;

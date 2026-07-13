@@ -3,8 +3,12 @@ import {
   type CacheEffects,
   type DirtyMirrorPage,
   type HostMemoryDelta,
+  type MappingOperation,
+  type MemoryRange,
   type MemoryProtection,
   type MemoryReflection,
+  type MemoryRegionKind,
+  type MemoryRegionSnapshot,
   memoryPageSize,
 } from "./memory-transport.js";
 
@@ -64,6 +68,33 @@ interface MirrorMapping {
   pteAddress: number;
 }
 
+interface MirrorReservation {
+  owner: number;
+  kind: MemoryRegionKind;
+  range: MemoryRange;
+}
+
+interface PlannedMapping {
+  owner: number;
+  protection: MemoryProtection;
+}
+
+export class MirrorAccessFault extends Error {
+  readonly code: "mirror-address-unmapped" | "mirror-read-protection";
+  readonly address: number;
+
+  constructor(
+    code: "mirror-address-unmapped" | "mirror-read-protection",
+    address: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "MirrorAccessFault";
+    this.code = code;
+    this.address = address;
+  }
+}
+
 export interface CpuState {
   words: Uint32Array;
   eax: number;
@@ -89,15 +120,42 @@ function sameProtection(left: MemoryProtection, right: MemoryProtection): boolea
   return left.read === right.read && left.write === right.write && left.execute === right.execute;
 }
 
+function rangeEnd(range: MemoryRange): number {
+  return range.base + range.byteLength;
+}
+
+function rangesOverlap(left: MemoryRange, right: MemoryRange): boolean {
+  return left.base < rangeEnd(right) && right.base < rangeEnd(left);
+}
+
+function rangeContains(outer: MemoryRange, inner: MemoryRange): boolean {
+  return outer.base <= inner.base && rangeEnd(inner) <= rangeEnd(outer);
+}
+
+function pageAddresses(range: MemoryRange): number[] {
+  const addresses: number[] = [];
+  for (let address = range.base; address < rangeEnd(range); address += memoryPageSize) {
+    addresses.push(address);
+  }
+  return addresses;
+}
+
 export class V86Mirror {
   readonly #wasm: V86Exports;
   readonly #mappings = new Map<number, MirrorMapping>();
+  readonly #reservations = new Map<number, MirrorReservation>();
   readonly #physicalMemory: Uint8Array;
   readonly #physicalView: DataView;
   readonly #privateState: DataView;
-  readonly #pageDirectory: number;
+  #pageDirectory: number;
   #nextPhysicalPage = memoryPageSize;
+  readonly #freePhysicalPages: number[] = [];
   readonly #pageTables = new Map<number, number>();
+  readonly #cacheEffectCounts = {
+    tlbFlushes: 0,
+    instructionFetchInvalidations: 0,
+    generatedCodeInvalidations: 0,
+  };
 
   private constructor(wasm: V86Exports) {
     this.#wasm = wasm;
@@ -155,31 +213,45 @@ export class V86Mirror {
 
   install(reflection: MemoryReflection, prepared: PreparedMetadata): void {
     invariant(this.#mappings.size === 0, "v86 mirror is already initialized");
-    for (const page of reflection.pages) {
-      invariant((page.address & (memoryPageSize - 1)) === 0, "unaligned reflected page");
-      invariant(page.bytes.byteLength === memoryPageSize, "invalid reflected page length");
-      const table = this.#ensurePageTable(page.address);
-      const pteAddress = table + ((page.address >>> 12) & 0x3ff) * 4;
-      const physicalBase = this.#allocatePage();
-      this.#physicalView.setUint32(
-        pteAddress,
-        physicalBase |
-          pageFlags.present |
-          pageFlags.user |
-          (page.protection.write ? pageFlags.writable : 0),
-        true,
-      );
-      this.#physicalMemory.set(page.bytes, physicalBase);
-      this.#mappings.set(page.address, {
-        address: page.address,
-        owner: page.owner,
-        protection: { ...page.protection },
-        physicalBase,
-        pteAddress,
-      });
-    }
+    this.#installReflectedPages(reflection);
+    this.#installReservations(prepared.regions);
     this.applyCacheEffects(reflection.cacheEffects);
     this.#initializeCpu(prepared);
+  }
+
+  rebuild(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void {
+    const state = this.saveState().words;
+    this.#mappings.clear();
+    this.#reservations.clear();
+    this.#pageTables.clear();
+    this.#freePhysicalPages.length = 0;
+    this.#nextPhysicalPage = memoryPageSize;
+    this.#physicalMemory.fill(0);
+    this.#pageDirectory = this.#allocatePage();
+    this.#installReflectedPages(reflection);
+    this.#installReservations(regions);
+    this.applyCacheEffects(reflection.cacheEffects);
+    state[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
+    this.#restoreState(state);
+  }
+
+  contractState(): string {
+    return JSON.stringify({
+      mappings: [...this.#mappings.values()]
+        .sort((left, right) => left.address - right.address)
+        .map(({ address, owner, protection }) => ({ address, owner, protection })),
+      reservations: [...this.#reservations.values()]
+        .sort((left, right) => left.range.base - right.range.base)
+        .map(({ owner, kind, range }) => ({ owner, kind, range })),
+    });
+  }
+
+  cacheEffectCounts(): Readonly<{
+    tlbFlushes: number;
+    instructionFetchInvalidations: number;
+    generatedCodeInvalidations: number;
+  }> {
+    return { ...this.#cacheEffectCounts };
   }
 
   execute(instructionBudget: number): SliceResult {
@@ -237,7 +309,13 @@ export class V86Mirror {
       const current = (address + index) >>> 0;
       invariant(current >= address, "guest read wrapped the address space");
       const mapping = this.#mappingFor(current);
-      invariant(mapping.protection.read, "guest mirror read targets an unreadable page");
+      if (!mapping.protection.read) {
+        throw new MirrorAccessFault(
+          "mirror-read-protection",
+          current,
+          `guest mirror read targets unreadable address 0x${current.toString(16)}`,
+        );
+      }
       bytes[index] = this.#physicalMemory[mapping.physicalBase + (current & 0xfff)] ?? 0;
     }
     return new DataView(bytes.buffer).getUint32(0, true);
@@ -270,26 +348,292 @@ export class V86Mirror {
   }
 
   applyHostDelta(delta: HostMemoryDelta): void {
+    this.#preflightHostDelta(delta);
+    for (const operation of delta.mappingOperations) {
+      this.#applyMappingOperation(operation);
+    }
     for (const page of delta.pages) {
-      const mapping = this.#mappings.get(page.address);
+      const mapping = this.#mappings.get(page.address)!;
+      this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+    }
+    this.applyCacheEffects(delta.cacheEffects);
+  }
+
+  #preflightHostDelta(delta: HostMemoryDelta): void {
+    const mappings = new Map<number, PlannedMapping>(
+      [...this.#mappings].map(([address, mapping]) => [
+        address,
+        { owner: mapping.owner, protection: { ...mapping.protection } },
+      ]),
+    );
+    const reservations = new Map<number, MirrorReservation>(
+      [...this.#reservations].map(([address, reservation]) => [
+        address,
+        {
+          owner: reservation.owner,
+          kind: reservation.kind,
+          range: { ...reservation.range },
+        },
+      ]),
+    );
+    const directoryIndices = new Set(this.#pageTables.keys());
+
+    for (const operation of delta.mappingOperations) {
+      switch (operation.operation) {
+        case "reserve": {
+          invariant(
+            ![...reservations.values()].some((reservation) =>
+              rangesOverlap(reservation.range, operation.range),
+            ),
+            "reserve operation overlaps a mirror reservation",
+          );
+          invariant(
+            ![...mappings.keys()].some(
+              (address) =>
+                address < rangeEnd(operation.range) &&
+                operation.range.base < address + memoryPageSize,
+            ),
+            "reserve operation overlaps a committed mirror page",
+          );
+          reservations.set(operation.range.base, {
+            owner: operation.owner,
+            kind: operation.kind,
+            range: { ...operation.range },
+          });
+          break;
+        }
+        case "commit": {
+          const overlapping = [...reservations.values()].filter((reservation) =>
+            rangesOverlap(reservation.range, operation.range),
+          );
+          invariant(
+            overlapping.length === 0 ||
+              overlapping.some(
+                (reservation) =>
+                  reservation.owner === operation.owner &&
+                  rangeContains(reservation.range, operation.range),
+              ),
+            "commit operation is outside its mirror reservation",
+          );
+          for (const address of pageAddresses(operation.range)) {
+            invariant(!mappings.has(address), "commit operation targets a committed mirror page");
+            mappings.set(address, {
+              owner: operation.owner,
+              protection: { ...operation.protection },
+            });
+            directoryIndices.add(address >>> 22);
+          }
+          break;
+        }
+        case "protect":
+          for (const address of pageAddresses(operation.range)) {
+            const mapping = mappings.get(address);
+            invariant(mapping !== undefined, "protect operation targets an unmapped mirror page");
+            invariant(mapping.owner === operation.owner, "protect operation owner mismatch");
+            mapping.protection = { ...operation.protection };
+          }
+          break;
+        case "decommit":
+          for (const address of pageAddresses(operation.range)) {
+            const mapping = mappings.get(address);
+            invariant(mapping !== undefined, "decommit operation targets an unmapped mirror page");
+            invariant(mapping.owner === operation.owner, "decommit operation owner mismatch");
+            mappings.delete(address);
+          }
+          break;
+        case "release": {
+          const overlapping = [...reservations.values()].filter((reservation) =>
+            rangesOverlap(reservation.range, operation.range),
+          );
+          const reservation = reservations.get(operation.range.base);
+          if (reservation !== undefined) {
+            invariant(
+              reservation.owner === operation.owner &&
+                reservation.range.byteLength === operation.range.byteLength,
+              "release operation does not match its mirror reservation",
+            );
+            reservations.delete(operation.range.base);
+          } else {
+            invariant(overlapping.length === 0, "release operation partially overlaps a reservation");
+          }
+          let matched = reservation !== undefined;
+          for (const [address, mapping] of [...mappings]) {
+            if (address < operation.range.base || address >= rangeEnd(operation.range)) {
+              continue;
+            }
+            invariant(mapping.owner === operation.owner, "release operation owner mismatch");
+            mappings.delete(address);
+            matched = true;
+          }
+          invariant(matched, "release operation targets an unknown mirror range");
+          break;
+        }
+      }
+      invariant(
+        mappings.size + directoryIndices.size + 1 <= physicalPoolBytes / memoryPageSize,
+        "host delta exceeds the v86 physical mirror pool",
+      );
+    }
+
+    const dirtyAddresses = new Set<number>();
+    for (const page of delta.pages) {
+      invariant((page.address & (memoryPageSize - 1)) === 0, "host delta page is unaligned");
+      invariant(page.bytes.byteLength === memoryPageSize, "host delta page is not 4 KiB");
+      invariant(!dirtyAddresses.has(page.address), "host delta repeats a dirty page");
+      dirtyAddresses.add(page.address);
+      const mapping = mappings.get(page.address);
       invariant(mapping !== undefined, "host delta targets an unmapped mirror page");
       invariant(mapping.owner === page.owner, "host delta owner does not match the mirror");
       invariant(
         sameProtection(mapping.protection, page.protection),
         "host delta protection does not match the mirror",
       );
-      this.#physicalMemory.set(page.bytes, mapping.physicalBase);
     }
-    this.applyCacheEffects(delta.cacheEffects);
+  }
+
+  #applyMappingOperation(operation: MappingOperation): void {
+    switch (operation.operation) {
+      case "reserve":
+        this.#reservations.set(operation.range.base, {
+          owner: operation.owner,
+          kind: operation.kind,
+          range: { ...operation.range },
+        });
+        break;
+      case "commit":
+        for (const address of pageAddresses(operation.range)) {
+          this.#mapPage(address, operation.owner, operation.protection);
+        }
+        break;
+      case "protect":
+        for (const address of pageAddresses(operation.range)) {
+          this.#updateProtection(address, operation.protection);
+        }
+        break;
+      case "decommit":
+        for (const address of pageAddresses(operation.range)) {
+          this.#unmapPage(address);
+        }
+        break;
+      case "release":
+        for (const address of [...this.#mappings.keys()]) {
+          if (address >= operation.range.base && address < rangeEnd(operation.range)) {
+            this.#unmapPage(address);
+          }
+        }
+        this.#reservations.delete(operation.range.base);
+        break;
+    }
   }
 
   applyCacheEffects(effects: CacheEffects): void {
     if (effects.flushTlb || effects.invalidateInstructionFetch) {
       this.#wasm.full_clear_tlb();
+      this.#cacheEffectCounts.tlbFlushes += 1;
     }
+    this.#cacheEffectCounts.instructionFetchInvalidations += Number(
+      effects.invalidateInstructionFetch,
+    );
     if (effects.invalidateGeneratedCode) {
       this.#wasm.jit_clear_cache_js();
+      this.#cacheEffectCounts.generatedCodeInvalidations += 1;
     }
+  }
+
+  #installReflectedPages(reflection: MemoryReflection): void {
+    const directoryIndices = new Set(this.#pageTables.keys());
+    for (const page of reflection.pages) {
+      directoryIndices.add(page.address >>> 22);
+    }
+    invariant(
+      reflection.pages.length + directoryIndices.size + 1 <=
+        physicalPoolBytes / memoryPageSize,
+      "reflection exceeds the v86 physical mirror pool",
+    );
+    for (const page of reflection.pages) {
+      invariant((page.address & (memoryPageSize - 1)) === 0, "unaligned reflected page");
+      invariant(page.bytes.byteLength === memoryPageSize, "invalid reflected page length");
+      this.#mapPage(page.address, page.owner, page.protection);
+      const mapping = this.#mappings.get(page.address)!;
+      this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+    }
+  }
+
+  #installReservations(regions: MemoryRegionSnapshot[]): void {
+    for (const region of regions) {
+      const range = { base: region.range.start, byteLength: region.range.byteLength };
+      invariant(region.owner !== 0, "reflected region owner is zero");
+      invariant((range.base & (memoryPageSize - 1)) === 0, "reflected region is unaligned");
+      invariant(
+        range.byteLength > 0 && range.byteLength % memoryPageSize === 0,
+        "reflected region length is invalid",
+      );
+      invariant(rangeEnd(range) <= 0x1_0000_0000, "reflected region crosses x86 memory");
+      invariant(
+        ![...this.#reservations.values()].some((reservation) =>
+          rangesOverlap(reservation.range, range),
+        ),
+        "reflected regions overlap",
+      );
+      this.#reservations.set(range.base, {
+        owner: region.owner,
+        kind: region.kind,
+        range,
+      });
+    }
+    for (const mapping of this.#mappings.values()) {
+      const page = { base: mapping.address, byteLength: memoryPageSize };
+      invariant(
+        [...this.#reservations.values()].some(
+          (reservation) =>
+            reservation.owner === mapping.owner && rangeContains(reservation.range, page),
+        ),
+        "reflected page is outside its owner region",
+      );
+    }
+  }
+
+  #mapPage(address: number, owner: number, protection: MemoryProtection): void {
+    const table = this.#ensurePageTable(address);
+    const pteAddress = table + ((address >>> 12) & 0x3ff) * 4;
+    const physicalBase = this.#allocatePage();
+    this.#physicalView.setUint32(
+      pteAddress,
+      physicalBase |
+        pageFlags.present |
+        pageFlags.user |
+        (protection.write ? pageFlags.writable : 0),
+      true,
+    );
+    this.#mappings.set(address, {
+      address,
+      owner,
+      protection: { ...protection },
+      physicalBase,
+      pteAddress,
+    });
+  }
+
+  #updateProtection(address: number, protection: MemoryProtection): void {
+    const mapping = this.#mappings.get(address)!;
+    const dirty = this.#physicalView.getUint32(mapping.pteAddress, true) & pageFlags.dirty;
+    this.#physicalView.setUint32(
+      mapping.pteAddress,
+      mapping.physicalBase |
+        pageFlags.present |
+        pageFlags.user |
+        (protection.write ? pageFlags.writable : 0) |
+        dirty,
+      true,
+    );
+    mapping.protection = { ...protection };
+  }
+
+  #unmapPage(address: number): void {
+    const mapping = this.#mappings.get(address)!;
+    this.#physicalView.setUint32(mapping.pteAddress, 0, true);
+    this.#mappings.delete(address);
+    this.#releasePage(mapping.physicalBase);
   }
 
   #initializeCpu(prepared: PreparedMetadata): void {
@@ -347,7 +691,13 @@ export class V86Mirror {
   #mappingFor(address: number): MirrorMapping {
     const pageAddress = (address & ~(memoryPageSize - 1)) >>> 0;
     const mapping = this.#mappings.get(pageAddress);
-    invariant(mapping !== undefined, `guest address 0x${address.toString(16)} is unmapped`);
+    if (mapping === undefined) {
+      throw new MirrorAccessFault(
+        "mirror-address-unmapped",
+        address,
+        `guest address 0x${address.toString(16)} is unmapped`,
+      );
+    }
     return mapping;
   }
 
@@ -379,6 +729,11 @@ export class V86Mirror {
   }
 
   #allocatePage(): number {
+    const reused = this.#freePhysicalPages.pop();
+    if (reused !== undefined) {
+      this.#physicalMemory.fill(0, reused, reused + memoryPageSize);
+      return reused;
+    }
     invariant(
       this.#nextPhysicalPage + memoryPageSize <= physicalPoolBytes,
       "v86 physical mirror pool exhausted",
@@ -387,5 +742,10 @@ export class V86Mirror {
     this.#nextPhysicalPage += memoryPageSize;
     this.#physicalMemory.fill(0, address, address + memoryPageSize);
     return address;
+  }
+
+  #releasePage(address: number): void {
+    this.#physicalMemory.fill(0, address, address + memoryPageSize);
+    this.#freePhysicalPages.push(address);
   }
 }

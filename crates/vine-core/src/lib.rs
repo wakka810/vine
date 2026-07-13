@@ -68,7 +68,8 @@ pub use memory::{
     MEMORY_REFLECTION_BINARY_VERSION, MappingOperation, MemoryAccess, MemoryDelta,
     MemoryDeltaBuffers, MemoryFault, MemoryFaultReason, MemoryInvalidation, MemoryLimits,
     MemoryOwnerId, MemoryOwnerKind, MemoryReflection, MemoryReflectionBuffers,
-    MemoryReflectionPage, MemoryRegionKind, MemoryStats, MemoryTransactionStats, PageProtection,
+    MemoryReflectionPage, MemoryRegionKind, MemoryRegionSnapshot, MemoryStats,
+    MemoryTransactionStats, PageProtection,
 };
 pub use module_graph::{
     RUNTIME_MODULE_GRAPH_MAX_MODULES, RUNTIME_MODULE_REFERENCE_OWNER_LIMIT, RuntimeModuleClass,

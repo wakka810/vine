@@ -292,6 +292,23 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
     const evidence = JSON.parse(snapshot.report);
     assert.equal(evidence.report.pendingHostCalls, 0);
     assert.equal(evidence.report.pendingCallbacks, 0);
+    assert.equal(evidence.report.mappingDeltas, 7);
+    assert.deepEqual(evidence.report.mappingOperations, {
+      reserve: 1,
+      commit: 2,
+      protect: 2,
+      decommit: 1,
+      release: 1,
+    });
+    assert.equal(evidence.report.mappingDirtyPages, 3);
+    assert.equal(evidence.report.mappingAtomicRejections, 1);
+    assert.equal(evidence.report.mappingStaleAccessStops, 2);
+    assert.deepEqual(evidence.report.mappingCacheEffects, {
+      tlbFlushes: 6,
+      instructionFetchInvalidations: 6,
+      generatedCodeInvalidations: 6,
+    });
+    assert.equal(evidence.report.mirrorRebuilds, 1);
     if (mode === "success") {
       assert.equal(evidence.report.outcome, "completed");
       assert.equal(evidence.report.exitCode, 0);

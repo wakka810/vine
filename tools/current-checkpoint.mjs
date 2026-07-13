@@ -124,6 +124,37 @@ export function validateCurrentCheckpoint(manifest) {
   if (browserEvidence.rustSchedulerTransitions !== browserEvidence.hostRequests) {
     errors.push("browser scheduler transitions must authorize every completed host request");
   }
+  const mappingOperations = requireRecord(
+    browserEvidence.mappingOperations,
+    "browserCheckpoint.browserRuntimeEvidence.mappingOperations",
+    errors,
+  );
+  const mappingVariants = ["reserve", "commit", "protect", "decommit", "release"];
+  for (const variant of mappingVariants) {
+    requireInteger(
+      mappingOperations[variant],
+      `browserCheckpoint.browserRuntimeEvidence.mappingOperations.${variant}`,
+      errors,
+    );
+  }
+  const mappingCacheEffects = requireRecord(
+    browserEvidence.mappingCacheEffects,
+    "browserCheckpoint.browserRuntimeEvidence.mappingCacheEffects",
+    errors,
+  );
+  if (
+    mappingVariants.some((variant) => mappingOperations[variant] < 1) ||
+    browserEvidence.mappingDeltas < 1 ||
+    browserEvidence.mappingDirtyPages < 1 ||
+    browserEvidence.mappingAtomicRejections < 1 ||
+    browserEvidence.mappingStaleAccessStops < 2 ||
+    browserEvidence.mirrorRebuilds < 1 ||
+    mappingCacheEffects.tlbFlushes < 1 ||
+    mappingCacheEffects.instructionFetchInvalidations < 1 ||
+    mappingCacheEffects.generatedCodeInvalidations < 1
+  ) {
+    errors.push("browser mapping-operation evidence is incomplete");
+  }
 
   const engine = requireRecord(
     root.engineDecisionEvidence,

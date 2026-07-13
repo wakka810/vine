@@ -40,6 +40,14 @@ assert.ok(
   ),
 );
 
+const missingBrowserRelease = structuredClone(manifest);
+missingBrowserRelease.browserCheckpoint.browserRuntimeEvidence.mappingOperations.release = 0;
+assert.ok(
+  validateCurrentCheckpoint(missingBrowserRelease).some((error) =>
+    error.includes("mapping-operation evidence"),
+  ),
+);
+
 const exposedMessages = structuredClone(manifest);
 exposedMessages.activeRuntimeCheckpoint.runtimeMessageQueue.mutableCollectionVisibility =
   "public";

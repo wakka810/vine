@@ -71,6 +71,17 @@ fn transfers_incremental_memory_deltas_and_acknowledges_exact_generations() {
     );
     assert_eq!(first_delta.cache_effects, CacheEffects::default());
     assert!(first_delta.mapping_operations.is_empty());
+    let stats_before_rebuild = memory.stats();
+    let rebuild = memory.current_reflection().expect("current reflection");
+    assert_eq!(rebuild.invalidation.generation, first_delta.generation);
+    assert!(rebuild.invalidation.data_tlb);
+    assert!(rebuild.invalidation.instruction_fetch);
+    assert!(rebuild.invalidation.generated_code);
+    assert_eq!(rebuild.pages.len(), 2);
+    assert!(rebuild.pages.iter().all(|page| page.dirty));
+    assert_eq!(memory.region_snapshots().len(), 1);
+    assert_eq!(memory.region_snapshots()[0].range, data_range);
+    assert_eq!(memory.stats(), stats_before_rebuild);
     memory
         .acknowledge_delta(first_delta.generation)
         .expect("first data acknowledgement");

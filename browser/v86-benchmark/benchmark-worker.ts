@@ -127,7 +127,7 @@ function reflection(pages: ReflectedPage[]): MemoryReflection {
   };
 }
 
-function prepared(entryPoint: number, pageCount: number): PreparedMetadata {
+function prepared(entryPoint: number, pages: ReflectedPage[]): PreparedMetadata {
   return {
     kind: "prepared",
     schemaVersion: 1,
@@ -137,7 +137,12 @@ function prepared(entryPoint: number, pageCount: number): PreparedMetadata {
     initialStackPointer: stackPointer,
     callbackSentinel: controlBase + 0x10,
     entrySentinel: controlBase + 0x20,
-    pageCount,
+    pageCount: pages.length,
+    regions: pages.map((page_) => ({
+      owner: page_.owner,
+      kind: "runtime",
+      range: { start: page_.address, byteLength: memoryPageSize },
+    })),
     endpoints: [],
   };
 }
@@ -152,7 +157,7 @@ async function createMirror(
     page(stackBase, 2, { read: true, write: true, execute: false }),
     ...additionalPages,
   ];
-  mirror.install(reflection(pages), prepared(codeBase, pages.length));
+  mirror.install(reflection(pages), prepared(codeBase, pages));
   return mirror;
 }
 
@@ -308,7 +313,7 @@ async function callbackRoundTrips(): Promise<Record<string, number>> {
     page(stackBase, 2, { read: true, write: true, execute: false }, stack),
     page(controlBase, 3, { read: true, write: false, execute: true }, control),
   ];
-  mirror.install(reflection(pages), prepared(codeBase, pages.length));
+  mirror.install(reflection(pages), prepared(codeBase, pages));
   const rounds = 2_000;
   const runRound = () => {
     const apiTrap = mirror.execute(32);
@@ -394,7 +399,7 @@ async function reflectionBandwidth(): Promise<Record<string, unknown>[]> {
         );
       }
       const startedAt = performance.now();
-      mirror.install(reflection(pages), prepared(codeBase, pages.length));
+      mirror.install(reflection(pages), prepared(codeBase, pages));
       samples.push(performance.now() - startedAt);
     }
     const medianMilliseconds = median(samples);

@@ -7,6 +7,39 @@ export interface MemoryProtection {
   execute: boolean;
 }
 
+export type MemoryRegionKind =
+  | "image"
+  | "stack"
+  | "thread-environment-block"
+  | "process-environment-block"
+  | "process-parameters"
+  | "command-line"
+  | "heap"
+  | "anonymous"
+  | "runtime"
+  | "surface";
+
+export interface MemoryRange {
+  base: number;
+  byteLength: number;
+}
+
+export interface MemoryRegionSnapshot {
+  owner: number;
+  kind: MemoryRegionKind;
+  range: {
+    start: number;
+    byteLength: number;
+  };
+}
+
+export type MappingOperation =
+  | { operation: "reserve"; owner: number; kind: MemoryRegionKind; range: MemoryRange }
+  | { operation: "commit"; owner: number; range: MemoryRange; protection: MemoryProtection }
+  | { operation: "protect"; owner: number; range: MemoryRange; protection: MemoryProtection }
+  | { operation: "decommit"; owner: number; range: MemoryRange }
+  | { operation: "release"; owner: number; range: MemoryRange };
+
 export interface ReflectedPage {
   address: number;
   owner: number;
@@ -32,6 +65,7 @@ export interface HostMemoryDelta {
   fromGeneration: bigint;
   generation: bigint;
   cacheEffects: CacheEffects;
+  mappingOperations: MappingOperation[];
   pages: ReflectedPage[];
 }
 
@@ -70,11 +104,41 @@ function cacheEffects(flags: number): CacheEffects {
 }
 
 function protection(flags: number): MemoryProtection {
+  invariant((flags & ~7) === 0, "memory protection contains unknown flags");
   return {
     read: Boolean(flags & 1),
     write: Boolean(flags & 2),
     execute: Boolean(flags & 4),
   };
+}
+
+function regionKind(code: number): MemoryRegionKind {
+  const kinds: MemoryRegionKind[] = [
+    "image",
+    "stack",
+    "thread-environment-block",
+    "process-environment-block",
+    "process-parameters",
+    "command-line",
+    "heap",
+    "anonymous",
+    "runtime",
+    "surface",
+  ];
+  const kind = kinds[code - 1];
+  invariant(kind !== undefined, `unknown memory region kind ${code}`);
+  return kind;
+}
+
+function mappingRange(controlView: DataView, offset: number): MemoryRange {
+  const base = controlView.getUint32(offset + 16, true);
+  const byteLength64 = controlView.getBigUint64(offset + 20, true);
+  invariant(byteLength64 > 0n && byteLength64 <= 0x1_0000_0000n, "mapping range length is invalid");
+  const byteLength = Number(byteLength64);
+  invariant((base & (pageSize - 1)) === 0, "mapping range base is not page aligned");
+  invariant(byteLength % pageSize === 0, "mapping range length is not page aligned");
+  invariant(base + byteLength <= 0x1_0000_0000, "mapping range crosses the x86 address limit");
+  return { base, byteLength };
 }
 
 export function decodeReflection(control: Uint8Array, payload: Uint8Array): MemoryReflection {
@@ -102,13 +166,16 @@ export function decodeReflection(control: Uint8Array, payload: Uint8Array): Memo
     pages.push({
       address: controlView.getUint32(offset, true),
       owner: controlView.getUint32(offset + 4, true),
-      protection: protection(flags),
+      protection: protection(flags & 7),
       ownerSealed: Boolean(flags & 8),
       dirty: Boolean(flags & 16),
       bytes: payload.subarray(index * pageSize, (index + 1) * pageSize),
     });
   }
-  invariant(pages.every((page) => page.ownerSealed && page.dirty), "invalid initial page state");
+  invariant(
+    pages.every((page) => page.dirty && (!page.protection.execute || page.ownerSealed)),
+    "invalid reflected page state",
+  );
   return {
     generation,
     cacheEffects: cacheEffects(controlView.getUint32(32, true)),
@@ -136,22 +203,68 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
     controlView.getUint32(44, true) === pageDescriptorBytes,
     "unexpected delta page descriptor size",
   );
-  invariant(mappingCount === 0, "browser vertical slice does not accept mapping deltas");
   invariant(
     control.byteLength ===
       headerBytes + mappingCount * mappingDescriptorBytes + dirtyCount * pageDescriptorBytes,
     "host delta control length mismatch",
   );
   invariant(payload.byteLength === dirtyCount * pageSize, "host delta payload length mismatch");
+  const mappingOperations: MappingOperation[] = [];
+  for (let index = 0; index < mappingCount; index += 1) {
+    const offset = headerBytes + index * mappingDescriptorBytes;
+    const operation = controlView.getUint32(offset, true);
+    const owner = controlView.getUint32(offset + 4, true);
+    const kind = controlView.getUint32(offset + 8, true);
+    const protectionFlags = controlView.getUint32(offset + 12, true);
+    const range = mappingRange(controlView, offset);
+    invariant(owner !== 0, "mapping operation owner is zero");
+    invariant(controlView.getUint32(offset + 28, true) === 0, "mapping descriptor reserved field is nonzero");
+    switch (operation) {
+      case 1:
+        invariant(protectionFlags === 0, "reserve operation contains protection flags");
+        mappingOperations.push({ operation: "reserve", owner, kind: regionKind(kind), range });
+        break;
+      case 2:
+        invariant(kind === 0, "commit operation contains a region kind");
+        mappingOperations.push({
+          operation: "commit",
+          owner,
+          range,
+          protection: protection(protectionFlags),
+        });
+        break;
+      case 3:
+        invariant(kind === 0, "protect operation contains a region kind");
+        mappingOperations.push({
+          operation: "protect",
+          owner,
+          range,
+          protection: protection(protectionFlags),
+        });
+        break;
+      case 4:
+        invariant(kind === 0 && protectionFlags === 0, "decommit operation contains extra policy");
+        mappingOperations.push({ operation: "decommit", owner, range });
+        break;
+      case 5:
+        invariant(kind === 0 && protectionFlags === 0, "release operation contains extra policy");
+        mappingOperations.push({ operation: "release", owner, range });
+        break;
+      default:
+        throw new Error(`unknown mapping operation ${operation}`);
+    }
+  }
   const pages: ReflectedPage[] = [];
   const dirtyBase = headerBytes + mappingCount * mappingDescriptorBytes;
   for (let index = 0; index < dirtyCount; index += 1) {
     const offset = dirtyBase + index * pageDescriptorBytes;
     const flags = controlView.getUint32(offset + 8, true);
+    invariant((flags & ~15) === 0, "host delta page contains unknown flags");
+    invariant(controlView.getUint32(offset + 12, true) === 0, "delta page reserved field is nonzero");
     pages.push({
       address: controlView.getUint32(offset, true),
       owner: controlView.getUint32(offset + 4, true),
-      protection: protection(flags),
+      protection: protection(flags & 7),
       ownerSealed: Boolean(flags & 8),
       dirty: true,
       bytes: payload.subarray(index * pageSize, (index + 1) * pageSize),
@@ -161,6 +274,7 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
     fromGeneration,
     generation,
     cacheEffects: cacheEffects(controlView.getUint32(48, true)),
+    mappingOperations,
     pages,
   };
 }

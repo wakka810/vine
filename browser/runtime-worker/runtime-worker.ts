@@ -15,6 +15,7 @@ import {
   decodeHostDelta,
   decodeReflection,
   encodeCpuWriteback,
+  type MemoryRegionSnapshot,
 } from "./memory-transport.js";
 import {
   type ApiCompletion,
@@ -22,7 +23,7 @@ import {
   type PreparedMetadata,
   RuntimeBridge,
 } from "./runtime-bridge.js";
-import { V86Mirror, v86StopReason } from "./v86-mirror.js";
+import { MirrorAccessFault, V86Mirror, v86StopReason } from "./v86-mirror.js";
 
 const worker = self as DedicatedWorkerGlobalScope;
 
@@ -73,6 +74,30 @@ interface WritebackMetadata {
     generation: number;
     touchedPages: number;
   };
+}
+
+interface MappingFixtureMetadata {
+  kind: "mapping-fixture-delta";
+  stageIndex: number;
+  stage: string;
+  fromGeneration: number;
+  generation: number;
+  mappingOperations: Array<"reserve" | "commit" | "protect" | "decommit" | "release">;
+  dirtyPages: number;
+  cacheEffects: {
+    flushTlb: boolean;
+    invalidateInstructionFetch: boolean;
+    invalidateGeneratedCode: boolean;
+  };
+  probeAddress: number;
+}
+
+interface CurrentReflectionMetadata {
+  kind: "current-reflection";
+  generation: number;
+  acknowledgedGeneration: number;
+  pageCount: number;
+  regions: MemoryRegionSnapshot[];
 }
 
 interface CancellationMetadata {
@@ -136,6 +161,23 @@ class BrowserRuntimeSession {
     maximumCallbackDepth: 0,
     writebackBatches: 0,
     writebackPages: 0,
+    mappingDeltas: 0,
+    mappingOperations: {
+      reserve: 0,
+      commit: 0,
+      protect: 0,
+      decommit: 0,
+      release: 0,
+    },
+    mappingDirtyPages: 0,
+    mappingAtomicRejections: 0,
+    mappingStaleAccessStops: 0,
+    mappingCacheEffects: {
+      tlbFlushes: 0,
+      instructionFetchInvalidations: 0,
+      generatedCodeInvalidations: 0,
+    },
+    mirrorRebuilds: 0,
   };
 
   constructor(sessionId: number, configuration: SessionConfiguration) {
@@ -176,6 +218,7 @@ class BrowserRuntimeSession {
       mirror.install(reflection, preparedOutput.metadata);
       bridge.acknowledge(reflection.generation);
       this.#generation = reflection.generation;
+      this.#runMappingContract();
       this.#status("running", "Guest entry is running in bounded Worker slices");
       await this.#runGuest();
     } catch (error) {
@@ -334,6 +377,92 @@ class BrowserRuntimeSession {
     });
   }
 
+  #runMappingContract(): void {
+    const bridge = this.#requireBridge();
+    const mirror = this.#requireMirror();
+    for (let stageIndex = 0; stageIndex < 7; stageIndex += 1) {
+      const output = bridge.advanceMappingFixture<MappingFixtureMetadata>(stageIndex);
+      const metadata = output.metadata;
+      invariant(metadata.kind === "mapping-fixture-delta", "invalid mapping fixture metadata");
+      invariant(metadata.stageIndex === stageIndex, "mapping fixture stage identity mismatch");
+      const delta = decodeHostDelta(output.control, output.payload);
+      invariant(delta.fromGeneration === this.#generation, "mapping delta base generation mismatch");
+      invariant(
+        delta.fromGeneration === BigInt(metadata.fromGeneration) &&
+          delta.generation === BigInt(metadata.generation),
+        "mapping delta generation metadata mismatch",
+      );
+      invariant(delta.pages.length === metadata.dirtyPages, "mapping dirty page count mismatch");
+      invariant(
+        delta.mappingOperations.map((operation) => operation.operation).join(",") ===
+          metadata.mappingOperations.join(","),
+        "mapping operation metadata mismatch",
+      );
+
+      if (stageIndex === 0) {
+        const before = mirror.contractState();
+        const invalid = {
+          ...delta,
+          pages: delta.pages.map((page, index) =>
+            index === 0 ? { ...page, owner: page.owner + 1 } : page,
+          ),
+        };
+        let rejected = false;
+        try {
+          mirror.applyHostDelta(invalid);
+        } catch {
+          rejected = true;
+        }
+        invariant(rejected, "invalid mapping delta was not rejected");
+        invariant(mirror.contractState() === before, "rejected mapping delta changed the mirror");
+        this.#report.mappingAtomicRejections += 1;
+      }
+
+      const effectsBefore = mirror.cacheEffectCounts();
+      this.#applyAuthoritativeDelta(delta);
+      const effectsAfter = mirror.cacheEffectCounts();
+      this.#report.mappingDeltas += 1;
+      this.#report.mappingDirtyPages += delta.pages.length;
+      for (const operation of delta.mappingOperations) {
+        this.#report.mappingOperations[operation.operation] += 1;
+      }
+      this.#report.mappingCacheEffects.tlbFlushes +=
+        effectsAfter.tlbFlushes - effectsBefore.tlbFlushes;
+      this.#report.mappingCacheEffects.instructionFetchInvalidations +=
+        effectsAfter.instructionFetchInvalidations -
+        effectsBefore.instructionFetchInvalidations;
+      this.#report.mappingCacheEffects.generatedCodeInvalidations +=
+        effectsAfter.generatedCodeInvalidations - effectsBefore.generatedCodeInvalidations;
+
+      if (stageIndex === 4 || stageIndex === 6) {
+        let fault: unknown = null;
+        try {
+          mirror.readU32(metadata.probeAddress);
+        } catch (error) {
+          fault = error;
+        }
+        invariant(
+          fault instanceof MirrorAccessFault && fault.code === "mirror-address-unmapped",
+          `${metadata.stage} did not produce a structured stale-access stop`,
+        );
+        this.#report.mappingStaleAccessStops += 1;
+      }
+
+      if (stageIndex === 1) {
+        this.#rebuildMirrorFromAuthority();
+      }
+    }
+
+    invariant(this.#report.mappingOperations.reserve === 1, "reserve mapping count mismatch");
+    invariant(this.#report.mappingOperations.commit === 2, "commit mapping count mismatch");
+    invariant(this.#report.mappingOperations.protect === 2, "protect mapping count mismatch");
+    invariant(this.#report.mappingOperations.decommit === 1, "decommit mapping count mismatch");
+    invariant(this.#report.mappingOperations.release === 1, "release mapping count mismatch");
+    invariant(this.#report.mappingAtomicRejections === 1, "mapping atomic rejection was not tested");
+    invariant(this.#report.mappingStaleAccessStops === 2, "stale mapping stops are incomplete");
+    this.#status("mapping", "Browser mirror mapping contract passed");
+  }
+
   #reconcileDirtyPages(): void {
     const pages = this.#requireMirror().discoverDirtyPages();
     if (pages.length === 0) {
@@ -355,9 +484,49 @@ class BrowserRuntimeSession {
     invariant(output.control.byteLength > 0, "guest callback did not return its stack delta");
     const delta = decodeHostDelta(output.control, output.payload);
     invariant(delta.fromGeneration === this.#generation, "host delta base generation mismatch");
+    this.#applyAuthoritativeDelta(delta);
+  }
+
+  #applyAuthoritativeDelta(delta: ReturnType<typeof decodeHostDelta>): void {
     this.#requireMirror().applyHostDelta(delta);
-    this.#requireBridge().acknowledge(delta.generation);
-    this.#generation = delta.generation;
+    try {
+      const receipt = this.#requireBridge().acknowledge<{
+        kind: "acknowledged";
+        generation: number;
+        dirtyPages: number;
+      }>(delta.generation).metadata;
+      invariant(receipt.kind === "acknowledged", "invalid memory acknowledgement receipt");
+      invariant(BigInt(receipt.generation) === delta.generation, "acknowledged generation mismatch");
+      this.#generation = delta.generation;
+    } catch {
+      this.#rebuildMirrorFromAuthority();
+    }
+  }
+
+  #rebuildMirrorFromAuthority(): void {
+    const output = this.#requireBridge().currentReflection<CurrentReflectionMetadata>();
+    const metadata = output.metadata;
+    invariant(metadata.kind === "current-reflection", "invalid current reflection metadata");
+    const reflection = decodeReflection(output.control, output.payload);
+    invariant(
+      reflection.generation === BigInt(metadata.generation),
+      "current reflection generation mismatch",
+    );
+    invariant(reflection.pages.length === metadata.pageCount, "current reflection page count mismatch");
+    invariant(
+      metadata.acknowledgedGeneration <= metadata.generation,
+      "current reflection acknowledgement is ahead of authority",
+    );
+    this.#requireMirror().rebuild(reflection, metadata.regions);
+    if (metadata.acknowledgedGeneration < metadata.generation) {
+      const receipt = this.#requireBridge().acknowledge<{
+        kind: "acknowledged";
+        generation: number;
+      }>(reflection.generation).metadata;
+      invariant(receipt.kind === "acknowledged", "rebuild acknowledgement receipt is invalid");
+    }
+    this.#generation = reflection.generation;
+    this.#report.mirrorRebuilds += 1;
   }
 
   #waitForHost(metadata: HostRequestMetadata): Promise<number> {
@@ -559,6 +728,23 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             maximumCallbackDepth: 0,
             writebackBatches: 0,
             writebackPages: 0,
+            mappingDeltas: 0,
+            mappingOperations: {
+              reserve: 0,
+              commit: 0,
+              protect: 0,
+              decommit: 0,
+              release: 0,
+            },
+            mappingDirtyPages: 0,
+            mappingAtomicRejections: 0,
+            mappingStaleAccessStops: 0,
+            mappingCacheEffects: {
+              tlbFlushes: 0,
+              instructionFetchInvalidations: 0,
+              generatedCodeInvalidations: 0,
+            },
+            mirrorRebuilds: 0,
             finalGeneration: 0,
             pendingHostCalls: 0,
             pendingCallbacks: 0,

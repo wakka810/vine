@@ -3,10 +3,10 @@
 ## Status
 
 - Status: Verified controlled vertical checkpoint
-- Date: 2026-07-12
+- Date: 2026-07-13
 - Browser: Chrome `150.0.7871.115`
 - Protocol: `vine.browser-runtime-worker` version `2`
-- Runtime core: Rust/Wasm, zero imports, 837,913 bytes
+- Runtime core: Rust/Wasm, zero imports, 991,114 bytes
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
 - Evidence: `.work/browser-runtime/browser-report.json`
@@ -58,6 +58,17 @@ slice boundary, including traps and budget yields, it scans all writable PTEs,
 clears Dirty bits, flushes the TLB, and atomically reconciles the resulting
 binary batch into Rust before classifying or resuming the guest.
 
+Before guest entry, the same Worker applies seven ordered `VINEDL01` batches.
+The first real private-heap allocation lazily reserves its 16 MiB backing,
+commits one page, and transfers that page; the next batch is dirty-only. The
+remaining batches protect read-only／read-write, decommit, recommit, and release
+the same backing. Mapping operations and dirty pages are preflighted against a
+cloned mirror registry before any PTE or byte mutation. Protect invalidation is
+applied through the adapter TLB, instruction-fetch, and generated-code hooks.
+Decommit and release both produce a code-bearing unmapped-access stop on a stale
+probe. A current full reflection rebuild preserves the CPU context and proves
+the receipt-loss recovery path without changing Rust acknowledgement state.
+
 ## Fixture contract
 
 The reproducible PE32/i386 fixture imports three symbols from
@@ -96,7 +107,11 @@ The clean-profile Chrome check recorded:
 | Rust-authorized wait / resume transitions | 2 |
 | Guest callback entries / maximum depth | 2 / 2 |
 | Automatic writeback batches / pages | 7 / 9 |
-| Final Rust memory generation | 21 |
+| Mapping deltas / dirty pages | 7 / 3 |
+| Reserve / commit / protect / decommit / release | 1 / 2 / 2 / 1 / 1 |
+| Atomic rejection / stale-access stops / rebuilds | 1 / 2 / 1 |
+| Mapping TLB / fetch / generated-code effects | 6 / 6 / 6 |
+| Final Rust memory generation | 30 |
 | Canvas readback at `(1,1)` | `[255,0,0,255]` |
 | Audio pulse | 880 Hz |
 | IndexedDB readback | `0x5a` |
@@ -112,6 +127,8 @@ It reaches one host request after four guest instructions, then Rust cancellatio
 retires the request and leaves pending host calls and callbacks at zero. A
 separate instruction-ceiling probe triggers the watchdog after four instructions
 and also leaves both counts at zero. Neither path fabricates a guest return.
+Mapping application contains no event-loop yield: cancellation can occur before
+or after one preflighted batch, never between its mapping and dirty-page commits.
 
 ## 30-minute stress
 

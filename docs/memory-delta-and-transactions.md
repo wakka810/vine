@@ -174,9 +174,11 @@ See [memory-writeback.md](memory-writeback.md).
 
 - PTE Dirty discovery is O(writable mappings) per bounded slice and currently
   clears the full TLB. Title-workload cost is deferred to the v86 benchmark.
-- The binary fixture transport is synchronous. Chrome Worker cancellation,
-  receipt-loss recovery, and an idempotent production queue are not yet
-  implemented; ambiguous completion destroys and rebuilds the mirror.
+- The Browser Worker applies each mapping／dirty batch synchronously after a
+  full preflight, so cancellation cannot leave a half-applied mapping. An
+  ambiguous acknowledgement rebuilds the paging mirror from a current Rust
+  reflection while preserving CPU context. An idempotent queued transport for
+  future cross-worker or persistent delivery is not implemented.
 - Transaction journal metadata grows with changed owners, regions, pages, and
   allocator operations. Exact frame payload is measured, but host allocator
   overhead and process RSS are not yet benchmarked.
