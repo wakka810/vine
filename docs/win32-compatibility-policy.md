@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-private-heap-size-1-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-private-heap-size-544-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -47,7 +47,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form eleven monotonic controlled policies:
+The current files form twelve monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -62,6 +62,7 @@ The current files form eleven monotonic controlled policies:
 | `kernel32-environment-strings-w-v1` | stdin, stdout, stderr | preceding options + controlled wide-environment copy lifetime | zeroed `0x214`, `0x800` |
 | `kernel32-wide-char-to-multi-byte-v1` | stdin, stdout, stderr | preceding options + Windows-932 ACP／65,536-unit conversion bound | zeroed `0x214`, `0x800` |
 | `kernel32-private-heap-size-1-v1` | stdin, stdout, stderr | preceding options | zeroed `0x214`, `0x800`; flags-zero size `1` |
+| `kernel32-private-heap-size-544-v1` | stdin, stdout, stderr | preceding options | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -94,6 +95,10 @@ The one-byte heap policy uses the existing `kernel32.heap-alloc.v2` handler and
 adds only `(flags=0, byteLength=1)`. Allocation initialization, alignment,
 capacity, identity, and mutation rollback remain semantic implementation
 behavior; native caller／pointer／consumer relations remain evidence data.
+The 544-byte policy extends the same flags-zero entry with only the reached
+`544` length. The semantic handler retains deterministic-uninitialized fill,
+alignment, allocation identity, capacity, and transactional rollback; native
+buffer fingerprints and the BGI copy consumer remain evidence data.
 `GetLastError` uses one policy-independent semantic handler. It returns the
 selected Rust runtime thread's full 32-bit LastError and preserves that state;
 there is no reached value, caller, or allowlist entry in compatibility policy.

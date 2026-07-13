@@ -1188,7 +1188,8 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
             vec![0x1000_0602, 0x6801_0001, 0x8, 0x800],
         ),
         (FRAME_BASE + 0x40, vec![0x1000_0603, 0x6801_0001, 0, 1]),
-        (FRAME_BASE + 0x60, vec![0x1000_0604, 0x6801_0001, 0x8, 0xbc]),
+        (FRAME_BASE + 0x60, vec![0x1000_0604, 0x6801_0001, 0, 0x220]),
+        (FRAME_BASE + 0x80, vec![0x1000_0605, 0x6801_0001, 0x8, 0xbc]),
     ];
     for (address, words) in &frames {
         write_frame(&mut memory, owner, GuestAddress(*address), words);
@@ -1352,12 +1353,78 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
         vec![RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE; 8]
     );
 
+    let runtime_before_size_544_rejection = runtime.clone();
+    let memory_before_size_544_rejection = memory.stats();
+    let size_544_rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[3].0, frames[3].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&size_one_policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        size_544_rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "heap-alloc-variant-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before_size_544_rejection);
+    assert_eq!(memory.stats(), memory_before_size_544_rejection);
+
+    let size_544_policy = compatibility_policy(
+        "heap-size-544-test",
+        vec![RUNTIME_STANDARD_INPUT_SELECTOR],
+        vec![(RUNTIME_STANDARD_INPUT_SELECTOR, 2)],
+        vec![(0x8, vec![0x214, 0x800]), (0, vec![1, 0x220])],
+    );
+    let size_544 = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[3].0,
+        frames[3].1[0],
+        &size_544_policy,
+    );
+    assert_eq!(size_544.eax, RegisterUpdate::Set(0x2000_0a20));
+    assert_eq!(size_544.stack_pointer, GuestAddress(frames[3].0 + 16));
+    assert_eq!(size_544.last_error, INITIAL_LAST_ERROR);
+    let size_544_allocation = runtime
+        .heap_backing(0x6801_0001)
+        .unwrap()
+        .unwrap()
+        .allocations
+        .get(&0x2000_0a20)
+        .expect("544-byte uninitialized allocation");
+    assert_eq!(size_544_allocation.id, RuntimeHeapAllocationId(4));
+    assert_eq!(size_544_allocation.byte_length, 0x220);
+    assert_eq!(size_544_allocation.reserved_byte_length, 0x220);
+    assert_eq!(
+        size_544_allocation.initialization,
+        RuntimeHeapInitialization::DeterministicUninitialized
+    );
+    let size_544_delta = memory.pending_delta().expect("size-544 allocation delta");
+    assert!(size_544_delta.mapping_operations.is_empty());
+    assert_eq!(size_544_delta.dirty_pages.len(), 1);
+    memory
+        .acknowledge_delta(size_544_delta.generation)
+        .expect("acknowledge size-544 allocation delta");
+    assert_eq!(
+        memory
+            .read(GuestAddress(0x2000_0a20), 0x220)
+            .expect("deterministic uninitialized 544-byte allocation"),
+        vec![RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE; 0x220]
+    );
+
     let runtime_before_later_rejection = runtime.clone();
     let memory_before_later_rejection = memory.stats();
     let later_rejected = {
         let mut session = ExecutionSession::new(&mut memory, &mut runtime);
         dispatcher.dispatch_owned(
-            owned_trap(&endpoint, frames[3].0, frames[3].1[0]),
+            owned_trap(&endpoint, frames[4].0, frames[4].1[0]),
             &mut session,
             |contract, frame, session| {
                 dispatch_kernel32_api_with_policy(&extended_policy, contract, frame, session)
@@ -1385,11 +1452,11 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
         &mut memory,
         &mut runtime,
         &endpoint,
-        frames[3].0,
-        frames[3].1[0],
+        frames[4].0,
+        frames[4].1[0],
         &public_fixture_policy,
     );
-    assert_eq!(third.eax, RegisterUpdate::Set(0x2000_0a20));
+    assert_eq!(third.eax, RegisterUpdate::Set(0x2000_0c40));
     assert_eq!(
         runtime
             .heap_backing(0x6801_0001)
@@ -1397,7 +1464,7 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
             .unwrap()
             .allocations
             .len(),
-        4
+        5
     );
 }
 

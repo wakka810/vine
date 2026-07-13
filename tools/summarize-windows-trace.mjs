@@ -13,6 +13,7 @@ const supportedObservations = new Set([
   "startup-info",
   "heap-set-information",
   "heap-lifecycle",
+  "heap-allocation",
   "module-handle",
   "dynamic-export",
   "tls-lifecycle",

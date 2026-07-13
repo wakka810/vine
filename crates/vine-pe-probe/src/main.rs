@@ -107,6 +107,7 @@ enum GenericRuntimeCapability {
     FlsGetValue,
     SetLastError,
     GetAcp,
+    PrivateHeapSize544,
 }
 
 struct GenericRuntimeProcess {
@@ -2447,6 +2448,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::FlsGetValue
                 | GenericRuntimeCapability::SetLastError
                 | GenericRuntimeCapability::GetAcp
+                | GenericRuntimeCapability::PrivateHeapSize544
         )
     );
     let enabled_capability = match enabled_capability {
@@ -2459,7 +2461,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::TlsGetValue
             | GenericRuntimeCapability::FlsGetValue
             | GenericRuntimeCapability::SetLastError
-            | GenericRuntimeCapability::GetAcp,
+            | GenericRuntimeCapability::GetAcp
+            | GenericRuntimeCapability::PrivateHeapSize544,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2924,10 +2927,17 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let get_acp_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetAcp));
+    let get_acp_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::GetAcp | GenericRuntimeCapability::PrivateHeapSize544)
+    );
     let set_last_error_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::SetLastError | GenericRuntimeCapability::GetAcp)
+        Some(
+            GenericRuntimeCapability::SetLastError
+                | GenericRuntimeCapability::GetAcp
+                | GenericRuntimeCapability::PrivateHeapSize544
+        )
     );
     let tls_get_value_enabled = matches!(
         enabled,
@@ -2984,7 +2994,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::TlsGetValue
             | GenericRuntimeCapability::FlsGetValue
             | GenericRuntimeCapability::SetLastError
-            | GenericRuntimeCapability::GetAcp,
+            | GenericRuntimeCapability::GetAcp
+            | GenericRuntimeCapability::PrivateHeapSize544,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3157,7 +3168,8 @@ fn runtime_capability_enables_dynamic_endpoint(
         Some(
             GenericRuntimeCapability::FlsGetValue
             | GenericRuntimeCapability::SetLastError
-            | GenericRuntimeCapability::GetAcp,
+            | GenericRuntimeCapability::GetAcp
+            | GenericRuntimeCapability::PrivateHeapSize544,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8530,6 +8542,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-fls-get-value" => GenericRuntimeCapability::FlsGetValue,
                 "kernel32-set-last-error" => GenericRuntimeCapability::SetLastError,
                 "kernel32-get-acp" => GenericRuntimeCapability::GetAcp,
+                "kernel32-private-heap-size-544" => GenericRuntimeCapability::PrivateHeapSize544,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

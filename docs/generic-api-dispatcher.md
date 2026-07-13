@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte uninitialized private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, and GetACP capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, and GetACP capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-get-acp`
-- Scope: frozen 17-call equivalence plus 82 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-private-heap-size-544`
+- Scope: frozen 17-call equivalence plus 87 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -55,7 +55,7 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `LeaveCriticalSection` | 2 | decrements recursion and releases at zero |
 | `FlsAlloc` | 1 | allocates a bounded process-owned logical FLS slot and retains its callback |
 | `FlsSetValue` | 1 | stores an opaque value in the selected thread's allocated FLS slot |
-| `HeapAlloc` | 2 | allocates the first two reached zeroed blocks through transactional guest-memory backing |
+| `HeapAlloc` | 4 | allocates two zeroed and two flags-zero deterministic-uninitialized reached blocks through transactional guest-memory backing |
 | `InterlockedIncrement` | 3 | performs a checked wrapping LONG update in guest memory |
 | `GetStdHandle` | 3 | returns versioned process-owned logical input／output／error identities |
 | `GetFileType` | 3 | classifies registered logical stdin as character and stdout／stderr as pipes |
@@ -64,20 +64,20 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `GetEnvironmentStringsW` | 1 | acquires one process-owned copy lease for the controlled UTF-16 environment block |
 | `FreeEnvironmentStringsW` | 0 reached; public semantic contract | retires only the exact active copy lease and returns BOOL success |
 | `WideCharToMultiByte` | 1 | performs a host-locale-independent Windows-932 size query; conversion variants share the same public contract |
-| `GetLastError` | 3 | reads selected-thread LastError without mutation |
-| `TlsGetValue` | 3 | reads the selected thread's allocated TLS value and applies Win32 LastError semantics |
-| `FlsGetValue` | 3 | reads initialized selected-thread FLS storage and applies Win32 LastError semantics |
-| `SetLastError` | 3 | writes the full selected-thread LastError value without guest-memory mutation |
+| `GetLastError` | 4 | reads selected-thread LastError without mutation |
+| `TlsGetValue` | 4 | reads the selected thread's allocated TLS value and applies Win32 LastError semantics |
+| `FlsGetValue` | 4 | reads initialized selected-thread FLS storage and applies Win32 LastError semantics |
+| `SetLastError` | 4 | writes the full selected-thread LastError value without guest-memory mutation |
 | `GetACP` | 1 | returns the policy-owned active ANSI code page without mutation |
 
 All 33 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-82 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
+87 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
-two `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
+four `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
 critical-section／thread／startup occurrences plus three `GetStdHandle`, three
 `GetFileType`, `SetHandleCount`, `GetCommandLineA`, and
-`GetEnvironmentStringsW`, one `WideCharToMultiByte` size query, three each of
+`GetEnvironmentStringsW`, one `WideCharToMultiByte` size query, four each of
 `GetLastError`, `TlsGetValue`, `FlsGetValue`, and `SetLastError`, plus one
 `GetACP`. `FreeEnvironmentStringsW` is installed as the paired public contract.
 Leave semantics remain fixed by native evidence and the controlled public test.
@@ -579,13 +579,29 @@ and stops at instruction 1978 on unsupported
 `HeapAlloc(0x68010001,0,0x220)`. Full evidence is in
 [bgi-get-acp.md](bgi-get-acp.md).
 
+The current 544-byte allocation profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-private-heap-size-544
+```
+
+`kernel32-private-heap-size-544-v1` adds only `(flags=0, byteLength=544)`
+to the existing `kernel32.heap-alloc.v2` semantics. Allocation ID `4` is
+returned at `0x20000A20` with deterministic-uninitialized bytes; the following
+BGI consumer overwrites all 544 requested bytes. The profile completes 87 calls,
+uses 88 writeback batches／142 dirty pages／2,300 changed bytes and 35 host
+deltas, and ends at generation `152`. Its 386,921-byte report has SHA-256
+`355c6c2dfc089c8d6f1ca30ea6cbe3b697f4e7afdfa6ed1ec4f2b0ea15593781`
+and stops at instruction 4523 on missing `GetCPInfo(932,0x006FF9C0)`. Full
+evidence is in [bgi-private-heap-size-544.md](bgi-private-heap-size-544.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
 - The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
 - Private heaps have bounded guest-memory backing, the first two reached zeroed
-  allocations, and one flags-zero deterministic-uninitialized allocation
-  enabled by policy; other sizes/flags,
+  allocations, and flags-zero deterministic-uninitialized size-1 and size-544
+  allocations enabled by policy; other sizes/flags,
   free/destroy/realloc dispatch, and broad allocator policy remain absent.
 - FLS free／callback teardown／fiber switching and TLS free／teardown／guest-thread
   lifecycle, critical-section deletion／contention blocking, and arbitrary export
@@ -608,15 +624,15 @@ and stops at instruction 1978 on unsupported
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
   pointers, and nonzero conversion flags remain absent. Its first unsupported
-  operation is `HeapAlloc(0x68010001,0,0x220)`; bespoke
+  operation is `GetCPInfo(932,0x006FF9C0)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-private-heap-size-544` at
-`HeapAlloc(0x68010001,0,0x220)`. It must first fix the native allocation result,
-initialization, consumer, and lifetime relation, then add only the reached
-flag/size pair to compatibility policy data.
+The next proof is `kernel32-get-cp-info` at
+`GetCPInfo(932,0x006FF9C0)`. It must first fix the native output shape,
+LastError relation, and immediate consumer, then add only the reached checked
+guest-memory output contract.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -632,4 +648,5 @@ bytes, the SetHandleCount report is 284,215 bytes, the GetCommandLineA report is
 report is 295,762 bytes, the one-byte heap report is 308,984 bytes, the
 GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     the FlsGetValue report is 320,070 bytes, the SetLastError report is 363,609
-    bytes, and the current GetACP report is 367,384 bytes.
+    bytes, the GetACP report is 367,384 bytes, and the current 544-byte heap
+    report is 386,921 bytes.

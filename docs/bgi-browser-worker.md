@@ -23,15 +23,15 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 82 | 82 |
-| Guest instructions at next stop | 1,978 | 1,978 |
+| Supported calls | 87 | 87 |
+| Guest instructions at next stop | 4,523 | 4,523 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 284 | 146 |
-| Host delta batches | 34 | 34 |
-| Final memory content SHA-256 | `7ed5262e4eef60c3f665765d5741872b595205c5022193ec4633194e5ffa25ea` | same |
-| Next capability cluster | `kernel32-private-heap-allocation` | same |
-| Next API | `KERNEL32.dll!HeapAlloc(...,0,0x220)` | same |
-| Fault | `heap-alloc-variant-unsupported` | same |
+| Final memory generation | 589 | 152 |
+| Host delta batches | 35 | 35 |
+| Final memory content SHA-256 | `c420169199f66f0bec6dc619b5d694e1f4987ea1990ae98f4d6a7773c63fcb26` | same |
+| Next capability cluster | `kernel32-api-contract` | same |
+| Next API | `KERNEL32.dll!GetCPInfo(932,0x006FF9C0)` | same |
+| Fault | `endpoint-contract-missing` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
 arguments, EAX policy, implementation ID, return and stack pointers, LastError,
@@ -40,19 +40,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 231
-writeback batches; the Node oracle reconciles at 83 writeback boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 537
+writeback batches; the Node oracle reconciles at 88 writeback boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 280 CPU slices, 197 budget yields, 841 validated Worker
-state transitions, 351 Rust/Wasm bridge operations, and a maximum observed slice
-of 2.335 ms. The main-thread heartbeat recorded 36 samples with a 20.540 ms
+The successful run used 599 CPU slices, 511 budget yields, 1,798 validated Worker
+state transitions, 663 Rust/Wasm bridge operations, and a maximum observed slice
+of 2.295 ms. The main-thread heartbeat recorded 42 samples with a 23.155 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 723,746 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 2,066
+changed from 628,360 to 731,894 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 1,723
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -62,7 +62,7 @@ module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 841, 4, and 3 transitions respectively. All three reports
+in `stopped` after 1,798, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -77,9 +77,10 @@ startup; PTE layout and private offsets remain adapter-local.
 
 The initial mirror uses the same 2 MiB physical pool as the controlled fixture
 and skips the v86 VGA MMIO hole at `0xA0000..0xC0000`. The session's first heap
-allocation applies one reserve and one commit operation in the Worker. The new
-one-byte allocation reuses the committed band and arrives as a dirty-only delta;
-later mutations use the same path.
+allocation applies one reserve and one commit operation in the Worker. The
+flags-zero size-1 and size-544 allocations reuse the committed band as
+dirty-only deltas; the 544-byte BGI copy consumer is detected by the same generic
+PTE-dirty reconciliation path.
 
 ## Reproduction
 
@@ -94,7 +95,7 @@ report hash is artifact identity only.
 
 ## Non-claims
 
-- no `HeapAlloc(...,0,0x220)` variant or later `HeapFree` dispatch is implemented
+- no `GetCPInfo`, later `HeapFree`, or broad heap variant dispatch is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
 - the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

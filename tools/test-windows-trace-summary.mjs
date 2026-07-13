@@ -560,6 +560,13 @@ heapLifecycleSelection.find(
 ).selectedObservations = ["heap-lifecycle"];
 assert.doesNotThrow(() => summarizeTrace(encode(heapLifecycleSelection)));
 
+const heapAllocationSelection = structuredClone(events);
+heapAllocationSelection[0].arguments.observations = ["heap-allocation"];
+heapAllocationSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["heap-allocation"];
+assert.doesNotThrow(() => summarizeTrace(encode(heapAllocationSelection)));
+
 const moduleHandleSelection = structuredClone(events);
 moduleHandleSelection[0].arguments.observations = ["module-handle"];
 moduleHandleSelection.find(

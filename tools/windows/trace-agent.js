@@ -45,6 +45,7 @@ let getAcpOracleSentinel = null;
 let getAcpOracleResult = null;
 let getAcpOracleLastError = null;
 let getAcpConsumerRecorded = false;
+const observedMainModuleHeapAllocations = new Map();
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -336,6 +337,37 @@ function snapshotX86FrameCallerContinuation(context, maximumInstructions) {
   } catch (error) {
     return { error: error.message };
   }
+}
+
+function snapshotX86FrameCallerContinuations(
+  context,
+  maximumFrames,
+  maximumInstructions,
+) {
+  if (Process.arch !== "ia32" || context.ebp === undefined) {
+    return { error: "x86 EBP frame is unavailable" };
+  }
+  const frames = [];
+  let framePointer = ptr(context.ebp);
+  for (let depth = 0; depth < maximumFrames; depth += 1) {
+    try {
+      const address = framePointer.add(Process.pointerSize).readPointer();
+      frames.push({
+        depth,
+        framePointer: framePointer.toString(),
+        caller: describeCaller(address),
+        ...snapshotInstructions(address, maximumInstructions),
+      });
+      const nextFramePointer = framePointer.readPointer();
+      if (nextFramePointer.isNull() || nextFramePointer.equals(framePointer)) {
+        break;
+      }
+      framePointer = nextFramePointer;
+    } catch (error) {
+      return { maximumFrames, maximumInstructions, frames, error: error.message };
+    }
+  }
+  return { maximumFrames, maximumInstructions, frames };
 }
 
 function snapshotTlsGetValueCall(caller, returnAddress, lastErrorBefore) {
@@ -799,6 +831,12 @@ if (selectedObservations.has("heap-lifecycle")) {
     ["HeapDestroy", [null]],
   );
 }
+if (selectedObservations.has("heap-allocation")) {
+  hooks["kernel32.dll"].push(
+    ["HeapAlloc", [null, null, null]],
+    ["HeapFree", [null, null, null]],
+  );
+}
 if (selectedObservations.has("module-handle")) {
   hooks["kernel32.dll"].push(
     ["GetModuleHandleA", ["ansi"]],
@@ -995,6 +1033,23 @@ function attachHook(module, name, decoders) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
+      const isFocusedHeapApi = name === "HeapAlloc" || name === "HeapFree";
+      const isMainModuleCaller =
+        caller.module !== null &&
+        caller.module.toLowerCase() === Process.mainModule.name.toLowerCase();
+      const focusedHeapObservation =
+        selectedObservations.has("heap-allocation") &&
+        isFocusedHeapApi &&
+        isMainModuleCaller;
+      if (
+        selectedObservations.has("heap-allocation") &&
+        !selectedObservations.has("heap-lifecycle") &&
+        isFocusedHeapApi &&
+        !focusedHeapObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
       this.traceCriticalSectionOracle =
         criticalSectionOracleSentinel !== null &&
         selectedObservations.has("critical-section") &&
@@ -1048,6 +1103,48 @@ function attachHook(module, name, decoders) {
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
+      this.traceHeapAllocation =
+        focusedHeapObservation && name === "HeapAlloc"
+          ? {
+              heap: args[0].toString(),
+              flags: args[1].toUInt32(),
+              requestedBytes: args[2].toUInt32(),
+              immediateConsumer: {
+                apiContinuation: snapshotInstructionsFollowingDirectJump(
+                  this.returnAddress,
+                  16,
+                ),
+                frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                  this.context,
+                  4,
+                  12,
+                ),
+              },
+            }
+          : null;
+      const heapFreePointer =
+        focusedHeapObservation && name === "HeapFree"
+          ? args[2].toString().toLowerCase()
+          : null;
+      const relatedHeapAllocation =
+        heapFreePointer === null
+          ? null
+          : (observedMainModuleHeapAllocations.get(heapFreePointer) ?? null);
+      this.traceHeapFree =
+        heapFreePointer === null
+          ? null
+          : {
+              pointer: heapFreePointer,
+              relatedAllocationCallId: relatedHeapAllocation?.callId ?? null,
+              requestedBytes: relatedHeapAllocation?.requestedBytes ?? null,
+              bufferBeforeFree:
+                relatedHeapAllocation === null
+                  ? null
+                  : snapshotByteBuffer(
+                      args[2],
+                      relatedHeapAllocation.requestedBytes,
+                    ),
+            };
       this.traceWideCharConversion =
         name === "WideCharToMultiByte" &&
         selectedObservations.has("wide-char-to-multi-byte")
@@ -1060,7 +1157,17 @@ function attachHook(module, name, decoders) {
             }
           : null;
       const observation =
-        name === "SetLastError" && selectedObservations.has("set-last-error")
+        this.traceHeapAllocation !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              heapAllocation: this.traceHeapAllocation,
+            }
+        : this.traceHeapFree !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              heapFree: this.traceHeapFree,
+            }
+        : name === "SetLastError" && selectedObservations.has("set-last-error")
           ? snapshotSetLastErrorCall(
               caller,
               this.returnAddress,
@@ -1175,6 +1282,9 @@ function attachHook(module, name, decoders) {
       );
     },
     onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
       const lastError = this.lastError;
       if (this.traceCriticalSectionOracle) {
         criticalSectionOracleLastError = Number(lastError) >>> 0;
@@ -1200,6 +1310,29 @@ function attachHook(module, name, decoders) {
       const wideCharResult =
         this.traceWideCharConversion === null ? null : signed32(result);
       const observation = {
+        ...(this.traceHeapAllocation === null
+          ? {}
+          : {
+              heapAllocation: {
+                heap: this.traceHeapAllocation.heap,
+                flags: this.traceHeapAllocation.flags,
+                requestedBytes: this.traceHeapAllocation.requestedBytes,
+                bufferAfterReturn: snapshotByteBuffer(
+                  result,
+                  this.traceHeapAllocation.requestedBytes,
+                ),
+              },
+            }),
+        ...(this.traceHeapFree === null
+          ? {}
+          : {
+              heapFree: {
+                pointer: this.traceHeapFree.pointer,
+                relatedAllocationCallId:
+                  this.traceHeapFree.relatedAllocationCallId,
+                requestedBytes: this.traceHeapFree.requestedBytes,
+              },
+            }),
         ...(this.traceStartupInfoPointer === null
           ? {}
           : {
@@ -1268,6 +1401,15 @@ function attachHook(module, name, decoders) {
         },
         lastError,
       );
+      if (this.traceHeapAllocation !== null && !result.isNull()) {
+        observedMainModuleHeapAllocations.set(result.toString().toLowerCase(), {
+          callId: this.traceFrame.callId,
+          requestedBytes: this.traceHeapAllocation.requestedBytes,
+        });
+      }
+      if (this.traceHeapFree !== null && result.toUInt32() !== 0) {
+        observedMainModuleHeapAllocations.delete(this.traceHeapFree.pointer);
+      }
       if (name === "Direct3DCreate9" && selectedVtables.has("idirect3d9")) {
         attachIdirect3d9(result);
       }
