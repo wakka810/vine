@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-get-module-file-name-a`
-- Scope: frozen 17-call equivalence plus 152 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-private-heap-size-16`
+- Scope: frozen 17-call equivalence plus 185 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -55,7 +55,7 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `LeaveCriticalSection` | 3 | decrements recursion and releases at zero |
 | `FlsAlloc` | 1 | allocates a bounded process-owned logical FLS slot and retains its callback |
 | `FlsSetValue` | 1 | stores an opaque value in the selected thread's allocated FLS slot |
-| `HeapAlloc` | 4 | allocates two zeroed and two flags-zero deterministic-uninitialized reached blocks through transactional guest-memory backing |
+| `HeapAlloc` | 5 | allocates two zeroed and three flags-zero deterministic-uninitialized reached blocks through transactional guest-memory backing |
 | `InterlockedIncrement` | 3 | performs a checked wrapping LONG update in guest memory |
 | `GetStdHandle` | 3 | returns versioned process-owned logical input／output／error identities |
 | `GetFileType` | 3 | classifies registered logical stdin as character and stdout／stderr as pipes |
@@ -709,12 +709,30 @@ and stops at instruction 16965 on unsupported `HeapAlloc(0x68010001,0,16)`.
 Full evidence is in
 [bgi-get-module-file-name-a.md](bgi-get-module-file-name-a.md).
 
+The current path-buffer allocation profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-private-heap-size-16
+```
+
+Policy `kernel32-private-heap-size-16-v1` adds only `(flags=0,size=16)`
+to the existing `kernel32.heap-alloc.v2` handler. It returns allocation ID `5`
+at `0x20000C40`, uses deterministic-uninitialized bytes, and applies a dirty-only
+host delta because the heap band is already committed. The following path
+consumer is reconciled through ordinary PTE-dirty writeback. The profile
+completes 185 calls, uses 186 writebacks／272 dirty pages／4,178 changed bytes and
+52 host deltas, and ends at generation `267`. Its 828,414-byte report has
+SHA-256 `887a74c11a1466cfbbfdeebf126ecc6138588c4b1f9e89c39cfdbb290a2ee8e6`
+and stops at instruction 18143 on unsupported
+`HeapAlloc(0x68010001,8,4)`. Full evidence is in
+[bgi-private-heap-size-16.md](bgi-private-heap-size-16.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
 - The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
 - Private heaps have bounded guest-memory backing, the first two reached zeroed
-  allocations, and flags-zero deterministic-uninitialized size-1 and size-544
+  allocations, and flags-zero deterministic-uninitialized size-1, size-16, and size-544
   allocations enabled by policy; other sizes/flags,
   free/destroy/realloc dispatch, and broad allocator policy remain absent.
 - FLS free／callback teardown／fiber switching and TLS free／teardown／guest-thread
@@ -747,15 +765,15 @@ Full evidence is in
   locale/flag/length variants, and broad locale tables
   remain absent. Explicit module file-name lookup and host image-path import are
   also absent. Its first unsupported operation is
-  `HeapAlloc(0x68010001, 0, 16)`; bespoke
+  `HeapAlloc(0x68010001, 8, 4)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-private-heap-size-16` at
-`HeapAlloc(0x68010001, 0, 16)`. It must first fix allocation identity,
-initialization, alignment, failure, LastError, lifetime, and the immediate
-consumer, then add only the reached flag/size policy variant.
+The next proof is `kernel32-private-heap-size-4` at
+`HeapAlloc(0x68010001, 8, 4)`. It must first fix the size source, zero
+initialization, allocation identity, failure, LastError, lifetime, and the
+immediate consumer, then add only the reached flag/size policy variant.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,

@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは39 contracts／152 callsをcommon dispatcherからreturnして`HeapAlloc(0x68010001,0,16)`へ到達した。同じcurrent sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとのordered completion／memory digest一致、heartbeat、cancel／watchdog teardownを通した。protocol v4はexplicit execution state machineを維持し、production loopをpinned ExecutionEngine contractへ移した。timer clamp非依存yieldによる3分／961-session workload gateはcurrent profileでsession／slice分布、main／Worker heapとbacking-storage slope、linear memory、Wasm crossing thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは39 contracts／185 callsをcommon dispatcherからreturnして`HeapAlloc(0x68010001,8,4)`へ到達した。同じcurrent sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとのordered completion／memory digest一致、heartbeat、cancel／watchdog teardownを通した。protocol v4はexplicit execution state machineを維持し、production loopをpinned ExecutionEngine contractへ移した。timer clamp非依存yieldによる3分／918-session workload gateはcurrent profileでsession／slice分布、main／Worker heapとbacking-storage slope、linear memory、Wasm crossing thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -979,10 +979,10 @@ capture時artifact identityとしてのみ保持する。後続Browser oracle in
 257,878 bytes／SHA-256
 `564c3425f01b35e86717b68335b18f8bcd3d30d996717a1d0848028104cf0a2b`である。
 
-current 152-call sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとの
+current 185-call sessionはChrome Runtime Worker内のRust/Wasm authorityへ移行し、Node oracleとの
 ordered completion／memory digest一致、main heartbeat、cancel／watchdog teardownを通した。続く
-3分／961-session BGI workload gateはfailure 0で、session／slice分布、main／Worker heapとbacking
-storage slope、Rust／execution-engine linear memory、1,826 Wasm crossings/sessionの全version 1 thresholdを通した。
+3分／918-session BGI workload gateはfailure 0で、session／slice分布、main／Worker heapとbacking
+storage slope、Rust／execution-engine linear memory、1,969 Wasm crossings/sessionの全version 1 thresholdを通した。
 これはfull-play、long-idle、title outputの完了を意味しない。
 
 1. [完了] `GetFileType(0x53010002)`のnative `FILE_TYPE_PIPE`／LastError／immediate consumerを固定し、registered logical stdoutだけをversioned file-type contractへ接続した。57 calls／generation `116`を通し、instruction 1484の`GetStdHandle(STD_ERROR_HANDLE)`へ進んだ。
@@ -1005,9 +1005,10 @@ storage slope、Rust／execution-engine linear memory、1,826 Wasm crossings/ses
 18. [完了] `LCMapStringW(1041,256,0x006FF708,256,0,0)`のdocumented six-argument ABI、locale、flags、source／destination length semantics、output、LastError、guards、caller consumerを固定した。unsupported stack snapshotの後続wordをAPI引数へ昇格せず、reached ja-JP lower／upper query-conversionだけをchecked mappingへ接続し、113 calls／generation `187`を通してinstruction 12137の`InterlockedDecrement(0x100F08E0)`へ進んだ。
 19. [完了] `InterlockedDecrement(0x100F08E0)`のone-argument ABI、pointed LONGのinitial／final value、atomic result、wrapping behavior、LastError、alignment、caller consumerを固定した。reached checked decrementだけをshared LONG helperへ接続し、119 calls／generation `199`を通してinstruction 15863の`GetModuleFileNameA(NULL,0x100FF520,260)`へ進んだ。
 20. [完了] `GetModuleFileNameA(NULL,0x100FF520,260)`のNULL-module selection、ANSI output、length／termination、insufficient-capacity behavior、LastError、guards、caller consumerを固定した。host install pathをsemantic inputにせず、Rust bootstrap-owned virtual process pathとreached main-module-only checked outputを接続し、152 calls／generation `233`を通してinstruction 16965の`HeapAlloc(0x68010001,0,16)`へ進んだ。
-21. `HeapAlloc(0x68010001,0,16)`のallocation identity、initialization、alignment、failure、LastError、lifetime、caller consumerを固定し、既存private-heap semanticsへreached policy pairだけを追加する。
+21. [完了] `HeapAlloc(0x68010001,0,16)`のpath-derived native/runtime size relation、allocation identity、initialization、alignment、failure、LastError、lifetime、caller consumerを固定した。native install path由来size `36`をimportせず、既存private-heap semanticsへcontrolled `(flags=0,size=16)` pairだけを追加し、185 calls／generation `267`を通してinstruction 18143の`HeapAlloc(0x68010001,8,4)`へ進んだ。
+22. `HeapAlloc(0x68010001,8,4)`のsize source、zero initialization、allocation identity、failure、LastError、lifetime、caller consumerを固定し、既存private-heap semanticsへreached policy pairだけを追加する。
 
-frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated nineteenth-call expansionはpauseを続ける。reached `GetModuleFileNameA` contractは完了し、現在はflags-zero size-16 `HeapAlloc` contractを進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
+frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated nineteenth-call expansionはpauseを続ける。flags-zero size-16 `HeapAlloc` contractは完了し、現在はzeroed size-4 `HeapAlloc` contractを進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
 
 ## 23. 完了の定義
 

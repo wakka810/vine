@@ -114,6 +114,7 @@ enum GenericRuntimeCapability {
     LcMapStringW,
     InterlockedDecrement,
     GetModuleFileNameA,
+    PrivateHeapSize16,
 }
 
 struct GenericRuntimeProcess {
@@ -2463,11 +2464,15 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::LcMapStringW
                 | GenericRuntimeCapability::InterlockedDecrement
                 | GenericRuntimeCapability::GetModuleFileNameA
+                | GenericRuntimeCapability::PrivateHeapSize16
         )
     );
     let get_module_file_name_a_enabled = matches!(
         endpoint_capability,
-        Some(GenericRuntimeCapability::GetModuleFileNameA)
+        Some(
+            GenericRuntimeCapability::GetModuleFileNameA
+                | GenericRuntimeCapability::PrivateHeapSize16
+        )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
         || matches!(
@@ -2491,7 +2496,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetStringTypeW
             | GenericRuntimeCapability::LcMapStringW
             | GenericRuntimeCapability::InterlockedDecrement
-            | GenericRuntimeCapability::GetModuleFileNameA,
+            | GenericRuntimeCapability::GetModuleFileNameA
+            | GenericRuntimeCapability::PrivateHeapSize16,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2989,8 +2995,13 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let get_module_file_name_a_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::GetModuleFileNameA));
+    let get_module_file_name_a_enabled = matches!(
+        enabled,
+        Some(
+            GenericRuntimeCapability::GetModuleFileNameA
+                | GenericRuntimeCapability::PrivateHeapSize16
+        )
+    );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
         || matches!(
             enabled,
@@ -3073,7 +3084,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::GetStringTypeW
             | GenericRuntimeCapability::LcMapStringW
             | GenericRuntimeCapability::InterlockedDecrement
-            | GenericRuntimeCapability::GetModuleFileNameA,
+            | GenericRuntimeCapability::GetModuleFileNameA
+            | GenericRuntimeCapability::PrivateHeapSize16,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3259,7 +3271,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::GetStringTypeW
             | GenericRuntimeCapability::LcMapStringW
             | GenericRuntimeCapability::InterlockedDecrement
-            | GenericRuntimeCapability::GetModuleFileNameA,
+            | GenericRuntimeCapability::GetModuleFileNameA
+            | GenericRuntimeCapability::PrivateHeapSize16,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8646,6 +8659,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-lc-map-string-w" => GenericRuntimeCapability::LcMapStringW,
                 "kernel32-interlocked-decrement" => GenericRuntimeCapability::InterlockedDecrement,
                 "kernel32-get-module-file-name-a" => GenericRuntimeCapability::GetModuleFileNameA,
+                "kernel32-private-heap-size-16" => GenericRuntimeCapability::PrivateHeapSize16,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

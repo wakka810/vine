@@ -1830,3 +1830,41 @@ Chrome Runtime Workerも152 ordered callsとsame stop／memoryを再現し、2,1
 2,021 yields、1,826 Wasm crossings、final generation `1,445`、cancel／watchdog後pending
 work 0を通す。3分gateは961 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-get-module-file-name-a.md](bgi-get-module-file-name-a.md)を正とする。
+
+## 74. BGI private-heap 16-byte allocation
+
+combined `get-module-file-name-a`／`heap-allocation` observerのaccepted capturesは
+464,225 bytes／190 lines／SHA-256
+`6f0ed9c6a2b26576f1d2ba4d291ae6b7b5b862fa71e67a2f2780734bebe786ce`と
+464,304 bytes／190 lines／SHA-256
+`551e58fabb2e2ad97cb8b977c76945eef7bf636b7b84dfee3180ab8a77aa8cc1`
+である。どちらも188 contiguous events、69 balanced API pairs、diagnostics zeroを保持し、
+sequence `83`の`GetModuleFileNameA` leaveに続いてsequence `84`／`85`でdirect BGI
+`HeapAlloc` enter／leaveを記録する。
+
+Native install pathは日本語5文字を含むため、BGI return RVA `0xA4A33`のcallは
+`HeapAlloc(nativeHeap,0,36)`であり、non-NULLを返してLastError `0 -> 0`を保存する。
+Allocation return RVA `0xA8517`ではresultをESIへ保持し、NULL test後にcomputed upper boundと
+ともにpath conversionへ渡す。36-byte initial bufferは両runとも30 NUL bytesを含むが、
+FNV-1aは`0x1B0CEF1D`／`0x5128B3FD`で異なる。100 ms capture内にrelated
+`HeapFree`はない。従ってnative path由来size 36と不安定なinitial bytesはruntime policyへ
+輸入せず、controlled ASCII path `C:\Vine\BGI.exe\0`から到達するsize 16だけを有効化する。
+
+Policy `kernel32-private-heap-size-16-v1`はexisting `kernel32.heap-alloc.v2`のflags-zero
+listを`[1,16,544]`へ拡張する。Reached allocationはID `5`／block `0x20000C40`、
+requested／reserved 16 bytes、`deterministic-uninitialized`である。Host delta sequence
+`153`はgeneration `233 -> 234`のdirty-only one-page update、following consumer writeback
+sequence `154`はinstruction `17061`／generation `234 -> 235`／55 changed bytesである。
+
+`npm run check:runtime:bgi -- --profile kernel32-private-heap-size-16`は39 contracts／
+185 calls、186 writebacks／272 dirty pages／4,178 changed bytes、52 host deltas、final
+generation `267`を通す。instruction `18143`でID `75`／
+`HeapAlloc(0x68010001,8,4)`を`heap-alloc-variant-unsupported`として停止する。Memory
+SHA-256は`b648580e9ea1840e7c2703115d144e3b7014040f74a6670a14136808ee2782ff`、
+828,414-byte reportのSHA-256は
+`887a74c11a1466cfbbfdeebf126ecc6138588c4b1f9e89c39cfdbb290a2ee8e6`である。
+
+Chrome Runtime Workerも185 ordered callsとsame stop／memoryを再現し、2,325 slices、
+2,139 yields、1,969 Wasm crossings、final generation `1,538`、cancel／watchdog後pending
+work 0を通す。3分gateは918 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-private-heap-size-16.md](bgi-private-heap-size-16.md)を正とする。

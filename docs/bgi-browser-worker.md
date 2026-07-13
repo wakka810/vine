@@ -23,14 +23,14 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 152 | 152 |
-| Guest instructions at next stop | 16,965 | 16,965 |
+| Supported calls | 185 | 185 |
+| Guest instructions at next stop | 18,143 | 18,143 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 1,445 | 233 |
-| Host delta batches | 51 | 51 |
-| Final memory content SHA-256 | `b233490f03ec30f568aa6ddf9868da4f41804150f4bbccfff8a20f2e9d01e943` | same |
+| Final memory generation | 1,538 | 267 |
+| Host delta batches | 52 | 52 |
+| Final memory content SHA-256 | `b648580e9ea1840e7c2703115d144e3b7014040f74a6670a14136808ee2782ff` | same |
 | Next capability cluster | `kernel32-private-heap-allocation` | same |
-| Next API | `KERNEL32.dll!HeapAlloc(0x68010001, 0, 16)` | same |
+| Next API | `KERNEL32.dll!HeapAlloc(0x68010001, 8, 4)` | same |
 | Fault | `heap-alloc-variant-unsupported` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
@@ -40,19 +40,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 1,619
-writeback batches; the Node oracle reconciles at 153 writeback boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 1,728
+writeback batches; the Node oracle reconciles at 186 writeback boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 2,174 CPU slices, 2,021 budget yields, 6,523 validated
-Worker state transitions, 1,826 Rust/Wasm bridge operations, and a maximum
-observed slice of 1.640 ms. The main-thread heartbeat recorded 57 samples with a 20.780 ms
+The successful run used 2,325 CPU slices, 2,139 budget yields, 6,976 validated
+Worker state transitions, 1,969 Rust/Wasm bridge operations, and a maximum
+observed slice of 1.660 ms. The main-thread heartbeat recorded 60 samples with an 18.135 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 806,150 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 961
+changed from 628,738 to 825,010 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 918
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -62,7 +62,7 @@ module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 6,523, 4, and 3 transitions respectively. All three reports
+in `stopped` after 6,976, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -89,8 +89,10 @@ delta. Its consumer and later existing helper calls reach four checked
 `InterlockedDecrement` calls then update the same aligned LONG around existing
 increment and critical-section calls before both paths stop at
 `GetModuleFileNameA`. The Rust-owned virtual path `C:\Vine\BGI.exe\0` is then
-copied through the checked 16-byte output write; Node and Chrome converge on the
-same bytes before stopping at `HeapAlloc(0x68010001, 0, 16)`.
+copied through the checked 16-byte output write. The following flags-zero
+16-byte heap block and its path consumer are then applied through a dirty-only
+host delta and ordinary CPU writeback; Node and Chrome converge before stopping
+at `HeapAlloc(0x68010001, 8, 4)`.
 
 ## Reproduction
 

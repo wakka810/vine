@@ -22,6 +22,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-get-string-type-w-v1.json",
   "fixtures/runtime-policies/kernel32-lc-map-string-w-v1.json",
   "fixtures/runtime-policies/kernel32-get-module-file-name-a-v1.json",
+  "fixtures/runtime-policies/kernel32-private-heap-size-16-v1.json",
 ];
 
 for (const relative of policyFiles) {

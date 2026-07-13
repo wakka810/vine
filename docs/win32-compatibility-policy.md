@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-get-module-file-name-a-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-private-heap-size-16-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -48,7 +48,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form seventeen monotonic controlled policies:
+The current files form eighteen monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -69,6 +69,7 @@ The current files form seventeen monotonic controlled policies:
 | `kernel32-get-string-type-w-v1` | stdin, stdout, stderr | preceding options + `CT_CTYPE1`／65,536-unit classification bound | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 | `kernel32-lc-map-string-w-v1` | stdin, stdout, stderr | preceding options + locale `1041`／lowercase and uppercase／65,536-unit mapping bound | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 | `kernel32-get-module-file-name-a-v1` | stdin, stdout, stderr | preceding options + main-module-only path lookup／32 KiB capacity | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
+| `kernel32-private-heap-size-16-v1` | stdin, stdout, stderr | preceding options | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -170,6 +171,12 @@ public fixture independently covers generous and exact success, modern
 truncation, one-byte and zero capacity, NULL output, ABI cleanup, LastError,
 full-span writable preflight, policy limit, explicit-module rejection, and
 mutation-free faults.
+The 16-byte path-buffer policy reuses `kernel32.heap-alloc.v2` and adds only
+`(flags=0, byteLength=16)`. The native installation path produces a different
+36-byte request; neither that host-derived value nor native uninitialized bytes
+enter policy. The public heap fixture fixes preceding-policy rejection,
+deterministic initialization, allocation identity／alignment, dirty-only delta,
+LastError, and stdcall cleanup through the same handler.
 
 Policy JSON parsing and validation is covered independently:
 
