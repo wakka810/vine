@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: implementation complete; first committed evidence pending
+- Status: verified
 - Date: 2026-07-13
 - Canonical command: `npm run check:private-target`
 - Evidence schema: `vine.private-target-evidence` version `1`
-- Evidence file: `docs/private-target-evidence.json`
+- Evidence file: [`private-target-evidence.json`](private-target-evidence.json)
 
 ## Purpose
 
@@ -30,6 +30,9 @@ implementation commit
 
 The offline evidence validator confirms that the referenced implementation
 commit exists, is an ancestor, and has the recorded tree ID.
+
+The linked evidence file is the current result authority. Human-readable docs
+do not duplicate its commit, call, timing, or artifact values.
 
 ## Command
 

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "check": "npm run check:fast && npm run check:fixture-e2e",
-    "check:fast": "npm run check:docs && npm run check:checkpoint-manifest && npm run check:private-target-contract && npm run check:win32-policy && npm run check:toolchain && npm run check:rust && npm run check:js && npm run check:engine && npm run check:windows-trace",
+    "check:fast": "npm run check:docs && npm run check:checkpoint-manifest && npm run check:private-target-contract && npm run check:private-target-evidence && npm run check:win32-policy && npm run check:toolchain && npm run check:rust && npm run check:js && npm run check:engine && npm run check:windows-trace",
     "check:fixture-e2e": "npm run prepare:engine && npm run check:fixture-e2e:prepared",
     "check:fixture-e2e:prepared": "npm run check:runtime:entry && npm run check:runtime:cdecl && npm run check:runtime:callback && npm run check:runtime:outer-return && npm run check:runtime:entry-return && npm run check:runtime:stack-bootstrap && npm run check:runtime:bootstrap-fs-first-stop && npm run check:runtime:bootstrap-fs && npm run check:runtime:bootstrap-params-first-stop && npm run check:runtime:bootstrap-params && npm run check:runtime:memory-delta && npm run check:runtime:memory-writeback && npm run check:runtime:window-loader && npm run check:runtime:window-browser && npm run check:runtime:browser-worker:prepared",
     "check:adapter": "npm run prepare:engine && npm run check:engine:adapter && npm run check:runtime:memory",

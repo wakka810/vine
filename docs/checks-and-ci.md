@@ -53,7 +53,7 @@ npm run check:private-target
 
 It requires the private source, runs the current Node oracle and Chrome Runtime
 Worker path, and writes the small versioned
-`docs/private-target-evidence.json`. The result binds
+[`private-target-evidence.json`](private-target-evidence.json). The result binds
 the semantic outcome and artifact identities to the exact implementation
 commit and tree. Protected runtime inputs must be clean. Explicitly admitted
 unrelated dirty paths remain visible in the result. The three-minute benchmark
