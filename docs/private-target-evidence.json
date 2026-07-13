@@ -1,12 +1,12 @@
 {
   "schema": "vine.private-target-evidence",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "status": "passed",
-  "recordedAt": "2026-07-13T07:41:08.420Z",
+  "recordedAt": "2026-07-13T08:40:22.429Z",
   "repository": {
-    "implementationCommit": "b21b41ca81b761e4ec92547efd104fb963f05515",
-    "implementationTree": "ccff51e31c178882c70bcc2d676987ea3badff5b",
-    "headCommit": "b21b41ca81b761e4ec92547efd104fb963f05515",
+    "implementationCommit": "52c1678efd4fce8e851b24130baea89da25d3cce",
+    "implementationTree": "ba67e0e91dfa235cebcbc5ab9e0eefe2c988a186",
+    "headCommit": "52c1678efd4fce8e851b24130baea89da25d3cce",
     "dirty": true,
     "dirtyPaths": [
       "AGENTS.md",
@@ -43,7 +43,7 @@
     "policySource": "fixtures/runtime-policies/kernel32-set-handle-count-v1.json",
     "nodeReportSchema": "vine.v86-bgi-set-handle-count",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v2"
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v3"
   },
   "environment": {
     "platform": "win32-Windows 11 Home",
@@ -85,7 +85,38 @@
       "instructions": 1526,
       "finalGeneration": 225,
       "memoryContentSha256": "3e0e3dc6fc0420af4cf1bc4233d8fc267311f3926abc18b91ce839ce2ff083b3",
-      "wasmBridgeCalls": 271
+      "wasmBridgeCalls": 271,
+      "executionStateMachine": {
+        "success": {
+          "finalState": "stopped",
+          "transitionCount": 649,
+          "lastTransitionTo": "stopped",
+          "pendingHostRequestRecords": 0,
+          "watchdogContext": null
+        },
+        "cancellation": {
+          "finalState": "stopped",
+          "transitionCount": 4,
+          "lastTransitionTo": "stopped",
+          "pendingHostRequestRecords": 0,
+          "watchdogContext": null
+        },
+        "watchdog": {
+          "finalState": "stopped",
+          "transitionCount": 3,
+          "lastTransitionTo": "stopped",
+          "pendingHostRequestRecords": 0,
+          "watchdogContext": {
+            "threadId": 8192,
+            "requestId": null,
+            "lastTransition": {
+              "from": "ready",
+              "to": "running",
+              "cause": "execute-slice"
+            }
+          }
+        }
+      }
     },
     "memoryEquivalent": true,
     "nextStructuredStop": {
@@ -121,8 +152,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 55987,
-      "sha256": "c9956d18dff10a068fae962d3e8c4ea6f61b80d24aca55dee37ac51232c896a0"
+      "bytes": 57407,
+      "sha256": "5bf02b0c47568264b23761848af0a895498a6861f6ff92de048d1688f9b6a7c9"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -137,12 +168,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 2599,
-      "sha256": "a820858619226fca66b74e5bdd3c8b2553612ec0cfa2599430e3c256d4fcc810"
+      "sha256": "58ab74ea006ab104ecfae26786934bea4abd74aa97b390d2febb0a2a9aafbd8f"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 1519033,
-      "sha256": "f2bca72e9529b130a0894289a5374ff3ee8575b0aedbf31973bf6a3b5cc20ec1"
+      "bytes": 1519513,
+      "sha256": "479faa4d393c9fd21aa68fec8ab063e378ac6bb43907e7c54753404c07de830b"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -165,10 +196,10 @@
     "status": "threshold-passed",
     "configuration": "fixtures/benchmarks/bgi-browser-v1.json",
     "durationMilliseconds": 180000,
-    "completedSessions": 1579,
+    "completedSessions": 2090,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "18a6375ffa6d6e4582df15fc974ce02dccf0d830729f7eed2ca339b0360bd0db"
+    "reportSha256": "f6e07c36cd189edf9bcd5bf6104b7499232609b58e044cb4c1c1d141d64d4558"
   },
-  "payloadSha256": "8bf4538dc76e2aff48debbfaa6658793b90bb88dcb15d418f8fd58391d6a3d74"
+  "payloadSha256": "859115edd64a65c8ab16654e7697eed216eccbe7ebb8d7e67193d293b5f0c4b4"
 }
