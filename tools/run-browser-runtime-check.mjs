@@ -296,6 +296,7 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
       assert.equal(evidence.report.outcome, "completed");
       assert.equal(evidence.report.exitCode, 0);
       assert.equal(evidence.report.hostRequests, 2);
+      assert.equal(evidence.report.rustSchedulerTransitions, 2);
       assert.equal(evidence.report.callbackEntries, 2);
       assert.equal(evidence.report.maximumCallbackDepth, 2);
       assert(evidence.report.budgetYields > 0, "success path did not yield periodically");
@@ -516,7 +517,8 @@ if (serveOnly) {
     }
     const report = {
       schema: "vine.browser-runtime-worker",
-      schemaVersion: 1,
+      schemaVersion: 2,
+      runtimeProtocol: "vine.browser-runtime-worker.v2",
       measuredAt: new Date().toISOString(),
       chromeVersion: version,
       success,

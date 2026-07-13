@@ -15,7 +15,37 @@
 5. **compatibility をデータとして扱う。** CPU feature、PE feature、API status、title result を versioned metadata にする。
 6. **正確性を先に測る。** interpreter を成立性の基準候補とし、DBT、generated Wasm、parallel execution は benchmark と differential test 後に選ぶ。
 7. **縦断経路を早く通す。** 各 subsystem を広く作る前に、合成 PE から pixel、audio、save まで最小の一経路を完成させる。
-8. **Rust と TypeScript の ownership を分ける。** Rust は CPU adapter、guest memory、PE loader、ABI gateway、TypeScript は Windows API facade、scheduler integration、browser backend、UI、diagnostics を担当する。
+8. **Rust と TypeScript の authority を分ける。** Rust runtime kernelはguest-visibleなWindows stateとscheduler policyを所有する。TypeScriptはbrowser resource、DOM lifecycle、host request deliveryを所有し、Windows stateのmirrorを作らない。
+
+### 2.1 Runtime authority
+
+| State | Authority | Mirror / adapter |
+|---|---|---|
+| guest virtual memory bytes、region、protection、owner | Rust `GuestMemory` | execution engine memory |
+| process、thread、handle、module、heap、wait、message、TLS／FLS | Rust runtime kernel | なし |
+| guest scheduler state、wait registration、host request identity | Rust runtime kernel | Worker event loop |
+| CPU context | per-thread runtime-owned context record | execution engine state buffer |
+| Canvas、WebGL／WebGPU、Audio、OPFS／IndexedDB resource | TypeScript browser backend | Rust logical resource identity |
+| DOM input、permission、user activation、browser lifecycle | TypeScript | Rust scheduler event |
+| Win32 argument／pointer validationと同期semantics | Rust | なし |
+| async Web API開始、取消、completion transport | TypeScript | Rust host request record |
+
+TypeScriptはhandle、wait、message、LastError、module stateを更新しない。RustはDOM node、
+`AudioNode`、GPU object、browser file handleを保持しない。境界を通過できるidentityはversioned
+request ID、thread ID、logical resource IDであり、payloadはcontractごとの上限を持つ。
+
+async operation開始時のguest inputは開始前にRust-owned bufferへcopyする。completion時にguestへ
+writeするpointerは、allocation identityでpinするか、current mapping／owner／protection／lengthを
+再検証する。現在のBrowser fixtureはscalar wordsをowned payloadへcopyするため、async中にguest
+pointerを保持しない。
+
+scheduler transitionはRustだけが決定する。Rustは`waiting-host`とrequest／thread identityを発行し、
+TypeScriptはbrowser eventをdeliveryする。completion後の`runnable`または`in-callback`復帰もRustが
+検証してからCPU contextへ適用する。Worker event loopは独自にguest threadをwakeしない。
+
+現在のcontrolled Browser sessionはsingle CPU laneだけを実行し、scheduler切替用の永続CPU context
+recordをまだ持たない。live contextはexecution mirrorのstate bufferにだけ存在する。複数threadのCPU
+resumeを導入する前に、per-thread Rust recordへのsave／restoreを追加し、このauthority表を満たす。
 
 ## 3. 論理構成
 
@@ -29,7 +59,7 @@ User-selected title directory / package
                                 | typed messages / event queues
                                 v
 +------------------------------- Runtime Worker -------------------------------------------+
-|  Runtime orchestrator / scheduler / watchdog / trace                                      |
+|  TypeScript event delivery / watchdog / trace                                             |
 |                                                                                           |
 |  +-----------------+   +-----------------+   +--------------------+                       |
 |  | PE/DLL loader   |-->| guest address   |<->| x86 execution      |                       |
@@ -85,7 +115,7 @@ guest CALL / JMP import thunk
   -> return register / stack を ABI 規則どおり復元
 ```
 
-API implementation は `Promise` を guest へ見せない。deferred operation の途中でも、別 guest thread、message、cancel、timeout を scheduler が扱える設計にする。
+API implementation は `Promise` を guest へ見せない。deferred operation の途中でも、別 guest thread、message、cancel、timeout をRust schedulerが扱い、TypeScriptはbrowser completionをeventとして返す。
 
 現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEB／process-parameters／command-lineを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてmeasured command-line observationとentry completionまで実行した。single processはexplicit lifecycleとcontrolled two-thread registryを持ち、logical laneごとのLastError／TLS／callback／scheduler state、thread exit、all-lane termination、one-object wait／wake、bounded raw message FIFOを固定する。Typed logical private heapはlazy 16 MiB guest arena、8-byte allocation、free／reuse、exit-request teardownへ接続済みである。second threadのCPU context／stack／TEB、general ABI schema、stack growth／guard、wait-any／wait-all／timeout、User32 filter／dispatch、guest HeapAlloc API、general process parametersは未実装である。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)、[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
@@ -111,7 +141,7 @@ controlled callback／entry return ingressでは、sentinel kindをcontrol addre
 | Context | 責務 | 禁止事項 |
 |---|---|---|
 | Main thread | shell UI、DOM input、user activation、canvas presentation、permission prompt | guest 命令 loop、長い parse、同期 wait |
-| Runtime Worker | PE parse、CPU、scheduler、API implementation、VFS cache、trace | DOM 直接操作 |
+| Runtime Worker | Rust kernel／CPU adapterの駆動、browser request delivery、watchdog、trace | DOM直接操作、guest-visible Windows stateの所有 |
 | AudioWorklet | deadline に沿った PCM consume、sample clock、underrun counter | guest API、file parse、重い allocation |
 | Optional storage worker | backend が要求する同期 access handle、transaction／snapshot | guest pointer の直接参照 |
 

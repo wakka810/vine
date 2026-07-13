@@ -107,12 +107,12 @@
   "status": "passed",
   "workload": "controlled-public-fixture",
   "bgiSession": "not-started",
-  "browserRuntimeProtocol": "vine.browser-runtime-worker.v1",
+  "browserRuntimeProtocol": "vine.browser-runtime-worker.v2",
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {
     "imports": 0,
-    "bytes": 658861,
-    "sha256": "0c2647e6d07f7f47cabe022d0560a72ced0a851f508ab1820feb004f7fd8bf23"
+    "bytes": 808587,
+    "sha256": "2d6ad990c25c58223bd88d0bf293225621a8a9d0173087314cb4e1810ef0d39f"
   },
   "browserRuntimeFixture": {
     "bytes": 2560,
@@ -125,6 +125,7 @@
     "cpuSlices": 10,
     "budgetYields": 3,
     "hostRequests": 2,
+    "rustSchedulerTransitions": 2,
     "callbackEntries": 2,
     "maximumCallbackDepth": 2,
     "writebackBatches": 7,

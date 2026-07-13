@@ -107,6 +107,9 @@ export function validateCurrentCheckpoint(manifest) {
   if (browser.bgiSession !== "not-started") {
     errors.push("browserCheckpoint.bgiSession must explicitly describe BGI state");
   }
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v2") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v2");
+  }
   requireString(browser.workload, "browserCheckpoint.workload", errors);
   const browserEvidence = requireRecord(
     browser.browserRuntimeEvidence,
@@ -118,6 +121,9 @@ export function validateCurrentCheckpoint(manifest) {
     "browserCheckpoint.browserRuntimeEvidence.guestInstructions",
     errors,
   );
+  if (browserEvidence.rustSchedulerTransitions !== browserEvidence.hostRequests) {
+    errors.push("browser scheduler transitions must authorize every completed host request");
+  }
 
   const engine = requireRecord(
     root.engineDecisionEvidence,

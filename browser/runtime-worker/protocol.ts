@@ -1,4 +1,4 @@
-export const protocolVersion = 1 as const;
+export const protocolVersion = 2 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 
@@ -26,7 +26,8 @@ export interface HostCompletionMessage {
   type: "host-completion";
   protocolVersion: typeof protocolVersion;
   sessionId: number;
-  requestId: number;
+  requestId: string;
+  threadId: number;
   result: number;
 }
 
@@ -47,7 +48,8 @@ export interface HostRequestMessage {
   type: "host-request";
   protocolVersion: typeof protocolVersion;
   sessionId: number;
-  requestId: number;
+  requestId: string;
+  threadId: number;
   service: string;
   arguments: number[];
 }
@@ -60,6 +62,7 @@ export interface SessionReport {
   slices: number;
   budgetYields: number;
   hostRequests: number;
+  rustSchedulerTransitions: number;
   callbackEntries: number;
   maximumCallbackDepth: number;
   writebackBatches: number;

@@ -204,6 +204,7 @@ async function handleHostRequest(message: HostRequestMessage): Promise<void> {
     protocolVersion,
     sessionId: message.sessionId,
     requestId: message.requestId,
+    threadId: message.threadId,
     result,
   } satisfies MainToWorkerMessage);
 }
@@ -375,6 +376,9 @@ function validateEvidence(mode: SessionMode, evidence: RuntimeEvidence): Error |
   }
   if (report.hostRequests !== 2) {
     return new Error("guest did not complete both deferred browser services");
+  }
+  if (report.rustSchedulerTransitions !== report.hostRequests) {
+    return new Error("browser delivery bypassed a Rust scheduler transition");
   }
   if (report.callbackEntries !== 2 || report.maximumCallbackDepth !== 2) {
     return new Error("guest did not complete the nested callback sequence");

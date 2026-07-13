@@ -5,8 +5,8 @@
 - Status: Verified controlled vertical checkpoint
 - Date: 2026-07-12
 - Browser: Chrome `150.0.7871.115`
-- Protocol: `vine.browser-runtime-worker` version `1`
-- Runtime core: Rust/Wasm, zero imports, 658,861 bytes
+- Protocol: `vine.browser-runtime-worker` version `2`
+- Runtime core: Rust/Wasm, zero imports, 808,587 bytes
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
 - Evidence: `.work/browser-runtime/browser-report.json`
@@ -31,7 +31,7 @@ Chrome main thread
                          | versioned messages and host completions
                          v
 Runtime Worker
-  bounded scheduler / watchdog / cancellation
+  browser event delivery / watchdog / cancellation
                          |
              +-----------+-----------+
              |                       |
@@ -45,9 +45,11 @@ Rust/Wasm runtime core          source-v86 Wasm
 
 `crates/vine-runtime-wasm` owns the immutable PE snapshot, load plan,
 materialized bytes, import endpoints, initial stack, `RuntimeState`, decoded API
-frames, suspended calls, and callback stack. Its raw buffer ABI keeps JSON
-metadata separate from `VINERF01`, `VINEDL01`, and `VINEWB01` page payloads and
-has no Wasm imports. TypeScript does not become guest byte or pointer authority.
+frames, suspended calls, request identity, scheduler policy, and callback stack.
+Its raw buffer ABI keeps JSON metadata separate from `VINERF01`, `VINEDL01`,
+and `VINEWB01` page payloads and has no Wasm imports. TypeScript does not become
+guest byte, pointer, handle, LastError, wait, message, module, or scheduler
+authority.
 
 The Worker applies the initial reflection to a bounded 2 MiB v86 physical pool,
 acknowledges cache effects, and restores CPL3 CPU state through the version 1
@@ -75,8 +77,12 @@ exit code `0`. The native Windows self-oracle also exits `0`.
 
 Host operations never expose a Promise to the guest stack. `RuntimeState`
 enters `WaitingHost`, records a request ID and resume state, and returns to the
-Worker. A typed completion restores the Rust scheduler state and completes the
-saved generic dispatcher frame before CPU registers are resumed.
+Worker. Protocol version 2 transports the lossless decimal request ID, owning
+thread ID, bounded copied scalar payload, and matching Rust `waiting-host`
+authorization. TypeScript retains only a browser-delivery Promise. A typed
+completion restores the Rust scheduler state and completes the saved generic
+dispatcher frame before CPU registers are resumed. The fixture retains no guest
+pointer across the asynchronous boundary.
 
 ## Browser result
 
@@ -87,6 +93,7 @@ The clean-profile Chrome check recorded:
 | Guest instructions | 46 |
 | CPU slices / periodic budget yields | 10 / 3 |
 | Deferred host requests | 2 |
+| Rust-authorized wait / resume transitions | 2 |
 | Guest callback entries / maximum depth | 2 / 2 |
 | Automatic writeback batches / pages | 7 / 9 |
 | Final Rust memory generation | 21 |

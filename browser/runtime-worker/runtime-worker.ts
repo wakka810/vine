@@ -28,9 +28,14 @@ const worker = self as DedicatedWorkerGlobalScope;
 
 interface HostRequestMetadata {
   kind: "host-request";
-  requestId: number;
+  requestId: string;
+  threadId: number;
   service: string;
   arguments: number[];
+  scheduler: {
+    state: "waiting-host";
+    requestId: string;
+  };
 }
 
 interface GuestCallbackMetadata {
@@ -44,7 +49,14 @@ interface GuestCallbackMetadata {
 }
 
 interface CompletionMetadata {
-  kind: "api-complete" | "host-complete";
+  kind: "api-complete";
+  completion: ApiCompletion;
+}
+
+interface HostCompletionMetadata {
+  kind: "host-complete";
+  threadId: number;
+  scheduler: { state: "runnable" } | { state: "in-callback"; depth: number };
   completion: ApiCompletion;
 }
 
@@ -106,9 +118,10 @@ class BrowserRuntimeSession {
   #generation = 0n;
   #terminal = false;
   #runtimePrepared = false;
-  #pendingHost:
+  #pendingHostDelivery:
     | {
-        requestId: number;
+        requestId: string;
+        threadId: number;
         resolve: (result: number) => void;
         reject: (error: Error) => void;
       }
@@ -118,6 +131,7 @@ class BrowserRuntimeSession {
     slices: 0,
     budgetYields: 0,
     hostRequests: 0,
+    rustSchedulerTransitions: 0,
     callbackEntries: 0,
     maximumCallbackDepth: 0,
     writebackBatches: 0,
@@ -173,16 +187,21 @@ class BrowserRuntimeSession {
   }
 
   completeHost(message: HostCompletionMessage): void {
-    if (this.#terminal || this.#pendingHost === null) {
+    if (this.#terminal || this.#pendingHostDelivery === null) {
       return;
     }
-    if (message.requestId !== this.#pendingHost.requestId) {
-      this.#pendingHost.reject(new Error("host completion request ID mismatch"));
-      this.#pendingHost = null;
+    if (
+      message.requestId !== this.#pendingHostDelivery.requestId ||
+      message.threadId !== this.#pendingHostDelivery.threadId
+    ) {
+      this.#pendingHostDelivery.reject(
+        new Error("host completion transport identity mismatch"),
+      );
+      this.#pendingHostDelivery = null;
       return;
     }
-    const pending = this.#pendingHost;
-    this.#pendingHost = null;
+    const pending = this.#pendingHostDelivery;
+    this.#pendingHostDelivery = null;
     pending.resolve(message.result >>> 0);
   }
 
@@ -252,11 +271,21 @@ class BrowserRuntimeSession {
         if (this.#terminal) {
           throw new SessionStopped("session ended while waiting for the host");
         }
-        const completion = this.#requireBridge().completeHost<CompletionMetadata>(
+        const completion = this.#requireBridge().completeHost<HostCompletionMetadata>(
           BigInt(metadata.requestId),
           result,
         ).metadata;
         invariant(completion.kind === "host-complete", "invalid host completion metadata");
+        invariant(
+          completion.threadId === metadata.threadId,
+          "Rust resumed a different guest thread",
+        );
+        invariant(
+          completion.scheduler.state === "runnable" ||
+            completion.scheduler.state === "in-callback",
+          "Rust did not authorize guest resume after host completion",
+        );
+        this.#report.rustSchedulerTransitions += 1;
         mirror.applyCompletion(completion.completion);
         this.#status("running", `${metadata.service} completed`);
         break;
@@ -332,18 +361,54 @@ class BrowserRuntimeSession {
   }
 
   #waitForHost(metadata: HostRequestMetadata): Promise<number> {
-    invariant(this.#pendingHost === null, "more than one browser host request is pending");
+    invariant(
+      this.#pendingHostDelivery === null,
+      "more than one browser host delivery is pending",
+    );
+    invariant(
+      /^(0|[1-9][0-9]*)$/.test(metadata.requestId) &&
+        BigInt(metadata.requestId) <= 0xffff_ffff_ffff_ffffn,
+      "Rust host request ID is not a bounded lossless u64",
+    );
+    invariant(
+      Number.isInteger(metadata.threadId) &&
+        metadata.threadId > 0 &&
+        metadata.threadId <= 0xffff_ffff,
+      "Rust host request thread ID is invalid",
+    );
+    invariant(
+      metadata.scheduler.state === "waiting-host" &&
+        metadata.scheduler.requestId === metadata.requestId,
+      "Rust scheduler authorization does not match the host request",
+    );
+    invariant(
+      metadata.service.length > 0 && metadata.service.length <= 128,
+      "host service identity exceeds the transport bound",
+    );
+    invariant(
+      metadata.arguments.length <= 64 &&
+        metadata.arguments.every(
+          (argument) => Number.isInteger(argument) && argument >= 0 && argument <= 0xffff_ffff,
+        ),
+      "host request payload exceeds the bounded u32 transport",
+    );
     const request: HostRequestMessage = {
       type: "host-request",
       protocolVersion,
       sessionId: this.#sessionId,
       requestId: metadata.requestId,
+      threadId: metadata.threadId,
       service: metadata.service,
       arguments: metadata.arguments,
     };
     post(request);
     return new Promise((resolve, reject) => {
-      this.#pendingHost = { requestId: metadata.requestId, resolve, reject };
+      this.#pendingHostDelivery = {
+        requestId: metadata.requestId,
+        threadId: metadata.threadId,
+        resolve,
+        reject,
+      };
     });
   }
 
@@ -365,7 +430,7 @@ class BrowserRuntimeSession {
     if (this.#terminal) {
       return;
     }
-    let pendingHostCalls = Number(this.#pendingHost !== null);
+    let pendingHostCalls = Number(this.#pendingHostDelivery !== null);
     let pendingCallbacks = 0;
     let error: string | null = detail;
     if (this.#runtimePrepared && this.#bridge !== null) {
@@ -380,8 +445,8 @@ class BrowserRuntimeSession {
         error = `${detail}; cleanup failed: ${String(cancelError)}`;
       }
     }
-    this.#pendingHost?.reject(new SessionStopped(detail));
-    this.#pendingHost = null;
+    this.#pendingHostDelivery?.reject(new SessionStopped(detail));
+    this.#pendingHostDelivery = null;
     this.#finish({
       outcome,
       exitCode: null,
@@ -395,7 +460,7 @@ class BrowserRuntimeSession {
     if (this.#terminal) {
       return;
     }
-    let pendingHostCalls = Number(this.#pendingHost !== null);
+    let pendingHostCalls = Number(this.#pendingHostDelivery !== null);
     let pendingCallbacks = 0;
     if (this.#runtimePrepared && this.#bridge !== null) {
       try {
@@ -406,8 +471,8 @@ class BrowserRuntimeSession {
         error = new Error(`${error.message}; cleanup failed: ${String(cancelError)}`);
       }
     }
-    this.#pendingHost?.reject(new SessionStopped(error.message));
-    this.#pendingHost = null;
+    this.#pendingHostDelivery?.reject(new SessionStopped(error.message));
+    this.#pendingHostDelivery = null;
     this.#finish({
       outcome: "fault",
       exitCode: null,
@@ -489,6 +554,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             slices: 0,
             budgetYields: 0,
             hostRequests: 0,
+            rustSchedulerTransitions: 0,
             callbackEntries: 0,
             maximumCallbackDepth: 0,
             writebackBatches: 0,

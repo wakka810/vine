@@ -32,6 +32,14 @@ assert.ok(
   validateCurrentCheckpoint(stale).some((error) => error.includes("must match")),
 );
 
+const bypassedScheduler = structuredClone(manifest);
+bypassedScheduler.browserCheckpoint.browserRuntimeEvidence.rustSchedulerTransitions = 1;
+assert.ok(
+  validateCurrentCheckpoint(bypassedScheduler).some((error) =>
+    error.includes("scheduler transitions"),
+  ),
+);
+
 const sample = `before\n${README_STATUS_START}\nstale\n${README_STATUS_END}\nafter\n`;
 assert.equal(
   replaceReadmeStatus(sample, rendered),

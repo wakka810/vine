@@ -14,8 +14,9 @@ use vine_core::{
     MemoryLimits, ModuleSnapshot, Pe32Limits, ProcessAddressSpaceLayout, ReentrancyPolicy,
     RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeExport,
     RuntimeExportCatalog, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo,
-    RuntimeState, RuntimeThreadId, StackCleanup, bind_pe32_imports, build_pe32_load_plan,
-    install_controlled_initial_stack, install_runtime_return_sentinels, materialize_pe32_image,
+    RuntimeState, RuntimeThreadId, SchedulerThreadState, StackCleanup, bind_pe32_imports,
+    build_pe32_load_plan, install_controlled_initial_stack, install_runtime_return_sentinels,
+    materialize_pe32_image,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -306,12 +307,26 @@ impl BrowserRuntime {
         match outcome {
             DispatchOutcome::Deferred(call) => {
                 let arguments = decode_u32_payload(&call.request.payload);
+                let thread_id = self.runtime.current_thread_id();
+                match self.runtime.scheduler_state().map_err(error_string)? {
+                    SchedulerThreadState::WaitingHost { request_id }
+                        if request_id == call.request.request_id => {}
+                    _ => {
+                        return Err(
+                            "Rust scheduler did not authorize the emitted host request".to_owned()
+                        );
+                    }
+                }
                 let metadata = json!({
                     "kind": "host-request",
-                    "requestId": call.request.request_id,
+                    "requestId": call.request.request_id.to_string(),
+                    "threadId": thread_id.0,
                     "service": call.request.service,
                     "arguments": arguments,
-                    "scheduler": self.runtime.scheduler_state().map_err(error_string)?,
+                    "scheduler": {
+                        "state": "waiting-host",
+                        "requestId": call.request.request_id.to_string(),
+                    },
                 });
                 self.pending_host = Some(call);
                 Ok((metadata, None))
@@ -396,7 +411,7 @@ impl BrowserRuntime {
         }
         let dispatcher = &self.dispatcher;
         let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
-        match dispatcher.complete_deferred(
+        let completion = match dispatcher.complete_deferred(
             call,
             HostCompletion {
                 request_id,
@@ -404,12 +419,24 @@ impl BrowserRuntime {
             },
             &mut session,
         ) {
-            DispatchOutcome::Immediate(completion) => {
-                Ok(completion_metadata("host-complete", &completion))
-            }
+            DispatchOutcome::Immediate(completion) => Ok(completion),
             DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
             _ => Err("deferred API completion produced another suspended outcome".to_owned()),
+        }?;
+        let thread_id = self.runtime.current_thread_id();
+        let scheduler = self.runtime.scheduler_state().map_err(error_string)?;
+        if !matches!(
+            scheduler,
+            SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+        ) {
+            return Err("Rust scheduler did not resume the completed host request".to_owned());
         }
+        Ok(json!({
+            "kind": "host-complete",
+            "threadId": thread_id.0,
+            "scheduler": scheduler,
+            "completion": completion,
+        }))
     }
 
     fn complete_callback(&mut self, sentinel: GuestAddress, result: u32) -> Result<Value, String> {

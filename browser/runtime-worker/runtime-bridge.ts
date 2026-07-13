@@ -9,7 +9,7 @@ export interface ApiCompletion {
   eax: RegisterUpdate;
   edx: RegisterUpdate;
   eflags: RegisterUpdate;
-  lastError: number;
+  readonly lastError: number;
 }
 
 export interface PreparedMetadata {
