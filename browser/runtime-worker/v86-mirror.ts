@@ -1,4 +1,15 @@
-import type { ApiCompletion, PreparedMetadata, RegisterUpdate } from "./runtime-bridge.js";
+import engineProfile from "../../fixtures/execution-engines/v86-browser-v1.json";
+import {
+  ExecutionMemoryAccessFault,
+  type CpuRegisterUpdate,
+  type CpuResume,
+  type ExecutionBootstrap,
+  type ExecutionCpuContext,
+  type ExecutionEngine,
+  type ExecutionEngineIdentity,
+  type ExecutionSlice,
+  type ExecutionStop,
+} from "./execution-engine-contract.js";
 import {
   type CacheEffects,
   type DirtyMirrorPage,
@@ -40,7 +51,10 @@ const stateWord = {
 
 export const v86StopReason = {
   budget: 1,
+  halt: 2,
+  divideError: 0x100,
   invalidOpcode: 0x106,
+  generalProtection: 0x10d,
   pageFault: 0x10e,
 } as const;
 
@@ -80,20 +94,9 @@ interface PlannedMapping {
   protection: MemoryProtection;
 }
 
-export class MirrorAccessFault extends Error {
-  readonly code: "mirror-address-unmapped" | "mirror-read-protection";
-  readonly address: number;
-
-  constructor(
-    code: "mirror-address-unmapped" | "mirror-read-protection",
-    address: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "MirrorAccessFault";
-    this.code = code;
-    this.address = address;
-  }
+interface PreparedV86Adapter {
+  module: WebAssembly.Module;
+  identity: ExecutionEngineIdentity;
 }
 
 export interface CpuState {
@@ -114,6 +117,127 @@ export interface SliceResult {
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
+  }
+}
+
+interface V86ArtifactProfile {
+  hostProfile: string;
+  bytes: number;
+  sha256: string;
+}
+
+interface V86ExecutionEngineProfile {
+  schema: "vine.execution-engine-profile";
+  schemaVersion: 1;
+  engine: "v86";
+  sourceRevision: string;
+  cpuContextAbi: { version: number; bytes: number };
+  artifacts: V86ArtifactProfile[];
+}
+
+function executionEngineProfile(value: unknown): V86ExecutionEngineProfile {
+  invariant(value !== null && typeof value === "object", "execution engine profile is invalid");
+  const profile = value as Record<string, unknown>;
+  invariant(profile.schema === "vine.execution-engine-profile", "execution engine schema mismatch");
+  invariant(profile.schemaVersion === 1, "execution engine profile version mismatch");
+  invariant(profile.engine === "v86", "unsupported execution engine profile");
+  invariant(
+    typeof profile.sourceRevision === "string" && /^[0-9a-f]{40}$/u.test(profile.sourceRevision),
+    "execution engine source revision is invalid",
+  );
+  const cpuContextAbi = profile.cpuContextAbi as Record<string, unknown> | undefined;
+  invariant(
+    cpuContextAbi?.version === 1 && cpuContextAbi.bytes === 640,
+    "execution engine CPU context ABI profile mismatch",
+  );
+  invariant(Array.isArray(profile.artifacts) && profile.artifacts.length > 0, "execution engine artifacts are missing");
+  const hostProfiles = new Set<string>();
+  const artifactIdentities = new Set<string>();
+  for (const artifact of profile.artifacts as Array<Record<string, unknown>>) {
+    invariant(
+      typeof artifact.hostProfile === "string" && artifact.hostProfile.length > 0,
+      "execution engine host profile is invalid",
+    );
+    invariant(!hostProfiles.has(artifact.hostProfile), "execution engine host profile is duplicated");
+    hostProfiles.add(artifact.hostProfile);
+    invariant(
+      Number.isSafeInteger(artifact.bytes) && Number(artifact.bytes) > 0,
+      "execution engine artifact size is invalid",
+    );
+    invariant(
+      typeof artifact.sha256 === "string" && /^[0-9a-f]{64}$/u.test(artifact.sha256),
+      "execution engine artifact digest is invalid",
+    );
+    const artifactIdentity = `${String(artifact.bytes)}/${artifact.sha256}`;
+    invariant(
+      !artifactIdentities.has(artifactIdentity),
+      "execution engine artifact identity is duplicated",
+    );
+    artifactIdentities.add(artifactIdentity);
+  }
+  return structuredClone(value) as V86ExecutionEngineProfile;
+}
+
+const supportedProfile = executionEngineProfile(engineProfile);
+
+function identityForArtifact(
+  profile: V86ExecutionEngineProfile,
+  artifact: V86ArtifactProfile,
+): ExecutionEngineIdentity {
+  return {
+    schema: profile.schema,
+    schemaVersion: profile.schemaVersion,
+    engine: profile.engine,
+    sourceRevision: profile.sourceRevision,
+    cpuContextAbi: structuredClone(profile.cpuContextAbi),
+    artifact: { bytes: artifact.bytes, sha256: artifact.sha256 },
+  };
+}
+
+function sameExecutionEngineIdentity(
+  left: ExecutionEngineIdentity,
+  right: ExecutionEngineIdentity,
+): boolean {
+  return (
+    left.schema === right.schema &&
+    left.schemaVersion === right.schemaVersion &&
+    left.engine === right.engine &&
+    left.sourceRevision === right.sourceRevision &&
+    left.cpuContextAbi.version === right.cpuContextAbi.version &&
+    left.cpuContextAbi.bytes === right.cpuContextAbi.bytes &&
+    left.artifact.bytes === right.artifact.bytes &&
+    left.artifact.sha256 === right.artifact.sha256
+  );
+}
+
+async function sha256(bytes: Uint8Array): Promise<string> {
+  const owned = new Uint8Array(bytes.byteLength);
+  owned.set(bytes);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", owned.buffer));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function classifyV86Stop(reason: number, errorCode: number): ExecutionStop {
+  switch (reason) {
+    case v86StopReason.budget:
+      return { kind: "budget-yield" };
+    case v86StopReason.halt:
+      return { kind: "halt" };
+    case v86StopReason.invalidOpcode:
+      return { kind: "trap", trap: "invalid-opcode", errorCode };
+    case v86StopReason.divideError:
+      return { kind: "fault", fault: "divide-error", errorCode, engineReason: reason };
+    case v86StopReason.generalProtection:
+      return {
+        kind: "fault",
+        fault: "general-protection",
+        errorCode,
+        engineReason: reason,
+      };
+    case v86StopReason.pageFault:
+      return { kind: "fault", fault: "page-fault", errorCode, engineReason: reason };
+    default:
+      return { kind: "fault", fault: "engine-stop", errorCode, engineReason: reason };
   }
 }
 
@@ -141,8 +265,10 @@ function pageAddresses(range: MemoryRange): number[] {
   return addresses;
 }
 
-export class V86Mirror {
+export class V86Mirror implements ExecutionEngine {
+  static readonly #preparedUrls = new Map<string, Promise<PreparedV86Adapter>>();
   readonly #wasm: V86Exports;
+  readonly #identity: ExecutionEngineIdentity;
   readonly #mappings = new Map<number, MirrorMapping>();
   readonly #reservations = new Map<number, MirrorReservation>();
   readonly #physicalMemory: Uint8Array;
@@ -158,9 +284,15 @@ export class V86Mirror {
     generatedCodeInvalidations: 0,
   };
 
-  private constructor(wasm: V86Exports) {
+  private constructor(wasm: V86Exports, identity: ExecutionEngineIdentity) {
     this.#wasm = wasm;
+    this.#identity = structuredClone(identity);
     wasm.rust_init();
+    invariant(
+      wasm.vine_cpu_state_version() === identity.cpuContextAbi.version &&
+        wasm.vine_cpu_state_size() === identity.cpuContextAbi.bytes,
+      "execution engine CPU context ABI mismatch",
+    );
     let privateState = new DataView(wasm.memory.buffer);
     privateState.setUint32(adapterPrivateOffset.memorySize, physicalPoolBytes, true);
     const physicalBase = wasm.allocate_memory(physicalPoolBytes);
@@ -177,9 +309,52 @@ export class V86Mirror {
   }
 
   static async instantiate(url: URL): Promise<V86Mirror> {
-    const response = await fetch(url);
-    invariant(response.ok, `v86 adapter fetch failed with ${response.status}`);
-    const module = await WebAssembly.compile(await response.arrayBuffer());
+    const key = url.href;
+    let prepared = V86Mirror.#preparedUrls.get(key);
+    if (prepared === undefined) {
+      prepared = (async () => {
+        const response = await fetch(url);
+        invariant(response.ok, `v86 adapter fetch failed with ${response.status}`);
+        return V86Mirror.#prepareBytes(
+          new Uint8Array(await response.arrayBuffer()),
+        );
+      })();
+      V86Mirror.#preparedUrls.set(key, prepared);
+    }
+    return V86Mirror.#instantiatePrepared(await prepared);
+  }
+
+  static async instantiateBytes(
+    bytes: Uint8Array,
+    identity?: ExecutionEngineIdentity,
+  ): Promise<V86Mirror> {
+    return V86Mirror.#instantiatePrepared(await V86Mirror.#prepareBytes(bytes, identity));
+  }
+
+  static async #prepareBytes(
+    bytes: Uint8Array,
+    expectedIdentity?: ExecutionEngineIdentity,
+  ): Promise<PreparedV86Adapter> {
+    const digest = await sha256(bytes);
+    const artifact = supportedProfile.artifacts.find(
+      (candidate) => candidate.bytes === bytes.byteLength && candidate.sha256 === digest,
+    );
+    invariant(artifact !== undefined, "execution engine artifact identity mismatch");
+    const identity = identityForArtifact(supportedProfile, artifact);
+    if (expectedIdentity !== undefined) {
+      invariant(
+        sameExecutionEngineIdentity(expectedIdentity, identity),
+        "execution engine source revision, ABI, or artifact profile mismatch",
+      );
+    }
+    const ownedBytes = new Uint8Array(bytes.byteLength);
+    ownedBytes.set(bytes);
+    const module = await WebAssembly.compile(ownedBytes.buffer);
+    return { module, identity };
+  }
+
+  static async #instantiatePrepared(prepared: PreparedV86Adapter): Promise<V86Mirror> {
+    const { module, identity } = prepared;
     const imports = WebAssembly.Module.imports(module);
     const environment: Record<string, WebAssembly.ImportValue> = {
       __indirect_function_table: new WebAssembly.Table({
@@ -209,10 +384,14 @@ export class V86Mirror {
       };
     }
     const instance = await WebAssembly.instantiate(module, { env: environment });
-    return new V86Mirror(instance.exports as V86Exports);
+    return new V86Mirror(instance.exports as V86Exports, identity);
   }
 
-  install(reflection: MemoryReflection, prepared: PreparedMetadata): void {
+  identity(): ExecutionEngineIdentity {
+    return structuredClone(this.#identity);
+  }
+
+  initialize(reflection: MemoryReflection, prepared: ExecutionBootstrap): void {
     invariant(this.#mappings.size === 0, "v86 mirror is already initialized");
     this.#installReflectedPages(reflection);
     this.#installReservations(prepared.regions);
@@ -220,7 +399,11 @@ export class V86Mirror {
     this.#initializeCpu(prepared);
   }
 
-  rebuild(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void {
+  install(reflection: MemoryReflection, prepared: ExecutionBootstrap): void {
+    this.initialize(reflection, prepared);
+  }
+
+  rebuildMemory(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void {
     const state = this.saveState().words;
     this.#mappings.clear();
     this.#reservations.clear();
@@ -234,6 +417,14 @@ export class V86Mirror {
     this.applyCacheEffects(reflection.cacheEffects);
     state[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
     this.#restoreState(state);
+  }
+
+  rebuild(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void {
+    this.rebuildMemory(reflection, regions);
+  }
+
+  memoryContractState(): string {
+    return this.contractState();
   }
 
   contractState(): string {
@@ -275,6 +466,15 @@ export class V86Mirror {
     };
   }
 
+  executeBudget(instructionBudget: number): ExecutionSlice {
+    const result = this.execute(instructionBudget);
+    return {
+      stop: classifyV86Stop(result.reason, result.errorCode),
+      instructions: result.instructions,
+      context: this.#executionContext(result.state),
+    };
+  }
+
   saveState(): CpuState {
     this.#wasm.vine_cpu_state_save();
     const words = Uint32Array.from(this.#liveStateWords());
@@ -287,7 +487,21 @@ export class V86Mirror {
     };
   }
 
-  applyCompletion(completion: ApiCompletion): void {
+  saveCpuContext(): ExecutionCpuContext {
+    return this.#executionContext(this.saveState());
+  }
+
+  restoreCpuContext(context: ExecutionCpuContext): void {
+    invariant(
+      context.version === this.#identity.cpuContextAbi.version &&
+        context.byteLength === this.#identity.cpuContextAbi.bytes &&
+        context.opaqueWords.byteLength === context.byteLength,
+      "execution CPU context ABI mismatch",
+    );
+    this.#restoreState(Uint32Array.from(context.opaqueWords));
+  }
+
+  applyCpuResume(completion: CpuResume): void {
     const state = this.saveState().words;
     this.#applyRegisterUpdate(state, stateWord.eax, completion.eax);
     this.#applyRegisterUpdate(state, stateWord.edx, completion.edx);
@@ -299,7 +513,13 @@ export class V86Mirror {
     this.#restoreState(state);
   }
 
-  enterCallback(target: number, stackPointer: number): void {
+  applyCompletion(
+    completion: CpuResume & { implementationId?: string; lastError?: number },
+  ): void {
+    this.applyCpuResume(completion);
+  }
+
+  enterGuestCallback(target: number, stackPointer: number): void {
     const state = this.saveState().words;
     state[stateWord.esp] = stackPointer >>> 0;
     state[stateWord.instructionPointer] = target >>> 0;
@@ -308,15 +528,19 @@ export class V86Mirror {
     this.#restoreState(state);
   }
 
-  readU32(address: number): number {
+  enterCallback(target: number, stackPointer: number): void {
+    this.enterGuestCallback(target, stackPointer);
+  }
+
+  readGuestU32(address: number): number {
     const bytes = new Uint8Array(4);
     for (let index = 0; index < bytes.length; index += 1) {
       const current = (address + index) >>> 0;
       invariant(current >= address, "guest read wrapped the address space");
       const mapping = this.#mappingFor(current);
       if (!mapping.protection.read) {
-        throw new MirrorAccessFault(
-          "mirror-read-protection",
+        throw new ExecutionMemoryAccessFault(
+          "execution-read-protection",
           current,
           `guest mirror read targets unreadable address 0x${current.toString(16)}`,
         );
@@ -326,7 +550,11 @@ export class V86Mirror {
     return new DataView(bytes.buffer).getUint32(0, true);
   }
 
-  discoverDirtyPages(): DirtyMirrorPage[] {
+  readU32(address: number): number {
+    return this.readGuestU32(address);
+  }
+
+  collectChangedPages(): DirtyMirrorPage[] {
     const dirty: DirtyMirrorPage[] = [];
     const writable = [...this.#mappings.values()]
       .filter((mapping) => mapping.protection.write)
@@ -352,7 +580,11 @@ export class V86Mirror {
     return dirty;
   }
 
-  applyHostDelta(delta: HostMemoryDelta): void {
+  discoverDirtyPages(): DirtyMirrorPage[] {
+    return this.collectChangedPages();
+  }
+
+  applyMemoryDelta(delta: HostMemoryDelta): void {
     this.#preflightHostDelta(delta);
     for (const operation of delta.mappingOperations) {
       this.#applyMappingOperation(operation);
@@ -362,6 +594,10 @@ export class V86Mirror {
       this.#physicalMemory.set(page.bytes, mapping.physicalBase);
     }
     this.applyCacheEffects(delta.cacheEffects);
+  }
+
+  applyHostDelta(delta: HostMemoryDelta): void {
+    this.applyMemoryDelta(delta);
   }
 
   #preflightHostDelta(delta: HostMemoryDelta): void {
@@ -641,7 +877,7 @@ export class V86Mirror {
     this.#releasePage(mapping.physicalBase);
   }
 
-  #initializeCpu(prepared: PreparedMetadata): void {
+  #initializeCpu(prepared: ExecutionBootstrap): void {
     this.#wasm.reset_cpu();
     invariant(this.#wasm.vine_cpu_state_version() === 1, "unsupported v86 CPU state version");
     invariant(this.#wasm.vine_cpu_state_size() === 640, "unexpected v86 CPU state size");
@@ -688,7 +924,7 @@ export class V86Mirror {
     invariant(this.#wasm.vine_cpu_state_restore() === 0, "v86 rejected a resumed CPU state");
   }
 
-  #applyRegisterUpdate(words: Uint32Array, index: number, update: RegisterUpdate): void {
+  #applyRegisterUpdate(words: Uint32Array, index: number, update: CpuRegisterUpdate): void {
     if (update.action === "set") {
       words[index] = update.value >>> 0;
     }
@@ -698,13 +934,25 @@ export class V86Mirror {
     const pageAddress = (address & ~(memoryPageSize - 1)) >>> 0;
     const mapping = this.#mappings.get(pageAddress);
     if (mapping === undefined) {
-      throw new MirrorAccessFault(
-        "mirror-address-unmapped",
+      throw new ExecutionMemoryAccessFault(
+        "execution-address-unmapped",
         address,
         `guest address 0x${address.toString(16)} is unmapped`,
       );
     }
     return mapping;
+  }
+
+  #executionContext(state: CpuState): ExecutionCpuContext {
+    return {
+      version: this.#identity.cpuContextAbi.version,
+      byteLength: this.#identity.cpuContextAbi.bytes,
+      opaqueWords: Uint32Array.from(state.words),
+      eax: state.eax,
+      esp: state.esp,
+      instructionPointer: state.instructionPointer,
+      previousInstructionPointer: state.previousInstructionPointer,
+    };
   }
 
   #assertExecutableFetchWindow(instructionPointer: number): void {

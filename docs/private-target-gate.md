@@ -5,7 +5,7 @@
 - Status: verified
 - Date: 2026-07-13
 - Canonical command: `npm run check:private-target`
-- Evidence schema: `vine.private-target-evidence` version `2`
+- Evidence schema: `vine.private-target-evidence` version `3`
 - Evidence file: [`private-target-evidence.json`](private-target-evidence.json)
 
 ## Purpose
@@ -59,7 +59,7 @@ manifest from claiming a commit while executing different runtime inputs.
 
 ## Evidence contract
 
-The version 2 result records:
+The version 3 result records:
 
 - implementation commit, tree, complete dirty-path list, and admitted paths;
 - BGI bytes and SHA-256 without its local path or content;
@@ -70,6 +70,8 @@ The version 2 result records:
   generations, cancellation, watchdog, and pending-work counts;
 - Chrome success／cancel／watchdog final execution state, transition count,
   pending request records, and watchdog thread／request／last-transition context;
+- pinned execution-engine profile, source revision, CPU-context ABI, adapter
+  artifact, and report/build identity agreement;
 - Node, browser, toolchain, adapter, build, Wasm, and lockfile artifact hashes;
 - a payload digest covering the evidence fields.
 

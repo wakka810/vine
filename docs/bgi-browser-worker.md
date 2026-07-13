@@ -5,7 +5,7 @@
 - Status: semantic equivalence passed
 - Date: 2026-07-13
 - Browser: Chrome `150.0.7871.115`
-- Runtime Worker protocol: `vine.browser-runtime-worker.v3`
+- Runtime Worker protocol: `vine.browser-runtime-worker.v4`
 - Runtime authority: Rust/Wasm inside the Runtime Worker
 - Node role: semantic oracle only
 - Evidence: `.work/browser-runtime/bgi-browser-report.json`
@@ -49,10 +49,10 @@ therefore synchronization identity, not guest-visible equivalence.
 
 The successful run used 216 CPU slices, 154 budget yields, 649 validated Worker
 state transitions, 271 Rust/Wasm bridge operations, and a maximum observed slice
-of 1.725 ms. The main-thread heartbeat recorded 34 samples with a 17.845 ms
+of 1.605 ms. The main-thread heartbeat recorded 34 samples with a 6.140 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,360 to 710,526 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 2,090
+changed from 628,738 to 712,266 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 2,225
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -61,13 +61,19 @@ Both retire pending host calls and callbacks, detach the callback-free system
 module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
-The explicit protocol v3 state machine ends success, cancellation, and watchdog
+The explicit state machine ends success, cancellation, and watchdog
 in `stopped` after 649, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
 cancel state, and ready／callback completion policy so duplicate, late, and
 wrong-thread completion cannot resume the lane.
+
+Every probe also reports the protocol v4 `ExecutionEngine` identity. The
+production loop sees structured engine stops, opaque versioned CPU contexts,
+mapping operations, changed page batches, and cache effects only. The v86
+source revision, Wasm digest, and CPU-context ABI are checked before guest
+startup; PTE layout and private offsets remain adapter-local.
 
 The initial mirror uses the same 2 MiB physical pool as the controlled fixture
 and skips the v86 VGA MMIO hole at `0xA0000..0xC0000`. The reached heap allocation

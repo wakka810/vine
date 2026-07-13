@@ -1226,8 +1226,8 @@ instruction `1526`でID `85`／`GetCommandLineA()`を`endpoint-contract-missing`
 
 Chrome Runtime Workerも61 ordered calls、same final memory SHA-256
 `3e0e3dc6fc0420af4cf1bc4233d8fc267311f3926abc18b91ce839ce2ff083b3`、same
-structured stopを再現する。Unchanged 3分gateは2,090 sessions／failure 0、p95
-`79.545 ms`、271 Wasm crossings/sessionで全thresholdを通した。cancel 8
+structured stopを再現する。Unchanged 3分gateは2,225 sessions／failure 0、p95
+`73.590 ms`、271 Wasm crossings/sessionで全thresholdを通した。cancel 8
 instructions、watchdog 4 instructions、pending work 0は不変である。詳細は
 [bgi-set-handle-count.md](bgi-set-handle-count.md)と
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。

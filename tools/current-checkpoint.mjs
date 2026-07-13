@@ -182,8 +182,14 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v3") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v3");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v4") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v4");
+  }
+  if (
+    browser.executionEngineProfile !==
+    "fixtures/execution-engines/v86-browser-v1.json"
+  ) {
+    errors.push("browserCheckpoint.executionEngineProfile must identify the pinned adapter");
   }
   requireString(browser.workload, "browserCheckpoint.workload", errors);
   const browserEvidence = requireRecord(
@@ -199,6 +205,12 @@ export function validateCurrentCheckpoint(manifest) {
   if (browserEvidence.rustSchedulerTransitions !== browserEvidence.hostRequests) {
     errors.push("browser scheduler transitions must authorize every completed host request");
   }
+  requireInteger(
+    browserEvidence.executionEngineLinearMemoryBytes,
+    "browserCheckpoint.browserRuntimeEvidence.executionEngineLinearMemoryBytes",
+    errors,
+    1,
+  );
   validateExecutionStateMachine(
     browserEvidence.executionStateMachine,
     "browserCheckpoint.browserRuntimeEvidence.executionStateMachine",
@@ -252,6 +264,7 @@ export function validateCurrentCheckpoint(manifest) {
     "finalGeneration",
     "nodeFinalGeneration",
     "wasmBridgeCalls",
+    "executionEngineLinearMemoryBytes",
     "heartbeatSamples",
     "cancelInstructions",
     "watchdogInstructions",
@@ -335,7 +348,7 @@ export function validateCurrentCheckpoint(manifest) {
     "workerBackingStorageMaximumBytes",
     "wasmBridgeCallsPerSession",
     "runtimeCoreLinearMemoryBytes",
-    "v86AdapterLinearMemoryBytes",
+    "executionEngineLinearMemoryBytes",
     "thresholdFailures",
     "runtimeWorkerBytes",
     "benchmarkMainBytes",
@@ -388,6 +401,8 @@ export function validateCurrentCheckpoint(manifest) {
     (browser.bgiBenchmark === "threshold-passed" && benchmarkFailureIds.length !== 0) ||
     (browser.bgiBenchmark === "threshold-blocked" && benchmarkFailureIds.length === 0) ||
     bgiBenchmarkEvidence.wasmBridgeCallsPerSession !== bgiBrowserEvidence.wasmBridgeCalls ||
+    bgiBenchmarkEvidence.executionEngineLinearMemoryBytes !==
+      bgiBrowserEvidence.executionEngineLinearMemoryBytes ||
     bgiBenchmarkEvidence.runtimeCoreWasmSha256 !== browser.browserRuntimeCoreWasm?.sha256
   ) {
     errors.push("browser BGI benchmark evidence is invalid or inconsistent");

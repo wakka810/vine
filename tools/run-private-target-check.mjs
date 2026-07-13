@@ -136,6 +136,26 @@ function artifact(file) {
   };
 }
 
+function executionEngineIdentity(profile, actualArtifact) {
+  assert(Array.isArray(profile.artifacts), "execution engine profile has no artifact allowlist");
+  const matched = profile.artifacts.find(
+    ({ bytes, sha256: digest }) =>
+      bytes === actualArtifact.bytes && digest === actualArtifact.sha256,
+  );
+  assert(matched !== undefined, "execution engine artifact is not in the pinned profile");
+  return {
+    schema: profile.schema,
+    schemaVersion: profile.schemaVersion,
+    engine: profile.engine,
+    sourceRevision: profile.sourceRevision,
+    cpuContextAbi: structuredClone(profile.cpuContextAbi),
+    artifact: {
+      bytes: matched.bytes,
+      sha256: matched.sha256,
+    },
+  };
+}
+
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
@@ -189,7 +209,14 @@ function assertExecutionStateReport(report, scenario) {
   }
 }
 
-function assertReportSemantics({ checkpoint, nodeReport, browserReport, policy, source }) {
+function assertReportSemantics({
+  checkpoint,
+  nodeReport,
+  browserReport,
+  policy,
+  executionEngine,
+  source,
+}) {
   const active = checkpoint.activeRuntimeCheckpoint;
   const expectedBrowser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
   const expectedNext = checkpoint.nextStructuredStop;
@@ -226,7 +253,7 @@ function assertReportSemantics({ checkpoint, nodeReport, browserReport, policy, 
 
   assert.equal(browserReport.runtimeProtocol, checkpoint.browserCheckpoint.browserRuntimeProtocol);
   assert.equal(browserReport.schema, "vine.browser-bgi-runtime-worker");
-  assert.equal(browserReport.schemaVersion, 2);
+  assert.equal(browserReport.schemaVersion, 3);
   assert.equal(browserReport.success.report.outcome, "structured-stop");
   assert.equal(
     browserReport.success.report.supportedCalls.length,
@@ -257,6 +284,17 @@ function assertReportSemantics({ checkpoint, nodeReport, browserReport, policy, 
   assertExecutionStateReport(browserReport.success.report, "success");
   assertExecutionStateReport(browserReport.cancellation.report, "cancellation");
   assertExecutionStateReport(browserReport.watchdog.report, "watchdog");
+  for (const report of [
+    browserReport.success.report,
+    browserReport.cancellation.report,
+    browserReport.watchdog.report,
+  ]) {
+    assert.deepEqual(report.executionEngine, executionEngine);
+    assert.equal(
+      report.executionEngineLinearMemoryBytes,
+      expectedBrowser.executionEngineLinearMemoryBytes,
+    );
+  }
   assert.equal(
     nodeReport.firstUnsupported.memoryContentSha256,
     browserUnsupported.memoryContentSha256,
@@ -361,7 +399,24 @@ const policyPath = path.join(
   checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
 );
 const policy = readJson(policyPath);
-assertReportSemantics({ checkpoint, nodeReport, browserReport, policy, source });
+const executionEngineProfilePath = path.join(
+  root,
+  checkpoint.browserCheckpoint.executionEngineProfile,
+);
+const executionEngineProfile = readJson(executionEngineProfilePath);
+const builtAdapterArtifact = browserBuildManifest.assets["v86-adapter.wasm"];
+const executionEngine = executionEngineIdentity(
+  executionEngineProfile,
+  builtAdapterArtifact,
+);
+assertReportSemantics({
+  checkpoint,
+  nodeReport,
+  browserReport,
+  policy,
+  executionEngine,
+  source,
+});
 
 const runtimeCoreWasmPath = path.join(root, ".work", "browser-runtime", "runtime-core.wasm");
 const v86AdapterWasmPath = path.join(root, ".work", "browser-runtime", "v86-adapter.wasm");
@@ -380,6 +435,11 @@ assert.deepEqual(
   browserBuildManifest.assets["runtime-core.wasm"],
   { bytes: artifacts.runtimeCoreWasm.bytes, sha256: artifacts.runtimeCoreWasm.sha256 },
 );
+assert.equal(browserBuildManifest.schemaVersion, 2);
+assert.deepEqual(browserBuildManifest.executionEngine, {
+  profile: checkpoint.browserCheckpoint.executionEngineProfile,
+  ...executionEngine,
+});
 assert.deepEqual(
   browserBuildManifest.assets["v86-adapter.wasm"],
   { bytes: artifacts.v86AdapterWasm.bytes, sha256: artifacts.v86AdapterWasm.sha256 },
@@ -424,6 +484,7 @@ const evidence = finalizePrivateTargetEvidence({
     nodeReportSchema: nodeReport.schema,
     nodeReportSchemaVersion: nodeReport.schemaVersion,
     browserRuntimeProtocol: browserReport.runtimeProtocol,
+    executionEngineProfile: checkpoint.browserCheckpoint.executionEngineProfile,
   },
   environment: {
     platform: `${process.platform}-${os.version()}`,
@@ -439,10 +500,17 @@ const evidence = finalizePrivateTargetEvidence({
       lldLink: toolchainReport.tools.lldLink,
       llvmReadobj: toolchainReport.tools.llvmReadobj,
     },
-    v86: {
+    executionEngine: {
+      engine: executionEngine.engine,
       sourceRevision: v86AdapterReport.sourceRevision,
-      stateAbiVersion: v86AdapterReport.results.cpuState.version,
-      stateAbiBytes: v86AdapterReport.results.cpuState.size,
+      cpuContextAbi: {
+        version: v86AdapterReport.results.cpuState.version,
+        bytes: v86AdapterReport.results.cpuState.size,
+      },
+      adapterArtifact: {
+        bytes: artifacts.v86AdapterWasm.bytes,
+        sha256: artifacts.v86AdapterWasm.sha256,
+      },
     },
   },
   semantic: {
@@ -472,6 +540,9 @@ const evidence = finalizePrivateTargetEvidence({
         cancellation: executionStateEvidence(browserReport.cancellation.report),
         watchdog: executionStateEvidence(browserReport.watchdog.report),
       },
+      executionEngine: structuredClone(browserReport.success.report.executionEngine),
+      executionEngineLinearMemoryBytes:
+        browserReport.success.report.executionEngineLinearMemoryBytes,
     },
     memoryEquivalent: true,
     nextStructuredStop: structuredClone(checkpoint.nextStructuredStop),

@@ -5,6 +5,7 @@ import {
   type SessionReport,
   type WorkerToMainMessage,
 } from "./protocol.js";
+import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
 interface MemorySample {
   elapsedMilliseconds: number;
@@ -19,7 +20,7 @@ interface SessionSample {
   maximumSliceMilliseconds: number;
   wasmBridgeCalls: number;
   runtimeCoreLinearMemoryBytes: number;
-  v86AdapterLinearMemoryBytes: number;
+  executionEngineLinearMemoryBytes: number;
   writebackBatches: number;
   writebackPages: number;
   finalGeneration: number;
@@ -32,6 +33,7 @@ interface BgiBenchmarkResult {
   failedSessions: number;
   heartbeatSamples: number;
   maximumHeartbeatGapMilliseconds: number;
+  executionEngine: ExecutionEngineIdentity;
   memorySamples: MemorySample[];
   sessions: SessionSample[];
 }
@@ -84,6 +86,7 @@ let maximumHeartbeatGapMilliseconds = 0;
 let lastHeartbeat = performance.now();
 let finalResult: BgiBenchmarkResult | null = null;
 let finalError: string | null = null;
+let executionEngineIdentity: ExecutionEngineIdentity | null = null;
 
 const heartbeat = window.setInterval(() => {
   const now = performance.now();
@@ -141,6 +144,15 @@ async function runBenchmark(): Promise<void> {
       const sequence = nextSessionId;
       const report = await runSession(sequence);
       validateSession(report, expected);
+      invariant(report.executionEngine !== null, "BGI execution engine identity is missing");
+      if (executionEngineIdentity === null) {
+        executionEngineIdentity = structuredClone(report.executionEngine);
+      } else {
+        invariant(
+          JSON.stringify(report.executionEngine) === JSON.stringify(executionEngineIdentity),
+          "BGI execution engine identity changed between sessions",
+        );
+      }
       sessions.push({
         sequence,
         benchmarkElapsedMilliseconds: performance.now() - startedAt,
@@ -148,7 +160,7 @@ async function runBenchmark(): Promise<void> {
         maximumSliceMilliseconds: report.maximumSliceMilliseconds,
         wasmBridgeCalls: report.wasmBridgeCalls,
         runtimeCoreLinearMemoryBytes: report.runtimeCoreLinearMemoryBytes,
-        v86AdapterLinearMemoryBytes: report.v86AdapterLinearMemoryBytes,
+        executionEngineLinearMemoryBytes: report.executionEngineLinearMemoryBytes,
         writebackBatches: report.writebackBatches,
         writebackPages: report.writebackPages,
         finalGeneration: report.finalGeneration,
@@ -157,6 +169,7 @@ async function runBenchmark(): Promise<void> {
       await delay(20);
     }
     recordMemorySample();
+    invariant(executionEngineIdentity !== null, "BGI benchmark completed no engine session");
     finalResult = {
       requestedDurationMilliseconds,
       durationMilliseconds: performance.now() - startedAt,
@@ -164,6 +177,7 @@ async function runBenchmark(): Promise<void> {
       failedSessions,
       heartbeatSamples,
       maximumHeartbeatGapMilliseconds,
+      executionEngine: executionEngineIdentity,
       memorySamples,
       sessions,
     };
@@ -215,6 +229,11 @@ function validateSession(report: SessionReport, expected: any): void {
       report.lastExecutionTransition?.to === "stopped" &&
       report.pendingHostRequestRecords === 0,
     "BGI execution state did not stop cleanly",
+  );
+  invariant(
+    report.executionEngine?.schema === "vine.execution-engine-profile" &&
+      report.executionEngine.schemaVersion === 1,
+    "BGI execution engine identity is missing",
   );
   invariant(report.supportedCalls.length === expected.supportedCalls, "BGI call count changed");
   invariant(report.instructions === expected.guestInstructions, "BGI instruction count changed");

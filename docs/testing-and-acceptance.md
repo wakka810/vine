@@ -432,7 +432,7 @@ fixed `GetMessageA`はcandidateをzero metadataのMSGへmaterialize／dequeueし
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
-後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、2 deferred host completions、depth-2 callback、automatic writeback、Canvas／Web Audio／IndexedDB、pending cancel、watchdog、entry sentinelを通す。protocol version 3はclosed execution-state graphをcontract testし、illegal transitionのmutation前拒否、wrong-thread／duplicate／cancelled-late completion、nested sync APIとcallback-resuming async policy、全terminal pathの`stopped`／pending request record zero、watchdogのthread／request／last-transition contextを検査する。46 instructions／10 slices／3 yields、30分／11,326 sessionsのevidenceは[browser-runtime-worker.md](browser-runtime-worker.md)を正とする。これは`AC-P1-04`、`AC-P1-05`、`AC-P1-07`、`AC-P1-10`へのpartial evidenceであり、general wait／wake、host timeout、versioned performance threshold、title workloadを代用しない。
+後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、2 deferred host completions、depth-2 callback、automatic writeback、Canvas／Web Audio／IndexedDB、pending cancel、watchdog、entry sentinelを通す。protocol version 4はclosed execution-state graphを維持し、production loopをgeneric `ExecutionEngine`へ接続する。state contractはillegal transitionのmutation前拒否、wrong-thread／duplicate／cancelled-late completion、nested sync APIとcallback-resuming async policy、全terminal pathの`stopped`／pending request record zero、watchdogのthread／request／last-transition contextを検査する。engine contractはactual WasmでCPU context、structured stop、5 mapping operation、owner-tagged changed batch、3 cache effect、pinned revision／ABI／artifact mismatchを検査し、Runtime Worker sourceにPTE／private offset／v86 reasonがないことを固定する。46 instructions／10 slices／3 yields、30分／11,326 sessionsのevidenceは[browser-runtime-worker.md](browser-runtime-worker.md)を正とする。これは`AC-P1-04`、`AC-P1-05`、`AC-P1-07`、`AC-P1-10`へのpartial evidenceであり、general wait／wake、host timeout、versioned performance threshold、title workloadを代用しない。
 
 private BGI Worker contractはcurrent generic profileをChrome内Rust/Wasm authorityで実行する。Nodeは
 oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatcher／memory stateを所有しない。
@@ -440,8 +440,8 @@ oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatch
 8-instruction cancelと4-instruction watchdogでprocess exit／module detach／pending work zeroを要求する。
 詳細は[bgi-browser-worker.md](bgi-browser-worker.md)を正とする。単発heap値はsemantic
 report identityに留め、別のversion 1 BGI workload gateが同じWorkerで完全sessionを3分反復する。
-2,090 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
-回帰slope、Worker backing storage、Rust／v86 linear memory、271 crossings/sessionをversioned
+2,225 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
+回帰slope、Worker backing storage、Rust／execution-engine linear memory、271 crossings/sessionをversioned
 thresholdで判定する。必要sampleが取得不能ならfailし、全thresholdのobserved valueと判定理由を
 reportへ保存する。詳細は[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
 

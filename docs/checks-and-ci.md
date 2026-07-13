@@ -15,13 +15,20 @@ checkpoint-manifest validation, public fixture generation, `cargo fmt --all
 denied, JavaScript syntax checks, the pinned small v86 smoke, and the Windows
 trace-summary contract.
 
-`check:fixture-e2e` prepares the pinned source adapter, then runs the controlled
+`check:fixture-e2e` prepares the pinned source adapter, fixes its generic
+execution-engine contract against the actual Wasm, then runs the controlled
 entry, cdecl dispatch, callback, outer return, entry sentinel, Rust-owned stack,
 FS／TEB／PEB, process parameters, MemoryDelta data roundtrip, automatic binary
 CPU writeback, window loader, Chrome Canvas presentation, and the full Chrome
 Runtime Worker vertical path. The Worker check runs guest CPU, deferred host
 completion, depth-2 callbacks, Canvas, Web Audio, IndexedDB, pending-request
 cancellation, and watchdog cleanup. It uses only repository fixtures.
+
+The engine contract rejects source-revision, CPU-context ABI, or artifact
+identity mismatch before guest startup and checks budgeted stops, context
+save／restore, all five mapping operations, owner-tagged changed pages, and cache
+effects. It also guards the production Worker source against v86 PTE／private
+offset／numeric-stop dependencies.
 
 The focused Worker commands are:
 

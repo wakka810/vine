@@ -48,3 +48,7 @@ completion、最終memory digest、structured stop、cancel／watchdog teardown�
 全threshold合格、`threshold-blocked`はfailure IDを伴う未完了checkpointを表す。現在の61-call
 workloadはtimer clamp非依存のWorker yieldへ修正後に全thresholdを通した。どちらのstatusも
 full play、title output、long-idle steady memoryを含めない。
+
+`browserCheckpoint.executionEngineProfile`は共通source revision／CPU-context ABIとhost別Wasm
+artifact allowlistの正本を指す。build manifest、browser report、private evidenceはallowlist全体を
+実行identityにせず、実際に一致した単一artifactのbytes／SHA-256を共通identityと組み合わせて記録する。

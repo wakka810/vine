@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { mkdir, copyFile, readFile, writeFile } from "node:fs/promises";
@@ -10,6 +11,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.join(root, "browser", "runtime-worker");
 const benchmarkSource = path.join(root, "browser", "v86-benchmark");
 const output = path.join(root, ".work", "browser-runtime");
+const executionEngineProfilePath = path.join(
+  root,
+  "fixtures",
+  "execution-engines",
+  "v86-browser-v1.json",
+);
+const executionEngineProfile = JSON.parse(await readFile(executionEngineProfilePath, "utf8"));
 const assets = {
   runtimeCore: path.join(
     root,
@@ -33,6 +41,40 @@ for (const [name, file] of Object.entries(assets)) {
     throw new Error(`${name} is missing at ${path.relative(root, file)}`);
   }
 }
+
+const adapterBytes = await readFile(assets.v86Adapter);
+const adapterArtifact = {
+  bytes: adapterBytes.byteLength,
+  sha256: crypto.createHash("sha256").update(adapterBytes).digest("hex"),
+};
+const adapterReport = JSON.parse(
+  await readFile(path.join(root, ".work", "v86-adapter-spike", "report.json"), "utf8"),
+);
+assert.equal(executionEngineProfile.schema, "vine.execution-engine-profile");
+assert.equal(executionEngineProfile.schemaVersion, 1);
+assert.equal(executionEngineProfile.engine, "v86");
+assert.equal(adapterReport.sourceRevision, executionEngineProfile.sourceRevision);
+assert.equal(
+  adapterReport.results.cpuState.version,
+  executionEngineProfile.cpuContextAbi.version,
+);
+assert.equal(adapterReport.results.cpuState.size, executionEngineProfile.cpuContextAbi.bytes);
+assert(Array.isArray(executionEngineProfile.artifacts));
+const matchedAdapterArtifact = executionEngineProfile.artifacts.find(
+  ({ bytes, sha256 }) => bytes === adapterArtifact.bytes && sha256 === adapterArtifact.sha256,
+);
+assert(
+  matchedAdapterArtifact !== undefined,
+  "execution engine artifact does not match its pinned profile",
+);
+const executionEngineIdentity = {
+  schema: executionEngineProfile.schema,
+  schemaVersion: executionEngineProfile.schemaVersion,
+  engine: executionEngineProfile.engine,
+  sourceRevision: executionEngineProfile.sourceRevision,
+  cpuContextAbi: structuredClone(executionEngineProfile.cpuContextAbi),
+  artifact: adapterArtifact,
+};
 
 await mkdir(output, { recursive: true });
 await build({
@@ -73,6 +115,7 @@ await Promise.all([
     path.join(root, "docs", "current-checkpoint.json"),
     path.join(output, "current-checkpoint.json"),
   ),
+  copyFile(executionEngineProfilePath, path.join(output, "execution-engine-profile.json")),
   copyFile(assets.runtimeCore, path.join(output, "runtime-core.wasm")),
   copyFile(assets.v86Adapter, path.join(output, "v86-adapter.wasm")),
   copyFile(assets.fixture, path.join(output, "browser-vertical.exe")),
@@ -80,8 +123,12 @@ await Promise.all([
 
 const manifest = {
   schema: "vine.browser-runtime-build",
-  schemaVersion: 1,
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(),
+  executionEngine: {
+    profile: path.relative(root, executionEngineProfilePath).replaceAll("\\", "/"),
+    ...executionEngineIdentity,
+  },
   assets: Object.fromEntries(
     await Promise.all(
       [
@@ -100,6 +147,7 @@ const manifest = {
         "audio-probe-worklet.js",
         "v86-browser-v1.json",
         "current-checkpoint.json",
+        "execution-engine-profile.json",
         "runtime-core.wasm",
         "v86-adapter.wasm",
         "browser-vertical.exe",

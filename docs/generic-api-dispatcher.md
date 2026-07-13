@@ -50,7 +50,7 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `TlsSetValue` | 1 | stores a current-thread endpoint value |
 | `EncodePointer` | 6 | allocates stable process pointer tokens |
 | `DecodePointer` | 2 | resolves only registered process tokens to their original source |
-| `InitializeCriticalSectionAndSpinCount` | 14 | creates process-owned synchronization state and exact x86 bytes |
+| `InitializeCriticalSectionAndSpinCount` | 17 | creates process-owned synchronization state and exact x86 bytes |
 | `EnterCriticalSection` | 2 | acquires or recursively enters for the current thread |
 | `LeaveCriticalSection` | 2 | decrements recursion and releases at zero |
 | `FlsAlloc` | 1 | allocates a bounded process-owned logical FLS slot and retains its callback |
@@ -58,19 +58,21 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `HeapAlloc` | 2 | allocates the first two reached zeroed blocks through transactional guest-memory backing |
 | `InterlockedIncrement` | 3 | performs a checked wrapping LONG update in guest memory |
 | `GetStdHandle` | 3 | returns versioned process-owned logical input／output／error identities |
-| `GetFileType` | 2 | classifies registered logical stdin as character and stdout as pipe |
+| `GetFileType` | 3 | classifies registered logical stdin as character and stdout／stderr as pipes |
+| `SetHandleCount` | 1 | returns the reached compatibility-policy count without resizing host state |
 
-All 23 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 24 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-58 BGI calls, including six `EncodePointer` occurrences, 16 critical-section
+61 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
 two `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
-critical-section／thread／startup occurrences plus three `GetStdHandle` and two
-`GetFileType` calls.
+critical-section／thread／startup occurrences plus three `GetStdHandle`, three
+`GetFileType`, and `SetHandleCount` calls.
 Leave semantics remain fixed by native evidence and the controlled public test.
-The title harness still performs callsite provenance checks, automatic
-v86 dirty-page synchronization, and evidence serialization around the common
-semantic path.
+The source-v86 Node oracle harness still performs callsite provenance checks and
+adapter-specific dirty-page synchronization around the common semantic path.
+The production Browser Worker receives only generic changed-page batches from
+`ExecutionEngine`.
 
 ## Checkpoint manifest and runner
 
@@ -140,7 +142,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 23 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 24 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -152,7 +154,7 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The twelve tests cover all 23 APIs, the five original shapes, output writes,
+The semantic tests cover all 24 APIs, the five original shapes, output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
 bytes, same-thread recursion, release, structured contention, dynamic/static ID

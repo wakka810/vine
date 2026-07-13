@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +15,32 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkpoint = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
+const executionEngineProfile = JSON.parse(
+  fs.readFileSync(
+    path.join(root, checkpoint.browserCheckpoint.executionEngineProfile),
+    "utf8",
+  ),
+);
+const benchmark = checkpoint.browserCheckpoint.bgiBenchmarkEvidence;
+const executionEngineArtifact = executionEngineProfile.artifacts.find(
+  ({ bytes, sha256 }) =>
+    bytes === benchmark.v86AdapterWasmBytes && sha256 === benchmark.v86AdapterWasmSha256,
+);
+assert(
+  executionEngineArtifact !== undefined,
+  "checkpoint adapter artifact is not in the execution engine profile",
+);
+const executionEngineIdentity = {
+  schema: executionEngineProfile.schema,
+  schemaVersion: executionEngineProfile.schemaVersion,
+  engine: executionEngineProfile.engine,
+  sourceRevision: executionEngineProfile.sourceRevision,
+  cpuContextAbi: structuredClone(executionEngineProfile.cpuContextAbi),
+  artifact: {
+    bytes: executionEngineArtifact.bytes,
+    sha256: executionEngineArtifact.sha256,
+  },
+};
 const sha = (character) => character.repeat(64);
 const artifact = (name, digest = sha("a"), bytes = 1) => ({
   path: `.work/${name}`,
@@ -23,7 +50,6 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 
 function validEvidence() {
   const browser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
-  const benchmark = checkpoint.browserCheckpoint.bgiBenchmarkEvidence;
   const policy = checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy;
   return finalizePrivateTargetEvidence({
     schema: PRIVATE_TARGET_EVIDENCE_SCHEMA,
@@ -63,6 +89,7 @@ function validEvidence() {
       nodeReportSchema: "vine.test-private-target",
       nodeReportSchemaVersion: 1,
       browserRuntimeProtocol: checkpoint.browserCheckpoint.browserRuntimeProtocol,
+      executionEngineProfile: checkpoint.browserCheckpoint.executionEngineProfile,
     },
     environment: {
       platform: "win32-test",
@@ -78,10 +105,11 @@ function validEvidence() {
         lldLink: "lld-link test",
         llvmReadobj: "llvm-readobj test",
       },
-      v86: {
-        sourceRevision: "test-revision",
-        stateAbiVersion: 1,
-        stateAbiBytes: 640,
+      executionEngine: {
+        engine: executionEngineIdentity.engine,
+        sourceRevision: executionEngineIdentity.sourceRevision,
+        cpuContextAbi: structuredClone(executionEngineIdentity.cpuContextAbi),
+        adapterArtifact: structuredClone(executionEngineIdentity.artifact),
       },
     },
     semantic: {
@@ -106,6 +134,8 @@ function validEvidence() {
         memoryContentSha256: browser.memoryContentSha256,
         wasmBridgeCalls: 1,
         executionStateMachine: structuredClone(browser.executionStateMachine),
+        executionEngine: structuredClone(executionEngineIdentity),
+        executionEngineLinearMemoryBytes: browser.executionEngineLinearMemoryBytes,
       },
       memoryEquivalent: true,
       nextStructuredStop: structuredClone(checkpoint.nextStructuredStop),
@@ -134,6 +164,7 @@ function validEvidence() {
       v86AdapterWasm: artifact(
         "v86-adapter.wasm",
         benchmark.v86AdapterWasmSha256,
+        benchmark.v86AdapterWasmBytes,
       ),
       cargoLock: artifact("Cargo.lock"),
       npmLock: artifact("package-lock.json"),
@@ -211,6 +242,13 @@ for (const [label, evidence, expected] of [
       value.semantic.browser.executionStateMachine.watchdog.watchdogContext = null;
     }),
     "watchdogContext",
+  ],
+  [
+    "execution engine revision mismatch",
+    mutated((value) => {
+      value.semantic.browser.executionEngine.sourceRevision = "0".repeat(40);
+    }),
+    "executionEngine.sourceRevision",
   ],
   [
     "performance promoted to semantic gate",

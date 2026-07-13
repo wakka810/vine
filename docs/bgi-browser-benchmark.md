@@ -37,32 +37,47 @@ required sample is a failure.
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 2,090 sessions with no
+The authoritative clean-profile Chrome run completed 2,225 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 2,090 |
+| Completed sessions | >= 120 | 2,225 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 36 |
-| Session latency p95 | <= 3,000 ms | 79.545 ms |
-| Maximum slice p99 | <= 10 ms | 0.545 ms |
-| Main heartbeat gap | <= 75 ms | 17.960 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 6,769,103 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 124,705.17 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 28,409,500 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 546,370.67 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 57,409,536 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 53,384,367 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 989,236.58 bytes/min |
+| Session latency p95 | <= 3,000 ms | 73.590 ms |
+| Maximum slice p99 | <= 10 ms | 0.675 ms |
+| Main heartbeat gap | <= 75 ms | 18.970 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 6,486,348 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | -201,169.62 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 28,306,480 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | -79,664.80 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 57,933,824 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 39,999,802 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | -1,245,265.89 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 9,764,864 bytes |
-| v86 linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
+| Execution-engine linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 927,780 bytes with SHA-256
-`f6e07c36cd189edf9bcd5bf6104b7499232609b58e044cb4c1c1d141d64d4558`.
+The exact report is 997,730 bytes with SHA-256
+`8ac7ab2e83c80e87cd90d593a68570f68571b6aef67849fd5b2b767952dd0050`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate.
+
+## Adapter loader correction
+
+The first protocol v4 candidate verified and compiled the 1.88 MiB adapter for
+every runtime session. Semantics and 15 thresholds passed, but Worker backing
+storage peaked at 68,054,066 bytes, above the unchanged 67,108,864-byte limit.
+The failed report is 911,467 bytes with SHA-256
+`9ce6411d98c02f7e7b2d3344ad6d26e59e9ba164810646343d35a74657f791f7`.
+
+Artifact hash, source revision, and ABI are Worker-level invariants, so the
+loader now verifies and compiles once, then creates a fresh engine instance for
+each session from the verified `WebAssembly.Module`. No CPU context, mapping,
+guest memory, or Rust runtime is shared. The passing run reduced peak backing
+storage to 39,999,802 bytes and improved p95 latency without changing any
+threshold.
 
 ## Environment
 
@@ -87,9 +102,10 @@ commit.
 |---|---:|---|
 | Rust runtime core Wasm | 1,519,513 | `479faa4d393c9fd21aa68fec8ab063e378ac6bb43907e7c54753404c07de830b` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
-| Runtime Worker bundle | 77,472 | `4f9c5b5a3743a4d0bc832ea98ffb5eddbd40c6cb8aa06fada58699c4b8cddea1` |
-| BGI benchmark bundle | 7,303 | `1c155c4ac9894a7a8306abf7e3679464bd78d72ce5943bfd01b04fcd6fb909c7` |
-| Version 1 configuration | 915 | `44d985f746ce06ed6e6d7f76ac35deb75e937e9bfbfa31419366855c27a2f922` |
+| Runtime Worker bundle | 85,911 | `498ecbb38a0465c8df1c4356f4db3f023613295b9b86db0555f0f5aaac8c9ec8` |
+| BGI benchmark bundle | 8,103 | `6e9609ff158505efb5e91f7a14acf7cb534c9e6d9a36a22692e5f48ad4740e56` |
+| Execution-engine profile | 545 | `792980bc78b58d8aae491c72b9ea13f39176206306321069a4f2bcb2989e7250` |
+| Version 1 configuration | 920 | `837e91d8f06e439d1602612c2409a855114cfb4230784db4363b01508a01862d` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte

@@ -373,6 +373,12 @@ function validateEvidence(mode: SessionMode, evidence: RuntimeEvidence): Error |
   ) {
     return new Error("runtime execution state machine did not stop cleanly");
   }
+  if (
+    report.executionEngine?.schema !== "vine.execution-engine-profile" ||
+    report.executionEngine.schemaVersion !== 1
+  ) {
+    return new Error("runtime execution engine identity is missing");
+  }
   if (mode === "cancel-pending") {
     return report.outcome === "cancelled" ? null : new Error("pending request was not cancelled");
   }

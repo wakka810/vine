@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 export const PRIVATE_TARGET_EVIDENCE_SCHEMA = "vine.private-target-evidence";
-export const PRIVATE_TARGET_EVIDENCE_VERSION = 2;
+export const PRIVATE_TARGET_EVIDENCE_VERSION = 3;
 
 const GIT_OBJECT_ID = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
@@ -300,6 +300,12 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     "evidence.profile.browserRuntimeProtocol",
     errors,
   );
+  checkEqual(
+    profile.executionEngineProfile,
+    checkpoint.browserCheckpoint.executionEngineProfile,
+    "evidence.profile.executionEngineProfile",
+    errors,
+  );
 
   const environment = requireRecord(root.environment, "evidence.environment", errors);
   for (const field of ["platform", "osRelease", "architecture", "node", "rustc", "cargo", "chrome"] ) {
@@ -309,10 +315,54 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
   for (const field of ["clang", "wasmClang", "lldLink", "llvmReadobj"]) {
     requireString(llvm[field], `evidence.environment.llvm.${field}`, errors);
   }
-  const v86 = requireRecord(environment.v86, "evidence.environment.v86", errors);
-  requireString(v86.sourceRevision, "evidence.environment.v86.sourceRevision", errors);
-  requireInteger(v86.stateAbiVersion, "evidence.environment.v86.stateAbiVersion", errors, 1);
-  requireInteger(v86.stateAbiBytes, "evidence.environment.v86.stateAbiBytes", errors, 1);
+  const executionEngine = requireRecord(
+    environment.executionEngine,
+    "evidence.environment.executionEngine",
+    errors,
+  );
+  requireString(
+    executionEngine.engine,
+    "evidence.environment.executionEngine.engine",
+    errors,
+  );
+  requireString(
+    executionEngine.sourceRevision,
+    "evidence.environment.executionEngine.sourceRevision",
+    errors,
+  );
+  const cpuContextAbi = requireRecord(
+    executionEngine.cpuContextAbi,
+    "evidence.environment.executionEngine.cpuContextAbi",
+    errors,
+  );
+  requireInteger(
+    cpuContextAbi.version,
+    "evidence.environment.executionEngine.cpuContextAbi.version",
+    errors,
+    1,
+  );
+  requireInteger(
+    cpuContextAbi.bytes,
+    "evidence.environment.executionEngine.cpuContextAbi.bytes",
+    errors,
+    1,
+  );
+  const adapterArtifact = requireRecord(
+    executionEngine.adapterArtifact,
+    "evidence.environment.executionEngine.adapterArtifact",
+    errors,
+  );
+  requireInteger(
+    adapterArtifact.bytes,
+    "evidence.environment.executionEngine.adapterArtifact.bytes",
+    errors,
+    1,
+  );
+  requireSha256(
+    adapterArtifact.sha256,
+    "evidence.environment.executionEngine.adapterArtifact.sha256",
+    errors,
+  );
 
   const semantic = requireRecord(root.semantic, "evidence.semantic", errors);
   checkEqual(semantic.outcome, "passed", "evidence.semantic.outcome", errors);
@@ -369,6 +419,65 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
   validateExecutionStateMachine(
     browser.executionStateMachine,
     "evidence.semantic.browser.executionStateMachine",
+    errors,
+  );
+  const browserEngine = requireRecord(
+    browser.executionEngine,
+    "evidence.semantic.browser.executionEngine",
+    errors,
+  );
+  checkEqual(
+    browserEngine.schema,
+    "vine.execution-engine-profile",
+    "evidence.semantic.browser.executionEngine.schema",
+    errors,
+  );
+  checkEqual(
+    browserEngine.schemaVersion,
+    1,
+    "evidence.semantic.browser.executionEngine.schemaVersion",
+    errors,
+  );
+  checkEqual(
+    browserEngine.engine,
+    executionEngine.engine,
+    "evidence.semantic.browser.executionEngine.engine",
+    errors,
+  );
+  checkEqual(
+    browserEngine.sourceRevision,
+    executionEngine.sourceRevision,
+    "evidence.semantic.browser.executionEngine.sourceRevision",
+    errors,
+  );
+  checkEqual(
+    browserEngine.cpuContextAbi?.version,
+    cpuContextAbi.version,
+    "evidence.semantic.browser.executionEngine.cpuContextAbi.version",
+    errors,
+  );
+  checkEqual(
+    browserEngine.cpuContextAbi?.bytes,
+    cpuContextAbi.bytes,
+    "evidence.semantic.browser.executionEngine.cpuContextAbi.bytes",
+    errors,
+  );
+  checkEqual(
+    browserEngine.artifact?.bytes,
+    adapterArtifact.bytes,
+    "evidence.semantic.browser.executionEngine.artifact.bytes",
+    errors,
+  );
+  checkEqual(
+    browserEngine.artifact?.sha256,
+    adapterArtifact.sha256,
+    "evidence.semantic.browser.executionEngine.artifact.sha256",
+    errors,
+  );
+  checkEqual(
+    browser.executionEngineLinearMemoryBytes,
+    expectedBrowser.executionEngineLinearMemoryBytes,
+    "evidence.semantic.browser.executionEngineLinearMemoryBytes",
     errors,
   );
   checkEqual(
@@ -455,9 +564,21 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     errors,
   );
   checkEqual(
+    artifacts.v86AdapterWasm.bytes,
+    adapterArtifact.bytes,
+    "evidence.artifacts.v86AdapterWasm.bytes",
+    errors,
+  );
+  checkEqual(
+    artifacts.v86AdapterWasm.sha256,
+    adapterArtifact.sha256,
+    "evidence.artifacts.v86AdapterWasm.sha256",
+    errors,
+  );
+  checkEqual(
     artifacts.v86AdapterWasm.sha256,
     checkpoint.browserCheckpoint.bgiBenchmarkEvidence.v86AdapterWasmSha256,
-    "evidence.artifacts.v86AdapterWasm.sha256",
+    "evidence.artifacts.v86AdapterWasm checkpoint digest",
     errors,
   );
 

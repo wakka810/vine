@@ -18,6 +18,11 @@ import {
   type MemoryRegionSnapshot,
 } from "./memory-transport.js";
 import {
+  ExecutionMemoryAccessFault,
+  instantiateExecutionEngine,
+  type ExecutionEngine,
+} from "./execution-engine.js";
+import {
   ExecutionStateMachine,
   type HostCompletionPolicy,
   type HostDelivery,
@@ -29,7 +34,6 @@ import {
   type PreparedMetadata,
   RuntimeBridge,
 } from "./runtime-bridge.js";
-import { MirrorAccessFault, V86Mirror, v86StopReason } from "./v86-mirror.js";
 
 const worker = self as DedicatedWorkerGlobalScope;
 const yieldChannel = new MessageChannel();
@@ -178,7 +182,7 @@ class BrowserRuntimeSession {
   readonly #configuration: SessionConfiguration;
   readonly #startedAt = performance.now();
   #bridge: RuntimeBridge | null = null;
-  #mirror: V86Mirror | null = null;
+  #engine: ExecutionEngine | null = null;
   #prepared: PreparedMetadata | null = null;
   #generation = 0n;
   #terminal = false;
@@ -230,18 +234,17 @@ class BrowserRuntimeSession {
   async run(): Promise<void> {
     try {
       const workload = this.#configuration.workload ?? "controlled-fixture";
-      this.#status("loading", `Loading Rust runtime, v86 adapter, and ${workload}`);
+      this.#status("loading", `Loading Rust runtime, execution engine, and ${workload}`);
       const coreUrl = new URL("./runtime-core.wasm", import.meta.url);
-      const adapterUrl = new URL("./v86-adapter.wasm", import.meta.url);
       const executableUrl = new URL(
         workload === "private-bgi"
           ? this.#configuration.executableUrl ?? "./private/BGI.exe"
           : "./browser-vertical.exe",
         import.meta.url,
       );
-      const [bridge, mirror, executableResponse] = await Promise.all([
+      const [bridge, engine, executableResponse] = await Promise.all([
         RuntimeBridge.instantiate(coreUrl),
-        V86Mirror.instantiate(adapterUrl),
+        instantiateExecutionEngine(new URL(".", import.meta.url)),
         fetch(executableUrl),
       ]);
       invariant(
@@ -252,7 +255,7 @@ class BrowserRuntimeSession {
         return;
       }
       this.#bridge = bridge;
-      this.#mirror = mirror;
+      this.#engine = engine;
       const executable = new Uint8Array(await executableResponse.arrayBuffer());
       const preparedOutput =
         workload === "private-bgi"
@@ -293,7 +296,7 @@ class BrowserRuntimeSession {
         reflection.pages.length === preparedOutput.metadata.pageCount,
         "Rust reflection page count metadata mismatch",
       );
-      mirror.install(reflection, preparedOutput.metadata);
+      engine.initialize(reflection, preparedOutput.metadata);
       bridge.acknowledge(reflection.generation);
       this.#generation = reflection.generation;
       this.#report.initialGeneration = Number(reflection.generation);
@@ -350,7 +353,7 @@ class BrowserRuntimeSession {
   }
 
   async #runGuest(): Promise<void> {
-    const mirror = this.#requireMirror();
+    const engine = this.#requireEngine();
     const prepared = this.#requirePrepared();
     const endpointAddresses = new Set(prepared.endpoints.map(({ address }) => address));
     while (!this.#terminal) {
@@ -368,7 +371,7 @@ class BrowserRuntimeSession {
       }
       const sliceState = this.#execution.state();
       const sliceStartedAt = performance.now();
-      const slice = mirror.execute(this.#configuration.instructionBudget);
+      const slice = engine.executeBudget(this.#configuration.instructionBudget);
       this.#report.maximumSliceMilliseconds = Math.max(
         this.#report.maximumSliceMilliseconds,
         performance.now() - sliceStartedAt,
@@ -378,7 +381,7 @@ class BrowserRuntimeSession {
       this.#reconcileDirtyPages();
       this.#checkWatchdog();
 
-      if (slice.reason === v86StopReason.budget) {
+      if (slice.stop.kind === "budget-yield") {
         const resumeState = sliceState === "running" ? "ready" : "guest-callback";
         this.#execution.transition("budget-yield", {
           cause: "instruction-budget",
@@ -403,31 +406,33 @@ class BrowserRuntimeSession {
       }
 
       invariant(
-        slice.reason === v86StopReason.invalidOpcode && slice.errorCode === -1,
-        `guest stopped unexpectedly: reason=${slice.reason}, error=${slice.errorCode}`,
+        slice.stop.kind === "trap" &&
+          slice.stop.trap === "invalid-opcode" &&
+          slice.stop.errorCode === -1,
+        `guest stopped unexpectedly: ${JSON.stringify(slice.stop)}`,
       );
       invariant(
-        slice.state.instructionPointer === slice.state.previousInstructionPointer,
+        slice.context.instructionPointer === slice.context.previousInstructionPointer,
         "trap instruction pointer provenance mismatch",
       );
-      const address = slice.state.instructionPointer;
+      const address = slice.context.instructionPointer;
       if (endpointAddresses.has(address)) {
         this.#apiResumeState = sliceState === "running" ? "ready" : "guest-callback";
         this.#execution.transition("api-trap", {
           cause: "owned-api-trap",
           threadId: this.#currentThreadId,
         });
-        await this.#dispatchApi(address, slice.state.esp);
+        await this.#dispatchApi(address, slice.context.esp);
       } else if (address === prepared.callbackSentinel) {
         invariant(sliceState === "guest-callback", "callback return escaped callback execution");
         this.#execution.transition("callback-return", {
           cause: "callback-return-sentinel",
           threadId: this.#currentThreadId,
         });
-        this.#completeCallback(slice.state.eax);
+        this.#completeCallback(slice.context.eax);
       } else if (address === prepared.entrySentinel) {
         invariant(sliceState === "running", "process entry returned from a callback");
-        this.#completeProcess(slice.state.eax);
+        this.#completeProcess(slice.context.eax);
       } else {
         throw new Error(`guest reached unowned #UD at 0x${address.toString(16)}`);
       }
@@ -436,8 +441,8 @@ class BrowserRuntimeSession {
   }
 
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
-    const mirror = this.#requireMirror();
-    const returnAddress = mirror.readU32(stackPointer);
+    const engine = this.#requireEngine();
+    const returnAddress = engine.readGuestU32(stackPointer);
     const output = this.#requireBridge().dispatch<
       HostRequestMetadata | GuestCallbackMetadata | CompletionMetadata | ApiFaultMetadata
     >(endpoint, stackPointer, returnAddress);
@@ -474,7 +479,7 @@ class BrowserRuntimeSession {
           "Rust host completion disagrees with the recorded completion policy",
         );
         this.#report.rustSchedulerTransitions += 1;
-        mirror.applyCompletion(completion.completion);
+        engine.applyCpuResume(completion.completion);
         this.#execution.transition(resumeState, {
           cause: "rust-host-resume",
           threadId: completion.threadId,
@@ -491,7 +496,7 @@ class BrowserRuntimeSession {
           this.#report.maximumCallbackDepth,
           metadata.depth,
         );
-        mirror.enterCallback(metadata.target, metadata.stackPointer);
+        engine.enterGuestCallback(metadata.target, metadata.stackPointer);
         this.#execution.transition("guest-callback", {
           cause: "guest-callback-enter",
           threadId: this.#currentThreadId,
@@ -505,7 +510,7 @@ class BrowserRuntimeSession {
         if (this.#requirePrepared().workload === "private-bgi") {
           this.#recordBgiCompletion(metadata);
         }
-        mirror.applyCompletion(metadata.completion);
+        engine.applyCpuResume(metadata.completion);
         this.#execution.transition(resumeState, {
           cause: "synchronous-api-complete",
           threadId: this.#currentThreadId,
@@ -596,7 +601,7 @@ class BrowserRuntimeSession {
       result,
     ).metadata;
     invariant(metadata.kind === "callback-complete", "invalid callback completion metadata");
-    this.#requireMirror().applyCompletion(metadata.completion);
+    this.#requireEngine().applyCpuResume(metadata.completion);
     this.#execution.transition(metadata.remainingDepth > 0 ? "guest-callback" : "ready", {
       cause: metadata.remainingDepth > 0 ? "nested-callback-resume" : "callback-stack-empty",
       threadId: this.#currentThreadId,
@@ -620,7 +625,7 @@ class BrowserRuntimeSession {
 
   #runMappingContract(): void {
     const bridge = this.#requireBridge();
-    const mirror = this.#requireMirror();
+    const engine = this.#requireEngine();
     for (let stageIndex = 0; stageIndex < 7; stageIndex += 1) {
       const output = bridge.advanceMappingFixture<MappingFixtureMetadata>(stageIndex);
       const metadata = output.metadata;
@@ -641,7 +646,7 @@ class BrowserRuntimeSession {
       );
 
       if (stageIndex === 0) {
-        const before = mirror.contractState();
+        const before = engine.memoryContractState();
         const invalid = {
           ...delta,
           pages: delta.pages.map((page, index) =>
@@ -650,18 +655,21 @@ class BrowserRuntimeSession {
         };
         let rejected = false;
         try {
-          mirror.applyHostDelta(invalid);
+          engine.applyMemoryDelta(invalid);
         } catch {
           rejected = true;
         }
         invariant(rejected, "invalid mapping delta was not rejected");
-        invariant(mirror.contractState() === before, "rejected mapping delta changed the mirror");
+        invariant(
+          engine.memoryContractState() === before,
+          "rejected mapping delta changed execution memory",
+        );
         this.#report.mappingAtomicRejections += 1;
       }
 
-      const effectsBefore = mirror.cacheEffectCounts();
+      const effectsBefore = engine.cacheEffectCounts();
       this.#applyAuthoritativeDelta(delta);
-      const effectsAfter = mirror.cacheEffectCounts();
+      const effectsAfter = engine.cacheEffectCounts();
       this.#report.mappingDeltas += 1;
       this.#report.mappingDirtyPages += delta.pages.length;
       for (const operation of delta.mappingOperations) {
@@ -678,12 +686,13 @@ class BrowserRuntimeSession {
       if (stageIndex === 4 || stageIndex === 6) {
         let fault: unknown = null;
         try {
-          mirror.readU32(metadata.probeAddress);
+          engine.readGuestU32(metadata.probeAddress);
         } catch (error) {
           fault = error;
         }
         invariant(
-          fault instanceof MirrorAccessFault && fault.code === "mirror-address-unmapped",
+          fault instanceof ExecutionMemoryAccessFault &&
+            fault.code === "execution-address-unmapped",
           `${metadata.stage} did not produce a structured stale-access stop`,
         );
         this.#report.mappingStaleAccessStops += 1;
@@ -701,11 +710,11 @@ class BrowserRuntimeSession {
     invariant(this.#report.mappingOperations.release === 1, "release mapping count mismatch");
     invariant(this.#report.mappingAtomicRejections === 1, "mapping atomic rejection was not tested");
     invariant(this.#report.mappingStaleAccessStops === 2, "stale mapping stops are incomplete");
-    this.#status("mapping", "Browser mirror mapping contract passed");
+    this.#status("mapping", "Execution-engine mapping contract passed");
   }
 
   #reconcileDirtyPages(): void {
-    const pages = this.#requireMirror().discoverDirtyPages();
+    const pages = this.#requireEngine().collectChangedPages();
     if (pages.length === 0) {
       return;
     }
@@ -744,7 +753,7 @@ class BrowserRuntimeSession {
   }
 
   #applyAuthoritativeDelta(delta: ReturnType<typeof decodeHostDelta>): void {
-    this.#requireMirror().applyHostDelta(delta);
+    this.#requireEngine().applyMemoryDelta(delta);
     try {
       const receipt = this.#requireBridge().acknowledge<{
         kind: "acknowledged";
@@ -773,7 +782,7 @@ class BrowserRuntimeSession {
       metadata.acknowledgedGeneration <= metadata.generation,
       "current reflection acknowledgement is ahead of authority",
     );
-    this.#requireMirror().rebuild(reflection, metadata.regions);
+    this.#requireEngine().rebuildMemory(reflection, metadata.regions);
     if (metadata.acknowledgedGeneration < metadata.generation) {
       const receipt = this.#requireBridge().acknowledge<{
         kind: "acknowledged";
@@ -987,7 +996,8 @@ class BrowserRuntimeSession {
         watchdogContext: this.#watchdogContext,
         wasmBridgeCalls: this.#bridge?.callCount() ?? 0,
         runtimeCoreLinearMemoryBytes: this.#bridge?.linearMemoryBytes() ?? 0,
-        v86AdapterLinearMemoryBytes: this.#mirror?.linearMemoryBytes() ?? 0,
+        executionEngine: this.#engine?.identity() ?? null,
+        executionEngineLinearMemoryBytes: this.#engine?.linearMemoryBytes() ?? 0,
         finalGeneration: Number(this.#generation),
       },
     };
@@ -1011,9 +1021,9 @@ class BrowserRuntimeSession {
     return this.#bridge;
   }
 
-  #requireMirror(): V86Mirror {
-    invariant(this.#mirror !== null, "v86 mirror is unavailable");
-    return this.#mirror;
+  #requireEngine(): ExecutionEngine {
+    invariant(this.#engine !== null, "execution engine is unavailable");
+    return this.#engine;
   }
 
   #requirePrepared(): PreparedMetadata {
@@ -1076,7 +1086,8 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             maximumSliceMilliseconds: 0,
             wasmBridgeCalls: 0,
             runtimeCoreLinearMemoryBytes: 0,
-            v86AdapterLinearMemoryBytes: 0,
+            executionEngine: null,
+            executionEngineLinearMemoryBytes: 0,
             supportedCalls: [],
             firstUnsupported: null,
             error: "another runtime session is active",

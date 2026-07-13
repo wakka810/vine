@@ -43,13 +43,20 @@ scheduler transitionはRustだけが決定する。Rustは`waiting-host`とreque
 TypeScriptはbrowser eventをdeliveryする。completion後の`runnable`または`in-callback`復帰もRustが
 検証してからCPU contextへ適用する。Worker event loopは独自にguest threadをwakeしない。
 
-Worker protocol version 3は、そのRust scheduler laneを`ready`、`running`、`budget-yield`、
+Worker protocol version 3で導入しversion 4で維持するstate machineは、そのRust scheduler laneを`ready`、`running`、`budget-yield`、
 `api-trap`、`waiting-host`、`host-completion`、`guest-callback`、`callback-return`、
 `stopping`、`stopped`の閉じたtransition graphで駆動する。illegal transitionはstate mutation前に
 拒否する。host deliveryはglobal optionではなくrequest ID／thread ID／cancel state／completion
 policyを持つtableへ置き、wrong-thread、duplicate、cancel後のlate completionを区別して拒否する。
 terminal reportは必ず`stopped`かつpending record zeroとし、watchdogだけが原因thread、active
 request、直前transitionのdiagnostic contextを持つ。
+
+protocol version 4のproduction CPU境界はgeneric `ExecutionEngine`とする。上位が扱うのはcaller
+budget、structured yield／trap／fault／halt、versioned opaque CPU context、guest mapping operation、
+owner／address付きchanged-page batch、data-TLB／instruction-fetch／generated-code effectだけである。
+現在のsource-v86 implementationはnon-PAE PTE、Dirty bit scan、private offset、native stop reason、
+`full_clear_tlb()`をadapter内に閉じる。profileはsource revision、Wasm SHA-256、CPU-context ABIを
+pinし、build時とWorker guest startup前の両方で不一致を拒否する。
 
 現在のcontrolled Browser sessionはsingle CPU laneだけを実行し、scheduler切替用の永続CPU context
 recordをまだ持たない。live contextはexecution mirrorのstate bufferにだけ存在する。複数threadのCPU
@@ -208,7 +215,7 @@ UNMAPPED -> RESERVED -> COMMITTED
 
 host の実行権限とは無関係に、guest `EXECUTE` を論理検査する。write-to-code が発生した場合は decode/cache を無効化し、policy によって継続または診断停止する。
 
-current ingressはRust `GuestMemory`をbyte authority、v86 pagingをexecution mirrorとし、page R／W／Xとowner sealをfetch前に検査する。初回reflection、host側mapping／dirty delta、CPU側writebackはbinary control metadataとcontiguous 4 KiB payloadを分離する。bounded slice後は全writable PTE Dirty bitをscanし、owner／generation付きmulti-page batchをRustへatomic reconcileしてgenerationを一度だけ進める。host-originated通常data writeのlive v86 roundtrip、連続2 sliceのstack／heap／surface／RWX writeback、generation／owner付きBGI reconciliationが成立した。Browser Workerはreserve／commit／protect／decommit／releaseとdirty pagesをclone registryで全件preflightしてからone batchで適用し、private heapのlazy mappingとlater dirty-only updateを同じsessionで処理する。protectはadapterのTLB／instruction-fetch／generated-code effectへ接続し、decommit／release後のstale accessはstructured stopになる。pending host delta中のexecution、generation conflict、partial batchはfail-closedであり、cancellationは同期batchの途中へ割り込まない。receiptが曖昧な場合はCPU contextを保持してRust current reflectionからmirrorを再構築する。general stack lifecycle、broad heap policy／API、decode-aware execute gate、snapshot generation、O(writable-pages) scanのperformanceは未接続／未判定である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
+current ingressはRust `GuestMemory`をbyte authority、`ExecutionEngine` memoryをexecution mirrorとし、page R／W／Xとowner sealをfetch前に検査する。初回reflection、host側mapping／dirty delta、CPU側writebackはbinary control metadataとcontiguous 4 KiB payloadを分離する。bounded slice後はengineがowner／address付きchanged-page batchを返し、Rustへatomic reconcileしてgenerationを一度だけ進める。現在のv86 adapterは内部で全writable PTE Dirty bitをscanするが、Rust protocolとWorker loopはその発見方式を要求しない。host-originated通常data writeのlive roundtrip、連続2 sliceのstack／heap／surface／RWX writeback、generation／owner付きBGI reconciliationが成立した。Browser Workerはreserve／commit／protect／decommit／releaseとdirty pagesをclone registryで全件preflightしてからone batchで適用し、private heapのlazy mappingとlater dirty-only updateを同じsessionで処理する。protectはgeneric TLB／instruction-fetch／generated-code effectへ接続し、decommit／release後のstale accessはstructured stopになる。pending host delta中のexecution、generation conflict、partial batchはfail-closedであり、cancellationは同期batchの途中へ割り込まない。receiptが曖昧な場合はCPU contextを保持してRust current reflectionからmirrorを再構築する。general stack lifecycle、broad heap policy／API、decode-aware execute gate、snapshot generation、adapter-local O(writable-pages) scanのperformanceは未接続／未判定である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
 Process-wide `ProcessAddressSpaceAllocator`はv1 import／callback／dynamic-export control arenas、private
 heap bandと32 child slotsをallocation recordsとして登録する。Heap backingはrecord IDへ帰属する。
@@ -240,7 +247,7 @@ CPU engine は次の interface の背後に置く。
 
 2026-07-10 時点では v86 を adapter feasibility の先行候補とする。prebuilt fallback Wasm で full-PC boot を迂回した 32 bit integer／stack／x87／SSE program が動き、debug Wasm では CPL3 `#UD` を host hook へ返せた。詳細と再現 command は [x86-engine-scorecard.md](x86-engine-scorecard.md) に記録する。
 
-固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsとnative-oracled command-line bytesを実行した。v86のexecute-permission gapにはslice-boundary gateを保持し、PTE Dirty bitでmulti-page mutationをRust authorityへ戻す。controlled Chrome Runtime Workerは同じbinary boundaryで46 guest instructions、3 periodic yields、2 deferred completions、depth-2 callback、7 writeback batches、clean exitを通した。current 61-call BGI sessionも同じWorker内のRust/Wasm authorityでNode oracleとsemanticに一致し、timer clamp非依存yieldによる3分／2,090-session workload gateはsession／slice、memory slope、linear memory、Wasm crossing thresholdを通した。general process parameters、stack growth、snapshot、broad ABI、title output、full-play performanceは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[browser-runtime-worker.md](browser-runtime-worker.md)、[bgi-browser-benchmark.md](bgi-browser-benchmark.md)、[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
+固定 source overlay はexact instruction budget、structured CPL3 fault stop、versioned 640-byte CPU state ABIを提供する。zero-FS-base first stopに続き、FS segment base `0x7FFDE000`をrestoreしてminimum TEB／PEB fieldsとnative-oracled command-line bytesを実行した。v86のexecute-permission gapにはadapter-owned slice-boundary gateを保持し、changed-page batchでmulti-page mutationをRust authorityへ戻す。controlled Chrome Runtime Workerは同じbinary boundaryで46 guest instructions、3 periodic yields、2 deferred completions、depth-2 callback、7 writeback batches、clean exitを通した。current 61-call BGI sessionも同じWorker内のRust/Wasm authorityでNode oracleとsemanticに一致し、timer clamp非依存yieldによる3分／2,225-session workload gateはsession／slice、memory slope、linear memory、Wasm crossing thresholdを通した。general process parameters、stack growth、snapshot、broad ABI、title output、full-play performanceは未検証である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[browser-runtime-worker.md](browser-runtime-worker.md)、[bgi-browser-benchmark.md](bgi-browser-benchmark.md)、[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)を正とする。
 
 ### 7.2 段階的な命令範囲
 

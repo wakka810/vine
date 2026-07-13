@@ -1,6 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
+import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 3 as const;
+export const protocolVersion = 4 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "private-bgi";
@@ -106,7 +107,8 @@ export interface SessionReport {
   maximumSliceMilliseconds: number;
   wasmBridgeCalls: number;
   runtimeCoreLinearMemoryBytes: number;
-  v86AdapterLinearMemoryBytes: number;
+  executionEngine: ExecutionEngineIdentity | null;
+  executionEngineLinearMemoryBytes: number;
   supportedCalls: Array<{
     sequence: number;
     module: string;

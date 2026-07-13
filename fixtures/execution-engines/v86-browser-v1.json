@@ -1,0 +1,22 @@
+{
+  "schema": "vine.execution-engine-profile",
+  "schemaVersion": 1,
+  "engine": "v86",
+  "sourceRevision": "2f1346b0e7d88d4cbbbcc05fe15b4e369c3de23f",
+  "cpuContextAbi": {
+    "version": 1,
+    "bytes": 640
+  },
+  "artifacts": [
+    {
+      "hostProfile": "windows-gnu",
+      "bytes": 1882836,
+      "sha256": "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26"
+    },
+    {
+      "hostProfile": "linux-gnu",
+      "bytes": 2141050,
+      "sha256": "ac8349cbaccd31d6f5c68a84012fc7bc3a73eda2c06e519331396b43d8c42540"
+    }
+  ]
+}

@@ -18,7 +18,7 @@ const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
 const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
-const runtimeProtocol = "vine.browser-runtime-worker.v3";
+const runtimeProtocol = "vine.browser-runtime-worker.v4";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -352,6 +352,13 @@ function assertExecutionStateMachine(report, scenario) {
   }
 }
 
+function assertExecutionEngine(report) {
+  assert.equal(report.executionEngine?.schema, "vine.execution-engine-profile");
+  assert.equal(report.executionEngine?.schemaVersion, 1);
+  assert.equal(report.executionEngine?.engine, "v86");
+  assert.equal(report.executionEngineLinearMemoryBytes > 0, true);
+}
+
 async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false) {
   const target = await createDebugTarget(browserWebSocketUrl, `${baseUrl}?scenario=${mode}`);
   const client = await connectDevTools(target.webSocketDebuggerUrl);
@@ -366,6 +373,7 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
     assert.equal(evidence.report.pendingHostCalls, 0);
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, mode);
+    assertExecutionEngine(evidence.report);
     if (mode === "watchdog") {
       assert.notEqual(evidence.report.watchdogContext.requestId, null);
       assert.equal(evidence.report.watchdogContext.lastTransition?.to, "waiting-host");
@@ -455,6 +463,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingHostCalls, 0);
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
+    assertExecutionEngine(evidence.report);
     assert(evidence.statuses.some(({ phase }) => phase === "running"));
     if (scenario === "success") {
       assert.equal(evidence.report.outcome, "structured-stop");
@@ -601,14 +610,16 @@ function summarizeBgiBenchmark(result, configuration) {
   const runtimeCoreSizes = new Set(
     result.sessions.map(({ runtimeCoreLinearMemoryBytes }) => runtimeCoreLinearMemoryBytes),
   );
-  const adapterSizes = new Set(
-    result.sessions.map(({ v86AdapterLinearMemoryBytes }) => v86AdapterLinearMemoryBytes),
+  const engineSizes = new Set(
+    result.sessions.map(
+      ({ executionEngineLinearMemoryBytes }) => executionEngineLinearMemoryBytes,
+    ),
   );
   const wasmBridgeCallCounts = new Set(
     result.sessions.map(({ wasmBridgeCalls }) => wasmBridgeCalls),
   );
   assert.equal(runtimeCoreSizes.size, 1, "Rust runtime linear memory size was unstable");
-  assert.equal(adapterSizes.size, 1, "v86 adapter linear memory size was unstable");
+  assert.equal(engineSizes.size, 1, "execution engine linear memory size was unstable");
   assert.equal(wasmBridgeCallCounts.size, 1, "Wasm crossing count was unstable");
   const metrics = {
     durationMilliseconds: result.durationMilliseconds,
@@ -635,7 +646,7 @@ function summarizeBgiBenchmark(result, configuration) {
     workerEmbedderHeap,
     workerBackingStorage,
     runtimeCoreLinearMemoryBytes: [...runtimeCoreSizes][0],
-    v86AdapterLinearMemoryBytes: [...adapterSizes][0],
+    executionEngineLinearMemoryBytes: [...engineSizes][0],
     wasmBridgeCallsPerSession: [...wasmBridgeCallCounts][0],
   };
   const thresholdFailures = [];
@@ -732,10 +743,10 @@ function summarizeBgiBenchmark(result, configuration) {
     thresholds.maximumRuntimeCoreLinearMemoryBytes,
   );
   evaluateThreshold(
-    "maximum-v86-adapter-linear-memory",
-    metrics.v86AdapterLinearMemoryBytes,
+    "maximum-execution-engine-linear-memory",
+    metrics.executionEngineLinearMemoryBytes,
     "<=",
-    thresholds.maximumV86AdapterLinearMemoryBytes,
+    thresholds.maximumExecutionEngineLinearMemoryBytes,
   );
   return { metrics, thresholdEvaluations, thresholdFailures };
 
@@ -1029,6 +1040,16 @@ if (serveOnly) {
             }),
           ),
         ]);
+        const buildManifest = JSON.parse(
+          await readFile(path.join(assetsRoot, "build-manifest.json")),
+        );
+        const { profile: executionEngineProfile, ...builtExecutionEngine } =
+          buildManifest.executionEngine;
+        assert.deepEqual(
+          result.executionEngine,
+          builtExecutionEngine,
+          "benchmark engine identity differs from the browser build",
+        );
         const report = {
           schema: "vine.browser-bgi-benchmark-report",
           schemaVersion: 1,
@@ -1049,6 +1070,10 @@ if (serveOnly) {
             privateExecutable: {
               bytes: sourceBefore.byteLength,
               sha256: hash(sourceBefore),
+            },
+            executionEngine: {
+              profile: executionEngineProfile,
+              ...result.executionEngine,
             },
             artifacts: Object.fromEntries(artifactEntries),
           },
@@ -1094,7 +1119,7 @@ if (serveOnly) {
         assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the browser session");
         const report = {
           schema: "vine.browser-bgi-runtime-worker",
-          schemaVersion: 2,
+          schemaVersion: 3,
           runtimeProtocol,
           measuredAt: new Date().toISOString(),
           chromeVersion: version,
@@ -1137,7 +1162,7 @@ if (serveOnly) {
       }
       const report = {
         schema: "vine.browser-runtime-worker",
-        schemaVersion: 3,
+        schemaVersion: 4,
         runtimeProtocol,
         measuredAt: new Date().toISOString(),
         chromeVersion: version,
