@@ -168,6 +168,17 @@ pub struct ApiPointerConstraint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiDynamicPointerConstraint {
+    pub nullable: bool,
+    pub alignment: u32,
+    pub minimum_byte_length: u32,
+    pub maximum_byte_length: u32,
+    pub pointee: ApiPointeeSchema,
+    pub write_requirement: ApiWriteRequirement,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ApiValueSchema {
     U32,
@@ -182,6 +193,9 @@ pub enum ApiValueSchema {
     },
     Pointer {
         constraint: ApiPointerConstraint,
+    },
+    DynamicPointer {
+        constraint: ApiDynamicPointerConstraint,
     },
     LogicalHandle {
         namespace: String,
@@ -1071,6 +1085,30 @@ fn validate_contract(contract: &ApiContract) -> Result<(), ApiFault> {
                     .with_endpoint(&contract.endpoint));
                 }
             }
+            ApiValueSchema::DynamicPointer { constraint } => {
+                if constraint.alignment == 0
+                    || !constraint.alignment.is_power_of_two()
+                    || constraint.minimum_byte_length == 0
+                    || constraint.maximum_byte_length < constraint.minimum_byte_length
+                {
+                    return Err(ApiFault::invalid_call(
+                        "api-contract",
+                        "dynamic-pointer-constraint-invalid",
+                        "dynamic pointer alignment and bounded byte lengths must be valid",
+                    )
+                    .with_endpoint(&contract.endpoint));
+                }
+                let writes_allowed =
+                    matches!(argument.direction, ApiDirection::Out | ApiDirection::InOut);
+                if writes_allowed == (constraint.write_requirement == ApiWriteRequirement::None) {
+                    return Err(ApiFault::invalid_call(
+                        "api-contract",
+                        "dynamic-pointer-write-policy-invalid",
+                        "dynamic pointer direction and guest-write requirement disagree",
+                    )
+                    .with_endpoint(&contract.endpoint));
+                }
+            }
             ApiValueSchema::OpaquePointer { alignment, .. } => {
                 if *alignment == 0 || !alignment.is_power_of_two() {
                     return Err(ApiFault::invalid_call(
@@ -1253,6 +1291,36 @@ fn validate_argument(
             }
             let address = GuestAddress(value);
             let byte_length = constraint.byte_length as usize;
+            match schema.direction {
+                ApiDirection::In => memory
+                    .validate_access(address, byte_length, MemoryAccess::Read)
+                    .map_err(|error| ApiFault::from_memory(error, endpoint)),
+                ApiDirection::Out => memory
+                    .validate_access(address, byte_length, MemoryAccess::Write)
+                    .map_err(|error| ApiFault::from_memory(error, endpoint)),
+                ApiDirection::InOut => {
+                    memory
+                        .validate_access(address, byte_length, MemoryAccess::Read)
+                        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+                    memory
+                        .validate_access(address, byte_length, MemoryAccess::Write)
+                        .map_err(|error| ApiFault::from_memory(error, endpoint))
+                }
+            }
+        }
+        ApiValueSchema::DynamicPointer { constraint } => {
+            validate_pointer_value(
+                endpoint,
+                schema,
+                value,
+                constraint.nullable,
+                constraint.alignment,
+            )?;
+            if value == 0 {
+                return Ok(());
+            }
+            let address = GuestAddress(value);
+            let byte_length = constraint.minimum_byte_length as usize;
             match schema.direction {
                 ApiDirection::In => memory
                     .validate_access(address, byte_length, MemoryAccess::Read)
@@ -1481,6 +1549,16 @@ fn validate_guest_writes(
                         argument.as_u32() == Some(write.address.0)
                             && constraint.byte_length as usize == write.bytes.len()
                     }
+                    ApiValueSchema::DynamicPointer { constraint }
+                        if matches!(
+                            argument.schema.direction,
+                            ApiDirection::Out | ApiDirection::InOut
+                        ) && constraint.write_requirement != ApiWriteRequirement::None =>
+                    {
+                        argument.as_u32() == Some(write.address.0)
+                            && write.bytes.len() >= constraint.minimum_byte_length as usize
+                            && write.bytes.len() <= constraint.maximum_byte_length as usize
+                    }
                     _ => false,
                 });
         let Some((argument_index, _)) = matching else {
@@ -1502,11 +1580,16 @@ fn validate_guest_writes(
     }
 
     for (index, argument) in frame.arguments.iter().enumerate() {
-        if let ApiValueSchema::Pointer { constraint } = &argument.schema.value
-            && constraint.write_requirement == ApiWriteRequirement::Required
-            && argument.as_u32() != Some(0)
-            && !written_arguments.contains(&index)
-        {
+        let required = match &argument.schema.value {
+            ApiValueSchema::Pointer { constraint } => {
+                constraint.write_requirement == ApiWriteRequirement::Required
+            }
+            ApiValueSchema::DynamicPointer { constraint } => {
+                constraint.write_requirement == ApiWriteRequirement::Required
+            }
+            _ => false,
+        };
+        if required && argument.as_u32() != Some(0) && !written_arguments.contains(&index) {
             return Err(ApiFault::runtime_defect(
                 "api-dispatch",
                 "required-guest-write-missing",

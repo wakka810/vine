@@ -25,6 +25,7 @@ const supportedObservations = new Set([
   "set-handle-count",
   "command-line-a",
   "environment-strings-w",
+  "wide-char-to-multi-byte",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

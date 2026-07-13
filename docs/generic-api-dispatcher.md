@@ -2,18 +2,18 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, and wide-environment copy-lifetime capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, and Windows-932 conversion capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-environment-strings-w`
-- Scope: frozen 17-call equivalence plus 63 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-wide-char-to-multi-byte`
+- Scope: frozen 17-call equivalence plus 64 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
 `vine-core` owns the synchronous API boundary:
 
 - `ApiEndpointIdentity` and `ApiContract`
-- `AbiSchema`, argument direction, pointer／string／struct／name-or-ordinal constraints, return schema, and stack cleanup
+- `AbiSchema`, argument direction, fixed／bounded-dynamic pointer, string／struct／name-or-ordinal constraints, return schema, and stack cleanup
 - `ApiDispatcher`, `ApiCallFrame`, and `ExecutionSession`
 - state-driven Kernel32 handlers, typed outcomes, and structured `ApiFault`
 
@@ -63,17 +63,18 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `GetCommandLineA` | 1 | returns the stable process-owned ANSI view derived at bootstrap |
 | `GetEnvironmentStringsW` | 1 | acquires one process-owned copy lease for the controlled UTF-16 environment block |
 | `FreeEnvironmentStringsW` | 0 reached; public semantic contract | retires only the exact active copy lease and returns BOOL success |
+| `WideCharToMultiByte` | 1 | performs a host-locale-independent Windows-932 size query; conversion variants share the same public contract |
 
-All 27 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 28 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-63 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
+64 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
 two `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
 critical-section／thread／startup occurrences plus three `GetStdHandle`, three
 `GetFileType`, `SetHandleCount`, `GetCommandLineA`, and
-`GetEnvironmentStringsW` calls. `FreeEnvironmentStringsW` is installed as the
-paired semantic contract but the cumulative BGI session reaches
-`WideCharToMultiByte` before its later free call.
+`GetEnvironmentStringsW` and one `WideCharToMultiByte` size query. The conversion
+and `FreeEnvironmentStringsW` contracts are installed, but the cumulative BGI
+session requests its one-byte destination allocation before those later calls.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The source-v86 Node oracle harness still performs callsite provenance checks and
 adapter-specific dirty-page synchronization around the common semantic path.
@@ -156,7 +157,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 27 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 28 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -168,7 +169,8 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The semantic tests cover all 27 APIs, the five original shapes, output writes,
+The semantic tests cover all 28 APIs, the five original shapes, fixed and
+bounded-dynamic output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
 bytes, same-thread recursion, release, structured contention, dynamic/static ID
@@ -454,6 +456,23 @@ report has SHA-256
 and stops at instruction 1558 on `WideCharToMultiByte`. Full evidence is in
 [bgi-environment-strings-w.md](bgi-environment-strings-w.md).
 
+The current Windows-932 conversion profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-wide-char-to-multi-byte
+```
+
+It fixes `CP_ACP` to Windows-932 without importing the host locale and supports
+bounded positive／`-1` UTF-16 input, query and conversion, complete-unit partial
+output, system-default `?` substitution, optional used-default BOOL, and exact
+LastError behavior. `ApiDynamicPointerConstraint` keeps variable-length output
+inside dispatcher validation and atomic guest writes. The BGI profile completes
+64 calls, uses 65 writeback batches／109 dirty pages／1,057 changed bytes and 30
+host deltas, and ends at generation `124`. Its 295,762-byte report has SHA-256
+`ea0eb0f6a14869ca4e75643f01bd42c8c2e7360584c893e7578f6c21423b56cf`
+and stops at instruction 1591 on `HeapAlloc(0x68010001, 0, 1)`. Full evidence is
+in [bgi-wide-char-to-multi-byte.md](bgi-wide-char-to-multi-byte.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -475,21 +494,21 @@ and stops at instruction 1558 on `WideCharToMultiByte`. Full evidence is in
 - The generic session owns only the reached standard input／output／error
   identities, stdin character classification, and stdout／stderr pipe
   classifications, the policy-enabled `SetHandleCount(32)` no-op contract, and
-  the process-owned ASCII command-line view plus one controlled wide-environment
-  authority／copy lease.
+  the process-owned ASCII command-line view, one controlled wide-environment
+  authority／copy lease, and a policy-owned Windows-932 active code page.
   General handle-table sizing, `SetStdHandle`, close behavior, broader file type,
   console semantics, file I/O, host-environment import, ANSI environment strings,
-  and environment mutation remain absent. Its first unsupported
-  operation is `WideCharToMultiByte()`; bespoke
+  environment mutation, non-Windows-932 code pages, explicit default-character
+  pointers, and nonzero conversion flags remain absent. Its first unsupported
+  operation is `HeapAlloc(0x68010001, 0, 1)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-wide-char-to-multi-byte` at
-`WideCharToMultiByte(CP_ACP, 0, 0x7FFDD030, 1, NULL, 0, NULL, NULL)`. It must
-first fix the native query／conversion pair, Windows-932 behavior, size and
-invalid-input semantics, default-character reporting, LastError, and immediate
-consumer without importing a host locale shortcut.
+The next proof is `kernel32-private-heap-size-1` at
+`HeapAlloc(0x68010001, 0, 1)`. It must first fix the native result,
+initialization guarantee, immediate consumer, lifetime／free behavior, failure
+semantics, and exact policy boundary without broadening the heap contract.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -501,4 +520,5 @@ regression uses field assertions; the replayed policy-bearing standard-output
 report is 257,878 bytes. The stdout-file-type and stderr-handle reports are
 267,223 and 271,184 bytes respectively; the stderr-file-type report is 280,475
 bytes, the SetHandleCount report is 284,215 bytes, the GetCommandLineA report is
-288,041 bytes, and the current environment-strings report is 291,793 bytes.
+288,041 bytes, the environment-strings report is 291,793 bytes, and the current
+Windows-932 report is 295,762 bytes.

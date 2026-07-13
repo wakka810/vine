@@ -100,6 +100,7 @@ enum GenericRuntimeCapability {
     SetHandleCount,
     CommandLineA,
     EnvironmentStringsW,
+    WideCharToMultiByte,
 }
 
 struct GenericRuntimeProcess {
@@ -2436,7 +2437,9 @@ fn run_v86_generic_runtime_session(
     let endpoint_capability = enabled_capability;
     let enabled_capability = match enabled_capability {
         Some(
-            GenericRuntimeCapability::CommandLineA | GenericRuntimeCapability::EnvironmentStringsW,
+            GenericRuntimeCapability::CommandLineA
+            | GenericRuntimeCapability::EnvironmentStringsW
+            | GenericRuntimeCapability::WideCharToMultiByte,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2880,17 +2883,28 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let environment_strings_w_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::EnvironmentStringsW));
+    let wide_char_to_multi_byte_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::WideCharToMultiByte));
+    let environment_strings_w_enabled = matches!(
+        enabled,
+        Some(
+            GenericRuntimeCapability::EnvironmentStringsW
+                | GenericRuntimeCapability::WideCharToMultiByte
+        )
+    );
     let command_line_a_enabled = matches!(
         enabled,
         Some(
-            GenericRuntimeCapability::CommandLineA | GenericRuntimeCapability::EnvironmentStringsW
+            GenericRuntimeCapability::CommandLineA
+                | GenericRuntimeCapability::EnvironmentStringsW
+                | GenericRuntimeCapability::WideCharToMultiByte
         )
     );
     let enabled = match enabled {
         Some(
-            GenericRuntimeCapability::CommandLineA | GenericRuntimeCapability::EnvironmentStringsW,
+            GenericRuntimeCapability::CommandLineA
+            | GenericRuntimeCapability::EnvironmentStringsW
+            | GenericRuntimeCapability::WideCharToMultiByte,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3025,6 +3039,7 @@ fn runtime_capability_enables_endpoint(
         "SetHandleCount" => matches!(enabled, Some(GenericRuntimeCapability::SetHandleCount)),
         "GetCommandLineA" => command_line_a_enabled,
         "GetEnvironmentStringsW" | "FreeEnvironmentStringsW" => environment_strings_w_enabled,
+        "WideCharToMultiByte" => wide_char_to_multi_byte_enabled,
         _ => true,
     }
 }
@@ -8414,6 +8429,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-set-handle-count" => GenericRuntimeCapability::SetHandleCount,
                 "kernel32-command-line-a" => GenericRuntimeCapability::CommandLineA,
                 "kernel32-environment-strings-w" => GenericRuntimeCapability::EnvironmentStringsW,
+                "kernel32-wide-char-to-multi-byte" => GenericRuntimeCapability::WideCharToMultiByte,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

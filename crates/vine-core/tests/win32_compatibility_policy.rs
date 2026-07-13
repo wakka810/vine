@@ -17,13 +17,16 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
             "../../../fixtures/runtime-policies/kernel32-standard-error-file-type-v1.json"
         ),
         include_str!("../../../fixtures/runtime-policies/kernel32-set-handle-count-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-command-line-a-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-environment-strings-w-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-wide-char-to-multi-byte-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
         policy.validate().unwrap();
     }
 
-    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[6]).unwrap();
+    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[9]).unwrap();
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_INPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_OUTPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_ERROR_SELECTOR));
@@ -42,4 +45,12 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert!(active.allows_heap_allocation(0x8, 0x214));
     assert!(active.allows_heap_allocation(0x8, 0x800));
     assert!(active.allows_set_handle_count(32));
+    assert!(active.allows_ansi_command_line());
+    assert!(active.allows_wide_environment_strings());
+    assert_eq!(
+        active
+            .wide_char_to_multi_byte()
+            .map(|policy| (policy.active_code_page, policy.maximum_source_code_units,)),
+        Some((932, 65_536))
+    );
 }

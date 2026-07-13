@@ -1158,6 +1158,7 @@ fn build_bgi_dispatcher(
                 "GetEnvironmentStringsW" | "FreeEnvironmentStringsW" => {
                     kernel32_policy.allows_wide_environment_strings()
                 }
+                "WideCharToMultiByte" => kernel32_policy.wide_char_to_multi_byte().is_some(),
                 _ => true,
             }
         })

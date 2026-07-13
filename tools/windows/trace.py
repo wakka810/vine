@@ -29,6 +29,7 @@ SUPPORTED_OBSERVATIONS = (
     "set-handle-count",
     "command-line-a",
     "environment-strings-w",
+    "wide-char-to-multi-byte",
 )
 
 

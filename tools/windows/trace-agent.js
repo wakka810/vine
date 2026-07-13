@@ -22,6 +22,9 @@ const commandLineLatestPointers = new Map();
 let environmentStringsOracleScheduled = false;
 let environmentStringsOracleSentinel = null;
 let environmentStringsOracleLastError = null;
+let wideCharOracleScheduled = false;
+let wideCharOracleSentinel = null;
+let wideCharOracleLastError = null;
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -87,6 +90,167 @@ function snapshotNulTerminatedString(pointer, encoding) {
 
 function fnv1aByte(hash, byte) {
   return Math.imul((hash ^ byte) >>> 0, 0x01000193) >>> 0;
+}
+
+function signed32(value) {
+  const unsigned = value.toUInt32();
+  return unsigned > 0x7fffffff ? unsigned - 0x100000000 : unsigned;
+}
+
+function snapshotWideCharSource(pointer, requestedUnits) {
+  const maximumUnits = 512 * 1024;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      requestedUnits,
+      maximumUnits,
+      error: "null pointer",
+    };
+  }
+  if (requestedUnits === 0 || requestedUnits < -1) {
+    return {
+      pointer: pointer.toString(),
+      requestedUnits,
+      maximumUnits,
+      error: "invalid UTF-16 unit count",
+    };
+  }
+  try {
+    let observedUnits = requestedUnits;
+    if (requestedUnits === -1) {
+      observedUnits = null;
+      for (let index = 0; index < maximumUnits; index += 1) {
+        if (pointer.add(index * 2).readU16() === 0) {
+          observedUnits = index + 1;
+          break;
+        }
+      }
+      if (observedUnits === null) {
+        return {
+          pointer: pointer.toString(),
+          requestedUnits,
+          maximumUnits,
+          error: "UTF-16 NUL not found within bounded observation",
+        };
+      }
+    }
+    if (observedUnits > maximumUnits) {
+      return {
+        pointer: pointer.toString(),
+        requestedUnits,
+        observedUnits,
+        maximumUnits,
+        error: "UTF-16 input exceeds bounded observation",
+      };
+    }
+    let hash = 0x811c9dc5;
+    let nulUnits = 0;
+    let asciiUnits = 0;
+    let nonAsciiBmpUnits = 0;
+    let highSurrogates = 0;
+    let lowSurrogates = 0;
+    let lastUnit = null;
+    for (let index = 0; index < observedUnits; index += 1) {
+      const unit = pointer.add(index * 2).readU16();
+      hash = fnv1aByte(hash, unit & 0xff);
+      hash = fnv1aByte(hash, unit >>> 8);
+      lastUnit = unit;
+      if (unit === 0) {
+        nulUnits += 1;
+      } else if (unit <= 0x7f) {
+        asciiUnits += 1;
+      } else if (unit >= 0xd800 && unit <= 0xdbff) {
+        highSurrogates += 1;
+      } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+        lowSurrogates += 1;
+      } else {
+        nonAsciiBmpUnits += 1;
+      }
+    }
+    return {
+      pointer: pointer.toString(),
+      requestedUnits,
+      observedUnits,
+      maximumUnits,
+      byteLength: observedUnits * 2,
+      contentFnv1a32: `0x${hash.toString(16).padStart(8, "0")}`,
+      nulUnits,
+      asciiUnits,
+      nonAsciiBmpUnits,
+      highSurrogates,
+      lowSurrogates,
+      endsWithNul: lastUnit === 0,
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      requestedUnits,
+      maximumUnits,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotByteBuffer(pointer, requestedBytes) {
+  const maximumBytes = 1024 * 1024;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      isNull: true,
+    };
+  }
+  if (requestedBytes < 0 || requestedBytes > maximumBytes) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: "byte buffer length is outside the bounded observation",
+    };
+  }
+  try {
+    const buffer = pointer.readByteArray(requestedBytes);
+    const bytes = new Uint8Array(buffer);
+    let hash = 0x811c9dc5;
+    let nulBytes = 0;
+    for (const byte of bytes) {
+      hash = fnv1aByte(hash, byte);
+      if (byte === 0) {
+        nulBytes += 1;
+      }
+    }
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      isNull: false,
+      contentFnv1a32: `0x${hash.toString(16).padStart(8, "0")}`,
+      nulBytes,
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotOptionalBool(pointer) {
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), isNull: true };
+  }
+  try {
+    return {
+      pointer: pointer.toString(),
+      isNull: false,
+      value: pointer.readU32(),
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), isNull: false, error: error.message };
+  }
 }
 
 function readProcessParametersEnvironmentPointer() {
@@ -551,6 +715,12 @@ if (selectedObservations.has("environment-strings-w")) {
     ["FreeEnvironmentStringsW", [null]],
   );
 }
+if (selectedObservations.has("wide-char-to-multi-byte")) {
+  hooks["kernel32.dll"].push([
+    "WideCharToMultiByte",
+    [null, null, null, null, null, null, null, null],
+  ]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -685,9 +855,28 @@ function attachHook(module, name, decoders) {
       if (this.traceEnvironmentStringsOracle) {
         this.lastError = environmentStringsOracleSentinel;
       }
+      this.traceWideCharOracle =
+        wideCharOracleSentinel !== null &&
+        selectedObservations.has("wide-char-to-multi-byte") &&
+        name === "WideCharToMultiByte" &&
+        caller.module === "frida-agent.dll";
+      if (this.traceWideCharOracle) {
+        this.lastError = wideCharOracleSentinel;
+      }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
+      this.traceWideCharConversion =
+        name === "WideCharToMultiByte" &&
+        selectedObservations.has("wide-char-to-multi-byte")
+          ? {
+              source: args[2],
+              sourceUnits: signed32(args[3]),
+              destination: args[4],
+              destinationBytes: signed32(args[5]),
+              usedDefaultChar: args[7],
+            }
+          : null;
       const observation =
         name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
@@ -728,6 +917,24 @@ function attachHook(module, name, decoders) {
                     }
                   : {}),
               }
+          : this.traceWideCharConversion !== null
+            ? {
+                lastErrorBefore: Number(this.lastError) >>> 0,
+                codePage: args[0].toUInt32(),
+                flags: args[1].toUInt32(),
+                source: snapshotWideCharSource(
+                  this.traceWideCharConversion.source,
+                  this.traceWideCharConversion.sourceUnits,
+                ),
+                destinationBefore: snapshotByteBuffer(
+                  this.traceWideCharConversion.destination,
+                  Math.max(0, this.traceWideCharConversion.destinationBytes),
+                ),
+                defaultCharPointer: args[6].toString(),
+                usedDefaultCharBefore: snapshotOptionalBool(
+                  this.traceWideCharConversion.usedDefaultChar,
+                ),
+              }
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||
               (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||
@@ -767,6 +974,11 @@ function attachHook(module, name, decoders) {
       if (this.traceEnvironmentStringsOracle) {
         environmentStringsOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceWideCharOracle) {
+        wideCharOracleLastError = Number(lastError) >>> 0;
+      }
+      const wideCharResult =
+        this.traceWideCharConversion === null ? null : signed32(result);
       const observation = {
         ...(this.traceStartupInfoPointer === null
           ? {}
@@ -806,6 +1018,22 @@ function attachHook(module, name, decoders) {
               ),
             }
           : {}),
+        ...(this.traceWideCharConversion === null
+          ? {}
+          : {
+              wideCharConversion: {
+                result: wideCharResult,
+                destinationAfter: snapshotByteBuffer(
+                  this.traceWideCharConversion.destination,
+                  wideCharResult > 0
+                    ? wideCharResult
+                    : Math.max(0, this.traceWideCharConversion.destinationBytes),
+                ),
+                usedDefaultCharAfter: snapshotOptionalBool(
+                  this.traceWideCharConversion.usedDefaultChar,
+                ),
+              },
+            }),
       };
       finishCall(
         this.traceFrame,
@@ -970,6 +1198,185 @@ function scheduleEnvironmentStringsOracle(module) {
   });
 }
 
+function scheduleWideCharOracle(module) {
+  if (wideCharOracleScheduled) {
+    return;
+  }
+  wideCharOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const getExport = (name) => {
+        const result = findExport(module, name);
+        if (result === null) {
+          throw new Error(`${name} export is unavailable`);
+        }
+        return result;
+      };
+      const wideCharToMultiByte = new NativeFunction(
+        getExport("WideCharToMultiByte"),
+        "int",
+        [
+          "uint32",
+          "uint32",
+          "pointer",
+          "int",
+          "pointer",
+          "int",
+          "pointer",
+          "pointer",
+        ],
+        "stdcall",
+      );
+      const getAcp = new NativeFunction(
+        getExport("GetACP"),
+        "uint32",
+        [],
+        "stdcall",
+      );
+      const allocateUtf16 = (units) => {
+        const pointer = Memory.alloc(units.length * 2);
+        units.forEach((unit, index) => pointer.add(index * 2).writeU16(unit));
+        return pointer;
+      };
+      const invoke = ({
+        id,
+        sentinel,
+        sourceUnits,
+        sourceCount,
+        destinationBytes,
+        defaultCharBytes = null,
+        observeUsedDefault = false,
+      }) => {
+        const source = allocateUtf16(sourceUnits);
+        const destination =
+          destinationBytes === 0 ? ptr(0) : Memory.alloc(destinationBytes);
+        if (!destination.isNull()) {
+          destination.writeByteArray(Array(destinationBytes).fill(0xa5));
+        }
+        const defaultChar =
+          defaultCharBytes === null ? ptr(0) : Memory.alloc(defaultCharBytes.length);
+        if (!defaultChar.isNull()) {
+          defaultChar.writeByteArray(defaultCharBytes);
+        }
+        const usedDefault = observeUsedDefault ? Memory.alloc(4) : ptr(0);
+        if (!usedDefault.isNull()) {
+          usedDefault.writeU32(0xa5a5a5a5);
+        }
+        wideCharOracleSentinel = sentinel;
+        wideCharOracleLastError = null;
+        try {
+          const result = Number(
+            wideCharToMultiByte(
+              0,
+              0,
+              source,
+              sourceCount,
+              destination,
+              destinationBytes,
+              defaultChar,
+              usedDefault,
+            ),
+          );
+          if (wideCharOracleLastError === null) {
+            throw new Error(`${id} did not pass through the conversion hook`);
+          }
+          return {
+            id,
+            sentinel,
+            sourceUnits,
+            sourceCount,
+            destinationCapacity: destinationBytes,
+            defaultCharBytes,
+            observeUsedDefault,
+            result,
+            lastErrorAfter: wideCharOracleLastError,
+            destinationBytes: destination.isNull()
+              ? null
+              : [...new Uint8Array(destination.readByteArray(destinationBytes))],
+            usedDefaultChar: usedDefault.isNull() ? null : usedDefault.readU32(),
+          };
+        } finally {
+          wideCharOracleSentinel = null;
+          wideCharOracleLastError = null;
+        }
+      };
+
+      const emptyUnits = [0, 0];
+      const japaneseUnits = [0x41, 0x3042, 0];
+      const unmappableUnits = [0xd83d, 0xde00, 0];
+      const emptyQuery = invoke({
+        id: "empty-query",
+        sentinel: 87,
+        sourceUnits: emptyUnits,
+        sourceCount: 1,
+        destinationBytes: 0,
+      });
+      const emptyConversion = invoke({
+        id: "empty-conversion",
+        sentinel: 88,
+        sourceUnits: emptyUnits,
+        sourceCount: 1,
+        destinationBytes: emptyQuery.result,
+      });
+      const japaneseQuery = invoke({
+        id: "ascii-japanese-query",
+        sentinel: 89,
+        sourceUnits: japaneseUnits,
+        sourceCount: japaneseUnits.length,
+        destinationBytes: 0,
+        observeUsedDefault: true,
+      });
+      const japaneseConversion = invoke({
+        id: "ascii-japanese-conversion",
+        sentinel: 90,
+        sourceUnits: japaneseUnits,
+        sourceCount: japaneseUnits.length,
+        destinationBytes: japaneseQuery.result,
+        observeUsedDefault: true,
+      });
+      const unmappableConversion = invoke({
+        id: "unmappable-conversion",
+        sentinel: 91,
+        sourceUnits: unmappableUnits,
+        sourceCount: unmappableUnits.length,
+        destinationBytes: 8,
+        defaultCharBytes: [0x3f, 0],
+        observeUsedDefault: true,
+      });
+      const insufficientBuffer = invoke({
+        id: "insufficient-buffer",
+        sentinel: 92,
+        sourceUnits: japaneseUnits,
+        sourceCount: japaneseUnits.length,
+        destinationBytes: 1,
+        observeUsedDefault: true,
+      });
+      const zeroSourceCount = invoke({
+        id: "zero-source-count",
+        sentinel: 93,
+        sourceUnits: emptyUnits,
+        sourceCount: 0,
+        destinationBytes: 0,
+      });
+      emit("wide-char-to-multi-byte-oracle", {
+        profile: "x86-cp-acp-query-convert-v1",
+        activeCodePage: Number(getAcp()),
+        calls: [
+          emptyQuery,
+          emptyConversion,
+          japaneseQuery,
+          japaneseConversion,
+          unmappableConversion,
+          insufficientBuffer,
+          zeroSourceCount,
+        ],
+      });
+    } catch (error) {
+      emit("wide-char-to-multi-byte-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleCriticalSectionOracle(module) {
   if (criticalSectionOracleScheduled) {
     return;
@@ -1087,6 +1494,12 @@ Process.attachModuleObserver({
       selectedObservations.has("environment-strings-w")
     ) {
       scheduleEnvironmentStringsOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("wide-char-to-multi-byte")
+    ) {
+      scheduleWideCharOracle(module);
     }
   },
 });

@@ -630,6 +630,13 @@ environmentStringsSelection.find(
 ).selectedObservations = ["environment-strings-w"];
 assert.doesNotThrow(() => summarizeTrace(encode(environmentStringsSelection)));
 
+const wideCharSelection = structuredClone(events);
+wideCharSelection[0].arguments.observations = ["wide-char-to-multi-byte"];
+wideCharSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["wide-char-to-multi-byte"];
+assert.doesNotThrow(() => summarizeTrace(encode(wideCharSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

@@ -475,7 +475,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         evidence.report.supportedCalls.length,
         checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
       );
-      assert.equal(evidence.report.firstUnsupported?.capabilityCluster, "kernel32-api-contract");
+      assert.equal(
+        evidence.report.firstUnsupported?.capabilityCluster,
+        checkpoint.nextStructuredStop.capabilityCluster,
+      );
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
       assert(evidence.heartbeatSamples > 0, "main heartbeat did not advance during BGI");

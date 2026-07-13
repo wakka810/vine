@@ -6,7 +6,7 @@
 - Date: 2026-07-13
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-environment-strings-w-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-wide-char-to-multi-byte-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -20,7 +20,7 @@ Win32 semantics
                          |
                          v
 Compatibility policy
-  versioned selectors, file types, HeapAlloc pairs, process-view enablement
+  versioned selectors, file types, HeapAlloc pairs, process-view/code-page enablement
   bounded validation and mutation-free unsupported result
                          |
                          v
@@ -39,6 +39,7 @@ runtime execution. It contains only target-independent bounded data:
 - enabled `SetHandleCount` values;
 - opt-in deterministic ANSI view of the process-parameter command line;
 - opt-in controlled UTF-16 environment authority and copy lifetime;
+- opt-in active ANSI code page and bounded UTF-16 source limit;
 - enabled `HeapAlloc` flag and byte-length pairs.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Selectors,
@@ -46,7 +47,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form nine monotonic controlled policies:
+The current files form ten monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -59,6 +60,7 @@ The current files form nine monotonic controlled policies:
 | `kernel32-set-handle-count-v1` | stdin, stdout, stderr | stdin = character, stdout／stderr = pipe; SetHandleCount = 32 | zeroed `0x214`, `0x800` |
 | `kernel32-command-line-a-v1` | stdin, stdout, stderr | preceding options + process-owned ASCII command line | zeroed `0x214`, `0x800` |
 | `kernel32-environment-strings-w-v1` | stdin, stdout, stderr | preceding options + controlled wide-environment copy lifetime | zeroed `0x214`, `0x800` |
+| `kernel32-wide-char-to-multi-byte-v1` | stdin, stdout, stderr | preceding options + Windows-932 ACP／65,536-unit conversion bound | zeroed `0x214`, `0x800` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -82,6 +84,11 @@ branch nor a host path.
 handler IDs over one process-owned lifetime record. The policy only enables the
 controlled wide block; it does not supply environment names, pointer values, or
 caller-specific results.
+`WideCharToMultiByte` uses one semantic handler for query and conversion. The
+policy fixes `CP_ACP` to Windows-932 and a source bound; it contains no BGI
+caller, observed source length, output bytes, host locale, or next-stop data.
+The public fixture exercises a different valid UTF-16 input without editing the
+evidence profile, while unsupported code pages／flags stop before mutation.
 
 Policy JSON parsing and validation is covered independently:
 
@@ -100,6 +107,8 @@ stop remain evidence fields only.
 
 This boundary does not implement broad `HeapAlloc`, general handle-table sizing,
 broad file classification, file I/O, non-ASCII command-line conversion, host
-environment import, environment mutation／ANSI environment strings, or a general Windows console. Adding a policy entry is valid only when
+environment import, environment mutation／ANSI environment strings, arbitrary
+code pages／conversion flags／explicit default-character pointers, or a general
+Windows console. Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

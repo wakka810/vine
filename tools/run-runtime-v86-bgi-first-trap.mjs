@@ -68,6 +68,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-set-handle-count",
         "kernel32-command-line-a",
         "kernel32-environment-strings-w",
+        "kernel32-wide-char-to-multi-byte",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -94,7 +95,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-environment-strings-w"
+    genericRuntimeCapability === "kernel32-wide-char-to-multi-byte"
+      ? "kernel32-wide-char-to-multi-byte-v1.json"
+      : genericRuntimeCapability === "kernel32-environment-strings-w"
       ? "kernel32-environment-strings-w-v1.json"
       : genericRuntimeCapability === "kernel32-command-line-a"
       ? "kernel32-command-line-a-v1.json"
@@ -146,7 +149,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const wideCharToMultiByteEnabled =
+  genericRuntimeCapability === "kernel32-wide-char-to-multi-byte";
 const environmentStringsWEnabled =
+  wideCharToMultiByteEnabled ||
   genericRuntimeCapability === "kernel32-environment-strings-w";
 const commandLineAEnabled =
   environmentStringsWEnabled ||
@@ -199,7 +205,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? environmentStringsWEnabled
+    ? wideCharToMultiByteEnabled
+      ? "v86-bgi-wide-char-to-multi-byte"
+      : environmentStringsWEnabled
       ? "v86-bgi-environment-strings-w"
       : commandLineAEnabled
       ? "v86-bgi-command-line-a"
@@ -1839,6 +1847,32 @@ const environmentStringsWExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const wideCharToMultiByteExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 64,
+  instructionCount: 1558,
+  returnAddress: 0x100a8599,
+  writebackBatches: 65,
+  dirtyPages: 109,
+  changedBytes: 1057,
+  hostDeltaBatches: 30,
+  finalGeneration: 124,
+  memoryContentSha256: "9b2b6b23255736f59b3c02c75bb3dd5adf811fb99e93ce40bc31a601ba55fddb",
+  reportBytes: 295_762,
+  reportSha256: "ea0eb0f6a14869ca4e75643f01bd42c8c2e7360584c893e7578f6c21423b56cf",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-private-heap-allocation",
+    endpointId: 75,
+    endpointAddress: 0x7f0004a0,
+    module: "kernel32.dll",
+    symbol: "HeapAlloc",
+    iatAddress: 0x100d11d4,
+    arguments: [0x68010001, 0, 1],
+    returnAddress: 0x100a4a33,
+    instructionCount: 1591,
+    faultCode: "heap-alloc-variant-unsupported",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2301,6 +2335,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (wideCharToMultiByteEnabled) {
+        validateWideCharToMultiByteResult(genericResult);
       } else if (environmentStringsWEnabled) {
         validateEnvironmentStringsWResult(genericResult);
       } else if (commandLineAEnabled) {
@@ -2336,7 +2372,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : environmentStringsWEnabled
+          : wideCharToMultiByteEnabled
+            ? "bgi WideCharToMultiByte"
+            : environmentStringsWEnabled
             ? "bgi environment strings W"
             : commandLineAEnabled
             ? "bgi command line A"
@@ -2727,7 +2765,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : environmentStringsWEnabled
+        : wideCharToMultiByteEnabled
+          ? 15
+          : environmentStringsWEnabled
           ? 14
           : commandLineAEnabled
           ? 12
@@ -4306,6 +4346,78 @@ function validateEnvironmentStringsWResult(result) {
   );
 }
 
+function validateWideCharToMultiByteResult(result) {
+  const expected = wideCharToMultiByteExpected;
+  const conversions = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "WideCharToMultiByte",
+  );
+  const frees = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "FreeEnvironmentStringsW",
+  );
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(conversions.length, 1);
+  assert.equal(frees.length, 0);
+  assert.deepEqual(conversions[0].arguments, [
+    0,
+    0,
+    environmentStringsWExpected.pointer,
+    1,
+    0,
+    0,
+    0,
+    0,
+  ]);
+  assert.deepEqual(conversions[0].result, { action: "set", value: 1 });
+  assert.equal(
+    conversions[0].implementationId,
+    "kernel32.wide-char-to-multi-byte.v1",
+  );
+  assert.equal(conversions[0].lastError, 87);
+  assert.deepEqual(conversions[0].guestWrites, []);
+  assert.equal(conversions[0].trapInstructionCount, expected.instructionCount);
+  assert.equal(conversions[0].returnAddress, expected.returnAddress);
+  assert.equal(
+    conversions[0].stackPointerAfter,
+    conversions[0].stackPointerBefore + 36,
+  );
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -4327,7 +4439,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : environmentStringsWEnabled
+        : wideCharToMultiByteEnabled
+          ? "vine.v86-bgi-wide-char-to-multi-byte"
+          : environmentStringsWEnabled
           ? "vine.v86-bgi-environment-strings-w"
           : commandLineAEnabled
           ? "vine.v86-bgi-command-line-a"
