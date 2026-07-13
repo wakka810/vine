@@ -6,7 +6,7 @@
 - Date: 2026-07-13
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-standard-error-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-standard-error-file-type-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -43,7 +43,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form five monotonic controlled policies:
+The current files form six monotonic controlled policies:
 
 | Policy | Standard handles | File types | Heap allocations |
 |---|---|---|---|
@@ -52,10 +52,11 @@ The current files form five monotonic controlled policies:
 | `kernel32-standard-output-v1` | stdin, stdout | stdin = character | zeroed `0x214`, `0x800` |
 | `kernel32-standard-output-file-type-v1` | stdin, stdout | stdin = character, stdout = pipe | zeroed `0x214`, `0x800` |
 | `kernel32-standard-error-v1` | stdin, stdout, stderr | stdin = character, stdout = pipe | zeroed `0x214`, `0x800` |
+| `kernel32-standard-error-file-type-v1` | stdin, stdout, stderr | stdin = character, stdout／stderr = pipe | zeroed `0x214`, `0x800` |
 
-Stderr file classification remains unsupported. The handler reports API
-identity through its endpoint and a policy-specific reason before runtime or
-memory mutation.
+Unlisted selectors and file classifications remain unsupported. The handler
+reports API identity through its endpoint and a policy-specific reason before
+runtime or memory mutation.
 
 ## Semantic tests
 
@@ -64,8 +65,8 @@ in-memory policies. One public fixture enables `0xBC` without loading or editing
 the BGI evidence profile, proving that another valid input does not create a new
 handler branch. `GetStdHandle` similarly uses one
 `kernel32.get-std-handle.v2` contract for the baseline, stdout, and stderr policies.
-`GetFileType` uses one `kernel32.get-file-type.v2` handler for both stdin and
-stdout classifications; the policy does not select an implementation branch.
+`GetFileType` uses one `kernel32.get-file-type.v2` handler for stdin, stdout,
+and stderr classifications; the policy does not select an implementation branch.
 
 Policy JSON parsing and validation is covered independently:
 
@@ -82,7 +83,7 @@ stop remain evidence fields only.
 
 ## Non-claims
 
-This boundary does not implement broad `HeapAlloc`, stderr classification,
-broad file classification, file I/O, or a general Windows console. Adding a policy entry is
-valid only when the semantic handler already implements that input domain and a
-public semantic fixture covers it.
+This boundary does not implement broad `HeapAlloc`, broad file classification,
+file I/O, or a general Windows console. Adding a policy entry is valid only when
+the semantic handler already implements that input domain and a public semantic
+fixture covers it.

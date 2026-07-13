@@ -13,13 +13,13 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `bgi-standard-error-handle`: 58 calls across 23 API contracts, memory generation 117 |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (1771 sessions) |
+| Active runtime | `bgi-standard-error-file-type`: 60 calls across 23 API contracts, memory generation 120 |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (1807 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `KERNEL32.dll!GetFileType(0x53010003)` at instruction 1492: `file-type-standard-handle-unsupported` |
+| Next structured stop | `KERNEL32.dll!SetHandleCount(0x00000020)` at instruction 1516: `endpoint-contract-missing` |
 
-The active semantic report is 271,184 bytes with SHA-256
-`bfa1da3badbbd96ed5c282bd21c3bb0041fa06834dbad38fe0af32e116432c2f`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 280,475 bytes with SHA-256
+`ce9d4271db746b1b7d377bb3e42a861f9c611367e5fcfefba0f19b35fca5aee1`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
@@ -211,6 +211,9 @@ fail-closed at `GetStdHandle(STD_ERROR_HANDLE)` after 57 completed calls.
 `npm run check:runtime:bgi-standard-error-handle` returns logical stderr handle
 `0x53010003`, preserves the prior policies and reports, and stops fail-closed at
 `GetFileType(0x53010003)` after 58 completed calls.
+`npm run check:runtime:bgi-standard-error-file-type` classifies that logical
+stderr as `FILE_TYPE_PIPE`, preserves the prior policies and reports, and stops
+fail-closed at `SetHandleCount(32)` after 60 completed calls.
 
 See [docs/README.md](docs/README.md) for the current requirements,
 architecture, corpus inventory, acceptance criteria, and roadmap.

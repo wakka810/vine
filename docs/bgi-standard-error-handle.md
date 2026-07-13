@@ -141,3 +141,7 @@ fault:              file-type-standard-handle-unsupported
 The next checkpoint must classify only the registered logical stderr identity
 from the existing native evidence. It must not add console writes, redirection,
 close behavior, or broad file semantics.
+
+That checkpoint is now complete in
+[bgi-standard-error-file-type.md](bgi-standard-error-file-type.md). This file
+remains the historical stderr-handle checkpoint.

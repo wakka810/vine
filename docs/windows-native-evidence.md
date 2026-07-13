@@ -1178,3 +1178,29 @@ crossings/sessionで全thresholdを通した。cancel 8 instructions、watchdog 
 pending work 0は不変である。詳細は
 [bgi-standard-error-handle.md](bgi-standard-error-handle.md)と
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
+
+## 56. BGI standard error file type
+
+same opt-in `file-type` tracesはBGI caller return RVA `0xA87C8`のstderr
+handles `0x238`／`0x240`に対して、いずれも`FILE_TYPE_PIPE (3)`、LastError
+`87 -> 87`を返す。Consumerはzero checkとlow-byte classification後にhandleを保持し、
+17番目のcritical sectionを初期化して`SetHandleCount(32)`へ進む。Native handle値は
+process-specificなのでdiscardする。
+
+Rust common dispatcherはregistered logical stderr `0x53010003`だけをexisting
+`kernel32.get-file-type.v2`でresolveし、versioned
+`kernel32-standard-error-file-type-v1` policyから`3`を返す。Default policyとunknown
+handleはmutation前にstructured unsupportedとなる。
+`npm run check:runtime:bgi-standard-error-file-type`は23 contracts／60 calls、61
+writeback batches／104 dirty pages／991 changed bytes、30 host deltas、final generation
+`120`を通す。instruction `1516`でID `99`／`SetHandleCount(32)`を
+`endpoint-contract-missing`として停止する。280,475-byte reportのSHA-256は
+`ce9d4271db746b1b7d377bb3e42a861f9c611367e5fcfefba0f19b35fca5aee1`である。
+
+Chrome Runtime Workerも60 ordered calls、same final memory SHA-256
+`5bb58fba2f503a84550a71e0ba35f11049e77ebb9038461db91f04d0dfb3bb61`、same
+structured stopを再現する。Unchanged 3分gateは1,807 sessions／failure 0、p95
+`95.215 ms`、269 Wasm crossings/sessionで全thresholdを通した。cancel 8
+instructions、watchdog 4 instructions、pending work 0は不変である。詳細は
+[bgi-standard-error-file-type.md](bgi-standard-error-file-type.md)と
+[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。

@@ -13,13 +13,16 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
             "../../../fixtures/runtime-policies/kernel32-standard-output-file-type-v1.json"
         ),
         include_str!("../../../fixtures/runtime-policies/kernel32-standard-error-v1.json"),
+        include_str!(
+            "../../../fixtures/runtime-policies/kernel32-standard-error-file-type-v1.json"
+        ),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
         policy.validate().unwrap();
     }
 
-    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[4]).unwrap();
+    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[5]).unwrap();
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_INPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_OUTPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_ERROR_SELECTOR));
@@ -33,7 +36,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     );
     assert_eq!(
         active.standard_handle_file_type(RUNTIME_STANDARD_ERROR_SELECTOR),
-        None
+        Some(3)
     );
     assert!(active.allows_heap_allocation(0x8, 0x214));
     assert!(active.allows_heap_allocation(0x8, 0x800));

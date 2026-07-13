@@ -430,8 +430,8 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("active Kernel32 compatibility policy boundary is invalid");
   }
   const latestEvidence = requireRecord(
-    active.bgiStandardErrorHandle,
-    "activeRuntimeCheckpoint.bgiStandardErrorHandle",
+    active.bgiStandardErrorFileType,
+    "activeRuntimeCheckpoint.bgiStandardErrorFileType",
     errors,
   );
   if (latestEvidence.implementedApiContractCount !== APIs.length) {
@@ -445,12 +445,12 @@ export function validateCurrentCheckpoint(manifest) {
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,
-    "activeRuntimeCheckpoint.bgiStandardErrorHandle.finalMemoryGeneration",
+    "activeRuntimeCheckpoint.bgiStandardErrorFileType.finalMemoryGeneration",
     errors,
   );
   requireSha256(
     latestEvidence.reportSha256,
-    "activeRuntimeCheckpoint.bgiStandardErrorHandle.reportSha256",
+    "activeRuntimeCheckpoint.bgiStandardErrorFileType.reportSha256",
     errors,
   );
   requireString(
@@ -491,7 +491,7 @@ export function loadCurrentCheckpoint(file) {
 export function renderReadmeStatus(manifest) {
   const historical = manifest.historicalBaseline;
   const active = manifest.activeRuntimeCheckpoint;
-  const latest = active.bgiStandardErrorHandle;
+  const latest = active.bgiStandardErrorFileType;
   const browser = manifest.browserCheckpoint;
   const engine = manifest.engineDecisionEvidence.v86EngineGate;
   const next = manifest.nextStructuredStop;

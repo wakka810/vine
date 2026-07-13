@@ -93,6 +93,7 @@ enum GenericRuntimeCapability {
     StandardOutputHandle,
     StandardOutputFileType,
     StandardErrorHandle,
+    StandardErrorFileType,
 }
 
 struct GenericRuntimeProcess {
@@ -2425,6 +2426,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::StandardOutputHandle
                 | GenericRuntimeCapability::StandardOutputFileType
                 | GenericRuntimeCapability::StandardErrorHandle
+                | GenericRuntimeCapability::StandardErrorFileType
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2456,6 +2458,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::StandardOutputHandle
                 | GenericRuntimeCapability::StandardOutputFileType
                 | GenericRuntimeCapability::StandardErrorHandle
+                | GenericRuntimeCapability::StandardErrorFileType
         )
     ) {
         let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
@@ -2568,6 +2571,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::StandardOutputHandle
                             | GenericRuntimeCapability::StandardOutputFileType
                             | GenericRuntimeCapability::StandardErrorHandle
+                            | GenericRuntimeCapability::StandardErrorFileType
                     )
                 ) && endpoint.matches(
                     "kernel32.dll",
@@ -2613,6 +2617,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::StandardOutputHandle
                                     | GenericRuntimeCapability::StandardOutputFileType
                                     | GenericRuntimeCapability::StandardErrorHandle
+                                    | GenericRuntimeCapability::StandardErrorFileType
                             )
                         ) && endpoint.matches(
                             "kernel32.dll",
@@ -2632,6 +2637,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::StandardOutputHandle
                                     | GenericRuntimeCapability::StandardOutputFileType
                                     | GenericRuntimeCapability::StandardErrorHandle
+                                    | GenericRuntimeCapability::StandardErrorFileType
                             )
                         ) && endpoint.matches(
                             "kernel32.dll",
@@ -2650,6 +2656,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::StandardOutputHandle
                                     | GenericRuntimeCapability::StandardOutputFileType
                                     | GenericRuntimeCapability::StandardErrorHandle
+                                    | GenericRuntimeCapability::StandardErrorFileType
                             )
                         ) && endpoint.matches(
                             "kernel32.dll",
@@ -2837,6 +2844,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardOutputHandle
                     | GenericRuntimeCapability::StandardOutputFileType
                     | GenericRuntimeCapability::StandardErrorHandle
+                    | GenericRuntimeCapability::StandardErrorFileType
             )
         ),
         "DecodePointer" => matches!(
@@ -2853,6 +2861,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardOutputHandle
                     | GenericRuntimeCapability::StandardOutputFileType
                     | GenericRuntimeCapability::StandardErrorHandle
+                    | GenericRuntimeCapability::StandardErrorFileType
             )
         ),
         "FlsAlloc" => matches!(
@@ -2868,6 +2877,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardOutputHandle
                     | GenericRuntimeCapability::StandardOutputFileType
                     | GenericRuntimeCapability::StandardErrorHandle
+                    | GenericRuntimeCapability::StandardErrorFileType
             )
         ),
         "HeapAlloc" => matches!(
@@ -2882,6 +2892,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardOutputHandle
                     | GenericRuntimeCapability::StandardOutputFileType
                     | GenericRuntimeCapability::StandardErrorHandle
+                    | GenericRuntimeCapability::StandardErrorFileType
             )
         ),
         "FlsSetValue" => matches!(
@@ -2895,6 +2906,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardOutputHandle
                     | GenericRuntimeCapability::StandardOutputFileType
                     | GenericRuntimeCapability::StandardErrorHandle
+                    | GenericRuntimeCapability::StandardErrorFileType
             )
         ),
         "InterlockedIncrement" => matches!(
@@ -2907,6 +2919,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardOutputHandle
                     | GenericRuntimeCapability::StandardOutputFileType
                     | GenericRuntimeCapability::StandardErrorHandle
+                    | GenericRuntimeCapability::StandardErrorFileType
             )
         ),
         "GetStdHandle" => matches!(
@@ -2917,6 +2930,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardOutputHandle
                     | GenericRuntimeCapability::StandardOutputFileType
                     | GenericRuntimeCapability::StandardErrorHandle
+                    | GenericRuntimeCapability::StandardErrorFileType
             )
         ),
         "GetFileType" => matches!(
@@ -2926,6 +2940,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::StandardOutputHandle
                     | GenericRuntimeCapability::StandardOutputFileType
                     | GenericRuntimeCapability::StandardErrorHandle
+                    | GenericRuntimeCapability::StandardErrorFileType
             )
         ),
         _ => true,
@@ -2952,7 +2967,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::FileType
             | GenericRuntimeCapability::StandardOutputHandle
             | GenericRuntimeCapability::StandardOutputFileType
-            | GenericRuntimeCapability::StandardErrorHandle,
+            | GenericRuntimeCapability::StandardErrorHandle
+            | GenericRuntimeCapability::StandardErrorFileType,
         ) => {
             matches!(endpoint.name.as_str(), "FlsAlloc" | "FlsSetValue")
         }
@@ -8309,6 +8325,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::StandardOutputFileType
                 }
                 "kernel32-standard-error-handle" => GenericRuntimeCapability::StandardErrorHandle,
+                "kernel32-standard-error-file-type" => {
+                    GenericRuntimeCapability::StandardErrorFileType
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
