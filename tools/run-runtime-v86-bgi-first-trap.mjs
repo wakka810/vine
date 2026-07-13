@@ -69,6 +69,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-command-line-a",
         "kernel32-environment-strings-w",
         "kernel32-wide-char-to-multi-byte",
+        "kernel32-private-heap-size-1",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -95,7 +96,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-wide-char-to-multi-byte"
+    genericRuntimeCapability === "kernel32-private-heap-size-1"
+      ? "kernel32-private-heap-size-1-v1.json"
+      : genericRuntimeCapability === "kernel32-wide-char-to-multi-byte"
       ? "kernel32-wide-char-to-multi-byte-v1.json"
       : genericRuntimeCapability === "kernel32-environment-strings-w"
       ? "kernel32-environment-strings-w-v1.json"
@@ -149,7 +152,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const privateHeapSize1Enabled =
+  genericRuntimeCapability === "kernel32-private-heap-size-1";
 const wideCharToMultiByteEnabled =
+  privateHeapSize1Enabled ||
   genericRuntimeCapability === "kernel32-wide-char-to-multi-byte";
 const environmentStringsWEnabled =
   wideCharToMultiByteEnabled ||
@@ -205,7 +211,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? wideCharToMultiByteEnabled
+    ? privateHeapSize1Enabled
+      ? "v86-bgi-private-heap-size-1"
+      : wideCharToMultiByteEnabled
       ? "v86-bgi-wide-char-to-multi-byte"
       : environmentStringsWEnabled
       ? "v86-bgi-environment-strings-w"
@@ -1873,6 +1881,54 @@ const wideCharToMultiByteExpected = {
     faultCode: "heap-alloc-variant-unsupported",
   },
 };
+const privateHeapSize1Expected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 67,
+  heapHandle: 0x68010001,
+  guestAddress: 0x20000a18,
+  allocationInstructionCount: 1591,
+  allocationReturnAddress: 0x100a4a33,
+  conversionInstructionCount: 1624,
+  conversionReturnAddress: 0x100a85bc,
+  freeInstructionCount: 1629,
+  freeReturnAddress: 0x100a85d3,
+  writebackBatches: 68,
+  dirtyPages: 114,
+  changedBytes: 1166,
+  hostDeltaBatches: 32,
+  finalGeneration: 129,
+  allocationDelta: {
+    sequence: 65,
+    fromGeneration: 124,
+    generation: 125,
+    address: 0x20000000,
+    owner: 10,
+    payloadSha256: "ad2fa02b3d6607b908899adf2b82cca5ebd6bd63e33709f43f2da67e0a55ac42",
+  },
+  conversionDelta: {
+    sequence: 66,
+    fromGeneration: 126,
+    generation: 127,
+    address: 0x20000000,
+    owner: 10,
+    payloadSha256: "1504483f3eb1dfa3da39c5141a14dda7233850b774769f59431cf97b46989526",
+  },
+  memoryContentSha256: "db234b2791244b2ca04dc20c957d3636a04b8a75ab506194d08ee03065bed7f2",
+  reportBytes: 308_984,
+  reportSha256: "bfecc42fc7b32d21fc86580f81174548e6a26ff2b96f9dee05de51a9e7b4e26e",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 129,
+    endpointAddress: 0x7f000800,
+    module: "kernel32.dll",
+    symbol: "GetLastError",
+    iatAddress: 0x100d12ac,
+    arguments: [],
+    returnAddress: 0x100a55dd,
+    instructionCount: 1687,
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2335,6 +2391,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (privateHeapSize1Enabled) {
+        validatePrivateHeapSize1Result(genericResult);
       } else if (wideCharToMultiByteEnabled) {
         validateWideCharToMultiByteResult(genericResult);
       } else if (environmentStringsWEnabled) {
@@ -2372,7 +2430,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : wideCharToMultiByteEnabled
+          : privateHeapSize1Enabled
+            ? "bgi private-heap size-1 allocation"
+            : wideCharToMultiByteEnabled
             ? "bgi WideCharToMultiByte"
             : environmentStringsWEnabled
             ? "bgi environment strings W"
@@ -4418,6 +4478,166 @@ function validateWideCharToMultiByteResult(result) {
   );
 }
 
+function validatePrivateHeapSize1Result(result) {
+  const expected = privateHeapSize1Expected;
+  const allocations = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "HeapAlloc",
+  );
+  const conversions = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "WideCharToMultiByte",
+  );
+  const frees = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "FreeEnvironmentStringsW",
+  );
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  assert.equal(allocations.length, 3);
+  assert.deepEqual(allocations[2].arguments, [expected.heapHandle, 0, 1]);
+  assert.deepEqual(allocations[2].result, {
+    action: "set",
+    value: expected.guestAddress,
+  });
+  assert.equal(allocations[2].implementationId, "kernel32.heap-alloc.v2");
+  assert.equal(allocations[2].lastError, 87);
+  assert.deepEqual(allocations[2].guestWrites, []);
+  assert.equal(
+    allocations[2].stackPointerAfter,
+    allocations[2].stackPointerBefore + 16,
+  );
+  assert.equal(
+    allocations[2].trapInstructionCount,
+    expected.allocationInstructionCount,
+  );
+  assert.equal(allocations[2].returnAddress, expected.allocationReturnAddress);
+  assert.deepEqual(allocations[2].heapAllocation, {
+    heapHandle: expected.heapHandle,
+    allocation: {
+      id: 3,
+      address: expected.guestAddress,
+      byteLength: 1,
+      reservedByteLength: 8,
+      initialization: "deterministic-uninitialized",
+    },
+    liveAllocations: 3,
+  });
+
+  assert.equal(conversions.length, 2);
+  assert.deepEqual(conversions[1].arguments, [
+    0,
+    0,
+    environmentStringsWExpected.pointer,
+    1,
+    expected.guestAddress,
+    1,
+    0,
+    0,
+  ]);
+  assert.deepEqual(conversions[1].result, { action: "set", value: 1 });
+  assert.equal(
+    conversions[1].implementationId,
+    "kernel32.wide-char-to-multi-byte.v1",
+  );
+  assert.equal(conversions[1].lastError, 87);
+  assert.deepEqual(conversions[1].guestWrites, [
+    {
+      address: expected.guestAddress,
+      bytes: [0],
+      result: {
+        bytesWritten: 1,
+        dirtyPages: 1,
+        invalidation: {
+          generation: expected.conversionDelta.generation,
+          dataTlb: false,
+          instructionFetch: false,
+          generatedCode: false,
+        },
+      },
+    },
+  ]);
+  assert.equal(
+    conversions[1].stackPointerAfter,
+    conversions[1].stackPointerBefore + 36,
+  );
+  assert.equal(
+    conversions[1].trapInstructionCount,
+    expected.conversionInstructionCount,
+  );
+  assert.equal(conversions[1].returnAddress, expected.conversionReturnAddress);
+
+  assert.equal(frees.length, 1);
+  assert.deepEqual(frees[0].arguments, [environmentStringsWExpected.pointer]);
+  assert.deepEqual(frees[0].result, { action: "set", value: 1 });
+  assert.equal(
+    frees[0].implementationId,
+    "kernel32.free-environment-strings-w.v1",
+  );
+  assert.equal(frees[0].lastError, 87);
+  assert.deepEqual(frees[0].guestWrites, []);
+  assert.equal(frees[0].stackPointerAfter, frees[0].stackPointerBefore + 8);
+  assert.equal(frees[0].trapInstructionCount, expected.freeInstructionCount);
+  assert.equal(frees[0].returnAddress, expected.freeReturnAddress);
+
+  for (const deltaExpected of [
+    expected.allocationDelta,
+    expected.conversionDelta,
+  ]) {
+    const delta = result.hostDeltas.find(
+      ({ sequence }) => sequence === deltaExpected.sequence,
+    );
+    assert(delta, `host delta ${deltaExpected.sequence} is missing`);
+    assert.equal(delta.fromGeneration, deltaExpected.fromGeneration);
+    assert.equal(delta.generation, deltaExpected.generation);
+    assert.equal(delta.mappingOperations, 0);
+    assert.deepEqual(delta.dirtyPages, [
+      { address: deltaExpected.address, owner: deltaExpected.owner },
+    ]);
+    assert.equal(delta.payloadBytes, page.size);
+    assert.equal(delta.payloadSha256, deltaExpected.payloadSha256);
+    assert.deepEqual(delta.cacheEffects, {
+      flushTlb: false,
+      invalidateInstructionFetch: false,
+      invalidateGeneratedCode: false,
+    });
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -4439,7 +4659,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : wideCharToMultiByteEnabled
+        : privateHeapSize1Enabled
+          ? "vine.v86-bgi-private-heap-size-1"
+          : wideCharToMultiByteEnabled
           ? "vine.v86-bgi-wide-char-to-multi-byte"
           : environmentStringsWEnabled
           ? "vine.v86-bgi-environment-strings-w"

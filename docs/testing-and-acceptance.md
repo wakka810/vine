@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、61-call BGI Chrome Worker semantic equivalence／3分workload threshold、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph、controlled process／initial-thread lifecycle contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。full-play steady-memoryと次capability以降のbrowser pathは未選定
+- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、67-call BGI Chrome Worker semantic equivalence／3分workload threshold、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph、controlled process／initial-thread lifecycle contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。full-play steady-memoryと次capability以降のbrowser pathは未選定
 
 この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
@@ -371,6 +371,15 @@ writeへ入る。Private BGI profileは28 contracts／64 calls、generation `124
 structured stopを再現する。詳細は
 [bgi-wide-char-to-multi-byte.md](bgi-wide-char-to-multi-byte.md)を正とする。
 
+Reached flags-zero `HeapAlloc`の代表Rust contractは既存
+`kernel32.heap-alloc.v2`に対するpolicy pair `(0,1)`、allocation ID `3`、
+requested／reserved length `1／8`、deterministic-uninitialized fill、dirty-only
+delta、unsupported pairのmutation-free stopを固定する。Private BGI profileは
+28 contracts／67 calls、generation `129`まで進み、instruction 1687の
+`GetLastError()`で停止する。Chrome Workerもsame calls、memory digest、
+structured stopを再現する。詳細は
+[bgi-private-heap-size-1.md](bgi-private-heap-size-1.md)を正とする。
+
 Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
 implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、
 Node／Chrome semantic outcome、Rust／LLVM／v86 identity、next structured stop、memory digest、
@@ -463,11 +472,11 @@ W3 representative browser contractは、このW2 harnessが成功後にemitす�
 
 private BGI Worker contractはcurrent generic profileをChrome内Rust/Wasm authorityで実行する。Nodeは
 oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatcher／memory stateを所有しない。
-64 ordered completions、1,591 instructions、final memory content digest、next structured faultを比較し、
+67 ordered completions、1,687 instructions、final memory content digest、next structured faultを比較し、
 8-instruction cancelと4-instruction watchdogでprocess exit／module detach／pending work zeroを要求する。
 詳細は[bgi-browser-worker.md](bgi-browser-worker.md)を正とする。単発heap値はsemantic
 report identityに留め、別のversion 1 BGI workload gateが同じWorkerで完全sessionを3分反復する。
-2,182 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
+2,162 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
 回帰slope、Worker backing storage、Rust／execution-engine linear memory、Wasm crossings/sessionをversioned
 thresholdで判定する。必要sampleが取得不能ならfailし、全thresholdのobserved valueと判定理由を
 reportへ保存する。詳細は[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
@@ -665,7 +674,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
-現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。frozen controlled CPUはprimary titleの17 API return、separate runtime-kernel profileは28 contracts／64 calls、strict pointer inverse、one bounded FLS slot／selected-thread value、two reached zeroed heap blocks、three checked LONG increments、logical stdin／stdout／stderr、stdin `FILE_TYPE_CHAR`／stdout／stderr `FILE_TYPE_PIPE`、policy-enabled `SetHandleCount(32)`、process-owned ASCII command-line pointer、controlled wide-environment authority／copy lifetime、policy-owned Windows-932 conversionまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／broad guest heap APIとtitle capacity／system-DLL image／snapshot、full title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
+現在のproduction memory／entry／return／stack／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。frozen controlled CPUはprimary titleの17 API return、separate runtime-kernel profileは28 contracts／67 calls、strict pointer inverse、one bounded FLS slot／selected-thread value、two reached zeroed heap blocks、one flags-zero deterministic-uninitialized heap block、three checked LONG increments、logical stdin／stdout／stderr、stdin `FILE_TYPE_CHAR`／stdout／stderr `FILE_TYPE_PIPE`、policy-enabled `SetHandleCount(32)`、process-owned ASCII command-line pointer、controlled wide-environment authority／copy lifetime、policy-owned Windows-932 conversionまで進み、public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、adopted ISA suite、general process／thread／wait lifecycle、broader PEB・TEB、host timeout、guard／broad guest heap APIとtitle capacity／system-DLL image／snapshot、full title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
 
 ### AC-P2: Headless PE runtime complete
 
@@ -681,7 +690,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
-現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の17 frozen API return、four ordered dynamic endpoint identities、logical TLS／encoded-pointer／FLS allocation／selected-thread value／reached heap／interlocked／stdin／stdout／stderr state、stdin／stdout／stderr file type、`SetHandleCount(32)`、stable ANSI command-line pointer、controlled wide-environment copy、Windows-932 size queryを処理し、separate generic dispatcherは64 callsまで進むが、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから最初の17 frozen API return、four ordered dynamic endpoint identities、logical TLS／encoded-pointer／FLS allocation／selected-thread value／reached heap／interlocked／stdin／stdout／stderr state、stdin／stdout／stderr file type、`SetHandleCount(32)`、stable ANSI command-line pointer、controlled wide-environment copy、Windows-932 query／conversion、one-byte private-heap allocationを処理し、separate generic dispatcherは67 callsまで進むが、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 
 ### AC-P3: Win32 substrate and persistence complete
 

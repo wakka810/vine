@@ -1328,3 +1328,39 @@ Chrome Runtime Workerも64 ordered callsとsame stop／memoryを再現し、226 
 283 Wasm crossings、final generation `234`、cancel／watchdog後pending work 0を通す。3分gateは
 2,182 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-wide-char-to-multi-byte.md](bgi-wide-char-to-multi-byte.md)を正とする。
+
+## 61. BGI private-heap one-byte allocation
+
+combined heap／wide-environment observerのcomplete capturesは4,390,685
+bytes／13,830 lines／SHA-256
+`6d0c372dc3fde306798ddf2e5dc98c656aecf96e72db0424c465abb9976be693`と
+4,211,371 bytes／13,262 lines／SHA-256
+`4825636bcbfc9c923caaac28c96980b60d60fc4856acb9a2b4258b461bb9fe96`
+である。Summariesは6,882／6,598 balanced API pairsとdiagnostics zeroを保持する。
+Timeout中にheap pairが途切れた2 capturesはunbalanced evidenceとして除外した。
+
+Native launchは`WideCharToMultiByte` queryで3,637 bytesを得て、BGI return RVA
+`0xA4A33`の`HeapAlloc(nativeHeap,0,3637)`へ渡す。Non-null allocation pointerは
+return RVA `0xA85BC`のconversion destinationと一致し、同じpointerがlater return RVA
+`0xA48CD`の`HeapFree`へ渡されてresult `1`となる。Allocation sampleはLastError
+`0 -> 0`を保つ。Initial bytesは2 capturesで一致しないため、pointer value／contentを
+semantic oracleにせず、size dataflow、nonnull、consumer、lifetime relationだけを採用する。
+
+Controlled empty environmentのquery resultは1なので、policy
+`kernel32-private-heap-size-1-v1`はexisting `kernel32.heap-alloc.v2`へ
+`(flags=0,size=1)`だけを許可する。Runtimeはallocation ID `3`／guest
+`0x20000A18`／requested 1／reserved 8／deterministic-uninitializedを保持し、
+following conversionのNUL writeとsource-copy freeまで進む。Native initial bytesのexact
+再現やbroad heap semanticsは主張しない。
+
+`npm run check:runtime:bgi -- --profile kernel32-private-heap-size-1`は28 contracts／67 calls、
+68 writebacks／114 dirty pages／1,166 changed bytes、32 host deltas、final generation `129`を通す。
+instruction `1687`でID `129`／`GetLastError()`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`db234b2791244b2ca04dc20c957d3636a04b8a75ab506194d08ee03065bed7f2`、308,984-byte
+reportのSHA-256は`bfecc42fc7b32d21fc86580f81174548e6a26ff2b96f9dee05de51a9e7b4e26e`である。
+
+Chrome Runtime Workerも67 ordered callsとsame stop／memoryを再現し、240 slices、172 yields、
+299 Wasm crossings、final generation `247`、cancel／watchdog後pending work 0を通す。3分gateは
+2,162 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-private-heap-size-1.md](bgi-private-heap-size-1.md)を正とする。

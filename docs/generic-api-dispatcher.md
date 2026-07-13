@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, and Windows-932 conversion capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 conversion, and one-byte uninitialized private-heap capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-wide-char-to-multi-byte`
-- Scope: frozen 17-call equivalence plus 64 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-private-heap-size-1`
+- Scope: frozen 17-call equivalence plus 67 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -473,12 +473,29 @@ host deltas, and ends at generation `124`. Its 295,762-byte report has SHA-256
 and stops at instruction 1591 on `HeapAlloc(0x68010001, 0, 1)`. Full evidence is
 in [bgi-wide-char-to-multi-byte.md](bgi-wide-char-to-multi-byte.md).
 
+The current one-byte private-heap profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-private-heap-size-1
+```
+
+It reuses `kernel32.heap-alloc.v2` and adds only policy pair `(flags=0,
+byteLength=1)`. The allocation is ID `3` at `0x20000A18`, reserves 8 bytes with
+deterministic-uninitialized fill, and reaches the following conversion and
+environment-copy release. The profile completes 67 calls, uses 68 writeback
+batches／114 dirty pages／1,166 changed bytes and 32 host deltas, and ends at
+generation `129`. Its 308,984-byte report has SHA-256
+`bfecc42fc7b32d21fc86580f81174548e6a26ff2b96f9dee05de51a9e7b4e26e`
+and stops at instruction 1687 on the missing `GetLastError` contract. Full
+evidence is in [bgi-private-heap-size-1.md](bgi-private-heap-size-1.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
 - The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
-- Private heaps have bounded guest-memory backing and the first two reached
-  zeroed `HeapAlloc` variants enabled by policy; other sizes/flags,
+- Private heaps have bounded guest-memory backing, the first two reached zeroed
+  allocations, and one flags-zero deterministic-uninitialized allocation
+  enabled by policy; other sizes/flags,
   free/destroy/realloc dispatch, and broad allocator policy remain absent.
 - FLS get/free/callback teardown and TLS free/thread lifecycle, critical-section
   deletion／contention blocking, and arbitrary export pages are absent. Only the
@@ -500,15 +517,15 @@ in [bgi-wide-char-to-multi-byte.md](bgi-wide-char-to-multi-byte.md).
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
   pointers, and nonzero conversion flags remain absent. Its first unsupported
-  operation is `HeapAlloc(0x68010001, 0, 1)`; bespoke
+  operation is `GetLastError()`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-private-heap-size-1` at
-`HeapAlloc(0x68010001, 0, 1)`. It must first fix the native result,
-initialization guarantee, immediate consumer, lifetime／free behavior, failure
-semantics, and exact policy boundary without broadening the heap contract.
+The next proof is `kernel32-get-last-error` at `GetLastError()`. It must first
+fix the reached native return and LastError relation, then add a zero-argument
+target-independent contract over Rust-owned per-thread state without broadening
+adjacent error APIs.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -520,5 +537,5 @@ regression uses field assertions; the replayed policy-bearing standard-output
 report is 257,878 bytes. The stdout-file-type and stderr-handle reports are
 267,223 and 271,184 bytes respectively; the stderr-file-type report is 280,475
 bytes, the SetHandleCount report is 284,215 bytes, the GetCommandLineA report is
-288,041 bytes, the environment-strings report is 291,793 bytes, and the current
-Windows-932 report is 295,762 bytes.
+288,041 bytes, the environment-strings report is 291,793 bytes, the Windows-932
+report is 295,762 bytes, and the current one-byte heap report is 308,984 bytes.

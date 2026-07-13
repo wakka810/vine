@@ -13,13 +13,13 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `bgi-wide-char-to-multi-byte`: 64 calls across 28 API contracts, memory generation 124 |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (2182 sessions) |
+| Active runtime | `bgi-private-heap-size-1`: 67 calls across 28 API contracts, memory generation 129 |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (2162 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `KERNEL32.dll!HeapAlloc(0x68010001, 0x00000000, 0x00000001)` at instruction 1591: `heap-alloc-variant-unsupported` |
+| Next structured stop | `KERNEL32.dll!GetLastError()` at instruction 1687: `endpoint-contract-missing` |
 
-The active semantic report is 295,762 bytes with SHA-256
-`ea0eb0f6a14869ca4e75643f01bd42c8c2e7360584c893e7578f6c21423b56cf`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 308,984 bytes with SHA-256
+`bfecc42fc7b32d21fc86580f81174548e6a26ff2b96f9dee05de51a9e7b4e26e`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
