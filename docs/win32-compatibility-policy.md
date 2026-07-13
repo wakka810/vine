@@ -153,6 +153,13 @@ public fixture independently covers lower／upper query and output, Japanese and
 fullwidth units, insufficient capacity, invalid zero／NULL shapes, LastError,
 ABI cleanup, and mutation-free unsupported locale／flags／negative count／overlap／
 code-unit paths.
+`InterlockedDecrement` is policy-independent. Its one-argument semantic handler
+requires a naturally aligned writable LONG, performs checked wrapping decrement,
+returns the new signed bits, and preserves LastError. The reached pointer,
+initial values, caller RVAs, order, and next stop remain evidence only. The
+public fixture independently covers the two reached transitions, `INT_MIN`
+wrapping, ABI cleanup, exact write, and mutation-free NULL／unaligned／unmapped／
+read-only failures.
 
 Policy JSON parsing and validation is covered independently:
 
@@ -175,7 +182,7 @@ environment import, environment mutation／ANSI environment strings, arbitrary
 code-page selection or mutation／other conversion flags／explicit default-character pointers,
 negative-length or broad `GetStringTypeW`, `CT_CTYPE2`／`CT_CTYPE3`,
 negative-length／arbitrary-locale／combined-flag `LCMapStringW`, broad locale
-classification, `InterlockedDecrement`, or a general Windows console.
+classification, other interlocked APIs／cross-Worker atomicity, or a general Windows console.
 Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

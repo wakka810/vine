@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-lc-map-string-w`
-- Scope: frozen 17-call equivalence plus 113 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-interlocked-decrement`
+- Scope: frozen 17-call equivalence plus 119 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -73,18 +73,19 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `MultiByteToWideChar` | 6 | queries and writes checked Windows-932 UTF-16 output without host-locale input |
 | `GetStringTypeW` | 1 | writes checked policy-enabled CTYPE1 WORD classifications without host-locale input |
 | `LCMapStringW` | 4 | queries and writes checked ja-JP lowercase／uppercase output without host-locale input |
+| `InterlockedDecrement` | 2 | performs a checked aligned wrapping LONG decrement in guest memory |
 
-All 37 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 38 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-113 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
+119 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
 four `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
 critical-section／thread／startup occurrences plus three `GetStdHandle`, three
 `GetFileType`, `SetHandleCount`, `GetCommandLineA`, and
 `GetEnvironmentStringsW`, four `WideCharToMultiByte`, seven each of
 `GetLastError`, `TlsGetValue`, `FlsGetValue`, and `SetLastError`, one `GetACP`,
-one `GetCPInfo`, six `MultiByteToWideChar`, one `GetStringTypeW`, and four
-`LCMapStringW` calls.
+one `GetCPInfo`, six `MultiByteToWideChar`, one `GetStringTypeW`, four
+`LCMapStringW`, and two `InterlockedDecrement` calls.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The source-v86 Node oracle harness still performs callsite provenance checks and
 adapter-specific dirty-page synchronization around the common semantic path.
@@ -671,6 +672,23 @@ deltas, and ends at generation `187`. Its 550,988-byte report has SHA-256
 and stops at instruction 12137 on missing `InterlockedDecrement`. Full evidence
 is in [bgi-lc-map-string-w.md](bgi-lc-map-string-w.md).
 
+The current checked decrement profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-interlocked-decrement
+```
+
+`kernel32.interlocked-decrement.v1` implements the one-argument aligned
+`InOut LONG` shape without a compatibility-policy selector. It shares the
+checked LONG helper with `InterlockedIncrement`, applies wrapping subtraction,
+and preserves LastError. NULL, unaligned, unmapped, and read-only targets stop
+before mutation. The profile completes 119 calls, uses 120 writeback batches／
+187 dirty pages／3,640 changed bytes and 50 host deltas, and ends at generation
+`199`. Its 580,772-byte report has SHA-256
+`6c905456197834909eb965cfa950c05a4587a91486b7b9c72f55253340bb9ff4`
+and stops at instruction 15863 on missing `GetModuleFileNameA`. Full evidence is
+in [bgi-interlocked-decrement.md](bgi-interlocked-decrement.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -688,8 +706,8 @@ is in [bgi-lc-map-string-w.md](bgi-lc-map-string-w.md).
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
   Rust byte authority, automatic v86 writeback, and binary transport are now
   fixed by ADR-003 and the memory-writeback checkpoint.
-- `InterlockedIncrement` is implemented only for the checked 32-bit LONG shape
-  in the single cooperative Runtime Worker. Adjacent interlocked APIs and
+- `InterlockedIncrement` and `InterlockedDecrement` are implemented only for the
+  checked aligned 32-bit LONG shape in the single cooperative Runtime Worker. Other interlocked APIs and
   cross-worker shared-memory atomicity are absent.
 - The generic session owns only the reached standard input／output／error
   identities, stdin character classification, and stdout／stderr pipe
@@ -698,7 +716,7 @@ is in [bgi-lc-map-string-w.md](bgi-lc-map-string-w.md).
   authority／copy lease, a policy-owned Windows-932 active code page, and its
   measured 18-byte code-page information fields, checked Windows-932
   multibyte query/conversion, and the reached positive-length `CT_CTYPE1`
-  classification.
+  classification, plus checked wrapping decrement of one aligned process LONG.
   General handle-table sizing, `SetStdHandle`, close behavior, broader file type,
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
@@ -706,15 +724,16 @@ is in [bgi-lc-map-string-w.md](bgi-lc-map-string-w.md).
   `GetStringTypeW` lengths, other information types, arbitrary `LCMapStringW`
   locale/flag/length variants, and broad locale tables
   remain absent. Its first unsupported operation is
-  `InterlockedDecrement(0x100F08E0)`; bespoke
+  `GetModuleFileNameA(NULL, 0x100FF520, 260)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-interlocked-decrement` at
-`InterlockedDecrement(0x100F08E0)`. It must first fix the pointed LONG's initial
-and final values, result, wrapping behavior, LastError, alignment, and immediate
-consumer, then add only the reached checked atomic contract.
+The next proof is `kernel32-get-module-file-name-a` at
+`GetModuleFileNameA(NULL, 0x100FF520, 260)`. It must first fix NULL-module
+selection, ANSI output bytes, length and termination, insufficient-capacity
+behavior, LastError, guards, and the immediate consumer, then add only the
+reached checked process-image-path contract.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -733,4 +752,5 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     bytes, the GetACP report is 367,384 bytes, the 544-byte heap report is
     386,921 bytes, the GetCPInfo report is 407,009 bytes, the
     MultiByteToWideChar report is 423,814 bytes, the GetStringTypeW report is
-    468,010 bytes, and the current LCMapStringW report is 550,988 bytes.
+    468,010 bytes, the LCMapStringW report is 550,988 bytes, and the current
+    InterlockedDecrement report is 580,772 bytes.

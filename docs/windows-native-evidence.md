@@ -1743,3 +1743,46 @@ Chrome Runtime Workerも113 ordered callsとsame stop／memoryを再現し、1,5
 1,207 Wasm crossings、final generation `887`、cancel／watchdog後pending work 0を通す。3分gateは
 1,200 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-lc-map-string-w.md](bgi-lc-map-string-w.md)を正とする。
+
+## 72. BGI InterlockedDecrement
+
+focused `interlocked-decrement` observerのaccepted capturesは51,155 bytes／70 lines／
+SHA-256 `870cd630131c437bc65ef0818bacb87b4599e01c87bf19ed93d6d9a071c66be9`と
+51,148 bytes／70 lines／SHA-256
+`5bc3f4b68f74964e55def6bf33a31fbf4bd6fc87134c5d3f29a135a6a24d9c25`
+である。どちらも9 balanced API pairs、contiguous sequence、diagnostics zeroを保持する。
+Observerはtwo direct BGI calls、three guarded x86 self-oracle calls、four incidental
+`GetProcAddress` pairsだけを残し、pointed LONG before／after、signed result、LastError、
+alignment、guards、two return continuationsとimmediate consumersを記録する。
+
+BGI targetはguest `0x100F08E0`／RVA `0xF08E0`で4-byte alignedである。RVA
+`0xA7201`へ戻るfirst callは`1 -> 0`／result `0`、RVA `0xA72B8`へ戻るsecond
+callは`0 -> -1`／result `-1`で、LastError `87`または`0`を保存する。First
+consumerはEAX zeroを検査してretained process pointerのrelease／replaceを選び、second
+consumerはEAXと後続`-1`比較からrelease／error pathを選ぶ。
+
+Guarded oracleはaligned targetについて`1 -> 0`、`0 -> -1`、`INT_MIN -> INT_MAX`
+と同じresultを固定し、LastError `0`、`87`、`0x12345678`を保存する。全leading／
+trailing 16-byte guardsは不変である。Undefinedなnative unaligned behaviorはruntime
+contractへ昇格しない。
+
+`kernel32.interlocked-decrement.v1`はone-argument stdcall、required aligned `InOut
+LONG`、wrapping decrement、new LONG result、success LastError preserveをpolicy-independent
+semantic contractとして処理する。Increment／decrementはshared checked LONG helperを使う。
+NULL、unaligned、unmapped、read-only targetはguest bytes、runtime state、register、LastErrorの
+mutation前にstructured stopする。Current single cooperative Worker lane内のindivisible updateは
+保証するが、cross-Worker shared-memory atomicityはclaimしない。
+
+`npm run check:runtime:bgi -- --profile kernel32-interlocked-decrement`は38 contracts／
+119 calls、120 writebacks／187 dirty pages／3,640 changed bytes、50 host deltas、final
+generation `199`を通す。instruction `15863`でID `34`／
+`GetModuleFileNameA(NULL,0x100FF520,260)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`83a1a4fd36f1f94efc7c0dcd83f1ff12f35729a00158ef7b48746f51896228f3`、
+580,772-byte reportのSHA-256は
+`6c905456197834909eb965cfa950c05a4587a91486b7b9c72f55253340bb9ff4`である。
+
+Chrome Runtime Workerも119 ordered callsとsame stop／memoryを再現し、2,029 slices、
+1,909 yields、1,687 Wasm crossings、final generation `1,361`、cancel／watchdog後pending
+work 0を通す。3分gateは1,004 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-interlocked-decrement.md](bgi-interlocked-decrement.md)を正とする。

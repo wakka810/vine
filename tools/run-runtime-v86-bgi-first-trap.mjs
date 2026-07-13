@@ -80,6 +80,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-multi-byte-to-wide-char",
         "kernel32-get-string-type-w",
         "kernel32-lc-map-string-w",
+        "kernel32-interlocked-decrement",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -106,7 +107,8 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-lc-map-string-w"
+    genericRuntimeCapability === "kernel32-lc-map-string-w" ||
+    genericRuntimeCapability === "kernel32-interlocked-decrement"
       ? "kernel32-lc-map-string-w-v1.json"
       : genericRuntimeCapability === "kernel32-get-string-type-w"
       ? "kernel32-get-string-type-w-v1.json"
@@ -177,7 +179,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const interlockedDecrementEnabled =
+  genericRuntimeCapability === "kernel32-interlocked-decrement";
 const lcMapStringWEnabled =
+  interlockedDecrementEnabled ||
   genericRuntimeCapability === "kernel32-lc-map-string-w";
 const getStringTypeWEnabled =
   lcMapStringWEnabled || genericRuntimeCapability === "kernel32-get-string-type-w";
@@ -257,7 +262,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? lcMapStringWEnabled
+      ? interlockedDecrementEnabled
+        ? "v86-bgi-interlocked-decrement"
+        : lcMapStringWEnabled
       ? "v86-bgi-lc-map-string-w"
       : getStringTypeWEnabled
       ? "v86-bgi-get-string-type-w"
@@ -2503,6 +2510,70 @@ const lcMapStringWExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const interlockedDecrementExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 119,
+  writebackBatches: 120,
+  dirtyPages: 187,
+  changedBytes: 3640,
+  hostDeltaBatches: 50,
+  finalGeneration: 199,
+  calls: [
+    {
+      arguments: [0x100f08e0],
+      instructionCount: 12137,
+      returnAddress: 0x100a7201,
+      before: 1,
+      after: 0,
+      result: 0,
+      delta: {
+        sequence: 114,
+        fromGeneration: 187,
+        generation: 188,
+        pageAddress: 0x100f0000,
+        owner: 1,
+        payloadSha256: "25d935f63b91d0707a2c69ca70a0d27ad2a336e280099bdf4857bf24227bf37d",
+      },
+    },
+    {
+      arguments: [0x100f08e0],
+      instructionCount: 15816,
+      returnAddress: 0x100a72b8,
+      before: 0,
+      after: -1,
+      result: 0xffffffff,
+      delta: {
+        sequence: 117,
+        fromGeneration: 193,
+        generation: 194,
+        pageAddress: 0x100f0000,
+        owner: 1,
+        payloadSha256: "11f320560d0c6ca418481dffc089df2c07efdb4a539ae4e7dc3cdec6dd39c8f9",
+      },
+    },
+  ],
+  followupCalls: [
+    ["InterlockedIncrement", 12147, 0x100a7222],
+    ["EnterCriticalSection", 12164, 0x100ab763],
+    ["InterlockedIncrement", 15822, 0x100a72d8],
+    ["LeaveCriticalSection", 15833, 0x100ab66f],
+  ],
+  memoryContentSha256: "83a1a4fd36f1f94efc7c0dcd83f1ff12f35729a00158ef7b48746f51896228f3",
+  reportBytes: 580_772,
+  reportSha256: "6c905456197834909eb965cfa950c05a4587a91486b7b9c72f55253340bb9ff4",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 34,
+    endpointAddress: 0x7f000210,
+    module: "kernel32.dll",
+    symbol: "GetModuleFileNameA",
+    iatAddress: 0x100d1130,
+    arguments: [0, 0x100ff520, 260],
+    returnAddress: 0x100a84c6,
+    instructionCount: 15863,
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2965,6 +3036,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (interlockedDecrementEnabled) {
+        validateInterlockedDecrementResult(genericResult);
       } else if (lcMapStringWEnabled) {
         validateLCMapStringWResult(genericResult);
       } else if (getStringTypeWEnabled) {
@@ -3024,7 +3097,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : lcMapStringWEnabled
+          : interlockedDecrementEnabled
+            ? "bgi InterlockedDecrement"
+            : lcMapStringWEnabled
             ? "bgi LCMapStringW"
             : getStringTypeWEnabled
             ? "bgi GetStringTypeW"
@@ -3373,6 +3448,9 @@ async function runGenericRuntimeReentry({
       ...(completionFrame.interlockedIncrement === undefined
         ? {}
         : { interlockedIncrement: completionFrame.interlockedIncrement }),
+      ...(completionFrame.interlockedDecrement === undefined
+        ? {}
+        : { interlockedDecrement: completionFrame.interlockedDecrement }),
       ...(completionFrame.heapAllocation === undefined
         ? {}
         : { heapAllocation: completionFrame.heapAllocation }),
@@ -3439,7 +3517,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : lcMapStringWEnabled
+        : interlockedDecrementEnabled
+          ? 25
+          : lcMapStringWEnabled
           ? 24
           : getStringTypeWEnabled
           ? 23
@@ -6008,6 +6088,108 @@ function validateLCMapStringWResult(result) {
   );
 }
 
+function validateInterlockedDecrementResult(result) {
+  const expected = interlockedDecrementExpected;
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "InterlockedDecrement",
+  );
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+        (total, writeback) => total + writeback.dirtyPages.length,
+        0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+        (total, writeback) => total + writeback.receipt.changedBytes,
+        0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, expected.calls.length);
+  for (const [index, expectedCall] of expected.calls.entries()) {
+    const call = calls[index];
+    assert.deepEqual(call.arguments, expectedCall.arguments);
+    assert.deepEqual(call.result, { action: "set", value: expectedCall.result });
+    assert.equal(call.implementationId, "kernel32.interlocked-decrement.v1");
+    assert.equal(call.lastError, 87);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+    assert.equal(call.trapInstructionCount, expectedCall.instructionCount);
+    assert.equal(call.returnAddress, expectedCall.returnAddress);
+    assert.deepEqual(call.interlockedDecrement, {
+      address: expectedCall.arguments[0],
+      before: expectedCall.before,
+      after: expectedCall.after,
+    });
+    assert.equal(call.guestWrites.length, 1);
+    assert.equal(call.guestWrites[0].address, expectedCall.arguments[0]);
+    assert.deepEqual(
+      call.guestWrites[0].bytes,
+      [...Buffer.from(Uint32Array.of(expectedCall.result).buffer)],
+    );
+    assert.deepEqual(call.guestWrites[0].result, {
+      bytesWritten: 4,
+      dirtyPages: 1,
+      invalidation: {
+        generation: expectedCall.delta.generation,
+        dataTlb: false,
+        instructionFetch: false,
+        generatedCode: false,
+      },
+    });
+    const delta = result.hostDeltas.find(
+      ({ sequence }) => sequence === expectedCall.delta.sequence,
+    );
+    assert(delta, `InterlockedDecrement delta ${expectedCall.delta.sequence} is missing`);
+    assert.equal(delta.fromGeneration, expectedCall.delta.fromGeneration);
+    assert.equal(delta.generation, expectedCall.delta.generation);
+    assert.equal(delta.mappingOperations, 0);
+    assert.deepEqual(delta.dirtyPages, [
+      {
+        address: expectedCall.delta.pageAddress,
+        owner: expectedCall.delta.owner,
+      },
+    ]);
+    assert.equal(delta.payloadBytes, page.size);
+    assert.equal(delta.payloadSha256, expectedCall.delta.payloadSha256);
+  }
+
+  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+    const followup = result.supportedCalls.find(
+      (candidate) =>
+        candidate.symbol === symbol &&
+        candidate.trapInstructionCount === instructionCount,
+    );
+    assert(followup, `${symbol} follow-up call at ${instructionCount} is missing`);
+    assert.equal(followup.returnAddress, returnAddress);
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validateGetCpInfoResult(result) {
   const expected = getCpInfoExpected;
   const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetCPInfo");
@@ -6154,7 +6336,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : lcMapStringWEnabled
+        : interlockedDecrementEnabled
+          ? "vine.v86-bgi-interlocked-decrement"
+          : lcMapStringWEnabled
           ? "vine.v86-bgi-lc-map-string-w"
           : getStringTypeWEnabled
           ? "vine.v86-bgi-get-string-type-w"

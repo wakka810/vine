@@ -602,6 +602,13 @@ interlockedIncrementSelection.find(
 ).selectedObservations = ["interlocked-increment"];
 assert.doesNotThrow(() => summarizeTrace(encode(interlockedIncrementSelection)));
 
+const interlockedDecrementSelection = structuredClone(events);
+interlockedDecrementSelection[0].arguments.observations = ["interlocked-decrement"];
+interlockedDecrementSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["interlocked-decrement"];
+assert.doesNotThrow(() => summarizeTrace(encode(interlockedDecrementSelection)));
+
 const standardHandleSelection = structuredClone(events);
 standardHandleSelection[0].arguments.observations = ["standard-handle"];
 standardHandleSelection.find(

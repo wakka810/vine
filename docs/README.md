@@ -89,6 +89,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-multi-byte-to-wide-char.md](bgi-multi-byte-to-wide-char.md) | reached Windows-932 multibyte inputをどう変換するか | six-argument ABI、query／conversion、private-use mappings、GetStringTypeW stop |
 | [bgi-get-string-type-w.md](bgi-get-string-type-w.md) | reached UTF-16 inputをどう分類するか | four-argument ABI、checked CTYPE1 WORD output、negative-count exclusion、LCMapStringW stop |
 | [bgi-lc-map-string-w.md](bgi-lc-map-string-w.md) | reached UTF-16 tableをどうcase-mapするか | six-argument ABI、ja-JP lower／upper query-conversion、InterlockedDecrement stop |
+| [bgi-interlocked-decrement.md](bgi-interlocked-decrement.md) | reached LONGをどうatomic decrementするか | one-argument ABI、checked wrapping update、GetModuleFileNameA stop |
 | [browser-runtime-worker.md](browser-runtime-worker.md) | Chrome内でruntime全経路をどこまで通せるか | Worker guest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdog、30分stress |
 | [bgi-browser-worker.md](bgi-browser-worker.md) | current BGI sessionをChromeへ移せたか | Rust/Wasm authority、Node semantic oracle、memory digest、heartbeat、cancel／watchdog |
 | [bgi-browser-benchmark.md](bgi-browser-benchmark.md) | BGI Browser workloadの性能／memoryはgate内か | 3分反復、session／slice分布、main／Worker heap slope、linear memory、Wasm crossing |

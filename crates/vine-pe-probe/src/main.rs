@@ -112,6 +112,7 @@ enum GenericRuntimeCapability {
     MultiByteToWideChar,
     GetStringTypeW,
     LcMapStringW,
+    InterlockedDecrement,
 }
 
 struct GenericRuntimeProcess {
@@ -185,6 +186,8 @@ struct GenericRuntimeCompletion {
     fls_value: Option<GenericRuntimeFlsValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     interlocked_increment: Option<GenericRuntimeLongUpdate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interlocked_decrement: Option<GenericRuntimeLongUpdate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     heap_allocation: Option<GenericRuntimeHeapAllocation>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2457,7 +2460,12 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::MultiByteToWideChar
                 | GenericRuntimeCapability::GetStringTypeW
                 | GenericRuntimeCapability::LcMapStringW
+                | GenericRuntimeCapability::InterlockedDecrement
         )
+    );
+    let interlocked_decrement_enabled = matches!(
+        endpoint_capability,
+        Some(GenericRuntimeCapability::InterlockedDecrement)
     );
     let enabled_capability = match enabled_capability {
         Some(
@@ -2474,7 +2482,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetCpInfo
             | GenericRuntimeCapability::MultiByteToWideChar
             | GenericRuntimeCapability::GetStringTypeW
-            | GenericRuntimeCapability::LcMapStringW,
+            | GenericRuntimeCapability::LcMapStringW
+            | GenericRuntimeCapability::InterlockedDecrement,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2697,6 +2706,20 @@ fn run_v86_generic_runtime_session(
                 } else {
                     None
                 };
+                let interlocked_decrement_before = if interlocked_decrement_enabled
+                    && endpoint.matches(
+                        "kernel32.dll",
+                        &ApiSymbol::Name {
+                            name: "InterlockedDecrement".to_owned(),
+                        },
+                    ) {
+                    Some(read_generic_runtime_long_argument(
+                        memory,
+                        trap.stack_pointer,
+                    )?)
+                } else {
+                    None
+                };
                 let mut session = ExecutionSession::new(memory, &mut process.runtime);
                 match dispatcher.dispatch_owned(
                     ApiOwnedTrap {
@@ -2717,7 +2740,24 @@ fn run_v86_generic_runtime_session(
                 ) {
                     DispatchOutcome::Immediate(completion) => {
                         let interlocked_increment = interlocked_before
-                            .map(|before| generic_runtime_long_update(&completion, before))
+                            .map(|before| {
+                                generic_runtime_long_update(
+                                    &completion,
+                                    before,
+                                    1,
+                                    "InterlockedIncrement",
+                                )
+                            })
+                            .transpose()?;
+                        let interlocked_decrement = interlocked_decrement_before
+                            .map(|before| {
+                                generic_runtime_long_update(
+                                    &completion,
+                                    before,
+                                    -1,
+                                    "InterlockedDecrement",
+                                )
+                            })
                             .transpose()?;
                         let heap_allocation = if matches!(
                             enabled_capability,
@@ -2792,6 +2832,7 @@ fn run_v86_generic_runtime_session(
                                 completion,
                                 fls_value: None,
                                 interlocked_increment,
+                                interlocked_decrement,
                                 heap_allocation,
                                 standard_handle,
                                 file_type,
@@ -2897,6 +2938,7 @@ fn run_v86_generic_runtime_session(
                                 completion,
                                 fls_value,
                                 interlocked_increment: None,
+                                interlocked_decrement: None,
                                 heap_allocation: None,
                                 standard_handle: None,
                                 file_type: None,
@@ -2939,51 +2981,25 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let lc_map_string_w_enabled = matches!(enabled, Some(GenericRuntimeCapability::LcMapStringW));
-    let get_string_type_w_enabled = matches!(
+    let interlocked_decrement_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::GetStringTypeW | GenericRuntimeCapability::LcMapStringW)
+        Some(GenericRuntimeCapability::InterlockedDecrement)
     );
-    let multi_byte_to_wide_char_enabled = matches!(
-        enabled,
-        Some(
-            GenericRuntimeCapability::MultiByteToWideChar
-                | GenericRuntimeCapability::GetStringTypeW
-                | GenericRuntimeCapability::LcMapStringW
-        )
-    );
-    let get_cp_info_enabled = matches!(
-        enabled,
-        Some(
-            GenericRuntimeCapability::GetCpInfo
-                | GenericRuntimeCapability::MultiByteToWideChar
-                | GenericRuntimeCapability::GetStringTypeW
-                | GenericRuntimeCapability::LcMapStringW
-        )
-    );
-    let get_acp_enabled = matches!(
-        enabled,
-        Some(
-            GenericRuntimeCapability::GetAcp
-                | GenericRuntimeCapability::PrivateHeapSize544
-                | GenericRuntimeCapability::GetCpInfo
-                | GenericRuntimeCapability::MultiByteToWideChar
-                | GenericRuntimeCapability::GetStringTypeW
-                | GenericRuntimeCapability::LcMapStringW
-        )
-    );
-    let set_last_error_enabled = matches!(
-        enabled,
-        Some(
-            GenericRuntimeCapability::SetLastError
-                | GenericRuntimeCapability::GetAcp
-                | GenericRuntimeCapability::PrivateHeapSize544
-                | GenericRuntimeCapability::GetCpInfo
-                | GenericRuntimeCapability::MultiByteToWideChar
-                | GenericRuntimeCapability::GetStringTypeW
-                | GenericRuntimeCapability::LcMapStringW
-        )
-    );
+    let lc_map_string_w_enabled = interlocked_decrement_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::LcMapStringW));
+    let get_string_type_w_enabled = lc_map_string_w_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::GetStringTypeW));
+    let multi_byte_to_wide_char_enabled = get_string_type_w_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::MultiByteToWideChar));
+    let get_cp_info_enabled = multi_byte_to_wide_char_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::GetCpInfo));
+    let get_acp_enabled = get_cp_info_enabled
+        || matches!(
+            enabled,
+            Some(GenericRuntimeCapability::GetAcp | GenericRuntimeCapability::PrivateHeapSize544)
+        );
+    let set_last_error_enabled =
+        get_acp_enabled || matches!(enabled, Some(GenericRuntimeCapability::SetLastError));
     let tls_get_value_enabled = matches!(
         enabled,
         Some(GenericRuntimeCapability::TlsGetValue | GenericRuntimeCapability::FlsGetValue)
@@ -3044,7 +3060,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::GetCpInfo
             | GenericRuntimeCapability::MultiByteToWideChar
             | GenericRuntimeCapability::GetStringTypeW
-            | GenericRuntimeCapability::LcMapStringW,
+            | GenericRuntimeCapability::LcMapStringW
+            | GenericRuntimeCapability::InterlockedDecrement,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3188,6 +3205,7 @@ fn runtime_capability_enables_endpoint(
         "MultiByteToWideChar" => multi_byte_to_wide_char_enabled,
         "GetStringTypeW" => get_string_type_w_enabled,
         "LCMapStringW" => lc_map_string_w_enabled,
+        "InterlockedDecrement" => interlocked_decrement_enabled,
         _ => true,
     }
 }
@@ -3245,7 +3263,7 @@ fn read_generic_runtime_long_argument(
         LoaderError::invalid_input(
             "runtime-reentry",
             "interlocked-frame-address-overflow",
-            "InterlockedIncrement argument address crosses the x86 address limit",
+            "interlocked LONG argument address crosses the x86 address limit",
         )
     })?);
     let bytes = memory.read(argument_address, 4).map_err(memory_error)?;
@@ -3253,7 +3271,7 @@ fn read_generic_runtime_long_argument(
         LoaderError::runtime_defect(
             "runtime-reentry",
             "interlocked-frame-read-size-invalid",
-            "checked InterlockedIncrement frame did not contain one argument",
+            "checked interlocked frame did not contain one argument",
         )
     })?));
     Ok((address, read_generic_runtime_long(memory, address)?))
@@ -3267,7 +3285,7 @@ fn read_generic_runtime_long(
         return Err(LoaderError::invalid_input(
             "runtime-reentry",
             "interlocked-target-alignment-invalid",
-            "InterlockedIncrement target is not aligned to one LONG",
+            "interlocked target is not aligned to one LONG",
         ));
     }
     let bytes = memory
@@ -3277,7 +3295,7 @@ fn read_generic_runtime_long(
         LoaderError::runtime_defect(
             "runtime-reentry",
             "interlocked-target-read-size-invalid",
-            "checked InterlockedIncrement target did not contain one LONG",
+            "checked interlocked target did not contain one LONG",
         )
     })?))
 }
@@ -3285,33 +3303,35 @@ fn read_generic_runtime_long(
 fn generic_runtime_long_update(
     completion: &ApiImmediateCompletion,
     (address, before): (GuestAddress, i32),
+    delta: i32,
+    operation: &str,
 ) -> Result<GenericRuntimeLongUpdate, LoaderError> {
     let [write] = completion.guest_writes.as_slice() else {
         return Err(LoaderError::runtime_defect(
             "runtime-reentry",
             "interlocked-write-count-invalid",
-            "InterlockedIncrement completion did not contain exactly one guest write",
+            format!("{operation} completion did not contain exactly one guest write"),
         ));
     };
     if write.write.address != address || write.write.bytes.len() != size_of::<i32>() {
         return Err(LoaderError::runtime_defect(
             "runtime-reentry",
             "interlocked-write-shape-invalid",
-            "InterlockedIncrement completion did not write one LONG to its argument",
+            format!("{operation} completion did not write one LONG to its argument"),
         ));
     }
     let after = i32::from_le_bytes(write.write.bytes.as_slice().try_into().map_err(|_| {
         LoaderError::runtime_defect(
             "runtime-reentry",
             "interlocked-write-size-invalid",
-            "checked InterlockedIncrement completion did not contain one LONG",
+            format!("checked {operation} completion did not contain one LONG"),
         )
     })?);
-    if after != before.wrapping_add(1) {
+    if after != before.wrapping_add(delta) {
         return Err(LoaderError::runtime_defect(
             "runtime-reentry",
             "interlocked-write-value-invalid",
-            "InterlockedIncrement completion did not contain the wrapping successor",
+            format!("{operation} completion did not contain the wrapping result"),
         ));
     }
     Ok(GenericRuntimeLongUpdate {
@@ -8604,6 +8624,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-multi-byte-to-wide-char" => GenericRuntimeCapability::MultiByteToWideChar,
                 "kernel32-get-string-type-w" => GenericRuntimeCapability::GetStringTypeW,
                 "kernel32-lc-map-string-w" => GenericRuntimeCapability::LcMapStringW,
+                "kernel32-interlocked-decrement" => GenericRuntimeCapability::InterlockedDecrement,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

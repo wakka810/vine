@@ -39,6 +39,11 @@ let lcMapStringOracleSentinel = null;
 let lcMapStringOracleResult = null;
 let lcMapStringOracleLastError = null;
 let lcMapStringConsumersRecorded = 0;
+let interlockedDecrementOracleScheduled = false;
+let interlockedDecrementOracleSentinel = null;
+let interlockedDecrementOracleResult = null;
+let interlockedDecrementOracleLastError = null;
+let interlockedDecrementConsumersRecorded = 0;
 let tlsLifecycleOracleScheduled = false;
 let tlsGetValueConsumerRecorded = false;
 let flsLifecycleOracleScheduled = false;
@@ -942,6 +947,43 @@ function snapshotLCMapStringWCall(
   };
 }
 
+function snapshotInterlockedDecrementCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  target,
+) {
+  const recordsConsumer =
+    interlockedDecrementConsumersRecorded < 2 &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    interlockedDecrementConsumersRecorded += 1;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    interlockedDecrement: {
+      targetBefore: snapshotLong(target),
+      targetAlignment: target.toUInt32() % 4,
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations:
+              snapshotX86FrameCallerContinuationsFollowingDirectJump(
+                context,
+                4,
+                32,
+              ),
+          }
+        : null,
+    },
+  };
+}
+
 function readProcessParametersEnvironmentPointer() {
   try {
     const ntdll = Process.getModuleByName("ntdll.dll");
@@ -1389,6 +1431,9 @@ if (selectedObservations.has("critical-section")) {
 if (selectedObservations.has("interlocked-increment")) {
   hooks["kernel32.dll"].push(["InterlockedIncrement", [null]]);
 }
+if (selectedObservations.has("interlocked-decrement")) {
+  hooks["kernel32.dll"].push(["InterlockedDecrement", [null]]);
+}
 if (selectedObservations.has("standard-handle")) {
   hooks["kernel32.dll"].push(["GetStdHandle", [null]]);
 }
@@ -1591,6 +1636,11 @@ function attachHook(module, name, decoders) {
         name === "LCMapStringW" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedInterlockedDecrementObservation =
+        selectedObservations.has("interlocked-decrement") &&
+        name === "InterlockedDecrement" &&
+        caller.module !== null &&
+        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
       if (
         selectedObservations.has("heap-allocation") &&
         !selectedObservations.has("heap-lifecycle") &&
@@ -1628,6 +1678,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("lc-map-string-w") &&
         name === "LCMapStringW" &&
         !focusedLCMapStringObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("interlocked-decrement") &&
+        name === "InterlockedDecrement" &&
+        !focusedInterlockedDecrementObservation
       ) {
         this.traceFrame = null;
         return;
@@ -1683,6 +1741,15 @@ function attachHook(module, name, decoders) {
         caller.module.toLowerCase() === "frida-agent.dll";
       if (this.traceLCMapStringOracle) {
         this.lastError = lcMapStringOracleSentinel;
+      }
+      this.traceInterlockedDecrementOracle =
+        interlockedDecrementOracleSentinel !== null &&
+        selectedObservations.has("interlocked-decrement") &&
+        name === "InterlockedDecrement" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceInterlockedDecrementOracle) {
+        this.lastError = interlockedDecrementOracleSentinel;
       }
       this.traceGetLastErrorOracle =
         getLastErrorOracleSentinel !== null &&
@@ -1805,6 +1872,8 @@ function attachHook(module, name, decoders) {
               destinationUnits: signed32(args[5]),
             }
           : null;
+      this.traceInterlockedDecrement =
+        focusedInterlockedDecrementObservation ? { target: args[0] } : null;
       this.traceGetCpInfo =
         focusedGetCpInfoObservation
           ? { codePage: args[0], output: args[1] }
@@ -1891,6 +1960,14 @@ function attachHook(module, name, decoders) {
               this.traceLCMapStringW.sourceUnits,
               this.traceLCMapStringW.destination,
               this.traceLCMapStringW.destinationUnits,
+            )
+        : this.traceInterlockedDecrement !== null
+          ? snapshotInterlockedDecrementCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceInterlockedDecrement.target,
             )
         : name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
@@ -2005,6 +2082,10 @@ function attachHook(module, name, decoders) {
         lcMapStringOracleResult = signed32(result);
         lcMapStringOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceInterlockedDecrementOracle) {
+        interlockedDecrementOracleResult = signed32(result);
+        interlockedDecrementOracleLastError = Number(lastError) >>> 0;
+      }
       if (this.traceGetLastErrorOracle) {
         getLastErrorOracleResult = result.toUInt32();
         getLastErrorOracleLastError = Number(lastError) >>> 0;
@@ -2070,6 +2151,14 @@ function attachHook(module, name, decoders) {
           ? {}
           : {
               interlockedTargetAfter: snapshotLong(this.traceInterlockedPointer),
+            }),
+        ...(this.traceInterlockedDecrement === null
+          ? {}
+          : {
+              interlockedDecrement: {
+                result: signed32(result),
+                targetAfter: snapshotLong(this.traceInterlockedDecrement.target),
+              },
             }),
         ...(name === "SetLastError" && selectedObservations.has("set-last-error")
           ? { eaxAfter: result.toUInt32() }
@@ -3010,6 +3099,88 @@ function scheduleLCMapStringOracle(module) {
   });
 }
 
+function scheduleInterlockedDecrementOracle(module) {
+  if (interlockedDecrementOracleScheduled) {
+    return;
+  }
+  interlockedDecrementOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "InterlockedDecrement");
+      if (address === null) {
+        throw new Error("InterlockedDecrement export is unavailable");
+      }
+      const interlockedDecrement = new SystemFunction(
+        address,
+        "int",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = (id, initialValue, sentinel) => {
+        const guardBytes = 16;
+        const storage = Memory.alloc(guardBytes + 4 + guardBytes);
+        storage.writeByteArray(Array(guardBytes + 4 + guardBytes).fill(0xa5));
+        const target = storage.add(guardBytes);
+        target.writeS32(initialValue);
+        const targetBefore = snapshotLong(target);
+        const leadingGuardBefore = snapshotBoundedRawBytes(storage, guardBytes);
+        const trailingGuard = target.add(4);
+        const trailingGuardBefore = snapshotBoundedRawBytes(
+          trailingGuard,
+          guardBytes,
+        );
+        interlockedDecrementOracleSentinel = sentinel;
+        interlockedDecrementOracleResult = null;
+        interlockedDecrementOracleLastError = null;
+        try {
+          const outcome = interlockedDecrement(target);
+          const result = Number(outcome.value) | 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            interlockedDecrementOracleResult === null ||
+            interlockedDecrementOracleLastError === null
+          ) {
+            throw new Error(`${id} did not pass through the decrement hook`);
+          }
+          return {
+            id,
+            sentinel,
+            initialValue,
+            targetAlignment: target.toUInt32() % 4,
+            targetBefore,
+            targetAfter: snapshotLong(target),
+            result,
+            hookResult: interlockedDecrementOracleResult,
+            hookLastErrorAfter: interlockedDecrementOracleLastError,
+            systemLastError,
+            leadingGuardBefore,
+            leadingGuardAfter: snapshotBoundedRawBytes(storage, guardBytes),
+            trailingGuardBefore,
+            trailingGuardAfter: snapshotBoundedRawBytes(
+              trailingGuard,
+              guardBytes,
+            ),
+          };
+        } finally {
+          interlockedDecrementOracleSentinel = null;
+          interlockedDecrementOracleResult = null;
+          interlockedDecrementOracleLastError = null;
+        }
+      };
+      emit("interlocked-decrement-oracle", {
+        profile: "x86-aligned-wrapping-v1",
+        calls: [
+          invoke("one-to-zero", 1, 0),
+          invoke("zero-to-minus-one", 0, 87),
+          invoke("minimum-to-maximum", -0x80000000, 0x12345678),
+        ],
+      });
+    } catch (error) {
+      emit("interlocked-decrement-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleGetLastErrorOracle(module) {
   if (getLastErrorOracleScheduled) {
     return;
@@ -3640,6 +3811,12 @@ Process.attachModuleObserver({
       selectedObservations.has("lc-map-string-w")
     ) {
       scheduleLCMapStringOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("interlocked-decrement")
+    ) {
+      scheduleInterlockedDecrementOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&
