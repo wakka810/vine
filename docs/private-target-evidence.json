@@ -1,12 +1,12 @@
 {
   "schema": "vine.private-target-evidence",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "status": "passed",
-  "recordedAt": "2026-07-13T09:42:20.494Z",
+  "recordedAt": "2026-07-13T10:10:52.316Z",
   "repository": {
-    "implementationCommit": "41e5394b6cc2173fa8131c4fb434c1979813cee2",
-    "implementationTree": "d0b1d9afeb411d684e30a5190512b586a55c281a",
-    "headCommit": "41e5394b6cc2173fa8131c4fb434c1979813cee2",
+    "implementationCommit": "067a8eddec66fb2704b8b185169d51f85e168c8f",
+    "implementationTree": "259a375e18ee385a1443dad664a2407a8b8a43e8",
+    "headCommit": "067a8eddec66fb2704b8b185169d51f85e168c8f",
     "dirty": true,
     "dirtyPaths": [
       "AGENTS.md",
@@ -176,7 +176,7 @@
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
       "bytes": 58763,
-      "sha256": "239cb8dfe26815ac94ed9078de718f63dfc94ef22570e88e5625db55415760a7"
+      "sha256": "8e4369356ee16c8eb11e5542d2764f01ed23b1f17251f1517cf7ee74b5cc5489"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -191,7 +191,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3199,
-      "sha256": "82dd88d6cb8a0378a71e9eadbce0466bc49796d00cd8beb7f2f72f4d50cc86a5"
+      "sha256": "04c8da92be4c10f24cc9905ab4d61fde7b6f0351c50ce3f6af376635f1e20179"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -218,11 +218,15 @@
     "classification": "observation-not-semantic-gate",
     "status": "threshold-passed",
     "configuration": "fixtures/benchmarks/bgi-browser-v1.json",
+    "benchmarkClassification": "repeated-distribution-threshold",
+    "decisionStatus": "passed",
+    "decisionReason": "all-16-versioned-thresholds-passed",
+    "thresholdEvaluationCount": 16,
     "durationMilliseconds": 180000,
-    "completedSessions": 2225,
+    "completedSessions": 2220,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "8ac7ab2e83c80e87cd90d593a68570f68571b6aef67849fd5b2b767952dd0050"
+    "reportSha256": "874e91a2e3c644b176504c807cf26271a12278a091d79858c8f20bb7cd8ced90"
   },
-  "payloadSha256": "44a9a6ff3e5b1a8271742ab89926a7dd7ee11968c661cca609e0b449f9696d9f"
+  "payloadSha256": "8e0af7a466750ac107c974239cc87b0a5c045a80a658bc7557cdc8e68dd3b3c6"
 }
