@@ -28,6 +28,7 @@ SUPPORTED_OBSERVATIONS = (
     "file-type",
     "set-handle-count",
     "command-line-a",
+    "environment-strings-w",
 )
 
 

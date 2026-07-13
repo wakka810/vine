@@ -23,14 +23,14 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 62 | 62 |
-| Guest instructions at next stop | 1,536 | 1,536 |
+| Supported calls | 63 | 63 |
+| Guest instructions at next stop | 1,558 | 1,558 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 227 | 122 |
+| Final memory generation | 230 | 123 |
 | Host delta batches | 30 | 30 |
-| Final memory content SHA-256 | `33986edc39e1f5ecb9f050add5e9f534d2e1d81cc31d003ccd5060e1d30806f2` | same |
+| Final memory content SHA-256 | `20109e02acad2ff74cc74520f10b4bba715479f87a1fec2ae000be3f3e179481` | same |
 | Next capability cluster | `kernel32-api-contract` | same |
-| Next API | `KERNEL32.dll!GetEnvironmentStringsW` | same |
+| Next API | `KERNEL32.dll!WideCharToMultiByte` | same |
 | Fault | `endpoint-contract-missing` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
@@ -40,19 +40,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 178
-writeback batches; the Node oracle reconciles only at 63 trap boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 181
+writeback batches; the Node oracle reconciles only at 64 trap boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 218 CPU slices, 155 budget yields, 655 validated Worker
-state transitions, 274 Rust/Wasm bridge operations, and a maximum observed slice
-of 1.700 ms. The main-thread heartbeat recorded 34 samples with a 17.255 ms
+The successful run used 221 CPU slices, 157 budget yields, 664 validated Worker
+state transitions, 278 Rust/Wasm bridge operations, and a maximum observed slice
+of 1.830 ms. The main-thread heartbeat recorded 35 samples with a 20.935 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 712,650 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 2,210
+changed from 628,738 to 713,342 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 2,205
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -62,7 +62,7 @@ module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 655, 4, and 3 transitions respectively. All three reports
+in `stopped` after 664, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -93,7 +93,7 @@ report hash is artifact identity only.
 
 ## Non-claims
 
-- no `GetEnvironmentStringsW` behavior or capability after the current stop is implemented
+- no `WideCharToMultiByte` behavior or capability after the current stop is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
 - the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

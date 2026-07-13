@@ -36,6 +36,7 @@ use vine_core::{
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
+    install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
     install_dynamic_export_thunks, install_runtime_return_sentinels,
     kernel32_contract_for_endpoint, materialize_pe32_image, query_performance_counter_contract,
@@ -98,6 +99,7 @@ enum GenericRuntimeCapability {
     StandardErrorFileType,
     SetHandleCount,
     CommandLineA,
+    EnvironmentStringsW,
 }
 
 struct GenericRuntimeProcess {
@@ -1674,6 +1676,10 @@ fn run_v86_reflection_session(
         .kernel32_policy
         .as_ref()
         .is_some_and(Kernel32CompatibilityPolicy::allows_ansi_command_line);
+    let wide_environment_strings_enabled = arguments
+        .kernel32_policy
+        .as_ref()
+        .is_some_and(Kernel32CompatibilityPolicy::allows_wide_environment_strings);
     let kernel32_policy = arguments.kernel32_policy;
     let supported_call_count = arguments
         .checkpoint_session
@@ -1800,7 +1806,16 @@ fn run_v86_reflection_session(
         None
     };
     let initial_process_environment = if arguments.install_controlled_process_parameters {
-        Some(if ansi_command_line_enabled {
+        Some(if wide_environment_strings_enabled {
+            install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
+                &mut memory,
+                arguments
+                    .controlled_command_line
+                    .as_deref()
+                    .unwrap_or(CONTROLLED_COMMAND_LINE),
+            )
+            .map_err(memory_error)?
+        } else if ansi_command_line_enabled {
             install_controlled_process_environment_with_command_line_and_ansi(
                 &mut memory,
                 arguments
@@ -2420,9 +2435,9 @@ fn run_v86_generic_runtime_session(
 ) -> Result<(), LoaderError> {
     let endpoint_capability = enabled_capability;
     let enabled_capability = match enabled_capability {
-        Some(GenericRuntimeCapability::CommandLineA) => {
-            Some(GenericRuntimeCapability::SetHandleCount)
-        }
+        Some(
+            GenericRuntimeCapability::CommandLineA | GenericRuntimeCapability::EnvironmentStringsW,
+        ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
     let endpoints = process
@@ -2865,11 +2880,18 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let command_line_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::CommandLineA));
+    let environment_strings_w_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::EnvironmentStringsW));
+    let command_line_a_enabled = matches!(
+        enabled,
+        Some(
+            GenericRuntimeCapability::CommandLineA | GenericRuntimeCapability::EnvironmentStringsW
+        )
+    );
     let enabled = match enabled {
-        Some(GenericRuntimeCapability::CommandLineA) => {
-            Some(GenericRuntimeCapability::SetHandleCount)
-        }
+        Some(
+            GenericRuntimeCapability::CommandLineA | GenericRuntimeCapability::EnvironmentStringsW,
+        ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
     let vine_core::ApiSymbol::Name { name } = &endpoint.symbol else {
@@ -3002,6 +3024,7 @@ fn runtime_capability_enables_endpoint(
         ),
         "SetHandleCount" => matches!(enabled, Some(GenericRuntimeCapability::SetHandleCount)),
         "GetCommandLineA" => command_line_a_enabled,
+        "GetEnvironmentStringsW" | "FreeEnvironmentStringsW" => environment_strings_w_enabled,
         _ => true,
     }
 }
@@ -8390,6 +8413,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "kernel32-set-handle-count" => GenericRuntimeCapability::SetHandleCount,
                 "kernel32-command-line-a" => GenericRuntimeCapability::CommandLineA,
+                "kernel32-environment-strings-w" => GenericRuntimeCapability::EnvironmentStringsW,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -11,15 +11,17 @@ use vine_core::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MemoryLimits, MemoryOwnerId,
-    MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
-    RUNTIME_FLS_INDEX_LIMIT, RUNTIME_STANDARD_ERROR_HANDLE, RUNTIME_STANDARD_ERROR_SELECTOR,
-    RUNTIME_STANDARD_INPUT_HANDLE, RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
+    MemoryOwnerKind, MemoryRegionKind, PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET,
+    PageProtection, ProcessAddressSpaceLayout, RUNTIME_FLS_INDEX_LIMIT,
+    RUNTIME_STANDARD_ERROR_HANDLE, RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
+    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
     RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId, RuntimeModule,
     RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
     RuntimeTlsValue, Rva, SchedulerThreadState, StackCleanup, dispatch_kernel32_api,
     dispatch_kernel32_api_with_policy,
     install_controlled_process_environment_with_command_line_and_ansi,
+    install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     kernel32_contract_for_endpoint,
 };
 
@@ -1593,6 +1595,231 @@ fn get_command_line_a_returns_stable_process_owned_ascii_view_without_mutation()
         b"fixture.exe\0"
     );
     assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
+fn get_and_free_environment_strings_w_manage_one_process_owned_copy() {
+    let (mut memory, owner) = initialized_memory_with_environment_capacity();
+    let environment =
+        install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
+            &mut memory,
+            "fixture.exe",
+        )
+        .expect("process environment");
+    let parameters = environment
+        .process_parameters
+        .as_ref()
+        .expect("process parameters");
+    let environment_strings = parameters
+        .environment_strings
+        .as_ref()
+        .expect("wide environment strings")
+        .clone();
+    assert_ne!(
+        environment_strings.authority_buffer_address,
+        environment_strings.copy_buffer_address
+    );
+    assert_eq!(environment_strings.byte_length_with_double_nul, 4);
+
+    let get_frames = [
+        (STACK_BASE, vec![0x1000_0971]),
+        (STACK_BASE + 0x20, vec![0x1000_0972]),
+    ];
+    let free_frame = (
+        STACK_BASE + 0x40,
+        vec![0x1000_0973, environment_strings.copy_buffer_address.0],
+    );
+    let foreign_free_frame = (
+        STACK_BASE + 0x60,
+        vec![0x1000_0974, environment_strings.authority_buffer_address.0],
+    );
+    for (address, words) in get_frames.iter().chain([&free_frame, &foreign_free_frame]) {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+
+    let mut endpoint = |id, offset, iat_offset, name: &str| {
+        let endpoint_address = GuestAddress(ENDPOINT_BASE + offset);
+        memory
+            .write_initialization(
+                owner,
+                GuestAddress(IAT_BASE + iat_offset),
+                &endpoint_address.0.to_le_bytes(),
+            )
+            .expect("initialize environment-string IAT");
+        ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(id),
+            address: endpoint_address,
+            requester_owner: owner,
+            module: "KERNEL32.dll".to_owned(),
+            iat_rva: Rva(iat_offset),
+            iat_address: GuestAddress(IAT_BASE + iat_offset),
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: name.to_owned(),
+                hint: 0,
+                name_rva: Rva(0),
+            },
+        })
+    };
+    let get_endpoint = endpoint(1, 0xe0, 0, "GetEnvironmentStringsW");
+    let free_endpoint = endpoint(2, 0xf0, 4, "FreeEnvironmentStringsW");
+    let contracts = [&get_endpoint, &free_endpoint]
+        .into_iter()
+        .map(|endpoint| {
+            kernel32_contract_for_endpoint(endpoint.clone())
+                .expect("Kernel32 contract lookup")
+                .expect("implemented environment-string endpoint")
+        })
+        .collect::<Vec<_>>();
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    assert_eq!(
+        u32::from_le_bytes(
+            memory
+                .read(
+                    GuestAddress(
+                        parameters.process_parameters_address.0
+                            + PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET,
+                    ),
+                    4,
+                )
+                .expect("RTL_USER_PROCESS_PARAMETERS.Environment")
+                .try_into()
+                .expect("one x86 pointer"),
+        ),
+        environment_strings.authority_buffer_address.0
+    );
+    let dispatcher = ApiDispatcher::new([get_endpoint.clone(), free_endpoint.clone()], contracts)
+        .expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime
+        .register_initial_process_environment(&environment)
+        .expect("register process environment");
+    let memory_before = memory.stats();
+
+    let acquired = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &get_endpoint,
+        get_frames[0].0,
+        get_frames[0].1[0],
+    );
+    assert_eq!(
+        acquired.eax,
+        RegisterUpdate::Set(environment_strings.copy_buffer_address.0)
+    );
+    assert_eq!(acquired.stack_pointer, GuestAddress(get_frames[0].0 + 4));
+    assert_eq!(acquired.last_error, INITIAL_LAST_ERROR);
+    assert!(acquired.guest_writes.is_empty());
+    assert_eq!(
+        memory
+            .read(environment_strings.authority_buffer_address, 4)
+            .expect("environment authority"),
+        [0, 0, 0, 0]
+    );
+    assert_eq!(
+        memory
+            .read(environment_strings.copy_buffer_address, 4)
+            .expect("environment copy"),
+        [0, 0, 0, 0]
+    );
+    let active = runtime
+        .process_environment_strings()
+        .expect("registered environment strings")
+        .active_copy
+        .as_ref()
+        .expect("active environment copy")
+        .clone();
+    assert_eq!(active.acquisition_id, 1);
+    assert_eq!(
+        active.buffer_address,
+        environment_strings.copy_buffer_address
+    );
+    assert_eq!(memory.stats(), memory_before);
+
+    let runtime_before_limit = runtime.clone();
+    let concurrent = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&get_endpoint, get_frames[1].0, get_frames[1].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        concurrent,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::ResourceLimit
+                && fault.code == "wide-environment-copy-limit-reached"
+    ));
+    assert_eq!(runtime, runtime_before_limit);
+    assert_eq!(memory.stats(), memory_before);
+
+    let runtime_before_foreign_free = runtime.clone();
+    let foreign_free = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(
+                &free_endpoint,
+                foreign_free_frame.0,
+                foreign_free_frame.1[0],
+            ),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        foreign_free,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall
+                && fault.code == "wide-environment-copy-pointer-invalid"
+    ));
+    assert_eq!(runtime, runtime_before_foreign_free);
+    assert_eq!(memory.stats(), memory_before);
+
+    let freed = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &free_endpoint,
+        free_frame.0,
+        free_frame.1[0],
+    );
+    assert_eq!(freed.eax, RegisterUpdate::Set(1));
+    assert_eq!(freed.stack_pointer, GuestAddress(free_frame.0 + 8));
+    assert_eq!(freed.last_error, INITIAL_LAST_ERROR);
+    assert!(freed.guest_writes.is_empty());
+    assert!(
+        runtime
+            .process_environment_strings()
+            .expect("registered environment strings")
+            .active_copy
+            .is_none()
+    );
+    assert_eq!(memory.stats(), memory_before);
+
+    let runtime_before_double_free = runtime.clone();
+    let double_free = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&free_endpoint, free_frame.0, free_frame.1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        double_free,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall
+                && fault.code == "wide-environment-copy-not-active"
+    ));
+    assert_eq!(runtime, runtime_before_double_free);
     assert_eq!(memory.stats(), memory_before);
 }
 

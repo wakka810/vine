@@ -27,6 +27,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub set_handle_counts: Vec<u32>,
     #[serde(default)]
     pub ansi_command_line: bool,
+    #[serde(default)]
+    pub wide_environment_strings: bool,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
 }
 
@@ -71,6 +73,7 @@ impl Kernel32CompatibilityPolicy {
             }],
             set_handle_counts: Vec::new(),
             ansi_command_line: false,
+            wide_environment_strings: false,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
                 byte_lengths: vec![0x214],
@@ -153,6 +156,12 @@ impl Kernel32CompatibilityPolicy {
                 "SetHandleCount variants must be unique nonzero counts",
             ));
         }
+        if self.wide_environment_strings && !self.ansi_command_line {
+            return Err(policy_error(
+                "kernel32-policy-environment-layer-invalid",
+                "wide environment strings require the preceding ANSI command-line capability",
+            ));
+        }
 
         let mut heap_variants = BTreeSet::new();
         for allocation in &self.heap_allocations {
@@ -199,6 +208,10 @@ impl Kernel32CompatibilityPolicy {
         self.ansi_command_line
     }
 
+    pub fn allows_wide_environment_strings(&self) -> bool {
+        self.wide_environment_strings
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocations.iter().any(|allocation| {
             allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
@@ -232,6 +245,14 @@ mod tests {
         assert!(policy.allows_heap_allocation(HEAP_ZERO_MEMORY, 0x214));
         assert!(!policy.allows_set_handle_count(32));
         assert!(!policy.allows_ansi_command_line());
+        assert!(!policy.allows_wide_environment_strings());
+
+        let mut invalid_environment_layer = policy.clone();
+        invalid_environment_layer.wide_environment_strings = true;
+        assert_eq!(
+            invalid_environment_layer.validate().unwrap_err().code,
+            "kernel32-policy-environment-layer-invalid"
+        );
 
         let mut duplicate = policy;
         duplicate.heap_allocations[0].byte_lengths.push(0x214);

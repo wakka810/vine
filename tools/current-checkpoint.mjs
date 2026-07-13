@@ -53,6 +53,14 @@ function requireStringArray(value, label, errors) {
   return value;
 }
 
+function requireOrderedStringArray(value, label, errors) {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    errors.push(`${label} must be an array of strings`);
+    return [];
+  }
+  return value;
+}
+
 function validateExecutionStateMachine(value, label, errors) {
   const stateMachine = requireRecord(value, label, errors);
   for (const scenario of ["success", "cancellation", "watchdog"]) {
@@ -599,7 +607,7 @@ export function validateCurrentCheckpoint(manifest) {
   requireInteger(next.instructionCount, "nextStructuredStop.instructionCount", errors);
   requireString(next.api, "nextStructuredStop.api", errors);
   requireString(next.reason, "nextStructuredStop.reason", errors);
-  requireStringArray(next.arguments, "nextStructuredStop.arguments", errors);
+  requireOrderedStringArray(next.arguments, "nextStructuredStop.arguments", errors);
   if (typeof next.endpointAddress !== "string" || !HEX32.test(next.endpointAddress)) {
     errors.push("nextStructuredStop.endpointAddress must be a 32-bit hex string");
   }

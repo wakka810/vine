@@ -1259,3 +1259,37 @@ Chrome Runtime Workerも62 ordered calls、same memory SHA-256
 `33986edc39e1f5ecb9f050add5e9f534d2e1d81cc31d003ccd5060e1d30806f2`、same stopを再現する。
 218 slices、155 budget yields、274 Wasm crossings、final generation `227`で、cancel／watchdog後も
 pending work 0である。詳細は[bgi-command-line-a.md](bgi-command-line-a.md)を正とする。
+
+## 59. BGI GetEnvironmentStringsW / FreeEnvironmentStringsW
+
+final `environment-strings-w` observerの2 capturesは263,415 bytes／819 lines／SHA-256
+`c091345340239bb1bb450bac172d79c47a0d1f0123e2ba8e62ceac38d1f411a9`と
+264,022 bytes／820 lines／SHA-256
+`4c94f4efe5fee18a752dbafd4577b36d88b408530ca383b7d076cf135a69cba9`
+である。Observerは環境名／値を保存せず、block shapeとlifetime relationだけを記録する。
+Native launch blockは46 entries／double-NUL込み7,274 bytesだったが、このcontentはruntimeへ
+importしない。
+
+Oracleのtwo simultaneous acquisitionsは異なるcopy pointerを返し、PEB process-parameter
+environment pointerとも異なる。Shape/content comparisonは同一で、LastError `0 -> 0`／
+`87 -> 87`を保つ。両pointerの`FreeEnvironmentStringsW`はBOOL `1`を返し、sentinel
+`88`／`89`を保つ。BGI callもreturn RVA `0xA855F`でLastError `0`／`87`を保ち、
+RVA `0xA85D3`でsame pointerをfreeして`1`を得る。
+
+CallerはUTF-16 double NULまで数え、whole blockを`WideCharToMultiByte`でsize query／convertした後に
+freeする。Runtimeはhost entriesを使わず、`RTL_USER_PROCESS_PARAMETERS.Environment`のempty
+double-NUL authority `0x7FFDD020`とdistinct copy `0x7FFDD030`を既存process-environment allocationへ
+置く。`kernel32.get-environment-strings-w.v1`／
+`kernel32.free-environment-strings-w.v1`はone-active-copy lifetime、exact free pointer、LastError
+preserve、guest write 0を実装する。
+
+`npm run check:runtime:bgi -- --profile kernel32-environment-strings-w`は27 contracts／63 calls、
+64 writebacks／108 dirty pages／1,015 changed bytes、30 host deltas、final generation `123`を通す。
+instruction `1558`でID `132`／`WideCharToMultiByte`へ停止する。Memory SHA-256は
+`20109e02acad2ff74cc74520f10b4bba715479f87a1fec2ae000be3f3e179481`、291,793-byte reportの
+SHA-256は`96cb98f09a1d2733442d38ce2736c15c38fd87f3f4fa082e020d623c3fdb6013`である。
+
+Chrome Runtime Workerも63 ordered callsとsame stop／memoryを再現し、221 slices、157 yields、
+278 Wasm crossings、final generation `230`、cancel／watchdog後pending work 0を通す。3分gateは
+2,205 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-environment-strings-w.md](bgi-environment-strings-w.md)を正とする。

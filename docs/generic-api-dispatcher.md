@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, and GetCommandLineA capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, and wide-environment copy-lifetime capabilities implemented
 - Date: 2026-07-13
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-command-line-a`
-- Scope: frozen 17-call equivalence plus 62 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-environment-strings-w`
+- Scope: frozen 17-call equivalence plus 63 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -60,14 +60,20 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `GetStdHandle` | 3 | returns versioned process-owned logical input／output／error identities |
 | `GetFileType` | 3 | classifies registered logical stdin as character and stdout／stderr as pipes |
 | `SetHandleCount` | 1 | returns the reached compatibility-policy count without resizing host state |
+| `GetCommandLineA` | 1 | returns the stable process-owned ANSI view derived at bootstrap |
+| `GetEnvironmentStringsW` | 1 | acquires one process-owned copy lease for the controlled UTF-16 environment block |
+| `FreeEnvironmentStringsW` | 0 reached; public semantic contract | retires only the exact active copy lease and returns BOOL success |
 
-All 24 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 27 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-61 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
+63 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
 two `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
 critical-section／thread／startup occurrences plus three `GetStdHandle`, three
-`GetFileType`, and `SetHandleCount` calls.
+`GetFileType`, `SetHandleCount`, `GetCommandLineA`, and
+`GetEnvironmentStringsW` calls. `FreeEnvironmentStringsW` is installed as the
+paired semantic contract but the cumulative BGI session reaches
+`WideCharToMultiByte` before its later free call.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The source-v86 Node oracle harness still performs callsite provenance checks and
 adapter-specific dirty-page synchronization around the common semantic path.
@@ -141,6 +147,8 @@ One `RuntimeState` is created at cumulative-session start. It owns:
   `GuestMemory` as byte and mapping authority.
 - the reached process standard input／output identities, without importing host handles.
 - a process-owned ANSI command-line pointer derived from the UTF-16 process-parameter authority.
+- one controlled UTF-16 environment authority and one bounded copy lease; host environment
+  names and values are never imported.
 
 The Rust profile preloads the logical runtime KERNEL32 module and installed FLS endpoints. `HeapCreate` and `TlsAlloc` allocate through runtime-owned deterministic allocators. `GetModuleHandleW` and `GetProcAddress` resolve state by canonical module and exact export name. No handler receives a result value from the JSON protocol.
 
@@ -148,7 +156,7 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 
 ## Thread and scheduler state
 
-LastError is current-thread state and all 25 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
+LastError is current-thread state and all 27 contracts explicitly preserve it. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
 
@@ -160,7 +168,7 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The semantic tests cover all 24 APIs, the five original shapes, output writes,
+The semantic tests cover all 27 APIs, the five original shapes, output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
 bytes, same-thread recursion, release, structured contention, dynamic/static ID
@@ -168,7 +176,9 @@ collision, executable FLS callbacks, bounded FLS allocation, selected-thread
 FLS value isolation, the reached transactional private-heap allocation, and
 wrapping checked LONG updates, and versioned two-block heap allocation with
 mutation-free later-variant rejection, plus the process-owned standard input
-identity and unreached-selector rejection.
+identity and unreached-selector rejection, stable ANSI command-line identity,
+UTF-16 double-NUL environment bytes, one-active-copy lifetime, exact paired
+free, and mutation-free concurrent／foreign／duplicate rejection.
 The file-type test additionally fixes registered-stdin classification and
 unknown-logical-handle rejection.
 The stdout test fixes the versioned two-selector profile, logical identity
@@ -414,6 +424,36 @@ deltas, and ends at generation `121`. Its 284,215-byte report has SHA-256
 and stops at instruction 1526 on `GetCommandLineA()`. Full evidence is in
 [bgi-set-handle-count.md](bgi-set-handle-count.md).
 
+The GetCommandLineA profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-command-line-a
+```
+
+It derives one process-owned ASCII view from the existing UTF-16
+process-parameter authority. The stable pointer is distinct from the wide
+pointer, preserves LastError, and writes no guest bytes during the call. The
+profile completes 62 calls, ends at generation `122`, and stops at instruction
+1536 on `GetEnvironmentStringsW()`. Full evidence is in
+[bgi-command-line-a.md](bgi-command-line-a.md).
+
+The current wide-environment profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-environment-strings-w
+```
+
+It installs an empty UTF-16 double-NUL authority without importing the host
+environment. `GetEnvironmentStringsW` activates one distinct copy lease;
+`FreeEnvironmentStringsW` validates and retires that exact pointer. Concurrent
+acquisition, foreign pointer, and duplicate free stop before mutation. The BGI
+profile completes 63 calls, uses 64 writeback batches／108 dirty pages／1,015
+changed bytes and 30 host deltas, and ends at generation `123`. Its 291,793-byte
+report has SHA-256
+`96cb98f09a1d2733442d38ce2736c15c38fd87f3f4fa082e020d623c3fdb6013`
+and stops at instruction 1558 on `WideCharToMultiByte`. Full evidence is in
+[bgi-environment-strings-w.md](bgi-environment-strings-w.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -435,18 +475,21 @@ and stops at instruction 1526 on `GetCommandLineA()`. Full evidence is in
 - The generic session owns only the reached standard input／output／error
   identities, stdin character classification, and stdout／stderr pipe
   classifications, the policy-enabled `SetHandleCount(32)` no-op contract, and
-  the process-owned ASCII command-line view.
+  the process-owned ASCII command-line view plus one controlled wide-environment
+  authority／copy lease.
   General handle-table sizing, `SetStdHandle`, close behavior, broader file type,
-  console semantics, and file I/O remain absent. Its first unsupported
-  operation is `GetEnvironmentStringsW()`; bespoke
+  console semantics, file I/O, host-environment import, ANSI environment strings,
+  and environment mutation remain absent. Its first unsupported
+  operation is `WideCharToMultiByte()`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-environment-strings-w` at
-`GetEnvironmentStringsW()`. It must first fix the native environment block
-shape, ordering, double-NUL termination, ownership, LastError, paired free, and
-immediate consumer without importing the host environment.
+The next proof is `kernel32-wide-char-to-multi-byte` at
+`WideCharToMultiByte(CP_ACP, 0, 0x7FFDD030, 1, NULL, 0, NULL, NULL)`. It must
+first fix the native query／conversion pair, Windows-932 behavior, size and
+invalid-input semantics, default-character reporting, LastError, and immediate
+consumer without importing a host locale shortcut.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -456,6 +499,6 @@ FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
 252,994-byte report remain historical artifact identities. Current semantic
 regression uses field assertions; the replayed policy-bearing standard-output
 report is 257,878 bytes. The stdout-file-type and stderr-handle reports are
-267,223 and 271,184 bytes respectively; the current stderr-file-type report is
-280,475 bytes, the SetHandleCount report is 284,215 bytes, and the current
-GetCommandLineA report is 288,041 bytes.
+267,223 and 271,184 bytes respectively; the stderr-file-type report is 280,475
+bytes, the SetHandleCount report is 284,215 bytes, the GetCommandLineA report is
+288,041 bytes, and the current environment-strings report is 291,793 bytes.

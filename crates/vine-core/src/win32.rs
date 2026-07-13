@@ -32,6 +32,9 @@ pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
 pub const SET_HANDLE_COUNT_IMPLEMENTATION: &str = "kernel32.set-handle-count.v1";
 pub const GET_COMMAND_LINE_A_IMPLEMENTATION: &str = "kernel32.get-command-line-a.v1";
+pub const GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str = "kernel32.get-environment-strings-w.v1";
+pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
+    "kernel32.free-environment-strings-w.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
@@ -93,6 +96,12 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
         SET_HANDLE_COUNT_IMPLEMENTATION => handle_set_handle_count(policy, contract, frame),
         GET_COMMAND_LINE_A_IMPLEMENTATION => handle_get_command_line_a(contract, session),
+        GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION => {
+            handle_get_environment_strings_w(contract, session)
+        }
+        FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION => {
+            handle_free_environment_strings_w(contract, frame, session)
+        }
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
         }
@@ -152,6 +161,8 @@ pub fn kernel32_contract_for_endpoint(
         "GetFileType" => get_file_type_contract(endpoint)?,
         "SetHandleCount" => set_handle_count_contract(endpoint)?,
         "GetCommandLineA" => get_command_line_a_contract(endpoint)?,
+        "GetEnvironmentStringsW" => get_environment_strings_w_contract(endpoint)?,
+        "FreeEnvironmentStringsW" => free_environment_strings_w_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
@@ -315,6 +326,64 @@ fn handle_get_command_line_a(
     Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
         command_line.ansi_buffer_address.0,
     )))
+}
+
+fn handle_get_environment_strings_w(
+    contract: &ApiContract,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let environment = session
+        .runtime()
+        .process_environment_strings()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .clone();
+    let byte_length = usize::try_from(environment.byte_length_with_double_nul).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-environment-strings",
+            "wide-environment-length-not-representable",
+            "runtime wide environment length does not fit host accounting",
+        )
+    })?;
+    let authority = session
+        .memory()
+        .read(environment.authority_buffer_address, byte_length)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let copy = session
+        .memory()
+        .read(environment.copy_buffer_address, byte_length)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    if authority != [0, 0, 0, 0] || copy != authority {
+        return Err(ApiFault::unsupported(
+            "win32-environment-strings",
+            "wide-environment-mutation-unsupported",
+            "the controlled wide environment authority or copy no longer has its empty double-NUL shape",
+        ));
+    }
+    let copy = session
+        .runtime_mut()
+        .acquire_environment_strings_w()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
+        copy.buffer_address.0,
+    )))
+}
+
+fn handle_free_environment_strings_w(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let buffer_address = GuestAddress(required_argument(
+        contract,
+        frame,
+        0,
+        "wide environment-string copy",
+    )?);
+    session
+        .runtime_mut()
+        .free_environment_strings_w(buffer_address)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
 }
 
 fn handle_query_performance_counter(
@@ -922,6 +991,30 @@ pub fn get_command_line_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiC
         Vec::new(),
         ApiReturnSchema::OpaquePointer { nullable: false },
         GET_COMMAND_LINE_A_IMPLEMENTATION,
+    )
+}
+
+pub fn get_environment_strings_w_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetEnvironmentStringsW",
+        Vec::new(),
+        ApiReturnSchema::OpaquePointer { nullable: false },
+        GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION,
+    )
+}
+
+pub fn free_environment_strings_w_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "FreeEnvironmentStringsW",
+        vec![opaque_pointer("environmentBlock", false, 2)],
+        ApiReturnSchema::Bool32,
+        FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION,
     )
 }
 

@@ -19,6 +19,9 @@ let criticalSectionOracleLastError = null;
 let commandLineOracleScheduled = false;
 const commandLineFirstPointers = new Map();
 const commandLineLatestPointers = new Map();
+let environmentStringsOracleScheduled = false;
+let environmentStringsOracleSentinel = null;
+let environmentStringsOracleLastError = null;
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -76,6 +79,135 @@ function snapshotNulTerminatedString(pointer, encoding) {
     return {
       pointer: pointer.toString(),
       encoding,
+      maximumBytes,
+      error: error.message,
+    };
+  }
+}
+
+function fnv1aByte(hash, byte) {
+  return Math.imul((hash ^ byte) >>> 0, 0x01000193) >>> 0;
+}
+
+function readProcessParametersEnvironmentPointer() {
+  try {
+    const ntdll = Process.getModuleByName("ntdll.dll");
+    const address = findExport(ntdll, "RtlGetCurrentPeb");
+    if (address === null) {
+      return { error: "RtlGetCurrentPeb export is unavailable" };
+    }
+    const peb = new NativeFunction(address, "pointer", [], "stdcall")();
+    const processParameters = peb.add(0x10).readPointer();
+    const environment = processParameters.add(0x48).readPointer();
+    return {
+      peb: peb.toString(),
+      processParameters: processParameters.toString(),
+      environment: environment.toString(),
+    };
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+function snapshotUtf16EnvironmentBlock(pointer, processEnvironmentPointer) {
+  const maximumBytes = 1024 * 1024;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      encoding: "utf16-environment-block",
+      maximumBytes,
+      error: "null pointer",
+    };
+  }
+  try {
+    const entryUtf16UnitLengths = [];
+    const foldedNames = [];
+    let pseudoDriveEntryCount = 0;
+    let entriesMissingAssignmentSeparator = 0;
+    let current = [];
+    let previousWasNul = false;
+    let byteLengthWithDoubleNul = null;
+    let hash = 0x811c9dc5;
+    for (let offset = 0; offset + 2 <= maximumBytes; offset += 2) {
+      const unit = pointer.add(offset).readU16();
+      hash = fnv1aByte(hash, unit & 0xff);
+      hash = fnv1aByte(hash, unit >>> 8);
+      if (unit === 0) {
+        if (previousWasNul) {
+          byteLengthWithDoubleNul = offset + 2;
+          break;
+        }
+        if (current.length > 0) {
+          entryUtf16UnitLengths.push(current.length);
+          const assignmentStart = current[0] === 0x3d ? 1 : 0;
+          const assignmentIndex = current.indexOf(0x3d, assignmentStart);
+          if (assignmentIndex < 0) {
+            entriesMissingAssignmentSeparator += 1;
+          } else {
+            if (current[0] === 0x3d) {
+              pseudoDriveEntryCount += 1;
+            }
+            foldedNames.push(
+              String.fromCharCode(...current.slice(0, assignmentIndex)).toUpperCase(),
+            );
+          }
+        }
+        current = [];
+        previousWasNul = true;
+      } else {
+        current.push(unit);
+        previousWasNul = false;
+      }
+    }
+    if (byteLengthWithDoubleNul === null) {
+      return {
+        pointer: pointer.toString(),
+        encoding: "utf16-environment-block",
+        maximumBytes,
+        error: "double-NUL terminator not found within bounded observation",
+      };
+    }
+    const names = new Set();
+    let duplicateCaseInsensitiveNameCount = 0;
+    for (const name of foldedNames) {
+      if (names.has(name)) {
+        duplicateCaseInsensitiveNameCount += 1;
+      }
+      names.add(name);
+    }
+    const range = Process.findRangeByAddress(pointer);
+    return {
+      pointer: pointer.toString(),
+      encoding: "utf16-environment-block",
+      maximumBytes,
+      byteLengthWithDoubleNul,
+      entryCount: entryUtf16UnitLengths.length,
+      entryUtf16UnitLengths,
+      contentFnv1a32: `0x${hash.toString(16).padStart(8, "0")}`,
+      pseudoDriveEntryCount,
+      entriesMissingAssignmentSeparator,
+      duplicateCaseInsensitiveNameCount,
+      caseFoldedNameOrderNondecreasing: foldedNames.every(
+        (name, index) => index === 0 || foldedNames[index - 1] <= name,
+      ),
+      processParametersEnvironmentPointer:
+        processEnvironmentPointer?.environment ?? null,
+      equalsProcessParametersEnvironmentPointer:
+        processEnvironmentPointer?.environment === pointer.toString(),
+      range:
+        range === null
+          ? null
+          : {
+              base: range.base.toString(),
+              size: range.size,
+              protection: range.protection,
+              pointerOffset: pointer.sub(range.base).toUInt32(),
+            },
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      encoding: "utf16-environment-block",
       maximumBytes,
       error: error.message,
     };
@@ -413,6 +545,12 @@ if (selectedObservations.has("command-line-a")) {
     ["GetCommandLineW", []],
   );
 }
+if (selectedObservations.has("environment-strings-w")) {
+  hooks["kernel32.dll"].push(
+    ["GetEnvironmentStringsW", []],
+    ["FreeEnvironmentStringsW", [null]],
+  );
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -538,6 +676,15 @@ function attachHook(module, name, decoders) {
       if (this.traceCriticalSectionOracle) {
         this.lastError = criticalSectionOracleSentinel;
       }
+      this.traceEnvironmentStringsOracle =
+        environmentStringsOracleSentinel !== null &&
+        selectedObservations.has("environment-strings-w") &&
+        (name === "GetEnvironmentStringsW" ||
+          name === "FreeEnvironmentStringsW") &&
+        caller.module === "frida-agent.dll";
+      if (this.traceEnvironmentStringsOracle) {
+        this.lastError = environmentStringsOracleSentinel;
+      }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
@@ -567,6 +714,20 @@ function attachHook(module, name, decoders) {
           : (name === "GetCommandLineA" || name === "GetCommandLineW") &&
               selectedObservations.has("command-line-a")
             ? { lastErrorBefore: Number(this.lastError) >>> 0 }
+          : (name === "GetEnvironmentStringsW" ||
+                name === "FreeEnvironmentStringsW") &&
+              selectedObservations.has("environment-strings-w")
+            ? {
+                lastErrorBefore: Number(this.lastError) >>> 0,
+                ...(name === "FreeEnvironmentStringsW"
+                  ? {
+                      environmentBlockBeforeFree: snapshotUtf16EnvironmentBlock(
+                        args[0],
+                        readProcessParametersEnvironmentPointer(),
+                      ),
+                    }
+                  : {}),
+              }
           : name.startsWith("Heap") ||
               name.startsWith("GetModuleHandle") ||
               (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||
@@ -603,6 +764,9 @@ function attachHook(module, name, decoders) {
       if (this.traceCriticalSectionOracle) {
         criticalSectionOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceEnvironmentStringsOracle) {
+        environmentStringsOracleLastError = Number(lastError) >>> 0;
+      }
       const observation = {
         ...(this.traceStartupInfoPointer === null
           ? {}
@@ -630,6 +794,15 @@ function attachHook(module, name, decoders) {
               commandLine: snapshotNulTerminatedString(
                 result,
                 name === "GetCommandLineW" ? "utf16" : "ansi",
+              ),
+            }
+          : {}),
+        ...(name === "GetEnvironmentStringsW" &&
+        selectedObservations.has("environment-strings-w")
+          ? {
+              environmentBlock: snapshotUtf16EnvironmentBlock(
+                result,
+                readProcessParametersEnvironmentPointer(),
               ),
             }
           : {}),
@@ -704,6 +877,95 @@ function scheduleCommandLineOracle(module) {
       });
     } catch (error) {
       emit("command-line-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function scheduleEnvironmentStringsOracle(module) {
+  if (environmentStringsOracleScheduled) {
+    return;
+  }
+  environmentStringsOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const getExport = (name) => {
+        const result = findExport(module, name);
+        if (result === null) {
+          throw new Error(`${name} export is unavailable`);
+        }
+        return result;
+      };
+      const getEnvironmentStringsW = new NativeFunction(
+        getExport("GetEnvironmentStringsW"),
+        "pointer",
+        [],
+        "stdcall",
+      );
+      const freeEnvironmentStringsW = new NativeFunction(
+        getExport("FreeEnvironmentStringsW"),
+        "int",
+        ["pointer"],
+        "stdcall",
+      );
+      const processEnvironmentPointer = readProcessParametersEnvironmentPointer();
+      const invoke = (step, sentinel, operation) => {
+        environmentStringsOracleSentinel = sentinel;
+        environmentStringsOracleLastError = null;
+        try {
+          const result = operation();
+          const lastErrorAfter = environmentStringsOracleLastError;
+          if (lastErrorAfter === null) {
+            throw new Error(`${step} did not pass through the environment hook`);
+          }
+          return { result, lastErrorAfter };
+        } finally {
+          environmentStringsOracleSentinel = null;
+          environmentStringsOracleLastError = null;
+        }
+      };
+      const acquire = (sentinel) => {
+        const outcome = invoke("acquire", sentinel, () => getEnvironmentStringsW());
+        return {
+          sentinel,
+          lastErrorAfter: outcome.lastErrorAfter,
+          block: snapshotUtf16EnvironmentBlock(
+            outcome.result,
+            processEnvironmentPointer,
+          ),
+        };
+      };
+      const release = (acquisition, sentinel) => {
+        const outcome = invoke("release", sentinel, () =>
+          freeEnvironmentStringsW(ptr(acquisition.block.pointer)),
+        );
+        return {
+          sentinel,
+          lastErrorAfter: outcome.lastErrorAfter,
+          result: Number(outcome.result),
+          pointer: acquisition.block.pointer,
+        };
+      };
+      const acquisitions = [acquire(0), acquire(87)];
+      const releases = [
+        release(acquisitions[0], 88),
+        release(acquisitions[1], 89),
+      ];
+      emit("environment-strings-oracle", {
+        profile: "x86-wide-copy-lifetime-v1",
+        processEnvironmentPointer,
+        acquisitions,
+        releases,
+        pointersEqual:
+          acquisitions[0].block.pointer === acquisitions[1].block.pointer,
+        contentShapesEqual:
+          acquisitions[0].block.byteLengthWithDoubleNul ===
+            acquisitions[1].block.byteLengthWithDoubleNul &&
+          acquisitions[0].block.entryCount === acquisitions[1].block.entryCount &&
+          acquisitions[0].block.contentFnv1a32 ===
+            acquisitions[1].block.contentFnv1a32,
+      });
+    } catch (error) {
+      emit("environment-strings-oracle-error", { error: error.message });
     }
   });
 }
@@ -819,6 +1081,12 @@ Process.attachModuleObserver({
       selectedObservations.has("command-line-a")
     ) {
       scheduleCommandLineOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("environment-strings-w")
+    ) {
+      scheduleEnvironmentStringsOracle(module);
     }
   },
 });

@@ -7,7 +7,10 @@ use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
 use crate::dynamic_exports::{
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
 };
-use crate::environment::{CONTROLLED_ANSI_COMMAND_LINE_ENCODING, InitialProcessEnvironment};
+use crate::environment::{
+    CONTROLLED_ANSI_COMMAND_LINE_ENCODING, CONTROLLED_WIDE_ENVIRONMENT_ENCODING,
+    InitialProcessEnvironment,
+};
 use crate::imports::{ImportThunkArena, ImportThunkId, RuntimeExport};
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
@@ -881,10 +884,33 @@ pub struct RuntimeCommandLine {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeEnvironmentStringCopy {
+    pub acquisition_id: u64,
+    pub buffer_address: GuestAddress,
+    pub byte_length_with_double_nul: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeEnvironmentStrings {
+    pub source_authority: String,
+    pub authority_buffer_address: GuestAddress,
+    pub copy_buffer_address: GuestAddress,
+    pub byte_length_with_double_nul: u32,
+    pub encoding: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_copy: Option<RuntimeEnvironmentStringCopy>,
+    pub next_acquisition_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeProcessEnvironment {
     pub address_allocation_id: ProcessAddressAllocationId,
     pub range: RuntimeAddressRange,
     pub command_line: RuntimeCommandLine,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment_strings: Option<RuntimeEnvironmentStrings>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1723,6 +1749,94 @@ impl RuntimeState {
                 "initial ANSI command-line view must be distinct and contained by the command-line allocation",
             ));
         }
+        let wide_start = u64::from(parameters.command_line_buffer_address.0);
+        let wide_end = wide_start
+            .checked_add(u64::from(parameters.command_line_maximum_length_bytes))
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-process-environment",
+                    "wide-command-line-range-overflow",
+                    "initial wide command-line range overflowed x86 accounting",
+                )
+            })?;
+        if wide_start < u64::from(parameters.command_line_range.start().0)
+            || wide_end > parameters.command_line_range.end()
+            || ranges_overlap(
+                wide_start,
+                wide_end,
+                u64::from(ansi.buffer_address.0),
+                ansi_end,
+            )
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "command-line-view-range-invalid",
+                "initial wide and ANSI command-line views must be disjoint and contained",
+            ));
+        }
+        let environment_strings = parameters
+            .environment_strings
+            .as_ref()
+            .map(|environment| {
+                if environment.encoding != CONTROLLED_WIDE_ENVIRONMENT_ENCODING
+                    || environment.byte_length_with_double_nul != 4
+                    || environment.authority_buffer_address == environment.copy_buffer_address
+                {
+                    return Err(RuntimeStateError::invalid_input(
+                        "runtime-process-environment",
+                        "wide-environment-metadata-invalid",
+                        "initial wide environment metadata does not match the controlled empty block",
+                    ));
+                }
+                let authority_start = u64::from(environment.authority_buffer_address.0);
+                let authority_end = authority_start
+                    .checked_add(u64::from(environment.byte_length_with_double_nul))
+                    .ok_or_else(|| {
+                        RuntimeStateError::invalid_input(
+                            "runtime-process-environment",
+                            "wide-environment-authority-range-overflow",
+                            "wide environment authority range overflowed x86 accounting",
+                        )
+                    })?;
+                let copy_start = u64::from(environment.copy_buffer_address.0);
+                let copy_end = copy_start
+                    .checked_add(u64::from(environment.byte_length_with_double_nul))
+                    .ok_or_else(|| {
+                        RuntimeStateError::invalid_input(
+                            "runtime-process-environment",
+                            "wide-environment-copy-range-overflow",
+                            "wide environment copy range overflowed x86 accounting",
+                        )
+                    })?;
+                let command_line_start = u64::from(parameters.command_line_range.start().0);
+                let command_line_end = parameters.command_line_range.end();
+                if authority_start < command_line_start
+                    || authority_end > command_line_end
+                    || copy_start < command_line_start
+                    || copy_end > command_line_end
+                    || ranges_overlap(authority_start, authority_end, copy_start, copy_end)
+                    || ranges_overlap(authority_start, authority_end, wide_start, wide_end)
+                    || ranges_overlap(authority_start, authority_end, u64::from(ansi.buffer_address.0), ansi_end)
+                    || ranges_overlap(copy_start, copy_end, wide_start, wide_end)
+                    || ranges_overlap(copy_start, copy_end, u64::from(ansi.buffer_address.0), ansi_end)
+                {
+                    return Err(RuntimeStateError::invalid_input(
+                        "runtime-process-environment",
+                        "wide-environment-range-invalid",
+                        "wide environment authority and copy must be disjoint from all process string views",
+                    ));
+                }
+                Ok(RuntimeEnvironmentStrings {
+                    source_authority: "rtl-user-process-parameters-environment".to_owned(),
+                    authority_buffer_address: environment.authority_buffer_address,
+                    copy_buffer_address: environment.copy_buffer_address,
+                    byte_length_with_double_nul: environment.byte_length_with_double_nul,
+                    encoding: environment.encoding.clone(),
+                    active_copy: None,
+                    next_acquisition_id: 1,
+                })
+            })
+            .transpose()?;
 
         let mut ranges = [
             parameters.process_parameters_range,
@@ -1785,6 +1899,7 @@ impl RuntimeState {
                 ansi_byte_length_with_nul: ansi.byte_length_with_nul,
                 ansi_encoding: ansi.encoding.clone(),
             },
+            environment_strings,
         };
         self.address_space_allocator = allocator;
         self.process.environment = Some(registered);
@@ -1807,6 +1922,110 @@ impl RuntimeState {
                     "runtime process has no registered command-line authority",
                 )
             })
+    }
+
+    pub fn process_environment_strings(
+        &self,
+    ) -> Result<&RuntimeEnvironmentStrings, RuntimeStateError> {
+        self.process
+            .environment
+            .as_ref()
+            .and_then(|environment| environment.environment_strings.as_ref())
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-process-environment",
+                    "wide-environment-strings-unregistered",
+                    "runtime process has no registered wide environment-string authority",
+                )
+            })
+    }
+
+    pub fn acquire_environment_strings_w(
+        &mut self,
+    ) -> Result<RuntimeEnvironmentStringCopy, RuntimeStateError> {
+        if matches!(
+            self.process.lifecycle,
+            RuntimeProcessLifecycleState::ExitRequested { .. }
+                | RuntimeProcessLifecycleState::Exited { .. }
+        ) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-environment",
+                "wide-environment-acquire-lifecycle-state-invalid",
+                "wide environment strings cannot be acquired during process exit",
+            ));
+        }
+        let environment_strings = self
+            .process
+            .environment
+            .as_mut()
+            .and_then(|environment| environment.environment_strings.as_mut())
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-process-environment",
+                    "wide-environment-strings-unregistered",
+                    "runtime process has no registered wide environment-string authority",
+                )
+            })?;
+        if environment_strings.active_copy.is_some() {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-process-environment",
+                "wide-environment-copy-limit-reached",
+                "the controlled profile permits one active wide environment-string copy",
+            ));
+        }
+        let next_acquisition_id = environment_strings
+            .next_acquisition_id
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-process-environment",
+                    "wide-environment-acquisition-id-exhausted",
+                    "wide environment-string acquisition ID space is exhausted",
+                )
+            })?;
+        let copy = RuntimeEnvironmentStringCopy {
+            acquisition_id: environment_strings.next_acquisition_id,
+            buffer_address: environment_strings.copy_buffer_address,
+            byte_length_with_double_nul: environment_strings.byte_length_with_double_nul,
+        };
+        environment_strings.next_acquisition_id = next_acquisition_id;
+        environment_strings.active_copy = Some(copy.clone());
+        Ok(copy)
+    }
+
+    pub fn free_environment_strings_w(
+        &mut self,
+        buffer_address: GuestAddress,
+    ) -> Result<RuntimeEnvironmentStringCopy, RuntimeStateError> {
+        let environment_strings = self
+            .process
+            .environment
+            .as_mut()
+            .and_then(|environment| environment.environment_strings.as_mut())
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-process-environment",
+                    "wide-environment-strings-unregistered",
+                    "runtime process has no registered wide environment-string authority",
+                )
+            })?;
+        let copy = environment_strings.active_copy.as_ref().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-process-environment",
+                "wide-environment-copy-not-active",
+                "no wide environment-string copy is active",
+            )
+        })?;
+        if copy.buffer_address != buffer_address {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "wide-environment-copy-pointer-invalid",
+                "FreeEnvironmentStringsW requires the active process-owned copy pointer",
+            ));
+        }
+        let copy = copy.clone();
+        environment_strings.active_copy = None;
+        Ok(copy)
     }
 
     pub fn current_thread_id(&self) -> RuntimeThreadId {
@@ -5775,3 +5994,7 @@ impl fmt::Display for RuntimeStateError {
 }
 
 impl std::error::Error for RuntimeStateError {}
+
+const fn ranges_overlap(left_start: u64, left_end: u64, right_start: u64, right_end: u64) -> bool {
+    left_start < right_end && right_start < left_end
+}

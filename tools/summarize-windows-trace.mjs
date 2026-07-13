@@ -24,6 +24,7 @@ const supportedObservations = new Set([
   "file-type",
   "set-handle-count",
   "command-line-a",
+  "environment-strings-w",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

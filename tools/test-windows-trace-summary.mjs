@@ -623,6 +623,13 @@ commandLineSelection.find(
 ).selectedObservations = ["command-line-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(commandLineSelection)));
 
+const environmentStringsSelection = structuredClone(events);
+environmentStringsSelection[0].arguments.observations = ["environment-strings-w"];
+environmentStringsSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["environment-strings-w"];
+assert.doesNotThrow(() => summarizeTrace(encode(environmentStringsSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

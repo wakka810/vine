@@ -21,6 +21,7 @@ use vine_core::{
     dispatch_kernel32_api_with_policy, install_controlled_initial_stack,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
+    install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     install_dynamic_export_thunks, install_runtime_return_sentinels,
     kernel32_contract_for_endpoint, materialize_pe32_image,
 };
@@ -291,7 +292,12 @@ impl BrowserRuntime {
         let sentinels = install_runtime_return_sentinels(&mut memory).map_err(error_string)?;
         let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
             .map_err(error_string)?;
-        let environment = if kernel32_policy.allows_ansi_command_line() {
+        let environment = if kernel32_policy.allows_wide_environment_strings() {
+            install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
+                &mut memory,
+                "BGI.exe",
+            )
+        } else if kernel32_policy.allows_ansi_command_line() {
             install_controlled_process_environment_with_command_line_and_ansi(
                 &mut memory,
                 "BGI.exe",
@@ -1144,13 +1150,16 @@ fn build_bgi_dispatcher(
     let mut contracts = endpoints
         .iter()
         .filter(|endpoint| {
-            kernel32_policy.allows_ansi_command_line()
-                || !endpoint.matches(
-                    "kernel32.dll",
-                    &vine_core::ApiSymbol::Name {
-                        name: "GetCommandLineA".to_owned(),
-                    },
-                )
+            let vine_core::ApiSymbol::Name { name } = &endpoint.symbol else {
+                return true;
+            };
+            match name.as_str() {
+                "GetCommandLineA" => kernel32_policy.allows_ansi_command_line(),
+                "GetEnvironmentStringsW" | "FreeEnvironmentStringsW" => {
+                    kernel32_policy.allows_wide_environment_strings()
+                }
+                _ => true,
+            }
         })
         .filter_map(|endpoint| kernel32_contract_for_endpoint(endpoint.clone()).transpose())
         .collect::<Result<Vec<_>, _>>()

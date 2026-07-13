@@ -13,6 +13,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-standard-error-file-type-v1.json",
   "fixtures/runtime-policies/kernel32-set-handle-count-v1.json",
   "fixtures/runtime-policies/kernel32-command-line-a-v1.json",
+  "fixtures/runtime-policies/kernel32-environment-strings-w-v1.json",
 ];
 
 for (const relative of policyFiles) {

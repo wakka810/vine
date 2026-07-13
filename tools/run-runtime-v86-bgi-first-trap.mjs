@@ -67,6 +67,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-standard-error-file-type",
         "kernel32-set-handle-count",
         "kernel32-command-line-a",
+        "kernel32-environment-strings-w",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -93,7 +94,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-command-line-a"
+    genericRuntimeCapability === "kernel32-environment-strings-w"
+      ? "kernel32-environment-strings-w-v1.json"
+      : genericRuntimeCapability === "kernel32-command-line-a"
       ? "kernel32-command-line-a-v1.json"
       : genericRuntimeCapability === "kernel32-set-handle-count"
       ? "kernel32-set-handle-count-v1.json"
@@ -143,7 +146,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const environmentStringsWEnabled =
+  genericRuntimeCapability === "kernel32-environment-strings-w";
 const commandLineAEnabled =
+  environmentStringsWEnabled ||
   genericRuntimeCapability === "kernel32-command-line-a";
 const setHandleCountEnabled =
   commandLineAEnabled || genericRuntimeCapability === "kernel32-set-handle-count";
@@ -193,7 +199,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? commandLineAEnabled
+    ? environmentStringsWEnabled
+      ? "v86-bgi-environment-strings-w"
+      : commandLineAEnabled
       ? "v86-bgi-command-line-a"
       : setHandleCountEnabled
       ? "v86-bgi-set-handle-count"
@@ -766,14 +774,22 @@ const expected = {
     tebContentSha256: "5d4ad643f294d6976304f87d2912ec4a0b1f774fae1fd9a94de59749bfdcd67e",
     pebContentSha256: "780207feb049a4c658816bf0c986bb386ec04214722a21c47936cdec01ee4d39",
     processParametersContentSha256:
-      "ac17565d250da1d27dc2429b2c81bd242fe26d67373495b2238eadbb762b6d33",
+      environmentStringsWEnabled
+        ? "ffbaed76ceb380c4240a04d838f0ce068c93fca8b0951a895ade87e863981625"
+        : "ac17565d250da1d27dc2429b2c81bd242fe26d67373495b2238eadbb762b6d33",
     commandLineContentSha256:
-      commandLineAEnabled
+      environmentStringsWEnabled
+        ? "99c221425a6c0f4a91e97aaecebe7f078007be033c9a6d81f4444286579ce121"
+        : commandLineAEnabled
         ? "99c221425a6c0f4a91e97aaecebe7f078007be033c9a6d81f4444286579ce121"
         : "c9b83dbe193708a3418517c43a4dadd26ca50a4006b00bd11701f3bb6ef0e6cc",
     ansiBuffer: 0x7ffdd010,
     ansiByteLengthWithNul: 8,
     ansiEncoding: "ascii-v1",
+    environmentAuthorityBuffer: 0x7ffdd020,
+    environmentCopyBuffer: 0x7ffdd030,
+    environmentByteLengthWithDoubleNul: 4,
+    environmentEncoding: "utf16le-double-nul-v1",
     generation: 24,
   },
   dynamicExport: controlledDynamicExport.endpoint,
@@ -790,10 +806,14 @@ const expected = {
     generation: dispatchGetProcAddress ? 27 : 24,
   },
   reflectionContentSha256: commandLineAEnabled
-    ? "79b095d59577cb70afcd654328c5a014a3c7f99b5832fc4f7819aef43eef94be"
+    ? environmentStringsWEnabled
+      ? "cdba586268a16e9f45dbfc562dc00fec117cf7c5307629ba3237ca4f293a4a55"
+      : "79b095d59577cb70afcd654328c5a014a3c7f99b5832fc4f7819aef43eef94be"
     : selectedCheckpoint.evidence.reflectionSha256,
   offerLineBytes: commandLineAEnabled
-    ? 4_923_010
+    ? environmentStringsWEnabled
+      ? 4_923_170
+      : 4_923_010
     : selectedCheckpoint.evidence.offerLineBytes,
   receiptLineBytes: selectedCheckpoint.evidence.reflectionReceiptLineBytes,
   terminal: {
@@ -1793,6 +1813,32 @@ const commandLineAExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const environmentStringsWExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 63,
+  pointer: 0x7ffdd030,
+  instructionCount: 1536,
+  returnAddress: 0x100a855f,
+  writebackBatches: 64,
+  dirtyPages: 108,
+  changedBytes: 1015,
+  hostDeltaBatches: 30,
+  finalGeneration: 123,
+  memoryContentSha256: "20109e02acad2ff74cc74520f10b4bba715479f87a1fec2ae000be3f3e179481",
+  reportBytes: 291_793,
+  reportSha256: "96cb98f09a1d2733442d38ce2736c15c38fd87f3f4fa082e020d623c3fdb6013",
+  firstUnsupported: {
+    endpointId: 132,
+    endpointAddress: 0x7f000830,
+    module: "kernel32.dll",
+    symbol: "WideCharToMultiByte",
+    iatAddress: 0x100d12b8,
+    arguments: [0, 0, 0x7ffdd030, 1, 0, 0, 0],
+    returnAddress: 0x100a8599,
+    instructionCount: 1558,
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2255,6 +2301,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (environmentStringsWEnabled) {
+        validateEnvironmentStringsWResult(genericResult);
       } else if (commandLineAEnabled) {
         validateCommandLineAResult(genericResult);
       } else if (setHandleCountEnabled) {
@@ -2288,7 +2336,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : commandLineAEnabled
+          : environmentStringsWEnabled
+            ? "bgi environment strings W"
+            : commandLineAEnabled
             ? "bgi command line A"
             : setHandleCountEnabled
             ? "bgi set handle count"
@@ -2677,7 +2727,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : commandLineAEnabled
+        : environmentStringsWEnabled
+          ? 14
+          : commandLineAEnabled
           ? 12
           : setHandleCountEnabled
           ? 11
@@ -4193,6 +4245,67 @@ function validateCommandLineAResult(result) {
   );
 }
 
+function validateEnvironmentStringsWResult(result) {
+  const expected = environmentStringsWExpected;
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetEnvironmentStringsW",
+  );
+  const frees = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "FreeEnvironmentStringsW",
+  );
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, 1);
+  assert.equal(frees.length, 0);
+  assert.deepEqual(calls[0].arguments, []);
+  assert.deepEqual(calls[0].result, { action: "set", value: expected.pointer });
+  assert.equal(
+    calls[0].implementationId,
+    "kernel32.get-environment-strings-w.v1",
+  );
+  assert.equal(calls[0].lastError, 87);
+  assert.deepEqual(calls[0].guestWrites, []);
+  assert.equal(calls[0].stackPointerAfter, calls[0].stackPointerBefore + 4);
+  assert.equal(calls[0].trapInstructionCount, expected.instructionCount);
+  assert.equal(calls[0].returnAddress, expected.returnAddress);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function buildGenericRuntimeReentryReport({
   execution,
   genericResult,
@@ -4214,7 +4327,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : commandLineAEnabled
+        : environmentStringsWEnabled
+          ? "vine.v86-bgi-environment-strings-w"
+          : commandLineAEnabled
           ? "vine.v86-bgi-command-line-a"
           : setHandleCountEnabled
           ? "vine.v86-bgi-set-handle-count"
@@ -4546,6 +4661,17 @@ function validateOffer(offer, offerLineBytes) {
     });
   } else {
     assert.equal(parameters.ansi, undefined);
+  }
+  if (environmentStringsWEnabled) {
+    assert.deepEqual(parameters.environmentStrings, {
+      authorityBufferAddress: expected.processEnvironment.environmentAuthorityBuffer,
+      copyBufferAddress: expected.processEnvironment.environmentCopyBuffer,
+      byteLengthWithDoubleNul:
+        expected.processEnvironment.environmentByteLengthWithDoubleNul,
+      encoding: expected.processEnvironment.environmentEncoding,
+    });
+  } else {
+    assert.equal(parameters.environmentStrings, undefined);
   }
   assert.deepEqual(environment.invalidation, {
     generation: expected.processEnvironment.generation,

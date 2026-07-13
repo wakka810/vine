@@ -16,14 +16,26 @@ pub const TEB_SELF_POINTER_OFFSET: u32 = 0x18;
 pub const TEB_PEB_POINTER_OFFSET: u32 = 0x30;
 pub const PEB_PROCESS_PARAMETERS_POINTER_OFFSET: u32 = 0x10;
 pub const PROCESS_PARAMETERS_COMMAND_LINE_OFFSET: u32 = 0x40;
+pub const PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET: u32 = 0x48;
 pub const UNICODE_STRING_BUFFER_OFFSET: u32 = 0x04;
 pub const CONTROLLED_ANSI_COMMAND_LINE_ENCODING: &str = "ascii-v1";
+pub const CONTROLLED_WIDE_ENVIRONMENT_ENCODING: &str = "utf16le-double-nul-v1";
+const CONTROLLED_EMPTY_WIDE_ENVIRONMENT: [u8; 4] = [0, 0, 0, 0];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitialAnsiCommandLine {
     pub buffer_address: GuestAddress,
     pub byte_length_with_nul: u32,
+    pub encoding: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitialWideEnvironmentStrings {
+    pub authority_buffer_address: GuestAddress,
+    pub copy_buffer_address: GuestAddress,
+    pub byte_length_with_double_nul: u32,
     pub encoding: String,
 }
 
@@ -48,6 +60,8 @@ pub struct InitialProcessParameters {
     pub command_line_maximum_length_bytes: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ansi: Option<InitialAnsiCommandLine>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment_strings: Option<InitialWideEnvironmentStrings>,
     pub process_parameters_content_sha256: String,
     pub command_line_content_sha256: String,
     pub owners_sealed: bool,
@@ -86,6 +100,7 @@ struct ProcessParameterPages {
     command_line_length_bytes: u16,
     command_line_maximum_length_bytes: u16,
     ansi: Option<InitialAnsiCommandLine>,
+    environment_strings: Option<InitialWideEnvironmentStrings>,
     process_parameters_content_sha256: String,
     command_line_content_sha256: String,
 }
@@ -106,12 +121,20 @@ struct ValidatedCommandLine {
     length_bytes: u16,
     maximum_length_bytes: u16,
     ansi: Option<ValidatedAnsiCommandLine>,
+    environment_strings: Option<ValidatedWideEnvironmentStrings>,
 }
 
 #[derive(Debug)]
 struct ValidatedAnsiCommandLine {
     buffer_offset: u32,
     bytes_with_nul: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct ValidatedWideEnvironmentStrings {
+    authority_buffer_offset: u32,
+    copy_buffer_offset: u32,
+    bytes_with_double_nul: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,6 +156,9 @@ enum EnvironmentMutationStage {
     CommandLineBufferPointerWritten,
     CommandLineBytesWritten,
     CommandLineAnsiBytesWritten,
+    ProcessParametersEnvironmentPointerWritten,
+    EnvironmentAuthorityBytesWritten,
+    EnvironmentCopyBytesWritten,
     CommandLineOwnerSealed,
     ProcessParametersOwnerSealed,
     PebOwnerSealed,
@@ -142,7 +168,7 @@ enum EnvironmentMutationStage {
 pub fn install_controlled_process_environment(
     memory: &mut GuestMemory,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_internal(memory, None, false)
+    install_controlled_process_environment_internal(memory, None, false, false)
 }
 
 pub fn install_controlled_process_environment_with_parameters(
@@ -155,22 +181,35 @@ pub fn install_controlled_process_environment_with_command_line(
     memory: &mut GuestMemory,
     command_line: &str,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_internal(memory, Some(command_line), false)
+    install_controlled_process_environment_internal(memory, Some(command_line), false, false)
 }
 
 pub fn install_controlled_process_environment_with_command_line_and_ansi(
     memory: &mut GuestMemory,
     command_line: &str,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_internal(memory, Some(command_line), true)
+    install_controlled_process_environment_internal(memory, Some(command_line), true, false)
+}
+
+pub fn install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
+    memory: &mut GuestMemory,
+    command_line: &str,
+) -> Result<InitialProcessEnvironment, GuestMemoryError> {
+    install_controlled_process_environment_internal(memory, Some(command_line), true, true)
 }
 
 fn install_controlled_process_environment_internal(
     memory: &mut GuestMemory,
     command_line: Option<&str>,
     include_ansi: bool,
+    include_environment_strings: bool,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    let command_line = preflight_process_environment(memory, command_line, include_ansi)?;
+    let command_line = preflight_process_environment(
+        memory,
+        command_line,
+        include_ansi,
+        include_environment_strings,
+    )?;
     let mut transaction = memory.begin_transaction();
     let mut checkpoint = |_| Ok(());
     let environment = install_controlled_process_environment_transaction(
@@ -338,6 +377,7 @@ where
                 command_line_length_bytes: parameters.command_line_length_bytes,
                 command_line_maximum_length_bytes: parameters.command_line_maximum_length_bytes,
                 ansi: parameters.ansi,
+                environment_strings: parameters.environment_strings,
                 process_parameters_content_sha256: parameters.process_parameters_content_sha256,
                 command_line_content_sha256: parameters.command_line_content_sha256,
                 owners_sealed: true,
@@ -438,6 +478,54 @@ where
             })
         })
         .transpose()?;
+    let environment_strings = command_line
+        .environment_strings
+        .as_ref()
+        .map(|environment| {
+            let authority_buffer_address = add_offset(
+                CONTROLLED_COMMAND_LINE_BASE,
+                environment.authority_buffer_offset,
+            )?;
+            let copy_buffer_address =
+                add_offset(CONTROLLED_COMMAND_LINE_BASE, environment.copy_buffer_offset)?;
+            memory.write_initialization(
+                regions.process_parameters_owner,
+                add_offset(
+                    CONTROLLED_PROCESS_PARAMETERS_BASE,
+                    PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET,
+                )?,
+                &authority_buffer_address.0.to_le_bytes(),
+            )?;
+            checkpoint(EnvironmentMutationStage::ProcessParametersEnvironmentPointerWritten)?;
+            write_environment_bytes(
+                memory,
+                regions.command_line_owner,
+                authority_buffer_address,
+                &environment.bytes_with_double_nul,
+            )?;
+            checkpoint(EnvironmentMutationStage::EnvironmentAuthorityBytesWritten)?;
+            write_environment_bytes(
+                memory,
+                regions.command_line_owner,
+                copy_buffer_address,
+                &environment.bytes_with_double_nul,
+            )?;
+            checkpoint(EnvironmentMutationStage::EnvironmentCopyBytesWritten)?;
+            Ok::<_, GuestMemoryError>(InitialWideEnvironmentStrings {
+                authority_buffer_address,
+                copy_buffer_address,
+                byte_length_with_double_nul: u32::try_from(environment.bytes_with_double_nul.len())
+                    .map_err(|_| {
+                        GuestMemoryError::runtime_defect(
+                            "process-bootstrap",
+                            "wide-environment-length-not-representable",
+                            "validated wide environment length does not fit x86 accounting",
+                        )
+                    })?,
+                encoding: CONTROLLED_WIDE_ENVIRONMENT_ENCODING.to_owned(),
+            })
+        })
+        .transpose()?;
 
     Ok(ProcessParameterPages {
         process_parameters_owner: regions.process_parameters_owner,
@@ -448,6 +536,7 @@ where
         command_line_length_bytes: command_line.length_bytes,
         command_line_maximum_length_bytes: command_line.maximum_length_bytes,
         ansi,
+        environment_strings,
         process_parameters_content_sha256: hash_environment_page(
             memory,
             regions.process_parameters_owner,
@@ -465,6 +554,7 @@ fn preflight_process_environment(
     memory: &GuestMemory,
     command_line: Option<&str>,
     include_ansi: bool,
+    include_environment_strings: bool,
 ) -> Result<Option<ValidatedCommandLine>, GuestMemoryError> {
     if memory.limits().max_access_bytes < 4 {
         return Err(GuestMemoryError::resource_limit(
@@ -475,7 +565,9 @@ fn preflight_process_environment(
     }
 
     let command_line = command_line
-        .map(|command_line| validate_command_line(command_line, include_ansi))
+        .map(|command_line| {
+            validate_command_line(command_line, include_ansi, include_environment_strings)
+        })
         .transpose()?;
     let page_count = if command_line.is_some() { 4 } else { 2 };
     memory.preflight_growth(page_count, page_count, page_count, "process-bootstrap")?;
@@ -516,6 +608,12 @@ fn preflight_process_environment(
             PROCESS_PARAMETERS_COMMAND_LINE_OFFSET,
         )?;
         add_offset(command_line_field, UNICODE_STRING_BUFFER_OFFSET)?;
+        if include_environment_strings {
+            add_offset(
+                CONTROLLED_PROCESS_PARAMETERS_BASE,
+                PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET,
+            )?;
+        }
     }
     Ok(command_line)
 }
@@ -523,7 +621,15 @@ fn preflight_process_environment(
 fn validate_command_line(
     command_line: &str,
     include_ansi: bool,
+    include_environment_strings: bool,
 ) -> Result<ValidatedCommandLine, GuestMemoryError> {
+    if include_environment_strings && !include_ansi {
+        return Err(GuestMemoryError::runtime_defect(
+            "process-bootstrap",
+            "wide-environment-requires-ansi-layout",
+            "the layered environment-strings profile requires the preceding ANSI command-line view",
+        ));
+    }
     let utf16 = command_line.encode_utf16().collect::<Vec<_>>();
     if utf16.contains(&0) {
         return Err(GuestMemoryError::invalid_request(
@@ -575,6 +681,7 @@ fn validate_command_line(
         bytes_with_nul.extend_from_slice(&unit.to_le_bytes());
     }
     bytes_with_nul.extend_from_slice(&0u16.to_le_bytes());
+    let mut next_buffer_offset = maximum_byte_length;
     let ansi = if include_ansi {
         if !command_line.is_ascii() {
             return Err(GuestMemoryError::invalid_request(
@@ -608,6 +715,7 @@ fn validate_command_line(
                 "the controlled UTF-16 and ANSI command-line views do not fit one command-line page",
             ));
         }
+        next_buffer_offset = end;
         Some(ValidatedAnsiCommandLine {
             buffer_offset: u32::try_from(buffer_offset).map_err(|_| {
                 GuestMemoryError::runtime_defect(
@@ -621,6 +729,69 @@ fn validate_command_line(
     } else {
         None
     };
+    let environment_strings = if include_environment_strings {
+        let authority_buffer_offset = align_up_usize(next_buffer_offset, 16).ok_or_else(|| {
+            GuestMemoryError::resource_limit(
+                "process-bootstrap",
+                "wide-environment-authority-offset-overflow",
+                "wide environment authority alignment overflowed host accounting",
+            )
+        })?;
+        let copy_buffer_offset = align_up_usize(
+            authority_buffer_offset
+                .checked_add(CONTROLLED_EMPTY_WIDE_ENVIRONMENT.len())
+                .ok_or_else(|| {
+                    GuestMemoryError::resource_limit(
+                        "process-bootstrap",
+                        "wide-environment-copy-offset-overflow",
+                        "wide environment copy offset overflowed host accounting",
+                    )
+                })?,
+            16,
+        )
+        .ok_or_else(|| {
+            GuestMemoryError::resource_limit(
+                "process-bootstrap",
+                "wide-environment-copy-offset-overflow",
+                "wide environment copy alignment overflowed host accounting",
+            )
+        })?;
+        let end = copy_buffer_offset
+            .checked_add(CONTROLLED_EMPTY_WIDE_ENVIRONMENT.len())
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "process-bootstrap",
+                    "wide-environment-length-overflow",
+                    "wide environment views overflowed host accounting",
+                )
+            })?;
+        if end > GUEST_PAGE_SIZE as usize {
+            return Err(GuestMemoryError::invalid_request(
+                "process-bootstrap",
+                "wide-environment-views-do-not-fit",
+                "the controlled command-line and environment views do not fit one process page",
+            ));
+        }
+        Some(ValidatedWideEnvironmentStrings {
+            authority_buffer_offset: u32::try_from(authority_buffer_offset).map_err(|_| {
+                GuestMemoryError::runtime_defect(
+                    "process-bootstrap",
+                    "wide-environment-authority-offset-not-representable",
+                    "wide environment authority offset does not fit x86 accounting",
+                )
+            })?,
+            copy_buffer_offset: u32::try_from(copy_buffer_offset).map_err(|_| {
+                GuestMemoryError::runtime_defect(
+                    "process-bootstrap",
+                    "wide-environment-copy-offset-not-representable",
+                    "wide environment copy offset does not fit x86 accounting",
+                )
+            })?,
+            bytes_with_double_nul: CONTROLLED_EMPTY_WIDE_ENVIRONMENT.to_vec(),
+        })
+    } else {
+        None
+    };
     Ok(ValidatedCommandLine {
         text: command_line.to_owned(),
         utf16_units: utf16.len(),
@@ -628,6 +799,7 @@ fn validate_command_line(
         length_bytes,
         maximum_length_bytes,
         ansi,
+        environment_strings,
     })
 }
 
@@ -761,6 +933,9 @@ mod tests {
             EnvironmentMutationStage::CommandLineBufferPointerWritten,
             EnvironmentMutationStage::CommandLineBytesWritten,
             EnvironmentMutationStage::CommandLineAnsiBytesWritten,
+            EnvironmentMutationStage::ProcessParametersEnvironmentPointerWritten,
+            EnvironmentMutationStage::EnvironmentAuthorityBytesWritten,
+            EnvironmentMutationStage::EnvironmentCopyBytesWritten,
             EnvironmentMutationStage::CommandLineOwnerSealed,
             EnvironmentMutationStage::ProcessParametersOwnerSealed,
             EnvironmentMutationStage::PebOwnerSealed,
@@ -776,9 +951,10 @@ mod tests {
             })
             .expect("memory");
             let before = memory.stats();
-            let command_line = preflight_process_environment(&memory, Some("failpoint.exe"), true)
-                .expect("preflight")
-                .expect("validated command line");
+            let command_line =
+                preflight_process_environment(&memory, Some("failpoint.exe"), true, true)
+                    .expect("preflight")
+                    .expect("validated command line");
             {
                 let mut transaction = memory.begin_transaction();
                 let mut checkpoint = |stage| {
@@ -802,7 +978,7 @@ mod tests {
                 assert_eq!(error.code, "injected-process-environment-failure");
             }
             assert_eq!(memory.stats(), before, "rollback after {fail_at:?}");
-            install_controlled_process_environment_with_command_line_and_ansi(
+            install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
                 &mut memory,
                 "failpoint.exe",
             )
