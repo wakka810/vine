@@ -1696,3 +1696,50 @@ Chrome Runtime Workerも101 ordered callsとsame stop／memoryを再現し、998
 870 Wasm crossings、final generation `778`、cancel／watchdog後pending work 0を通す。3分gateは
 1,507 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-get-string-type-w.md](bgi-get-string-type-w.md)を正とする。
+
+## 71. BGI LCMapStringW
+
+focused `lc-map-string-w` observerのaccepted capturesは80,889 bytes／84 lines／SHA-256
+`f6688a93a53991e866782e6cd9ae4cb8f6cf086a8b5ba42325eeea4376203d02`と
+80,851 bytes／84 lines／SHA-256
+`eb6507ae0d35080711a2ecd95472138b224d882c8b6d45c35aa5686f4bd3f61c`
+である。どちらも16 balanced API pairs、diagnostics zeroを保持する。Observerはdirect BGI
+callとguarded x86 self-oracleだけを残し、six arguments、bounded UTF-16 source／output、
+LastError、guards、two return continuations、bounded EBP framesを記録する。
+
+BGIはlocale `1041`、explicit length `256`でlowercase (`0x100`)／uppercase (`0x200`)の
+queryとconversionを各1回呼び、全callが256を返してLastError `87`を保存する。Query return
+RVAは`0xA7F81`、conversion return RVAは`0xA8020`である。Sourceは188 ASCII＋68
+non-ASCII BMP units、NUL／surrogate zeroで、FNV-1a `0x0F08DD60`／SHA-256
+`4684daa1a9839ae6e158ace6c2fcf905ff97e52a684d3f0e808cce56fddf6b00`である。
+Lowercase outputはFNV-1a `0x16715DE0`／SHA-256
+`2dbfb1ab3f867c8f7cc233c63a3749f303dbf5b7471e5ddf888bb074b043242c`、uppercase
+outputはFNV-1a `0x4B0046E0`／SHA-256
+`34c6ffd61beff429b3655fa26536beb9f81f0baaca883c24ea5dfb4443c8f7d9`である。
+
+OracleはASCII、Japanese、fullwidth caseのquery／conversion、NUL-terminated input、
+negative count `-2`、success LastError preserveを固定する。Insufficient destinationは0＋`122`、
+zero countとNULL destination＋nonzero capacityは0＋`87`、flags 0は0＋`1004`で、source、
+output、guardsはmutation-freeである。Nativeはnegative countをNUL-terminatedとして受理するが、
+target未到達のため実装へ昇格しない。Query consumerはresult／capacityを検査してdestinationを選び、
+conversion consumerはresultを検査してmapped bufferを`WideCharToMultiByte`へ渡す。
+
+Policy `kernel32-lc-map-string-w-v1`はlocale `[1041]`、exact flags `[256,512]`、
+65,536-unit boundだけを追加する。`kernel32.lc-map-string-w.v1`はsix-argument stdcall、checked
+source／destination、explicit positive length、query／conversion、host-locale-independent reached
+case mapping、success LastError preserve、insufficient／invalid shape failureをsemantic contractとして
+処理する。Negative count、other locale／flags、overlap、unimplemented unitはmutation前にstructured
+stopし、target pointer／256-unit value／callerをpolicyへ含めない。
+
+`npm run check:runtime:bgi -- --profile kernel32-lc-map-string-w`は37 contracts／113 calls、
+114 writebacks／174 dirty pages／3,350 changed bytes、44 host deltas、final generation `187`を通す。
+instruction `12137`でID `123`／`InterlockedDecrement(0x100F08E0)`を
+`endpoint-contract-missing`として停止する。Memory SHA-256は
+`00d38b3de81df69fb459a3ff8ad7f0b53e1e50317f1fc6b546efabab19f20b55`、550,988-byte
+reportのSHA-256は`d56849eac369c5ad5b946c06b27acba844b779e548795efcc464a67bc2c7a889`
+である。
+
+Chrome Runtime Workerも113 ordered callsとsame stop／memoryを再現し、1,560 slices、1,446 yields、
+1,207 Wasm crossings、final generation `887`、cancel／watchdog後pending work 0を通す。3分gateは
+1,200 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-lc-map-string-w.md](bgi-lc-map-string-w.md)を正とする。

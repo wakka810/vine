@@ -36,6 +36,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lc_map_string_w: Option<Kernel32LcMapStringWPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_code_page_info: Option<Kernel32CodePageInfoPolicy>,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
 }
@@ -72,6 +74,14 @@ pub struct Kernel32MultiByteToWideCharPolicy {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32GetStringTypeWPolicy {
     pub allowed_info_types: Vec<u32>,
+    pub maximum_source_code_units: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32LcMapStringWPolicy {
+    pub allowed_locales: Vec<u32>,
+    pub allowed_flags: Vec<u32>,
     pub maximum_source_code_units: u32,
 }
 
@@ -114,6 +124,7 @@ impl Kernel32CompatibilityPolicy {
             wide_char_to_multi_byte: None,
             multi_byte_to_wide_char: None,
             get_string_type_w: None,
+            lc_map_string_w: None,
             active_code_page_info: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
@@ -243,6 +254,14 @@ impl Kernel32CompatibilityPolicy {
                 "string classification requires the preceding multibyte layer, bounded unique implemented information types, and a bounded nonzero source limit",
             ));
         }
+        if let Some(mapping) = self.lc_map_string_w.as_ref()
+            && !valid_lc_map_string_w_policy(mapping, self.get_string_type_w.is_some())
+        {
+            return Err(policy_error(
+                "kernel32-policy-lc-map-string-invalid",
+                "locale mapping requires the preceding classification layer, bounded unique implemented locales and flags, and a bounded nonzero source limit",
+            ));
+        }
 
         let mut heap_variants = BTreeSet::new();
         for allocation in &self.heap_allocations {
@@ -315,6 +334,10 @@ impl Kernel32CompatibilityPolicy {
         self.get_string_type_w.as_ref()
     }
 
+    pub fn lc_map_string_w(&self) -> Option<&Kernel32LcMapStringWPolicy> {
+        self.lc_map_string_w.as_ref()
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocations.iter().any(|allocation| {
             allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
@@ -368,6 +391,32 @@ fn valid_get_string_type_w_policy(
         && (1..=1_048_576).contains(&policy.maximum_source_code_units)
 }
 
+fn valid_lc_map_string_w_policy(
+    policy: &Kernel32LcMapStringWPolicy,
+    classification_layer_enabled: bool,
+) -> bool {
+    let locales = policy
+        .allowed_locales
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let flags = policy
+        .allowed_flags
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    classification_layer_enabled
+        && !policy.allowed_locales.is_empty()
+        && policy.allowed_locales.len() <= MAX_POLICY_ENTRIES
+        && locales.len() == policy.allowed_locales.len()
+        && locales.iter().all(|locale| *locale == 0x0411)
+        && !policy.allowed_flags.is_empty()
+        && policy.allowed_flags.len() <= MAX_POLICY_ENTRIES
+        && flags.len() == policy.allowed_flags.len()
+        && flags.iter().all(|flags| matches!(*flags, 0x0100 | 0x0200))
+        && (1..=1_048_576).contains(&policy.maximum_source_code_units)
+}
+
 fn policy_error(
     code: &'static str,
     message: impl Into<String>,
@@ -398,6 +447,7 @@ mod tests {
         assert!(policy.wide_char_to_multi_byte().is_none());
         assert!(policy.multi_byte_to_wide_char().is_none());
         assert!(policy.get_string_type_w().is_none());
+        assert!(policy.lc_map_string_w().is_none());
         assert!(policy.active_code_page_info().is_none());
 
         let mut invalid_environment_layer = policy.clone();
@@ -479,6 +529,31 @@ mod tests {
         assert_eq!(
             invalid_string_type.validate().unwrap_err().code,
             "kernel32-policy-string-type-invalid"
+        );
+
+        let mut invalid_lc_map = policy.clone();
+        invalid_lc_map.ansi_command_line = true;
+        invalid_lc_map.wide_environment_strings = true;
+        invalid_lc_map.wide_char_to_multi_byte = Some(Kernel32WideCharToMultiBytePolicy {
+            active_code_page: 932,
+            maximum_source_code_units: 65_536,
+        });
+        invalid_lc_map.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+            allowed_flags: vec![1],
+            maximum_source_bytes: 65_536,
+        });
+        invalid_lc_map.get_string_type_w = Some(Kernel32GetStringTypeWPolicy {
+            allowed_info_types: vec![1],
+            maximum_source_code_units: 65_536,
+        });
+        invalid_lc_map.lc_map_string_w = Some(Kernel32LcMapStringWPolicy {
+            allowed_locales: vec![0x0411],
+            allowed_flags: vec![0],
+            maximum_source_code_units: 65_536,
+        });
+        assert_eq!(
+            invalid_lc_map.validate().unwrap_err().code,
+            "kernel32-policy-lc-map-string-invalid"
         );
 
         let mut duplicate = policy;

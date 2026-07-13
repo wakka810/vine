@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, and GetStringTypeW capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-get-string-type-w`
-- Scope: frozen 17-call equivalence plus 101 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-lc-map-string-w`
+- Scope: frozen 17-call equivalence plus 113 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -63,26 +63,28 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `GetCommandLineA` | 1 | returns the stable process-owned ANSI view derived at bootstrap |
 | `GetEnvironmentStringsW` | 1 | acquires one process-owned copy lease for the controlled UTF-16 environment block |
 | `FreeEnvironmentStringsW` | 1 | retires only the exact active copy lease and returns BOOL success |
-| `WideCharToMultiByte` | 2 | performs host-locale-independent Windows-932 query/conversion shapes |
-| `GetLastError` | 6 | reads selected-thread LastError without mutation |
-| `TlsGetValue` | 6 | reads the selected thread's allocated TLS value and applies Win32 LastError semantics |
-| `FlsGetValue` | 6 | reads initialized selected-thread FLS storage and applies Win32 LastError semantics |
-| `SetLastError` | 6 | writes the full selected-thread LastError value without guest-memory mutation |
+| `WideCharToMultiByte` | 4 | performs host-locale-independent Windows-932 query/conversion shapes |
+| `GetLastError` | 7 | reads selected-thread LastError without mutation |
+| `TlsGetValue` | 7 | reads the selected thread's allocated TLS value and applies Win32 LastError semantics |
+| `FlsGetValue` | 7 | reads initialized selected-thread FLS storage and applies Win32 LastError semantics |
+| `SetLastError` | 7 | writes the full selected-thread LastError value without guest-memory mutation |
 | `GetACP` | 1 | returns the policy-owned active ANSI code page without mutation |
 | `GetCPInfo` | 1 | writes the policy-owned 18-byte active code-page fields |
-| `MultiByteToWideChar` | 4 | queries and writes checked Windows-932 UTF-16 output without host-locale input |
+| `MultiByteToWideChar` | 6 | queries and writes checked Windows-932 UTF-16 output without host-locale input |
 | `GetStringTypeW` | 1 | writes checked policy-enabled CTYPE1 WORD classifications without host-locale input |
+| `LCMapStringW` | 4 | queries and writes checked ja-JP lowercase／uppercase output without host-locale input |
 
-All 36 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 37 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-101 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
+113 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
 initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
 four `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
 critical-section／thread／startup occurrences plus three `GetStdHandle`, three
 `GetFileType`, `SetHandleCount`, `GetCommandLineA`, and
-`GetEnvironmentStringsW`, two `WideCharToMultiByte`, six each of `GetLastError`,
-`TlsGetValue`, `FlsGetValue`, and `SetLastError`, one `GetACP`, one `GetCPInfo`,
-four `MultiByteToWideChar`, and one `GetStringTypeW` call.
+`GetEnvironmentStringsW`, four `WideCharToMultiByte`, seven each of
+`GetLastError`, `TlsGetValue`, `FlsGetValue`, and `SetLastError`, one `GetACP`,
+one `GetCPInfo`, six `MultiByteToWideChar`, one `GetStringTypeW`, and four
+`LCMapStringW` calls.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The source-v86 Node oracle harness still performs callsite provenance checks and
 adapter-specific dirty-page synchronization around the common semantic path.
@@ -632,7 +634,7 @@ host deltas, and ends at generation `161`. Its 423,814-byte report has SHA-256
 and stops at instruction 5894 on missing `GetStringTypeW`. Full evidence is in
 [bgi-multi-byte-to-wide-char.md](bgi-multi-byte-to-wide-char.md).
 
-The current CTYPE1 classification profile is:
+The preceding CTYPE1 classification profile is:
 
 ```powershell
 npm run check:runtime:bgi -- --profile kernel32-get-string-type-w
@@ -650,6 +652,24 @@ deltas, and ends at generation `170`. Its 468,010-byte report has SHA-256
 `00facfca5960a6e0e233deab536aa5d01e190d6e7f72e6be7caffb2e8997c425`
 and stops at instruction 7675 on missing `LCMapStringW`. Full evidence is in
 [bgi-get-string-type-w.md](bgi-get-string-type-w.md).
+
+The current ja-JP case-mapping profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-lc-map-string-w
+```
+
+`kernel32.lc-map-string-w.v1` implements the six-argument explicit-positive-
+length query/conversion shapes for locale `1041` and exact lower／upper flags.
+It performs bounded host-locale-independent case mapping, preserves LastError on
+success, and models insufficient destination and invalid zero/NULL shapes
+without mutation. Negative length, other locale/flags, overlap, and
+unimplemented units stop before mutation. The profile completes 113 calls,
+uses 114 writeback batches／174 dirty pages／3,350 changed bytes and 44 host
+deltas, and ends at generation `187`. Its 550,988-byte report has SHA-256
+`d56849eac369c5ad5b946c06b27acba844b779e548795efcc464a67bc2c7a889`
+and stops at instruction 12137 on missing `InterlockedDecrement`. Full evidence
+is in [bgi-lc-map-string-w.md](bgi-lc-map-string-w.md).
 
 ## Deliberate exclusions
 
@@ -683,18 +703,18 @@ and stops at instruction 7675 on missing `LCMapStringW`. Full evidence is in
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
   pointers, `CP_ACP` multibyte selection, other conversion flags, negative
-  `GetStringTypeW` lengths, other information types, and broad locale tables
+  `GetStringTypeW` lengths, other information types, arbitrary `LCMapStringW`
+  locale/flag/length variants, and broad locale tables
   remain absent. Its first unsupported operation is
-  `LCMapStringW(1041,256,0x006FF708,256,0,0)`; bespoke
+  `InterlockedDecrement(0x100F08E0)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-lc-map-string-w` at
-`LCMapStringW(1041,256,0x006FF708,256,0,0)`. It must first fix the documented
-six-argument boundary, locale, flags, source content/length, destination shape,
-result, LastError, guards, and immediate consumer, then add only the reached
-checked mapping contract.
+The next proof is `kernel32-interlocked-decrement` at
+`InterlockedDecrement(0x100F08E0)`. It must first fix the pointed LONG's initial
+and final values, result, wrapping behavior, LastError, alignment, and immediate
+consumer, then add only the reached checked atomic contract.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -712,5 +732,5 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     the FlsGetValue report is 320,070 bytes, the SetLastError report is 363,609
     bytes, the GetACP report is 367,384 bytes, the 544-byte heap report is
     386,921 bytes, the GetCPInfo report is 407,009 bytes, the
-    MultiByteToWideChar report is 423,814 bytes, and the current GetStringTypeW
-    report is 468,010 bytes.
+    MultiByteToWideChar report is 423,814 bytes, the GetStringTypeW report is
+    468,010 bytes, and the current LCMapStringW report is 550,988 bytes.

@@ -111,6 +111,7 @@ enum GenericRuntimeCapability {
     GetCpInfo,
     MultiByteToWideChar,
     GetStringTypeW,
+    LcMapStringW,
 }
 
 struct GenericRuntimeProcess {
@@ -2455,6 +2456,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetCpInfo
                 | GenericRuntimeCapability::MultiByteToWideChar
                 | GenericRuntimeCapability::GetStringTypeW
+                | GenericRuntimeCapability::LcMapStringW
         )
     );
     let enabled_capability = match enabled_capability {
@@ -2471,7 +2473,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::PrivateHeapSize544
             | GenericRuntimeCapability::GetCpInfo
             | GenericRuntimeCapability::MultiByteToWideChar
-            | GenericRuntimeCapability::GetStringTypeW,
+            | GenericRuntimeCapability::GetStringTypeW
+            | GenericRuntimeCapability::LcMapStringW,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2936,13 +2939,17 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let get_string_type_w_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::GetStringTypeW));
+    let lc_map_string_w_enabled = matches!(enabled, Some(GenericRuntimeCapability::LcMapStringW));
+    let get_string_type_w_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::GetStringTypeW | GenericRuntimeCapability::LcMapStringW)
+    );
     let multi_byte_to_wide_char_enabled = matches!(
         enabled,
         Some(
             GenericRuntimeCapability::MultiByteToWideChar
                 | GenericRuntimeCapability::GetStringTypeW
+                | GenericRuntimeCapability::LcMapStringW
         )
     );
     let get_cp_info_enabled = matches!(
@@ -2951,6 +2958,7 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::GetCpInfo
                 | GenericRuntimeCapability::MultiByteToWideChar
                 | GenericRuntimeCapability::GetStringTypeW
+                | GenericRuntimeCapability::LcMapStringW
         )
     );
     let get_acp_enabled = matches!(
@@ -2961,6 +2969,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetCpInfo
                 | GenericRuntimeCapability::MultiByteToWideChar
                 | GenericRuntimeCapability::GetStringTypeW
+                | GenericRuntimeCapability::LcMapStringW
         )
     );
     let set_last_error_enabled = matches!(
@@ -2972,6 +2981,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetCpInfo
                 | GenericRuntimeCapability::MultiByteToWideChar
                 | GenericRuntimeCapability::GetStringTypeW
+                | GenericRuntimeCapability::LcMapStringW
         )
     );
     let tls_get_value_enabled = matches!(
@@ -3033,7 +3043,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::PrivateHeapSize544
             | GenericRuntimeCapability::GetCpInfo
             | GenericRuntimeCapability::MultiByteToWideChar
-            | GenericRuntimeCapability::GetStringTypeW,
+            | GenericRuntimeCapability::GetStringTypeW
+            | GenericRuntimeCapability::LcMapStringW,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3176,6 +3187,7 @@ fn runtime_capability_enables_endpoint(
         "GetCPInfo" => get_cp_info_enabled,
         "MultiByteToWideChar" => multi_byte_to_wide_char_enabled,
         "GetStringTypeW" => get_string_type_w_enabled,
+        "LCMapStringW" => lc_map_string_w_enabled,
         _ => true,
     }
 }
@@ -3213,7 +3225,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::PrivateHeapSize544
             | GenericRuntimeCapability::GetCpInfo
             | GenericRuntimeCapability::MultiByteToWideChar
-            | GenericRuntimeCapability::GetStringTypeW,
+            | GenericRuntimeCapability::GetStringTypeW
+            | GenericRuntimeCapability::LcMapStringW,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8590,6 +8603,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-get-cp-info" => GenericRuntimeCapability::GetCpInfo,
                 "kernel32-multi-byte-to-wide-char" => GenericRuntimeCapability::MultiByteToWideChar,
                 "kernel32-get-string-type-w" => GenericRuntimeCapability::GetStringTypeW,
+                "kernel32-lc-map-string-w" => GenericRuntimeCapability::LcMapStringW,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -23,14 +23,14 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 101 | 101 |
-| Guest instructions at next stop | 7,675 | 7,675 |
+| Supported calls | 113 | 113 |
+| Guest instructions at next stop | 12,137 | 12,137 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 778 | 170 |
-| Host delta batches | 39 | 39 |
-| Final memory content SHA-256 | `3c26a9fa98427249ef0f37546f25592d18d18e9ade8c07c4ebbd10e2ce6b9aa2` | same |
+| Final memory generation | 887 | 187 |
+| Host delta batches | 44 | 44 |
+| Final memory content SHA-256 | `00d38b3de81df69fb459a3ff8ad7f0b53e1e50317f1fc6b546efabab19f20b55` | same |
 | Next capability cluster | `kernel32-api-contract` | same |
-| Next API | `KERNEL32.dll!LCMapStringW(1041,256,0x006FF708,256,0,0)` | same |
+| Next API | `KERNEL32.dll!InterlockedDecrement(0x100F08E0)` | same |
 | Fault | `endpoint-contract-missing` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
@@ -40,19 +40,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 726
-writeback batches; the Node oracle reconciles at 102 writeback boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 1,046
+writeback batches; the Node oracle reconciles at 114 writeback boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 998 CPU slices, 896 budget yields, 2,995 validated Worker
-state transitions, 870 Rust/Wasm bridge operations, and a maximum observed slice
-of 1.855 ms. The main-thread heartbeat recorded 45 samples with a 16.715 ms
+The successful run used 1,560 CPU slices, 1,446 budget yields, 4,681 validated
+Worker state transitions, 1,207 Rust/Wasm bridge operations, and a maximum
+observed slice of 1.730 ms. The main-thread heartbeat recorded 49 samples with a 20.895 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 751,846 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 1,507
+changed from 628,738 to 779,466 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 1,200
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -62,7 +62,7 @@ module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 2,995, 4, and 3 transitions respectively. All three reports
+in `stopped` after 4,681, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -84,8 +84,9 @@ PTE-dirty reconciliation path. The checked 18-byte `GetCPInfo` output is applied
 as a one-page host delta before the same mirror continues through its lead-byte
 consumer. The reached `MultiByteToWideChar` conversion adds one checked 512-byte
 stack output delta. `GetStringTypeW` then adds a checked 512-byte CTYPE1 output
-delta; its consumer and later existing helper calls reach `LCMapStringW` with
-identical Node/Chrome bytes.
+delta. Its consumer and later existing helper calls reach four checked
+`LCMapStringW` lower／upper query-conversion calls, then
+`InterlockedDecrement` with identical Node/Chrome bytes.
 
 ## Reproduction
 
@@ -100,7 +101,7 @@ report hash is artifact identity only.
 
 ## Non-claims
 
-- no negative-length／broad `GetStringTypeW`, `LCMapStringW`, later `HeapFree`, or broad heap variant dispatch is implemented
+- no negative-length／broad `GetStringTypeW`, general `LCMapStringW`, `InterlockedDecrement`, later `HeapFree`, or broad heap variant dispatch is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
 - the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

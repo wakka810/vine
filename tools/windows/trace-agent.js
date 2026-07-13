@@ -34,6 +34,11 @@ let getStringTypeOracleSentinel = null;
 let getStringTypeOracleResult = null;
 let getStringTypeOracleLastError = null;
 let getStringTypeConsumerRecorded = false;
+let lcMapStringOracleScheduled = false;
+let lcMapStringOracleSentinel = null;
+let lcMapStringOracleResult = null;
+let lcMapStringOracleLastError = null;
+let lcMapStringConsumersRecorded = 0;
 let tlsLifecycleOracleScheduled = false;
 let tlsGetValueConsumerRecorded = false;
 let flsLifecycleOracleScheduled = false;
@@ -887,6 +892,56 @@ function snapshotGetStringTypeWCall(
   };
 }
 
+function snapshotLCMapStringWCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  locale,
+  flags,
+  source,
+  sourceUnits,
+  destination,
+  destinationUnits,
+) {
+  const recordsConsumer =
+    lcMapStringConsumersRecorded < 2 &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    lcMapStringConsumersRecorded += 1;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    lcMapStringW: {
+      locale: locale.toUInt32(),
+      flags: flags.toUInt32(),
+      sourceCount: sourceUnits,
+      destinationCount: destinationUnits,
+      source: snapshotWideCharSource(source, sourceUnits < 0 ? -1 : sourceUnits),
+      sourceContent: snapshotWordBuffer(source, Math.max(0, sourceUnits)),
+      destinationBefore: snapshotWideCharBuffer(
+        destination,
+        Math.max(0, destinationUnits),
+      ),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations:
+              snapshotX86FrameCallerContinuationsFollowingDirectJump(
+                context,
+                4,
+                32,
+              ),
+          }
+        : null,
+    },
+  };
+}
+
 function readProcessParametersEnvironmentPointer() {
   try {
     const ntdll = Process.getModuleByName("ntdll.dll");
@@ -1373,6 +1428,12 @@ if (selectedObservations.has("get-string-type-w")) {
     [null, null, null, null],
   ]);
 }
+if (selectedObservations.has("lc-map-string-w")) {
+  hooks["kernel32.dll"].push([
+    "LCMapStringW",
+    [null, null, null, null, null, null],
+  ]);
+}
 if (selectedObservations.has("get-last-error")) {
   hooks["kernel32.dll"].push(["GetLastError", []]);
 }
@@ -1525,6 +1586,11 @@ function attachHook(module, name, decoders) {
         name === "GetStringTypeW" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedLCMapStringObservation =
+        selectedObservations.has("lc-map-string-w") &&
+        name === "LCMapStringW" &&
+        caller.module !== null &&
+        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
       if (
         selectedObservations.has("heap-allocation") &&
         !selectedObservations.has("heap-lifecycle") &&
@@ -1554,6 +1620,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("get-string-type-w") &&
         name === "GetStringTypeW" &&
         !focusedGetStringTypeObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("lc-map-string-w") &&
+        name === "LCMapStringW" &&
+        !focusedLCMapStringObservation
       ) {
         this.traceFrame = null;
         return;
@@ -1600,6 +1674,15 @@ function attachHook(module, name, decoders) {
         caller.module.toLowerCase() === "frida-agent.dll";
       if (this.traceGetStringTypeOracle) {
         this.lastError = getStringTypeOracleSentinel;
+      }
+      this.traceLCMapStringOracle =
+        lcMapStringOracleSentinel !== null &&
+        selectedObservations.has("lc-map-string-w") &&
+        name === "LCMapStringW" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceLCMapStringOracle) {
+        this.lastError = lcMapStringOracleSentinel;
       }
       this.traceGetLastErrorOracle =
         getLastErrorOracleSentinel !== null &&
@@ -1711,6 +1794,17 @@ function attachHook(module, name, decoders) {
               output: args[3],
             }
           : null;
+      this.traceLCMapStringW =
+        focusedLCMapStringObservation
+          ? {
+              locale: args[0],
+              flags: args[1],
+              source: args[2],
+              sourceUnits: signed32(args[3]),
+              destination: args[4],
+              destinationUnits: signed32(args[5]),
+            }
+          : null;
       this.traceGetCpInfo =
         focusedGetCpInfoObservation
           ? { codePage: args[0], output: args[1] }
@@ -1784,6 +1878,19 @@ function attachHook(module, name, decoders) {
               this.traceGetStringTypeW.source,
               this.traceGetStringTypeW.sourceUnits,
               this.traceGetStringTypeW.output,
+            )
+        : this.traceLCMapStringW !== null
+          ? snapshotLCMapStringWCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceLCMapStringW.locale,
+              this.traceLCMapStringW.flags,
+              this.traceLCMapStringW.source,
+              this.traceLCMapStringW.sourceUnits,
+              this.traceLCMapStringW.destination,
+              this.traceLCMapStringW.destinationUnits,
             )
         : name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
@@ -1894,6 +2001,10 @@ function attachHook(module, name, decoders) {
         getStringTypeOracleResult = result.toUInt32();
         getStringTypeOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceLCMapStringOracle) {
+        lcMapStringOracleResult = signed32(result);
+        lcMapStringOracleLastError = Number(lastError) >>> 0;
+      }
       if (this.traceGetLastErrorOracle) {
         getLastErrorOracleResult = result.toUInt32();
         getLastErrorOracleLastError = Number(lastError) >>> 0;
@@ -1914,6 +2025,8 @@ function attachHook(module, name, decoders) {
         this.traceWideCharConversion === null ? null : signed32(result);
       const multiByteResult =
         this.traceMultiByteConversion === null ? null : signed32(result);
+      const lcMapStringResult =
+        this.traceLCMapStringW === null ? null : signed32(result);
       const observation = {
         ...(this.traceHeapAllocation === null
           ? {}
@@ -2016,6 +2129,19 @@ function attachHook(module, name, decoders) {
                 outputAfter: snapshotWordBuffer(
                   this.traceGetStringTypeW.output,
                   Math.max(0, this.traceGetStringTypeW.sourceUnits),
+                ),
+              },
+            }),
+        ...(this.traceLCMapStringW === null
+          ? {}
+          : {
+              lcMapStringW: {
+                result: lcMapStringResult,
+                destinationAfter: snapshotWideCharBuffer(
+                  this.traceLCMapStringW.destination,
+                  lcMapStringResult > 0
+                    ? lcMapStringResult
+                    : Math.max(0, this.traceLCMapStringW.destinationUnits),
                 ),
               },
             }),
@@ -2694,6 +2820,196 @@ function scheduleGetStringTypeOracle(module) {
   });
 }
 
+function scheduleLCMapStringOracle(module) {
+  if (lcMapStringOracleScheduled) {
+    return;
+  }
+  lcMapStringOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "LCMapStringW");
+      if (address === null) {
+        throw new Error("LCMapStringW export is unavailable");
+      }
+      const lcMapStringW = new SystemFunction(
+        address,
+        "int",
+        ["uint32", "uint32", "pointer", "int", "pointer", "int"],
+        "stdcall",
+      );
+      const allocateUtf16 = (words) => {
+        const pointer = Memory.alloc(words.length * 2);
+        words.forEach((word, index) => pointer.add(index * 2).writeU16(word));
+        return pointer;
+      };
+      const invoke = ({
+        id,
+        sentinel,
+        sourceWords,
+        sourceCount = sourceWords.length,
+        destinationCapacity = 0,
+        locale = 0x0411,
+        flags = 0x0100,
+        nullDestinationWithCapacity = false,
+      }) => {
+        const source = allocateUtf16(sourceWords);
+        const guardBytes = 16;
+        const storage =
+          destinationCapacity === 0 || nullDestinationWithCapacity
+            ? null
+            : Memory.alloc(guardBytes + destinationCapacity * 2 + guardBytes);
+        if (storage !== null) {
+          storage.writeByteArray(
+            Array(guardBytes + destinationCapacity * 2 + guardBytes).fill(0xa5),
+          );
+        }
+        const destination =
+          storage === null ? ptr(0) : storage.add(guardBytes);
+        const trailingGuard =
+          storage === null
+            ? null
+            : destination.add(destinationCapacity * 2);
+        const sourceBefore = snapshotWideCharBuffer(source, sourceWords.length);
+        const leadingGuardBefore =
+          storage === null ? null : snapshotBoundedRawBytes(storage, guardBytes);
+        const destinationBefore = snapshotWideCharBuffer(
+          destination,
+          destinationCapacity,
+        );
+        const trailingGuardBefore =
+          trailingGuard === null
+            ? null
+            : snapshotBoundedRawBytes(trailingGuard, guardBytes);
+        lcMapStringOracleSentinel = sentinel;
+        lcMapStringOracleResult = null;
+        lcMapStringOracleLastError = null;
+        try {
+          const outcome = lcMapStringW(
+            locale,
+            flags,
+            source,
+            sourceCount,
+            destination,
+            destinationCapacity,
+          );
+          const result = Number(outcome.value) | 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            lcMapStringOracleResult === null ||
+            lcMapStringOracleLastError === null
+          ) {
+            throw new Error(`${id} did not pass through the mapping hook`);
+          }
+          return {
+            id,
+            sentinel,
+            locale,
+            flags,
+            sourceWords,
+            sourceCount,
+            destinationCapacity,
+            nullDestinationWithCapacity,
+            result,
+            hookResult: lcMapStringOracleResult,
+            hookLastErrorAfter: lcMapStringOracleLastError,
+            systemLastError,
+            sourceBefore,
+            sourceAfter: snapshotWideCharBuffer(source, sourceWords.length),
+            leadingGuardBefore,
+            leadingGuardAfter:
+              storage === null
+                ? null
+                : snapshotBoundedRawBytes(storage, guardBytes),
+            destinationBefore,
+            destinationAfter: snapshotWideCharBuffer(
+              destination,
+              destinationCapacity,
+            ),
+            trailingGuardBefore,
+            trailingGuardAfter:
+              trailingGuard === null
+                ? null
+                : snapshotBoundedRawBytes(trailingGuard, guardBytes),
+          };
+        } finally {
+          lcMapStringOracleSentinel = null;
+          lcMapStringOracleResult = null;
+          lcMapStringOracleLastError = null;
+        }
+      };
+
+      const representativeWords = [
+        0x0041,
+        0x005a,
+        0x0061,
+        0x3042,
+        0x30a2,
+        0xff21,
+        0xff41,
+      ];
+      const calls = [
+        invoke({
+          id: "explicit-lowercase-query",
+          sentinel: 0,
+          sourceWords: representativeWords,
+        }),
+        invoke({
+          id: "explicit-lowercase-conversion",
+          sentinel: 87,
+          sourceWords: representativeWords,
+          destinationCapacity: representativeWords.length,
+        }),
+        invoke({
+          id: "nul-terminated-lowercase",
+          sentinel: 88,
+          sourceWords: [...representativeWords, 0],
+          sourceCount: -1,
+          destinationCapacity: representativeWords.length + 1,
+        }),
+        invoke({
+          id: "insufficient-destination",
+          sentinel: 89,
+          sourceWords: representativeWords,
+          destinationCapacity: 2,
+        }),
+        invoke({
+          id: "zero-source-count",
+          sentinel: 90,
+          sourceWords: [0x0041],
+          sourceCount: 0,
+          destinationCapacity: 1,
+        }),
+        invoke({
+          id: "negative-two-source-count",
+          sentinel: 91,
+          sourceWords: [0x0041, 0],
+          sourceCount: -2,
+          destinationCapacity: 2,
+        }),
+        invoke({
+          id: "invalid-flags",
+          sentinel: 92,
+          sourceWords: [0x0041],
+          flags: 0,
+        }),
+        invoke({
+          id: "null-destination-with-capacity",
+          sentinel: 93,
+          sourceWords: [0x0041],
+          destinationCapacity: 1,
+          nullDestinationWithCapacity: true,
+        }),
+      ];
+      emit("lc-map-string-w-oracle", {
+        profile: "x86-ja-jp-lowercase-v1",
+        calls,
+      });
+    } catch (error) {
+      emit("lc-map-string-w-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleGetLastErrorOracle(module) {
   if (getLastErrorOracleScheduled) {
     return;
@@ -3318,6 +3634,12 @@ Process.attachModuleObserver({
       selectedObservations.has("get-string-type-w")
     ) {
       scheduleGetStringTypeOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("lc-map-string-w")
+    ) {
+      scheduleLCMapStringOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

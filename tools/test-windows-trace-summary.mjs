@@ -658,6 +658,13 @@ getStringTypeSelection.find(
 ).selectedObservations = ["get-string-type-w"];
 assert.doesNotThrow(() => summarizeTrace(encode(getStringTypeSelection)));
 
+const lcMapStringSelection = structuredClone(events);
+lcMapStringSelection[0].arguments.observations = ["lc-map-string-w"];
+lcMapStringSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["lc-map-string-w"];
+assert.doesNotThrow(() => summarizeTrace(encode(lcMapStringSelection)));
+
 const getLastErrorSelection = structuredClone(events);
 getLastErrorSelection[0].arguments.observations = ["get-last-error"];
 getLastErrorSelection.find(

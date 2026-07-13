@@ -10,9 +10,10 @@ use vine_core::{
     GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget,
     ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
     Kernel32CompatibilityPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
-    Kernel32MultiByteToWideCharPolicy, Kernel32StandardHandleFileType,
-    Kernel32WideCharToMultiBytePolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
-    LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
+    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32StandardHandleFileType,
+    Kernel32WideCharToMultiBytePolicy, LC_MAP_STRING_W_IMPLEMENTATION,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
     PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET, PageProtection, ProcessAddressSpaceLayout,
@@ -3508,6 +3509,363 @@ fn get_string_type_w_models_measured_ctype1_and_fails_closed() {
         DispatchOutcome::Fault(ref fault)
             if fault.class == ApiFaultClass::Unsupported
                 && fault.code == "get-string-type-w-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before_disabled);
+    assert_eq!(memory.stats(), memory_before_disabled);
+}
+
+#[test]
+fn lc_map_string_w_models_measured_japanese_case_mapping_and_fails_closed() {
+    const LOWER_SOURCE: u32 = OUTPUT_BASE + 0x100;
+    const LOWER_DESTINATION: u32 = OUTPUT_BASE + 0x300;
+    const UPPER_SOURCE: u32 = OUTPUT_BASE + 0x500;
+    const UPPER_DESTINATION: u32 = OUTPUT_BASE + 0x700;
+    const UNSUPPORTED_SOURCE: u32 = OUTPUT_BASE + 0x900;
+    const UNSUPPORTED_DESTINATION: u32 = OUTPUT_BASE + 0xa00;
+
+    let lower_source = [0x0041_u16, 0x005a, 0x0061, 0x3042, 0x30a2, 0xff21, 0xff41];
+    let lower_expected = [0x0061_u16, 0x007a, 0x0061, 0x3042, 0x30a2, 0xff41, 0xff41];
+    let upper_source = [
+        0x0061_u16, 0x007a, 0x0041, 0x3042, 0x30a2, 0xff21, 0xff61, 0xf8f0,
+    ];
+    let upper_expected = [
+        0x0041_u16, 0x005a, 0x0041, 0x3042, 0x30a2, 0xff21, 0xff61, 0xf8f0,
+    ];
+    let lower_source_bytes = lower_source
+        .iter()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect::<Vec<_>>();
+    let lower_expected_bytes = lower_expected
+        .iter()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect::<Vec<_>>();
+    let upper_source_bytes = upper_source
+        .iter()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect::<Vec<_>>();
+    let upper_expected_bytes = upper_expected
+        .iter()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect::<Vec<_>>();
+
+    let (mut memory, owner) = initialized_memory();
+    for (address, bytes) in [
+        (LOWER_SOURCE, lower_source_bytes.as_slice()),
+        (UPPER_SOURCE, upper_source_bytes.as_slice()),
+    ] {
+        memory
+            .write_initialization(owner, GuestAddress(address), bytes)
+            .expect("locale mapping source");
+    }
+    for (address, byte_length) in [
+        (LOWER_DESTINATION, lower_expected_bytes.len()),
+        (UPPER_DESTINATION, upper_expected_bytes.len()),
+    ] {
+        memory
+            .write_initialization(owner, GuestAddress(address), &vec![0xa5; byte_length])
+            .expect("locale mapping destination");
+    }
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(UNSUPPORTED_SOURCE),
+            &0x2603_u16.to_le_bytes(),
+        )
+        .expect("unsupported locale source");
+    memory
+        .write_initialization(owner, GuestAddress(UNSUPPORTED_DESTINATION), &[0xa5, 0xa5])
+        .expect("unsupported locale destination");
+
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x118);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize LCMapStringW IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "LCMapStringW".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("LCMapStringW contract");
+    assert_eq!(contract.implementation_id, LC_MAP_STRING_W_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 6);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let frames = [
+        vec![
+            0x1000_0d01,
+            0x0411,
+            0x0100,
+            LOWER_SOURCE,
+            lower_source.len() as u32,
+            0,
+            0,
+        ],
+        vec![
+            0x1000_0d02,
+            0x0411,
+            0x0100,
+            LOWER_SOURCE,
+            lower_source.len() as u32,
+            LOWER_DESTINATION,
+            lower_source.len() as u32,
+        ],
+        vec![
+            0x1000_0d03,
+            0x0411,
+            0x0200,
+            UPPER_SOURCE,
+            upper_source.len() as u32,
+            0,
+            0,
+        ],
+        vec![
+            0x1000_0d04,
+            0x0411,
+            0x0200,
+            UPPER_SOURCE,
+            upper_source.len() as u32,
+            UPPER_DESTINATION,
+            upper_source.len() as u32,
+        ],
+        vec![
+            0x1000_0d05,
+            0x0411,
+            0x0100,
+            LOWER_SOURCE,
+            lower_source.len() as u32,
+            LOWER_DESTINATION,
+            2,
+        ],
+        vec![
+            0x1000_0d06,
+            0x0411,
+            0x0100,
+            LOWER_SOURCE,
+            0,
+            LOWER_DESTINATION,
+            1,
+        ],
+        vec![
+            0x1000_0d07,
+            0x0409,
+            0x0100,
+            LOWER_SOURCE,
+            lower_source.len() as u32,
+            0,
+            0,
+        ],
+        vec![
+            0x1000_0d08,
+            0x0411,
+            0,
+            LOWER_SOURCE,
+            lower_source.len() as u32,
+            0,
+            0,
+        ],
+        vec![
+            0x1000_0d09,
+            0x0411,
+            0x0100,
+            LOWER_SOURCE,
+            u32::MAX,
+            LOWER_DESTINATION,
+            lower_source.len() as u32,
+        ],
+        vec![
+            0x1000_0d0a,
+            0x0411,
+            0x0100,
+            UNSUPPORTED_SOURCE,
+            1,
+            UNSUPPORTED_DESTINATION,
+            1,
+        ],
+        vec![
+            0x1000_0d0b,
+            0x0411,
+            0x0100,
+            LOWER_SOURCE,
+            lower_source.len() as u32,
+            LOWER_SOURCE,
+            lower_source.len() as u32,
+        ],
+        vec![
+            0x1000_0d0c,
+            0x0411,
+            0x0100,
+            LOWER_SOURCE,
+            lower_source.len() as u32,
+            0,
+            1,
+        ],
+    ];
+    for (index, words) in frames.iter().enumerate() {
+        write_frame(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_BASE + index as u32 * 0x40),
+            words,
+        );
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "public-lc-map-string-v1".to_owned();
+    policy.ansi_command_line = true;
+    policy.wide_environment_strings = true;
+    policy.wide_char_to_multi_byte = Some(Kernel32WideCharToMultiBytePolicy {
+        active_code_page: 932,
+        maximum_source_code_units: 65_536,
+    });
+    policy.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+        allowed_flags: vec![1],
+        maximum_source_bytes: 65_536,
+    });
+    policy.get_string_type_w = Some(Kernel32GetStringTypeWPolicy {
+        allowed_info_types: vec![1],
+        maximum_source_code_units: 65_536,
+    });
+    policy.lc_map_string_w = Some(Kernel32LcMapStringWPolicy {
+        allowed_locales: vec![0x0411],
+        allowed_flags: vec![0x0100, 0x0200],
+        maximum_source_code_units: 65_536,
+    });
+    policy.validate().expect("valid locale mapping policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let dispatch = |index: usize,
+                    memory: &mut GuestMemory,
+                    runtime: &mut RuntimeState|
+     -> vine_core::ApiImmediateCompletion {
+        dispatch_owned_with_policy(
+            &dispatcher,
+            memory,
+            runtime,
+            &endpoint,
+            STACK_BASE + index as u32 * 0x40,
+            frames[index][0],
+            &policy,
+        )
+    };
+
+    for (index, expected) in [(0_usize, lower_source.len()), (2, upper_source.len())] {
+        let query = dispatch(index, &mut memory, &mut runtime);
+        assert_eq!(query.eax, RegisterUpdate::Set(expected as u32));
+        assert_eq!(
+            query.stack_pointer,
+            GuestAddress(STACK_BASE + index as u32 * 0x40 + 28)
+        );
+        assert_eq!(query.last_error, INITIAL_LAST_ERROR);
+        assert!(query.guest_writes.is_empty());
+    }
+
+    let lower = dispatch(1, &mut memory, &mut runtime);
+    assert_eq!(lower.eax, RegisterUpdate::Set(lower_source.len() as u32));
+    assert_eq!(lower.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(LOWER_DESTINATION), lower_expected_bytes.len())
+            .expect("lowercase output"),
+        lower_expected_bytes
+    );
+
+    let upper = dispatch(3, &mut memory, &mut runtime);
+    assert_eq!(upper.eax, RegisterUpdate::Set(upper_source.len() as u32));
+    assert_eq!(upper.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(UPPER_DESTINATION), upper_expected_bytes.len())
+            .expect("uppercase output"),
+        upper_expected_bytes
+    );
+
+    let memory_before_insufficient = memory.stats();
+    let insufficient = dispatch(4, &mut memory, &mut runtime);
+    assert_eq!(insufficient.eax, RegisterUpdate::Set(0));
+    assert_eq!(insufficient.last_error, 122);
+    assert!(insufficient.guest_writes.is_empty());
+    assert_eq!(memory.stats(), memory_before_insufficient);
+
+    for (index, error) in [(5_usize, 87_u32), (11, 87)] {
+        let memory_before = memory.stats();
+        let failure = dispatch(index, &mut memory, &mut runtime);
+        assert_eq!(failure.eax, RegisterUpdate::Set(0));
+        assert_eq!(failure.last_error, error);
+        assert!(failure.guest_writes.is_empty());
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    for (index, fault_code) in [
+        (6_usize, "lc-map-string-w-locale-unsupported"),
+        (7, "lc-map-string-w-flags-unsupported"),
+        (8, "lc-map-string-w-negative-source-count-unsupported"),
+        (9, "lc-map-string-w-code-unit-unsupported"),
+        (10, "lc-map-string-w-overlap-unsupported"),
+    ] {
+        let runtime_before = runtime.clone();
+        let memory_before = memory.stats();
+        let unsupported = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(
+                    &endpoint,
+                    STACK_BASE + index as u32 * 0x40,
+                    frames[index][0],
+                ),
+                &mut session,
+                |contract, frame, session| {
+                    dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+                },
+            )
+        };
+        assert!(matches!(
+            unsupported,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == ApiFaultClass::Unsupported && fault.code == fault_code
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    let runtime_before_disabled = runtime.clone();
+    let memory_before_disabled = memory.stats();
+    let disabled = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, STACK_BASE, frames[0][0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "lc-map-string-w-policy-disabled"
     ));
     assert_eq!(runtime, runtime_before_disabled);
     assert_eq!(memory.stats(), memory_before_disabled);

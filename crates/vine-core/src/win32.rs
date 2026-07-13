@@ -22,8 +22,9 @@ mod policy;
 pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32MultiByteToWideCharPolicy,
-    Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
+    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32LcMapStringWPolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32StandardHandleFileType,
+    Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -45,6 +46,7 @@ pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
 pub const WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION: &str = "kernel32.wide-char-to-multi-byte.v1";
 pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to-wide-char.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
+pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
@@ -132,6 +134,7 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_STRING_TYPE_W_IMPLEMENTATION => {
             handle_get_string_type_w(policy, contract, frame, session)
         }
+        LC_MAP_STRING_W_IMPLEMENTATION => handle_lc_map_string_w(policy, contract, frame, session),
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
         }
@@ -202,6 +205,7 @@ pub fn kernel32_contract_for_endpoint(
         "WideCharToMultiByte" => wide_char_to_multi_byte_contract(endpoint)?,
         "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
         "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
+        "LCMapStringW" => lc_map_string_w_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
@@ -1133,6 +1137,168 @@ fn get_string_type_failure(last_error: u32) -> ApiImmediate {
     ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(last_error)
 }
 
+fn handle_lc_map_string_w(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let locale = required_argument(contract, frame, 0, "locale")?;
+    let flags = required_argument(contract, frame, 1, "mapping flags")?;
+    let source_address = required_argument(contract, frame, 2, "UTF-16 source")?;
+    let source_count = required_argument(contract, frame, 3, "UTF-16 source length")? as i32;
+    let destination_address = required_argument(contract, frame, 4, "UTF-16 destination")?;
+    let destination_count =
+        required_argument(contract, frame, 5, "UTF-16 destination capacity")? as i32;
+    let mapping = policy.lc_map_string_w().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-locale-mapping",
+            "lc-map-string-w-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable LCMapStringW",
+                policy.id
+            ),
+        )
+    })?;
+    if !mapping.allowed_locales.contains(&locale) {
+        return Err(ApiFault::unsupported(
+            "win32-locale-mapping",
+            "lc-map-string-w-locale-unsupported",
+            format!(
+                "compatibility policy {} enables locales {:?}, not {locale:#010x}",
+                policy.id, mapping.allowed_locales
+            ),
+        ));
+    }
+    if !mapping.allowed_flags.contains(&flags) {
+        return Err(ApiFault::unsupported(
+            "win32-locale-mapping",
+            "lc-map-string-w-flags-unsupported",
+            format!(
+                "compatibility policy {} enables mapping flags {:?}, not {flags:#010x}",
+                policy.id, mapping.allowed_flags
+            ),
+        ));
+    }
+
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if source_count == 0 {
+        return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
+    }
+    if source_count < 0 {
+        return Err(ApiFault::unsupported(
+            "win32-locale-mapping",
+            "lc-map-string-w-negative-source-count-unsupported",
+            "the selected LCMapStringW policy enables only explicit positive source lengths",
+        ));
+    }
+    if destination_count < 0 {
+        return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
+    }
+    let source_units = usize::try_from(source_count).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-locale-mapping",
+            "lc-map-string-w-source-count-not-representable",
+            "validated positive UTF-16 source count does not fit host accounting",
+        )
+    })?;
+    if source_units > mapping.maximum_source_code_units as usize {
+        return Err(ApiFault::resource_limit(
+            "win32-locale-mapping",
+            "lc-map-string-w-source-limit-exceeded",
+            format!(
+                "UTF-16 source count {source_units} exceeds the policy limit of {}",
+                mapping.maximum_source_code_units
+            ),
+        ));
+    }
+    let byte_length = source_units.checked_mul(2).ok_or_else(|| {
+        ApiFault::resource_limit(
+            "win32-locale-mapping",
+            "lc-map-string-w-byte-length-overflow",
+            "UTF-16 mapping length overflowed host accounting",
+        )
+    })?;
+    let source = GuestAddress(source_address);
+    session
+        .memory()
+        .validate_access(source, byte_length, MemoryAccess::Read)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let source_bytes = session
+        .memory()
+        .read(source, byte_length)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let mut output_bytes = Vec::with_capacity(byte_length);
+    for (index, bytes) in source_bytes.chunks_exact(2).enumerate() {
+        let unit = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let mapped = map_windows_lc_string_unit(flags, unit).ok_or_else(|| {
+            ApiFault::unsupported(
+                "win32-locale-mapping",
+                "lc-map-string-w-code-unit-unsupported",
+                format!(
+                    "the selected locale mapper does not cover UTF-16 unit {unit:#06x} at index {index} for flags {flags:#010x}"
+                ),
+            )
+        })?;
+        output_bytes.extend_from_slice(&mapped.to_le_bytes());
+    }
+
+    if destination_address == 0 && destination_count == 0 {
+        return Ok(ApiImmediate::new(ApiReturnValue::U32(source_count as u32))
+            .with_last_error(preserved_last_error));
+    }
+    if destination_address == 0 || destination_count == 0 {
+        return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
+    }
+    let destination_units = usize::try_from(destination_count).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-locale-mapping",
+            "lc-map-string-w-destination-count-not-representable",
+            "validated positive UTF-16 destination count does not fit host accounting",
+        )
+    })?;
+    if destination_units < source_units {
+        return Ok(lc_map_string_failure(ERROR_INSUFFICIENT_BUFFER));
+    }
+    let destination = GuestAddress(destination_address);
+    session
+        .memory()
+        .validate_access(destination, byte_length, MemoryAccess::Write)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    if guest_ranges_overlap(
+        source_address,
+        byte_length,
+        destination_address,
+        byte_length,
+    )? {
+        return Err(ApiFault::unsupported(
+            "win32-locale-mapping",
+            "lc-map-string-w-overlap-unsupported",
+            "the selected LCMapStringW policy does not enable overlapping input and output",
+        ));
+    }
+    Ok(ApiImmediate::new(ApiReturnValue::U32(source_count as u32))
+        .with_last_error(preserved_last_error)
+        .with_guest_write(destination, output_bytes))
+}
+
+fn map_windows_lc_string_unit(flags: u32, unit: u16) -> Option<u16> {
+    let mapped = match flags {
+        0x0100 if matches!(unit, 0x0041..=0x005a | 0xff21..=0xff3a) => unit + 0x20,
+        0x0200 if matches!(unit, 0x0061..=0x007a) => unit - 0x20,
+        0x0200 if matches!(unit, 0xff41..=0xff5a) => return None,
+        0x0100 | 0x0200 => unit,
+        _ => return None,
+    };
+    classify_windows_ctype1(unit).map(|_| mapped)
+}
+
+fn lc_map_string_failure(last_error: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(last_error)
+}
+
 fn read_multi_byte_source(
     contract: &ApiContract,
     session: &ExecutionSession<'_>,
@@ -2059,6 +2225,25 @@ pub fn get_string_type_w_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCo
         ],
         ApiReturnSchema::Bool32,
         GET_STRING_TYPE_W_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn lc_map_string_w_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "LCMapStringW",
+        vec![
+            u32_argument("locale"),
+            u32_argument("mapFlags"),
+            opaque_pointer("wideCharSource", false, 2),
+            u32_argument("wideCharCount"),
+            dynamic_out_bytes("wideCharDestination", true, 2, 2, 2_097_152),
+            u32_argument("wideCharCapacity"),
+        ],
+        ApiReturnSchema::U32,
+        LC_MAP_STRING_W_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

@@ -29,6 +29,7 @@ const supportedObservations = new Set([
   "wide-char-to-multi-byte",
   "multi-byte-to-wide-char",
   "get-string-type-w",
+  "lc-map-string-w",
   "get-last-error",
   "set-last-error",
   "get-acp",
