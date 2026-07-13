@@ -110,6 +110,7 @@ enum GenericRuntimeCapability {
     PrivateHeapSize544,
     GetCpInfo,
     MultiByteToWideChar,
+    GetStringTypeW,
 }
 
 struct GenericRuntimeProcess {
@@ -2453,6 +2454,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::PrivateHeapSize544
                 | GenericRuntimeCapability::GetCpInfo
                 | GenericRuntimeCapability::MultiByteToWideChar
+                | GenericRuntimeCapability::GetStringTypeW
         )
     );
     let enabled_capability = match enabled_capability {
@@ -2468,7 +2470,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetAcp
             | GenericRuntimeCapability::PrivateHeapSize544
             | GenericRuntimeCapability::GetCpInfo
-            | GenericRuntimeCapability::MultiByteToWideChar,
+            | GenericRuntimeCapability::MultiByteToWideChar
+            | GenericRuntimeCapability::GetStringTypeW,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2933,11 +2936,22 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let multi_byte_to_wide_char_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::MultiByteToWideChar));
+    let get_string_type_w_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::GetStringTypeW));
+    let multi_byte_to_wide_char_enabled = matches!(
+        enabled,
+        Some(
+            GenericRuntimeCapability::MultiByteToWideChar
+                | GenericRuntimeCapability::GetStringTypeW
+        )
+    );
     let get_cp_info_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::GetCpInfo | GenericRuntimeCapability::MultiByteToWideChar)
+        Some(
+            GenericRuntimeCapability::GetCpInfo
+                | GenericRuntimeCapability::MultiByteToWideChar
+                | GenericRuntimeCapability::GetStringTypeW
+        )
     );
     let get_acp_enabled = matches!(
         enabled,
@@ -2946,6 +2960,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::PrivateHeapSize544
                 | GenericRuntimeCapability::GetCpInfo
                 | GenericRuntimeCapability::MultiByteToWideChar
+                | GenericRuntimeCapability::GetStringTypeW
         )
     );
     let set_last_error_enabled = matches!(
@@ -2956,6 +2971,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::PrivateHeapSize544
                 | GenericRuntimeCapability::GetCpInfo
                 | GenericRuntimeCapability::MultiByteToWideChar
+                | GenericRuntimeCapability::GetStringTypeW
         )
     );
     let tls_get_value_enabled = matches!(
@@ -3016,7 +3032,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::GetAcp
             | GenericRuntimeCapability::PrivateHeapSize544
             | GenericRuntimeCapability::GetCpInfo
-            | GenericRuntimeCapability::MultiByteToWideChar,
+            | GenericRuntimeCapability::MultiByteToWideChar
+            | GenericRuntimeCapability::GetStringTypeW,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3158,6 +3175,7 @@ fn runtime_capability_enables_endpoint(
         "GetACP" => get_acp_enabled,
         "GetCPInfo" => get_cp_info_enabled,
         "MultiByteToWideChar" => multi_byte_to_wide_char_enabled,
+        "GetStringTypeW" => get_string_type_w_enabled,
         _ => true,
     }
 }
@@ -3194,7 +3212,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::GetAcp
             | GenericRuntimeCapability::PrivateHeapSize544
             | GenericRuntimeCapability::GetCpInfo
-            | GenericRuntimeCapability::MultiByteToWideChar,
+            | GenericRuntimeCapability::MultiByteToWideChar
+            | GenericRuntimeCapability::GetStringTypeW,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8570,6 +8589,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-private-heap-size-544" => GenericRuntimeCapability::PrivateHeapSize544,
                 "kernel32-get-cp-info" => GenericRuntimeCapability::GetCpInfo,
                 "kernel32-multi-byte-to-wide-char" => GenericRuntimeCapability::MultiByteToWideChar,
+                "kernel32-get-string-type-w" => GenericRuntimeCapability::GetStringTypeW,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

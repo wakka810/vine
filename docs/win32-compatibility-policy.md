@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-get-string-type-w-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -39,7 +39,7 @@ runtime execution. It contains only target-independent bounded data:
 - enabled `SetHandleCount` values;
 - opt-in deterministic ANSI view of the process-parameter command line;
 - opt-in controlled UTF-16 environment authority and copy lifetime;
-- opt-in active ANSI code page, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, and Windows-932 private-use byte mappings;
+- opt-in active ANSI code page, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, Windows-932 private-use byte mappings, and bounded CTYPE1 information types;
 - enabled `HeapAlloc` flag and byte-length pairs.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Selectors,
@@ -47,7 +47,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form fourteen monotonic controlled policies:
+The current files form fifteen monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -65,6 +65,7 @@ The current files form fourteen monotonic controlled policies:
 | `kernel32-private-heap-size-544-v1` | stdin, stdout, stderr | preceding options | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 | `kernel32-get-cp-info-v1` | stdin, stdout, stderr | preceding options + active Windows-932 CPINFO fields | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 | `kernel32-multi-byte-to-wide-char-v1` | stdin, stdout, stderr | preceding options + explicit Windows-932 flags `1`／65,536-byte decode bound | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
+| `kernel32-get-string-type-w-v1` | stdin, stdout, stderr | preceding options + `CT_CTYPE1`／65,536-unit classification bound | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -135,6 +136,14 @@ checked lead/trail pairs with native-observed standalone `0xA0`／`0xFD..0xFF`
 private-use mappings. The public fixture independently covers a Japanese pair,
 the complete native 256-unit table, insufficient-buffer prefix write, invalid
 shape, LastError, and mutation-free unsupported selectors/flags.
+`GetStringTypeW` uses one policy-backed four-argument semantic handler. The
+policy enables information type `CT_CTYPE1` and a broad positive source bound;
+it does not contain the reached 256-unit source, output words, pointers, caller,
+or next stop. The host-locale-independent classifier covers only the measured
+code-unit domain. The public fixture independently fixes representative ASCII,
+control, whitespace, Japanese/CJK, fullwidth/halfwidth, and Windows-932
+private-use words, zero-count failure, LastError, ABI cleanup, and
+mutation-free unsupported type／negative count／overlap／code-unit paths.
 
 Policy JSON parsing and validation is covered independently:
 
@@ -155,7 +164,8 @@ This boundary does not implement broad `HeapAlloc`, general handle-table sizing,
 broad file classification, file I/O, non-ASCII command-line conversion, host
 environment import, environment mutation／ANSI environment strings, arbitrary
 code-page selection or mutation／other conversion flags／explicit default-character pointers,
-`GetStringTypeW`, broad locale classification, or a general Windows console.
+negative-length or broad `GetStringTypeW`, `CT_CTYPE2`／`CT_CTYPE3`,
+`LCMapStringW`, broad locale classification, or a general Windows console.
 Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

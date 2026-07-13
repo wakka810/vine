@@ -78,6 +78,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-private-heap-size-544",
         "kernel32-get-cp-info",
         "kernel32-multi-byte-to-wide-char",
+        "kernel32-get-string-type-w",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -104,7 +105,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-multi-byte-to-wide-char"
+    genericRuntimeCapability === "kernel32-get-string-type-w"
+      ? "kernel32-get-string-type-w-v1.json"
+      : genericRuntimeCapability === "kernel32-multi-byte-to-wide-char"
       ? "kernel32-multi-byte-to-wide-char-v1.json"
       : genericRuntimeCapability === "kernel32-get-cp-info"
       ? "kernel32-get-cp-info-v1.json"
@@ -171,7 +174,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getStringTypeWEnabled =
+  genericRuntimeCapability === "kernel32-get-string-type-w";
 const multiByteToWideCharEnabled =
+  getStringTypeWEnabled ||
   genericRuntimeCapability === "kernel32-multi-byte-to-wide-char";
 const getCpInfoEnabled =
   multiByteToWideCharEnabled || genericRuntimeCapability === "kernel32-get-cp-info";
@@ -246,7 +252,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? multiByteToWideCharEnabled
+    ? getStringTypeWEnabled
+      ? "v86-bgi-get-string-type-w"
+      : multiByteToWideCharEnabled
       ? "v86-bgi-multi-byte-to-wide-char"
       : getCpInfoEnabled
       ? "v86-bgi-get-cp-info"
@@ -2284,6 +2292,116 @@ const multiByteToWideCharExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const getStringTypeTableOutputWords = Array.from({ length: 256 }, (_, byte) => {
+  if (
+    byte === 0 ||
+    byte === 0x20 ||
+    (byte >= 0x81 && byte <= 0x9f) ||
+    (byte >= 0xe0 && byte <= 0xfc)
+  ) {
+    return 0x0248;
+  }
+  if ((byte >= 1 && byte <= 8) || (byte >= 14 && byte <= 31) || byte === 127 || byte === 128) {
+    return 0x0220;
+  }
+  if (byte === 9) {
+    return 0x0268;
+  }
+  if (byte >= 10 && byte <= 13) {
+    return 0x0228;
+  }
+  if (
+    (byte >= 0x21 && byte <= 0x2f) ||
+    (byte >= 0x3a && byte <= 0x40) ||
+    (byte >= 0x5b && byte <= 0x60) ||
+    (byte >= 0x7b && byte <= 0x7e) ||
+    (byte >= 0xa1 && byte <= 0xa5)
+  ) {
+    return 0x0210;
+  }
+  if (byte >= 0x30 && byte <= 0x39) {
+    return 0x0284;
+  }
+  if (byte >= 0x41 && byte <= 0x46) {
+    return 0x0381;
+  }
+  if (byte >= 0x47 && byte <= 0x5a) {
+    return 0x0301;
+  }
+  if (byte >= 0x61 && byte <= 0x66) {
+    return 0x0382;
+  }
+  if (byte >= 0x67 && byte <= 0x7a) {
+    return 0x0302;
+  }
+  if (byte >= 0xa6 && byte <= 0xdf) {
+    return 0x0300;
+  }
+  return 0x0200;
+});
+const getStringTypeTableOutputBytes = getStringTypeTableOutputWords.flatMap((word) => [
+  word & 0xff,
+  word >>> 8,
+]);
+const getStringTypeWExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 101,
+  writebackBatches: 102,
+  dirtyPages: 159,
+  changedBytes: 2958,
+  hostDeltaBatches: 39,
+  finalGeneration: 170,
+  call: {
+    arguments: [1, 0x006ff738, 256, 0x006ff9d4],
+    instructionCount: 5894,
+    returnAddress: 0x100ad70d,
+    result: 1,
+    outputBytes: getStringTypeTableOutputBytes,
+  },
+  outputDelta: {
+    sequence: 95,
+    fromGeneration: 161,
+    generation: 162,
+    pageAddress: 0x006ff000,
+    owner: 4,
+    payloadSha256: "b4a11394007a1cbd18154b31d864421d2c9ec4062e83b88dafa18421e238dab6",
+  },
+  consumerWriteback: {
+    sequence: 96,
+    instructionCount: 5967,
+    fromGeneration: 162,
+    generation: 163,
+    changedBytes: 74,
+    dirtyPages: [
+      { address: 0x006ff000, owner: 4 },
+      { address: 0x20000000, owner: 10 },
+    ],
+    payloadSha256: "1a343abf4d9e2b61cf0924a9eb44ac80c77131a231ddeebbba1eb93e2a816809",
+  },
+  followupCalls: [
+    ["GetLastError", 5967, 0x100a55dd],
+    ["TlsGetValue", 5975, 0x100a54a0],
+    ["FlsGetValue", 5983, 0x100a55ec],
+    ["SetLastError", 5989, 0x100a5647],
+    ["MultiByteToWideChar", 7606, 0x100a7ef7],
+    ["MultiByteToWideChar", 7664, 0x100a7f65],
+  ],
+  memoryContentSha256: "3c26a9fa98427249ef0f37546f25592d18d18e9ade8c07c4ebbd10e2ce6b9aa2",
+  reportBytes: 468_010,
+  reportSha256: "00facfca5960a6e0e233deab536aa5d01e190d6e7f72e6be7caffb2e8997c425",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 96,
+    endpointAddress: 0x7f0005f0,
+    module: "kernel32.dll",
+    symbol: "LCMapStringW",
+    iatAddress: 0x100d1228,
+    arguments: [1041, 256, 0x006ff708, 256, 0, 0],
+    returnAddress: 0x100a7f81,
+    instructionCount: 7675,
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -2746,6 +2864,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getStringTypeWEnabled) {
+        validateGetStringTypeWResult(genericResult);
       } else if (multiByteToWideCharEnabled) {
         validateMultiByteToWideCharResult(genericResult);
       } else if (getCpInfoEnabled) {
@@ -2801,7 +2921,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : multiByteToWideCharEnabled
+          : getStringTypeWEnabled
+            ? "bgi GetStringTypeW"
+            : multiByteToWideCharEnabled
             ? "bgi MultiByteToWideChar"
             : getCpInfoEnabled
             ? "bgi GetCPInfo"
@@ -3212,7 +3334,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : multiByteToWideCharEnabled
+        : getStringTypeWEnabled
+          ? 23
+          : multiByteToWideCharEnabled
           ? 22
           : getCpInfoEnabled
           ? 21
@@ -5548,6 +5672,136 @@ function validateMultiByteToWideCharResult(result) {
   );
 }
 
+function validateGetStringTypeWResult(result) {
+  const expected = getStringTypeWExpected;
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetStringTypeW",
+  );
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, 1);
+  const [call] = calls;
+  assert.deepEqual(call.arguments, expected.call.arguments);
+  assert.deepEqual(call.result, { action: "set", value: expected.call.result });
+  assert.equal(call.implementationId, "kernel32.get-string-type-w.v1");
+  assert.equal(call.lastError, 87);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 20);
+  assert.equal(call.trapInstructionCount, expected.call.instructionCount);
+  assert.equal(call.returnAddress, expected.call.returnAddress);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, expected.call.arguments[3]);
+  const mismatch = call.guestWrites[0].bytes.findIndex(
+    (byte, index) => byte !== expected.call.outputBytes[index],
+  );
+  assert.equal(
+    mismatch,
+    -1,
+    `GetStringTypeW output mismatch at byte ${mismatch}: actual=${call.guestWrites[0].bytes[mismatch]}, expected=${expected.call.outputBytes[mismatch]}`,
+  );
+  assert.deepEqual(call.guestWrites[0].bytes, expected.call.outputBytes);
+  assert.deepEqual(call.guestWrites[0].result, {
+    bytesWritten: expected.call.outputBytes.length,
+    dirtyPages: 1,
+    invalidation: {
+      generation: expected.outputDelta.generation,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    },
+  });
+
+  const outputDelta = result.hostDeltas.find(
+    ({ sequence }) => sequence === expected.outputDelta.sequence,
+  );
+  assert(outputDelta, "GetStringTypeW output delta is missing");
+  assert.equal(outputDelta.fromGeneration, expected.outputDelta.fromGeneration);
+  assert.equal(outputDelta.generation, expected.outputDelta.generation);
+  assert.equal(outputDelta.mappingOperations, 0);
+  assert.deepEqual(outputDelta.dirtyPages, [
+    {
+      address: expected.outputDelta.pageAddress,
+      owner: expected.outputDelta.owner,
+    },
+  ]);
+  assert.equal(outputDelta.payloadBytes, page.size);
+  assert.equal(outputDelta.payloadSha256, expected.outputDelta.payloadSha256);
+
+  const consumerWriteback = result.writebacks.find(
+    ({ sequence }) => sequence === expected.consumerWriteback.sequence,
+  );
+  assert(consumerWriteback, "GetStringTypeW consumer writeback is missing");
+  assert.equal(
+    consumerWriteback.instructionCount,
+    expected.consumerWriteback.instructionCount,
+  );
+  assert.deepEqual(
+    consumerWriteback.dirtyPages,
+    expected.consumerWriteback.dirtyPages,
+  );
+  assert.equal(
+    consumerWriteback.payloadSha256,
+    expected.consumerWriteback.payloadSha256,
+  );
+  assert.equal(
+    consumerWriteback.receipt.fromGeneration,
+    expected.consumerWriteback.fromGeneration,
+  );
+  assert.equal(
+    consumerWriteback.receipt.generation,
+    expected.consumerWriteback.generation,
+  );
+  assert.equal(
+    consumerWriteback.receipt.changedBytes,
+    expected.consumerWriteback.changedBytes,
+  );
+
+  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+    const followup = result.supportedCalls.find(
+      (candidate) =>
+        candidate.symbol === symbol &&
+        candidate.trapInstructionCount === instructionCount,
+    );
+    assert(followup, `${symbol} follow-up call at ${instructionCount} is missing`);
+    assert.equal(followup.returnAddress, returnAddress);
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validateGetCpInfoResult(result) {
   const expected = getCpInfoExpected;
   const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetCPInfo");
@@ -5694,7 +5948,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : multiByteToWideCharEnabled
+        : getStringTypeWEnabled
+          ? "vine.v86-bgi-get-string-type-w"
+          : multiByteToWideCharEnabled
           ? "vine.v86-bgi-multi-byte-to-wide-char"
           : getCpInfoEnabled
           ? "vine.v86-bgi-get-cp-info"

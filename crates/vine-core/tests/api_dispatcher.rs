@@ -6,13 +6,13 @@ use vine_core::{
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
     FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
-    GET_LAST_ERROR_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
-    GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget, ImportThunk,
-    ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
-    Kernel32HeapAllocationPolicy, Kernel32MultiByteToWideCharPolicy,
-    Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
-    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
+    GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress,
+    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget,
+    ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
+    Kernel32CompatibilityPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32StandardHandleFileType,
+    Kernel32WideCharToMultiBytePolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
     PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET, PageProtection, ProcessAddressSpaceLayout,
@@ -3295,6 +3295,219 @@ fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
         DispatchOutcome::Fault(ref fault)
             if fault.class == ApiFaultClass::Unsupported
                 && fault.code == "multi-byte-to-wide-char-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before_disabled);
+    assert_eq!(memory.stats(), memory_before_disabled);
+}
+
+#[test]
+fn get_string_type_w_models_measured_ctype1_and_fails_closed() {
+    const SOURCE: u32 = OUTPUT_BASE + 0x100;
+    const DESTINATION: u32 = OUTPUT_BASE + 0x500;
+    const UNSUPPORTED_SOURCE: u32 = OUTPUT_BASE + 0x900;
+    const UNSUPPORTED_DESTINATION: u32 = OUTPUT_BASE + 0xa00;
+
+    let source = [
+        0x0000_u16, 0x0009, 0x000a, 0x000d, 0x0020, 0x0021, 0x002b, 0x002c, 0x002e, 0x0030, 0x0039,
+        0x0041, 0x005a, 0x005f, 0x0061, 0x007a, 0x007f, 0x0080, 0x00a0, 0x00a5, 0x3000, 0x3042,
+        0x30a2, 0x30fb, 0x4e00, 0xff01, 0xff10, 0xff21, 0xff41, 0xff61, 0xff66, 0xff71, 0xff9e,
+        0xf8f0,
+    ];
+    let expected = [
+        544_u16, 616, 552, 552, 584, 528, 528, 528, 528, 644, 644, 897, 769, 528, 898, 770, 544,
+        544, 584, 528, 584, 768, 768, 528, 768, 528, 644, 897, 898, 528, 768, 768, 768, 512,
+    ];
+    let source_bytes = source
+        .iter()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect::<Vec<_>>();
+    let expected_bytes = expected
+        .iter()
+        .flat_map(|word| word.to_le_bytes())
+        .collect::<Vec<_>>();
+
+    let (mut memory, owner) = initialized_memory();
+    memory
+        .write_initialization(owner, GuestAddress(SOURCE), &source_bytes)
+        .expect("representative UTF-16 source");
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(DESTINATION),
+            &vec![0xa5; expected_bytes.len()],
+        )
+        .expect("CTYPE1 destination");
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(UNSUPPORTED_SOURCE),
+            &0x2603_u16.to_le_bytes(),
+        )
+        .expect("unsupported UTF-16 source");
+    memory
+        .write_initialization(owner, GuestAddress(UNSUPPORTED_DESTINATION), &[0xa5, 0xa5])
+        .expect("unsupported destination");
+
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x108);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetStringTypeW IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetStringTypeW".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("GetStringTypeW contract");
+    assert_eq!(contract.implementation_id, GET_STRING_TYPE_W_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 4);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let frames = [
+        vec![0x1000_0c01, 1, SOURCE, source.len() as u32, DESTINATION],
+        vec![0x1000_0c02, 1, SOURCE, 0, DESTINATION],
+        vec![0x1000_0c03, 2, SOURCE, source.len() as u32, DESTINATION],
+        vec![0x1000_0c04, 1, SOURCE, u32::MAX, DESTINATION],
+        vec![
+            0x1000_0c05,
+            1,
+            UNSUPPORTED_SOURCE,
+            1,
+            UNSUPPORTED_DESTINATION,
+        ],
+        vec![0x1000_0c06, 1, SOURCE, source.len() as u32, SOURCE],
+    ];
+    for (index, words) in frames.iter().enumerate() {
+        write_frame(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_BASE + index as u32 * 0x40),
+            words,
+        );
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "public-string-type-v1".to_owned();
+    policy.ansi_command_line = true;
+    policy.wide_environment_strings = true;
+    policy.wide_char_to_multi_byte = Some(Kernel32WideCharToMultiBytePolicy {
+        active_code_page: 932,
+        maximum_source_code_units: 65_536,
+    });
+    policy.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+        allowed_flags: vec![1],
+        maximum_source_bytes: 65_536,
+    });
+    policy.get_string_type_w = Some(Kernel32GetStringTypeWPolicy {
+        allowed_info_types: vec![1],
+        maximum_source_code_units: 65_536,
+    });
+    policy
+        .validate()
+        .expect("valid string classification policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let dispatch = |index: usize,
+                    memory: &mut GuestMemory,
+                    runtime: &mut RuntimeState|
+     -> vine_core::ApiImmediateCompletion {
+        dispatch_owned_with_policy(
+            &dispatcher,
+            memory,
+            runtime,
+            &endpoint,
+            STACK_BASE + index as u32 * 0x40,
+            frames[index][0],
+            &policy,
+        )
+    };
+
+    let success = dispatch(0, &mut memory, &mut runtime);
+    assert_eq!(success.eax, RegisterUpdate::Set(1));
+    assert_eq!(success.stack_pointer, GuestAddress(STACK_BASE + 20));
+    assert_eq!(success.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(DESTINATION), expected_bytes.len())
+            .expect("CTYPE1 output"),
+        expected_bytes
+    );
+
+    let memory_before_zero = memory.stats();
+    let zero_count = dispatch(1, &mut memory, &mut runtime);
+    assert_eq!(zero_count.eax, RegisterUpdate::Set(0));
+    assert_eq!(zero_count.last_error, 87);
+    assert!(zero_count.guest_writes.is_empty());
+    assert_eq!(memory.stats(), memory_before_zero);
+
+    for (index, fault_code) in [
+        (2_usize, "get-string-type-w-info-type-unsupported"),
+        (3, "get-string-type-w-negative-count-unsupported"),
+        (4, "get-string-type-w-code-unit-unsupported"),
+        (5, "get-string-type-w-overlap-unsupported"),
+    ] {
+        let runtime_before = runtime.clone();
+        let memory_before = memory.stats();
+        let unsupported = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(
+                    &endpoint,
+                    STACK_BASE + index as u32 * 0x40,
+                    frames[index][0],
+                ),
+                &mut session,
+                |contract, frame, session| {
+                    dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+                },
+            )
+        };
+        assert!(matches!(
+            unsupported,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == ApiFaultClass::Unsupported && fault.code == fault_code
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    let runtime_before_disabled = runtime.clone();
+    let memory_before_disabled = memory.stats();
+    let disabled = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, STACK_BASE, frames[0][0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "get-string-type-w-policy-disabled"
     ));
     assert_eq!(runtime, runtime_before_disabled);
     assert_eq!(memory.stats(), memory_before_disabled);

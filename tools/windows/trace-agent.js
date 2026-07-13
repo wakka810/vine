@@ -29,6 +29,11 @@ let multiByteOracleScheduled = false;
 let multiByteOracleSentinel = null;
 let multiByteOracleLastError = null;
 let multiByteConsumerRecorded = false;
+let getStringTypeOracleScheduled = false;
+let getStringTypeOracleSentinel = null;
+let getStringTypeOracleResult = null;
+let getStringTypeOracleLastError = null;
+let getStringTypeConsumerRecorded = false;
 let tlsLifecycleOracleScheduled = false;
 let tlsGetValueConsumerRecorded = false;
 let flsLifecycleOracleScheduled = false;
@@ -408,6 +413,67 @@ function snapshotWideCharBuffer(pointer, requestedUnits) {
   }
 }
 
+function snapshotWordBuffer(pointer, requestedWords) {
+  const maximumWords = 512 * 1024;
+  const maximumRecordedWords = 4096;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      requestedWords,
+      maximumWords,
+      isNull: true,
+    };
+  }
+  if (requestedWords < 0 || requestedWords > maximumWords) {
+    return {
+      pointer: pointer.toString(),
+      requestedWords,
+      maximumWords,
+      error: "WORD buffer length is outside the bounded observation",
+    };
+  }
+  try {
+    const words = Array.from({ length: requestedWords }, (_, index) =>
+      pointer.add(index * 2).readU16(),
+    );
+    let hash = 0x811c9dc5;
+    let zeroWords = 0;
+    let bitwiseOr = 0;
+    let bitwiseAnd = 0xffff;
+    for (const word of words) {
+      hash = fnv1aByte(hash, word & 0xff);
+      hash = fnv1aByte(hash, word >>> 8);
+      if (word === 0) {
+        zeroWords += 1;
+      }
+      bitwiseOr |= word;
+      bitwiseAnd &= word;
+    }
+    return {
+      pointer: pointer.toString(),
+      requestedWords,
+      maximumWords,
+      isNull: false,
+      contentFnv1a32: `0x${hash.toString(16).padStart(8, "0")}`,
+      zeroWords,
+      bitwiseOr,
+      bitwiseAnd,
+      words:
+        requestedWords <= maximumRecordedWords
+          ? words
+          : words.slice(0, maximumRecordedWords),
+      wordsTruncated: requestedWords > maximumRecordedWords,
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      requestedWords,
+      maximumWords,
+      error: error.message,
+    };
+  }
+}
+
 function snapshotBoundedRawBytes(pointer, requestedBytes) {
   const maximumBytes = 64;
   if (pointer.isNull()) {
@@ -598,6 +664,40 @@ function snapshotX86FrameCallerContinuations(
   return { maximumFrames, maximumInstructions, frames };
 }
 
+function snapshotX86FrameCallerContinuationsFollowingDirectJump(
+  context,
+  maximumFrames,
+  maximumInstructions,
+) {
+  if (Process.arch !== "ia32" || context.ebp === undefined) {
+    return { error: "x86 EBP frame is unavailable" };
+  }
+  const frames = [];
+  let framePointer = ptr(context.ebp);
+  for (let depth = 0; depth < maximumFrames; depth += 1) {
+    try {
+      const address = framePointer.add(Process.pointerSize).readPointer();
+      frames.push({
+        depth,
+        framePointer: framePointer.toString(),
+        caller: describeCaller(address),
+        continuation: snapshotInstructionsFollowingDirectJump(
+          address,
+          maximumInstructions,
+        ),
+      });
+      const nextFramePointer = framePointer.readPointer();
+      if (nextFramePointer.isNull() || nextFramePointer.equals(framePointer)) {
+        break;
+      }
+      framePointer = nextFramePointer;
+    } catch (error) {
+      return { maximumFrames, maximumInstructions, frames, error: error.message };
+    }
+  }
+  return { maximumFrames, maximumInstructions, frames };
+}
+
 function snapshotTlsGetValueCall(caller, returnAddress, lastErrorBefore) {
   const recordsConsumer =
     !tlsGetValueConsumerRecorded && caller.module.toLowerCase() === "bgi.exe";
@@ -738,6 +838,49 @@ function snapshotMultiByteToWideCharCall(
               4,
               12,
             ),
+          }
+        : null,
+    },
+  };
+}
+
+function snapshotGetStringTypeWCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  infoType,
+  source,
+  sourceUnits,
+  output,
+) {
+  const recordsConsumer =
+    !getStringTypeConsumerRecorded &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    getStringTypeConsumerRecorded = true;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    getStringTypeW: {
+      infoType: infoType.toUInt32(),
+      sourceCount: sourceUnits,
+      source: snapshotWideCharSource(source, sourceUnits < 0 ? -1 : sourceUnits),
+      sourceContent: snapshotWordBuffer(source, Math.max(0, sourceUnits)),
+      outputBefore: snapshotWordBuffer(output, Math.max(0, sourceUnits)),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations:
+              snapshotX86FrameCallerContinuationsFollowingDirectJump(
+                context,
+                4,
+                32,
+              ),
           }
         : null,
     },
@@ -1224,6 +1367,12 @@ if (selectedObservations.has("multi-byte-to-wide-char")) {
     [null, null, null, null, null, null],
   ]);
 }
+if (selectedObservations.has("get-string-type-w")) {
+  hooks["kernel32.dll"].push([
+    "GetStringTypeW",
+    [null, null, null, null],
+  ]);
+}
 if (selectedObservations.has("get-last-error")) {
   hooks["kernel32.dll"].push(["GetLastError", []]);
 }
@@ -1371,6 +1520,11 @@ function attachHook(module, name, decoders) {
         name === "MultiByteToWideChar" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedGetStringTypeObservation =
+        selectedObservations.has("get-string-type-w") &&
+        name === "GetStringTypeW" &&
+        caller.module !== null &&
+        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
       if (
         selectedObservations.has("heap-allocation") &&
         !selectedObservations.has("heap-lifecycle") &&
@@ -1392,6 +1546,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("multi-byte-to-wide-char") &&
         name === "MultiByteToWideChar" &&
         !focusedMultiByteObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("get-string-type-w") &&
+        name === "GetStringTypeW" &&
+        !focusedGetStringTypeObservation
       ) {
         this.traceFrame = null;
         return;
@@ -1429,6 +1591,15 @@ function attachHook(module, name, decoders) {
         caller.module.toLowerCase() === "frida-agent.dll";
       if (this.traceMultiByteOracle) {
         this.lastError = multiByteOracleSentinel;
+      }
+      this.traceGetStringTypeOracle =
+        getStringTypeOracleSentinel !== null &&
+        selectedObservations.has("get-string-type-w") &&
+        name === "GetStringTypeW" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceGetStringTypeOracle) {
+        this.lastError = getStringTypeOracleSentinel;
       }
       this.traceGetLastErrorOracle =
         getLastErrorOracleSentinel !== null &&
@@ -1531,6 +1702,15 @@ function attachHook(module, name, decoders) {
               destinationUnits: signed32(args[5]),
             }
           : null;
+      this.traceGetStringTypeW =
+        focusedGetStringTypeObservation
+          ? {
+              infoType: args[0],
+              source: args[1],
+              sourceUnits: signed32(args[2]),
+              output: args[3],
+            }
+          : null;
       this.traceGetCpInfo =
         focusedGetCpInfoObservation
           ? { codePage: args[0], output: args[1] }
@@ -1593,6 +1773,17 @@ function attachHook(module, name, decoders) {
               this.traceMultiByteConversion.sourceBytes,
               this.traceMultiByteConversion.destination,
               this.traceMultiByteConversion.destinationUnits,
+            )
+        : this.traceGetStringTypeW !== null
+          ? snapshotGetStringTypeWCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceGetStringTypeW.infoType,
+              this.traceGetStringTypeW.source,
+              this.traceGetStringTypeW.sourceUnits,
+              this.traceGetStringTypeW.output,
             )
         : name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
@@ -1698,6 +1889,10 @@ function attachHook(module, name, decoders) {
       }
       if (this.traceMultiByteOracle) {
         multiByteOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceGetStringTypeOracle) {
+        getStringTypeOracleResult = result.toUInt32();
+        getStringTypeOracleLastError = Number(lastError) >>> 0;
       }
       if (this.traceGetLastErrorOracle) {
         getLastErrorOracleResult = result.toUInt32();
@@ -1810,6 +2005,17 @@ function attachHook(module, name, decoders) {
                   multiByteResult > 0
                     ? multiByteResult
                     : Math.max(0, this.traceMultiByteConversion.destinationUnits),
+                ),
+              },
+            }),
+        ...(this.traceGetStringTypeW === null
+          ? {}
+          : {
+              getStringTypeW: {
+                result: result.toUInt32(),
+                outputAfter: snapshotWordBuffer(
+                  this.traceGetStringTypeW.output,
+                  Math.max(0, this.traceGetStringTypeW.sourceUnits),
                 ),
               },
             }),
@@ -2306,6 +2512,184 @@ function scheduleMultiByteOracle(module) {
       });
     } catch (error) {
       emit("multi-byte-to-wide-char-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function scheduleGetStringTypeOracle(module) {
+  if (getStringTypeOracleScheduled) {
+    return;
+  }
+  getStringTypeOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetStringTypeW");
+      if (address === null) {
+        throw new Error("GetStringTypeW export is unavailable");
+      }
+      const getStringTypeW = new SystemFunction(
+        address,
+        "uint32",
+        ["uint32", "pointer", "int", "pointer"],
+        "stdcall",
+      );
+      const invoke = ({
+        id,
+        sentinel,
+        sourceWords,
+        sourceCount = sourceWords.length,
+        infoType = 1,
+        outputCapacityWords = Math.max(1, sourceWords.length),
+      }) => {
+        const source = Memory.alloc(Math.max(2, sourceWords.length * 2));
+        for (let index = 0; index < sourceWords.length; index += 1) {
+          source.add(index * 2).writeU16(sourceWords[index]);
+        }
+        const leadingGuardBytes = 8;
+        const trailingGuardBytes = 8;
+        const storageBytes =
+          leadingGuardBytes + outputCapacityWords * 2 + trailingGuardBytes;
+        const storage = Memory.alloc(storageBytes);
+        storage.writeByteArray(Array(storageBytes).fill(0xa5));
+        const output = storage.add(leadingGuardBytes);
+        const leadingGuardBefore = snapshotBoundedRawBytes(
+          storage,
+          leadingGuardBytes,
+        );
+        const outputBefore = snapshotWordBuffer(output, outputCapacityWords);
+        const trailingGuard = output.add(outputCapacityWords * 2);
+        const trailingGuardBefore = snapshotBoundedRawBytes(
+          trailingGuard,
+          trailingGuardBytes,
+        );
+        getStringTypeOracleSentinel = sentinel;
+        getStringTypeOracleResult = null;
+        getStringTypeOracleLastError = null;
+        try {
+          const outcome = getStringTypeW(
+            infoType,
+            source,
+            sourceCount,
+            output,
+          );
+          const result = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getStringTypeOracleResult === null ||
+            getStringTypeOracleLastError === null
+          ) {
+            throw new Error(`${id} did not pass through the classification hook`);
+          }
+          return {
+            id,
+            sentinel,
+            infoType,
+            sourceWords,
+            sourceCount,
+            outputCapacityWords,
+            result,
+            hookResult: getStringTypeOracleResult,
+            hookLastErrorAfter: getStringTypeOracleLastError,
+            systemLastError,
+            leadingGuardBefore,
+            leadingGuardAfter: snapshotBoundedRawBytes(
+              storage,
+              leadingGuardBytes,
+            ),
+            outputBefore,
+            outputAfter: snapshotWordBuffer(output, outputCapacityWords),
+            trailingGuardBefore,
+            trailingGuardAfter: snapshotBoundedRawBytes(
+              trailingGuard,
+              trailingGuardBytes,
+            ),
+          };
+        } finally {
+          getStringTypeOracleSentinel = null;
+          getStringTypeOracleResult = null;
+          getStringTypeOracleLastError = null;
+        }
+      };
+
+      const representativeWords = [
+        0x0000,
+        0x0009,
+        0x000a,
+        0x000d,
+        0x0020,
+        0x0021,
+        0x002b,
+        0x002c,
+        0x002e,
+        0x0030,
+        0x0039,
+        0x0041,
+        0x005a,
+        0x005f,
+        0x0061,
+        0x007a,
+        0x007f,
+        0x0080,
+        0x00a0,
+        0x00a5,
+        0x3000,
+        0x3042,
+        0x30a2,
+        0x30fb,
+        0x4e00,
+        0xff01,
+        0xff10,
+        0xff21,
+        0xff41,
+        0xff61,
+        0xff66,
+        0xff71,
+        0xff9e,
+        0xf8f0,
+      ];
+      const calls = [0, 87, 0x12345678].map((sentinel, index) =>
+        invoke({
+          id: `representative-ctype1-${index + 1}`,
+          sentinel,
+          sourceWords: representativeWords,
+        }),
+      );
+      calls.push(
+        invoke({
+          id: "nul-terminated-ctype1",
+          sentinel: 88,
+          sourceWords: [0x41, 0],
+          sourceCount: -1,
+          outputCapacityWords: 2,
+        }),
+        invoke({
+          id: "zero-source-count",
+          sentinel: 89,
+          sourceWords: [0x41],
+          sourceCount: 0,
+          outputCapacityWords: 1,
+        }),
+        invoke({
+          id: "negative-nul-terminated-ctype1",
+          sentinel: 90,
+          sourceWords: [0x41, 0],
+          sourceCount: -2,
+          outputCapacityWords: 2,
+        }),
+        invoke({
+          id: "invalid-info-type",
+          sentinel: 91,
+          sourceWords: [0x41],
+          infoType: 0,
+          outputCapacityWords: 1,
+        }),
+      );
+      emit("get-string-type-w-oracle", {
+        profile: "x86-ctype1-representative-v1",
+        calls,
+      });
+    } catch (error) {
+      emit("get-string-type-w-oracle-error", { error: error.message });
     }
   });
 }
@@ -2928,6 +3312,12 @@ Process.attachModuleObserver({
       selectedObservations.has("multi-byte-to-wide-char")
     ) {
       scheduleMultiByteOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("get-string-type-w")
+    ) {
+      scheduleGetStringTypeOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

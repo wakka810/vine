@@ -24,6 +24,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-private-heap-size-544-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-get-cp-info-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-get-string-type-w-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -37,7 +38,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert!(heap_size_544.active_code_page_info().is_none());
     let get_cp_info: Kernel32CompatibilityPolicy = serde_json::from_str(policies[12]).unwrap();
     assert!(get_cp_info.multi_byte_to_wide_char().is_none());
-    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[13]).unwrap();
+    let multibyte: Kernel32CompatibilityPolicy = serde_json::from_str(policies[13]).unwrap();
+    assert!(multibyte.get_string_type_w().is_none());
+    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[14]).unwrap();
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_INPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_OUTPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_ERROR_SELECTOR));
@@ -81,4 +84,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         .expect("multibyte conversion policy");
     assert_eq!(multi_byte.allowed_flags, [1]);
     assert_eq!(multi_byte.maximum_source_bytes, 65_536);
+    let string_type = active
+        .get_string_type_w()
+        .expect("string classification policy");
+    assert_eq!(string_type.allowed_info_types, [1]);
+    assert_eq!(string_type.maximum_source_code_units, 65_536);
 }

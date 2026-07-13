@@ -1162,6 +1162,7 @@ fn build_bgi_dispatcher(
                 }
                 "WideCharToMultiByte" => kernel32_policy.wide_char_to_multi_byte().is_some(),
                 "MultiByteToWideChar" => kernel32_policy.multi_byte_to_wide_char().is_some(),
+                "GetStringTypeW" => kernel32_policy.get_string_type_w().is_some(),
                 "GetCPInfo" => kernel32_policy.active_code_page_info().is_some(),
                 _ => true,
             }

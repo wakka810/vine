@@ -22,7 +22,7 @@ mod policy;
 pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32HeapAllocationPolicy, Kernel32MultiByteToWideCharPolicy,
+    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32MultiByteToWideCharPolicy,
     Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
 };
 
@@ -44,6 +44,7 @@ pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
     "kernel32.free-environment-strings-w.v1";
 pub const WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION: &str = "kernel32.wide-char-to-multi-byte.v1";
 pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to-wide-char.v1";
+pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
@@ -128,6 +129,9 @@ pub fn dispatch_kernel32_api_with_policy(
         MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION => {
             handle_multi_byte_to_wide_char(policy, contract, frame, session)
         }
+        GET_STRING_TYPE_W_IMPLEMENTATION => {
+            handle_get_string_type_w(policy, contract, frame, session)
+        }
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
         }
@@ -197,6 +201,7 @@ pub fn kernel32_contract_for_endpoint(
         "FreeEnvironmentStringsW" => free_environment_strings_w_contract(endpoint)?,
         "WideCharToMultiByte" => wide_char_to_multi_byte_contract(endpoint)?,
         "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
+        "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
@@ -936,6 +941,196 @@ fn handle_multi_byte_to_wide_char(
         immediate = immediate.with_guest_write(GuestAddress(destination_address), output);
     }
     Ok(immediate)
+}
+
+fn handle_get_string_type_w(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let info_type = required_argument(contract, frame, 0, "character information type")?;
+    let source_address = required_argument(contract, frame, 1, "UTF-16 source")?;
+    let source_count = required_argument(contract, frame, 2, "UTF-16 source length")? as i32;
+    let output_address = required_argument(contract, frame, 3, "character-type output")?;
+    let classification = policy.get_string_type_w().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-string-classification",
+            "get-string-type-w-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable GetStringTypeW",
+                policy.id
+            ),
+        )
+    })?;
+    if !classification.allowed_info_types.contains(&info_type) {
+        return Err(ApiFault::unsupported(
+            "win32-string-classification",
+            "get-string-type-w-info-type-unsupported",
+            format!(
+                "compatibility policy {} enables information types {:?}, not {info_type:#010x}",
+                policy.id, classification.allowed_info_types
+            ),
+        ));
+    }
+
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if source_count == 0 {
+        return Ok(get_string_type_failure(ERROR_INVALID_PARAMETER));
+    }
+    if source_count < 0 {
+        return Err(ApiFault::unsupported(
+            "win32-string-classification",
+            "get-string-type-w-negative-count-unsupported",
+            "the selected GetStringTypeW policy enables only explicit positive source lengths",
+        ));
+    }
+    let source_units = usize::try_from(source_count).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-string-classification",
+            "get-string-type-w-count-not-representable",
+            "validated positive UTF-16 source count does not fit host accounting",
+        )
+    })?;
+    if source_units > classification.maximum_source_code_units as usize {
+        return Err(ApiFault::resource_limit(
+            "win32-string-classification",
+            "get-string-type-w-source-limit-exceeded",
+            format!(
+                "UTF-16 source count {source_units} exceeds the policy limit of {}",
+                classification.maximum_source_code_units
+            ),
+        ));
+    }
+    let byte_length = source_units.checked_mul(2).ok_or_else(|| {
+        ApiFault::resource_limit(
+            "win32-string-classification",
+            "get-string-type-w-byte-length-overflow",
+            "UTF-16 classification length overflowed host accounting",
+        )
+    })?;
+    let source = GuestAddress(source_address);
+    let output = GuestAddress(output_address);
+    session
+        .memory()
+        .validate_access(source, byte_length, MemoryAccess::Read)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    session
+        .memory()
+        .validate_access(output, byte_length, MemoryAccess::Write)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    if guest_ranges_overlap(source_address, byte_length, output_address, byte_length)? {
+        return Err(ApiFault::unsupported(
+            "win32-string-classification",
+            "get-string-type-w-overlap-unsupported",
+            "the selected GetStringTypeW policy does not enable overlapping input and output",
+        ));
+    }
+
+    let source_bytes = session
+        .memory()
+        .read(source, byte_length)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let mut output_bytes = Vec::with_capacity(byte_length);
+    for (index, bytes) in source_bytes.chunks_exact(2).enumerate() {
+        let unit = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let character_type = classify_windows_ctype1(unit).ok_or_else(|| {
+            ApiFault::unsupported(
+                "win32-string-classification",
+                "get-string-type-w-code-unit-unsupported",
+                format!(
+                    "the selected CT_CTYPE1 classifier does not cover UTF-16 unit {unit:#06x} at index {index}"
+                ),
+            )
+        })?;
+        output_bytes.extend_from_slice(&character_type.to_le_bytes());
+    }
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_last_error(preserved_last_error)
+        .with_guest_write(output, output_bytes))
+}
+
+fn classify_windows_ctype1(unit: u16) -> Option<u16> {
+    const C1_UPPER: u16 = 0x0001;
+    const C1_LOWER: u16 = 0x0002;
+    const C1_DIGIT: u16 = 0x0004;
+    const C1_SPACE: u16 = 0x0008;
+    const C1_PUNCT: u16 = 0x0010;
+    const C1_CNTRL: u16 = 0x0020;
+    const C1_BLANK: u16 = 0x0040;
+    const C1_XDIGIT: u16 = 0x0080;
+    const C1_ALPHA: u16 = 0x0100;
+    const C1_DEFINED: u16 = 0x0200;
+
+    if matches!(unit, 0x0000..=0x001f | 0x007f..=0x009f) {
+        let whitespace = if matches!(unit, 0x0009..=0x000d) {
+            C1_SPACE
+        } else {
+            0
+        };
+        let blank = if unit == 0x0009 { C1_BLANK } else { 0 };
+        return Some(C1_DEFINED | C1_CNTRL | whitespace | blank);
+    }
+    if matches!(unit, 0x0020 | 0x00a0 | 0x3000) {
+        return Some(C1_DEFINED | C1_SPACE | C1_BLANK);
+    }
+    if matches!(unit, 0x0030..=0x0039 | 0xff10..=0xff19) {
+        return Some(C1_DEFINED | C1_DIGIT | C1_XDIGIT);
+    }
+    if matches!(unit, 0x0041..=0x005a | 0xff21..=0xff3a) {
+        let ascii_offset = if unit >= 0xff21 {
+            unit - 0xff21
+        } else {
+            unit - 0x0041
+        };
+        let xdigit = if ascii_offset < 6 { C1_XDIGIT } else { 0 };
+        return Some(C1_DEFINED | C1_ALPHA | C1_UPPER | xdigit);
+    }
+    if matches!(unit, 0x0061..=0x007a | 0xff41..=0xff5a) {
+        let ascii_offset = if unit >= 0xff41 {
+            unit - 0xff41
+        } else {
+            unit - 0x0061
+        };
+        let xdigit = if ascii_offset < 6 { C1_XDIGIT } else { 0 };
+        return Some(C1_DEFINED | C1_ALPHA | C1_LOWER | xdigit);
+    }
+    if matches!(
+        unit,
+        0x0021..=0x002f
+            | 0x003a..=0x0040
+            | 0x005b..=0x0060
+            | 0x007b..=0x007e
+            | 0x00a5
+            | 0x30fb
+            | 0xff01..=0xff0f
+            | 0xff1a..=0xff20
+            | 0xff3b..=0xff40
+            | 0xff5b..=0xff65
+    ) {
+        return Some(C1_DEFINED | C1_PUNCT);
+    }
+    if matches!(
+        unit,
+        0x3040..=0x309f
+            | 0x30a0..=0x30fa
+            | 0x30fc..=0x30ff
+            | 0x3400..=0x4dbf
+            | 0x4e00..=0x9fff
+            | 0xff66..=0xff9f
+    ) {
+        return Some(C1_DEFINED | C1_ALPHA);
+    }
+    if matches!(unit, 0xf8f0..=0xf8f3) {
+        return Some(C1_DEFINED);
+    }
+    None
+}
+
+fn get_string_type_failure(last_error: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(last_error)
 }
 
 fn read_multi_byte_source(
@@ -1847,6 +2042,23 @@ pub fn multi_byte_to_wide_char_contract(
         ],
         ApiReturnSchema::U32,
         MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn get_string_type_w_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "GetStringTypeW",
+        vec![
+            u32_argument("infoType"),
+            opaque_pointer("wideCharSource", false, 2),
+            u32_argument("wideCharCount"),
+            dynamic_out_bytes("characterTypes", false, 2, 2, 2_097_152),
+        ],
+        ApiReturnSchema::Bool32,
+        GET_STRING_TYPE_W_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

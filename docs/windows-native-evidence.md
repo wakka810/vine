@@ -1654,3 +1654,45 @@ Chrome Runtime Workerも94 ordered callsとsame stop／memoryを再現し、772 
 835 Wasm crossings、final generation `751`、cancel／watchdog後pending work 0を通す。3分gateは
 1,482 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-multi-byte-to-wide-char.md](bgi-multi-byte-to-wide-char.md)を正とする。
+
+## 70. BGI GetStringTypeW
+
+focused `get-string-type-w` observerのaccepted capturesは54,930 bytes／76 lines／SHA-256
+`579835aa3610b6ac7550d98598eeb465930ae4c71633fdcdd84401dee0b494de`と
+54,934 bytes／76 lines／SHA-256
+`ffca1c677d9c6a1b38af85c36e2bc6f98f922ec57a53935ac77bf613a1a14e2`
+である。どちらも12 balanced API pairs、diagnostics zeroを保持する。Observerはdirect BGI
+callとguarded x86 self-oracleだけを残し、bounded UTF-16 source、WORD output、LastError、
+return continuation、four bounded EBP framesを記録する。
+
+BGI return RVA `0xAD70D`の`GetStringTypeW(1,source,256,output)`はresult `1`で、runごとの
+LastError `0`／`87`を保存する。Sourceは188 ASCII＋68 non-ASCII BMP units、NUL／surrogate
+zeroで、FNV-1a `0x0F08DD60`／SHA-256
+`4684daa1a9839ae6e158ace6c2fcf905ff97e52a684d3f0e808cce56fddf6b00`である。512-byte
+outputはFNV-1a `0x1AB401A9`／SHA-256
+`8eea87edb52710ebeee687bb46f65962ffaf7ad306d9d0e98bc81929b1af6d84`である。
+ConsumerはBOOLをstore／testし、RVA `0xA71ED`付近でsuccess continuationへbranchする。
+
+OracleはASCII case／digit／hex、control／whitespace、punctuation、Japanese／CJK、
+fullwidth／halfwidth、Windows-932 private-use unitのrepresentative CTYPE1 wordsを固定する。
+SuccessはLastError `0`／`87`／`0x12345678`を保存する。Zero countはFALSE＋`87`、invalid
+information typeはFALSE＋`1004`で、いずれもoutput／guard不変である。Nativeはnegative
+countをNUL-terminated inputとして受理するがtarget未到達のため実装へ昇格しない。
+
+Policy `kernel32-get-string-type-w-v1`はallowed information type `[1]`と65,536-unit boundだけを
+追加する。`kernel32.get-string-type-w.v1`はfour-argument stdcall、checked source／output、
+positive explicit length、CTYPE1 classification、success LastError preserve、zero-count failureを
+semantic contractとして処理する。Negative length、other info type、overlap、unimplemented unitは
+mutation前にstructured stopし、target pointer／256-unit value／callerをpolicyへ含めない。
+
+`npm run check:runtime:bgi -- --profile kernel32-get-string-type-w`は36 contracts／101 calls、
+102 writebacks／159 dirty pages／2,958 changed bytes、39 host deltas、final generation `170`を通す。
+instruction `7675`でID `96`／`LCMapStringW(1041,256,0x006FF708,256,0,0)`を
+`endpoint-contract-missing`として停止する。Memory SHA-256は
+`3c26a9fa98427249ef0f37546f25592d18d18e9ade8c07c4ebbd10e2ce6b9aa2`、468,010-byte reportの
+SHA-256は`00facfca5960a6e0e233deab536aa5d01e190d6e7f72e6be7caffb2e8997c425`である。
+
+Chrome Runtime Workerも101 ordered callsとsame stop／memoryを再現し、998 slices、896 yields、
+870 Wasm crossings、final generation `778`、cancel／watchdog後pending work 0を通す。3分gateは
+1,507 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-get-string-type-w.md](bgi-get-string-type-w.md)を正とする。

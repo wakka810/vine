@@ -34,6 +34,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multi_byte_to_wide_char: Option<Kernel32MultiByteToWideCharPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_code_page_info: Option<Kernel32CodePageInfoPolicy>,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
 }
@@ -64,6 +66,13 @@ pub struct Kernel32WideCharToMultiBytePolicy {
 pub struct Kernel32MultiByteToWideCharPolicy {
     pub allowed_flags: Vec<u32>,
     pub maximum_source_bytes: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32GetStringTypeWPolicy {
+    pub allowed_info_types: Vec<u32>,
+    pub maximum_source_code_units: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +113,7 @@ impl Kernel32CompatibilityPolicy {
             wide_environment_strings: false,
             wide_char_to_multi_byte: None,
             multi_byte_to_wide_char: None,
+            get_string_type_w: None,
             active_code_page_info: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
@@ -222,6 +232,17 @@ impl Kernel32CompatibilityPolicy {
                 "multibyte conversion requires Windows-932 ACP, bounded unique implemented flags, and a bounded nonzero source limit",
             ));
         }
+        if let Some(classification) = self.get_string_type_w.as_ref()
+            && !valid_get_string_type_w_policy(
+                classification,
+                self.multi_byte_to_wide_char.is_some(),
+            )
+        {
+            return Err(policy_error(
+                "kernel32-policy-string-type-invalid",
+                "string classification requires the preceding multibyte layer, bounded unique implemented information types, and a bounded nonzero source limit",
+            ));
+        }
 
         let mut heap_variants = BTreeSet::new();
         for allocation in &self.heap_allocations {
@@ -290,6 +311,10 @@ impl Kernel32CompatibilityPolicy {
         self.multi_byte_to_wide_char.as_ref()
     }
 
+    pub fn get_string_type_w(&self) -> Option<&Kernel32GetStringTypeWPolicy> {
+        self.get_string_type_w.as_ref()
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocations.iter().any(|allocation| {
             allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
@@ -326,6 +351,23 @@ fn valid_multi_byte_to_wide_char_policy(
         && (1..=1_048_576).contains(&policy.maximum_source_bytes)
 }
 
+fn valid_get_string_type_w_policy(
+    policy: &Kernel32GetStringTypeWPolicy,
+    multibyte_layer_enabled: bool,
+) -> bool {
+    let info_types = policy
+        .allowed_info_types
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    multibyte_layer_enabled
+        && !policy.allowed_info_types.is_empty()
+        && policy.allowed_info_types.len() <= MAX_POLICY_ENTRIES
+        && info_types.len() == policy.allowed_info_types.len()
+        && info_types.iter().all(|info_type| *info_type == 1)
+        && (1..=1_048_576).contains(&policy.maximum_source_code_units)
+}
+
 fn policy_error(
     code: &'static str,
     message: impl Into<String>,
@@ -355,6 +397,7 @@ mod tests {
         assert!(!policy.allows_wide_environment_strings());
         assert!(policy.wide_char_to_multi_byte().is_none());
         assert!(policy.multi_byte_to_wide_char().is_none());
+        assert!(policy.get_string_type_w().is_none());
         assert!(policy.active_code_page_info().is_none());
 
         let mut invalid_environment_layer = policy.clone();
@@ -426,6 +469,16 @@ mod tests {
         assert_eq!(
             invalid_multi_byte.validate().unwrap_err().code,
             "kernel32-policy-multi-byte-conversion-invalid"
+        );
+
+        let mut invalid_string_type = policy.clone();
+        invalid_string_type.get_string_type_w = Some(Kernel32GetStringTypeWPolicy {
+            allowed_info_types: vec![1],
+            maximum_source_code_units: 65_536,
+        });
+        assert_eq!(
+            invalid_string_type.validate().unwrap_err().code,
+            "kernel32-policy-string-type-invalid"
         );
 
         let mut duplicate = policy;
