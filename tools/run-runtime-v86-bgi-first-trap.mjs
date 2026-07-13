@@ -81,6 +81,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-get-string-type-w",
         "kernel32-lc-map-string-w",
         "kernel32-interlocked-decrement",
+        "kernel32-get-module-file-name-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -107,8 +108,10 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-lc-map-string-w" ||
-    genericRuntimeCapability === "kernel32-interlocked-decrement"
+    genericRuntimeCapability === "kernel32-get-module-file-name-a"
+      ? "kernel32-get-module-file-name-a-v1.json"
+      : genericRuntimeCapability === "kernel32-lc-map-string-w" ||
+          genericRuntimeCapability === "kernel32-interlocked-decrement"
       ? "kernel32-lc-map-string-w-v1.json"
       : genericRuntimeCapability === "kernel32-get-string-type-w"
       ? "kernel32-get-string-type-w-v1.json"
@@ -179,7 +182,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getModuleFileNameAEnabled =
+  genericRuntimeCapability === "kernel32-get-module-file-name-a";
 const interlockedDecrementEnabled =
+  getModuleFileNameAEnabled ||
   genericRuntimeCapability === "kernel32-interlocked-decrement";
 const lcMapStringWEnabled =
   interlockedDecrementEnabled ||
@@ -262,7 +268,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? interlockedDecrementEnabled
+      ? getModuleFileNameAEnabled
+        ? "v86-bgi-get-module-file-name-a"
+        : interlockedDecrementEnabled
         ? "v86-bgi-interlocked-decrement"
         : lcMapStringWEnabled
       ? "v86-bgi-lc-map-string-w"
@@ -2574,6 +2582,49 @@ const interlockedDecrementExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const getModuleFileNameAExpected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 152,
+  writebackBatches: 153,
+  dirtyPages: 229,
+  changedBytes: 3920,
+  hostDeltaBatches: 51,
+  finalGeneration: 233,
+  call: {
+    arguments: [0, 0x100ff520, 260],
+    result: 15,
+    instructionCount: 15863,
+    returnAddress: 0x100a84c6,
+    pathBytes: [...Buffer.from("C:\\Vine\\BGI.exe\0", "ascii")],
+    delta: {
+      sequence: 120,
+      fromGeneration: 199,
+      generation: 200,
+      pageAddress: 0x100ff000,
+      owner: 1,
+      payloadSha256: "ba1dab4296a6af9944e54edfbca89515d034ce0207960b404e65a3dfa252b498",
+    },
+  },
+  followupCalls: [
+    ["GetLastError", 15935, 0x100a55dd],
+    ["SetLastError", 16853, 0x100a5647],
+  ],
+  memoryContentSha256: "b233490f03ec30f568aa6ddf9868da4f41804150f4bbccfff8a20f2e9d01e943",
+  reportBytes: 704_797,
+  reportSha256: "3bbeda2ffff7720afc73c7729b52f7168b2989758baf6c7cc7e6a45b870e15e7",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-private-heap-allocation",
+    endpointId: 75,
+    endpointAddress: 0x7f0004a0,
+    module: "kernel32.dll",
+    symbol: "HeapAlloc",
+    iatAddress: 0x100d11d4,
+    arguments: [0x68010001, 0, 16],
+    returnAddress: 0x100a4a33,
+    instructionCount: 16965,
+    faultCode: "heap-alloc-variant-unsupported",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -3036,6 +3087,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getModuleFileNameAEnabled) {
+        validateGetModuleFileNameAResult(genericResult);
       } else if (interlockedDecrementEnabled) {
         validateInterlockedDecrementResult(genericResult);
       } else if (lcMapStringWEnabled) {
@@ -3097,7 +3150,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : interlockedDecrementEnabled
+          : getModuleFileNameAEnabled
+            ? "bgi GetModuleFileNameA"
+            : interlockedDecrementEnabled
             ? "bgi InterlockedDecrement"
             : lcMapStringWEnabled
             ? "bgi LCMapStringW"
@@ -3517,7 +3572,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : interlockedDecrementEnabled
+        : getModuleFileNameAEnabled
+          ? 26
+          : interlockedDecrementEnabled
           ? 25
           : lcMapStringWEnabled
           ? 24
@@ -6088,6 +6145,98 @@ function validateLCMapStringWResult(result) {
   );
 }
 
+function validateGetModuleFileNameAResult(result) {
+  const expected = getModuleFileNameAExpected;
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetModuleFileNameA",
+  );
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.deepEqual(call.arguments, expected.call.arguments);
+  assert.deepEqual(call.result, { action: "set", value: expected.call.result });
+  assert.equal(call.implementationId, "kernel32.get-module-file-name-a.v1");
+  assert.equal(call.lastError, 0);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 16);
+  assert.equal(call.trapInstructionCount, expected.call.instructionCount);
+  assert.equal(call.returnAddress, expected.call.returnAddress);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, expected.call.arguments[1]);
+  assert.deepEqual(call.guestWrites[0].bytes, expected.call.pathBytes);
+  assert.deepEqual(call.guestWrites[0].result, {
+    bytesWritten: expected.call.pathBytes.length,
+    dirtyPages: 1,
+    invalidation: {
+      generation: expected.call.delta.generation,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    },
+  });
+  const delta = result.hostDeltas.find(
+    ({ sequence }) => sequence === expected.call.delta.sequence,
+  );
+  assert(delta, `GetModuleFileNameA delta ${expected.call.delta.sequence} is missing`);
+  assert.equal(delta.fromGeneration, expected.call.delta.fromGeneration);
+  assert.equal(delta.generation, expected.call.delta.generation);
+  assert.equal(delta.mappingOperations, 0);
+  assert.deepEqual(delta.dirtyPages, [
+    {
+      address: expected.call.delta.pageAddress,
+      owner: expected.call.delta.owner,
+    },
+  ]);
+  assert.equal(delta.payloadBytes, page.size);
+  assert.equal(delta.payloadSha256, expected.call.delta.payloadSha256);
+
+  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+    const followup = result.supportedCalls.find(
+      (candidate) =>
+        candidate.symbol === symbol &&
+        candidate.trapInstructionCount === instructionCount,
+    );
+    assert(followup, `${symbol} follow-up call at ${instructionCount} is missing`);
+    assert.equal(followup.returnAddress, returnAddress);
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validateInterlockedDecrementResult(result) {
   const expected = interlockedDecrementExpected;
   const calls = result.supportedCalls.filter(
@@ -6336,7 +6485,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : interlockedDecrementEnabled
+        : getModuleFileNameAEnabled
+          ? "vine.v86-bgi-get-module-file-name-a"
+          : interlockedDecrementEnabled
           ? "vine.v86-bgi-interlocked-decrement"
           : lcMapStringWEnabled
           ? "vine.v86-bgi-lc-map-string-w"

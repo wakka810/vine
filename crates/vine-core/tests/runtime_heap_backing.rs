@@ -253,6 +253,11 @@ fn running_runtime() -> RuntimeState {
             profile_id: "runtime-heap-backing-test".to_owned(),
             bytes: vec![0; X86_STARTUP_INFO_W_BYTE_LENGTH],
         },
+        process_image_path_a: vine_core::RuntimeProcessImagePathA {
+            source_authority: "runtime-heap-backing-fixture".to_owned(),
+            bytes_with_nul: b"C:\\Vine\\fixture.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec01_0000,
     })

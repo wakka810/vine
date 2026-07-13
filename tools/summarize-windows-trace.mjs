@@ -22,6 +22,7 @@ const supportedObservations = new Set([
   "critical-section",
   "interlocked-increment",
   "interlocked-decrement",
+  "get-module-file-name-a",
   "standard-handle",
   "file-type",
   "set-handle-count",

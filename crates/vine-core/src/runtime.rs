@@ -70,6 +70,8 @@ pub const RUNTIME_STANDARD_OUTPUT_SELECTOR: u32 = 0xffff_fff5;
 pub const RUNTIME_STANDARD_OUTPUT_HANDLE: u32 = 0x5301_0002;
 pub const RUNTIME_STANDARD_ERROR_SELECTOR: u32 = 0xffff_fff4;
 pub const RUNTIME_STANDARD_ERROR_HANDLE: u32 = 0x5301_0003;
+pub const RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING: &str = "windows-932-v1";
+pub const RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES: usize = 32 * 1024;
 
 const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
 const RUNTIME_PRIVATE_HEAP_OWNER: &str = "runtime-process-private-heaps";
@@ -884,6 +886,14 @@ pub struct RuntimeCommandLine {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeProcessImagePathA {
+    pub source_authority: String,
+    pub bytes_with_nul: Vec<u8>,
+    pub encoding: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeEnvironmentStringCopy {
     pub acquisition_id: u64,
     pub buffer_address: GuestAddress,
@@ -922,6 +932,7 @@ pub struct RuntimeBootstrap {
     pub address_space: ProcessAddressSpaceLayout,
     pub clock: RuntimeClockState,
     pub startup_info: RuntimeStartupInfo,
+    pub process_image_path_a: RuntimeProcessImagePathA,
     pub encoded_pointer_namespace: String,
     pub encoded_pointer_token_prefix: u32,
 }
@@ -1489,6 +1500,7 @@ pub struct RuntimeProcessState {
     pub address_space: ProcessAddressSpaceLayout,
     pub clock: RuntimeClockState,
     pub startup_info: RuntimeStartupInfo,
+    pub image_path_a: RuntimeProcessImagePathA,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<RuntimeProcessEnvironment>,
     pub heap_termination_on_corruption: bool,
@@ -1572,6 +1584,22 @@ impl RuntimeState {
                 "runtime startup profile requires a nonempty identity and one x86 STARTUPINFOW image",
             ));
         }
+        if bootstrap.process_image_path_a.source_authority.is_empty()
+            || bootstrap.process_image_path_a.encoding != RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING
+            || bootstrap.process_image_path_a.bytes_with_nul.len() < 2
+            || bootstrap.process_image_path_a.bytes_with_nul.len()
+                > RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES
+            || bootstrap.process_image_path_a.bytes_with_nul.last() != Some(&0)
+            || bootstrap.process_image_path_a.bytes_with_nul
+                [..bootstrap.process_image_path_a.bytes_with_nul.len() - 1]
+                .contains(&0)
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-image-path",
+                "process-image-path-a-invalid",
+                "runtime process image path requires bounded Windows-932 bytes with exactly one trailing NUL",
+            ));
+        }
         let address_space_allocator =
             ProcessAddressSpaceAllocator::vine_v1(bootstrap.address_space)?;
         if bootstrap.encoded_pointer_namespace != LOGICAL_ENCODED_POINTER_NAMESPACE
@@ -1611,6 +1639,7 @@ impl RuntimeState {
                 address_space: bootstrap.address_space,
                 clock: bootstrap.clock,
                 startup_info: bootstrap.startup_info,
+                image_path_a: bootstrap.process_image_path_a,
                 environment: None,
                 heap_termination_on_corruption: false,
                 heaps: BTreeMap::new(),
@@ -1665,6 +1694,10 @@ impl RuntimeState {
 
     pub fn process(&self) -> &RuntimeProcessState {
         &self.process
+    }
+
+    pub fn process_image_path_a(&self) -> &RuntimeProcessImagePathA {
+        &self.process.image_path_a
     }
 
     pub fn process_address_space_allocator(&self) -> &ProcessAddressSpaceAllocator {

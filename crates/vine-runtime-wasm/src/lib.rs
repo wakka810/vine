@@ -1071,6 +1071,11 @@ fn controlled_bgi_runtime_state() -> Result<RuntimeState, String> {
             profile_id: "startupinfow-v68-zero-optional-fields".to_owned(),
             bytes: startup_info,
         },
+        process_image_path_a: vine_core::RuntimeProcessImagePathA {
+            source_authority: "browser-private-executable-virtual-path".to_owned(),
+            bytes_with_nul: b"C:\\Vine\\BGI.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec01_0000,
     })
@@ -1338,6 +1343,11 @@ fn controlled_runtime_state() -> Result<RuntimeState, String> {
         startup_info: RuntimeStartupInfo {
             profile_id: "browser-vertical-startup-v1".to_owned(),
             bytes: startup_info,
+        },
+        process_image_path_a: vine_core::RuntimeProcessImagePathA {
+            source_authority: "browser-fixture-virtual-path".to_owned(),
+            bytes_with_nul: b"C:\\Vine\\browser-vertical.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec02_0000,

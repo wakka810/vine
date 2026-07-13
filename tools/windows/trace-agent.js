@@ -44,6 +44,11 @@ let interlockedDecrementOracleSentinel = null;
 let interlockedDecrementOracleResult = null;
 let interlockedDecrementOracleLastError = null;
 let interlockedDecrementConsumersRecorded = 0;
+let getModuleFileNameAOracleScheduled = false;
+let getModuleFileNameAOracleSentinel = null;
+let getModuleFileNameAOracleResult = null;
+let getModuleFileNameAOracleLastError = null;
+let getModuleFileNameAConsumersRecorded = 0;
 let tlsLifecycleOracleScheduled = false;
 let tlsGetValueConsumerRecorded = false;
 let flsLifecycleOracleScheduled = false;
@@ -984,6 +989,106 @@ function snapshotInterlockedDecrementCall(
   };
 }
 
+function snapshotAnsiOutputBuffer(pointer, requestedBytes) {
+  const maximumBytes = 32 * 1024;
+  const maximumRecordedBytes = 4096;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      isNull: true,
+    };
+  }
+  if (
+    !Number.isInteger(requestedBytes) ||
+    requestedBytes < 0 ||
+    requestedBytes > maximumBytes
+  ) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: "ANSI buffer length is outside the bounded observation",
+    };
+  }
+  try {
+    const buffer = pointer.readByteArray(requestedBytes);
+    const bytes = [...new Uint8Array(buffer)];
+    let hash = 0x811c9dc5;
+    let nulBytes = 0;
+    let firstNulOffset = null;
+    for (const [index, byte] of bytes.entries()) {
+      hash = fnv1aByte(hash, byte);
+      if (byte === 0) {
+        nulBytes += 1;
+        firstNulOffset ??= index;
+      }
+    }
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      isNull: false,
+      contentFnv1a32: `0x${hash.toString(16).padStart(8, "0")}`,
+      nulBytes,
+      firstNulOffset,
+      bytes:
+        requestedBytes <= maximumRecordedBytes
+          ? bytes
+          : bytes.slice(0, maximumRecordedBytes),
+      bytesTruncated: requestedBytes > maximumRecordedBytes,
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      maximumBytes,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotGetModuleFileNameACall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  moduleHandle,
+  output,
+  capacity,
+) {
+  const recordsConsumer =
+    getModuleFileNameAConsumersRecorded < 2 &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    getModuleFileNameAConsumersRecorded += 1;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    getModuleFileNameA: {
+      moduleHandle: moduleHandle.toString(),
+      capacity,
+      outputBefore: snapshotAnsiOutputBuffer(output, capacity),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations:
+              snapshotX86FrameCallerContinuationsFollowingDirectJump(
+                context,
+                4,
+                32,
+              ),
+          }
+        : null,
+    },
+  };
+}
+
 function readProcessParametersEnvironmentPointer() {
   try {
     const ntdll = Process.getModuleByName("ntdll.dll");
@@ -1434,6 +1539,9 @@ if (selectedObservations.has("interlocked-increment")) {
 if (selectedObservations.has("interlocked-decrement")) {
   hooks["kernel32.dll"].push(["InterlockedDecrement", [null]]);
 }
+if (selectedObservations.has("get-module-file-name-a")) {
+  hooks["kernel32.dll"].push(["GetModuleFileNameA", [null, null, null]]);
+}
 if (selectedObservations.has("standard-handle")) {
   hooks["kernel32.dll"].push(["GetStdHandle", [null]]);
 }
@@ -1641,6 +1749,13 @@ function attachHook(module, name, decoders) {
         name === "InterlockedDecrement" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedGetModuleFileNameAObservation =
+        selectedObservations.has("get-module-file-name-a") &&
+        name === "GetModuleFileNameA" &&
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            getModuleFileNameAOracleSentinel !== null));
       if (
         selectedObservations.has("heap-allocation") &&
         !selectedObservations.has("heap-lifecycle") &&
@@ -1686,6 +1801,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("interlocked-decrement") &&
         name === "InterlockedDecrement" &&
         !focusedInterlockedDecrementObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("get-module-file-name-a") &&
+        name === "GetModuleFileNameA" &&
+        !focusedGetModuleFileNameAObservation
       ) {
         this.traceFrame = null;
         return;
@@ -1750,6 +1873,15 @@ function attachHook(module, name, decoders) {
         caller.module.toLowerCase() === "frida-agent.dll";
       if (this.traceInterlockedDecrementOracle) {
         this.lastError = interlockedDecrementOracleSentinel;
+      }
+      this.traceGetModuleFileNameAOracle =
+        getModuleFileNameAOracleSentinel !== null &&
+        selectedObservations.has("get-module-file-name-a") &&
+        name === "GetModuleFileNameA" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceGetModuleFileNameAOracle) {
+        this.lastError = getModuleFileNameAOracleSentinel;
       }
       this.traceGetLastErrorOracle =
         getLastErrorOracleSentinel !== null &&
@@ -1874,6 +2006,14 @@ function attachHook(module, name, decoders) {
           : null;
       this.traceInterlockedDecrement =
         focusedInterlockedDecrementObservation ? { target: args[0] } : null;
+      this.traceGetModuleFileNameA =
+        focusedGetModuleFileNameAObservation
+          ? {
+              moduleHandle: args[0],
+              output: args[1],
+              capacity: args[2].toUInt32(),
+            }
+          : null;
       this.traceGetCpInfo =
         focusedGetCpInfoObservation
           ? { codePage: args[0], output: args[1] }
@@ -1968,6 +2108,16 @@ function attachHook(module, name, decoders) {
               this.lastError,
               this.context,
               this.traceInterlockedDecrement.target,
+            )
+        : this.traceGetModuleFileNameA !== null
+          ? snapshotGetModuleFileNameACall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceGetModuleFileNameA.moduleHandle,
+              this.traceGetModuleFileNameA.output,
+              this.traceGetModuleFileNameA.capacity,
             )
         : name === "GetStartupInfoW"
           ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
@@ -2086,6 +2236,10 @@ function attachHook(module, name, decoders) {
         interlockedDecrementOracleResult = signed32(result);
         interlockedDecrementOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceGetModuleFileNameAOracle) {
+        getModuleFileNameAOracleResult = result.toUInt32();
+        getModuleFileNameAOracleLastError = Number(lastError) >>> 0;
+      }
       if (this.traceGetLastErrorOracle) {
         getLastErrorOracleResult = result.toUInt32();
         getLastErrorOracleLastError = Number(lastError) >>> 0;
@@ -2158,6 +2312,17 @@ function attachHook(module, name, decoders) {
               interlockedDecrement: {
                 result: signed32(result),
                 targetAfter: snapshotLong(this.traceInterlockedDecrement.target),
+              },
+            }),
+        ...(this.traceGetModuleFileNameA === null
+          ? {}
+          : {
+              getModuleFileNameA: {
+                result: result.toUInt32(),
+                outputAfter: snapshotAnsiOutputBuffer(
+                  this.traceGetModuleFileNameA.output,
+                  this.traceGetModuleFileNameA.capacity,
+                ),
               },
             }),
         ...(name === "SetLastError" && selectedObservations.has("set-last-error")
@@ -3181,6 +3346,154 @@ function scheduleInterlockedDecrementOracle(module) {
   });
 }
 
+function scheduleGetModuleFileNameAOracle(module) {
+  if (getModuleFileNameAOracleScheduled) {
+    return;
+  }
+  getModuleFileNameAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetModuleFileNameA");
+      if (address === null) {
+        throw new Error("GetModuleFileNameA export is unavailable");
+      }
+      const getModuleFileNameA = new SystemFunction(
+        address,
+        "uint32",
+        ["pointer", "pointer", "uint32"],
+        "stdcall",
+      );
+      const invoke = ({
+        id,
+        sentinel,
+        moduleHandle = ptr(0),
+        capacity,
+        nullOutput = false,
+      }) => {
+        const guardBytes = 16;
+        const storage = nullOutput
+          ? null
+          : Memory.alloc(guardBytes + capacity + guardBytes);
+        if (storage !== null) {
+          storage.writeByteArray(Array(guardBytes + capacity + guardBytes).fill(0xa5));
+        }
+        const output = storage === null ? ptr(0) : storage.add(guardBytes);
+        const trailingGuard =
+          storage === null ? null : output.add(capacity);
+        const leadingGuardBefore =
+          storage === null ? null : snapshotBoundedRawBytes(storage, guardBytes);
+        const outputBefore = snapshotAnsiOutputBuffer(output, capacity);
+        const trailingGuardBefore =
+          trailingGuard === null
+            ? null
+            : snapshotBoundedRawBytes(trailingGuard, guardBytes);
+        getModuleFileNameAOracleSentinel = sentinel;
+        getModuleFileNameAOracleResult = null;
+        getModuleFileNameAOracleLastError = null;
+        try {
+          const outcome = getModuleFileNameA(moduleHandle, output, capacity);
+          const result = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getModuleFileNameAOracleResult === null ||
+            getModuleFileNameAOracleLastError === null
+          ) {
+            throw new Error(`${id} did not pass through the module-file-name hook`);
+          }
+          return {
+            id,
+            sentinel,
+            moduleHandle: moduleHandle.toString(),
+            capacity,
+            nullOutput,
+            result,
+            hookResult: getModuleFileNameAOracleResult,
+            hookLastErrorAfter: getModuleFileNameAOracleLastError,
+            systemLastError,
+            leadingGuardBefore,
+            leadingGuardAfter:
+              storage === null
+                ? null
+                : snapshotBoundedRawBytes(storage, guardBytes),
+            outputBefore,
+            outputAfter: snapshotAnsiOutputBuffer(output, capacity),
+            trailingGuardBefore,
+            trailingGuardAfter:
+              trailingGuard === null
+                ? null
+                : snapshotBoundedRawBytes(trailingGuard, guardBytes),
+          };
+        } finally {
+          getModuleFileNameAOracleSentinel = null;
+          getModuleFileNameAOracleResult = null;
+          getModuleFileNameAOracleLastError = null;
+        }
+      };
+
+      const generous = invoke({
+        id: "main-module-generous",
+        sentinel: 0,
+        capacity: 1024,
+      });
+      if (generous.result === 0 || generous.result >= 1024) {
+        throw new Error("main-module generous query did not return a bounded path");
+      }
+      const calls = [
+        generous,
+        invoke({
+          id: "main-module-exact",
+          sentinel: 87,
+          capacity: generous.result + 1,
+        }),
+        invoke({
+          id: "main-module-insufficient",
+          sentinel: 0x12345678,
+          capacity: generous.result,
+        }),
+        invoke({
+          id: "main-module-one-byte",
+          sentinel: 88,
+          capacity: 1,
+        }),
+        invoke({
+          id: "main-module-zero-capacity",
+          sentinel: 89,
+          capacity: 0,
+        }),
+        invoke({
+          id: "main-module-null-zero-capacity",
+          sentinel: 90,
+          capacity: 0,
+          nullOutput: true,
+        }),
+        invoke({
+          id: "explicit-kernel32-module",
+          sentinel: 91,
+          moduleHandle: module.base,
+          capacity: 1024,
+        }),
+        invoke({
+          id: "invalid-module-handle",
+          sentinel: 92,
+          moduleHandle: ptr(1),
+          capacity: 1024,
+        }),
+      ];
+      emit("get-module-file-name-a-oracle", {
+        profile: "x86-main-and-explicit-module-v1",
+        mainModule: {
+          name: Process.mainModule.name,
+          base: Process.mainModule.base.toString(),
+          path: Process.mainModule.path,
+        },
+        calls,
+      });
+    } catch (error) {
+      emit("get-module-file-name-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleGetLastErrorOracle(module) {
   if (getLastErrorOracleScheduled) {
     return;
@@ -3817,6 +4130,12 @@ Process.attachModuleObserver({
       selectedObservations.has("interlocked-decrement")
     ) {
       scheduleInterlockedDecrementOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("get-module-file-name-a")
+    ) {
+      scheduleGetModuleFileNameAOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

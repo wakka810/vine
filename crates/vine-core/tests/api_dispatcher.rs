@@ -2513,6 +2513,256 @@ fn get_command_line_a_returns_stable_process_owned_ascii_view_without_mutation()
 }
 
 #[test]
+fn get_module_file_name_a_uses_process_path_and_bounds_every_output_before_mutation() {
+    const MODULE_HANDLE: u32 = 0x4d01_0001;
+    const PATH: &[u8] = b"C:\\Vine\\fixture.exe\0";
+    const PATH_LENGTH: u32 = (PATH.len() - 1) as u32;
+    const CROSS_UNMAPPED_OUTPUT: u32 = MEMORY_BASE.0 + 0x2ff0;
+
+    let (mut memory, owner) = initialized_memory();
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0xd8);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetModuleFileNameA IAT");
+    memory
+        .write_initialization(owner, GuestAddress(OUTPUT_BASE), &vec![0xa5; 0x400])
+        .expect("initialize module file-name outputs");
+    let frames = [
+        (STACK_BASE, vec![0x1000_0963, 0, OUTPUT_BASE, 64]),
+        (
+            STACK_BASE + 0x20,
+            vec![0x1000_0964, 0, OUTPUT_BASE + 0x100, PATH.len() as u32],
+        ),
+        (
+            STACK_BASE + 0x40,
+            vec![0x1000_0965, 0, OUTPUT_BASE + 0x200, PATH_LENGTH],
+        ),
+        (
+            STACK_BASE + 0x60,
+            vec![0x1000_0966, 0, OUTPUT_BASE + 0x300, 1],
+        ),
+        (
+            STACK_BASE + 0x80,
+            vec![0x1000_0967, 0, OUTPUT_BASE + 0x310, 0],
+        ),
+        (STACK_BASE + 0xa0, vec![0x1000_0968, 0, 0, 0]),
+        (STACK_BASE + 0xc0, vec![0x1000_0969, 0, 0, 1]),
+        (
+            STACK_BASE + 0xe0,
+            vec![0x1000_096a, 0, OUTPUT_BASE + 0x320, 32_769],
+        ),
+        (
+            STACK_BASE + 0x100,
+            vec![0x1000_096b, MODULE_HANDLE, OUTPUT_BASE + 0x320, 64],
+        ),
+        (
+            STACK_BASE + 0x120,
+            vec![0x1000_096c, 0, CROSS_UNMAPPED_OUTPUT, 64],
+        ),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetModuleFileNameA".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetModuleFileNameA endpoint");
+    assert_eq!(
+        contract.implementation_id,
+        "kernel32.get-module-file-name-a.v1"
+    );
+    assert_eq!(contract.abi.arguments.len(), 3);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime
+        .load_module(RuntimeModule {
+            owner: "test-runtime".to_owned(),
+            variant_id: "runtime-kernel32".to_owned(),
+            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            handle: MODULE_HANDLE,
+            requested_name: "KERNEL32.DLL".to_owned(),
+            canonical_name: "kernel32.dll".to_owned(),
+            runtime_system_module: true,
+        })
+        .expect("load logical module");
+    let policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-get-module-file-name-a-v1.json"
+    ))
+    .expect("module file-name policy");
+
+    let success = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(success.eax, RegisterUpdate::Set(PATH_LENGTH));
+    assert_eq!(success.stack_pointer, GuestAddress(frames[0].0 + 16));
+    assert_eq!(success.last_error, 0);
+    assert_eq!(success.guest_writes.len(), 1);
+    assert_eq!(success.guest_writes[0].write.bytes, PATH);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(OUTPUT_BASE), PATH.len() + 1)
+            .unwrap(),
+        [PATH, &[0xa5]].concat()
+    );
+
+    let exact = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+        &policy,
+    );
+    assert_eq!(exact.eax, RegisterUpdate::Set(PATH_LENGTH));
+    assert_eq!(exact.last_error, 0);
+    assert_eq!(exact.guest_writes[0].write.bytes, PATH);
+    acknowledge_pending_delta(&mut memory);
+
+    let insufficient = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+        &policy,
+    );
+    assert_eq!(insufficient.eax, RegisterUpdate::Set(PATH_LENGTH));
+    assert_eq!(insufficient.last_error, 122);
+    let expected_truncated = [&PATH[..PATH.len() - 2], &[0]].concat();
+    assert_eq!(insufficient.guest_writes[0].write.bytes, expected_truncated);
+    acknowledge_pending_delta(&mut memory);
+
+    let one_byte = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[3].0,
+        frames[3].1[0],
+        &policy,
+    );
+    assert_eq!(one_byte.eax, RegisterUpdate::Set(1));
+    assert_eq!(one_byte.last_error, 122);
+    assert_eq!(one_byte.guest_writes[0].write.bytes, [0]);
+    acknowledge_pending_delta(&mut memory);
+
+    for frame in [&frames[4], &frames[5]] {
+        let zero_capacity = dispatch_owned_with_policy(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoint,
+            frame.0,
+            frame.1[0],
+            &policy,
+        );
+        assert_eq!(zero_capacity.eax, RegisterUpdate::Set(0));
+        assert_eq!(zero_capacity.last_error, 122);
+        assert!(zero_capacity.guest_writes.is_empty());
+    }
+    let null_output = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[6].0,
+        frames[6].1[0],
+        &policy,
+    );
+    assert_eq!(null_output.eax, RegisterUpdate::Set(0));
+    assert_eq!(null_output.last_error, 87);
+    assert!(null_output.guest_writes.is_empty());
+
+    for (frame, expected_class, expected_code) in [
+        (
+            &frames[7],
+            ApiFaultClass::ResourceLimit,
+            "get-module-file-name-a-capacity-limit-exceeded",
+        ),
+        (
+            &frames[8],
+            ApiFaultClass::Unsupported,
+            "get-module-file-name-a-explicit-module-unsupported",
+        ),
+        (&frames[9], ApiFaultClass::InvalidCall, "guest-page-fault"),
+    ] {
+        let runtime_before = runtime.clone();
+        let memory_before = memory.stats();
+        let rejected = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(&endpoint, frame.0, frame.1[0]),
+                &mut session,
+                |contract, frame, session| {
+                    dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+                },
+            )
+        };
+        assert!(matches!(
+            rejected,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == expected_class && fault.code == expected_code
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    let runtime_before = runtime.clone();
+    let memory_before = memory.stats();
+    let default_policy_rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[0].0, frames[0].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        default_policy_rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "get-module-file-name-a-policy-missing"
+    ));
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
 fn get_and_free_environment_strings_w_manage_one_process_owned_copy() {
     let (mut memory, owner) = initialized_memory_with_environment_capacity();
     let environment =
@@ -5241,6 +5491,11 @@ fn controlled_runtime(startup_bytes: Vec<u8>) -> RuntimeState {
         startup_info: RuntimeStartupInfo {
             profile_id: "test-startup-profile".to_owned(),
             bytes: startup_bytes,
+        },
+        process_image_path_a: vine_core::RuntimeProcessImagePathA {
+            source_authority: "api-dispatcher-fixture".to_owned(),
+            bytes_with_nul: b"C:\\Vine\\fixture.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec01_0000,

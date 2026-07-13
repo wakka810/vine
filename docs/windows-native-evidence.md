@@ -1786,3 +1786,47 @@ Chrome Runtime Workerも119 ordered callsとsame stop／memoryを再現し、2,0
 1,909 yields、1,687 Wasm crossings、final generation `1,361`、cancel／watchdog後pending
 work 0を通す。3分gateは1,004 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-interlocked-decrement.md](bgi-interlocked-decrement.md)を正とする。
+
+## 73. BGI GetModuleFileNameA
+
+focused `get-module-file-name-a` observerのaccepted capturesは116,515 bytes／80 lines／
+SHA-256 `dbea36944098cc0ade8c4d76e916447aa7563c7b97d53026c3601cb91edd5cae`と
+116,457 bytes／80 lines／SHA-256
+`5e52ed288cb692914ecfc542b904b7b0efc8d638968934a027d80cbaca8cee88`
+である。どちらも14 balanced API pairs、sequence `0..77` contiguous、diagnostics zeroを
+保持する。Observerはtwo direct BGI calls、eight guarded x86 self-oracle pairs、four
+incidental `GetProcAddress` pairsだけを残す。
+
+BGI callsはNULL module、capacity `260`／`780`を渡し、RVA `0xA84C6`／`0x60219`
+へ戻る。双方result `27`／LastError `0 -> 0`で、Windows-932 path
+`V:\softs\サクラノ詩\BGI.exe\0`を返す。Path bytesのSHA-256は
+`72472c80161f0c142cee81058bcdfa1a43c25576788b35e0cb9fd0991a041b3c`である。
+First destinationはimage RVA `0xFF520`、secondはthread stackで、両consumerはpathを
+後続処理へ保持する。
+
+Guarded oracleはgenerous／exact success、capacity `27`／`1`／`0`、NULL output、explicit
+KERNEL32、invalid handleを固定する。Modern truncationはresultをcapacityとし、最終byteを
+NUL化してLastError `122`を返す。Explicit KERNEL32は32-byte path、invalid handleはresult
+`0`／LastError `126`／output不変であり、全guardsも不変である。Explicit-module behaviorは
+BGI未到達のためcurrent runtime policyへ昇格しない。
+
+`kernel32.get-module-file-name-a.v1`はthree-argument stdcall、main-module-only policy、
+32 KiB capacity bound、full output-span preflight、length／termination／LastErrorを処理する。
+Rust bootstrapが`windows-932-v1`のvirtual path `C:\Vine\BGI.exe\0`を所有し、host install
+pathをsemantic inputにしない。Zero capacityはoutputを参照せず`0`／`122`、positive capacity
+のNULL outputは`0`／`87`を返す。Explicit module、capacity limit、invalid guest spanは
+mutation前にstopする。
+
+`npm run check:runtime:bgi -- --profile kernel32-get-module-file-name-a`は39 contracts／
+152 calls、153 writebacks／229 dirty pages／3,920 changed bytes、51 host deltas、final
+generation `233`を通す。Reached call sequence `120`は16-byte pathを`0x100FF520`へ書き、
+generation `199 -> 200`へ進む。instruction `16965`でID `75`／
+`HeapAlloc(0x68010001,0,16)`を`heap-alloc-variant-unsupported`として停止する。Memory
+SHA-256は`b233490f03ec30f568aa6ddf9868da4f41804150f4bbccfff8a20f2e9d01e943`、
+704,797-byte reportのSHA-256は
+`3bbeda2ffff7720afc73c7729b52f7168b2989758baf6c7cc7e6a45b870e15e7`である。
+
+Chrome Runtime Workerも152 ordered callsとsame stop／memoryを再現し、2,174 slices、
+2,021 yields、1,826 Wasm crossings、final generation `1,445`、cancel／watchdog後pending
+work 0を通す。3分gateは961 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-get-module-file-name-a.md](bgi-get-module-file-name-a.md)を正とする。

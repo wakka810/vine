@@ -38,6 +38,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lc_map_string_w: Option<Kernel32LcMapStringWPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub get_module_file_name_a: Option<Kernel32GetModuleFileNameAPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_code_page_info: Option<Kernel32CodePageInfoPolicy>,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
 }
@@ -87,6 +89,13 @@ pub struct Kernel32LcMapStringWPolicy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32GetModuleFileNameAPolicy {
+    pub main_module_only: bool,
+    pub maximum_capacity_bytes: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32CodePageInfoPolicy {
     pub max_char_size: u32,
     pub default_char: [u8; 2],
@@ -125,6 +134,7 @@ impl Kernel32CompatibilityPolicy {
             multi_byte_to_wide_char: None,
             get_string_type_w: None,
             lc_map_string_w: None,
+            get_module_file_name_a: None,
             active_code_page_info: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
@@ -262,6 +272,16 @@ impl Kernel32CompatibilityPolicy {
                 "locale mapping requires the preceding classification layer, bounded unique implemented locales and flags, and a bounded nonzero source limit",
             ));
         }
+        if let Some(file_name) = self.get_module_file_name_a
+            && (self.lc_map_string_w.is_none()
+                || !file_name.main_module_only
+                || !(1..=32_768).contains(&file_name.maximum_capacity_bytes))
+        {
+            return Err(policy_error(
+                "kernel32-policy-module-file-name-invalid",
+                "module file-name lookup requires the preceding locale layer, main-module-only selection, and a bounded nonzero capacity",
+            ));
+        }
 
         let mut heap_variants = BTreeSet::new();
         for allocation in &self.heap_allocations {
@@ -336,6 +356,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn lc_map_string_w(&self) -> Option<&Kernel32LcMapStringWPolicy> {
         self.lc_map_string_w.as_ref()
+    }
+
+    pub fn get_module_file_name_a(&self) -> Option<Kernel32GetModuleFileNameAPolicy> {
+        self.get_module_file_name_a
     }
 
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
@@ -448,6 +472,7 @@ mod tests {
         assert!(policy.multi_byte_to_wide_char().is_none());
         assert!(policy.get_string_type_w().is_none());
         assert!(policy.lc_map_string_w().is_none());
+        assert!(policy.get_module_file_name_a().is_none());
         assert!(policy.active_code_page_info().is_none());
 
         let mut invalid_environment_layer = policy.clone();
@@ -554,6 +579,20 @@ mod tests {
         assert_eq!(
             invalid_lc_map.validate().unwrap_err().code,
             "kernel32-policy-lc-map-string-invalid"
+        );
+
+        invalid_lc_map
+            .lc_map_string_w
+            .as_mut()
+            .unwrap()
+            .allowed_flags = vec![0x0100, 0x0200];
+        invalid_lc_map.get_module_file_name_a = Some(Kernel32GetModuleFileNameAPolicy {
+            main_module_only: false,
+            maximum_capacity_bytes: 32_768,
+        });
+        assert_eq!(
+            invalid_lc_map.validate().unwrap_err().code,
+            "kernel32-policy-module-file-name-invalid"
         );
 
         let mut duplicate = policy;

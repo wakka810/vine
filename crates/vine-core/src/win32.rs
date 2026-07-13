@@ -13,8 +13,9 @@ use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
-    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE, RuntimeCriticalSection,
-    RuntimeHeapInitialization, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
+    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeCriticalSection, RuntimeHeapInitialization,
+    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -22,8 +23,8 @@ mod policy;
 pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32MultiByteToWideCharPolicy, Kernel32StandardHandleFileType,
+    Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
+    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32StandardHandleFileType,
     Kernel32WideCharToMultiBytePolicy,
 };
 
@@ -40,6 +41,7 @@ pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
 pub const SET_HANDLE_COUNT_IMPLEMENTATION: &str = "kernel32.set-handle-count.v1";
 pub const GET_COMMAND_LINE_A_IMPLEMENTATION: &str = "kernel32.get-command-line-a.v1";
+pub const GET_MODULE_FILE_NAME_A_IMPLEMENTATION: &str = "kernel32.get-module-file-name-a.v1";
 pub const GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str = "kernel32.get-environment-strings-w.v1";
 pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
     "kernel32.free-environment-strings-w.v1";
@@ -120,6 +122,9 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
         SET_HANDLE_COUNT_IMPLEMENTATION => handle_set_handle_count(policy, contract, frame),
         GET_COMMAND_LINE_A_IMPLEMENTATION => handle_get_command_line_a(contract, session),
+        GET_MODULE_FILE_NAME_A_IMPLEMENTATION => {
+            handle_get_module_file_name_a(policy, contract, frame, session)
+        }
         GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION => {
             handle_get_environment_strings_w(contract, session)
         }
@@ -204,6 +209,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetFileType" => get_file_type_contract(endpoint)?,
         "SetHandleCount" => set_handle_count_contract(endpoint)?,
         "GetCommandLineA" => get_command_line_a_contract(endpoint)?,
+        "GetModuleFileNameA" => get_module_file_name_a_contract(endpoint)?,
         "GetEnvironmentStringsW" => get_environment_strings_w_contract(endpoint)?,
         "FreeEnvironmentStringsW" => free_environment_strings_w_contract(endpoint)?,
         "WideCharToMultiByte" => wide_char_to_multi_byte_contract(endpoint)?,
@@ -448,6 +454,92 @@ fn handle_get_command_line_a(
     Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
         command_line.ansi_buffer_address.0,
     )))
+}
+
+fn handle_get_module_file_name_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let module_handle = required_argument(contract, frame, 0, "module handle")?;
+    let output_address = required_argument(contract, frame, 1, "ANSI module file-name output")?;
+    let capacity = required_argument(contract, frame, 2, "ANSI module file-name capacity")?;
+    let file_name_policy = policy.get_module_file_name_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-module-file-name",
+            "get-module-file-name-a-policy-missing",
+            format!(
+                "compatibility policy {} does not enable GetModuleFileNameA",
+                policy.id
+            ),
+        )
+    })?;
+    if module_handle != 0 || !file_name_policy.main_module_only {
+        return Err(ApiFault::unsupported(
+            "win32-module-file-name",
+            "get-module-file-name-a-explicit-module-unsupported",
+            "the selected GetModuleFileNameA policy enables only the current process image",
+        ));
+    }
+    if capacity > file_name_policy.maximum_capacity_bytes {
+        return Err(ApiFault::resource_limit(
+            "win32-module-file-name",
+            "get-module-file-name-a-capacity-limit-exceeded",
+            format!(
+                "ANSI module file-name capacity {capacity} exceeds the policy limit of {} bytes",
+                file_name_policy.maximum_capacity_bytes
+            ),
+        ));
+    }
+    if capacity == 0 {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INSUFFICIENT_BUFFER)
+        );
+    }
+    if output_address == 0 {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INVALID_PARAMETER)
+        );
+    }
+
+    let image_path = session.runtime().process_image_path_a();
+    if image_path.encoding != RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING
+        || image_path.bytes_with_nul.len() < 2
+        || image_path.bytes_with_nul.last() != Some(&0)
+        || image_path.bytes_with_nul[..image_path.bytes_with_nul.len() - 1].contains(&0)
+    {
+        return Err(ApiFault::runtime_defect(
+            "win32-module-file-name",
+            "process-image-path-a-invalid",
+            "runtime process image path lost its bounded Windows-932 NUL-terminated shape",
+        ));
+    }
+    let capacity = usize::try_from(capacity).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-module-file-name",
+            "get-module-file-name-a-capacity-not-representable",
+            "validated ANSI module file-name capacity does not fit host accounting",
+        )
+    })?;
+    let output = GuestAddress(output_address);
+    session
+        .memory()
+        .validate_access(output, capacity, MemoryAccess::Write)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let path_length = image_path.bytes_with_nul.len() - 1;
+    if capacity <= path_length {
+        let mut truncated = image_path.bytes_with_nul[..capacity].to_vec();
+        *truncated
+            .last_mut()
+            .expect("positive GetModuleFileNameA capacity") = 0;
+        return Ok(ApiImmediate::new(ApiReturnValue::U32(capacity as u32))
+            .with_last_error(ERROR_INSUFFICIENT_BUFFER)
+            .with_guest_write(output, truncated));
+    }
+    Ok(ApiImmediate::new(ApiReturnValue::U32(path_length as u32))
+        .with_last_error(ERROR_SUCCESS)
+        .with_guest_write(output, image_path.bytes_with_nul.clone()))
 }
 
 fn handle_get_environment_strings_w(
@@ -2166,6 +2258,24 @@ pub fn get_command_line_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiC
         ApiReturnSchema::OpaquePointer { nullable: false },
         GET_COMMAND_LINE_A_IMPLEMENTATION,
     )
+}
+
+pub fn get_module_file_name_a_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "GetModuleFileNameA",
+        vec![
+            logical_handle("module", LOGICAL_LOADED_MODULE_NAMESPACE, true),
+            dynamic_out_bytes("fileName", true, 1, 1, 32_768),
+            u32_argument("capacity"),
+        ],
+        ApiReturnSchema::U32,
+        GET_MODULE_FILE_NAME_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn get_environment_strings_w_contract(

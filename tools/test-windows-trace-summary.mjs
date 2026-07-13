@@ -609,6 +609,13 @@ interlockedDecrementSelection.find(
 ).selectedObservations = ["interlocked-decrement"];
 assert.doesNotThrow(() => summarizeTrace(encode(interlockedDecrementSelection)));
 
+const getModuleFileNameASelection = structuredClone(events);
+getModuleFileNameASelection[0].arguments.observations = ["get-module-file-name-a"];
+getModuleFileNameASelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["get-module-file-name-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(getModuleFileNameASelection)));
+
 const standardHandleSelection = structuredClone(events);
 standardHandleSelection[0].arguments.observations = ["standard-handle"];
 standardHandleSelection.find(

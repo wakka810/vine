@@ -21,6 +21,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-v1.json",
   "fixtures/runtime-policies/kernel32-get-string-type-w-v1.json",
   "fixtures/runtime-policies/kernel32-lc-map-string-w-v1.json",
+  "fixtures/runtime-policies/kernel32-get-module-file-name-a-v1.json",
 ];
 
 for (const relative of policyFiles) {

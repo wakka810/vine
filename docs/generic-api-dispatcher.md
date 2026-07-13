@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte and 544-byte uninitialized private heaps, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-interlocked-decrement`
-- Scope: frozen 17-call equivalence plus 119 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-get-module-file-name-a`
+- Scope: frozen 17-call equivalence plus 152 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -689,6 +689,26 @@ before mutation. The profile completes 119 calls, uses 120 writeback batches／
 and stops at instruction 15863 on missing `GetModuleFileNameA`. Full evidence is
 in [bgi-interlocked-decrement.md](bgi-interlocked-decrement.md).
 
+The current process-image-path profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-get-module-file-name-a
+```
+
+`kernel32.get-module-file-name-a.v1` copies the Rust-owned bounded
+`windows-932-v1` process image path through a three-argument stdcall contract.
+Policy admits only the current process image and caps output capacity at 32
+KiB. Success and modern truncation results, NUL termination, LastError, and
+zero/NULL shapes are explicit; explicit module handles and invalid spans stop
+before mutation. The BGI profile writes virtual path `C:\Vine\BGI.exe\0`, not
+the private host installation path. It completes 152 calls, uses 153 writeback
+batches／229 dirty pages／3,920 changed bytes and 51 host deltas, and ends at
+generation `233`. Its 704,797-byte report has SHA-256
+`3bbeda2ffff7720afc73c7729b52f7168b2989758baf6c7cc7e6a45b870e15e7`
+and stops at instruction 16965 on unsupported `HeapAlloc(0x68010001,0,16)`.
+Full evidence is in
+[bgi-get-module-file-name-a.md](bgi-get-module-file-name-a.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -716,24 +736,26 @@ in [bgi-interlocked-decrement.md](bgi-interlocked-decrement.md).
   authority／copy lease, a policy-owned Windows-932 active code page, and its
   measured 18-byte code-page information fields, checked Windows-932
   multibyte query/conversion, and the reached positive-length `CT_CTYPE1`
-  classification, plus checked wrapping decrement of one aligned process LONG.
+  classification, checked wrapping decrement of one aligned process LONG, and
+  a bounded process-owned Windows-932 executable path copied for NULL-module
+  `GetModuleFileNameA`.
   General handle-table sizing, `SetStdHandle`, close behavior, broader file type,
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
   pointers, `CP_ACP` multibyte selection, other conversion flags, negative
   `GetStringTypeW` lengths, other information types, arbitrary `LCMapStringW`
   locale/flag/length variants, and broad locale tables
-  remain absent. Its first unsupported operation is
-  `GetModuleFileNameA(NULL, 0x100FF520, 260)`; bespoke
+  remain absent. Explicit module file-name lookup and host image-path import are
+  also absent. Its first unsupported operation is
+  `HeapAlloc(0x68010001, 0, 16)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-get-module-file-name-a` at
-`GetModuleFileNameA(NULL, 0x100FF520, 260)`. It must first fix NULL-module
-selection, ANSI output bytes, length and termination, insufficient-capacity
-behavior, LastError, guards, and the immediate consumer, then add only the
-reached checked process-image-path contract.
+The next proof is `kernel32-private-heap-size-16` at
+`HeapAlloc(0x68010001, 0, 16)`. It must first fix allocation identity,
+initialization, alignment, failure, LastError, lifetime, and the immediate
+consumer, then add only the reached flag/size policy variant.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,

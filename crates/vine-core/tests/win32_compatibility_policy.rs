@@ -26,6 +26,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-get-string-type-w-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-lc-map-string-w-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-get-module-file-name-a-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -43,7 +44,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert!(multibyte.get_string_type_w().is_none());
     let string_type: Kernel32CompatibilityPolicy = serde_json::from_str(policies[14]).unwrap();
     assert!(string_type.lc_map_string_w().is_none());
-    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[15]).unwrap();
+    let previous: Kernel32CompatibilityPolicy = serde_json::from_str(policies[15]).unwrap();
+    assert!(previous.get_module_file_name_a().is_none());
+    let active: Kernel32CompatibilityPolicy = serde_json::from_str(policies[16]).unwrap();
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_INPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_OUTPUT_SELECTOR));
     assert!(active.allows_standard_handle(RUNTIME_STANDARD_ERROR_SELECTOR));
@@ -96,4 +99,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(mapping.allowed_locales, [0x0411]);
     assert_eq!(mapping.allowed_flags, [0x0100, 0x0200]);
     assert_eq!(mapping.maximum_source_code_units, 65_536);
+    let file_name = active
+        .get_module_file_name_a()
+        .expect("module file-name policy");
+    assert!(file_name.main_module_only);
+    assert_eq!(file_name.maximum_capacity_bytes, 32_768);
 }

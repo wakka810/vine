@@ -198,8 +198,33 @@ fn process_and_thread_lifecycle_separates_exit_request_from_waitable_completion(
     );
 }
 
-fn initialized_runtime() -> RuntimeState {
-    RuntimeState::new(RuntimeBootstrap {
+#[test]
+fn process_image_path_bootstrap_rejects_invalid_ansi_authority() {
+    for mutate in [
+        |bootstrap: &mut RuntimeBootstrap| bootstrap.process_image_path_a.source_authority.clear(),
+        |bootstrap: &mut RuntimeBootstrap| {
+            bootstrap.process_image_path_a.encoding = "utf-8".to_owned()
+        },
+        |bootstrap: &mut RuntimeBootstrap| {
+            bootstrap.process_image_path_a.bytes_with_nul = b"C:\\Vine\\fixture.exe".to_vec()
+        },
+        |bootstrap: &mut RuntimeBootstrap| {
+            bootstrap.process_image_path_a.bytes_with_nul = b"C:\\Vine\0fixture.exe\0".to_vec()
+        },
+    ] {
+        let mut bootstrap = controlled_bootstrap();
+        mutate(&mut bootstrap);
+        assert_eq!(
+            RuntimeState::new(bootstrap)
+                .expect_err("invalid process image path must stop bootstrap")
+                .code,
+            "process-image-path-a-invalid"
+        );
+    }
+}
+
+fn controlled_bootstrap() -> RuntimeBootstrap {
+    RuntimeBootstrap {
         process_id: RuntimeProcessId(PROCESS_ID),
         initial_thread_id: RuntimeThreadId(THREAD_ID),
         initial_last_error: 87,
@@ -213,8 +238,16 @@ fn initialized_runtime() -> RuntimeState {
             profile_id: "runtime-lifecycle-test".to_owned(),
             bytes: vec![0; X86_STARTUP_INFO_W_BYTE_LENGTH],
         },
+        process_image_path_a: vine_core::RuntimeProcessImagePathA {
+            source_authority: "runtime-lifecycle-fixture".to_owned(),
+            bytes_with_nul: b"C:\\Vine\\fixture.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec01_0000,
-    })
-    .expect("initialized controlled runtime")
+    }
+}
+
+fn initialized_runtime() -> RuntimeState {
+    RuntimeState::new(controlled_bootstrap()).expect("initialized controlled runtime")
 }

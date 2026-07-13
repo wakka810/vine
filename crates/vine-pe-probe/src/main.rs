@@ -113,6 +113,7 @@ enum GenericRuntimeCapability {
     GetStringTypeW,
     LcMapStringW,
     InterlockedDecrement,
+    GetModuleFileNameA,
 }
 
 struct GenericRuntimeProcess {
@@ -2461,12 +2462,18 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetStringTypeW
                 | GenericRuntimeCapability::LcMapStringW
                 | GenericRuntimeCapability::InterlockedDecrement
+                | GenericRuntimeCapability::GetModuleFileNameA
         )
     );
-    let interlocked_decrement_enabled = matches!(
+    let get_module_file_name_a_enabled = matches!(
         endpoint_capability,
-        Some(GenericRuntimeCapability::InterlockedDecrement)
+        Some(GenericRuntimeCapability::GetModuleFileNameA)
     );
+    let interlocked_decrement_enabled = get_module_file_name_a_enabled
+        || matches!(
+            endpoint_capability,
+            Some(GenericRuntimeCapability::InterlockedDecrement)
+        );
     let enabled_capability = match enabled_capability {
         Some(
             GenericRuntimeCapability::CommandLineA
@@ -2483,7 +2490,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::MultiByteToWideChar
             | GenericRuntimeCapability::GetStringTypeW
             | GenericRuntimeCapability::LcMapStringW
-            | GenericRuntimeCapability::InterlockedDecrement,
+            | GenericRuntimeCapability::InterlockedDecrement
+            | GenericRuntimeCapability::GetModuleFileNameA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2981,10 +2989,13 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let interlocked_decrement_enabled = matches!(
-        enabled,
-        Some(GenericRuntimeCapability::InterlockedDecrement)
-    );
+    let get_module_file_name_a_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::GetModuleFileNameA));
+    let interlocked_decrement_enabled = get_module_file_name_a_enabled
+        || matches!(
+            enabled,
+            Some(GenericRuntimeCapability::InterlockedDecrement)
+        );
     let lc_map_string_w_enabled = interlocked_decrement_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::LcMapStringW));
     let get_string_type_w_enabled = lc_map_string_w_enabled
@@ -3061,7 +3072,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::MultiByteToWideChar
             | GenericRuntimeCapability::GetStringTypeW
             | GenericRuntimeCapability::LcMapStringW
-            | GenericRuntimeCapability::InterlockedDecrement,
+            | GenericRuntimeCapability::InterlockedDecrement
+            | GenericRuntimeCapability::GetModuleFileNameA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3206,6 +3218,7 @@ fn runtime_capability_enables_endpoint(
         "GetStringTypeW" => get_string_type_w_enabled,
         "LCMapStringW" => lc_map_string_w_enabled,
         "InterlockedDecrement" => interlocked_decrement_enabled,
+        "GetModuleFileNameA" => get_module_file_name_a_enabled,
         _ => true,
     }
 }
@@ -3244,7 +3257,9 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::GetCpInfo
             | GenericRuntimeCapability::MultiByteToWideChar
             | GenericRuntimeCapability::GetStringTypeW
-            | GenericRuntimeCapability::LcMapStringW,
+            | GenericRuntimeCapability::LcMapStringW
+            | GenericRuntimeCapability::InterlockedDecrement
+            | GenericRuntimeCapability::GetModuleFileNameA,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -7578,6 +7593,11 @@ fn controlled_runtime_state(
             profile_id: X86StartupInfoW::PROFILE_ID.to_owned(),
             bytes: startup_info.to_bytes(),
         },
+        process_image_path_a: vine_core::RuntimeProcessImagePathA {
+            source_authority: "node-private-executable-virtual-path".to_owned(),
+            bytes_with_nul: b"C:\\Vine\\BGI.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
         encoded_pointer_namespace: X86LogicalEncodedPointer::NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: ENCODED_POINTER_TOKEN_PREFIX,
     })
@@ -8625,6 +8645,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-get-string-type-w" => GenericRuntimeCapability::GetStringTypeW,
                 "kernel32-lc-map-string-w" => GenericRuntimeCapability::LcMapStringW,
                 "kernel32-interlocked-decrement" => GenericRuntimeCapability::InterlockedDecrement,
+                "kernel32-get-module-file-name-a" => GenericRuntimeCapability::GetModuleFileNameA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
