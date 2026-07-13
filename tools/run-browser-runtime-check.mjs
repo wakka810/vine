@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 
 import { bgiProfileOutputDirectory } from "./bgi-checkpoint-command.mjs";
 import { loadCurrentCheckpoint } from "./current-checkpoint.mjs";
+import {
+  classifyBenchmarkDecision,
+  EVIDENCE_CLASSIFICATION,
+} from "./evidence-classification.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assetsRoot = path.join(root, ".work", "browser-runtime");
@@ -748,7 +752,9 @@ function summarizeBgiBenchmark(result, configuration) {
     "<=",
     thresholds.maximumExecutionEngineLinearMemoryBytes,
   );
-  return { metrics, thresholdEvaluations, thresholdFailures };
+  const decision = classifyBenchmarkDecision(thresholdEvaluations);
+  assert.deepEqual(decision.failureIds, thresholdFailures);
+  return { metrics, thresholdEvaluations, thresholdFailures, decision };
 
   function evaluateThreshold(name, observed, comparison, threshold) {
     const passed =
@@ -1018,10 +1024,12 @@ if (serveOnly) {
           bgiBenchmarkMilliseconds,
           configuration.sampleIntervalMilliseconds,
         );
-        const { metrics, thresholdEvaluations, thresholdFailures } = summarizeBgiBenchmark(
-          result,
-          configuration,
-        );
+        const {
+          metrics,
+          thresholdEvaluations,
+          thresholdFailures,
+          decision,
+        } = summarizeBgiBenchmark(result, configuration);
         const sourceAfter = await readFile(bgiPath);
         assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the benchmark");
         const artifactPaths = {
@@ -1052,8 +1060,10 @@ if (serveOnly) {
         );
         const report = {
           schema: "vine.browser-bgi-benchmark-report",
-          schemaVersion: 1,
+          schemaVersion: 2,
           measuredAt: new Date().toISOString(),
+          evidenceClassification: structuredClone(EVIDENCE_CLASSIFICATION),
+          decision,
           environment: {
             host: `${os.platform()} ${os.release()} ${os.arch()}`,
             cpu: os.cpus()[0]?.model ?? "unknown",
@@ -1090,14 +1100,18 @@ if (serveOnly) {
         };
         const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
         await writeFile(path.join(assetsRoot, "bgi-browser-benchmark-report.json"), reportBytes);
-        assert.deepEqual(thresholdFailures, [], `BGI benchmark failed: ${thresholdFailures}`);
+        assert.equal(
+          decision.status,
+          "passed",
+          `BGI benchmark failed (${decision.reason}): ${thresholdFailures}`,
+        );
         console.log(
           `BGI browser benchmark passed: sessions=${metrics.completedSessions}, ` +
             `p95=${metrics.sessionLatencyMilliseconds.p95.toFixed(2)}ms, ` +
             `sliceP99=${metrics.maximumSliceMilliseconds.p99.toFixed(2)}ms, ` +
             `mainSlope=${metrics.mainHeap.slopeBytesPerMinute?.toFixed(2)}, ` +
             `workerSlope=${metrics.workerHeap.slopeBytesPerMinute?.toFixed(2)}, ` +
-            `reportSha256=${hash(reportBytes)}`,
+            `decision=${decision.reason}, reportSha256=${hash(reportBytes)}`,
         );
       } else {
         const oracleBytes = await readFile(bgiOracleReportPath);

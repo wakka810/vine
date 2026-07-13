@@ -110,12 +110,12 @@ profile and keeps v86-specific PTE／offset behavior behind the adapter. The
 58,763-byte Browser report has SHA-256
 `2b8067f6c185bb066c29e6b2afb2c5aa626495d5f69fcb92180b1c693911064b`.
 
-The unchanged 180-second version 1 gate completed 2,225 sessions with no
-failure: p95 session latency 73.590 ms, p99 maximum slice 0.675 ms, main heap
-slope -201,170 bytes/min, Worker heap slope -79,665 bytes/min, and Worker
-backing slope -1,245,266 bytes/min. All 16 thresholds passed. The 997,730-byte
+The unchanged 180-second version 1 gate completed 2,220 sessions with no
+failure: p95 session latency 74.555 ms, p99 maximum slice 0.580 ms, main heap
+slope -104,603 bytes/min, Worker heap slope 2,839,834 bytes/min, and Worker
+backing slope 1,292,093 bytes/min. All 16 thresholds passed. The 996,234-byte
 report has SHA-256
-`8ac7ab2e83c80e87cd90d593a68570f68571b6aef67849fd5b2b767952dd0050`.
+`874e91a2e3c644b176504c807cf26271a12278a091d79858c8f20bb7cd8ced90`.
 Detailed evidence is in [bgi-browser-benchmark.md](bgi-browser-benchmark.md).
 
 ## Next structured stop

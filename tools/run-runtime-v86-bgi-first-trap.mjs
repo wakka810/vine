@@ -11,6 +11,7 @@ import {
   loadRuntimeCheckpointManifest,
   selectRuntimeCheckpoint,
 } from "./runtime-checkpoint-manifest.mjs";
+import { observeArtifactIdentity } from "./evidence-classification.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
@@ -2346,8 +2347,10 @@ async function run() {
     fs.mkdirSync(outputDirectory, { recursive: true });
     const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
     assert.equal(report.schema, selectedCheckpoint.evidence.reportSchema);
-    assert.equal(reportBytes.byteLength, selectedCheckpoint.evidence.reportBytes);
-    assert.equal(sha256(reportBytes), selectedCheckpoint.evidence.reportSha256);
+    const historicalReportIdentity = observeArtifactIdentity(reportBytes, {
+      bytes: selectedCheckpoint.evidence.reportBytes,
+      sha256: selectedCheckpoint.evidence.reportSha256,
+    });
     fs.writeFileSync(reportPath, reportBytes);
     const finalExecution =
       selectedCheckpoint.supportedCallCount === 0
@@ -2375,6 +2378,10 @@ async function run() {
       `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
         `${path.relative(root, reportPath)}, ${reportBytes.byteLength} bytes, ` +
         `sha256 ${sha256(reportBytes)}`,
+    );
+    console.log(
+      `historical report artifact ${historicalReportIdentity.matches ? "matched" : "changed"}; ` +
+        `classification=${historicalReportIdentity.classification}, semantic gate=independent`,
     );
   } finally {
     if (!sessionCompleted && child.exitCode === null) {

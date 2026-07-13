@@ -186,7 +186,9 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 
 `npm run check:runtime:bgi -- --checkpoint bgi-sixteenth-win32-call`はtwo focused `pointer-encoding` tracesの`EncodePointer(NULL)`、varying native result、LastError preserveをoracleとする。ID `89`をdeclared endpointへ上げ、Rustはframe `[0x100A5467,NULL]`、direct IAT call、retained TLS slot／initial-thread valueを検査する。native results／process cookieを捨ててnamespace `vine.logical-encoded-pointer.v1`のtoken `0xEC010001`を返し、stack pageを13 bytes reconcileする。55命令後、累計229命令でsame ID `89`／`EncodePointer(0x100A9608)`へ停止する。129,530-byte reportのSHA-256 `310d90e97f3b33b8c466d0a0e769fb4fe85a4b3cb2a55f191a0480d662f0032b`を検査し、fifteenth report hashも不変に保つ。詳細は[v86-bgi-sixteenth-win32-call.md](v86-bgi-sixteenth-win32-call.md)を正とする。
 
-`npm run check:runtime:bgi -- --checkpoint bgi-seventeenth-win32-call`はsame tracesのsecond `EncodePointer`とstatic disassemblyをoracleとする。Rustはframe `[0x100A9697,0x100A9608]`、11-byte direct IAT call、17-byte executable source prefix、prior encoded-NULL／TLS stateを検査する。native result／cookieを捨ててprocess-initializer function token `0xEC010002`を返し、stack pageを32 bytes reconcileする。BGI global `0x100FF62C`へのstoreを観測し、9命令後、累計238命令でsame ID `89`／`EncodePointer(0x7F020000)`へ停止する。140,660-byte reportのSHA-256 `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`を検査し、sixteenth report hashも不変に保つ。詳細は[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
+`npm run check:runtime:bgi -- --checkpoint bgi-seventeenth-win32-call`はsame tracesのsecond `EncodePointer`とstatic disassemblyをoracleとする。Rustはframe `[0x100A9697,0x100A9608]`、11-byte direct IAT call、17-byte executable source prefix、prior encoded-NULL／TLS stateを検査する。native result／cookieを捨ててprocess-initializer function token `0xEC010002`を返し、stack pageを32 bytes reconcileする。BGI global `0x100FF62C`へのstoreを観測し、9命令後、累計238命令でsame ID `89`／`EncodePointer(0x7F020000)`へ停止する。capture時の140,660-byte report／SHA-256 `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`との一致はartifact observationとして記録する。詳細は[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
+
+上記historical report bytes／SHA-256はcapture artifact identityであり、現在のrunnerは一致を観測するがsemantic hard gateにはしない。各checkpointのexact call／argument／result／write、instruction stop、next endpointがgateである。scheduler orderingは独立laneのinterleaveを許すpartial orderと禁止relationを分け、performanceはsample分布とversioned thresholdで判定する。分類の正本は[evidence-classification.md](evidence-classification.md)とする。
 
 現在のW2 loader／module／class／window-create／visibility／invalidation／message-dispatch ingress／paint／quit flow representative contractは、SHA-256固定の`window-pixel.exe`をpreferred baseへchecked mapし、3 DLL／13 named importの全IATを一意なowned thunkへ解決する。`GetModuleHandleA(NULL)`へmain image baseを返した後、`RegisterClassExA`のfixed `wndclassexa-v48-local-ascii` variantを48-byte checked readと64-byte上限のASCII NUL readで処理し、host-owned class stateとlogical ATOM `0xC000`を登録してresumeする。続くfixed `createwindowexa-v12-local-ascii-wm-create` variantは12 argumentsをchecked readし、class／titleをbounded ASCIIからcopyし、module-scoped class lookupを通してharness-local typed HWND `0x57010001`を作る。
 
@@ -440,7 +442,7 @@ oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatch
 8-instruction cancelと4-instruction watchdogでprocess exit／module detach／pending work zeroを要求する。
 詳細は[bgi-browser-worker.md](bgi-browser-worker.md)を正とする。単発heap値はsemantic
 report identityに留め、別のversion 1 BGI workload gateが同じWorkerで完全sessionを3分反復する。
-2,225 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
+2,220 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
 回帰slope、Worker backing storage、Rust／execution-engine linear memory、271 crossings/sessionをversioned
 thresholdで判定する。必要sampleが取得不能ならfailし、全thresholdのobserved valueと判定理由を
 reportへ保存する。詳細は[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。

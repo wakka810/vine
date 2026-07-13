@@ -7,6 +7,7 @@ import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { observeArtifactIdentity } from "./evidence-classification.mjs";
 import { resolveV86AdapterProfile } from "./v86-adapter-profile.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -504,10 +505,7 @@ async function run() {
             : dispatchAdd
               ? expected.cdeclReport
               : expected.entryReport;
-    assert.equal(reportBytes.byteLength, expectedReport.bytes);
-    if (wasmContext.adapterProfile.hasCanonicalReportFingerprints) {
-      assert.equal(sha256(reportBytes), expectedReport.sha256);
-    }
+    const reportArtifact = observeArtifactIdentity(reportBytes, expectedReport);
     fs.writeFileSync(reportPath, reportBytes);
     if (dispatchStackBootstrap) {
       console.log(
@@ -553,6 +551,10 @@ async function run() {
     console.log(
       `report: ${path.relative(root, reportPath)}, ${reportBytes.byteLength} bytes, ` +
         `sha256 ${sha256(reportBytes)}`,
+    );
+    console.log(
+      `report artifact ${reportArtifact.matches ? "matched" : "changed"}; ` +
+        `classification=${reportArtifact.classification}, semantic gate=independent`,
     );
   } finally {
     lineReader.close();

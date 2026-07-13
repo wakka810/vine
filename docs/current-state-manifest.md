@@ -8,6 +8,8 @@ evidence文書へcurrent値を手作業で転載しない。
 
 過去のreport hashやnative observationはartifact identityとしてmanifest内に保持できる。ただし、
 full JSON byte identityはsemantic gateではない。semantic testとstructured stopが回帰判定の正本である。
+具体的な分類とordering／performance contractは
+[evidence-classification.md](evidence-classification.md)を正とする。
 
 ## Schema version 2
 

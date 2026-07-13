@@ -6,6 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { observeArtifactIdentity } from "./evidence-classification.mjs";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = path.join(root, ".work", "v86-browser-benchmark");
 const reportPath = path.join(outputDirectory, "report.json");
@@ -280,12 +282,23 @@ async function optionalBgiBenchmark() {
     ["tools/run-runtime-v86-bgi-first-trap.mjs", "--checkpoint", "bgi-seventeenth-win32-call"],
     { env: { ...process.env, VINE_BGI_EXE: bgi }, timeoutMs: 300_000 },
   );
+  const reportArtifact = observeArtifactIdentity(
+    fs.readFileSync(
+      path.join(root, ".work", "v86-bgi-seventeenth-win32-call", "report.json"),
+    ),
+    {
+      bytes: 140_660,
+      sha256: "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+    },
+  );
   return {
     status: "measured",
     elapsedMilliseconds: result.elapsedMilliseconds,
     instructions: 238,
     dispatchedCalls: 17,
-    reportSha256: "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+    reportArtifact,
+    reportBytes: reportArtifact.observed.bytes,
+    reportSha256: reportArtifact.observed.sha256,
     reflectionSha256: "0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a",
   };
 }

@@ -173,6 +173,10 @@ function validEvidence() {
       classification: "observation-not-semantic-gate",
       status: checkpoint.browserCheckpoint.bgiBenchmark,
       configuration: benchmark.configuration,
+      benchmarkClassification: benchmark.performanceClassification,
+      decisionStatus: benchmark.decisionStatus,
+      decisionReason: benchmark.decisionReason,
+      thresholdEvaluationCount: benchmark.thresholdEvaluationCount,
       durationMilliseconds: benchmark.durationMilliseconds,
       completedSessions: benchmark.completedSessions,
       failedSessions: benchmark.failedSessions,
@@ -256,6 +260,13 @@ for (const [label, evidence, expected] of [
       value.performanceObservation.classification = "semantic-gate";
     }),
     "observation-not-semantic-gate",
+  ],
+  [
+    "benchmark decision reason mismatch",
+    mutated((value) => {
+      value.performanceObservation.decisionReason = "single-sample-passed";
+    }),
+    "performanceObservation.decisionReason",
   ],
 ]) {
   assert(

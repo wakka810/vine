@@ -33,36 +33,39 @@ Heap growth is ordinary least-squares slope across every available time sample,
 not a first／last delta. Session and maximum-slice distributions retain p50,
 p95, p99, and maximum values. The report stores all 16 threshold evaluations,
 including observed value, comparison, limit, and pass result; an unavailable
-required sample is a failure.
+required sample is a failure. Report schema version 2 also stores a structured
+`repeated-distribution-threshold` decision: `passed`, reason
+`all-16-versioned-thresholds-passed`, evaluation count `16`, and no failure IDs.
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 2,225 sessions with no
+The authoritative clean-profile Chrome run completed 2,220 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 2,225 |
+| Completed sessions | >= 120 | 2,220 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 36 |
-| Session latency p95 | <= 3,000 ms | 73.590 ms |
-| Maximum slice p99 | <= 10 ms | 0.675 ms |
-| Main heartbeat gap | <= 75 ms | 18.970 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 6,486,348 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | -201,169.62 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 28,306,480 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | -79,664.80 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 57,933,824 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 39,999,802 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | -1,245,265.89 bytes/min |
+| Session latency p95 | <= 3,000 ms | 74.555 ms |
+| Maximum slice p99 | <= 10 ms | 0.580 ms |
+| Main heartbeat gap | <= 75 ms | 17.880 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 6,380,251 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | -104,603.15 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 28,022,452 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 2,839,834.22 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 57,671,680 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 44,248,276 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 1,292,093.31 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 9,764,864 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 997,730 bytes with SHA-256
-`8ac7ab2e83c80e87cd90d593a68570f68571b6aef67849fd5b2b767952dd0050`.
+The exact report is 996,234 bytes with SHA-256
+`874e91a2e3c644b176504c807cf26271a12278a091d79858c8f20bb7cd8ced90`.
 The hash identifies this run; the versioned thresholds and semantic assertions
-are the regression gate.
+are the regression gate. The report also carries the six-class policy from
+[evidence-classification.md](evidence-classification.md).
 
 ## Adapter loader correction
 
@@ -76,7 +79,7 @@ Artifact hash, source revision, and ABI are Worker-level invariants, so the
 loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
-storage to 39,999,802 bytes and improved p95 latency without changing any
+storage to 44,248,276 bytes and improved p95 latency without changing any
 threshold.
 
 ## Environment

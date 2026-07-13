@@ -7,6 +7,7 @@ import {
   distinctDispatchesThroughCheckpoint,
   loadRuntimeCheckpointManifest,
   selectRuntimeCheckpoint,
+  validateRuntimeCheckpointManifest,
 } from "./runtime-checkpoint-manifest.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,11 +21,17 @@ assert.equal(finalCheckpoint.supportedCallCount, 17);
 assert.equal(callsThroughCheckpoint(manifest, finalCheckpoint).length, 17);
 assert.equal(distinctDispatchesThroughCheckpoint(manifest, finalCheckpoint).length, 13);
 assert.equal(finalCheckpoint.evidence.instructionCount, 238);
-assert.equal(finalCheckpoint.evidence.reportBytes, 140_660);
+assert(finalCheckpoint.evidence.reportBytes > 0);
+assert.match(finalCheckpoint.evidence.reportSha256, /^[0-9a-f]{64}$/u);
+assert.equal(manifest.evidenceClassification.reportHash, "artifact-identity-only");
 assert.equal(
-  finalCheckpoint.evidence.reportSha256,
-  "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4",
+  manifest.evidenceClassification.historicalCheckpointOrdering,
+  "exact-sequence",
 );
+const alternateArtifactIdentity = structuredClone(manifest);
+alternateArtifactIdentity.checkpoints.at(-1).evidence.reportBytes += 1;
+alternateArtifactIdentity.checkpoints.at(-1).evidence.reportSha256 = "0".repeat(64);
+assert.doesNotThrow(() => validateRuntimeCheckpointManifest(alternateArtifactIdentity));
 assert.deepEqual(finalCheckpoint.nextStop, {
   module: "KERNEL32.dll",
   symbol: "EncodePointer",

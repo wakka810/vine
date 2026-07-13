@@ -330,6 +330,17 @@ export function validateCurrentCheckpoint(manifest) {
     "browserCheckpoint.bgiBenchmarkEvidence.chromeVersion",
     errors,
   );
+  for (const field of [
+    "performanceClassification",
+    "decisionStatus",
+    "decisionReason",
+  ]) {
+    requireString(
+      bgiBenchmarkEvidence[field],
+      `browserCheckpoint.bgiBenchmarkEvidence.${field}`,
+      errors,
+    );
+  }
   const benchmarkFailureIds = requireStringArray(
     bgiBenchmarkEvidence.thresholdFailureIds,
     "browserCheckpoint.bgiBenchmarkEvidence.thresholdFailureIds",
@@ -350,6 +361,7 @@ export function validateCurrentCheckpoint(manifest) {
     "runtimeCoreLinearMemoryBytes",
     "executionEngineLinearMemoryBytes",
     "thresholdFailures",
+    "thresholdEvaluationCount",
     "runtimeWorkerBytes",
     "benchmarkMainBytes",
     "v86AdapterWasmBytes",
@@ -391,8 +403,16 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
-    bgiBenchmarkEvidence.schemaVersion !== 1 ||
+    bgiBenchmarkEvidence.schemaVersion !== 2 ||
     bgiBenchmarkEvidence.configuration !== "fixtures/benchmarks/bgi-browser-v1.json" ||
+    bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
+    bgiBenchmarkEvidence.decisionStatus !==
+      (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
+    bgiBenchmarkEvidence.decisionReason !==
+      (benchmarkFailureIds.length === 0
+        ? `all-${bgiBenchmarkEvidence.thresholdEvaluationCount}-versioned-thresholds-passed`
+        : `${benchmarkFailureIds.length}-of-${bgiBenchmarkEvidence.thresholdEvaluationCount}-versioned-thresholds-failed`) ||
+    bgiBenchmarkEvidence.thresholdEvaluationCount < 1 ||
     bgiBenchmarkEvidence.completedSessions < 1 ||
     bgiBenchmarkEvidence.failedSessions !== 0 ||
     bgiBenchmarkEvidence.mainHeapSamples < 2 ||
@@ -420,6 +440,23 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (!new Set(["go", "no-go"]).has(engineGate.decision)) {
     errors.push("engineDecisionEvidence.v86EngineGate.decision is invalid");
+  }
+  requireInteger(
+    engineGate.thresholdFailures,
+    "engineDecisionEvidence.v86EngineGate.thresholdFailures",
+    errors,
+  );
+  if (
+    engineGate.performanceClassification !== "repeated-distribution-threshold" ||
+    engineGate.reportHashClassification !== "artifact-identity-only" ||
+    engineGate.decisionReason !==
+      (engineGate.thresholdFailures === 0
+        ? "all-versioned-thresholds-passed"
+        : `${engineGate.thresholdFailures}-versioned-thresholds-failed`) ||
+    (engineGate.decision === "go" && engineGate.thresholdFailures !== 0) ||
+    (engineGate.decision === "no-go" && engineGate.thresholdFailures === 0)
+  ) {
+    errors.push("engineDecisionEvidence.v86EngineGate classification is invalid");
   }
   requireSha256(
     engineGate.reportSha256,

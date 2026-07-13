@@ -89,6 +89,11 @@ boolean session fields with one validated ordered selection. The `package.json`
 commands retain their stable names but all use `--checkpoint ID`; API-specific
 dispatch flags no longer exist.
 
+Historical report bytes and hashes remain capture-time artifact identities. A
+replay reports whether they match but gates on the exact call sequence, semantic
+results, writes, instruction count, and next stop instead of making JSON layout a
+production ABI. See [evidence-classification.md](evidence-classification.md).
+
 Those numbered commands are compatibility adapters for the immutable historical
 reports. Step 10 adds a separate `--generic-runtime-reentry` mode. It registers
 the BGI image and 14 runtime-system dependencies in the process module graph,

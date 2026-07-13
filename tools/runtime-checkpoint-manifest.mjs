@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { EVIDENCE_CLASSIFICATION } from "./evidence-classification.mjs";
+
 const SHA256 = /^[0-9a-f]{64}$/u;
 const CHECKPOINT_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
@@ -75,6 +77,20 @@ export function validateRuntimeCheckpointManifest(manifest) {
     "adapter.bytes must be a positive integer",
   );
   invariant(SHA256.test(manifest.adapter.sha256), "adapter.sha256 is invalid");
+  invariant(
+    isRecord(manifest.evidenceClassification),
+    "evidenceClassification must be an object",
+  );
+  for (const [field, classification] of Object.entries(EVIDENCE_CLASSIFICATION)) {
+    invariant(
+      manifest.evidenceClassification[field] === classification,
+      `evidenceClassification.${field} must be ${classification}`,
+    );
+  }
+  invariant(
+    manifest.evidenceClassification.historicalCheckpointOrdering === "exact-sequence",
+    "historical checkpoint ordering must remain an exact sequence",
+  );
   invariant(Array.isArray(manifest.checkpoints), "checkpoints must be an array");
   invariant(manifest.checkpoints.length > 1, "checkpoints must include a trap and at least one call");
 

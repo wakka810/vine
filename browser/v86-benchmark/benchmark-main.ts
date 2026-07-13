@@ -336,10 +336,14 @@ async function runBackgroundProbe(): Promise<BenchmarkReport> {
     foregroundRatio:
       message.result.instructionsPerSecond / foreground.suite.integer.instructionsPerSecond,
   };
-  const checkpoint = await fetchJson<{ browserStressEvidence?: Record<string, unknown> }>(
-    "./current-checkpoint.json",
+  const checkpoint = await fetchJson<{
+    browserCheckpoint?: { browserStressEvidence?: Record<string, unknown> };
+  }>("./current-checkpoint.json");
+  finalReport = finalize(
+    foreground,
+    background,
+    checkpoint.browserCheckpoint?.browserStressEvidence ?? null,
   );
-  finalReport = finalize(foreground, background, checkpoint.browserStressEvidence ?? null);
   document.body.dataset.benchmarkStatus =
     finalReport.decision === "no-go" ? "failed" : "passed";
   document.body.dataset.report = JSON.stringify(finalReport);

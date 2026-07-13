@@ -89,6 +89,9 @@ structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkEvidence.thresholdFailu
 structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkEvidence.thresholdFailureIds = [
   "minimum-completed-sessions",
 ];
+structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkEvidence.decisionStatus = "failed";
+structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkEvidence.decisionReason =
+  "1-of-16-versioned-thresholds-failed";
 assert.deepEqual(validateCurrentCheckpoint(structuredBenchmarkBlocker), []);
 
 const mismatchedBenchmarkCrossings = structuredClone(manifest);

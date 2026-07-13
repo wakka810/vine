@@ -12,6 +12,15 @@
     "imports": 22,
     "exports": 809
   },
+  "evidenceClassification": {
+    "guestVisibleSemanticValue": "exact-or-allowed-set",
+    "requiredOrdering": "partial-order-or-exact-sequence",
+    "opaqueIdentity": "equality-stability-lifetime",
+    "performance": "repeated-distribution-threshold",
+    "browserNativeNondeterministicValue": "range-shape-presence",
+    "reportHash": "artifact-identity-only",
+    "historicalCheckpointOrdering": "exact-sequence"
+  },
   "checkpoints": [
     {
       "id": "bgi-first-trap",

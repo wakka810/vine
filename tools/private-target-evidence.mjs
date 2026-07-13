@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 export const PRIVATE_TARGET_EVIDENCE_SCHEMA = "vine.private-target-evidence";
-export const PRIVATE_TARGET_EVIDENCE_VERSION = 3;
+export const PRIVATE_TARGET_EVIDENCE_VERSION = 4;
 
 const GIT_OBJECT_ID = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
@@ -605,6 +605,31 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     "evidence.performanceObservation.configuration",
     errors,
   );
+  const benchmark = checkpoint.browserCheckpoint.bgiBenchmarkEvidence;
+  checkEqual(
+    performance.benchmarkClassification,
+    benchmark.performanceClassification,
+    "evidence.performanceObservation.benchmarkClassification",
+    errors,
+  );
+  checkEqual(
+    performance.decisionStatus,
+    benchmark.decisionStatus,
+    "evidence.performanceObservation.decisionStatus",
+    errors,
+  );
+  checkEqual(
+    performance.decisionReason,
+    benchmark.decisionReason,
+    "evidence.performanceObservation.decisionReason",
+    errors,
+  );
+  checkEqual(
+    performance.thresholdEvaluationCount,
+    benchmark.thresholdEvaluationCount,
+    "evidence.performanceObservation.thresholdEvaluationCount",
+    errors,
+  );
   requireInteger(
     performance.durationMilliseconds,
     "evidence.performanceObservation.durationMilliseconds",
@@ -622,6 +647,19 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     "evidence.performanceObservation.failedSessions",
     errors,
   );
+  for (const field of [
+    "durationMilliseconds",
+    "completedSessions",
+    "failedSessions",
+    "reportSha256",
+  ]) {
+    checkEqual(
+      performance[field],
+      benchmark[field],
+      `evidence.performanceObservation.${field}`,
+      errors,
+    );
+  }
   const thresholdFailureIds = requireStringArray(
     performance.thresholdFailureIds,
     "evidence.performanceObservation.thresholdFailureIds",
@@ -629,8 +667,14 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
   );
   checkEqual(
     thresholdFailureIds.length,
-    checkpoint.browserCheckpoint.bgiBenchmarkEvidence.thresholdFailures,
+    benchmark.thresholdFailures,
     "evidence.performanceObservation.thresholdFailureIds.length",
+    errors,
+  );
+  checkEqual(
+    JSON.stringify(thresholdFailureIds),
+    JSON.stringify(benchmark.thresholdFailureIds),
+    "evidence.performanceObservation.thresholdFailureIds",
     errors,
   );
   requireSha256(
