@@ -11,9 +11,16 @@ use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
-    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
-    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeCriticalSection,
+    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE, RuntimeCriticalSection,
     RuntimeHeapInitialization, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+};
+
+mod policy;
+
+pub use policy::{
+    KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
+    Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError, Kernel32HeapAllocationPolicy,
+    Kernel32StandardHandleFileType,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -21,17 +28,13 @@ pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
 pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
-pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle-input.v1";
-pub const GET_STD_HANDLE_INPUT_OUTPUT_IMPLEMENTATION: &str =
-    "kernel32.get-std-handle-input-output.v1";
-pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type-standard-input.v1";
+pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
+pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
 pub const HEAP_CREATE_IMPLEMENTATION: &str = "kernel32.heap-create.v1";
-pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v1";
-pub const HEAP_ALLOC_FIRST_TWO_REACHED_IMPLEMENTATION: &str =
-    "kernel32.heap-alloc-first-two-reached.v1";
+pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v2";
 pub const GET_MODULE_HANDLE_W_IMPLEMENTATION: &str = "kernel32.get-module-handle-w.v1";
 pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1";
 pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
@@ -48,8 +51,6 @@ pub const LEAVE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.leave-critical
 
 const HEAP_ENABLE_TERMINATION_ON_CORRUPTION: u32 = 1;
 const HEAP_ZERO_MEMORY: u32 = 0x0000_0008;
-const REACHED_HEAP_ALLOC_BYTE_LENGTH: u32 = 0x0000_0214;
-const REACHED_SECOND_HEAP_ALLOC_BYTE_LENGTH: u32 = 0x0000_0800;
 const MAX_MODULE_NAME_CODE_UNITS: usize = 64;
 const MAX_EXPORT_NAME_BYTES: usize = 64;
 
@@ -58,6 +59,27 @@ pub fn dispatch_kernel32_api(
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
 ) -> ApiHandlerResult {
+    dispatch_kernel32_api_with_policy(
+        &Kernel32CompatibilityPolicy::controlled_v1(),
+        contract,
+        frame,
+        session,
+    )
+}
+
+pub fn dispatch_kernel32_api_with_policy(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    if let Err(error) = policy.validate() {
+        return ApiHandlerResult::Fault(ApiFault::runtime_defect(
+            "win32-compatibility-policy",
+            error.code,
+            error.message,
+        ));
+    }
     let result = match contract.implementation_id.as_str() {
         GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION => {
             handle_get_system_time_as_file_time(contract, frame, session)
@@ -65,19 +87,8 @@ pub fn dispatch_kernel32_api(
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
-        GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(
-            contract,
-            frame,
-            session,
-            ReachedStandardHandleProfile::InputOnly,
-        ),
-        GET_STD_HANDLE_INPUT_OUTPUT_IMPLEMENTATION => handle_get_std_handle(
-            contract,
-            frame,
-            session,
-            ReachedStandardHandleProfile::InputAndOutput,
-        ),
-        GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(contract, frame, session),
+        GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
+        GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
             handle_query_performance_counter(contract, frame, session)
         }
@@ -86,12 +97,7 @@ pub fn dispatch_kernel32_api(
             handle_heap_set_information(contract, frame, session)
         }
         HEAP_CREATE_IMPLEMENTATION => handle_heap_create(contract, frame, session),
-        HEAP_ALLOC_IMPLEMENTATION => {
-            handle_heap_alloc(contract, frame, session, ReachedHeapAllocProfile::FirstOnly)
-        }
-        HEAP_ALLOC_FIRST_TWO_REACHED_IMPLEMENTATION => {
-            handle_heap_alloc(contract, frame, session, ReachedHeapAllocProfile::FirstTwo)
-        }
+        HEAP_ALLOC_IMPLEMENTATION => handle_heap_alloc(policy, contract, frame, session),
         GET_MODULE_HANDLE_W_IMPLEMENTATION => handle_get_module_handle_w(contract, frame, session),
         GET_PROC_ADDRESS_IMPLEMENTATION => handle_get_proc_address(contract, frame, session),
         TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
@@ -200,17 +206,20 @@ fn handle_get_tick_count(session: &ExecutionSession<'_>) -> Result<ApiImmediate,
 }
 
 fn handle_get_std_handle(
+    policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
-    profile: ReachedStandardHandleProfile,
 ) -> Result<ApiImmediate, ApiFault> {
     let selector = required_argument(contract, frame, 0, "standard handle selector")?;
-    if !profile.accepts(selector) {
+    if !policy.allows_standard_handle(selector) {
         return Err(ApiFault::unsupported(
             "win32-standard-handle",
             "standard-handle-selector-unsupported",
-            profile.unsupported_message(),
+            format!(
+                "compatibility policy {} does not enable selector {selector:#010x}",
+                policy.id
+            ),
         ));
     }
     let standard_handle = session
@@ -225,47 +234,29 @@ fn handle_get_std_handle(
 }
 
 fn handle_get_file_type(
+    policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
-    const FILE_TYPE_CHAR: u32 = 2;
-
     let handle = required_argument(contract, frame, 0, "standard handle")?;
     let standard_handle = session
         .runtime()
         .standard_handle_by_value(handle)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    if standard_handle.selector != RUNTIME_STANDARD_INPUT_SELECTOR {
-        return Err(ApiFault::unsupported(
-            "win32-file-type",
-            "file-type-standard-handle-unsupported",
-            "only the reached standard input file type is implemented",
-        ));
-    }
-    Ok(ApiImmediate::new(ApiReturnValue::U32(FILE_TYPE_CHAR)))
-}
-
-#[derive(Clone, Copy)]
-enum ReachedStandardHandleProfile {
-    InputOnly,
-    InputAndOutput,
-}
-
-impl ReachedStandardHandleProfile {
-    fn accepts(self, selector: u32) -> bool {
-        selector == RUNTIME_STANDARD_INPUT_SELECTOR
-            || matches!(self, Self::InputAndOutput) && selector == RUNTIME_STANDARD_OUTPUT_SELECTOR
-    }
-
-    fn unsupported_message(self) -> &'static str {
-        match self {
-            Self::InputOnly => "only the reached STD_INPUT_HANDLE selector is implemented",
-            Self::InputAndOutput => {
-                "only the reached STD_INPUT_HANDLE and STD_OUTPUT_HANDLE selectors are implemented"
-            }
-        }
-    }
+    let file_type = policy
+        .standard_handle_file_type(standard_handle.selector)
+        .ok_or_else(|| {
+            ApiFault::unsupported(
+                "win32-file-type",
+                "file-type-standard-handle-unsupported",
+                format!(
+                    "compatibility policy {} does not classify selector {:#010x}",
+                    policy.id, standard_handle.selector
+                ),
+            )
+        })?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(file_type)))
 }
 
 fn handle_query_performance_counter(
@@ -337,44 +328,41 @@ fn handle_heap_create(
 }
 
 fn handle_heap_alloc(
+    policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
-    profile: ReachedHeapAllocProfile,
 ) -> Result<ApiImmediate, ApiFault> {
     let heap = required_argument(contract, frame, 0, "heap handle")?;
     let flags = required_argument(contract, frame, 1, "heap allocation flags")?;
     let byte_length = required_argument(contract, frame, 2, "heap allocation byte length")?;
-    let supported_length = byte_length == REACHED_HEAP_ALLOC_BYTE_LENGTH
-        || (profile == ReachedHeapAllocProfile::FirstTwo
-            && byte_length == REACHED_SECOND_HEAP_ALLOC_BYTE_LENGTH);
-    if flags != HEAP_ZERO_MEMORY || !supported_length {
-        let message = match profile {
-            ReachedHeapAllocProfile::FirstOnly => {
-                "only the reached HEAP_ZERO_MEMORY 0x214-byte allocation is implemented"
-            }
-            ReachedHeapAllocProfile::FirstTwo => {
-                "only the first two reached HEAP_ZERO_MEMORY allocations (0x214 and 0x800 bytes) are implemented"
-            }
-        };
+    if !policy.allows_heap_allocation(flags, byte_length) {
         return Err(ApiFault::unsupported(
             "win32-heap",
             "heap-alloc-variant-unsupported",
-            message,
+            format!(
+                "compatibility policy {} does not enable HeapAlloc flags {flags:#010x} and size {byte_length:#x}",
+                policy.id
+            ),
         ));
     }
+    let initialization = match flags {
+        0 => RuntimeHeapInitialization::DeterministicUninitialized,
+        HEAP_ZERO_MEMORY => RuntimeHeapInitialization::Zeroed,
+        _ => {
+            return Err(ApiFault::runtime_defect(
+                "win32-heap",
+                "validated-heap-flags-unimplemented",
+                "validated HeapAlloc policy selected flags without semantic initialization",
+            ));
+        }
+    };
     let allocation = session
-        .allocate_private_heap_block(heap, byte_length, RuntimeHeapInitialization::Zeroed)
+        .allocate_private_heap_block(heap, byte_length, initialization)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
         allocation.address.0,
     )))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ReachedHeapAllocProfile {
-    FirstOnly,
-    FirstTwo,
 }
 
 fn handle_get_module_handle_w(
@@ -833,22 +821,6 @@ pub fn get_tick_count_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
 }
 
 pub fn get_std_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    get_std_handle_contract_with_implementation(endpoint, GET_STD_HANDLE_IMPLEMENTATION)
-}
-
-pub fn get_std_handle_input_output_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    get_std_handle_contract_with_implementation(
-        endpoint,
-        GET_STD_HANDLE_INPUT_OUTPUT_IMPLEMENTATION,
-    )
-}
-
-fn get_std_handle_contract_with_implementation(
-    endpoint: ApiEndpointIdentity,
-    implementation_id: &str,
-) -> Result<ApiContract, ApiFault> {
     kernel32_contract(
         endpoint,
         "GetStdHandle",
@@ -857,7 +829,7 @@ fn get_std_handle_contract_with_implementation(
             namespace: LOGICAL_STANDARD_HANDLE_NAMESPACE.to_owned(),
             nullable: false,
         },
-        implementation_id,
+        GET_STD_HANDLE_IMPLEMENTATION,
     )
 }
 
@@ -936,19 +908,6 @@ pub fn heap_create_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract
 }
 
 pub fn heap_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    heap_alloc_contract_with_implementation(endpoint, HEAP_ALLOC_IMPLEMENTATION)
-}
-
-pub fn heap_alloc_first_two_reached_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    heap_alloc_contract_with_implementation(endpoint, HEAP_ALLOC_FIRST_TWO_REACHED_IMPLEMENTATION)
-}
-
-fn heap_alloc_contract_with_implementation(
-    endpoint: ApiEndpointIdentity,
-    implementation_id: &str,
-) -> Result<ApiContract, ApiFault> {
     kernel32_contract(
         endpoint,
         "HeapAlloc",
@@ -958,7 +917,7 @@ fn heap_alloc_contract_with_implementation(
             u32_argument("byteLength"),
         ],
         ApiReturnSchema::OpaquePointer { nullable: false },
-        implementation_id,
+        HEAP_ALLOC_IMPLEMENTATION,
     )
 }
 

@@ -82,8 +82,8 @@ next unsupported capability rather than being inferred from the native pipe.
 
 ## Runtime contract
 
-`kernel32.get-std-handle-input-output.v1` retains the input-only ABI and return
-schema while allowing exactly two selectors:
+The current runtime uses one `kernel32.get-std-handle.v2` ABI and handler.
+`kernel32-standard-output-v1` allows exactly two selectors:
 
 | Selector | Logical handle | Variant |
 |---:|---:|---|
@@ -92,8 +92,9 @@ schema while allowing exactly two selectors:
 
 Both records use owner `runtime-process-standard-handles` and namespace
 `vine.logical-standard-handle.v1`. The frozen
-`kernel32.get-std-handle-input.v1` contract remains input-only, so all prior
-profiles stay byte-identical. Standard error still fails before state mutation.
+`kernel32-controlled-v1` remains input-only. Historical report hashes retain
+their capture-time implementation IDs as artifact identity; semantic replay
+uses the current policy boundary. Standard error still fails before mutation.
 
 The stdin-only `GetFileType` handler now also verifies the resolved record's
 selector. A registered stdout handle therefore returns structured
@@ -104,7 +105,7 @@ Representative test:
 
 ```powershell
 cargo test -p vine-core --test api_dispatcher `
-  get_std_handle_extended_contract_adds_only_process_owned_standard_output_identity `
+  get_std_handle_policy_adds_only_process_owned_standard_output_identity `
   -- --exact
 ```
 
@@ -129,8 +130,8 @@ npm run check:runtime:bgi-standard-output-handle
 | CPU-changed bytes | 943 |
 | Host delta batches | 28 |
 | Final synchronized generation | 113 |
-| Report bytes | 257,008 |
-| Report SHA-256 | `0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d` |
+| Report bytes | 257,475 |
+| Report SHA-256 | `c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a` |
 
 The stdout completion itself emits no guest write or host delta. The additional
 writeback contains ordinary guest stack activity while the consumer call is

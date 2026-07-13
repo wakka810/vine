@@ -969,6 +969,11 @@ bytes、28 host deltas、final generation `113`を通した。instruction 1447�
 `GetFileType(0x53010002)`へ進み、257,008-byte report／SHA-256
 `0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`を固定した。
 
+後続architecture correctionでWin32 semanticsとcompatibility policyを分離した。55-call
+semantic resultとnext stopは不変で、current policy-bearing reportは257,475 bytes／SHA-256
+`c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a`である。旧hashは
+capture時artifact identityとしてのみ保持する。
+
 1. `GetFileType(0x53010002)`のnative `FILE_TYPE_PIPE`／LastError／immediate consumerを固定し、registered logical stdoutだけをversioned file-type contractへ接続してsame generic sessionの次のexact stopまで進める。Standard error、console writes、redirection、close、broad file I/Oを同時に追加しない。
 
 frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated eighteenth-call expansionはpauseを続ける。Standard output handleは完了し、現在はreached stdout file typeを進める。この queue の各 checkpoint は、native evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。

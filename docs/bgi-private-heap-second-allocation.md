@@ -55,11 +55,11 @@ are process-specific and are discarded.
 
 ## Versioned runtime contract
 
-The original `kernel32.heap-alloc.v1` contract remains unchanged and accepts
-only `0x214`. This preserves the earlier private-heap, FLS-value, and
-InterlockedIncrement reports byte-for-byte. The new cumulative profile selects
-`kernel32.heap-alloc-first-two-reached.v1`, which uses the same ABI and handler
-but admits `0x214` and `0x800` only.
+The historical report records the implementation IDs used when this evidence
+was captured. The current runtime uses one `kernel32.heap-alloc.v2` semantic
+contract. `kernel32-controlled-v1` enables only `0x214`, while
+`kernel32-heap-two-v1` and the active stdout policy enable `0x214` and `0x800`.
+The BGI profile selects policy data and does not select a handler branch.
 
 Both variants use:
 
@@ -78,14 +78,14 @@ Representative test:
 
 ```powershell
 cargo test -p vine-core --test api_dispatcher `
-  heap_alloc_contract_versions_preserve_first_profile_and_add_second_block `
+  heap_alloc_policy_enables_bounded_sizes_without_changing_semantics `
   -- --exact
 ```
 
-The test fixes v1 mutation-free rejection, v2 first-block retention, the exact
-second identity／address／zeroed bytes, dirty-only delta, stdcall cleanup,
-LastError preservation, and mutation-free rejection of the next observed
-`0xBC` size.
+The test fixes baseline mutation-free rejection, first-block retention, the
+exact second identity／address／zeroed bytes, dirty-only delta, stdcall cleanup,
+and LastError preservation. A separate public policy then enables `0xBC`
+without loading or changing the BGI evidence profile.
 
 ## Execution-mirror correction
 

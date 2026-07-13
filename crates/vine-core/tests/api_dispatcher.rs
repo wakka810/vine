@@ -6,7 +6,8 @@ use vine_core::{
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession, GUEST_PAGE_SIZE,
     GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
+    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CompatibilityPolicy,
+    Kernel32HeapAllocationPolicy, Kernel32StandardHandleFileType,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MemoryLimits, MemoryOwnerId,
@@ -16,8 +17,8 @@ use vine_core::{
     RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap,
     RuntimeHeapAllocationId, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva, SchedulerThreadState,
-    StackCleanup, dispatch_kernel32_api, get_std_handle_input_output_contract,
-    heap_alloc_first_two_reached_contract, kernel32_contract_for_endpoint,
+    StackCleanup, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
+    kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -503,7 +504,7 @@ fn fls_set_value_contract_owns_current_thread_values() {
 }
 
 #[test]
-fn heap_alloc_contract_versions_preserve_first_profile_and_add_second_block() {
+fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
     const FRAME_BASE: u32 = 0x3000_0100;
     const TEST_IAT_BASE: u32 = 0x3000_2000;
 
@@ -640,17 +641,20 @@ fn heap_alloc_contract_versions_preserve_first_profile_and_add_second_block() {
     assert_eq!(runtime, runtime_before_rejection);
     assert_eq!(memory.stats(), memory_before_rejection);
 
-    let extended_contract = heap_alloc_first_two_reached_contract(endpoint.clone())
-        .expect("two-reached-size HeapAlloc contract");
-    let extended_dispatcher =
-        ApiDispatcher::new([endpoint.clone()], [extended_contract]).expect("extended dispatcher");
-    let second = dispatch_owned(
-        &extended_dispatcher,
+    let extended_policy = compatibility_policy(
+        "heap-two-test",
+        vec![RUNTIME_STANDARD_INPUT_SELECTOR],
+        vec![(RUNTIME_STANDARD_INPUT_SELECTOR, 2)],
+        vec![(0x8, vec![0x214, 0x800])],
+    );
+    let second = dispatch_owned_with_policy(
+        &dispatcher,
         &mut memory,
         &mut runtime,
         &endpoint,
         frames[1].0,
         frames[1].1[0],
+        &extended_policy,
     );
     assert_eq!(second.eax, RegisterUpdate::Set(0x2000_0218));
     assert_eq!(second.stack_pointer, GuestAddress(frames[1].0 + 16));
@@ -688,10 +692,12 @@ fn heap_alloc_contract_versions_preserve_first_profile_and_add_second_block() {
     let memory_before_later_rejection = memory.stats();
     let later_rejected = {
         let mut session = ExecutionSession::new(&mut memory, &mut runtime);
-        extended_dispatcher.dispatch_owned(
+        dispatcher.dispatch_owned(
             owned_trap(&endpoint, frames[2].0, frames[2].1[0]),
             &mut session,
-            dispatch_kernel32_api,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&extended_policy, contract, frame, session)
+            },
         )
     };
     assert!(matches!(
@@ -703,10 +709,36 @@ fn heap_alloc_contract_versions_preserve_first_profile_and_add_second_block() {
     assert_eq!(runtime, runtime_before_later_rejection);
     assert_eq!(memory.stats(), memory_before_later_rejection);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+
+    let public_fixture_policy = compatibility_policy(
+        "public-additional-size-test",
+        vec![RUNTIME_STANDARD_INPUT_SELECTOR],
+        vec![(RUNTIME_STANDARD_INPUT_SELECTOR, 2)],
+        vec![(0x8, vec![0x214, 0x800, 0xbc])],
+    );
+    let third = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+        &public_fixture_policy,
+    );
+    assert_eq!(third.eax, RegisterUpdate::Set(0x2000_0a18));
+    assert_eq!(
+        runtime
+            .heap_backing(0x6801_0001)
+            .unwrap()
+            .unwrap()
+            .allocations
+            .len(),
+        3
+    );
 }
 
 #[test]
-fn get_std_handle_contract_owns_only_reached_standard_input_identity() {
+fn get_std_handle_default_policy_owns_only_standard_input_identity() {
     const FRAME_BASE: u32 = STACK_BASE;
     const TEST_IAT_BASE: u32 = IAT_BASE;
 
@@ -807,7 +839,7 @@ fn get_std_handle_contract_owns_only_reached_standard_input_identity() {
 }
 
 #[test]
-fn get_std_handle_extended_contract_adds_only_process_owned_standard_output_identity() {
+fn get_std_handle_policy_adds_only_process_owned_standard_output_identity() {
     let (mut memory, owner) = initialized_memory();
     let frames = [
         (
@@ -872,9 +904,9 @@ fn get_std_handle_extended_contract_adds_only_process_owned_standard_output_iden
             name_rva: Rva(0),
         },
     });
-    let standard_handle_contract =
-        get_std_handle_input_output_contract(standard_handle_endpoint.clone())
-            .expect("extended GetStdHandle contract");
+    let standard_handle_contract = kernel32_contract_for_endpoint(standard_handle_endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetStdHandle endpoint");
     let file_type_contract = kernel32_contract_for_endpoint(file_type_endpoint.clone())
         .expect("Kernel32 contract lookup")
         .expect("implemented GetFileType endpoint");
@@ -888,17 +920,27 @@ fn get_std_handle_extended_contract_adds_only_process_owned_standard_output_iden
         [standard_handle_contract, file_type_contract],
     )
     .expect("dispatcher");
+    let output_policy = compatibility_policy(
+        "standard-output-test",
+        vec![
+            RUNTIME_STANDARD_INPUT_SELECTOR,
+            RUNTIME_STANDARD_OUTPUT_SELECTOR,
+        ],
+        vec![(RUNTIME_STANDARD_INPUT_SELECTOR, 2)],
+        vec![(0x8, vec![0x214, 0x800])],
+    );
     let mut runtime = controlled_runtime(controlled_startup_info());
     let memory_before = memory.stats();
 
     for frame in &frames[..2] {
-        let completion = dispatch_owned(
+        let completion = dispatch_owned_with_policy(
             &dispatcher,
             &mut memory,
             &mut runtime,
             &standard_handle_endpoint,
             frame.0,
             frame.1[0],
+            &output_policy,
         );
         assert_eq!(
             completion.eax,
@@ -924,7 +966,9 @@ fn get_std_handle_extended_contract_adds_only_process_owned_standard_output_iden
         dispatcher.dispatch_owned(
             owned_trap(&standard_handle_endpoint, frames[2].0, frames[2].1[0]),
             &mut session,
-            dispatch_kernel32_api,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&output_policy, contract, frame, session)
+            },
         )
     };
     assert!(matches!(
@@ -938,7 +982,9 @@ fn get_std_handle_extended_contract_adds_only_process_owned_standard_output_iden
         dispatcher.dispatch_owned(
             owned_trap(&file_type_endpoint, frames[3].0, frames[3].1[0]),
             &mut session,
-            dispatch_kernel32_api,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&output_policy, contract, frame, session)
+            },
         )
     };
     assert!(matches!(
@@ -2294,6 +2340,55 @@ fn dispatch_owned(
         DispatchOutcome::Immediate(completion) => completion,
         other => panic!("expected immediate owned dispatch, got {other:?}"),
     }
+}
+
+fn dispatch_owned_with_policy(
+    dispatcher: &ApiDispatcher,
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
+    endpoint: &ApiEndpointIdentity,
+    stack_pointer: u32,
+    return_address: u32,
+    policy: &Kernel32CompatibilityPolicy,
+) -> vine_core::ApiImmediateCompletion {
+    let mut session = ExecutionSession::new(memory, runtime);
+    match dispatcher.dispatch_owned(
+        owned_trap(endpoint, stack_pointer, return_address),
+        &mut session,
+        |contract, frame, session| {
+            dispatch_kernel32_api_with_policy(policy, contract, frame, session)
+        },
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected policy dispatch, got {other:?}"),
+    }
+}
+
+fn compatibility_policy(
+    id: &str,
+    standard_handle_selectors: Vec<u32>,
+    standard_handle_file_types: Vec<(u32, u32)>,
+    heap_allocations: Vec<(u32, Vec<u32>)>,
+) -> Kernel32CompatibilityPolicy {
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = id.to_owned();
+    policy.standard_handle_selectors = standard_handle_selectors;
+    policy.standard_handle_file_types = standard_handle_file_types
+        .into_iter()
+        .map(|(selector, file_type)| Kernel32StandardHandleFileType {
+            selector,
+            file_type,
+        })
+        .collect();
+    policy.heap_allocations = heap_allocations
+        .into_iter()
+        .map(|(flags, byte_lengths)| Kernel32HeapAllocationPolicy {
+            flags,
+            byte_lengths,
+        })
+        .collect();
+    policy.validate().expect("valid test compatibility policy");
+    policy
 }
 
 #[allow(clippy::too_many_arguments)]

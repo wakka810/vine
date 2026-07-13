@@ -1052,8 +1052,8 @@ existing heap-lifecycle traceのcaller RVA `0xAC3CC`でcall IDs `28`／`29`はsa
 heap、flags `0x8`、sizes `0x214`／`0x800`、nonnull results `0x04A405C0`／
 `0x04A407E0`、LastError `0 -> 0`を返す。Next same-caller sizeは`0xBC`でありdeferする。
 
-Frozen `kernel32.heap-alloc.v1`を保持し、新profileだけが
-`kernel32.heap-alloc-first-two-reached.v1`を選ぶ。First allocation ID `1`を保持し、
+このcapture時の旧implementation IDはartifact identityとして保持する。Current runtimeは
+single `kernel32.heap-alloc.v2` handlerへ`kernel32-heap-two-v1` policyを渡す。First allocation ID `1`を保持し、
 second ID `2`／guest `0x20000218`／zeroed `0x800`をsame bounded heapへ作る。
 Generation `106 -> 107` deltaはunsealed owner `10`のexisting page `0x20000000`を更新し、
 mapping operation／cache effectは0である。Mirror mappingはowner-sealed bitを保持してlater
@@ -1118,12 +1118,12 @@ caller return RVA `0xA87B6`の`STD_OUTPUT_HANDLE`は両captureで`0x234`、
 LastError `87 -> 87`を返す。file-type capturesはoutput handle `0x234`／`0x23C`を
 `GetFileType`へ渡すことも固定する。Native handle値はdiscardする。
 
-Rust common dispatcherはnew profileだけをversioned
-`kernel32.get-std-handle-input-output.v1`へ接続し、process-owned logical stdout
+Current Rust common dispatcherはsingle `kernel32.get-std-handle.v2`へ
+`kernel32-standard-output-v1` policyを渡し、process-owned logical stdout
 `0x53010002`を返す。Input-only profileと先行11 reportsは不変である。
 `npm run check:runtime:bgi-standard-output-handle`は23 contracts／55 calls、56
 writeback batches／95 dirty pages／943 changed bytes、28 host deltas、final generation `113`を
 通す。instruction `1447`でID `101`／`GetFileType(0x53010002)`を
-`file-type-standard-handle-unsupported`として停止する。257,008-byte reportの
-SHA-256は`0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`
+`file-type-standard-handle-unsupported`として停止する。Current policy-bearing
+257,475-byte reportのSHA-256は`c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a`
 である。詳細は[bgi-standard-output-handle.md](bgi-standard-output-handle.md)を正とする。

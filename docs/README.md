@@ -54,6 +54,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [x86-engine-scorecard.md](x86-engine-scorecard.md) | どの x86 engine を先に試すか | 4 候補の比較、v86 実行 evidence、adapter blocker と採用 gate |
 | [adr-003-guest-memory.md](adr-003-guest-memory.md) | guest memoryをどこが所有するか | Rust byte authority、v86 execution mirror、slice同期／failure policy |
 | [process-address-space-allocator.md](process-address-space-allocator.md) | process rangeをどこで予約するか | allocation identity、v1 control／heap registry、search reservation、release policy |
+| [win32-compatibility-policy.md](win32-compatibility-policy.md) | Win32 semanticsと到達profileをどう分けるか | single handler ID、versioned bounded policy、evidence-only BGI identity |
 | [guest-memory-ingress.md](guest-memory-ingress.md) | production memory ingressが何を所有するか | sparse region／page API、fault／invalidation、fixture／BGI layout evidence |
 | [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | bidirectional dirty pages、binary transport、generation ack、rollback |
 | [memory-writeback.md](memory-writeback.md) | guest writeをどうRust authorityへ戻すか | PTE Dirty discovery、atomic multi-page reconciliation、two-slice evidence |

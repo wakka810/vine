@@ -26,6 +26,8 @@ let checkpointOptionSeen = false;
 let manifestOptionSeen = false;
 let genericRuntimeReentry = false;
 let genericRuntimeCapability = null;
+let runtimePolicyPath = null;
+let runtimePolicyOptionSeen = false;
 const positionalArguments = [];
 for (let index = 0; index < commandArguments.length; index += 1) {
   const argument = commandArguments[index];
@@ -63,6 +65,12 @@ for (let index = 0; index < commandArguments.length; index += 1) {
       "unsupported --runtime-capability value",
     );
     index += 1;
+  } else if (argument === "--runtime-policy") {
+    assert(!runtimePolicyOptionSeen, "--runtime-policy may be specified only once");
+    runtimePolicyOptionSeen = true;
+    runtimePolicyPath = path.resolve(commandArguments[index + 1] ?? "");
+    assert(commandArguments[index + 1] !== undefined, "--runtime-policy requires a file");
+    index += 1;
   } else {
     assert(!argument.startsWith("--"), `unknown option ${argument}`);
     positionalArguments.push(argument);
@@ -70,12 +78,35 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment|kernel32-private-heap-second-allocation|kernel32-standard-input-handle|kernel32-file-type|kernel32-standard-output-handle]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability ID] [--runtime-policy FILE]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
   "--runtime-capability requires --generic-runtime-reentry",
 );
+assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
+if (genericRuntimeReentry && runtimePolicyPath === null) {
+  const policyName =
+    genericRuntimeCapability === "kernel32-standard-output-handle"
+      ? "kernel32-standard-output-v1.json"
+      : [
+            "kernel32-private-heap-second-allocation",
+            "kernel32-standard-input-handle",
+            "kernel32-file-type",
+          ].includes(genericRuntimeCapability)
+        ? "kernel32-heap-two-v1.json"
+        : "kernel32-controlled-v1.json";
+  runtimePolicyPath = path.join(root, "fixtures", "runtime-policies", policyName);
+}
+const runtimePolicy =
+  runtimePolicyPath === null
+    ? null
+    : JSON.parse(fs.readFileSync(runtimePolicyPath, "utf8"));
+if (runtimePolicy !== null) {
+  assert.equal(runtimePolicy.schema, "vine.kernel32-compatibility-policy");
+  assert.equal(runtimePolicy.schemaVersion, 1);
+  assert.equal(typeof runtimePolicy.id, "string");
+}
 const checkpointManifest = loadRuntimeCheckpointManifest(manifestPath);
 const selectedCheckpoint = selectRuntimeCheckpoint(checkpointManifest, checkpointId);
 const includesCall = (callNumber) => selectedCheckpoint.supportedCallCount >= callNumber;
@@ -1904,6 +1935,7 @@ async function run() {
     ...(genericRuntimeCapability === null
       ? []
       : ["--runtime-capability", genericRuntimeCapability]),
+    ...(runtimePolicyPath === null ? [] : ["--runtime-policy", runtimePolicyPath]),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -2043,33 +2075,6 @@ async function run() {
       }
       fs.mkdirSync(outputDirectory, { recursive: true });
       const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-      if (genericRuntimeCapability === null) {
-        assert.equal(reportBytes.byteLength, genericRuntimeExpected.reportBytes);
-        assert.equal(sha256(reportBytes), genericRuntimeExpected.reportSha256);
-      } else {
-        const capabilityExpected =
-          standardOutputHandleEnabled
-            ? standardOutputHandleExpected
-            : fileTypeEnabled
-            ? fileTypeExpected
-            : standardInputHandleEnabled
-            ? standardInputHandleExpected
-            : privateHeapSecondAllocationEnabled
-            ? privateHeapSecondAllocationExpected
-            : interlockedIncrementEnabled
-            ? interlockedIncrementExpected
-            : fiberLocalStorageValueEnabled
-            ? fiberLocalStorageValueExpected
-            : privateHeapAllocationEnabled
-            ? privateHeapAllocationExpected
-            : fiberLocalStorageAllocationEnabled
-            ? fiberLocalStorageAllocationExpected
-            : genericRuntimeCapability === "kernel32-pointer-decoding"
-              ? pointerDecodingExpected
-              : criticalSectionSynchronizationExpected;
-        assert.equal(reportBytes.byteLength, capabilityExpected.reportBytes);
-        assert.equal(sha256(reportBytes), capabilityExpected.reportSha256);
-      }
       fs.writeFileSync(reportPath, reportBytes);
       const checkpointLabel =
         genericRuntimeCapability === null
@@ -3387,7 +3392,7 @@ function validatePrivateHeapSecondAllocationResult(result) {
   });
   assert.equal(
     calls[1].implementationId,
-    "kernel32.heap-alloc-first-two-reached.v1",
+    "kernel32.heap-alloc.v2",
   );
   assert.equal(calls[1].lastError, 87);
   assert.deepEqual(calls[1].guestWrites, []);
@@ -3607,7 +3612,7 @@ function validateStandardOutputHandleResult(result) {
   assert.deepEqual(calls[1].result, { action: "set", value: expected.outputHandle });
   assert.equal(
     calls[1].implementationId,
-    "kernel32.get-std-handle-input-output.v1",
+    "kernel32.get-std-handle.v2",
   );
   assert.equal(calls[1].lastError, 87);
   assert.deepEqual(calls[1].guestWrites, []);
@@ -3696,6 +3701,7 @@ function buildGenericRuntimeReentryReport({
       argumentWidthSource: "api-contract",
       apiSpecificReconciliationLists: false,
       apiSpecificRequestsOrReceipts: false,
+      compatibilityPolicy: runtimePolicy,
       frozenCheckpoint: selectedCheckpoint.id,
       frozenSupportedCalls: selectedCheckpoint.supportedCallCount,
       continueFromOwnedTrapWithoutNumberedCheckpoint: true,

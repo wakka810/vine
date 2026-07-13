@@ -334,13 +334,13 @@ The standard-output-handle profile is:
 npm run check:runtime:bgi-standard-output-handle
 ```
 
-It preserves the frozen input-only contract and selects
-`kernel32.get-std-handle-input-output.v1` only for this profile. Logical stdout
-is `0x53010002`; standard error and output file type remain unsupported. The
+It uses the same `kernel32.get-std-handle.v2` semantic contract with the
+versioned `kernel32-standard-output-v1` policy. Logical stdout is `0x53010002`;
+standard error and output file type remain unsupported. The
 profile completes 55 calls, uses 56 writeback batches／95 dirty pages／943 changed
-bytes and 28 host deltas, and ends at generation `113`. Its 257,008-byte report
+bytes and 28 host deltas, and ends at generation `113`. Its 257,475-byte report
 has SHA-256
-`0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`
+`c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a`
 and stops at instruction 1447 on `GetFileType(0x53010002)`. Full evidence is in
 [bgi-standard-output-handle.md](bgi-standard-output-handle.md).
 
@@ -349,8 +349,8 @@ and stops at instruction 1447 on `GetFileType(0x53010002)`. Full evidence is in
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
 - The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
 - Private heaps have bounded guest-memory backing and the first two reached
-  zeroed `HeapAlloc` variants; other sizes/flags, free/destroy/realloc dispatch, and
-  broad allocator policy remain absent.
+  zeroed `HeapAlloc` variants enabled by policy; other sizes/flags,
+  free/destroy/realloc dispatch, and broad allocator policy remain absent.
 - FLS get/free/callback teardown and TLS free/thread lifecycle, critical-section
   deletion／contention blocking, and arbitrary export pages are absent. Only the
   reached FLS value store is implemented.
@@ -379,6 +379,7 @@ bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
 FLS-allocation 175,123-byte report, private-heap 183,102-byte report, FLS-value
 195,821-byte report, InterlockedIncrement 234,775-byte report, second-heap
-239,789-byte report, standard-input 243,749-byte report, file-type
-252,994-byte report, and standard-output 257,008-byte report remain the
-regression boundary.
+239,789-byte report, standard-input 243,749-byte report, and file-type
+252,994-byte report remain historical artifact identities. Current semantic
+regression uses field assertions; the policy-bearing standard-output report is
+257,475 bytes.

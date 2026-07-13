@@ -18,8 +18,8 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `KERNEL32.dll!GetFileType(0x53010002)` at instruction 1447: `file-type-standard-handle-unsupported` |
 
-The active semantic report is 257,008 bytes with SHA-256
-`0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 257,475 bytes with SHA-256
+`c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 

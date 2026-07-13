@@ -66,6 +66,15 @@ assert.ok(
   ),
 );
 
+const evidenceSelectedHandler = structuredClone(manifest);
+evidenceSelectedHandler.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.evidenceSelectsImplementationBranch =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(evidenceSelectedHandler).some((error) =>
+    error.includes("compatibility policy boundary"),
+  ),
+);
+
 const sample = `before\n${README_STATUS_START}\nstale\n${README_STATUS_END}\nafter\n`;
 assert.equal(
   replaceReadmeStatus(sample, rendered),

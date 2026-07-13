@@ -17,22 +17,21 @@ use vine_core::{
     GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation,
     GuestWriteResult, ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget,
     ImportThunk, ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
-    LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta, MemoryInvalidation,
-    MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot,
-    Pe32Limits, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate,
-    RuntimeBootstrap, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
-    RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeModule, RuntimeModuleId,
-    RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeProcessId,
+    Kernel32CompatibilityPolicy, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
+    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
+    ModuleSnapshot, Pe32Limits, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
+    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDllLifecycleAction,
+    RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeModule,
+    RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeProcessId,
     RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,
     RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue,
     SchedulerThreadState, UnsupportedPoint, bind_pe32_imports,
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
-    encode_pointer_contract, get_current_process_id_contract, get_current_thread_id_contract,
-    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
-    get_std_handle_input_output_contract, get_system_time_as_file_time_contract,
-    get_tick_count_contract, heap_alloc_first_two_reached_contract, heap_create_contract,
-    heap_set_information_contract, install_callback_return_sentinel,
+    dispatch_kernel32_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
@@ -54,6 +53,7 @@ struct Arguments {
     checkpoint_session: Option<RuntimeCheckpointSelection>,
     generic_runtime_reentry: bool,
     generic_runtime_capability: Option<GenericRuntimeCapability>,
+    kernel32_policy: Option<Kernel32CompatibilityPolicy>,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -1662,6 +1662,7 @@ fn run_v86_reflection_session(
     const MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
     let generic_runtime_reentry = arguments.generic_runtime_reentry;
     let generic_runtime_capability = arguments.generic_runtime_capability;
+    let kernel32_policy = arguments.kernel32_policy;
     let supported_call_count = arguments
         .checkpoint_session
         .as_ref()
@@ -2079,6 +2080,7 @@ fn run_v86_reflection_session(
             &mut memory,
             generic_runtime,
             generic_runtime_capability,
+            kernel32_policy.ok_or_else(usage_error)?,
         )?;
     } else if supported_call_count >= 1 {
         let mut runtime = controlled_runtime_state(&dynamic_export_thunks)?;
@@ -2381,6 +2383,7 @@ fn run_v86_generic_runtime_session(
     memory: &mut GuestMemory,
     mut process: GenericRuntimeProcess,
     enabled_capability: Option<GenericRuntimeCapability>,
+    kernel32_policy: Kernel32CompatibilityPolicy,
 ) -> Result<(), LoaderError> {
     let endpoints = process
         .binding
@@ -2398,38 +2401,10 @@ fn run_v86_generic_runtime_session(
     let mut dispatcher_endpoints = endpoints.clone();
     let mut contracts = Vec::new();
     for endpoint in &endpoints {
-        let Some(mut contract) =
-            kernel32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)?
+        let Some(contract) = kernel32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)?
         else {
             continue;
         };
-        if matches!(
-            enabled_capability,
-            Some(
-                GenericRuntimeCapability::PrivateHeapSecondAllocation
-                    | GenericRuntimeCapability::StandardInputHandle
-                    | GenericRuntimeCapability::FileType
-                    | GenericRuntimeCapability::StandardOutputHandle
-            )
-        ) && endpoint.matches(
-            "kernel32.dll",
-            &ApiSymbol::Name {
-                name: "HeapAlloc".to_owned(),
-            },
-        ) {
-            contract =
-                heap_alloc_first_two_reached_contract(endpoint.clone()).map_err(api_fault)?;
-        }
-        if enabled_capability == Some(GenericRuntimeCapability::StandardOutputHandle)
-            && endpoint.matches(
-                "kernel32.dll",
-                &ApiSymbol::Name {
-                    name: "GetStdHandle".to_owned(),
-                },
-            )
-        {
-            contract = get_std_handle_input_output_contract(endpoint.clone()).map_err(api_fault)?;
-        }
         if runtime_capability_enables_endpoint(enabled_capability, endpoint) {
             contracts.push(contract);
         }
@@ -2607,7 +2582,14 @@ fn run_v86_generic_runtime_session(
                         return_address: GuestAddress(trap.return_address),
                     },
                     &mut session,
-                    dispatch_kernel32_api,
+                    |contract, frame, session| {
+                        dispatch_kernel32_api_with_policy(
+                            &kernel32_policy,
+                            contract,
+                            frame,
+                            session,
+                        )
+                    },
                 ) {
                     DispatchOutcome::Immediate(completion) => {
                         let interlocked_increment = interlocked_before
@@ -2738,7 +2720,14 @@ fn run_v86_generic_runtime_session(
                         return_address: GuestAddress(trap.return_address),
                     },
                     &mut session,
-                    dispatch_kernel32_api,
+                    |contract, frame, session| {
+                        dispatch_kernel32_api_with_policy(
+                            &kernel32_policy,
+                            contract,
+                            frame,
+                            session,
+                        )
+                    },
                 ) {
                     DispatchOutcome::Immediate(completion) => {
                         let fls_value = if endpoint.name == "FlsSetValue" {
@@ -8154,6 +8143,28 @@ fn load_runtime_checkpoint_selection(
     Ok(selection)
 }
 
+fn load_kernel32_compatibility_policy(
+    path: &Path,
+) -> Result<Kernel32CompatibilityPolicy, LoaderError> {
+    const MAX_POLICY_BYTES: u64 = 64 * 1024;
+
+    let bytes = read_bounded(path, MAX_POLICY_BYTES).map_err(|error| LoaderError {
+        stage: "win32-compatibility-policy",
+        ..error
+    })?;
+    let policy: Kernel32CompatibilityPolicy = serde_json::from_slice(&bytes).map_err(|error| {
+        LoaderError::invalid_input(
+            "win32-compatibility-policy",
+            "kernel32-policy-json-invalid",
+            format!("could not parse Kernel32 compatibility policy: {error}"),
+        )
+    })?;
+    policy.validate().map_err(|error| {
+        LoaderError::invalid_input("win32-compatibility-policy", error.code, error.message)
+    })?;
+    Ok(policy)
+}
+
 fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut input = None;
     let mut output = None;
@@ -8165,6 +8176,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut v86_reflection_session = false;
     let mut generic_runtime_reentry = false;
     let mut generic_runtime_capability = None;
+    let mut runtime_policy = None;
     let mut checkpoint_manifest = None;
     let mut checkpoint_id = None;
     let mut large_image_reflection = false;
@@ -8257,6 +8269,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
+                return Err(usage_error());
+            }
+        } else if argument == "--runtime-policy" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            if runtime_policy.replace(PathBuf::from(value)).is_some() {
                 return Err(usage_error());
             }
         } else if argument == "--checkpoint-manifest" {
@@ -8355,6 +8372,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if generic_runtime_capability.is_some() && !generic_runtime_reentry {
         return Err(usage_error());
     }
+    if generic_runtime_reentry != runtime_policy.is_some() {
+        return Err(usage_error());
+    }
     if checkpoint_manifest.is_some() != checkpoint_id.is_some()
         || (checkpoint_manifest.is_some() && !v86_reflection_session)
     {
@@ -8369,6 +8389,10 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         .zip(checkpoint_id.as_deref())
         .map(|(manifest, checkpoint)| load_runtime_checkpoint_selection(manifest, checkpoint))
         .transpose()?;
+    let kernel32_policy = runtime_policy
+        .as_deref()
+        .map(load_kernel32_compatibility_policy)
+        .transpose()?;
 
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
@@ -8382,6 +8406,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         checkpoint_session,
         generic_runtime_reentry,
         generic_runtime_capability,
+        kernel32_policy,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,
@@ -8464,7 +8489,7 @@ fn usage_error() -> LoaderError {
         class: LoaderErrorClass::InvalidInput,
         stage: "probe-arguments",
         code: "usage",
-        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability kernel32-critical-section-synchronization|kernel32-pointer-decoding|kernel32-fiber-local-storage-allocation|kernel32-private-heap-allocation|kernel32-fiber-local-storage-value|kernel32-interlocked-increment|kernel32-private-heap-second-allocation|kernel32-standard-input-handle|kernel32-file-type|kernel32-standard-output-handle]] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
+        message: "usage: vine-pe-probe [--expect-sha256 HEX] [--prepare-memory-pages COUNT [--materialize-image-base ADDRESS [--bind-name MODULE SYMBOL | --bind-ordinal MODULE ORDINAL | --trap-unsupported-imports]...]] [--v86-reflection-session [--checkpoint-manifest FILE --checkpoint ID] [--generic-runtime-reentry [--runtime-capability ID] --runtime-policy FILE] [--large-image-reflection] [--install-callback-return-sentinel [--install-process-entry-return-sentinel [--install-controlled-initial-stack [--install-controlled-process-environment [--install-controlled-process-parameters [--controlled-command-line TEXT]]]]]]] | --output FILE] INPUT".to_owned(),
     }
 }
 

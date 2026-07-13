@@ -248,6 +248,26 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active process address-space allocator boundary is invalid");
   }
+  const kernel32Policy = requireRecord(
+    active.kernel32CompatibilityPolicy,
+    "activeRuntimeCheckpoint.kernel32CompatibilityPolicy",
+    errors,
+  );
+  requireString(
+    kernel32Policy.source,
+    "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source",
+    errors,
+  );
+  if (
+    kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
+    kernel32Policy.schemaVersion !== 1 ||
+    kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
+    kernel32Policy.evidenceSelectsImplementationBranch !== false ||
+    kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
+    kernel32Policy.unsupportedBeforeMutation !== true
+  ) {
+    errors.push("active Kernel32 compatibility policy boundary is invalid");
+  }
   const latestEvidence = requireRecord(
     active.bgiStandardOutputHandle,
     "activeRuntimeCheckpoint.bgiStandardOutputHandle",

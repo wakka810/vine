@@ -35,6 +35,11 @@ const result = spawnSync(
     "--generic-runtime-reentry",
     "--runtime-capability",
     profile,
+    "--runtime-policy",
+    path.join(
+      root,
+      manifest.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
+    ),
   ],
   { cwd: root, stdio: "inherit" },
 );

@@ -111,8 +111,8 @@
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {
     "imports": 0,
-    "bytes": 991114,
-    "sha256": "f0dca2ee2d1afeca129dab8db84d735332f9a8e9e590666b5b8e1b31a71c38b8"
+    "bytes": 991337,
+    "sha256": "063d0de36c64315c6dadb1deb35fefeb18ebc5b236c083c2f55b5b2a2c561e89"
   },
   "browserRuntimeFixture": {
     "bytes": 2560,
@@ -452,6 +452,16 @@
     "heapBackingUsesAllocationId": true,
     "controlMappingCommitUsesAllocationId": false,
     "initialEnvironmentRegistered": false
+  },
+  "kernel32CompatibilityPolicy": {
+    "schema": "vine.kernel32-compatibility-policy",
+    "schemaVersion": 1,
+    "id": "kernel32-standard-output-v1",
+    "source": "fixtures/runtime-policies/kernel32-standard-output-v1.json",
+    "handlerDispatch": "single-semantic-implementation-id-with-policy",
+    "evidenceSelectsImplementationBranch": false,
+    "semanticTestsRequireEvidenceProfile": false,
+    "unsupportedBeforeMutation": true
   },
   "runtimeModuleImages": {
     "schema": "vine.runtime-module-image-registry.v1",
@@ -901,7 +911,7 @@
     "nativeFirstLaterUnsupportedByteLength": 188,
     "lastErrorPolicy": "preserve",
     "frozenHeapAllocImplementation": "kernel32.heap-alloc.v1",
-    "extendedHeapAllocImplementation": "kernel32.heap-alloc-first-two-reached.v1",
+    "extendedHeapAllocImplementation": "kernel32.heap-alloc.v2 + compatibility policy",
     "logicalHeapHandle": "0x68010001",
     "firstAllocationId": 1,
     "firstGuestAddress": "0x20000000",
@@ -1070,7 +1080,7 @@
     "nativeOutputFileTypeConfirmationHandle": "0x0000023c",
     "nativeOutputFileType": 3,
     "immediateConsumer": "KERNEL32.dll!GetFileType",
-    "implementation": "kernel32.get-std-handle-input-output.v1",
+    "implementation": "kernel32.get-std-handle.v2 + compatibility policy",
     "logicalHandleNamespace": "vine.logical-standard-handle.v1",
     "logicalHandle": "0x53010002",
     "logicalHandleOwner": "runtime-process-standard-handles",
@@ -1093,8 +1103,8 @@
     "fileIoImplemented": false,
     "apiSpecificReconciliationLists": false,
     "apiSpecificRequestsOrReceipts": false,
-    "reportBytes": 257008,
-    "reportSha256": "0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d"
+    "reportBytes": 257475,
+    "reportSha256": "c158580fe7567b385ad28851181b7c865236510479040ec6fdc05fd4c4a2833a"
   },
   "canonicalReproductionCommand": "npm run check:runtime:bgi -- --profile kernel32-standard-output-handle"
   },
