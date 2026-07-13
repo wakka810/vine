@@ -1,12 +1,12 @@
 {
   "schema": "vine.private-target-evidence",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "status": "passed",
-  "recordedAt": "2026-07-13T08:40:22.429Z",
+  "recordedAt": "2026-07-13T09:42:20.494Z",
   "repository": {
-    "implementationCommit": "52c1678efd4fce8e851b24130baea89da25d3cce",
-    "implementationTree": "ba67e0e91dfa235cebcbc5ab9e0eefe2c988a186",
-    "headCommit": "52c1678efd4fce8e851b24130baea89da25d3cce",
+    "implementationCommit": "41e5394b6cc2173fa8131c4fb434c1979813cee2",
+    "implementationTree": "d0b1d9afeb411d684e30a5190512b586a55c281a",
+    "headCommit": "41e5394b6cc2173fa8131c4fb434c1979813cee2",
     "dirty": true,
     "dirtyPaths": [
       "AGENTS.md",
@@ -43,7 +43,8 @@
     "policySource": "fixtures/runtime-policies/kernel32-set-handle-count-v1.json",
     "nodeReportSchema": "vine.v86-bgi-set-handle-count",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v3"
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v4",
+    "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
     "platform": "win32-Windows 11 Home",
@@ -59,10 +60,17 @@
       "lldLink": "LLD 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)",
       "llvmReadobj": "LLVM version 22.1.8"
     },
-    "v86": {
+    "executionEngine": {
+      "engine": "v86",
       "sourceRevision": "2f1346b0e7d88d4cbbbcc05fe15b4e369c3de23f",
-      "stateAbiVersion": 1,
-      "stateAbiBytes": 640
+      "cpuContextAbi": {
+        "version": 1,
+        "bytes": 640
+      },
+      "adapterArtifact": {
+        "bytes": 1882836,
+        "sha256": "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26"
+      }
     }
   },
   "semantic": {
@@ -116,7 +124,22 @@
             }
           }
         }
-      }
+      },
+      "executionEngine": {
+        "schema": "vine.execution-engine-profile",
+        "schemaVersion": 1,
+        "engine": "v86",
+        "sourceRevision": "2f1346b0e7d88d4cbbbcc05fe15b4e369c3de23f",
+        "cpuContextAbi": {
+          "version": 1,
+          "bytes": 640
+        },
+        "artifact": {
+          "bytes": 1882836,
+          "sha256": "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26"
+        }
+      },
+      "executionEngineLinearMemoryBytes": 11796480
     },
     "memoryEquivalent": true,
     "nextStructuredStop": {
@@ -152,8 +175,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 57407,
-      "sha256": "5bf02b0c47568264b23761848af0a895498a6861f6ff92de048d1688f9b6a7c9"
+      "bytes": 58763,
+      "sha256": "239cb8dfe26815ac94ed9078de718f63dfc94ef22570e88e5625db55415760a7"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -167,8 +190,8 @@
     },
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
-      "bytes": 2599,
-      "sha256": "58ab74ea006ab104ecfae26786934bea4abd74aa97b390d2febb0a2a9aafbd8f"
+      "bytes": 3199,
+      "sha256": "82dd88d6cb8a0378a71e9eadbce0466bc49796d00cd8beb7f2f72f4d50cc86a5"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -196,10 +219,10 @@
     "status": "threshold-passed",
     "configuration": "fixtures/benchmarks/bgi-browser-v1.json",
     "durationMilliseconds": 180000,
-    "completedSessions": 2090,
+    "completedSessions": 2225,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "f6e07c36cd189edf9bcd5bf6104b7499232609b58e044cb4c1c1d141d64d4558"
+    "reportSha256": "8ac7ab2e83c80e87cd90d593a68570f68571b6aef67849fd5b2b767952dd0050"
   },
-  "payloadSha256": "859115edd64a65c8ab16654e7697eed216eccbe7ebb8d7e67193d293b5f0c4b4"
+  "payloadSha256": "44a9a6ff3e5b1a8271742ab89926a7dd7ee11968c661cca609e0b449f9696d9f"
 }
