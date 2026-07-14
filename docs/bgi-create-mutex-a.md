@@ -139,15 +139,15 @@ Rust/Wasm bridge operations. Both paths retain identical current-directory and
 mutex metadata, four stack growths, final memory, next fault, cancel／watchdog
 cleanup, process exit, and DLL detach.
 
-Runtime-core Wasm is 2,063,058 bytes with SHA-256
-`dc01b44f09ffd2132dc6f1b82d85b65044ab38056eb7165dde198f0054985d87`.
-The separate 180-second workload completed 626 sessions with zero failures and
-passed all 17 versioned thresholds. Session p95 is `325.200 ms`, slice p99
-`1.355 ms`, heartbeat p99 `6.065 ms`, maximum heartbeat gap `20.300 ms`, main
-heap slope `-35,449.27 bytes/min`, Worker heap slope `513,247.58 bytes/min`,
-and backing-storage slope `643,971.63 bytes/min`. The 1,182,756-byte report has
+Runtime-core Wasm is 2,083,304 bytes with SHA-256
+`357865c8669db6218974b20d589e7c6fa02f8c0e92997eae9127e509d6786d73`.
+The separate 180-second workload completed 625 sessions with zero failures and
+passed all 17 versioned thresholds. Session p95 is `321.120 ms`, slice p99
+`1.150 ms`, heartbeat p99 `6.065 ms`, maximum heartbeat gap `20.025 ms`, main
+heap slope `250,886.71 bytes/min`, Worker heap slope `278,892.38 bytes/min`,
+and backing-storage slope `293,843.74 bytes/min`. The 1,182,709-byte report has
 SHA-256
-`0a7618ed0c53fd628d1a1688d371bac1106ddfa747627de215f643b49d53c5da`.
+`2b3090d3e7065d0c7de7d34e99a4b07b736013c22b4a3beddf1716a7529968bd`.
 
 ## Next structured stop
 

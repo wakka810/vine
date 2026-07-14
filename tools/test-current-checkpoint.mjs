@@ -129,6 +129,15 @@ assert.ok(
   ),
 );
 
+const exposedThreads = structuredClone(manifest);
+exposedThreads.activeRuntimeCheckpoint.runtimeThreadRegistry.mutableCollectionVisibility =
+  "public";
+assert.ok(
+  validateCurrentCheckpoint(exposedThreads).some((error) =>
+    error.includes("thread subsystem boundary"),
+  ),
+);
+
 const exposedSynchronization = structuredClone(manifest);
 exposedSynchronization.activeRuntimeCheckpoint.runtimeSynchronization.mutableCollectionVisibility =
   "public";

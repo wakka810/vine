@@ -179,7 +179,13 @@ OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は
 
 この方式は data race の再現性を高める一方、multi-core 性能や一部 timing-sensitive code を制約する。SharedArrayBuffer を使う 1 guest thread / 1 Worker 方式は、Phase 1 の benchmark と semantic test を通った場合だけ採用候補にする。
 
-version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、thread `initialized／running／exit-requested／exited`、scheduler `initialized／terminating`を所有する。controlled registryはsecond TID／typed handle、thread-local LastError／TLS／callback／lane、explicit selectionを加え、process terminationをTID昇順thread signal＋process-last signalとして最大3 object recordsへtargeted atomic commitする。wait queueはmonotonic registration／object FIFO、`WaitingObject`、thread signalによるrunnable wake／exact event、exit cancellationを所有する。message queueはper-thread bounded FIFO、global sequence、`WaitingMessage`、first enqueue wake、exit cleanupを所有する。CPU context／stack／TEB、last-thread semantics、wait-any／wait-all／timeout、User32 message semanticsは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)を正とする。
+version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、thread `initialized／running／exit-requested／exited`、scheduler `initialized／terminating`を所有する。controlled registryはsecond TID／typed handle、thread-local LastError／TLS／callback／lane、explicit selectionを加え、process terminationをTID昇順thread signal＋process-last signalとして最大3 object recordsへtargeted atomic commitする。wait queueはmonotonic registration／object FIFO、`WaitingObject`、thread signalによるrunnable wake／exact event、exit cancellationを所有する。message queueはper-thread bounded FIFO、global sequence、`WaitingMessage`、first enqueue wake、exit cleanupを所有する。CPU context／second-thread stack／TEB、last-thread semantics、wait-any／wait-all／timeout、User32 message semanticsは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)を正とする。
+
+Mutable thread recordsはprivate `runtime/thread.rs::RuntimeThreads`だけが所有する。Registration、
+LastError／TLS／FLS、callback frames、initial-stack metadata、lifecycle transitionはmutation-free
+thread planを使う。Aggregateはscheduler、object、message、wait、memoryをpreflightしてからcommitし、
+thread map／recordを直接mutateしない。Scheduler laneはthread collectionへ統合せずscheduler authorityに
+残す。
 
 Process-owned critical-section／mutex collectionsとnamed indexは`runtime/synchronization.rs`のprivate
 `RuntimeSynchronization`が所有する。`RuntimeState`はprocess／selected-thread／scheduler lifecycleを

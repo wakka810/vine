@@ -34,6 +34,12 @@ module／endpoint metadataを登録できる。`start_initial_thread`だけがma
 scheduler statesを同時にrunningへ進める。double startとstart前のexit completionはstateを
 変えずstructured conflictになる。
 
+Thread lifecycle records now live in private
+`runtime/thread.rs::RuntimeThreads`. Start、exit request、exit completion、direct cancellationは
+mutation-free thread plansを作る。Aggregate coordinatorはprocess lifecycle、scheduler lane、
+object wait state、message cleanup、host request、wait registrationをpreflightしてからthread planを
+commitし、thread collection／recordを直接mutateしない。
+
 ## Process-owned current directory
 
 The process aggregate now owns `RuntimeProcessDirectories` in
@@ -97,6 +103,7 @@ receive thread cleanup and thread/process signal ordering from the common lifecy
 Representative contract:
 
 ```powershell
+cargo test -p vine-core --lib runtime::thread::tests --locked
 cargo test -p vine-core --test runtime_lifecycle --locked
 ```
 
@@ -111,24 +118,14 @@ The test fixes:
 - thread-only request／completion with thread signal and process nonsignal
 - current-directory bootstrap validation and lifecycle-preflighted plan commit
 
-Production regression on the same implementation:
-
-- Chrome Worker: 46 instructions, cancel／watchdog／clean exit unchanged, exit code `0`
-- BGI: 17 calls／238 instructions; report SHA-256
-  `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`
-- BGI reflection SHA-256
-  `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`
-- version 1 browser benchmark regression: `go`, threshold failures `0`
-- Rust runtime core Wasm: 710,027 bytes／SHA-256
-  `a641572313cf256ea28ff5c2b53b7b4a04bc6a7f9eab294780a59eed5bb4c38f`
-
-The clean commit `a0d99e5` report remains the engine decision authority. Worker report identity is
-not embedded in `current-checkpoint.json` because it contains a build manifest that hashes the
-checkpoint file itself.
+Current Node／Chrome semantic result、artifact identity、benchmark、next structured stopは
+[current checkpoint manifest](current-checkpoint.json)だけを正とし、このfoundation文書へ
+変動値を複製しない。
 
 ## Non-claims and next dependency
 
-This checkpoint does not implement additional guest threads, CPU context／stack／TEB allocation,
+This checkpoint does not implement guest-created threads, per-thread CPU context、second-thread
+stack／TEB allocation,
 thread handle creation APIs, current-thread switching, natural last-thread process exit, process
 termination across multiple lanes, suspend／resume, priorities, TLS／FLS cleanup callbacks, DLL
 thread/process detach, waiter registration, timeout, wait-any／wait-all, APC, or message wake. It is
@@ -141,4 +138,5 @@ wait registration／wake dependency is implemented in [runtime-wait-queue.md](ru
 Per-thread message ownership and empty-queue wake are implemented in
 [runtime-message-queue.md](runtime-message-queue.md). Controlled private-heap backing and the
 required exit-request cleanup boundary are implemented in
-[runtime-heap-backing.md](runtime-heap-backing.md). The next dependency is DLL lifecycle.
+[runtime-heap-backing.md](runtime-heap-backing.md). Capability expansion is paused while the remaining
+scheduler／wait、heap、module boundaries are extracted.

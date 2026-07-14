@@ -4,8 +4,8 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは46 contracts／284 callsをcommon dispatcherからreturnした。PE header由来の1 MiB initial stack reserve、4 KiB initial commit、movable guardをRust `GuestMemory`とprocess-wide allocation IDへ接続し、Node／Chromeで4回のone-page growthをsemantic一致させた。Process-owned critical-section／named-mutex collectionsはprivate `RuntimeSynchronization`、current-directory identityはprivate `RuntimeProcessDirectories`へ分割済みで、mutex name／owner／recursionとgeneric object／handle lifetimeをtwo-subsystem transactionへ接続した。Next exact stopはinstruction 25,256の`GetCurrentThread()` contract missingである。protocol v4はexplicit `memory-fault` transitionを含むexecution state machineを維持し、production loopをpinned ExecutionEngine contractへ閉じる。3分／626-session workload gateはsession／slice／heartbeat分布、main／Worker heapとbacking-storage slope、linear memory、2,850 Wasm crossings/sessionの17 thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
-- active architecture work: capability expansionをpauseし、`RuntimeState` responsibility splitを進める。Process-owned synchronization／directoriesに加え、object／handle／slot／identity collectionsをprivate `runtime/objects.rs::RuntimeObjectTable`へ移し、aggregateからのidentity-index直参照を廃止した。`GetCurrentThread()`は実装開始前の保存済みnext stopである
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは46 contracts／284 callsをcommon dispatcherからreturnした。PE header由来の1 MiB initial stack reserve、4 KiB initial commit、movable guardをRust `GuestMemory`とprocess-wide allocation IDへ接続し、Node／Chromeで4回のone-page growthをsemantic一致させた。Process-owned critical-section／named-mutex collectionsはprivate `RuntimeSynchronization`、current-directory identityはprivate `RuntimeProcessDirectories`へ分割済みで、mutex name／owner／recursionとgeneric object／handle lifetimeをtwo-subsystem transactionへ接続した。Next exact stopはinstruction 25,256の`GetCurrentThread()` contract missingである。protocol v4はexplicit `memory-fault` transitionを含むexecution state machineを維持し、production loopをpinned ExecutionEngine contractへ閉じる。3分／625-session workload gateはsession／slice／heartbeat分布、main／Worker heapとbacking-storage slope、linear memory、2,850 Wasm crossings/sessionの17 thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
+- active architecture work: capability expansionをpauseし、`RuntimeState` responsibility splitを進める。Process-owned synchronization／directories、object／handle lifetimeに加え、thread collectionとLastError／TLS／FLS／callback／stack／lifecycle mutationをprivate `runtime/thread.rs::RuntimeThreads`へ移した。Aggregateからのidentity-index、thread-map／record直参照を廃止済みで、`GetCurrentThread()`は実装開始前の保存済みnext stopである
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -1020,7 +1020,7 @@ storage slope、Rust／execution-engine linear memory、2,033 Wasm crossings/ses
 32. [完了] `CreateMutexA(0,1,0x100E1CAC)`のnative 57-byte name copy／lifetime、initial owner、opaque return handle、LastError 0／`ERROR_ALREADY_EXISTS` 183、recursive wait／release、distinct-handle shared identity、last close／process teardownを固定した。Private `RuntimeSynchronization`がname／owner／recursionを、generic object tableがtype-tag `0x58` handle／object lifetimeを所有し、clone-plan／preflight後に両方をcommitする。Cross-thread contentionはmutation-free unsupportedのまま46 contracts／284 callsへ進め、Node／Chromeのmutex metadataとmemory digestを一致させ、instruction 25,256の`GetCurrentThread()` contract missingを次のexact stopとして固定した。
 33. `GetCurrentThread()`のnative pseudo-handle、LastError、same-thread equality／immediate consumerを固定する。Host TIDやnative numeric identityをimportせず、existing Rust-owned selected-thread／typed object identityからWin32 contractを返し、same sessionの次のexact structured stopまで進める。
 
-frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated nineteenth-call expansionはpauseを続ける。Initial-thread stack growth、CP_ACP conversion、process current-directory mutation、named mutex creationは完了し、次は`GetCurrentThread`を進める。この queue の各 checkpoint は、必要なnative evidenceまたはguest fault evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
+frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated nineteenth-call expansionはpauseを続ける。Initial-thread stack growth、CP_ACP conversion、process current-directory mutation、named mutex creationは完了し、`GetCurrentThread`はcapability expansion再開時の保存済みnext itemとする。この queue の各 checkpoint は、必要なnative evidenceまたはguest fault evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
 
 Architecture refactor checkpoint S1は既存critical-section stateを
 `runtime/synchronization.rs`へ移し、private collection、mutation-free plan、aggregate lifecycle
@@ -1029,7 +1029,11 @@ generic object tableとのcross-subsystem transactionを固定した。Architect
 object／handle／slot／identity collectionsとlifetime mutationを`runtime/objects.rs`へ移し、aggregateの
 identity-index直参照を廃止した。Wait-state plan、batch retirement、failed exact-handle registrationを
 mutation-free preflight／commitまたはfull rollbackで固定した。Capability expansionは明示的にpauseし、
-次の責務分割checkpointを進める。
+次の責務分割checkpointを進める。Architecture refactor checkpoint S3はthread mapと
+LastError／TLS／FLS、callback stack、initial-stack metadata、lifecycle record mutationをprivate
+`runtime/thread.rs::RuntimeThreads`へ移した。各operationはprevious／next thread planを作り、
+scheduler／object／message／wait／GuestMemory preflight後にcommitする。Aggregateのthread-map
+`get_mut`／`insert`とdirect record mutationは廃止した。
 
 ## 23. 完了の定義
 

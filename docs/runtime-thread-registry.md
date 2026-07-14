@@ -2,14 +2,29 @@
 
 ## Purpose
 
-review Step 9のfourth foundationとして、single controlled processの`RuntimeState`へ
-initial threadとは別のlogical threadを登録するversion 1 registry contractを追加した。
+reviewのruntime responsibility splitとして、single controlled processのversion 1 thread
+registryを`runtime/thread.rs`のprivate `RuntimeThreads`へ移した。Initial threadとは別の
+logical threadを登録する既存contractを保ち、
 thread identity、typed object／handle、LastError／TLS／FLS／callback state、scheduler lane、exitを
 同じRust authorityへ置き、wait queueとper-thread CPU bootstrapの前提を作る。
 
-このcheckpointはguest `CreateThread`を追加せず、CPU context、stack、TEB／FS、start routine、
-parameter、suspend countを作らない。controlled testとfuture schedulerがlogical laneを明示的に
-登録／選択するmetadata boundaryである。
+このcheckpointはguest `CreateThread`を追加せず、second-thread CPU context／stack／TEB／FS、
+start routine、parameter、suspend countを作らない。Existing initial-thread stack metadataだけは
+同じthread subsystemのplan／commitへ移す。Controlled testとfuture schedulerがlogical laneを
+明示的に登録／選択するmetadata boundaryである。
+
+## Subsystem boundary
+
+`RuntimeThreads`だけが`BTreeMap<RuntimeThreadId, RuntimeThreadState>`を所有する。Collectionは
+`runtime/thread.rs`の外へ公開せず、aggregateはimmutable state viewと
+`RuntimeThreadMutationPlan`だけを受け取る。Registration、initial start、LastError、TLS／FLS、
+callback push／pop、stack registration／growth、exit request／completionはすべてprevious／next
+recordを持つmutation-free planを返し、scheduler、object、message、wait、GuestMemoryのpreflightが
+成功した後にcommitする。
+
+Aggregateはthread mapへ`get_mut`／`insert`せず、thread recordを直接変更しない。Scheduler lane、
+wait registration、message queue、host requestはそれぞれのownerに残し、thread subsystemはそれらの
+mapを参照またはmutateしない。Serialized `RuntimeState.threads` shapeはtransparent newtypeで維持する。
 
 ## Registration and selection
 
@@ -21,7 +36,7 @@ process内でuniqueなTIDを要求し、次を一回のcommitで作る。
 - `RuntimeObjectKey::Thread`とnonsignaled wait state
 - generation付きinitial thread handle
 
-object identityとhandle allocationはthread／scheduler mapのmutation前に完了する。duplicate TID、
+Object identityとhandle allocationはthread／scheduler mapのmutation前に完了する。Duplicate TID、
 zero TID、object／scheduler registry mismatchはstateを変えずstructured errorになる。controlled
 second thread `4097`のhandleは`0x54010002`である。
 
@@ -35,14 +50,15 @@ SelectionはCPU context switchではない。現在のthread-local Rust APIsが�
 
 ## Thread-local ownership
 
-LastError、logical TLS／FLS value、callback frame stack、scheduler state、pending host requestは
-TIDごとに分離する。controlled contractsは同じTLS indexへinitial thread `0x1111`、second
+LastError、logical TLS／FLS value、callback frame stack、initial-thread stack metadataは
+TIDごとに分離する。Scheduler stateとpending host requestもTIDへ帰属するが、別subsystemが所有する。
+Controlled contractsは同じTLS indexへinitial thread `0x1111`、second
 thread `0x2222`を保存し、同じprocess-owned FLS indexへ別pointerを保存する。LastError
 `11`／`33`と別callback frameもswitch後に保持する。
 
 Process-owned clock、startup info、module graph、heap、TLS index allocator、FLS slot／callback、
-dynamic endpoint、encoded pointer registryは共有のままである。CPU register／FPU state、stack、
-TEBはまだthread recordへ追加しない。
+dynamic endpoint、encoded pointer registryは共有のままである。Initial-thread reserve／commit／guard
+metadataはthread recordへ接続済みだが、CPU register／FPU state、second-thread stack、TEBは未実装である。
 
 ## Exit and deterministic process termination
 
@@ -71,22 +87,17 @@ records、ordered cancellation receiptだけをplanする。
 Representative contract:
 
 ```powershell
+cargo test -p vine-core --lib runtime::thread::tests --locked
 cargo test -p vine-core --test runtime_thread_registry --locked
+cargo test -p vine-core --test runtime_lifecycle --locked
+cargo test -p vine-core --test runtime_initial_thread_stack --locked
 ```
 
-Production regression on the same implementation:
-
-- Chrome Worker: 46 instructions、cancel／watchdog／clean exit、exit code `0`
-- BGI: 17 calls／238 instructions; report SHA-256
-  `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`
-- BGI reflection SHA-256
-  `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`
-- version 1 browser benchmark regression: `go`, threshold failures `0`
-- Rust runtime core Wasm: 732,779 bytes／SHA-256
-  `dcbade608dc66c75c3179d4d7b67d7c0ddc32891c6769b1fdc38e20dd70d4ab8`
-
-The clean commit `a0d99e5` report remains the engine decision authority. Worker report identity is
-not embedded in `current-checkpoint.json` because its build manifest hashes that file.
+Subsystem unit tests fix mutation-free planning、per-thread value isolation、callback／exit ordering、
+duplicate／zero identity rejection. Aggregate tests fix object／scheduler／message／wait atomicity and
+initial-stack GuestMemory coordination. Current Node／Chrome result、runtime artifact、benchmark、
+next structured stopはこのhistorical foundation文書へ複製せず
+[current checkpoint manifest](current-checkpoint.json)だけを正とする。
 
 ## Non-claims and next dependency
 
@@ -96,9 +107,10 @@ process exit, concurrent guest execution, TLS／FLS cleanup callbacks, DLL threa
 waiter registration, timeout, wait-any／wait-all, APC, or message wake. It is partial evidence for
 `P1-SCH-01`／`P3-WIN-02`, not their completion.
 
-The controlled wait-queue dependency is now implemented in
+The controlled wait-queue dependency is implemented in
 [runtime-wait-queue.md](runtime-wait-queue.md): one selected thread waits on the other thread object
 and resumes deterministically after signal. The controlled message queue is implemented in
 [runtime-message-queue.md](runtime-message-queue.md), and private-heap backing is implemented in
-[runtime-heap-backing.md](runtime-heap-backing.md). The next dependency is DLL lifecycle.
-Per-thread CPU bootstrap remains separate before guest-created threads can execute.
+[runtime-heap-backing.md](runtime-heap-backing.md). Capability expansion remains paused while
+scheduler／wait、heap、module responsibility boundaries are extracted. Per-thread CPU bootstrap remains
+separate before guest-created threads can execute.

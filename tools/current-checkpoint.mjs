@@ -539,6 +539,28 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active runtime object subsystem boundary is invalid");
   }
+  const threads = requireRecord(
+    active.runtimeThreadRegistry,
+    "activeRuntimeCheckpoint.runtimeThreadRegistry",
+    errors,
+  );
+  if (
+    threads.schema !== "vine.runtime-thread-registry.v2" ||
+    threads.stateOwner !== "runtime/thread.rs::RuntimeThreads" ||
+    threads.mutableCollectionVisibility !== "private" ||
+    threads.serializedRuntimeField !== "threads" ||
+    threads.crossSubsystemMutation !== "thread-plan-aggregate-preflight-commit" ||
+    threads.subsystemTests < 3 ||
+    threads.crossSubsystemAtomicTests < 3 ||
+    threads.directRecordMutationFromAggregate !== false ||
+    threads.stackMetadataPlanCommit !== true ||
+    !Array.isArray(threads.perThreadState) ||
+    threads.perThreadState.join(",") !==
+      "last-error,tls-values,fls-values,callback-frames,stack-metadata" ||
+    threads.wholeRuntimeStateClone !== false
+  ) {
+    errors.push("active runtime thread subsystem boundary is invalid");
+  }
   const messages = requireRecord(
     active.runtimeMessageQueue,
     "activeRuntimeCheckpoint.runtimeMessageQueue",

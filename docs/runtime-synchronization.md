@@ -71,5 +71,5 @@ LastError、ABI、policy rejection、critical-section and mutex ownership behavi
 Current private regressionはNode／Chromeで46 contracts／284 calls、instruction `25,256`、final memory
 SHA-256 `338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add`、four
 initial-stack growths、next `GetCurrentThread` stopを一致させる。新しいRust/Wasm artifactを使う
-180秒gateは626 sessions／failure 0で17 thresholdをすべて通した。詳細は
+180秒gateは625 sessions／failure 0で17 thresholdをすべて通した。詳細は
 [bgi-create-mutex-a.md](bgi-create-mutex-a.md)を正とする。
