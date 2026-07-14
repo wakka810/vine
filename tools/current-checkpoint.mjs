@@ -581,6 +581,10 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
+    kernel32Policy.activeAnsiCodePage !== 932 ||
+    kernel32Policy.multiByteAllowActiveCodePageSelector !== true ||
+    !Array.isArray(kernel32Policy.multiByteAllowedFlags) ||
+    kernel32Policy.multiByteAllowedFlags.join(",") !== "0,1" ||
     kernel32Policy.unsupportedBeforeMutation !== true
   ) {
     errors.push("active Kernel32 compatibility policy boundary is invalid");

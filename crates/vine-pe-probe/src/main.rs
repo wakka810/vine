@@ -8920,7 +8920,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::SetUnhandledExceptionFilter
                 }
                 "kernel32-heap-size" => GenericRuntimeCapability::HeapSize,
-                "kernel32-initialize-critical-section" => {
+                "kernel32-initialize-critical-section"
+                | "kernel32-multi-byte-to-wide-char-cp-acp" => {
                     GenericRuntimeCapability::InitializeCriticalSection
                 }
                 _ => return Err(usage_error()),

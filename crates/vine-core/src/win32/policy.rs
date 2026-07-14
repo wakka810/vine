@@ -84,6 +84,8 @@ pub struct Kernel32WideCharToMultiBytePolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32MultiByteToWideCharPolicy {
+    #[serde(default)]
+    pub allow_active_code_page_selector: bool,
     pub allowed_flags: Vec<u32>,
     pub maximum_source_bytes: u32,
 }
@@ -621,6 +623,7 @@ mod tests {
 
         let mut invalid_multi_byte = policy.clone();
         invalid_multi_byte.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+            allow_active_code_page_selector: false,
             allowed_flags: vec![1],
             maximum_source_bytes: 65_536,
         });
@@ -663,6 +666,7 @@ mod tests {
             maximum_source_code_units: 65_536,
         });
         invalid_lc_map.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+            allow_active_code_page_selector: false,
             allowed_flags: vec![1],
             maximum_source_bytes: 65_536,
         });

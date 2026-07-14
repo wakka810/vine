@@ -4273,12 +4273,13 @@ fn wide_char_to_multi_byte_models_windows_932_query_conversion_and_failures() {
 }
 
 #[test]
-fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
+fn multi_byte_to_wide_char_models_windows_932_and_cp_acp_query_conversion() {
     const TARGET_SOURCE: u32 = OUTPUT_BASE + 0x200;
     const JAPANESE_SOURCE: u32 = OUTPUT_BASE + 0x300;
     const TARGET_DESTINATION: u32 = OUTPUT_BASE + 0x400;
     const JAPANESE_DESTINATION: u32 = OUTPUT_BASE + 0x600;
     const SHORT_DESTINATION: u32 = OUTPUT_BASE + 0x610;
+    const ACTIVE_CODE_PAGE_DESTINATION: u32 = OUTPUT_BASE + 0x620;
 
     let mut target_source = (0_u16..=255).map(|byte| byte as u8).collect::<Vec<_>>();
     for byte in [0_u8]
@@ -4315,6 +4316,7 @@ fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
         (TARGET_DESTINATION, vec![0xa5; 512]),
         (JAPANESE_DESTINATION, vec![0xa5; 6]),
         (SHORT_DESTINATION, vec![0xa5; 2]),
+        (ACTIVE_CODE_PAGE_DESTINATION, vec![0xa5; 6]),
     ] {
         memory
             .write_initialization(owner, GuestAddress(address), &bytes)
@@ -4387,10 +4389,20 @@ fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
             1,
         ],
         vec![0x1000_0b06, 932, 1, JAPANESE_SOURCE, 0, 0, 0],
-        vec![0x1000_0b07, 0, 1, JAPANESE_SOURCE, 4, 0, 0],
-        vec![0x1000_0b08, 932, 0, JAPANESE_SOURCE, 4, 0, 0],
+        vec![0x1000_0b07, 0, 0, JAPANESE_SOURCE, u32::MAX, 0, 0],
         vec![
-            0x1000_0b09,
+            0x1000_0b08,
+            0,
+            0,
+            JAPANESE_SOURCE,
+            u32::MAX,
+            ACTIVE_CODE_PAGE_DESTINATION,
+            3,
+        ],
+        vec![0x1000_0b09, 65_001, 0, JAPANESE_SOURCE, 4, 0, 0],
+        vec![0x1000_0b0a, 932, 8, JAPANESE_SOURCE, 4, 0, 0],
+        vec![
+            0x1000_0b0b,
             932,
             1,
             JAPANESE_SOURCE,
@@ -4399,7 +4411,7 @@ fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
             0,
         ],
         vec![
-            0x1000_0b0a,
+            0x1000_0b0c,
             932,
             1,
             JAPANESE_SOURCE,
@@ -4431,7 +4443,8 @@ fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
         maximum_source_code_units: 65_536,
     });
     policy.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
-        allowed_flags: vec![1],
+        allow_active_code_page_selector: true,
+        allowed_flags: vec![0, 1],
         maximum_source_bytes: 65_536,
     });
     policy
@@ -4485,6 +4498,22 @@ fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
         [0x41, 0, 0x42, 0x30, 0, 0]
     );
 
+    let active_code_page_query = dispatch(6, &mut memory, &mut runtime);
+    assert_eq!(active_code_page_query.eax, RegisterUpdate::Set(3));
+    assert_eq!(active_code_page_query.last_error, INITIAL_LAST_ERROR);
+    assert!(active_code_page_query.guest_writes.is_empty());
+
+    let active_code_page_conversion = dispatch(7, &mut memory, &mut runtime);
+    assert_eq!(active_code_page_conversion.eax, RegisterUpdate::Set(3));
+    assert_eq!(active_code_page_conversion.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(ACTIVE_CODE_PAGE_DESTINATION), 6)
+            .expect("CP_ACP NUL-terminated UTF-16 conversion"),
+        [0x41, 0, 0x42, 0x30, 0, 0]
+    );
+
     let insufficient = dispatch(4, &mut memory, &mut runtime);
     assert_eq!(insufficient.eax, RegisterUpdate::Set(0));
     assert_eq!(insufficient.last_error, 122);
@@ -4500,7 +4529,7 @@ fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
     assert_eq!(zero_count.eax, RegisterUpdate::Set(0));
     assert_eq!(zero_count.last_error, 87);
 
-    for index in [8_usize, 9] {
+    for index in [10_usize, 11] {
         let memory_before = memory.stats();
         let invalid = dispatch(index, &mut memory, &mut runtime);
         assert_eq!(invalid.eax, RegisterUpdate::Set(0));
@@ -4509,7 +4538,7 @@ fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
         assert_eq!(memory.stats(), memory_before);
     }
 
-    for index in [6_usize, 7] {
+    for index in [8_usize, 9] {
         let runtime_before = runtime.clone();
         let memory_before = memory.stats();
         let unsupported = {
@@ -4535,6 +4564,36 @@ fn multi_byte_to_wide_char_models_windows_932_query_conversion_and_failures() {
         assert_eq!(runtime, runtime_before);
         assert_eq!(memory.stats(), memory_before);
     }
+
+    let mut explicit_only_policy = policy.clone();
+    explicit_only_policy
+        .multi_byte_to_wide_char
+        .as_mut()
+        .unwrap()
+        .allow_active_code_page_selector = false;
+    explicit_only_policy
+        .validate()
+        .expect("valid explicit-code-page-only policy");
+    let runtime_before_selector = runtime.clone();
+    let memory_before_selector = memory.stats();
+    let disabled_selector = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, STACK_BASE + 6_u32 * 0x40, frames[6][0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&explicit_only_policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        disabled_selector,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "multi-byte-to-wide-char-variant-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before_selector);
+    assert_eq!(memory.stats(), memory_before_selector);
 
     let runtime_before_disabled = runtime.clone();
     let memory_before_disabled = memory.stats();
@@ -4673,6 +4732,7 @@ fn get_string_type_w_models_measured_ctype1_and_fails_closed() {
         maximum_source_code_units: 65_536,
     });
     policy.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+        allow_active_code_page_selector: false,
         allowed_flags: vec![1],
         maximum_source_bytes: 65_536,
     });
@@ -4996,6 +5056,7 @@ fn lc_map_string_w_models_measured_japanese_case_mapping_and_fails_closed() {
         maximum_source_code_units: 65_536,
     });
     policy.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+        allow_active_code_page_selector: false,
         allowed_flags: vec![1],
         maximum_source_bytes: 65_536,
     });

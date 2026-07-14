@@ -2171,3 +2171,43 @@ Chromeは2,939 slices／2,666 yields／2,606 Wasm crossings／generation `2,010`
 `ca1d082833b4349640451886843761aafecc0a5e63e5771694e09e5c1906c0aa`で一致する。
 3分gateは740 sessions／failure 0で全17 thresholdを通した。詳細は
 [bgi-initial-thread-stack-growth.md](bgi-initial-thread-stack-growth.md)を正とする。
+
+## 83. BGI CP_ACP NUL-terminated multibyte conversion
+
+Focused `multi-byte-to-wide-char` capturesは80,561 bytes／88 lines／SHA-256
+`a9f7c88d9ee5aa91c5a046bc9e84feea67682c3927611f6c6e1ea5903e0ca600`と
+80,592 bytes／88 lines／SHA-256
+`b66f55eddf91e399a0333fbfb43df64b6f5025f818a9bc0ef9f0d202b1891fb1`
+である。両方18 API pairsはbalanced、sequenceはcontiguous、diagnosticsはzeroである。
+
+BGI return RVA `0x2BB13`のcallは`CP_ACP`、flags 0、source count `-1`、capacity
+780を渡す。Native install pathは28 Windows-932 bytes／23 UTF-16 unitsで、ともに
+terminating NULを含む。Resultは23、LastErrorは`0 -> 0`である。Controlled oracleの
+`A 82 A0 00` query／conversionはどちらもNUL込み3 unitsを返し、sentinel 92／93を
+保存する。Immediate continuationはEAXを使わず五つのpath componentを準備し、nonnull
+componentを`WideCharToMultiByte`へ渡す。Native path、pointer、780、caller RVAは
+policy／handlerへimportしない。
+
+`kernel32.multi-byte-to-wide-char.v1`はsingle semantic handlerのまま、active policy
+`kernel32-multi-byte-to-wide-char-cp-acp-v1`が`allowActiveCodePageSelector: true`と
+flags `[0,1]`を追加する。Historical policyはselectorを許可しない。`-1` sourceは
+65,536-byte bound内でchecked NUL scanし、terminatorをdecode resultへ含める。Public
+fixtureはexplicit 932／flags 1、CP_ACP／flags 0 query-conversion、LastError、partial
+buffer、invalid shape、mutation-free unsupportedを同じhandlerで検証する。
+
+Nodeは44 contracts／279 calls、284 writebacks／431 dirty pages／6,270 changed bytes、
+75 host deltas、generation `388`を通す。Call 269はcontrolled `C:\Vine\BGI.exe\0`を
+16 UTF-16 unitsへ変換し、calls 270／271がpath componentを既存
+`WideCharToMultiByte`でconsumeする。Instruction `24294`でID `25`／
+`SetCurrentDirectoryA(0x10104048)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`dfb9d4fae57c56d3c518b522669c129377a2de98e64cd7de9e5dfdad42e6113d`、
+1,225,836-byte reportのSHA-256は
+`80073d04b9881acff731109960be7be52b19074c7775dd3c5ef93f14d178deea`である。
+
+Chrome Runtime Workerも279 ordered calls、same stop／memoryを再現し、3,123 slices、
+2,839 yields、2,747 Wasm crossings、final generation `2,126`、cancel／watchdog後
+pending work 0を通す。3分gateは607 sessions／failure 0、session P95 326.935 ms、
+slice P99 1.230 ms、heartbeat P99 8.530 ms／maximum 23.800 msを含む全17 thresholdを
+通した。詳細は
+[bgi-multi-byte-to-wide-char-cp-acp.md](bgi-multi-byte-to-wide-char-cp-acp.md)を正とする。

@@ -1001,13 +1001,24 @@ fn handle_multi_byte_to_wide_char(
             "validated multibyte conversion policy has no active code page",
         )
     })?;
-    if code_page != active_code_page || !conversion.allowed_flags.contains(&flags) {
+    let effective_code_page = if code_page == CP_ACP && conversion.allow_active_code_page_selector {
+        active_code_page
+    } else {
+        code_page
+    };
+    if effective_code_page != active_code_page || !conversion.allowed_flags.contains(&flags) {
         return Err(ApiFault::unsupported(
             "win32-code-page",
             "multi-byte-to-wide-char-variant-unsupported",
             format!(
-                "compatibility policy {} enables explicit code page {active_code_page} with flags {:?}, not code page {code_page} and flags {flags:#010x}",
-                policy.id, conversion.allowed_flags
+                "compatibility policy {} enables explicit code page {active_code_page}{} with flags {:?}, not code page {code_page} and flags {flags:#010x}",
+                policy.id,
+                if conversion.allow_active_code_page_selector {
+                    " or CP_ACP"
+                } else {
+                    ""
+                },
+                conversion.allowed_flags
             ),
         ));
     }

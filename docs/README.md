@@ -151,6 +151,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [runtime-wait-queue.md](runtime-wait-queue.md) | waitable objectとschedulerをどう接続するか | one-object registration、signal／wake event、already-signaled／exit cancellation |
 | [runtime-message-queue.md](runtime-message-queue.md) | thread messageをどこが所有するか | bounded raw FIFO、empty block／first-message wake、ordered dequeue／exit cleanup |
 | [runtime-synchronization.md](runtime-synchronization.md) | process synchronization stateをどこが所有するか | private critical-section collection、lifecycle coordinator、plan／commit atomicity |
+| [bgi-multi-byte-to-wide-char-cp-acp.md](bgi-multi-byte-to-wide-char-cp-acp.md) | CP_ACP NUL終端変換をどこまで返せるか | native query／conversion、policy selector、Node／Chrome 279-call equivalence、next stop |
 | [runtime-heap-backing.md](runtime-heap-backing.md) | private heap bytes／lifetimeをどこが所有するか | bounded guest arena、allocation ID／alignment／initialization、free／reuse、heap／process teardown |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 

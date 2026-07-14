@@ -5,8 +5,8 @@
 - Status: review Step 2／3, Step 4／10, critical-section including one-argument initialization, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-initial-thread-stack-growth`
-- Scope: frozen 17-call equivalence plus 268 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-multi-byte-to-wide-char-cp-acp`
+- Scope: frozen 17-call equivalence plus 279 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -875,6 +875,19 @@ stop is the CP_ACP／flags-zero `MultiByteToWideChar` variant at instruction
 Full evidence is in
 [bgi-initial-thread-stack-growth.md](bgi-initial-thread-stack-growth.md).
 
+The active-code-page checkpoint retains the same implementation ID and makes
+`CP_ACP` an explicit policy selector for the policy-owned Windows-932 page. Source
+count `-1` performs a bounded checked scan and includes its NUL in the decoded
+output and result. Call 269 converts controlled `C:\Vine\BGI.exe\0` into 16
+UTF-16 units, after which two existing `WideCharToMultiByte` consumers and eight
+thread-local helper calls return through call 279. The session records 284
+writebacks／431 dirty pages／6,270 changed bytes, 75 host deltas, and Node
+generation `388`. At instruction 24,294 it stops on missing
+`SetCurrentDirectoryA(0x10104048)`. Final memory SHA-256 is
+`dfb9d4fae57c56d3c518b522669c129377a2de98e64cd7de9e5dfdad42e6113d`.
+Full evidence is in
+[bgi-multi-byte-to-wide-char-cp-acp.md](bgi-multi-byte-to-wide-char-cp-acp.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -911,7 +924,7 @@ Full evidence is in
   General handle-table sizing, `SetStdHandle`, close behavior, broader file type,
   console semantics, file I/O, host-environment import, ANSI environment strings,
   environment mutation, non-Windows-932 code pages, explicit default-character
-  pointers, `CP_ACP` multibyte selection, other conversion flags, negative
+  pointers, conversion flags other than `0`／`1`, negative
   `GetStringTypeW` lengths, other information types, arbitrary `LCMapStringW`
   locale/flag/length variants, and broad locale tables
   remain absent. Explicit module file-name lookup and host image-path import are
@@ -920,17 +933,18 @@ Full evidence is in
   pointer is stored, replaced, and retired without bridging to host exception
   machinery; SEH dispatch and filter invocation remain absent. Initial-thread
   stack growth is Rust-owned; additional-thread stacks, overflow, and guard
-  exception delivery remain absent. The first structured stop is now the
-  CP_ACP／flags-zero `MultiByteToWideChar` variant; bespoke numbered checkpoint
-  expansion stays paused.
+  exception delivery remain absent. Process current-directory state, ANSI
+  relative-path resolution, and VFS effects remain absent. The first structured
+  stop is now `SetCurrentDirectoryA`; bespoke numbered checkpoint expansion stays
+  paused.
 
 ## Next checkpoint
 
-The next proof is the reached `MultiByteToWideChar(CP_ACP,0,...)` variant. It
-must measure NUL-inclusive input/output, LastError, and the immediate consumer,
-then derive code page 932 from the existing active-code-page policy without
-embedding this callsite or buffer size into general semantics. Explicit code
-page 932／flags 1 conversion and the four stack-growth deltas must remain green.
+The next proof is the reached `SetCurrentDirectoryA(0x10104048)` call. It must
+measure the ANSI path bytes and lifetime, BOOL, LastError, process current-directory
+state, and the first relative-path consumer before deciding how the logical state
+will later connect to a browser VFS. CP_ACP conversion and the four stack-growth
+deltas must remain green.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -955,5 +969,6 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     report is 833,007 bytes, the one-byte-free report is 875,554 bytes, the
     size-128 heap report is 883,995 bytes, the processor-feature report is
     896,534 bytes, the process-filter report is 912,806 bytes, the heap-size
-    report is 929,421 bytes, and the current InitializeCriticalSection report is
-    1,154,575 bytes.
+    report is 929,421 bytes, the InitializeCriticalSection report is 1,154,575
+    bytes, and the initial-stack-growth report is 1,179,850 bytes. The current
+    CP_ACP report is 1,225,836 bytes.

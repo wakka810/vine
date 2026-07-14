@@ -29,6 +29,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-is-processor-feature-present-v1.json",
   "fixtures/runtime-policies/kernel32-heap-size-v1.json",
   "fixtures/runtime-policies/kernel32-initialize-critical-section-v1.json",
+  "fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-cp-acp-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -66,6 +67,10 @@ for (const relative of policyFiles) {
   assert(processorFeatures.every(({ index, present }) =>
     Number.isInteger(index) && index >= 0 && index <= 0xffffffff &&
       typeof present === "boolean"));
+  const multibyte = policy.multiByteToWideChar ?? null;
+  if (multibyte?.allowActiveCodePageSelector !== undefined) {
+    assert.equal(typeof multibyte.allowActiveCodePageSelector, "boolean");
+  }
 }
 
 const manifest = JSON.parse(
@@ -76,6 +81,11 @@ const activePolicy = JSON.parse(fs.readFileSync(path.join(root, summary.source),
 assert.equal(activePolicy.id, summary.id);
 assert.equal(activePolicy.schema, summary.schema);
 assert.equal(activePolicy.schemaVersion, summary.schemaVersion);
+assert.equal(
+  activePolicy.multiByteToWideChar.allowActiveCodePageSelector,
+  summary.multiByteAllowActiveCodePageSelector,
+);
+assert.deepEqual(activePolicy.multiByteToWideChar.allowedFlags, summary.multiByteAllowedFlags);
 
 const implementation = fs.readFileSync(
   path.join(root, "crates", "vine-core", "src", "win32.rs"),

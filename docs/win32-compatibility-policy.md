@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-initialize-critical-section-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-cp-acp-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -41,7 +41,7 @@ runtime execution. It contains only target-independent bounded data:
 - enabled `SetHandleCount` values;
 - opt-in deterministic ANSI view of the process-parameter command line;
 - opt-in controlled UTF-16 environment authority and copy lifetime;
-- opt-in active ANSI code page, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, Windows-932 private-use byte mappings, bounded CTYPE1 information types, and bounded locale mapping variants;
+- opt-in active ANSI code page, explicit opt-in for the `CP_ACP` selector, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, Windows-932 private-use byte mappings, bounded CTYPE1 information types, and bounded locale mapping variants;
 - opt-in current-process image-path lookup with a bounded ANSI output capacity;
 - enabled `HeapAlloc` flag and byte-length pairs, `HeapFree` flags, and `HeapSize` flags;
 - an opt-in x86 `InitializeCriticalSection` raw spin-state field for the measured
@@ -53,7 +53,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form twenty-four monotonic controlled policies:
+The current files form twenty-five monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -81,6 +81,7 @@ The current files form twenty-four monotonic controlled policies:
 | `kernel32-is-processor-feature-present-v1` | stdin, stdout, stderr | preceding options + processor feature `10` present | preceding allocation/free variants |
 | `kernel32-heap-size-v1` | stdin, stdout, stderr | preceding options + `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` | preceding allocation/free variants |
 | `kernel32-initialize-critical-section-v1` | stdin, stdout, stderr | preceding options + measured default x86 critical-section spin-state field | preceding allocation/free/size variants |
+| `kernel32-multi-byte-to-wide-char-cp-acp-v1` | stdin, stdout, stderr | preceding options + `CP_ACP` selector／flags `0,1`／65,536-byte decode bound | preceding allocation/free/size variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -144,13 +145,16 @@ page is enabled; other pages, disabled metadata, and invalid output ranges stop
 before mutation. Native guard measurements and the BGI classification-table
 consumer remain evidence rather than implementation branches.
 `MultiByteToWideChar` uses one policy-backed six-argument semantic handler for
-both query and conversion. The policy enables explicit Windows-932, flags `1`,
-and a broad source bound; it does not contain the reached 256-byte source,
-pointer, caller, output table, or next stop. The semantic decoder combines
-checked lead/trail pairs with native-observed standalone `0xA0`／`0xFD..0xFF`
-private-use mappings. The public fixture independently covers a Japanese pair,
-the complete native 256-unit table, insufficient-buffer prefix write, invalid
-shape, LastError, and mutation-free unsupported selectors/flags.
+both query and conversion. Historical policy enables explicit Windows-932 and
+flags `1`; the active policy additionally opts into resolving `CP_ACP` to the
+policy-owned page and flags `0`. Both retain a broad source bound and contain no
+reached source length, pointer, path, caller, output table, or next stop. Source
+count `-1` includes its checked trailing NUL in output and return length. The
+semantic decoder combines checked lead/trail pairs with native-observed standalone
+`0xA0`／`0xFD..0xFF` private-use mappings. The public fixture independently covers
+the explicit 932 regression, `CP_ACP` query/conversion, a Japanese pair, the
+complete native 256-unit table, insufficient-buffer prefix write, invalid shape,
+LastError, and mutation-free unsupported selectors/flags.
 `GetStringTypeW` uses one policy-backed four-argument semantic handler. The
 policy enables information type `CT_CTYPE1` and a broad positive source bound;
 it does not contain the reached 256-unit source, output words, pointers, caller,

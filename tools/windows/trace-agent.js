@@ -29,7 +29,7 @@ let wideCharOracleLastError = null;
 let multiByteOracleScheduled = false;
 let multiByteOracleSentinel = null;
 let multiByteOracleLastError = null;
-let multiByteConsumerRecorded = false;
+const multiByteConsumerKeys = new Set();
 let getStringTypeOracleScheduled = false;
 let getStringTypeOracleSentinel = null;
 let getStringTypeOracleResult = null;
@@ -913,12 +913,14 @@ function snapshotMultiByteToWideCharCall(
   destination,
   destinationUnits,
 ) {
+  const consumerKey =
+    caller.module !== null && caller.module.toLowerCase() === "bgi.exe"
+      ? `${caller.module.toLowerCase()}:${caller.rva ?? caller.address}`
+      : null;
   const recordsConsumer =
-    !multiByteConsumerRecorded &&
-    caller.module !== null &&
-    caller.module.toLowerCase() === "bgi.exe";
+    consumerKey !== null && !multiByteConsumerKeys.has(consumerKey);
   if (recordsConsumer) {
-    multiByteConsumerRecorded = true;
+    multiByteConsumerKeys.add(consumerKey);
   }
   return {
     lastErrorBefore: Number(lastErrorBefore) >>> 0,
@@ -3094,6 +3096,7 @@ function scheduleMultiByteOracle(module) {
         sourceBytes,
         sourceCount,
         destinationUnits,
+        codePage = 932,
         flags = 1,
       }) => {
         const source = Memory.alloc(Math.max(1, sourceBytes.length));
@@ -3110,7 +3113,7 @@ function scheduleMultiByteOracle(module) {
         multiByteOracleLastError = null;
         try {
           const outcome = multiByteToWideChar(
-            932,
+            codePage,
             flags,
             source,
             sourceCount,
@@ -3125,7 +3128,7 @@ function scheduleMultiByteOracle(module) {
           return {
             id,
             sentinel,
-            codePage: 932,
+            codePage,
             flags,
             sourceBytes,
             sourceCount,
@@ -3186,14 +3189,34 @@ function scheduleMultiByteOracle(module) {
         sourceCount: 0,
         destinationUnits: 0,
       });
+      const activeCodePageQuery = invoke({
+        id: "active-code-page-nul-query",
+        sentinel: 92,
+        sourceBytes: asciiJapaneseBytes,
+        sourceCount: -1,
+        destinationUnits: 0,
+        codePage: 0,
+        flags: 0,
+      });
+      const activeCodePageConversion = invoke({
+        id: "active-code-page-nul-conversion",
+        sentinel: 93,
+        sourceBytes: asciiJapaneseBytes,
+        sourceCount: -1,
+        destinationUnits: activeCodePageQuery.result,
+        codePage: 0,
+        flags: 0,
+      });
       emit("multi-byte-to-wide-char-oracle", {
-        profile: "x86-cp932-fixed-query-convert-v1",
+        profile: "x86-windows-932-fixed-and-acp-nul-v2",
         calls: [
           query,
           conversion,
           nulTerminatedQuery,
           insufficientBuffer,
           zeroSourceCount,
+          activeCodePageQuery,
+          activeCodePageConversion,
         ],
       });
     } catch (error) {

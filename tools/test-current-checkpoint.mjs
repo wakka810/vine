@@ -129,6 +129,15 @@ assert.ok(
   ),
 );
 
+const disabledActiveCodePageSelector = structuredClone(manifest);
+disabledActiveCodePageSelector.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.multiByteAllowActiveCodePageSelector =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(disabledActiveCodePageSelector).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
 const detachedHeapAddress = structuredClone(manifest);
 detachedHeapAddress.activeRuntimeCheckpoint.processAddressSpaceAllocator.heapBackingUsesAllocationId =
   false;

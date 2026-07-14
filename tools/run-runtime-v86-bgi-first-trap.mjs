@@ -90,6 +90,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-set-unhandled-exception-filter",
         "kernel32-heap-size",
         "kernel32-initialize-critical-section",
+        "kernel32-multi-byte-to-wide-char-cp-acp",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -116,7 +117,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-initialize-critical-section"
+    genericRuntimeCapability === "kernel32-multi-byte-to-wide-char-cp-acp"
+      ? "kernel32-multi-byte-to-wide-char-cp-acp-v1.json"
+      : genericRuntimeCapability === "kernel32-initialize-critical-section"
       ? "kernel32-initialize-critical-section-v1.json"
       : genericRuntimeCapability === "kernel32-heap-size"
       ? "kernel32-heap-size-v1.json"
@@ -205,7 +208,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const multiByteToWideCharCpAcpEnabled =
+  genericRuntimeCapability === "kernel32-multi-byte-to-wide-char-cp-acp";
 const initializeCriticalSectionEnabled =
+  multiByteToWideCharCpAcpEnabled ||
   genericRuntimeCapability === "kernel32-initialize-critical-section";
 const heapSizeEnabled =
   initializeCriticalSectionEnabled ||
@@ -318,7 +324,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? initializeCriticalSectionEnabled
+      ? multiByteToWideCharCpAcpEnabled
+        ? "v86-bgi-multi-byte-to-wide-char-cp-acp"
+        : initializeCriticalSectionEnabled
         ? "v86-bgi-initialize-critical-section"
         : heapSizeEnabled
         ? "v86-bgi-heap-size"
@@ -3247,6 +3255,168 @@ const initializeCriticalSectionExpected = {
     faultCode: "multi-byte-to-wide-char-variant-unsupported",
   },
 };
+const multiByteToWideCharCpAcpExpected = {
+  ...initializeCriticalSectionExpected,
+  supportedCalls: 279,
+  writebackBatches: 284,
+  dirtyPages: 431,
+  changedBytes: 6270,
+  hostDeltaBatches: 75,
+  finalGeneration: 388,
+  call: {
+    sequence: 269,
+    occurrence: 7,
+    instructionCount: 22843,
+    arguments: [0, 0, 0x006fe0a4, 0xffff_ffff, 0x006fd150, 780],
+    result: 16,
+    returnAddress: 0x1002bb13,
+    stackCleanupBytes: 28,
+    outputBytes: [
+      0x43, 0x00, 0x3a, 0x00, 0x5c, 0x00, 0x56, 0x00,
+      0x69, 0x00, 0x6e, 0x00, 0x65, 0x00, 0x5c, 0x00,
+      0x42, 0x00, 0x47, 0x00, 0x49, 0x00, 0x2e, 0x00,
+      0x65, 0x00, 0x78, 0x00, 0x65, 0x00, 0x00, 0x00,
+    ],
+    delta: {
+      fromGeneration: 374,
+      generation: 375,
+      pageAddress: 0x006fd000,
+      owner: 4,
+      payloadSha256: "ec49c75137a5ab18ac8cfe297f0cd504a7ace563708a335bd254ba87e833de84",
+    },
+  },
+  consumerCalls: [
+    {
+      sequence: 270,
+      symbol: "WideCharToMultiByte",
+      occurrence: 5,
+      instructionCount: 23433,
+      arguments: [0, 0, 0x006fd768, 0xffff_ffff, 0x006fdd98, 780, 0, 0],
+      result: { action: "set", value: 3 },
+      implementationId: "kernel32.wide-char-to-multi-byte.v1",
+      returnAddress: 0x1002bb61,
+      stackCleanupBytes: 36,
+      outputAddress: 0x006fdd98,
+      outputBytes: [0x43, 0x3a, 0x00],
+    },
+    {
+      sequence: 271,
+      symbol: "WideCharToMultiByte",
+      occurrence: 6,
+      instructionCount: 23446,
+      arguments: [0, 0, 0x006fcb38, 0xffff_ffff, 0x006fe3b0, 780, 0, 0],
+      result: { action: "set", value: 7 },
+      implementationId: "kernel32.wide-char-to-multi-byte.v1",
+      returnAddress: 0x1002bb7e,
+      stackCleanupBytes: 36,
+      outputAddress: 0x006fe3b0,
+      outputBytes: [0x5c, 0x56, 0x69, 0x6e, 0x65, 0x5c, 0x00],
+    },
+    {
+      sequence: 272,
+      symbol: "GetLastError",
+      occurrence: 31,
+      instructionCount: 23543,
+      arguments: [],
+      result: { action: "set", value: 0 },
+      implementationId: "kernel32.get-last-error.v1",
+      returnAddress: 0x100a55dd,
+      stackCleanupBytes: 4,
+    },
+    {
+      sequence: 273,
+      symbol: "TlsGetValue",
+      occurrence: 31,
+      instructionCount: 23551,
+      arguments: [0],
+      result: { action: "set", value: 0x7f020010 },
+      implementationId: "kernel32.tls-get-value.v1",
+      returnAddress: 0x100a54a0,
+      stackCleanupBytes: 8,
+    },
+    {
+      sequence: 274,
+      symbol: "FlsGetValue",
+      occurrence: 31,
+      instructionCount: 23559,
+      arguments: [0],
+      result: { action: "set", value: 0x20000000 },
+      implementationId: "kernel32.fls-get-value.v1",
+      returnAddress: 0x100a55ec,
+      stackCleanupBytes: 8,
+    },
+    {
+      sequence: 275,
+      symbol: "SetLastError",
+      occurrence: 31,
+      instructionCount: 23565,
+      arguments: [0],
+      result: { action: "preserve" },
+      implementationId: "kernel32.set-last-error.v1",
+      returnAddress: 0x100a5647,
+      stackCleanupBytes: 8,
+    },
+    {
+      sequence: 276,
+      symbol: "GetLastError",
+      occurrence: 32,
+      instructionCount: 23603,
+      arguments: [],
+      result: { action: "set", value: 0 },
+      implementationId: "kernel32.get-last-error.v1",
+      returnAddress: 0x100a55dd,
+      stackCleanupBytes: 4,
+    },
+    {
+      sequence: 277,
+      symbol: "TlsGetValue",
+      occurrence: 32,
+      instructionCount: 23611,
+      arguments: [0],
+      result: { action: "set", value: 0x7f020010 },
+      implementationId: "kernel32.tls-get-value.v1",
+      returnAddress: 0x100a54a0,
+      stackCleanupBytes: 8,
+    },
+    {
+      sequence: 278,
+      symbol: "FlsGetValue",
+      occurrence: 32,
+      instructionCount: 23619,
+      arguments: [0],
+      result: { action: "set", value: 0x20000000 },
+      implementationId: "kernel32.fls-get-value.v1",
+      returnAddress: 0x100a55ec,
+      stackCleanupBytes: 8,
+    },
+    {
+      sequence: 279,
+      symbol: "SetLastError",
+      occurrence: 32,
+      instructionCount: 23625,
+      arguments: [0],
+      result: { action: "preserve" },
+      implementationId: "kernel32.set-last-error.v1",
+      returnAddress: 0x100a5647,
+      stackCleanupBytes: 8,
+    },
+  ],
+  memoryContentSha256: "dfb9d4fae57c56d3c518b522669c129377a2de98e64cd7de9e5dfdad42e6113d",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 25,
+    endpointAddress: 0x7f000180,
+    module: "kernel32.dll",
+    symbol: "SetCurrentDirectoryA",
+    iatAddress: 0x100d110c,
+    arguments: [0x10104048],
+    returnAddress: 0x1006084a,
+    instructionCount: 24294,
+    faultClass: "unsupported",
+    faultStage: "api-dispatch",
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -3709,6 +3879,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (multiByteToWideCharCpAcpEnabled) {
+        validateMultiByteToWideCharCpAcpResult(genericResult);
       } else if (initializeCriticalSectionEnabled) {
         validateInitializeCriticalSectionResult(genericResult);
       } else if (heapSizeEnabled) {
@@ -3788,7 +3960,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : initializeCriticalSectionEnabled
+          : multiByteToWideCharCpAcpEnabled
+            ? "bgi MultiByteToWideChar CP_ACP"
+            : initializeCriticalSectionEnabled
             ? "bgi InitializeCriticalSection"
             : heapSizeEnabled
             ? "bgi HeapSize"
@@ -4397,7 +4571,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : initializeCriticalSectionEnabled
+        : multiByteToWideCharCpAcpEnabled
+          ? 31
+          : initializeCriticalSectionEnabled
           ? 31
           : heapSizeEnabled
           ? 30
@@ -7857,6 +8033,153 @@ function validateInitializeCriticalSectionResult(result) {
   );
 }
 
+function validateMultiByteToWideCharCpAcpResult(result) {
+  const expected = multiByteToWideCharCpAcpExpected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  const initialization = result.supportedCalls.find(
+    ({ sequence }) => sequence === expected.initializationCall.sequence,
+  );
+  assert(initialization, "InitializeCriticalSection prefix call is missing");
+  assert.equal(initialization.symbol, "InitializeCriticalSection");
+  assert.deepEqual(initialization.arguments, expected.initializationCall.arguments);
+  assert.equal(
+    initialization.implementationId,
+    "kernel32.initialize-critical-section.v1",
+  );
+  assert.deepEqual(initialization.guestWrites[0].bytes, expected.initializationCall.bytes);
+
+  assert.equal(result.stackGrowths.length, expected.stackGrowths.length);
+  for (const [index, expectedGrowth] of expected.stackGrowths.entries()) {
+    const growth = result.stackGrowths[index];
+    assert.equal(growth.instructionCount, expectedGrowth.instructionCount);
+    assert.equal(growth.threadId, controlledThread.threadId);
+    assert.equal(growth.addressAllocationId, 37);
+    assert.equal(growth.memoryOwner, 4);
+    assert.equal(growth.faultAddress, expectedGrowth.faultAddress);
+    assert.equal(growth.pageFaultErrorCode, expectedGrowth.pageFaultErrorCode);
+    assert.equal(growth.committedPage.start, expectedGrowth.committedPage);
+    assert.equal(growth.nextGuardPage.start, expectedGrowth.nextGuardPage);
+    assert.equal(growth.committedPages, expectedGrowth.committedPages);
+    assert.equal(growth.fromGeneration, expectedGrowth.fromGeneration);
+    assert.equal(growth.generation, expectedGrowth.generation);
+  }
+
+  const call = result.supportedCalls.find(
+    ({ sequence }) => sequence === expected.call.sequence,
+  );
+  assert(call, "MultiByteToWideChar CP_ACP call is missing");
+  assert.equal(call.symbol, "MultiByteToWideChar");
+  assert.equal(call.occurrence, expected.call.occurrence);
+  assert.equal(call.trapInstructionCount, expected.call.instructionCount);
+  assert.deepEqual(call.arguments, expected.call.arguments);
+  assert.deepEqual(call.result, { action: "set", value: expected.call.result });
+  assert.equal(call.implementationId, "kernel32.multi-byte-to-wide-char.v1");
+  assert.equal(call.returnAddress, expected.call.returnAddress);
+  assert.equal(
+    call.stackPointerAfter,
+    call.stackPointerBefore + expected.call.stackCleanupBytes,
+  );
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, expected.call.arguments[4]);
+  assert.deepEqual(call.guestWrites[0].bytes, expected.call.outputBytes);
+  assert.deepEqual(call.guestWrites[0].result, {
+    bytesWritten: expected.call.outputBytes.length,
+    dirtyPages: 1,
+    invalidation: {
+      generation: expected.call.delta.generation,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    },
+  });
+
+  const outputDelta = result.hostDeltas.find(
+    ({ sequence, generation }) =>
+      sequence === expected.call.sequence && generation === expected.call.delta.generation,
+  );
+  assert(outputDelta, "MultiByteToWideChar CP_ACP output delta is missing");
+  assert.equal(outputDelta.fromGeneration, expected.call.delta.fromGeneration);
+  assert.equal(outputDelta.mappingOperations, 0);
+  assert.deepEqual(outputDelta.dirtyPages, [
+    {
+      address: expected.call.delta.pageAddress,
+      owner: expected.call.delta.owner,
+    },
+  ]);
+  assert.equal(outputDelta.payloadBytes, page.size);
+  assert.equal(outputDelta.payloadSha256, expected.call.delta.payloadSha256);
+
+  for (const expectedCall of expected.consumerCalls) {
+    const consumer = result.supportedCalls.find(
+      ({ sequence }) => sequence === expectedCall.sequence,
+    );
+    assert(consumer, `post-conversion call ${expectedCall.sequence} is missing`);
+    assert.equal(consumer.symbol, expectedCall.symbol);
+    assert.equal(consumer.occurrence, expectedCall.occurrence);
+    assert.equal(consumer.trapInstructionCount, expectedCall.instructionCount);
+    assert.deepEqual(consumer.arguments, expectedCall.arguments);
+    assert.deepEqual(consumer.result, expectedCall.result);
+    assert.equal(consumer.implementationId, expectedCall.implementationId);
+    assert.equal(consumer.returnAddress, expectedCall.returnAddress);
+    assert.equal(
+      consumer.stackPointerAfter,
+      consumer.stackPointerBefore + expectedCall.stackCleanupBytes,
+    );
+    assert.equal(consumer.lastError, 0);
+    if (expectedCall.outputBytes === undefined) {
+      assert.deepEqual(consumer.guestWrites, []);
+    } else {
+      assert.equal(consumer.guestWrites.length, 1);
+      assert.equal(consumer.guestWrites[0].address, expectedCall.outputAddress);
+      assert.deepEqual(consumer.guestWrites[0].bytes, expectedCall.outputBytes);
+    }
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  const endpoint = result.fault.endpoint.endpoint;
+  assert.equal(endpoint.id, unsupported.endpointId);
+  assert.equal(endpoint.address, unsupported.endpointAddress);
+  assert.equal(endpoint.module, unsupported.module);
+  assert.deepEqual(endpoint.symbol, { kind: "name", name: unsupported.symbol });
+  assert.equal(endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.class, unsupported.faultClass);
+  assert.equal(result.fault.fault.stage, unsupported.faultStage);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
+  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validatePrivateHeapSize16Result(result) {
   const expected = privateHeapSize16Expected;
   const allocations = result.supportedCalls.filter(
@@ -8335,7 +8658,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : initializeCriticalSectionEnabled
+        : multiByteToWideCharCpAcpEnabled
+          ? "vine.v86-bgi-multi-byte-to-wide-char-cp-acp"
+          : initializeCriticalSectionEnabled
           ? "vine.v86-bgi-initialize-critical-section"
           : heapSizeEnabled
           ? "vine.v86-bgi-heap-size"

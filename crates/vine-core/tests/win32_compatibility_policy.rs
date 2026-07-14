@@ -40,6 +40,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!(
             "../../../fixtures/runtime-policies/kernel32-initialize-critical-section-v1.json"
         ),
+        include_str!(
+            "../../../fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-cp-acp-v1.json"
+        ),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -156,4 +159,17 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         initialize_critical_section.initialize_critical_section_spin_count_field(),
         Some(0x0200_07d0)
     );
+    assert!(
+        !initialize_critical_section
+            .multi_byte_to_wide_char()
+            .expect("explicit code-page conversion policy")
+            .allow_active_code_page_selector
+    );
+    let active_code_page: Kernel32CompatibilityPolicy = serde_json::from_str(policies[24]).unwrap();
+    let active_code_page_conversion = active_code_page
+        .multi_byte_to_wide_char()
+        .expect("active code-page conversion policy");
+    assert!(active_code_page_conversion.allow_active_code_page_selector);
+    assert_eq!(active_code_page_conversion.allowed_flags, [0, 1]);
+    assert_eq!(active_code_page_conversion.maximum_source_bytes, 65_536);
 }

@@ -50,6 +50,6 @@ Subsystem unit testsはplanのmutation-free性、recursive transition、rejected
 serialized field compatibilityを検査する。Existing dispatcher testはGuestMemory bytes、LastError、ABI、
 recursive owner、contentionのend-to-end behaviorを保持する。
 
-Current private regressionはNode／Chromeで268 calls、instruction `22,843`、final memory digest、
+This refactor checkpointのprivate regressionはNode／Chromeで268 calls、instruction `22,843`、final memory digest、
 four initial-stack growths、next `MultiByteToWideChar` stopを変更前と同一に保つ。新しいRust/Wasm
 artifactを使う180秒gateは745 sessions／failure 0で17 thresholdをすべて通した。
