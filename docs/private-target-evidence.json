@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 4,
   "status": "passed",
-  "recordedAt": "2026-07-14T08:06:23.165Z",
+  "recordedAt": "2026-07-14T08:57:08.054Z",
   "repository": {
-    "implementationCommit": "3ef1d47970290f8cb04aafb531a6a3ad3442155d",
-    "implementationTree": "4ee70ad1d3dd57bb6a2fb112bcffca01dd286b08",
-    "headCommit": "3ef1d47970290f8cb04aafb531a6a3ad3442155d",
+    "implementationCommit": "38e55d2839e70c3730c5f83f6cea6561d4ca0890",
+    "implementationTree": "cb9c3f615e2d9dc4595da8f9f6713b5765e74402",
+    "headCommit": "38e55d2839e70c3730c5f83f6cea6561d4ca0890",
     "dirty": true,
     "dirtyPaths": [
       "AGENTS.md",
@@ -184,7 +184,7 @@
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
       "bytes": 265456,
-      "sha256": "f3499e5c4d6988bbcd82686dea40de01b2ddf7ca86bbca6037cf6a8b3296a2f6"
+      "sha256": "5f0162a6b254fba24ec9bf79b22f9edb5b73f1d86c040b0d93d7f755345dce1f"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -199,12 +199,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3199,
-      "sha256": "bf76e9be34b5f992e6a0bc11df26c75a6ddab3c738d2ffadf3c94b4983f43d28"
+      "sha256": "965e528c696d96cd0c76435328d80f2973e766410d0ed5080d0c12bc1361b3e3"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 1926642,
-      "sha256": "ffd85c0b5e076d097b2b644842164698a739f02f2a18f07edc07abd62697cf40"
+      "bytes": 1927436,
+      "sha256": "7eea50074b168731a87e00969be868d034bf32ca856bd45a9c4933b67c82aac5"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -231,10 +231,10 @@
     "decisionReason": "all-17-versioned-thresholds-passed",
     "thresholdEvaluationCount": 17,
     "durationMilliseconds": 180000,
-    "completedSessions": 719,
+    "completedSessions": 745,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "98494a5c9986e03e70448325ab2f761e66a242a08b4d2a81dceba315f2e14489"
+    "reportSha256": "f4df90ca555ca8e9a350767d4b0b8ba947b5eaa2e8410775980c8152deae785f"
   },
-  "payloadSha256": "fc2bf4797f9e60a37188cd8bdd3353f28ef5ea423b67ee88472e71c14e98529c"
+  "payloadSha256": "391f79d6be87c39d59731a62dde29d6e4ff1c5468ed4b4847721a182ec8adaf7"
 }
