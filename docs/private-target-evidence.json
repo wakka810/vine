@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 4,
   "status": "passed",
-  "recordedAt": "2026-07-14T17:53:55.813Z",
+  "recordedAt": "2026-07-14T18:22:27.798Z",
   "repository": {
-    "implementationCommit": "d6d6b05e0fbda95a3c3aa9589242cb2f8d4c8a05",
-    "implementationTree": "874a5a40ebd7d9c69ca084f0ab2ad2176e5926c3",
-    "headCommit": "d6d6b05e0fbda95a3c3aa9589242cb2f8d4c8a05",
+    "implementationCommit": "d4ad1b892f33bdf459c2b09e4d2b772139ceb107",
+    "implementationTree": "76bd8b64837ea875941a25c40d0dbcbefd085b68",
+    "headCommit": "d4ad1b892f33bdf459c2b09e4d2b772139ceb107",
     "dirty": true,
     "dirtyPaths": [
       "AGENTS.md",
@@ -176,8 +176,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 281764,
-      "sha256": "6db2bfb609bd4cb4d250f5ee5975b5f2fd20751f1c226e384ce12fff28a3b081"
+      "bytes": 281762,
+      "sha256": "44651c02de771e26b68563de91d7e9f15b390c13ed2aacb45e9d52eaed124f4f"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -192,12 +192,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3199,
-      "sha256": "3e1a68e3c075fd50dcc93388351b167cd162d7dd1e675f1328d7e76986da12d5"
+      "sha256": "10ae16ab4c146d9fedf71ecb92cc58103309e32702cc4336753c6213262e9854"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 2085717,
-      "sha256": "9c3d9f02eae37441d3705e4b1ceb9ec37b6f9cc4622f0a962d0b63374ad28d8f"
+      "bytes": 2086221,
+      "sha256": "0e023d79b5e764226cd48a189612ee93ba19cce3a5b2308167d01896bb303ec4"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -224,10 +224,10 @@
     "decisionReason": "all-17-versioned-thresholds-passed",
     "thresholdEvaluationCount": 17,
     "durationMilliseconds": 180000,
-    "completedSessions": 624,
+    "completedSessions": 627,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "c10dc7cfc610ca17abbc69559e2869d47ddc5351d6508b5ead9c06b26c4bade7"
+    "reportSha256": "5bdf4668a1313d8cceea5433615547ad053f2684ec66fe9f02eab7b1b46a5b1f"
   },
-  "payloadSha256": "99784718cfde497dbeb1e0878c40a63267a0b561480962e9e2bf1ff9df86f124"
+  "payloadSha256": "b75d4ec3d32eac060b96641cf33b63b7bbad56bb98c397b259a7c5a512e09933"
 }
