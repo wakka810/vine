@@ -18,13 +18,9 @@ use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
     GuestRange, MemoryInvalidation, MemoryOwnerId, MemoryRegionKind, PageProtection,
 };
-use crate::module_graph::{
-    RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleGraphError, RuntimeModuleGraphErrorClass,
-    RuntimeModuleId, RuntimeModuleLoadState, RuntimeModuleRegistration,
-};
+use crate::module_graph::{RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleId};
 use crate::module_images::{
-    RuntimeModuleImage, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
-    RuntimeModuleImageRegistry, RuntimeResolvedExport,
+    RuntimeModuleImage, RuntimeModuleImageError, RuntimeModuleImageRegistry, RuntimeResolvedExport,
 };
 use crate::pe32::{ExportLookup, ImportTarget, LoaderIngressReport};
 use crate::snapshot::ModuleIdentity;
@@ -32,6 +28,7 @@ use crate::snapshot::ModuleIdentity;
 mod address_space;
 mod heaps;
 mod messages;
+mod modules;
 mod objects;
 mod process;
 mod scheduler;
@@ -50,6 +47,10 @@ use heaps::RuntimeHeaps;
 use messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessages};
 pub use messages::{
     RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage,
+};
+use modules::{
+    RuntimeGuestImportBindingPlan, RuntimeModuleRecords, RuntimeModules,
+    runtime_module_graph_error, runtime_module_image_error, runtime_module_image_state_error,
 };
 pub use objects::RuntimeObjectTable;
 use process::RuntimeProcessDirectories;
@@ -547,20 +548,6 @@ pub struct RuntimeGuestImportBinding {
     pub invalidation: MemoryInvalidation,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGuestImportBindingPlan {
-    pub(crate) requester_module_id: RuntimeModuleId,
-    pub(crate) requester_handle: u32,
-    pub(crate) source: ModuleIdentity,
-    pub(crate) image_owner: MemoryOwnerId,
-    pub(crate) image_load_base: GuestAddress,
-    pub(crate) imports: Vec<RuntimeGuestImport>,
-    pub(crate) dependency_edges: Vec<RuntimeModuleDependencyEdge>,
-    pub(crate) previous_graph: RuntimeModuleGraph,
-    pub(crate) next_graph: RuntimeModuleGraph,
-    pub(crate) previous_runtime_system_exports: Option<RuntimeSystemExportTable>,
-}
-
 pub const DLL_PROCESS_DETACH: u32 = 0;
 pub const DLL_PROCESS_ATTACH: u32 = 1;
 pub const DLL_PROCESS_STATIC_RESERVED: u32 = 1;
@@ -937,7 +924,8 @@ pub struct RuntimeProcessState {
     pub heap_termination_on_corruption: bool,
     #[serde(flatten)]
     heaps: RuntimeHeaps,
-    pub modules: BTreeMap<u32, RuntimeModule>,
+    #[serde(flatten)]
+    module_records: RuntimeModuleRecords,
     pub allocated_tls_indices: BTreeSet<u32>,
     pub fls_slots: BTreeMap<u32, RuntimeFlsSlot>,
     #[serde(flatten)]
@@ -949,6 +937,10 @@ pub struct RuntimeProcessState {
 impl RuntimeProcessState {
     pub fn heaps(&self) -> &BTreeMap<u32, RuntimeHeap> {
         self.heaps.heaps()
+    }
+
+    pub fn modules(&self) -> &BTreeMap<u32, RuntimeModule> {
+        self.module_records.modules()
     }
 }
 
@@ -969,13 +961,8 @@ pub struct RuntimeState {
     scheduler: RuntimeScheduler,
     messages: RuntimeMessages,
     objects: RuntimeObjectTable,
-    module_graph: RuntimeModuleGraph,
-    #[serde(skip)]
-    module_images: RuntimeModuleImageRegistry,
-    #[serde(skip)]
-    module_import_bindings: BTreeMap<RuntimeModuleId, RuntimeGuestImportBinding>,
-    #[serde(skip)]
-    runtime_system_exports: Option<RuntimeSystemExportTable>,
+    #[serde(flatten)]
+    modules: RuntimeModules,
     #[serde(skip)]
     dll_lifecycle_phase: RuntimeDllLifecyclePhase,
     #[serde(skip)]
@@ -1069,7 +1056,7 @@ impl RuntimeState {
                 unhandled_exception_filter: None,
                 heap_termination_on_corruption: false,
                 heaps: RuntimeHeaps::default(),
-                modules: BTreeMap::new(),
+                module_records: RuntimeModuleRecords::default(),
                 allocated_tls_indices: BTreeSet::new(),
                 fls_slots: BTreeMap::new(),
                 synchronization: RuntimeSynchronization::default(),
@@ -1080,10 +1067,7 @@ impl RuntimeState {
             scheduler: RuntimeScheduler::new(bootstrap.initial_thread_id),
             messages: RuntimeMessages::new(bootstrap.initial_thread_id),
             objects,
-            module_graph: RuntimeModuleGraph::default(),
-            module_images: RuntimeModuleImageRegistry::default(),
-            module_import_bindings: BTreeMap::new(),
-            runtime_system_exports: None,
+            modules: RuntimeModules::default(),
             dll_lifecycle_phase: RuntimeDllLifecyclePhase::Idle,
             dll_operation: None,
             registries: RuntimeRegistries {
@@ -1800,11 +1784,11 @@ impl RuntimeState {
     }
 
     pub fn module_graph(&self) -> &RuntimeModuleGraph {
-        &self.module_graph
+        self.modules.graph()
     }
 
     pub fn module_images(&self) -> &RuntimeModuleImageRegistry {
-        &self.module_images
+        self.modules.images()
     }
 
     pub fn resolve_guest_export(
@@ -1812,7 +1796,7 @@ impl RuntimeState {
         module: &str,
         symbol: ExportLookup,
     ) -> Result<RuntimeResolvedExport, RuntimeModuleImageError> {
-        self.module_images.resolve(module, symbol)
+        self.modules.resolve(module, symbol)
     }
 
     pub(crate) fn register_module_image(
@@ -1824,21 +1808,16 @@ impl RuntimeState {
     ) -> Result<&RuntimeModuleImage, RuntimeModuleImageError> {
         self.module(handle)
             .map_err(runtime_module_image_state_error)?;
-        let node = self
-            .module_graph
-            .module_by_handle(handle)
-            .map_err(RuntimeModuleImageError::from_module_graph)?
-            .clone();
-        self.module_images
-            .register(memory, &node, loader, materialization)
+        self.modules
+            .register_image(memory, handle, loader, materialization)
     }
 
     pub fn module_import_bindings(&self) -> &BTreeMap<RuntimeModuleId, RuntimeGuestImportBinding> {
-        &self.module_import_bindings
+        self.modules.bindings()
     }
 
     pub fn runtime_system_exports(&self) -> Option<&RuntimeSystemExportTable> {
-        self.runtime_system_exports.as_ref()
+        self.modules.runtime_system_exports()
     }
 
     pub fn guest_import_binding(
@@ -1846,18 +1825,7 @@ impl RuntimeState {
         handle: u32,
     ) -> Result<&RuntimeGuestImportBinding, RuntimeStateError> {
         self.module(handle)?;
-        let module_id = self
-            .module_graph
-            .module_by_handle(handle)
-            .map_err(runtime_module_graph_error)?
-            .id;
-        self.module_import_bindings.get(&module_id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-guest-imports",
-                "guest-import-binding-missing",
-                format!("module handle {handle:#010x} has no committed guest import binding"),
-            )
-        })
+        self.modules.guest_import_binding(handle)
     }
 
     pub(crate) fn plan_guest_import_binding(
@@ -1870,74 +1838,14 @@ impl RuntimeState {
         dependency_edges: Vec<RuntimeModuleDependencyEdge>,
     ) -> Result<RuntimeGuestImportBindingPlan, RuntimeStateError> {
         self.module(requester_handle)?;
-        let requester = self
-            .module_graph
-            .module_by_handle(requester_handle)
-            .map_err(runtime_module_graph_error)?;
-        if requester.state != RuntimeModuleLoadState::Registered {
-            return Err(RuntimeStateError::conflict(
-                "runtime-guest-imports",
-                "guest-import-requester-state-invalid",
-                "guest imports can only bind while the requester module is registered",
-            ));
-        }
-        if self.module_import_bindings.contains_key(&requester.id) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-guest-imports",
-                "guest-import-binding-duplicate",
-                "requester module already has a committed guest import binding",
-            ));
-        }
-        if self.module_images.images().contains_key(&requester.id) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-guest-imports",
-                "guest-import-requester-image-already-registered",
-                "requester image must bind imports before mapped image registration",
-            ));
-        }
-        if imports
-            .iter()
-            .any(|import| import.resolved_address().0 == 0)
-        {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-guest-imports",
-                "guest-import-target-address-null",
-                "resolved guest import address cannot be null",
-            ));
-        }
-
-        let dependency_edges = dependency_edges
-            .into_iter()
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-        let previous_graph = self.module_graph.clone();
-        let mut next_graph = previous_graph.clone();
-        for edge in &dependency_edges {
-            let requester_node = next_graph
-                .module(edge.requester)
-                .map_err(runtime_module_graph_error)?;
-            next_graph
-                .module(edge.dependency)
-                .map_err(runtime_module_graph_error)?;
-            if !requester_node.dependencies.contains(&edge.dependency) {
-                next_graph
-                    .add_dependency(edge.requester, edge.dependency)
-                    .map_err(runtime_module_graph_error)?;
-            }
-        }
-        Ok(RuntimeGuestImportBindingPlan {
-            requester_module_id: requester.id,
+        self.modules.plan_guest_import_binding(
             requester_handle,
             source,
             image_owner,
             image_load_base,
             imports,
             dependency_edges,
-            previous_graph,
-            next_graph,
-            previous_runtime_system_exports: self.runtime_system_exports.clone(),
-        })
+        )
     }
 
     pub(crate) fn commit_guest_import_binding(
@@ -1946,104 +1854,8 @@ impl RuntimeState {
         invalidation: MemoryInvalidation,
         runtime_system_exports: Option<RuntimeSystemExportTable>,
     ) -> Result<&RuntimeGuestImportBinding, RuntimeStateError> {
-        if self.module_graph != plan.previous_graph {
-            return Err(RuntimeStateError::conflict(
-                "runtime-guest-imports",
-                "guest-import-plan-graph-stale",
-                "module graph changed after guest import planning",
-            ));
-        }
-        if self
-            .module_import_bindings
-            .contains_key(&plan.requester_module_id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-guest-imports",
-                "guest-import-binding-duplicate",
-                "requester module already has a committed guest import binding",
-            ));
-        }
-        if self.runtime_system_exports != plan.previous_runtime_system_exports {
-            return Err(RuntimeStateError::conflict(
-                "runtime-guest-imports",
-                "guest-import-runtime-export-table-stale",
-                "runtime system export table changed after guest import planning",
-            ));
-        }
-        let imports_runtime_exports = plan.imports.iter().any(|import| {
-            matches!(
-                &import.resolution,
-                RuntimeGuestImportResolution::RuntimeExport { .. }
-            )
-        });
-        match (
-            plan.previous_runtime_system_exports.as_ref(),
-            runtime_system_exports.as_ref(),
-            imports_runtime_exports,
-        ) {
-            (None, Some(table), true)
-                if plan.imports.iter().all(|import| match &import.resolution {
-                    RuntimeGuestImportResolution::RuntimeExport { endpoint } => {
-                        table.endpoints.contains(endpoint)
-                    }
-                    RuntimeGuestImportResolution::GuestExport { .. } => true,
-                }) => {}
-            (Some(_), None, _) | (None, None, false) => {}
-            (None, Some(_), false) => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-guest-imports",
-                    "guest-import-runtime-export-table-unneeded",
-                    "a runtime export table cannot be installed without a runtime-system import",
-                ));
-            }
-            (None, None, true) => {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-guest-imports",
-                    "guest-import-runtime-export-table-missing",
-                    "runtime-system imports require an installed runtime export table",
-                ));
-            }
-            (None, Some(_), true) => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-guest-imports",
-                    "guest-import-runtime-export-endpoint-missing",
-                    "new runtime export table does not own every planned runtime endpoint",
-                ));
-            }
-            (Some(_), Some(_), _) => {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-guest-imports",
-                    "guest-import-runtime-export-table-duplicate",
-                    "runtime export table is already installed",
-                ));
-            }
-        }
-        let binding = RuntimeGuestImportBinding {
-            requester_module_id: plan.requester_module_id,
-            requester_handle: plan.requester_handle,
-            source: plan.source,
-            image_owner: plan.image_owner,
-            image_load_base: plan.image_load_base,
-            imports: plan.imports,
-            dependency_edges: plan.dependency_edges,
-            image_owner_sealed: true,
-            invalidation,
-        };
-        self.module_graph = plan.next_graph;
-        if let Some(runtime_system_exports) = runtime_system_exports {
-            self.runtime_system_exports = Some(runtime_system_exports);
-        }
-        self.module_import_bindings
-            .insert(plan.requester_module_id, binding);
-        self.module_import_bindings
-            .get(&plan.requester_module_id)
-            .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-guest-imports",
-                    "committed-guest-import-binding-missing",
-                    "guest import binding disappeared after commit",
-                )
-            })
+        self.modules
+            .commit_guest_import_binding(plan, invalidation, runtime_system_exports)
     }
 
     pub fn process_handle(&self) -> Result<RuntimeHandle, RuntimeStateError> {
@@ -2776,78 +2588,31 @@ impl RuntimeState {
         class: RuntimeModuleClass,
     ) -> Result<&RuntimeModule, RuntimeStateError> {
         self.require_dll_operation_inactive_for_module_graph_mutation()?;
-        if module.owner.is_empty()
-            || module.variant_id.is_empty()
-            || module.namespace != LOGICAL_LOADED_MODULE_NAMESPACE
-            || module.handle == 0
-            || module.canonical_name.is_empty()
-        {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-module",
-                "module-identity-invalid",
-                "runtime module requires controlled owner, variant, namespace, handle, and name",
-            ));
-        }
-        if self.process.modules.contains_key(&module.handle)
-            || self.process.modules.values().any(|loaded| {
-                loaded
-                    .canonical_name
-                    .eq_ignore_ascii_case(&module.canonical_name)
-            })
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-module",
-                "module-identity-duplicate",
-                "runtime module handle or canonical name is already loaded",
-            ));
-        }
         let handle = module.handle;
-        let graph_id = self
-            .module_graph
-            .register_module(RuntimeModuleRegistration {
-                handle,
-                requested_name: module.requested_name.clone(),
-                canonical_name: module.canonical_name.clone(),
-                class,
-            })
-            .map_err(runtime_module_graph_error)?;
-        if let Err(error) = self
-            .objects
-            .register_object_with_handle(RuntimeObjectKey::Module { handle }, RuntimeHandle(handle))
-        {
-            self.module_graph
-                .rollback_registration(graph_id)
-                .map_err(runtime_module_graph_error)?;
-            return Err(error);
-        }
-        self.process.modules.insert(handle, module);
-        self.process.modules.get(&handle).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-module",
-                "inserted-module-missing",
-                "runtime module disappeared after insertion",
-            )
-        })
+        let plan = self
+            .modules
+            .plan_registration(&self.process.module_records, module, class)?;
+        self.objects.register_object_with_handle(
+            RuntimeObjectKey::Module { handle },
+            RuntimeHandle(handle),
+        )?;
+        self.modules
+            .commit_registration(&mut self.process.module_records, plan);
+        Ok(self
+            .process
+            .module_records
+            .module(handle)
+            .expect("committed runtime module disappeared"))
     }
 
     pub fn module(&self, handle: u32) -> Result<&RuntimeModule, RuntimeStateError> {
         self.objects
             .object_for_handle(RuntimeHandle(handle), RuntimeObjectKind::Module)?;
-        self.process.modules.get(&handle).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-module",
-                "module-handle-unknown",
-                format!("logical module handle {handle:#010x} is not loaded"),
-            )
-        })
+        self.process.module_records.module(handle)
     }
 
     pub fn module_by_name(&self, name: &str) -> Result<&RuntimeModule, RuntimeStateError> {
-        let handle = self
-            .module_graph
-            .module_by_name(name)
-            .map_err(runtime_module_graph_error)?
-            .handle;
+        let handle = self.modules.module_by_name_handle(name)?;
         self.module(handle)
     }
 
@@ -2859,19 +2624,8 @@ impl RuntimeState {
         self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module(requester_handle)?;
         self.module(dependency_handle)?;
-        let requester = self
-            .module_graph
-            .module_by_handle(requester_handle)
-            .map_err(runtime_module_graph_error)?
-            .id;
-        let dependency = self
-            .module_graph
-            .module_by_handle(dependency_handle)
-            .map_err(runtime_module_graph_error)?
-            .id;
-        self.module_graph
-            .add_dependency(requester, dependency)
-            .map_err(runtime_module_graph_error)
+        self.modules
+            .add_dependency(requester_handle, dependency_handle)
     }
 
     pub fn add_current_thread_module_reference(
@@ -2880,14 +2634,8 @@ impl RuntimeState {
     ) -> Result<u32, RuntimeStateError> {
         self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module(handle)?;
-        let module = self
-            .module_graph
-            .module_by_handle(handle)
-            .map_err(runtime_module_graph_error)?
-            .id;
-        self.module_graph
-            .add_dynamic_reference(module, self.current_thread_id().0)
-            .map_err(runtime_module_graph_error)
+        self.modules
+            .add_dynamic_reference(handle, self.current_thread_id().0)
     }
 
     pub fn release_current_thread_module_reference(
@@ -2896,27 +2644,14 @@ impl RuntimeState {
     ) -> Result<u32, RuntimeStateError> {
         self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module(handle)?;
-        let module = self
-            .module_graph
-            .module_by_handle(handle)
-            .map_err(runtime_module_graph_error)?
-            .id;
-        self.module_graph
-            .release_dynamic_reference(module, self.current_thread_id().0)
-            .map_err(runtime_module_graph_error)
+        self.modules
+            .release_dynamic_reference(handle, self.current_thread_id().0)
     }
 
     pub fn mark_module_ready(&mut self, handle: u32) -> Result<(), RuntimeStateError> {
         self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.module(handle)?;
-        let module = self
-            .module_graph
-            .module_by_handle(handle)
-            .map_err(runtime_module_graph_error)?
-            .id;
-        self.module_graph
-            .mark_ready(module)
-            .map_err(runtime_module_graph_error)
+        self.modules.mark_ready(handle)
     }
 
     pub fn attach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
@@ -2928,9 +2663,7 @@ impl RuntimeState {
             ));
         }
         self.require_dll_operation_inactive_for_module_graph_mutation()?;
-        self.module_graph
-            .attach_all()
-            .map_err(runtime_module_graph_error)
+        self.modules.attach_all()
     }
 
     pub fn detach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
@@ -2942,9 +2675,7 @@ impl RuntimeState {
             ));
         }
         self.require_dll_operation_inactive_for_module_graph_mutation()?;
-        self.module_graph
-            .detach_all()
-            .map_err(runtime_module_graph_error)
+        self.modules.detach_all()
     }
 
     fn require_dll_operation_inactive_for_module_graph_mutation(
@@ -2980,7 +2711,8 @@ impl RuntimeState {
         self.require_dll_callback_thread_state()?;
         validate_dll_return_sentinel(return_sentinel)?;
         let graph_order = self
-            .module_graph
+            .modules
+            .graph()
             .planned_attach_order()
             .map_err(runtime_module_graph_error)?;
         let callback_order = self.dll_callback_order(&graph_order)?;
@@ -3020,7 +2752,8 @@ impl RuntimeState {
         self.require_dll_callback_thread_state()?;
         validate_dll_return_sentinel(return_sentinel)?;
         let graph_order = self
-            .module_graph
+            .modules
+            .graph()
             .planned_detach_order()
             .map_err(runtime_module_graph_error)?;
         let callback_order = self.dll_callback_order(&graph_order)?;
@@ -3117,11 +2850,13 @@ impl RuntimeState {
         }
         let current_order = match operation.kind {
             RuntimeDllOperationKind::Attach => self
-                .module_graph
+                .modules
+                .graph()
                 .planned_attach_order()
                 .map_err(runtime_module_graph_error)?,
             RuntimeDllOperationKind::Detach => self
-                .module_graph
+                .modules
+                .graph()
                 .planned_detach_order()
                 .map_err(runtime_module_graph_error)?,
             RuntimeDllOperationKind::AttachUnwind => {
@@ -3163,14 +2898,15 @@ impl RuntimeState {
         let mut callbacks = Vec::new();
         for module_id in graph_order {
             let node = self
-                .module_graph
+                .modules
+                .graph()
                 .module(*module_id)
                 .map_err(runtime_module_graph_error)?;
             if matches!(
                 node.class,
                 RuntimeModuleClass::MainExecutable | RuntimeModuleClass::GuestDynamicLibrary
             ) {
-                if !self.module_import_bindings.contains_key(module_id) {
+                if !self.modules.has_binding(*module_id) {
                     return Err(RuntimeStateError::conflict(
                         "runtime-dll-lifecycle",
                         "dll-module-import-binding-missing",
@@ -3181,7 +2917,7 @@ impl RuntimeState {
                     ));
                 }
                 let image = self
-                    .module_images
+                    .modules
                     .image(*module_id)
                     .map_err(runtime_module_image_error)?;
                 if node.class == RuntimeModuleClass::GuestDynamicLibrary
@@ -3242,11 +2978,12 @@ impl RuntimeState {
         return_sentinel: GuestAddress,
     ) -> Result<RuntimeDllCallbackRequest, RuntimeStateError> {
         let node = self
-            .module_graph
+            .modules
+            .graph()
             .module(module_id)
             .map_err(runtime_module_graph_error)?;
         let image = self
-            .module_images
+            .modules
             .image(module_id)
             .map_err(runtime_module_image_error)?;
         let entry_point = image.entry_point.ok_or_else(|| {
@@ -3278,11 +3015,11 @@ impl RuntimeState {
     ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
         match operation.kind {
             RuntimeDllOperationKind::Attach => {
-                let graph_order = match self.module_graph.attach_all() {
+                let graph_order = match self.modules.attach_all() {
                     Ok(graph_order) => graph_order,
                     Err(error) => {
                         self.dll_operation = Some(operation);
-                        return Err(runtime_module_graph_error(error));
+                        return Err(error);
                     }
                 };
                 self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessAttached;
@@ -3314,11 +3051,11 @@ impl RuntimeState {
                 })
             }
             RuntimeDllOperationKind::Detach => {
-                let graph_order = match self.module_graph.detach_all() {
+                let graph_order = match self.modules.detach_all() {
                     Ok(graph_order) => graph_order,
                     Err(error) => {
                         self.dll_operation = Some(operation);
-                        return Err(runtime_module_graph_error(error));
+                        return Err(error);
                     }
                 };
                 self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessDetached;
@@ -4717,61 +4454,6 @@ impl RuntimeState {
     fn current_thread(&self) -> Result<&RuntimeThreadState, RuntimeStateError> {
         self.threads
             .current_state(self.scheduler.current_thread_id())
-    }
-}
-
-fn runtime_module_graph_error(error: RuntimeModuleGraphError) -> RuntimeStateError {
-    match error.class {
-        RuntimeModuleGraphErrorClass::InvalidInput => {
-            RuntimeStateError::invalid_input("runtime-module-graph", error.code, error.message)
-        }
-        RuntimeModuleGraphErrorClass::NotFound => {
-            RuntimeStateError::not_found("runtime-module-graph", error.code, error.message)
-        }
-        RuntimeModuleGraphErrorClass::Conflict => {
-            RuntimeStateError::conflict("runtime-module-graph", error.code, error.message)
-        }
-        RuntimeModuleGraphErrorClass::ResourceLimit => {
-            RuntimeStateError::resource_limit("runtime-module-graph", error.code, error.message)
-        }
-        RuntimeModuleGraphErrorClass::RuntimeDefect => {
-            RuntimeStateError::runtime_defect("runtime-module-graph", error.code, error.message)
-        }
-    }
-}
-
-fn runtime_module_image_state_error(error: RuntimeStateError) -> RuntimeModuleImageError {
-    let class = match error.class {
-        RuntimeStateErrorClass::InvalidInput => RuntimeModuleImageErrorClass::InvalidInput,
-        RuntimeStateErrorClass::NotFound => RuntimeModuleImageErrorClass::NotFound,
-        RuntimeStateErrorClass::Conflict => RuntimeModuleImageErrorClass::Conflict,
-        RuntimeStateErrorClass::ResourceLimit => RuntimeModuleImageErrorClass::ResourceLimit,
-        RuntimeStateErrorClass::RuntimeDefect => RuntimeModuleImageErrorClass::RuntimeDefect,
-    };
-    RuntimeModuleImageError {
-        class,
-        code: error.code,
-        message: error.message,
-    }
-}
-
-fn runtime_module_image_error(error: RuntimeModuleImageError) -> RuntimeStateError {
-    match error.class {
-        RuntimeModuleImageErrorClass::InvalidInput => {
-            RuntimeStateError::invalid_input("runtime-module-image", error.code, error.message)
-        }
-        RuntimeModuleImageErrorClass::NotFound => {
-            RuntimeStateError::not_found("runtime-module-image", error.code, error.message)
-        }
-        RuntimeModuleImageErrorClass::Conflict => {
-            RuntimeStateError::conflict("runtime-module-image", error.code, error.message)
-        }
-        RuntimeModuleImageErrorClass::ResourceLimit => {
-            RuntimeStateError::resource_limit("runtime-module-image", error.code, error.message)
-        }
-        RuntimeModuleImageErrorClass::RuntimeDefect => {
-            RuntimeStateError::runtime_defect("runtime-module-image", error.code, error.message)
-        }
     }
 }
 

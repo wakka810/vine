@@ -220,6 +220,7 @@ fn typed_runtime_handles_preserve_object_lifetime_and_reject_stale_generations()
         RuntimeModuleLoadState::ProcessDetached { sequence: 2 }
     );
     let module_graph_before_failed_registration = runtime.module_graph().clone();
+    let module_records_before_failed_registration = runtime.process().modules().clone();
     let object_count = runtime.objects().objects().len();
     assert_eq!(
         runtime
@@ -232,7 +233,7 @@ fn typed_runtime_handles_preserve_object_lifetime_and_reject_stale_generations()
                 canonical_name: "broken.dll".to_owned(),
                 runtime_system_module: false,
             })
-            .expect_err("module graph rolls back when object registration fails")
+            .expect_err("module plan remains uncommitted when object registration fails")
             .code,
         "runtime-handle-type-mismatch"
     );
@@ -240,12 +241,16 @@ fn typed_runtime_handles_preserve_object_lifetime_and_reject_stale_generations()
         runtime.module_graph(),
         &module_graph_before_failed_registration
     );
+    assert_eq!(
+        runtime.process().modules(),
+        &module_records_before_failed_registration
+    );
     assert_eq!(runtime.objects().objects().len(), object_count);
     assert_eq!(
         runtime
             .module_graph()
             .module_by_name("broken.dll")
-            .expect_err("rolled-back graph node is absent")
+            .expect_err("uncommitted graph node is absent")
             .code,
         "module-name-unknown"
     );

@@ -539,6 +539,34 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active runtime object subsystem boundary is invalid");
   }
+  const modules = requireRecord(
+    active.runtimeModules,
+    "activeRuntimeCheckpoint.runtimeModules",
+    errors,
+  );
+  if (
+    modules.schema !== "vine.runtime-modules.v1" ||
+    modules.stateOwner !== "runtime/modules.rs::RuntimeModules" ||
+    modules.processRecordOwner !== "runtime/modules.rs::RuntimeModuleRecords" ||
+    modules.mutableCollectionVisibility !== "private" ||
+    modules.readInspection !== "immutable-borrow" ||
+    modules.serializedRuntimeField !== "moduleGraph" ||
+    modules.serializedProcessField !== "modules" ||
+    modules.serializationAdapter !== "serde-flatten-private-runtime-modules" ||
+    !Array.isArray(modules.ownedCollections) ||
+    modules.ownedCollections.join(",") !==
+      "process-module-records,module-graph,module-images,module-import-bindings,runtime-system-exports" ||
+    modules.crossSubsystemMutation !==
+      "module-plan-object-memory-preflight-targeted-commit" ||
+    modules.subsystemTests < 3 ||
+    modules.crossSubsystemAtomicTests < 3 ||
+    modules.registrationRollbackMutation !== false ||
+    modules.directCollectionMutationFromAggregate !== false ||
+    modules.dllLifecycleOperationOwner !== "runtime-state-temporary" ||
+    modules.wholeRuntimeStateClone !== false
+  ) {
+    errors.push("active runtime module subsystem boundary is invalid");
+  }
   const threads = requireRecord(
     active.runtimeThreadRegistry,
     "activeRuntimeCheckpoint.runtimeThreadRegistry",

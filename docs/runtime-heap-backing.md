@@ -130,16 +130,16 @@ The controlled sequence fixes:
 - explicit destroy: two live allocations discarded, 16 MiB reserved／4 KiB committed released
 - process teardown: one backed and one metadata-only heap, final memory generation／ack `13`
 
-S5 regression on the same implementation:
+Latest S6 regression preserves the same heap behavior:
 
 - Node BGI oracle: 284 calls／25,256 instructions、next `GetCurrentThread`; semantic report
   SHA-256 `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`
 - Chrome Worker: Node-equivalent memory／next stop、cancel／watchdog clean、browser report
-  SHA-256 `d47056b546b35caac768035928e980caad799957345291cd4d5cf3fe33586a84`
-- 180-second BGI workload: 624 sessions、failure `0`、all 17 thresholds passed; report
-  SHA-256 `297afb5f8ba3073b347619529d868b5dd9645262fbdbde4a654c5f44cf41ae15`
-- Rust runtime core Wasm: 2,087,633 bytes／SHA-256
-  `cce4e68d59599631729fbf211c16aa94338bf3845f770a94532baf2365633f3c`
+  SHA-256 `04af5d7305ebd17e1a1fc1415cebfc4dbc05743e50ed941500264aacb3b773c4`
+- 180-second BGI workload: 630 sessions、failure `0`、all 17 thresholds passed; report
+  SHA-256 `435eaf35b2fb2979c9bafe87ff2294cb585b10675ba063803b5d4d3a244fc234`
+- Rust runtime core Wasm: 2,070,941 bytes／SHA-256
+  `7c94ef0ab815edef68ce51d612a6595274e9505ff2787ac7b3101e9e2ce69d4e`
 
 The clean commit `a0d99e5` report remains the engine decision authority; current benchmark numbers are
 regression evidence, not a replacement baseline.
@@ -157,5 +157,6 @@ not their completion.
 Mapped guest-module／export identity and dependency-ordered `DllMain` lifecycle are implemented in
 [runtime-module-images.md](runtime-module-images.md) and
 [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). Capability expansion remains paused at the saved
-`GetCurrentThread` stop. The next responsibility checkpoint applies the same private ownership and
-plan／preflight／commit boundary to module metadata, image, import binding, and DLL lifecycle state.
+`GetCurrentThread` stop. Module metadata, image, import binding, and runtime export collections now
+use the same private ownership and plan／preflight／commit boundary. The next responsibility checkpoint
+moves DLL lifecycle phase and in-flight operation state into that module subsystem.

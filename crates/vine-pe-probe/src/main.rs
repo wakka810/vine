@@ -2766,7 +2766,7 @@ fn run_v86_generic_runtime_session(
             modules: process
                 .runtime
                 .process()
-                .modules
+                .modules()
                 .values()
                 .cloned()
                 .collect(),

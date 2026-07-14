@@ -12,6 +12,12 @@ ready後にdependency-first `DLL_PROCESS_ATTACH`、attach failure unwind／retry
 `FreeLibrary`、TLS callback、thread attach／detach、module memory／object retirement、broad system
 DLL catalog、BGI continuationは含めない。
 
+Architecture refactor checkpoint S6ではgraph、mapped images、committed import bindings、runtime
+export table、process module recordsをprivate `runtime/modules.rs` ownerへ移した。Import bindingは
+live graphをmutateせずcomplete graph candidateをplanし、object／memory preflight成功後にだけmodule
+metadataをcommitする。DLL lifecycle phaseとin-flight callback operationは一時的に`RuntimeState`へ
+残す。次checkpointはloader capabilityを増やさず、このoperation stateをsame subsystemへ移す。
+
 ## Controlled fixture and native oracle
 
 `fixtures/pe32/dll-lifecycle/`はLLVM 22だけで再現生成するfixed graphである。
@@ -55,8 +61,8 @@ ID `1`／`0x7F000000` for `kernel32.dll!GetCurrentProcessId`; its one RX page ha
 `4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059`.
 
 The memory transaction writes and verifies every IAT, installs／seals the runtime table when needed,
-and seals the requester image. Only after those operations succeed does `RuntimeState` replace the
-candidate graph, export-table metadata, and binding record. A missing codec image leaves graph、IAT、
+and seals the requester image. Only after those operations succeed does private `RuntimeModules`
+commit the candidate graph, export-table metadata, and binding record. A missing codec image leaves graph、IAT、
 memory generation、binding registry unchanged, so the same materialization can retry.
 
 Controlled direct targets are:
@@ -94,18 +100,15 @@ npm run check:toolchain
 cargo test -p vine-core --test runtime_dll_lifecycle --locked
 ```
 
-Measured runtime core Wasm is 794,331 bytes／SHA-256
-`bbc24294dbd5acf79d9cff0a753193dda1dd5e8c6dfc4026cd811d86c9b2e05d`.
-The frozen BGI run remains 17 calls／238 instructions with report SHA-256
-`ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4` and reflection
-SHA-256 `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`.
-
-Chrome `150.0.7871.115` Worker regression remains 46 instructions、2 callbacks／depth 2、expected
-pixel／880 Hz audio／`0x5A` storage、clean cancel／watchdog、exit code `0`. The version 1 dirty
-checkpoint benchmark is `go` with zero threshold failures: integer `126,565,414` ips、x87
-`52,379,527` ips、SSE2 `79,681,938` ips、adapter trap `217,533/s`、production API `11,222/s`、
-active steady memory `14,688,144` bytes、background ratio `0.760`. The clean commit `a0d99e5`
-report remains the engine decision authority; these values are regression evidence only.
+S6 regression preserves the Node BGI oracle at 284 calls／25,256 instructions and next
+`GetCurrentThread`, with semantic report SHA-256
+`0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`.
+Chrome `150.0.7871.115` reproduces the same memory and stop, with clean cancel／watchdog and browser
+report SHA-256 `04af5d7305ebd17e1a1fc1415cebfc4dbc05743e50ed941500264aacb3b773c4`.
+The 180-second workload completes 630 sessions with zero failures and all 17 thresholds passed;
+report SHA-256 is `435eaf35b2fb2979c9bafe87ff2294cb585b10675ba063803b5d4d3a244fc234`.
+Runtime core Wasm is 2,070,941 bytes／SHA-256
+`7c94ef0ab815edef68ce51d612a6595274e9505ff2787ac7b3101e9e2ce69d4e`.
 
 ## Non-claims and next dependency
 
@@ -114,6 +117,7 @@ execute these fixture callbacks on v86, write an x86 stack frame, dispatch the c
 thunk, implement arbitrary nested loader callbacks, or unload a module independently. It also does
 not add a BGI-specific flag／request／receipt.
 
-Step 10 returns the existing BGI 17-call checkpoint to the generic runtime process path and
-automatic memory synchronization, then remeasures the first unsupported capability cluster. The
-owned third `EncodePointer(0x7F020000)` stop remains unchanged until that re-entry is demonstrated.
+The generic BGI process path and Browser Worker equivalence are now established and capability
+expansion remains paused at `GetCurrentThread`. The next responsibility checkpoint moves DLL
+lifecycle phase, attach／detach operation, and callback progress into the private module subsystem
+while preserving this controlled fixture and unwind／retry behavior.

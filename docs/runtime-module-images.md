@@ -10,6 +10,10 @@ authoritative recordへ固定し、name／ordinal／forwarder lookupをguest add
 このcheckpointはguest IATをbindせず、dependency edgeをimportから生成せず、`DllMain`を
 呼ばない。Mappingとexport identityだけをcallback lifecycleより先に成立させる。
 
+Architecture refactor checkpoint S6ではmapped-image registryをgraph、import binding、runtime
+export tableとともにprivate `runtime/modules.rs::RuntimeModules`へ移した。`RuntimeState`はimmutable
+inspection／resolution methodだけを公開し、registry collectionを直接所有またはmutateしない。
+
 ## Bounded PE32 exports
 
 `Pe32LoadPlan::exports`はexport directoryがある場合だけ次を保持する。
@@ -31,8 +35,8 @@ version 1 reportへ追加しない。これにより既存BGI report／reflectio
 
 ## Mapped image identity
 
-`RuntimeModuleImageRegistry`は最大4,096 recordsをmodule ID、canonical name、logical handleで
-indexする。Registrationは全checkをregistry mutationより先に実行する。
+Private `RuntimeModules` image registryは最大4,096 recordsをmodule ID、canonical name、logical
+handleでindexする。Registrationは全checkをregistry mutationより先に実行する。
 
 1. graph nodeは`registered`で、main EXE／guest DLL classとPE image kindが一致する。
 2. runtime system moduleはguest PE ownerを持たない。
@@ -88,17 +92,16 @@ overlapping range, unknown target, and two-module forwarder cycle. Registration�
 preserves the complete image registry. Five valid images are registered; the overlapping sixth is
 rejected.
 
-Production regression on the same implementation:
+S6 regression on the same behavior:
 
-- Chrome Worker: 46 instructions、cancel／watchdog／clean exit、exit code `0`
-- BGI: 17 calls／238 instructions; report SHA-256
-  `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`
-- BGI reflection SHA-256
-  `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`
-- version 1 browser benchmark: `go`, threshold failures `0`; integer `148,252,289` ips,
-  production API `12,477/s`
-- Rust runtime core Wasm: 791,970 bytes／SHA-256
-  `94b0a39b7c862016f02a2af6c050cb196dab4a4badfe40bad48070827b60ca23`
+- Node BGI oracle: 284 calls／25,256 instructions, next `GetCurrentThread`; semantic report
+  SHA-256 `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`
+- Chrome Worker: Node-equivalent memory／next stop, cancel／watchdog clean; browser report
+  SHA-256 `04af5d7305ebd17e1a1fc1415cebfc4dbc05743e50ed941500264aacb3b773c4`
+- 180-second BGI workload: 630 sessions, failure `0`, all 17 thresholds passed; report
+  SHA-256 `435eaf35b2fb2979c9bafe87ff2294cb585b10675ba063803b5d4d3a244fc234`
+- Rust runtime core Wasm: 2,070,941 bytes／SHA-256
+  `7c94ef0ab815edef68ce51d612a6595274e9505ff2787ac7b3101e9e2ce69d4e`
 
 The clean commit `a0d99e5` report remains the engine decision authority; current benchmark values
 are regression evidence only.
@@ -112,6 +115,7 @@ module memory／object retirement, or BGI continuation. It is partial evidence f
 `P2-PE-05`, not their completion.
 
 The controlled guest import／runtime export catalog binding and dependency-ordered process callback
-lifecycle are now implemented in [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). The next
-dependency returns the frozen BGI 17-call checkpoint to the generic runtime process path; the third
-`EncodePointer(0x7F020000)` remains unchanged until that re-entry is demonstrated.
+lifecycle are implemented in [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). The graph, image,
+import binding, and runtime export collections now have one private module owner. DLL lifecycle
+phase and in-flight operation state remain temporarily in `RuntimeState`; moving those fields is the
+next narrow responsibility checkpoint.

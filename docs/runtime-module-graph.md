@@ -10,6 +10,12 @@ graphを共有するためのmetadata contractである。
 このcheckpointはguest DLLをmapせず、export／forwarderを解決せず、`DllMain`を呼ばない。
 ordered state transitionまでをRust authorityへ置き、image／callback lifecycleは後続へ残す。
 
+Architecture refactor checkpoint S6では、process module recordsをprivate
+`runtime/modules.rs::RuntimeModuleRecords`へ、graph、mapped-image registry、import binding、
+runtime export tableをprivate `runtime/modules.rs::RuntimeModules`へ移した。`RuntimeState`は
+aggregate coordinatorとして残るが、これらのcollectionを直接mutateしない。既存serialized
+`process.modules`とroot `moduleGraph` shapeは`serde(flatten)`で維持する。
+
 ## Canonical identity and classes
 
 Graph nodeはmonotonic `RuntimeModuleId`、existing typed module handle、requested name、
@@ -75,10 +81,11 @@ detach: game.exe -> engine.dll -> kernel32.dll -> codec.dll
 ## RuntimeState integration
 
 `RuntimeState::load_module`はruntime system／guest DLL classを選び、
-`register_main_module`はmain classを明示する。graph registration後にtyped object handle
-registrationが失敗した場合はunlinked graph node、canonical index、main identityを
-rollbackし、latest module ID／discovery countersもretry前の値へ戻す。`module_by_name`は
-parallel registry scanではなくgraph canonical indexをauthorityとしてhandleへ解決する。
+`register_main_module`はmain classを明示する。`RuntimeModules`はprivate process recordsを検証し、
+complete next graphをmutationなしでplanする。Aggregateはその後typed object handleを登録し、
+records／graphをinfallible commitする。Object-table failureは両module collectionとgraph allocation
+counterを不変に保ち、graph rollback mutationを必要としない。`module_by_name`はprocess recordsを
+parallel scanせず、graph canonical indexをauthorityとしてhandleへ解決する。
 
 `RuntimeState`はhandle-based dependency、current-thread dynamic reference、ready、attach、
 detach methodsを公開する。これらはobject tableでlive typed module handleを検証してから
@@ -89,25 +96,29 @@ graph IDへ変換する。
 Representative contracts:
 
 ```powershell
+cargo test -p vine-core --lib runtime::modules::tests --locked
 cargo test -p vine-core --test module_graph --locked
 cargo test -p vine-core --test runtime_objects --locked
 ```
 
-The graph contract fixes canonical lookup／class validation, unique main identity, mirrored edges,
-cycle rejection without mutation, static／dynamic reference ownership, failed attach without state
-change, deterministic attach／detach, and registration rollback. The `RuntimeState` contract fixes
-typed-handle integration and the controlled `kernel32.dll -> controlled.exe` lifecycle order.
+The subsystem contract fixes mutation-free registration planning, stable `process.modules`／
+`moduleGraph` serialization, duplicate rejection, and graph operations resolved only through owned
+records. The graph contract fixes canonical lookup／class validation, unique main identity, mirrored
+edges, cycle rejection without mutation, static／dynamic reference ownership, failed attach without
+state change, and deterministic attach／detach. The aggregate contract fixes typed-handle integration,
+object-registration failure with unchanged records and graph, and the controlled
+`kernel32.dll -> controlled.exe` lifecycle order.
 
-Production regression on the same implementation:
+S6 regression on the same behavior:
 
-- Chrome Worker: 46 instructions, semantic output／cancel／watchdog unchanged, exit code `0`
-- BGI: 17 calls／238 instructions; report SHA-256
-  `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`
-- BGI reflection SHA-256
-  `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`
-- version 1 browser benchmark regression: `go`, threshold failures `0`
-- current Rust runtime core Wasm: 690,816 bytes／SHA-256
-  `5bfa7b7141a3f0a30acd1c58e6a28afe2c5fc1e8f8b5e5859c97e3068a11cac0`
+- Node BGI oracle: 284 calls／25,256 instructions, next `GetCurrentThread`; semantic report
+  SHA-256 `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`
+- Chrome Worker: Node-equivalent memory／next stop, cancel／watchdog clean; browser report
+  SHA-256 `04af5d7305ebd17e1a1fc1415cebfc4dbc05743e50ed941500264aacb3b773c4`
+- 180-second BGI workload: 630 sessions, failure `0`, all 17 thresholds passed; report
+  SHA-256 `435eaf35b2fb2979c9bafe87ff2294cb585b10675ba063803b5d4d3a244fc234`
+- Rust runtime core Wasm: 2,070,941 bytes／SHA-256
+  `7c94ef0ab815edef68ce51d612a6595274e9505ff2787ac7b3101e9e2ce69d4e`
 
 The dirty-checkpoint benchmark is regression evidence only. The clean commit `a0d99e5` report in
 [v86-browser-benchmark.md](v86-browser-benchmark.md) remains the engine decision authority.
@@ -134,4 +145,6 @@ The wait queue is implemented in [runtime-wait-queue.md](runtime-wait-queue.md),
 implemented in [runtime-message-queue.md](runtime-message-queue.md), and private-heap backing is
 implemented in [runtime-heap-backing.md](runtime-heap-backing.md). Guest import binding plus
 dependency-ordered `DllMain` process attach／detach callbacks are implemented in
-[runtime-dll-lifecycle.md](runtime-dll-lifecycle.md).
+[runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). The graph／image／import／export collections now
+share the private module owner; the next narrow responsibility checkpoint moves DLL lifecycle
+phase and in-flight operation state out of the aggregate without adding loader capability.

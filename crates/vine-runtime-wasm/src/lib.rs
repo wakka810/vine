@@ -385,7 +385,7 @@ impl BrowserRuntime {
                 "threadId": process.runtime.current_thread_id().0,
                 "currentDirectoryA": process.runtime.current_directory_a(),
                 "currentDirectoryGeneration": process.runtime.current_directory_generation(),
-                "moduleCount": process.runtime.process().modules.len(),
+                "moduleCount": process.runtime.process().modules().len(),
                 "dependencyEdges": process.binding.dependency_edges.len(),
                 "attachOrder": process.attach_order,
                 "kernel32Policy": kernel32_policy.id,

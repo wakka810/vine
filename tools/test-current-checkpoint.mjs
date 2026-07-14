@@ -129,6 +129,15 @@ assert.ok(
   ),
 );
 
+const aggregateMutatesModules = structuredClone(manifest);
+aggregateMutatesModules.activeRuntimeCheckpoint.runtimeModules.directCollectionMutationFromAggregate =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(aggregateMutatesModules).some((error) =>
+    error.includes("module subsystem boundary"),
+  ),
+);
+
 const exposedThreads = structuredClone(manifest);
 exposedThreads.activeRuntimeCheckpoint.runtimeThreadRegistry.mutableCollectionVisibility =
   "public";

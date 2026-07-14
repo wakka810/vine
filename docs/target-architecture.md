@@ -202,6 +202,18 @@ GuestMemory transactionをpreflightしてからtargeted commitする。Aggregate
 mutateせず、failed object registrationではprivate-heap slot allocatorも進めない。詳細は
 [runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
+Mutable process module recordsはprivate `runtime/modules.rs::RuntimeModuleRecords`、graph、mapped
+images、import bindings、runtime export tableはprivate
+`runtime/modules.rs::RuntimeModules`だけが所有する。既存`process.modules`／root `moduleGraph`
+serializationはflatten adapterで維持し、inspectionはimmutable borrowに限定する。Registrationは
+mutation-free graph planを作り、typed objectをpreflightした後にrecords／graphをinfallible commitするため、
+failed object registrationでrollback mutationを行わない。Guest import bindingもmemory work成功後にだけ
+candidate graphとmetadataをcommitする。Aggregateはこれらのcollectionを直接mutateしない。DLL lifecycle
+phase／in-flight operationは次のnarrow checkpointまで一時的にaggregateが所有する。詳細は
+[runtime-module-graph.md](runtime-module-graph.md)、
+[runtime-module-images.md](runtime-module-images.md)、
+[runtime-dll-lifecycle.md](runtime-dll-lifecycle.md)を正とする。
+
 Process-owned critical-section／mutex collectionsとnamed indexは`runtime/synchronization.rs`のprivate
 `RuntimeSynchronization`が所有する。`RuntimeState`はprocess／selected-thread／scheduler lifecycleを
 preflightしてcurrent thread identityを渡すcoordinatorに限定する。Critical-section and mutex transitionsは

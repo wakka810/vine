@@ -218,7 +218,7 @@ general BeginPaint client geometry／region／clip／erase／background／nestin
 
 process-owned module graphの代表Rust contractはbounded ASCII basename／class、unique main、
 mirrored dependency、cycle rejection時のmemory不変、static／dynamic reference、ready gate、
-dependency-first attach、strict reverse detach、object-table registration rollbackを1 graphで
+dependency-first attach、strict reverse detach、object-table registration failure before commitを1 graphで
 固定する。`RuntimeState` contractはexisting typed handleを通す2-module orderを追加する。
 これはmodule metadata orderのevidenceであり、DLL image mapping、export／forwarder、TLS／
 `DllMain` callback、unloadを実装済みとしない。詳細は
@@ -247,6 +247,13 @@ Heap subsystem unit contractsはprivate logical／backing collectionsのco-owner
 allocation plan、targeted commit、既存`process.heaps` serialization shapeを固定する。Aggregate atomicity
 testはobject-table conflict時にheap collectionsとprivate-heap slot allocatorが両方不変であることを固定し、
 GuestMemory integrationはcollision、allocation、free、destroy、process teardownをtransactionalに通す。
+
+Module subsystem unit contractsはprivate process records／graph／image／import／export collection
+ownership、mutation-free registration plan、既存`process.modules`／`moduleGraph` serialization shape、
+duplicate rejection、owned recordsだけを通すgraph operationを固定する。Aggregate atomicity testは
+typed-object registration failure時にrecords／graphが両方不変であることを固定する。Import binding
+contractsはplan／memory／metadata commit ordering、stale-plan rejection、failed memory work後のretryを
+維持する。DLL lifecycle operation stateは一時的にaggregateへ残り、このcheckpointで完了扱いしない。
 
 controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
 one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact
