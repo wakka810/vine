@@ -29,6 +29,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-get-module-file-name-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-private-heap-size-16-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-private-heap-size-4-v1.json"),
+        include_str!(
+            "../../../fixtures/runtime-policies/kernel32-private-heap-free-size-1-v1.json"
+        ),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -116,4 +119,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert!(size_4.allows_heap_allocation(0x8, 0x214));
     assert!(size_4.allows_heap_allocation(0x8, 0x800));
     assert!(!size_16.allows_heap_allocation(0x8, 4));
+    assert!(!size_4.allows_heap_free(0));
+    let heap_free: Kernel32CompatibilityPolicy = serde_json::from_str(policies[19]).unwrap();
+    assert!(heap_free.allows_heap_free(0));
+    assert!(!heap_free.allows_heap_free(1));
+    assert!(heap_free.allows_heap_allocation(0x8, 4));
 }

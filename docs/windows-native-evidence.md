@@ -1909,3 +1909,40 @@ Chrome Runtime Workerも186 ordered callsとsame stop／memoryを再現し、2,3
 2,143 yields、1,974 Wasm crossings、final generation `1,542`、cancel／watchdog後pending
 work 0を通す。3分gateは627 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-private-heap-size-4.md](bgi-private-heap-size-4.md)を正とする。
+
+## 76. BGI private-heap one-byte allocation free
+
+同じ2件のaccepted focused heap capturesは、sequence `60/61`のcall ID `7`で
+`HeapAlloc(nativeHeap,0,3637)`を記録し、sequence `160/161`のcall ID `57`で
+exact same heap／pointerを`HeapFree(...,0,pointer)`へ渡す。Free observerの
+`relatedAllocationCallId`は両runとも`7`、requested bytesは`3637`、resultは`1`、
+LastErrorは`0 -> 0`である。Allocation直後のuninitialized fingerprintは
+`0x02DDAABF`／`0x0406D700`と異なるが、free直前は両runでFNV-1a
+`0xA8AD592C`／NUL 47 bytesへ収束する。Native heap／pointer数値とhost-environment
+由来sizeはruntimeへimportしない。
+
+Fingerprint済みimageのRVA `0xA48CD`は`test eax,eax; jne success`であり、failure
+branchだけが`GetLastError`を読む。Policy
+`kernel32-private-heap-free-size-1-v1`はHeapFree flags `0`だけを有効化し、
+`kernel32.heap-free.v1`はallocation ID `3`／`0x20000A18`／reserved 8 bytesを
+existing transactional heap freeへ接続する。SuccessはBOOL `TRUE`、LastError preserve、
+free delta sequence `187`／generation `269 -> 270`／dirty-only owner 10 page
+`0x20000000`／payload SHA-256
+`93cb85efb43c4586535cabdedf112e538d7fbe792245ed8954482b9815aa092a`
+である。
+
+`npm run check:runtime:bgi -- --profile kernel32-private-heap-free-size-1`は40
+contracts／197 calls、198 writebacks／300 dirty pages／4,423 changed bytes、54 host
+deltas、final generation `281`を通す。Ten existing `EncodePointer` calls後、instruction
+`18653`でID `75`／`HeapAlloc(0x68010001,8,128)`を
+`heap-alloc-variant-unsupported`として停止する。Memory SHA-256は
+`f248e7dafa44a4a036822bd2eda199959e01c5d39090f67fba5f9f15c0de0186`、
+875,554-byte reportのSHA-256は
+`e0b255e0112fb7d0cbcef12afcd91be63877049fed56fc30b62ce5123f1acd96`である。
+
+Chrome Runtime Workerも197 ordered callsとsame stop／memoryを再現し、2,392 slices、
+2,194 yields、2,027 Wasm crossings、final generation `1,582`、cancel／watchdog後
+pending work 0を通す。3分gateは615 sessions／failure 0で全16 thresholdを通した。
+NULL／interior／foreign／double-freeのmutation-free rejection、freed byte `0xDD`、reuse
+identityはpublic semantic testで固定する。詳細は
+[bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md)を正とする。

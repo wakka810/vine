@@ -24,6 +24,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-get-module-file-name-a-v1.json",
   "fixtures/runtime-policies/kernel32-private-heap-size-16-v1.json",
   "fixtures/runtime-policies/kernel32-private-heap-size-4-v1.json",
+  "fixtures/runtime-policies/kernel32-private-heap-free-size-1-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -41,6 +42,9 @@ for (const relative of policyFiles) {
     byteLengths.map((byteLength) => `${flags}:${byteLength}`),
   );
   assert.equal(new Set(heapVariants).size, heapVariants.length);
+  const heapFreeFlags = policy.heapFreeFlags ?? [];
+  assert.equal(new Set(heapFreeFlags).size, heapFreeFlags.length);
+  assert(heapFreeFlags.every((flags) => flags === 0));
 }
 
 const manifest = JSON.parse(

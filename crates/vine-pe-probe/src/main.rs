@@ -116,6 +116,7 @@ enum GenericRuntimeCapability {
     GetModuleFileNameA,
     PrivateHeapSize16,
     PrivateHeapSize4,
+    PrivateHeapFreeSize1,
 }
 
 struct GenericRuntimeProcess {
@@ -2467,6 +2468,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetModuleFileNameA
                 | GenericRuntimeCapability::PrivateHeapSize16
                 | GenericRuntimeCapability::PrivateHeapSize4
+                | GenericRuntimeCapability::PrivateHeapFreeSize1
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2475,6 +2477,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::GetModuleFileNameA
                 | GenericRuntimeCapability::PrivateHeapSize16
                 | GenericRuntimeCapability::PrivateHeapSize4
+                | GenericRuntimeCapability::PrivateHeapFreeSize1
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2501,7 +2504,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::InterlockedDecrement
             | GenericRuntimeCapability::GetModuleFileNameA
             | GenericRuntimeCapability::PrivateHeapSize16
-            | GenericRuntimeCapability::PrivateHeapSize4,
+            | GenericRuntimeCapability::PrivateHeapSize4
+            | GenericRuntimeCapability::PrivateHeapFreeSize1,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3005,6 +3009,7 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::GetModuleFileNameA
                 | GenericRuntimeCapability::PrivateHeapSize16
                 | GenericRuntimeCapability::PrivateHeapSize4
+                | GenericRuntimeCapability::PrivateHeapFreeSize1
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3012,6 +3017,10 @@ fn runtime_capability_enables_endpoint(
             enabled,
             Some(GenericRuntimeCapability::InterlockedDecrement)
         );
+    let heap_free_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::PrivateHeapFreeSize1)
+    );
     let lc_map_string_w_enabled = interlocked_decrement_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::LcMapStringW));
     let get_string_type_w_enabled = lc_map_string_w_enabled
@@ -3091,7 +3100,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::InterlockedDecrement
             | GenericRuntimeCapability::GetModuleFileNameA
             | GenericRuntimeCapability::PrivateHeapSize16
-            | GenericRuntimeCapability::PrivateHeapSize4,
+            | GenericRuntimeCapability::PrivateHeapSize4
+            | GenericRuntimeCapability::PrivateHeapFreeSize1,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3171,6 +3181,7 @@ fn runtime_capability_enables_endpoint(
                     | GenericRuntimeCapability::SetHandleCount
             )
         ),
+        "HeapFree" => heap_free_enabled,
         "FlsSetValue" => matches!(
             enabled,
             Some(
@@ -3279,7 +3290,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::InterlockedDecrement
             | GenericRuntimeCapability::GetModuleFileNameA
             | GenericRuntimeCapability::PrivateHeapSize16
-            | GenericRuntimeCapability::PrivateHeapSize4,
+            | GenericRuntimeCapability::PrivateHeapSize4
+            | GenericRuntimeCapability::PrivateHeapFreeSize1,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -3560,7 +3572,8 @@ fn runtime_capability_cluster(endpoint: &GenericRuntimeEndpoint) -> String {
                     "kernel32-critical-section-synchronization".to_owned()
                 }
                 vine_core::ApiSymbol::Name { name }
-                    if module == "kernel32.dll" && name == "HeapAlloc" =>
+                    if module == "kernel32.dll"
+                        && matches!(name.as_str(), "HeapAlloc" | "HeapFree") =>
                 {
                     "kernel32-private-heap-allocation".to_owned()
                 }
@@ -8668,6 +8681,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-get-module-file-name-a" => GenericRuntimeCapability::GetModuleFileNameA,
                 "kernel32-private-heap-size-16" => GenericRuntimeCapability::PrivateHeapSize16,
                 "kernel32-private-heap-size-4" => GenericRuntimeCapability::PrivateHeapSize4,
+                "kernel32-private-heap-free-size-1" => {
+                    GenericRuntimeCapability::PrivateHeapFreeSize1
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

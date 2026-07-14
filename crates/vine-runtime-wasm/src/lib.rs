@@ -1231,7 +1231,9 @@ fn runtime_capability_cluster(endpoint: &ApiEndpointIdentity) -> String {
         {
             "kernel32-critical-section-synchronization".to_owned()
         }
-        vine_core::ApiSymbol::Name { name } if module == "kernel32.dll" && name == "HeapAlloc" => {
+        vine_core::ApiSymbol::Name { name }
+            if module == "kernel32.dll" && matches!(name.as_str(), "HeapAlloc" | "HeapFree") =>
+        {
             "kernel32-private-heap-allocation".to_owned()
         }
         _ => format!("{}-api-contract", module.trim_end_matches(".dll")),

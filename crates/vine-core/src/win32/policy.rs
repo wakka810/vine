@@ -42,6 +42,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_code_page_info: Option<Kernel32CodePageInfoPolicy>,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
+    #[serde(default)]
+    pub heap_free_flags: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +142,7 @@ impl Kernel32CompatibilityPolicy {
                 flags: HEAP_ZERO_MEMORY,
                 byte_lengths: vec![0x214],
             }],
+            heap_free_flags: Vec::new(),
         }
     }
 
@@ -168,6 +171,7 @@ impl Kernel32CompatibilityPolicy {
             || self.set_handle_counts.len() > MAX_POLICY_ENTRIES
             || self.heap_allocations.is_empty()
             || self.heap_allocations.len() > MAX_POLICY_ENTRIES
+            || self.heap_free_flags.len() > MAX_POLICY_ENTRIES
         {
             return Err(policy_error(
                 "kernel32-policy-entry-count-invalid",
@@ -306,6 +310,19 @@ impl Kernel32CompatibilityPolicy {
                 }
             }
         }
+        let heap_free_flags = self
+            .heap_free_flags
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        if heap_free_flags.len() != self.heap_free_flags.len()
+            || heap_free_flags.iter().any(|flags| *flags != 0)
+        {
+            return Err(policy_error(
+                "kernel32-policy-heap-free-flags-invalid",
+                "HeapFree variants must be unique implemented flag values",
+            ));
+        }
         Ok(())
     }
 
@@ -366,6 +383,10 @@ impl Kernel32CompatibilityPolicy {
         self.heap_allocations.iter().any(|allocation| {
             allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
         })
+    }
+
+    pub fn allows_heap_free(&self, flags: u32) -> bool {
+        self.heap_free_flags.contains(&flags)
     }
 }
 
@@ -465,6 +486,7 @@ mod tests {
             Some(2)
         );
         assert!(policy.allows_heap_allocation(HEAP_ZERO_MEMORY, 0x214));
+        assert!(!policy.allows_heap_free(0));
         assert!(!policy.allows_set_handle_count(32));
         assert!(!policy.allows_ansi_command_line());
         assert!(!policy.allows_wide_environment_strings());
@@ -600,6 +622,18 @@ mod tests {
         assert_eq!(
             duplicate.validate().unwrap_err().code,
             "kernel32-policy-heap-variant-invalid"
+        );
+
+        duplicate.heap_allocations[0].byte_lengths.pop();
+        duplicate.heap_free_flags = vec![0, 0];
+        assert_eq!(
+            duplicate.validate().unwrap_err().code,
+            "kernel32-policy-heap-free-flags-invalid"
+        );
+        duplicate.heap_free_flags = vec![1];
+        assert_eq!(
+            duplicate.validate().unwrap_err().code,
+            "kernel32-policy-heap-free-flags-invalid"
         );
     }
 }

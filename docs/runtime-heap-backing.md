@@ -11,7 +11,9 @@ boundaryで固定する。
 ままreturnする境界として成立した。続く
 [bgi-private-heap-allocation.md](bgi-private-heap-allocation.md)は、reached
 `HeapAlloc(0x68010001,HEAP_ZERO_MEMORY,0x214)`だけをsame transactionへ接続した。
-`HeapFree`／`HeapDestroy`／`HeapReAlloc`とbroad allocator policyは未実装のままである。
+Later [bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md) connects
+the reached exact flags-zero `HeapFree` to this same transaction. Guest
+`HeapDestroy`／`HeapReAlloc` and broad allocator／free policy remain unimplemented.
 
 ## Controlled address and memory policy
 
@@ -125,9 +127,10 @@ regression evidence, not a replacement baseline.
 
 ## Non-claims and next dependency
 
-The reached guest `HeapAlloc` marshalling exists only for `HEAP_ZERO_MEMORY` plus byte length
-`0x214`. This foundation still does not implement other allocation flags／sizes, failure return,
-zero-size behavior, realloc, size／validate／compact／walk, heap lock, LFH,
+The reached guest policy currently covers six measured nonzero allocation
+flag-size pairs and one exact flags-zero free. It does not implement size 128,
+other allocation/free variants, failure return, zero-size behavior, realloc,
+size／validate／compact／walk, heap lock, LFH,
 serialization, concurrent allocation, corruption termination, guard pages, per-block decommit, or a
 full-title capacity profile. It is partial evidence for `REQ-MEM-01`／`REQ-API-02` and `P3-WIN-01`,
 not their completion.

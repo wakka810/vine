@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-private-heap-size-4-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-private-heap-free-size-1-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -71,6 +71,7 @@ The current files form nineteen monotonic controlled policies:
 | `kernel32-get-module-file-name-a-v1` | stdin, stdout, stderr | preceding options + main-module-only path lookup／32 KiB capacity | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 | `kernel32-private-heap-size-16-v1` | stdin, stdout, stderr | preceding options | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544` |
 | `kernel32-private-heap-size-4-v1` | stdin, stdout, stderr | preceding options | zeroed `4`, `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544` |
+| `kernel32-private-heap-free-size-1-v1` | stdin, stdout, stderr | preceding options | preceding allocation pairs; `HeapFree` flags `0` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -185,6 +186,13 @@ requests one four-byte terminator slot. Host entries and the native size do not
 enter policy. The public heap fixture fixes preceding-policy rejection, full
 reserved-range zero initialization, allocation identity／alignment, dirty-only
 delta, LastError, and stdcall cleanup through the same handler.
+
+The one-byte-free policy then adds only `heapFreeFlags: [0]`. Allocation
+address, ID, call order, and caller RVA remain evidence data rather than policy.
+`kernel32.heap-free.v1` validates the logical heap and exact live allocation;
+unsupported flags stop before heap metadata or guest bytes change. NULL,
+interior, foreign-heap, and stale pointers are rejected by ABI/runtime semantic
+validation rather than added as reached compatibility variants.
 
 Policy JSON parsing and validation is covered independently:
 

@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap-allocation, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte zeroed environment-pointer table, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap allocation/free, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte zeroed environment-pointer table, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-private-heap-size-4`
-- Scope: frozen 17-call equivalence plus 186 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-private-heap-free-size-1`
+- Scope: frozen 17-call equivalence plus 197 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -747,14 +747,33 @@ and stops at instruction 18180 on missing
 `HeapFree(0x68010001,0,0x20000A18)`. Full evidence is in
 [bgi-private-heap-size-4.md](bgi-private-heap-size-4.md).
 
+The current reached-free profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-private-heap-free-size-1
+```
+
+Policy `kernel32-private-heap-free-size-1-v1` adds only flags-zero `HeapFree`.
+`kernel32.heap-free.v1` routes the exact live allocation through the existing
+transactional heap subsystem, returns BOOL `TRUE`, preserves LastError, poisons
+the eight reserved bytes, and emits one dirty-only delta. The profile completes
+197 calls, including ten subsequent existing `EncodePointer` calls, uses 198
+writebacks／300 dirty pages／4,423 changed bytes and 54 host deltas, and ends at
+generation `281`. Its 875,554-byte report has SHA-256
+`e0b255e0112fb7d0cbcef12afcd91be63877049fed56fc30b62ce5123f1acd96`
+and stops at instruction 18,653 on policy-disabled
+`HeapAlloc(0x68010001,8,128)`. Full evidence is in
+[bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
 - The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
 - Private heaps have bounded guest-memory backing, the first three reached zeroed
   allocations, and flags-zero deterministic-uninitialized size-1, size-16, and size-544
-  allocations enabled by policy; other sizes/flags,
-  free/destroy/realloc dispatch, and broad allocator policy remain absent.
+  allocations enabled by policy; exact flags-zero free is enabled for reached
+  live allocations. Other sizes/flags, destroy/realloc dispatch, Windows
+  corruption termination, and broad allocator policy remain absent.
 - FLS free／callback teardown／fiber switching and TLS free／teardown／guest-thread
   lifecycle, critical-section deletion／contention blocking, and arbitrary export
   pages are absent. TLS and FLS reads are limited to process allocation and
@@ -785,16 +804,15 @@ and stops at instruction 18180 on missing
   locale/flag/length variants, and broad locale tables
   remain absent. Explicit module file-name lookup and host image-path import are
   also absent. Its first unsupported operation is
-  `HeapFree(0x68010001, 0, 0x20000A18)`; bespoke
+  `HeapAlloc(0x68010001, 8, 128)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-private-heap-free-size-1` at
-`HeapFree(0x68010001, 0, 0x20000A18)`. It must first fix success／failure,
-LastError, exact-pointer validation, freed-byte policy, reuse, double-free, and
-the immediate consumer, then expose only the reached free variant through the
-existing internal heap operation.
+The next proof is `kernel32-private-heap-size-128` at
+`HeapAlloc(0x68010001, 8, 128)`. It must first fix the native size source,
+initialization, consumer, failure, LastError, and lifetime relation, then add
+only the reached flag-size pair to the existing allocation policy.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -816,4 +834,5 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     468,010 bytes, the LCMapStringW report is 550,988 bytes, the
     InterlockedDecrement report is 580,772 bytes, the GetModuleFileNameA report
     is 704,797 bytes, the size-16 heap report is 828,414 bytes, and the current
-    size-4 heap report is 833,007 bytes.
+    size-4 heap report is 833,007 bytes, and the current one-byte-free report is
+    875,554 bytes.

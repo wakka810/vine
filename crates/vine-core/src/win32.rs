@@ -14,8 +14,8 @@ use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
-    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeCriticalSection, RuntimeHeapInitialization,
-    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeCriticalSection,
+    RuntimeHeapInitialization, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -54,6 +54,7 @@ pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
 pub const HEAP_CREATE_IMPLEMENTATION: &str = "kernel32.heap-create.v1";
 pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v2";
+pub const HEAP_FREE_IMPLEMENTATION: &str = "kernel32.heap-free.v1";
 pub const GET_MODULE_HANDLE_W_IMPLEMENTATION: &str = "kernel32.get-module-handle-w.v1";
 pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1";
 pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
@@ -150,6 +151,7 @@ pub fn dispatch_kernel32_api_with_policy(
         }
         HEAP_CREATE_IMPLEMENTATION => handle_heap_create(contract, frame, session),
         HEAP_ALLOC_IMPLEMENTATION => handle_heap_alloc(policy, contract, frame, session),
+        HEAP_FREE_IMPLEMENTATION => handle_heap_free(policy, contract, frame, session),
         GET_MODULE_HANDLE_W_IMPLEMENTATION => handle_get_module_handle_w(contract, frame, session),
         GET_PROC_ADDRESS_IMPLEMENTATION => handle_get_proc_address(contract, frame, session),
         TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
@@ -221,6 +223,7 @@ pub fn kernel32_contract_for_endpoint(
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
         "HeapCreate" => heap_create_contract(endpoint)?,
         "HeapAlloc" => heap_alloc_contract(endpoint)?,
+        "HeapFree" => heap_free_contract(endpoint)?,
         "GetModuleHandleW" => get_module_handle_w_contract(endpoint)?,
         "GetProcAddress" => get_proc_address_contract(endpoint)?,
         "TlsAlloc" => tls_alloc_contract(endpoint)?,
@@ -1652,6 +1655,31 @@ fn handle_heap_alloc(
     )))
 }
 
+fn handle_heap_free(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let heap = required_argument(contract, frame, 0, "heap handle")?;
+    let flags = required_argument(contract, frame, 1, "heap free flags")?;
+    let allocation = required_argument(contract, frame, 2, "heap allocation")?;
+    if !policy.allows_heap_free(flags) {
+        return Err(ApiFault::unsupported(
+            "win32-heap",
+            "heap-free-variant-unsupported",
+            format!(
+                "compatibility policy {} does not enable HeapFree flags {flags:#010x}",
+                policy.id
+            ),
+        ));
+    }
+    session
+        .free_private_heap_block(heap, GuestAddress(allocation))
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
+}
+
 fn handle_get_module_handle_w(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -2453,6 +2481,20 @@ pub fn heap_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract,
         ],
         ApiReturnSchema::OpaquePointer { nullable: false },
         HEAP_ALLOC_IMPLEMENTATION,
+    )
+}
+
+pub fn heap_free_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "HeapFree",
+        vec![
+            logical_handle("heap", LOGICAL_PRIVATE_HEAP_NAMESPACE, false),
+            u32_argument("flags"),
+            opaque_pointer("allocation", false, RUNTIME_PRIVATE_HEAP_ALIGNMENT),
+        ],
+        ApiReturnSchema::Bool32,
+        HEAP_FREE_IMPLEMENTATION,
     )
 }
 

@@ -84,6 +84,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-get-module-file-name-a",
         "kernel32-private-heap-size-16",
         "kernel32-private-heap-size-4",
+        "kernel32-private-heap-free-size-1",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -110,7 +111,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-private-heap-size-4"
+    genericRuntimeCapability === "kernel32-private-heap-free-size-1"
+      ? "kernel32-private-heap-free-size-1-v1.json"
+      : genericRuntimeCapability === "kernel32-private-heap-size-4"
       ? "kernel32-private-heap-size-4-v1.json"
       : genericRuntimeCapability === "kernel32-private-heap-size-16"
       ? "kernel32-private-heap-size-16-v1.json"
@@ -188,7 +191,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const privateHeapFreeSize1Enabled =
+  genericRuntimeCapability === "kernel32-private-heap-free-size-1";
 const privateHeapSize4Enabled =
+  privateHeapFreeSize1Enabled ||
   genericRuntimeCapability === "kernel32-private-heap-size-4";
 const privateHeapSize16Enabled =
   privateHeapSize4Enabled ||
@@ -280,7 +286,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? privateHeapSize4Enabled
+      ? privateHeapFreeSize1Enabled
+        ? "v86-bgi-private-heap-free-size-1"
+        : privateHeapSize4Enabled
         ? "v86-bgi-private-heap-size-4"
         : privateHeapSize16Enabled
         ? "v86-bgi-private-heap-size-16"
@@ -2741,6 +2749,46 @@ const privateHeapSize4Expected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const privateHeapFreeSize1Expected = {
+  frozenSemanticCalls: 17,
+  supportedCalls: 197,
+  writebackBatches: 198,
+  dirtyPages: 300,
+  changedBytes: 4423,
+  hostDeltaBatches: 54,
+  finalGeneration: 281,
+  heapHandle: 0x68010001,
+  allocationId: 3,
+  allocationAddress: 0x20000a18,
+  allocationRequestedBytes: 1,
+  allocationReservedBytes: 8,
+  freeInstructionCount: 18180,
+  freeReturnAddress: 0x100a48cd,
+  freeDelta: {
+    sequence: 187,
+    fromGeneration: 269,
+    generation: 270,
+    address: 0x20000000,
+    owner: 10,
+    payloadSha256: "93cb85efb43c4586535cabdedf112e538d7fbe792245ed8954482b9815aa092a",
+  },
+  postFreeEncodePointerCalls: 10,
+  memoryContentSha256: "f248e7dafa44a4a036822bd2eda199959e01c5d39090f67fba5f9f15c0de0186",
+  reportBytes: 875_554,
+  reportSha256: "e0b255e0112fb7d0cbcef12afcd91be63877049fed56fc30b62ce5123f1acd96",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-private-heap-allocation",
+    endpointId: 75,
+    endpointAddress: 0x7f0004a0,
+    module: "kernel32.dll",
+    symbol: "HeapAlloc",
+    iatAddress: 0x100d11d4,
+    arguments: [0x68010001, 8, 128],
+    returnAddress: 0x100ac3cc,
+    instructionCount: 18653,
+    faultCode: "heap-alloc-variant-unsupported",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -3203,6 +3251,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (privateHeapFreeSize1Enabled) {
+        validatePrivateHeapFreeSize1Result(genericResult);
       } else if (privateHeapSize4Enabled) {
         validatePrivateHeapSize4Result(genericResult);
       } else if (privateHeapSize16Enabled) {
@@ -3270,7 +3320,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : privateHeapSize4Enabled
+          : privateHeapFreeSize1Enabled
+            ? "bgi private-heap size-1 free"
+            : privateHeapSize4Enabled
             ? "bgi private-heap size-4 allocation"
             : privateHeapSize16Enabled
             ? "bgi private-heap size-16 allocation"
@@ -3696,7 +3748,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : privateHeapSize4Enabled
+        : privateHeapFreeSize1Enabled
+          ? 27
+          : privateHeapSize4Enabled
           ? 26
           : privateHeapSize16Enabled
           ? 26
@@ -6401,6 +6455,125 @@ function validatePrivateHeapSize4Result(result) {
   );
 }
 
+function validatePrivateHeapFreeSize1Result(result) {
+  const expected = privateHeapFreeSize1Expected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  const allocations = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "HeapAlloc",
+  );
+  assert.equal(allocations.length, 6);
+  const sourceAllocation = allocations.find(
+    ({ heapAllocation }) => heapAllocation?.allocation.id === expected.allocationId,
+  );
+  assert(sourceAllocation, "freed source allocation is missing");
+  assert.deepEqual(sourceAllocation.arguments, [
+    expected.heapHandle,
+    0,
+    expected.allocationRequestedBytes,
+  ]);
+  assert.deepEqual(sourceAllocation.heapAllocation, {
+    heapHandle: expected.heapHandle,
+    allocation: {
+      id: expected.allocationId,
+      address: expected.allocationAddress,
+      byteLength: expected.allocationRequestedBytes,
+      reservedByteLength: expected.allocationReservedBytes,
+      initialization: "deterministic-uninitialized",
+    },
+    liveAllocations: 3,
+  });
+
+  const frees = result.supportedCalls.filter(({ symbol }) => symbol === "HeapFree");
+  assert.equal(frees.length, 1);
+  const free = frees[0];
+  assert.equal(free.sequence, expected.freeDelta.sequence);
+  assert.equal(free.occurrence, 1);
+  assert.deepEqual(free.arguments, [
+    expected.heapHandle,
+    0,
+    expected.allocationAddress,
+  ]);
+  assert.deepEqual(free.result, { action: "set", value: 1 });
+  assert.equal(free.implementationId, "kernel32.heap-free.v1");
+  assert.equal(free.lastError, 0);
+  assert.deepEqual(free.guestWrites, []);
+  assert.equal(free.stackPointerAfter, free.stackPointerBefore + 16);
+  assert.equal(free.trapInstructionCount, expected.freeInstructionCount);
+  assert.equal(free.returnAddress, expected.freeReturnAddress);
+
+  const freeDelta = result.hostDeltas.find(
+    ({ sequence }) => sequence === expected.freeDelta.sequence,
+  );
+  assert(freeDelta, "HeapFree host delta is missing");
+  assert.equal(freeDelta.fromGeneration, expected.freeDelta.fromGeneration);
+  assert.equal(freeDelta.generation, expected.freeDelta.generation);
+  assert.equal(freeDelta.mappingOperations, 0);
+  assert.deepEqual(freeDelta.dirtyPages, [
+    { address: expected.freeDelta.address, owner: expected.freeDelta.owner },
+  ]);
+  assert.equal(freeDelta.payloadBytes, page.size);
+  assert.equal(freeDelta.payloadSha256, expected.freeDelta.payloadSha256);
+  assert.deepEqual(freeDelta.cacheEffects, {
+    flushTlb: false,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  });
+
+  const postFreeCalls = result.supportedCalls.filter(
+    ({ sequence }) => sequence > free.sequence,
+  );
+  assert.equal(postFreeCalls.length, expected.postFreeEncodePointerCalls);
+  assert(
+    postFreeCalls.every(
+      (call, index) =>
+        call.symbol === "EncodePointer" &&
+        call.sequence === free.sequence + index + 1 &&
+        call.implementationId === "kernel32.encode-pointer.v1" &&
+        call.guestWrites.length === 0 &&
+        call.lastError === 0,
+    ),
+    "post-free continuation is not the expected EncodePointer run",
+  );
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
+  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
+  assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validatePrivateHeapSize16Result(result) {
   const expected = privateHeapSize16Expected;
   const allocations = result.supportedCalls.filter(
@@ -6879,7 +7052,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : privateHeapSize4Enabled
+        : privateHeapFreeSize1Enabled
+          ? "vine.v86-bgi-private-heap-free-size-1"
+          : privateHeapSize4Enabled
           ? "vine.v86-bgi-private-heap-size-4"
           : privateHeapSize16Enabled
           ? "vine.v86-bgi-private-heap-size-16"
