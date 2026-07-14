@@ -11,6 +11,10 @@ Architecture refactor checkpoint S5では、logical heap metadataとGuestMemory 
 private `runtime/heaps.rs::RuntimeHeaps`へ移し、同じsubsystem ownerの下へ統合した。
 `RuntimeState`はobject table、process address-space allocation、GuestMemory transactionとの
 cross-subsystem coordinationだけを行い、heap／backing collectionを直接mutateしない。
+Architecture refactor checkpoint S12ではautomatic private-heap handle slot allocatorも同じ
+`RuntimeHeaps`へ移した。Heap identity、以前のcursor、commit後のcursorを一つのmutation-free creation
+planへ束ね、object registrationが成功した場合だけheap metadataとallocatorを同時にcommitする。
+これにより`RuntimeState`から最後のdirect scalar allocator fieldを除去した。
 
 このfoundation自体はguest dispatchを追加せず、`HeapCreate(0, 0x1000, 0)`をmetadata-onlyの
 ままreturnする境界として成立した。続く
@@ -26,13 +30,17 @@ larger zeroed dirty-only allocation without importing native address reuse.
 
 `RuntimeProcessState`はprivate `RuntimeHeaps`を`serde(flatten)`で保持する。既存reportの
 `process.heaps` shapeは維持し、public inspectionは`RuntimeProcessState::heaps()`のimmutable borrowに
-限定する。GuestMemory backing mapはserializeせず、logical heap mapと同じownerだけが更新する。
+限定する。GuestMemory backing mapとslot allocatorはserializeせず、logical heap mapと同じownerだけが
+更新する。既存root `nextPrivateHeapSlot`は`RuntimeState` serializerがownerからimmutable borrowする
+compatibility viewであり、第二authorityではない。
 
 Heap creation、allocation、free、destructionはsubsystem内でmutation-free planを作り、aggregateが
 process／thread lifecycle、typed object、address allocation、GuestMemory transactionをpreflightした後、
 targeted commitする。Creationはobject-table registrationが成功してからlogical heapをcommitする。
-Automatic handle allocationは候補slotをlocal cursorで探索し、heapとobjectのregistrationが成功した時だけ
-`next_private_heap_slot`を進める。したがってobject-table conflictはslot allocatorを消費しない。
+Automatic handle allocationはheap subsystem内で候補slotを探索し、live heap slotをskipする。Planは
+選択したheapとallocatorのprevious／next cursorを保持し、aggregateによるobject-table registration後に
+両方をtargeted commitする。したがってplanning、object-table conflict、allocator exhaustionはslotを
+消費しない。Caller-supplied heap identityを受けるexplicit `create_heap`はautomatic cursorを進めない。
 
 ## Controlled address and memory policy
 
@@ -120,8 +128,9 @@ cargo test -p vine-core --test runtime_heap_backing --locked
 
 The controlled sequence fixes:
 
-- mutation-free creation／allocation plans, co-owned logical／backing commit, and stable
-  `process.heaps` serialization
+- mutation-free automatic creation plan、live-slot skip、exhaustion rejection、explicit creationで不変の
+  allocator、co-owned logical／backing commit
+- stable `process.heaps` and root `nextPrivateHeapSlot` compatibility serialization
 - object-table registration failure with unchanged heap collections and private-heap slot allocator
 - first allocation ID `1`: `0x20000000`, requested `0x214`, aligned `0x218`, zeroed
 - second allocation ID `2`: `0x20000218`, requested／aligned `0x800`, `0xA5`

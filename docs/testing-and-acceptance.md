@@ -254,10 +254,12 @@ endpoint-to-thread TLS classification、pointer inverse relation、existing root
 固定し、host request authorityをregistryへ移さない。詳細は
 [runtime-registries.md](runtime-registries.md)を正とする。
 
-Heap subsystem unit contractsはprivate logical／backing collectionsのco-ownership、mutation-free creation／
-allocation plan、targeted commit、既存`process.heaps` serialization shapeを固定する。Aggregate atomicity
-testはobject-table conflict時にheap collectionsとprivate-heap slot allocatorが両方不変であることを固定し、
-GuestMemory integrationはcollision、allocation、free、destroy、process teardownをtransactionalに通す。
+Heap subsystem unit contractsはprivate logical／backing collections／automatic slot allocatorのco-ownership、
+mutation-free creation／allocation plan、live-slot skip、exhaustion rejection、explicit creation時のallocator
+不変、targeted commitを固定する。Serialization contractは既存`process.heaps`とroot
+`nextPrivateHeapSlot` shapeをborrowed compatibility viewとして固定する。Aggregate atomicity testは
+object-table conflict時にheap collectionsとslot allocatorが両方不変であることを固定し、GuestMemory
+integrationはcollision、allocation、free、destroy、process teardownをtransactionalに通す。
 
 Module subsystem unit contractsはprivate process records／graph／image／import／export collectionとDLL
 lifecycle operation ownership、mutation-free registration／lifecycle plan、既存`process.modules`／

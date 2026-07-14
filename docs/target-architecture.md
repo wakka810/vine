@@ -204,12 +204,14 @@ Pointer allocationはtokenとsourceの両indexおよびcounterをsame ownerでco
 source／counter serializationはborrowed compatibility viewであり、同じ`registries` JSON objectにある
 host requestは引き続き`RuntimeScheduler` authorityである。
 
-Mutable logical heap metadataとGuestMemory backing metadataはprivate
+Mutable logical heap metadata、GuestMemory backing metadata、automatic private-heap slot allocatorはprivate
 `runtime/heaps.rs::RuntimeHeaps`だけがco-ownする。`RuntimeProcessState`はこれをflattenして既存
-`process.heaps` serializationを維持し、inspectionはimmutable borrowに限定する。Creation、allocation、
-free、destructionはsubsystem planを作り、aggregateがlifecycle、typed object、process address allocation、
-GuestMemory transactionをpreflightしてからtargeted commitする。Aggregateはheap／backing mapを直接
-mutateせず、failed object registrationではprivate-heap slot allocatorも進めない。詳細は
+`process.heaps` serializationを維持し、root `nextPrivateHeapSlot`はborrowed compatibility viewとする。
+Inspectionはimmutable borrowに限定する。Automatic creationはheap identityとallocator cursorを同じ
+mutation-free planへ束ね、allocation、free、destructionもsubsystem planを作る。Aggregateはlifecycle、
+typed object、process address allocation、GuestMemory transactionをpreflightしてからtargeted commitする。
+Aggregateはheap／backing map／slot allocatorを直接mutateせず、failed object registrationではheapと
+allocatorを両方不変にする。`RuntimeState`自身にはdirect scalar allocator fieldを残さない。詳細は
 [runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
 Mutable process module recordsはprivate `runtime/modules.rs::RuntimeModuleRecords`、graph、mapped

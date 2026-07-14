@@ -13,6 +13,28 @@ const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
 
 #[test]
+fn heap_slot_allocator_ownership_preserves_runtime_serialization_shape() {
+    let mut runtime = running_runtime();
+    let initial = serde_json::to_value(&runtime).expect("serialize initial heap allocator view");
+    assert_eq!(initial["nextPrivateHeapSlot"], serde_json::json!(1));
+    assert!(initial["process"].get("nextPrivateHeapSlot").is_none());
+
+    let heap = runtime
+        .allocate_private_heap(0, 0x1000, 0)
+        .expect("allocate first private heap")
+        .clone();
+    let allocated = serde_json::to_value(&runtime).expect("serialize allocated heap view");
+    assert_eq!(heap.handle, 0x6801_0001);
+    assert_eq!(allocated["nextPrivateHeapSlot"], serde_json::json!(2));
+    let heap_key = heap.handle.to_string();
+    assert_eq!(
+        allocated["process"]["heaps"][&heap_key]["handle"],
+        serde_json::json!(heap.handle)
+    );
+    assert!(allocated["process"].get("nextPrivateHeapSlot").is_none());
+}
+
+#[test]
 fn private_heap_backing_is_atomic_reusable_and_process_owned() {
     let mut memory = GuestMemory::new(MemoryLimits {
         max_physical_pages: 16,

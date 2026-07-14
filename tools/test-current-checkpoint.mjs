@@ -281,6 +281,33 @@ assert.ok(
   ),
 );
 
+const aggregateMutatesHeapAllocator = structuredClone(manifest);
+aggregateMutatesHeapAllocator.activeRuntimeCheckpoint.runtimeHeapBacking.directAllocatorMutationFromAggregate =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(aggregateMutatesHeapAllocator).some((error) =>
+    error.includes("heap subsystem boundary"),
+  ),
+);
+
+const splitHeapAllocatorCommit = structuredClone(manifest);
+splitHeapAllocatorCommit.activeRuntimeCheckpoint.runtimeHeapBacking.automaticAllocatorCommitAtomic =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(splitHeapAllocatorCommit).some((error) =>
+    error.includes("heap subsystem boundary"),
+  ),
+);
+
+const restoredAggregateScalarAllocator = structuredClone(manifest);
+restoredAggregateScalarAllocator.activeRuntimeCheckpoint.runtimeHeapBacking.runtimeStateDirectScalarAllocators =
+  1;
+assert.ok(
+  validateCurrentCheckpoint(restoredAggregateScalarAllocator).some((error) =>
+    error.includes("heap subsystem boundary"),
+  ),
+);
+
 const disabledActiveCodePageSelector = structuredClone(manifest);
 disabledActiveCodePageSelector.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.multiByteAllowActiveCodePageSelector =
   false;

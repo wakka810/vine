@@ -13,26 +13,51 @@ use super::{
 };
 use crate::memory::{GUEST_PAGE_SIZE, GuestAddress, GuestRange, MemoryOwnerId};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
+const RUNTIME_PRIVATE_HEAP_OWNER: &str = "runtime-process-private-heaps";
+const RUNTIME_PRIVATE_HEAP_VARIANT: &str = "heap-create-metadata-v1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RuntimeHeaps {
     heaps: BTreeMap<u32, RuntimeHeap>,
     #[serde(skip)]
     backings: BTreeMap<u32, RuntimeHeapBacking>,
+    #[serde(skip)]
+    next_private_heap_slot: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeHeapCreationPlan {
     heap: RuntimeHeap,
+    slot_allocator: Option<RuntimePrivateHeapSlotPlan>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimePrivateHeapSlotPlan {
+    previous_next_slot: u16,
+    next_slot: u16,
+}
+
+impl Default for RuntimeHeaps {
+    fn default() -> Self {
+        Self {
+            heaps: BTreeMap::new(),
+            backings: BTreeMap::new(),
+            next_private_heap_slot: 1,
+        }
+    }
+}
+
+impl RuntimeHeapCreationPlan {
+    pub(super) const fn handle(&self) -> u32 {
+        self.heap.handle
+    }
 }
 
 impl RuntimeHeaps {
     pub(super) fn heaps(&self) -> &BTreeMap<u32, RuntimeHeap> {
         &self.heaps
-    }
-
-    pub(super) fn contains(&self, handle: u32) -> bool {
-        self.heaps.contains_key(&handle)
     }
 
     pub(super) fn is_empty(&self) -> bool {
@@ -57,10 +82,66 @@ impl RuntimeHeaps {
         self.heaps.keys().copied()
     }
 
+    pub(super) const fn next_private_heap_slot(&self) -> u16 {
+        self.next_private_heap_slot
+    }
+
     pub(super) fn plan_creation(
         &self,
         heap: RuntimeHeap,
     ) -> Result<RuntimeHeapCreationPlan, RuntimeStateError> {
+        self.validate_creation(&heap)?;
+        Ok(RuntimeHeapCreationPlan {
+            heap,
+            slot_allocator: None,
+        })
+    }
+
+    pub(super) fn plan_private_creation(
+        &self,
+        creation_flags: u32,
+        initial_size: u32,
+        maximum_size: u32,
+    ) -> Result<RuntimeHeapCreationPlan, RuntimeStateError> {
+        let previous_next_slot = self.next_private_heap_slot;
+        let mut candidate_slot = previous_next_slot;
+        loop {
+            if candidate_slot == 0 {
+                return Err(RuntimeStateError::resource_limit(
+                    "runtime-heap",
+                    "private-heap-handle-space-exhausted",
+                    "logical private heap handle space is exhausted",
+                ));
+            }
+            let next_slot = candidate_slot.checked_add(1).unwrap_or(0);
+            let handle = LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | u32::from(candidate_slot);
+            if self.heaps.contains_key(&handle) {
+                candidate_slot = next_slot;
+                continue;
+            }
+            let heap = RuntimeHeap {
+                owner: RUNTIME_PRIVATE_HEAP_OWNER.to_owned(),
+                variant_id: RUNTIME_PRIVATE_HEAP_VARIANT.to_owned(),
+                namespace: LOGICAL_PRIVATE_HEAP_NAMESPACE.to_owned(),
+                handle,
+                creation_flags,
+                initial_size,
+                maximum_size,
+                growable: maximum_size == 0,
+                live_allocations: 0,
+            };
+            self.validate_creation(&heap)?;
+            return Ok(RuntimeHeapCreationPlan {
+                heap,
+                slot_allocator: Some(RuntimePrivateHeapSlotPlan {
+                    previous_next_slot,
+                    next_slot,
+                }),
+            });
+        }
+    }
+
+    fn validate_creation(&self, heap: &RuntimeHeap) -> Result<(), RuntimeStateError> {
         if heap.owner.is_empty()
             || heap.variant_id.is_empty()
             || heap.namespace != LOGICAL_PRIVATE_HEAP_NAMESPACE
@@ -86,13 +167,27 @@ impl RuntimeHeaps {
                 "private heap backing exists without logical heap metadata",
             ));
         }
-        Ok(RuntimeHeapCreationPlan { heap })
+        Ok(())
     }
 
     pub(super) fn commit_creation(&mut self, plan: RuntimeHeapCreationPlan) {
-        let handle = plan.heap.handle;
-        let previous = self.heaps.insert(handle, plan.heap);
+        let RuntimeHeapCreationPlan {
+            heap,
+            slot_allocator,
+        } = plan;
+        let handle = heap.handle;
+        debug_assert!(!self.heaps.contains_key(&handle));
+        if let Some(slot_allocator) = slot_allocator {
+            debug_assert_eq!(
+                self.next_private_heap_slot,
+                slot_allocator.previous_next_slot
+            );
+        }
+        let previous = self.heaps.insert(handle, heap);
         debug_assert!(previous.is_none());
+        if let Some(slot_allocator) = slot_allocator {
+            self.next_private_heap_slot = slot_allocator.next_slot;
+        }
     }
 
     pub(super) fn allocation(
@@ -965,9 +1060,70 @@ mod tests {
         let mut heaps = RuntimeHeaps::default();
         let plan = heaps.plan_creation(heap()).unwrap();
         assert!(heaps.is_empty());
+        assert_eq!(heaps.next_private_heap_slot(), 1);
         heaps.commit_creation(plan);
         assert_eq!(heaps.heap(HANDLE).unwrap().handle, HANDLE);
-        assert!(serde_json::to_value(&heaps).unwrap().get("heaps").is_some());
+        assert_eq!(heaps.next_private_heap_slot(), 1);
+        let serialized = serde_json::to_value(&heaps).unwrap();
+        assert!(serialized.get("heaps").is_some());
+        assert!(serialized.get("backings").is_none());
+        assert!(serialized.get("nextPrivateHeapSlot").is_none());
+    }
+
+    #[test]
+    fn automatic_creation_plan_commits_heap_and_slot_allocator_together() {
+        let mut heaps = RuntimeHeaps::default();
+        let before = heaps.clone();
+        let plan = heaps.plan_private_creation(2, 0x1000, 0x2000).unwrap();
+
+        assert_eq!(plan.handle(), HANDLE);
+        assert_eq!(heaps, before, "planning must not consume a heap slot");
+
+        heaps.commit_creation(plan);
+        let created = heaps.heap(HANDLE).unwrap();
+        assert_eq!(created.creation_flags, 2);
+        assert_eq!(created.initial_size, 0x1000);
+        assert_eq!(created.maximum_size, 0x2000);
+        assert!(!created.growable);
+        assert_eq!(heaps.next_private_heap_slot(), 2);
+    }
+
+    #[test]
+    fn automatic_creation_skips_live_slots_without_advancing_on_explicit_creation() {
+        let mut heaps = RuntimeHeaps::default();
+        let explicit = heaps.plan_creation(heap()).unwrap();
+        heaps.commit_creation(explicit);
+        assert_eq!(heaps.next_private_heap_slot(), 1);
+
+        let automatic = heaps.plan_private_creation(0, 0, 0).unwrap();
+        assert_eq!(automatic.handle(), LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | 2);
+        assert_eq!(heaps.next_private_heap_slot(), 1);
+
+        heaps.commit_creation(automatic);
+        assert_eq!(heaps.next_private_heap_slot(), 3);
+    }
+
+    #[test]
+    fn exhausted_automatic_slot_allocator_rejects_without_mutation() {
+        let mut heaps = RuntimeHeaps {
+            next_private_heap_slot: u16::MAX,
+            ..RuntimeHeaps::default()
+        };
+        let final_plan = heaps.plan_private_creation(0, 0, 0).unwrap();
+        assert_eq!(
+            final_plan.handle(),
+            LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | u32::from(u16::MAX)
+        );
+        assert_eq!(heaps.next_private_heap_slot(), u16::MAX);
+        heaps.commit_creation(final_plan);
+        assert_eq!(heaps.next_private_heap_slot(), 0);
+
+        let before = heaps.clone();
+        assert_eq!(
+            heaps.plan_private_creation(0, 0, 0).unwrap_err().code,
+            "private-heap-handle-space-exhausted"
+        );
+        assert_eq!(heaps, before);
     }
 
     #[test]

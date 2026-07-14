@@ -41,7 +41,7 @@ pub use address_space::{
     ProcessAddressAllocationRequest, ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout,
     RuntimeAddressRange,
 };
-use heaps::RuntimeHeaps;
+use heaps::{RuntimeHeapCreationPlan, RuntimeHeaps};
 use messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessages};
 pub use messages::{
     RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage,
@@ -96,9 +96,6 @@ pub const RUNTIME_STANDARD_ERROR_HANDLE: u32 = 0x5301_0003;
 pub const RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING: &str = "windows-932-v1";
 pub const RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES: usize = 32 * 1024;
 
-const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
-const RUNTIME_PRIVATE_HEAP_OWNER: &str = "runtime-process-private-heaps";
-const RUNTIME_PRIVATE_HEAP_VARIANT: &str = "heap-create-metadata-v1";
 const RUNTIME_STANDARD_HANDLE_OWNER: &str = "runtime-process-standard-handles";
 const RUNTIME_STANDARD_INPUT_VARIANT: &str = "standard-input-logical-v1";
 const RUNTIME_STANDARD_OUTPUT_VARIANT: &str = "standard-output-logical-v1";
@@ -928,7 +925,6 @@ pub struct RuntimeState {
     objects: RuntimeObjectTable,
     modules: RuntimeModules,
     registries: RuntimeRegistries,
-    next_private_heap_slot: u16,
 }
 
 #[derive(Serialize)]
@@ -998,7 +994,7 @@ impl Serialize for RuntimeState {
             encoded_pointer_token_prefix: self.registries.encoded_pointer_token_prefix(),
             encoded_pointer_sources: self.registries.encoded_pointer_sources(),
             next_encoded_pointer_id: self.registries.next_encoded_pointer_id(),
-            next_private_heap_slot: self.next_private_heap_slot,
+            next_private_heap_slot: self.process.heaps.next_private_heap_slot(),
             next_tls_index: self.threads.next_tls_index(),
             next_fls_index: self.threads.next_fls_index(),
             next_callback_frame_id: self.threads.next_callback_frame_id(),
@@ -1090,7 +1086,6 @@ impl RuntimeState {
             objects,
             modules: RuntimeModules::default(),
             registries,
-            next_private_heap_slot: 1,
         })
     }
 
@@ -2371,8 +2366,15 @@ impl RuntimeState {
     }
 
     fn commit_heap_creation(&mut self, heap: RuntimeHeap) -> Result<u32, RuntimeStateError> {
-        let handle = heap.handle;
         let plan = self.process.heaps.plan_creation(heap)?;
+        self.commit_heap_creation_plan(plan)
+    }
+
+    fn commit_heap_creation_plan(
+        &mut self,
+        plan: RuntimeHeapCreationPlan,
+    ) -> Result<u32, RuntimeStateError> {
+        let handle = plan.handle();
         self.objects.register_object_with_handle(
             RuntimeObjectKey::PrivateHeap { handle },
             RuntimeHandle(handle),
@@ -2387,39 +2389,16 @@ impl RuntimeState {
         initial_size: u32,
         maximum_size: u32,
     ) -> Result<&RuntimeHeap, RuntimeStateError> {
-        let mut next_slot = self.next_private_heap_slot;
-        loop {
-            let slot = next_slot;
-            if slot == 0 {
-                return Err(RuntimeStateError::resource_limit(
-                    "runtime-heap",
-                    "private-heap-handle-space-exhausted",
-                    "logical private heap handle space is exhausted",
-                ));
-            }
-            next_slot = slot.checked_add(1).unwrap_or(0);
-            let handle = LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | u32::from(slot);
-            if self.process.heaps.contains(handle) {
-                continue;
-            }
-            self.commit_heap_creation(RuntimeHeap {
-                owner: RUNTIME_PRIVATE_HEAP_OWNER.to_owned(),
-                variant_id: RUNTIME_PRIVATE_HEAP_VARIANT.to_owned(),
-                namespace: LOGICAL_PRIVATE_HEAP_NAMESPACE.to_owned(),
-                handle,
-                creation_flags,
-                initial_size,
-                maximum_size,
-                growable: maximum_size == 0,
-                live_allocations: 0,
-            })?;
-            self.next_private_heap_slot = next_slot;
-            return Ok(self
-                .process
+        let plan =
+            self.process
                 .heaps
-                .heap(handle)
-                .expect("committed private heap disappeared"));
-        }
+                .plan_private_creation(creation_flags, initial_size, maximum_size)?;
+        let handle = self.commit_heap_creation_plan(plan)?;
+        Ok(self
+            .process
+            .heaps
+            .heap(handle)
+            .expect("committed private heap disappeared"))
     }
 
     pub fn heap(&self, handle: u32) -> Result<&RuntimeHeap, RuntimeStateError> {
@@ -4111,7 +4090,7 @@ mod tests {
             encoded_pointer_token_prefix: 0xec01_0000,
         })
         .expect("controlled runtime");
-        let handle = LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | 1;
+        let handle = 0x6801_0001;
         runtime
             .objects
             .register_object_with_handle(

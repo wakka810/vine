@@ -749,19 +749,32 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    heaps.schema !== "vine.runtime-private-heap-backing.v3" ||
+    heaps.schema !== "vine.runtime-private-heap-backing.v4" ||
     heaps.stateOwner !== "runtime/heaps.rs::RuntimeHeaps" ||
     heaps.mutableCollectionVisibility !== "private" ||
     heaps.readInspection !== "immutable-borrow" ||
     heaps.serializedProcessField !== "heaps" ||
     heaps.serializationAdapter !== "serde-flatten-private-runtime-heaps" ||
+    !Array.isArray(heaps.serializedRuntimeCompatibilityFields) ||
+    heaps.serializedRuntimeCompatibilityFields.join(",") !==
+      "nextPrivateHeapSlot" ||
+    heaps.allocatorSerializationAdapter !==
+      "runtime-state-borrowed-compatibility-view" ||
+    !Array.isArray(heaps.ownedState) ||
+    heaps.ownedState.join(",") !==
+      "logical-heap-map,guest-memory-backing-map,private-heap-slot-allocator" ||
     heaps.crossSubsystemMutation !==
-      "heap-plan-object-memory-preflight-targeted-commit" ||
-    heaps.subsystemTests < 3 ||
+      "heap-slot-plan-object-memory-preflight-targeted-commit" ||
+    heaps.subsystemTests < 6 ||
     heaps.crossSubsystemAtomicTests < 2 ||
     heaps.logicalAndBackingCollectionsCoOwned !== true ||
     heaps.directCollectionMutationFromAggregate !== false ||
+    heaps.directAllocatorMutationFromAggregate !== false ||
+    heaps.automaticAllocatorCommitAtomic !== true ||
+    heaps.explicitCreationPreservesAllocator !== true ||
+    heaps.allocatorExhaustionMutationFree !== true ||
     heaps.failedCreationPreservesSlotAllocator !== true ||
+    heaps.runtimeStateDirectScalarAllocators !== 0 ||
     heaps.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime heap subsystem boundary is invalid");

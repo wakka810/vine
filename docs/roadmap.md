@@ -1080,6 +1080,13 @@ TLS allocationはset／counter、FLS allocationはslot／counter／selected-thre
 frame stack／ID counterをsame ownerのplan／commitで進める。Aggregateはlifecycle／scheduler preflightだけを
 coordinateし、resource collection／counterを直接mutateしない。Existing process TLS/FLS fieldsとroot next-ID
 serializationはborrowed compatibility viewで維持する。
+Architecture refactor checkpoint S12はautomatic private-heap handle slot allocatorをlogical heap／GuestMemory
+backing metadataと同じprivate `runtime/heaps.rs::RuntimeHeaps`へ移した。Creation planがselected heap、previous
+cursor、next cursorを一緒に保持し、aggregateはtyped object registrationをpreflight／commitした後にheapと
+allocatorのinfallible targeted commitを呼ぶ。Object conflict／exhaustionはallocatorを進めず、explicit
+`create_heap`はautomatic cursorを変えない。Existing root `nextPrivateHeapSlot` serializationはborrowed
+compatibility viewで維持する。これにより`RuntimeState`からdirect scalar allocator fieldをすべて除去し、
+aggregate rootのdirect fieldsをsubsystem ownerだけに限定した。
 
 ## 23. 完了の定義
 
