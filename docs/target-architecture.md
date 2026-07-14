@@ -349,7 +349,7 @@ API 定義は、可能な限り単一の machine-readable metadata から次を�
 
 Marshaller は scalar、pointer、string、array、structure、callback を checked guest memory interface 経由で読む。raw guest pointer は call boundary を越えて保持しない。API 実装後に output buffer を書く際は thread cancellation と lifetime を再検証する。
 
-Handle は tagged table entry と generation を持ち、guest-visible integer から host object を直接推測できない形にする。version 1 Rust foundationはtype 8／generation 8／slot 16、separate object／handle record、process／thread wait state、subsystem-owned module／heap close policyを実装した。close 後の handle、型違い、double close を一貫した error にする。詳細は[runtime-object-model.md](runtime-object-model.md)を正とする。
+Handle は tagged table entry と generation を持ち、guest-visible integer から host object を直接推測できない形にする。version 1 Rust foundationはtype 8／generation 8／slot 16、separate object／handle record、process／thread wait state、subsystem-owned module／heap close policyを実装した。Mutable object／handle／slot／identity collectionsはprivate `runtime/objects.rs::RuntimeObjectTable`だけが所有し、aggregateはtyped operationとplan／commitを通して調整する。close 後の handle、型違い、double closeを一貫した error にする。詳細は[runtime-object-model.md](runtime-object-model.md)を正とする。
 
 ## 10. Synthetic Windows DLL layer
 

@@ -520,6 +520,25 @@ export function validateCurrentCheckpoint(manifest) {
       "activeRuntimeCheckpoint.allSupportedCallsUseGenericDispatcher must be true",
     );
   }
+  const objects = requireRecord(
+    active.runtimeObjectModel,
+    "activeRuntimeCheckpoint.runtimeObjectModel",
+    errors,
+  );
+  if (
+    objects.schema !== "vine.runtime-object-table.v2" ||
+    objects.stateOwner !== "runtime/objects.rs::RuntimeObjectTable" ||
+    objects.mutableCollectionVisibility !== "private" ||
+    objects.readInspection !== "immutable-borrow" ||
+    objects.crossSubsystemMutation !== "plan-preflight-commit" ||
+    objects.subsystemTests < 3 ||
+    objects.crossSubsystemAtomicTests < 3 ||
+    objects.failedRegistrationPreservesAllocator !== true ||
+    objects.aggregateDirectCollectionMutation !== false ||
+    objects.wholeRuntimeStateClone !== false
+  ) {
+    errors.push("active runtime object subsystem boundary is invalid");
+  }
   const messages = requireRecord(
     active.runtimeMessageQueue,
     "activeRuntimeCheckpoint.runtimeMessageQueue",

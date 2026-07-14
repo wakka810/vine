@@ -2,13 +2,32 @@
 
 ## Purpose
 
-review Step 9の最初のdependencyとして、single controlled process／initial threadの
-`RuntimeState`へversion 1 typed object／handle tableを導入した。module graph、wait
-queue、message、heap backing、DLL lifecycleが別々のlogical integerを作らず、同じ
+reviewのruntime responsibility splitを進めるため、single controlled process／initial threadで
+導入したversion 1 typed object／handle tableを`runtime/objects.rs`のprivate subsystemへ
+移した。module graph、wait queue、message、heap backing、DLL lifecycleが別々のlogical integerを
+作らず、同じ
 identity、lookup、close、stale detection、waitable lifetimeを使うためのfoundationである。
 
 このcheckpointはWin32 `CloseHandle`、`OpenProcess`、`OpenThread`、wait APIを追加しない。
 guest-visible API semanticsへ接続する前のRust-owned runtime contractである。
+
+## Subsystem boundary
+
+`RuntimeObjectTable`だけがobject record、handle entry、slot generation、identity index、
+object ID allocatorのmutable collectionを所有する。これらのcollectionは
+`runtime/objects.rs`の外へ公開しない。Aggregate coordinatorはtyped lookup、open／close、
+registration、retirement、wait-state plan／commitだけを呼び、identity indexを直接参照または
+mutateしない。外部のdiagnostic consumerにはobject／handle mapのimmutable borrowだけを返す。
+
+Wait-state transitionはmutation-free planを作り、scheduler wakeのpreflight後にobject subsystemへ
+commitする。Heap／module retirementは全identityとhandle slotをpreflightしてからbatch commitする。
+Named mutex create／last closeはobject tableとprivate synchronization stateをclone-planし、両方の
+preflightが成功した場合だけaggregateが二つのsubsystem rootを置換する。whole `RuntimeState`は
+cloneしない。
+
+Exact-handle registrationの失敗時はobject record、identity indexだけでなくmonotonic object ID
+allocatorも元へ戻す。これによりruntime-defectを含むfailure pathで、後続のopaque identityへ
+観測不能なgapを残さない。
 
 ## Handle encoding
 
@@ -38,7 +57,7 @@ type tagsとnumeric valuesはVine runtime ABI version 1であり、native Window
 
 ## Object and handle separation
 
-`RuntimeObjectTable`はstable `RuntimeObjectId`／`RuntimeObjectKey`のobject recordと、
+Private `RuntimeObjectTable`はstable `RuntimeObjectId`／`RuntimeObjectKey`のobject recordと、
 generation付きhandle entryを分離する。一つのprocess／thread objectは複数handleを
 持てる。handle closeはentryだけをretireし、object record、wait state、scheduler／
 process payloadを破棄しない。全handle close後に同じobjectを再openしてもtermination
@@ -70,8 +89,9 @@ cross-thread registration、wait-any／wait-all、wake ordering、timeout、aler
 
 ## Existing state integration
 
-`RuntimeState::new`はprocess／initial-thread objectとfirst handleを必ず作る。existing
-`RuntimeProcessState.heaps`／`modules`はpayload registryとして残すが、create／load時に
+`RuntimeState::new`はaggregate coordinatorとしてprocess／initial-thread objectとfirst handleを
+object subsystemへ必ず作らせる。Existing `RuntimeProcessState.heaps`／`modules`はpayload registryと
+して残すが、create／load時に
 同じexact handleをobject tableへatomic registrationし、lookup前にkind／generation／
 livenessを検証する。これにより既存BGIのheap／KERNEL32 handlesを変えずにcommon
 lifetime boundaryへ入れた。
@@ -91,7 +111,9 @@ private `RuntimeSynchronization`のmapを直接mutateしない。詳細は
 Representative test:
 
 ```powershell
+cargo test -p vine-core --lib runtime::objects::tests --locked
 cargo test -p vine-core --test runtime_objects --locked
+cargo test -p vine-core --test runtime_mutex --locked
 ```
 
 The test fixes:
@@ -104,17 +126,15 @@ The test fixes:
 - subsystem-owned heap／module policy and existing exact values
 - thread-only cancellation signal and process-wide termination signal
 - signal preservation after all thread handles close
+- wait-state planがcommit前にcollectionを変更しないこと
+- exact-handle registration failure時のobject ID allocator rollback
+- multi-object subsystem retirementが全件preflight後にcommitされること
+- named mutexのobject／synchronization two-subsystem atomicity
 
-Production regression on the same implementation:
-
-- Chrome Worker vertical slice: 46 instructions, clean success／cancel／watchdog
-- BGI: 17 calls／238 instructions, report SHA-256
-  `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`
-- BGI reflection SHA-256
-  `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`
-- version 1 browser benchmark: `go`, threshold failures `0`
-- current Rust runtime core Wasm: 687,523 bytes, SHA-256
-  `ad1941f95e96577f2e84462d534b95ca9e09f39d1e39e9f4f922ba0fac00b633`
+Current Node／Chrome semantic result、next structured stop、runtime artifact identityは、この
+historical foundation文書へ複製せず[current checkpoint manifest](current-checkpoint.json)だけを
+正とする。Private target gateは同じimplementation commitに対してobject metadata、memory digest、
+pending workを再確認する。
 
 ## Non-claims and next dependency
 
@@ -125,11 +145,12 @@ registration, message queues, heap backing, exports／forwarders, DLL callbacks,
 lifetime over this foundation. It remains partial evidence
 for `REQ-API-02`／`REQ-API-03` and `P3-WIN-01`, not their completion.
 
-The process-owned module graph and controlled process／initial-thread lifecycle dependencies are now
+The process-owned module graph and controlled process／initial-thread lifecycle dependencies are
 implemented in [runtime-module-graph.md](runtime-module-graph.md) and
 [runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md). The additional controlled
 thread registry is implemented in [runtime-thread-registry.md](runtime-thread-registry.md), and the
 controlled wait-queue dependency is implemented in [runtime-wait-queue.md](runtime-wait-queue.md).
 Per-thread message ownership is implemented in [runtime-message-queue.md](runtime-message-queue.md).
 Subsystem-owned heap retirement and guest-memory backing are implemented in
-[runtime-heap-backing.md](runtime-heap-backing.md). The next dependency is controlled DLL lifecycle.
+[runtime-heap-backing.md](runtime-heap-backing.md). Capability expansion is paused while the remaining
+thread、scheduler／wait、heap、module responsibility boundaries are extracted in bounded checkpoints.

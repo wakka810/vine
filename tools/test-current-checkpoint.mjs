@@ -120,6 +120,15 @@ assert.ok(
   ),
 );
 
+const exposedObjects = structuredClone(manifest);
+exposedObjects.activeRuntimeCheckpoint.runtimeObjectModel.mutableCollectionVisibility =
+  "public";
+assert.ok(
+  validateCurrentCheckpoint(exposedObjects).some((error) =>
+    error.includes("object subsystem boundary"),
+  ),
+);
+
 const exposedSynchronization = structuredClone(manifest);
 exposedSynchronization.activeRuntimeCheckpoint.runtimeSynchronization.mutableCollectionVisibility =
   "public";
