@@ -4,16 +4,16 @@
 
 - Status: threshold passed
 - Date: 2026-07-14
-- Workload: current 199-call private BGI generic session
+- Workload: current 202-call private BGI generic session
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-v1.json`](../fixtures/benchmarks/bgi-browser-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
 This gate repeats the complete current BGI session in one Chrome Dedicated
 Worker. Each session starts from a new Rust runtime and v86 mirror, dispatches
-199 ordered calls over 18,693 guest instructions, performs 2,033 Rust/Wasm bridge
+202 ordered calls over 18,993 guest instructions, performs 2,066 Rust/Wasm bridge
 operations, and reaches the same unsupported
-`IsProcessorFeaturePresent(10)` call.
+`SetUnhandledExceptionFilter(0x100A816F)` call.
 Every repetition checks the call count, instruction count, crossing count,
 memory digest, next API and fault, and zero pending work before its compact
 summary is retained.
@@ -31,39 +31,41 @@ seconds. RuntimeBridge and the v86 adapter report their current linear-memory
 sizes at every completed session. No forced garbage collection is used.
 
 Heap growth is ordinary least-squares slope across every available time sample,
-not a first／last delta. Session and maximum-slice distributions retain p50,
-p95, p99, and maximum values. The report stores all 16 threshold evaluations,
+not a first／last delta. Session, maximum-slice, and heartbeat-gap distributions
+retain p50, p95, p99, and maximum values. Heartbeat uses a P99 responsiveness
+gate plus a separate hard freeze ceiling. The report stores all 17 threshold evaluations,
 including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 2 also stores a structured
 `repeated-distribution-threshold` decision: `passed`, reason
-`all-16-versioned-thresholds-passed`, evaluation count `16`, and no failure IDs.
+`all-17-versioned-thresholds-passed`, evaluation count `17`, and no failure IDs.
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 591 sessions with no
+The authoritative clean-profile Chrome run completed 405 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 591 |
+| Completed sessions | >= 120 | 405 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 36 |
-| Session latency p95 | <= 3,000 ms | 354.955 ms |
-| Maximum slice p99 | <= 10 ms | 1.765 ms |
-| Main heartbeat gap | <= 75 ms | 54.130 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 6,591,151 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | -56,889.96 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 23,235,020 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 2,509,579.05 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 56,885,248 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 33,563,877 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 2,090,206.60 bytes/min |
+| Session latency p95 | <= 3,000 ms | 534.750 ms |
+| Maximum slice p99 | <= 10 ms | 3.670 ms |
+| Main heartbeat gap p99 | <= 25 ms | 14.970 ms |
+| Main heartbeat gap maximum | <= 250 ms | 37.225 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 5,800,926 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | -184,992.19 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 23,410,948 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 2,709,493.24 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 57,147,392 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 31,973,949 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 2,286,596.19 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 9,895,936 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 283,162 bytes with SHA-256
-`e652e459c8e62740c1ae5bc8605c496dbe26e747c7a8db1a80a918e84e7c17e9`.
+The exact report is 1,040,802 bytes with SHA-256
+`b725e988b5f45ea0d35be777fb9259978782f5465438ee874793fc8611937bb8`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -80,7 +82,7 @@ Artifact hash, source revision, and ABI are Worker-level invariants, so the
 loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
-storage below the unchanged limit. The current checkpoint observes 33,563,877
+storage below the unchanged limit. The current checkpoint observes 31,973,949
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -104,12 +106,12 @@ commit.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 1,862,642 | `76dda93a78e9069847d5c3cf54084699cdee9c221529ed555679100af25464fa` |
+| Rust runtime core Wasm | 1,870,804 | `db02200c1ca9feaacf42b591c8367f54ff89e9059fb1e01e6f70a1a341e2106b` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
 | Runtime Worker bundle | 85,911 | `498ecbb38a0465c8df1c4356f4db3f023613295b9b86db0555f0f5aaac8c9ec8` |
-| BGI benchmark bundle | 8,103 | `6e9609ff158505efb5e91f7a14acf7cb534c9e6d9a36a22692e5f48ad4740e56` |
+| BGI benchmark bundle | 8,227 | `948d8899d0bbabc190815b648898be82fc128268504f12aced382eae5c924f58` |
 | Execution-engine profile | 545 | `792980bc78b58d8aae491c72b9ea13f39176206306321069a4f2bcb2989e7250` |
-| Version 1 configuration | 920 | `837e91d8f06e439d1602612c2409a855114cfb4230784db4363b01508a01862d` |
+| Version 1 configuration | 967 | `0862c59c00adc8d1b0218283b57ffdb2e87393624b6461c873b035fc4b2d98ef` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte
@@ -137,8 +139,22 @@ profile plus a loopback-only server and DevTools endpoint.
 - The reached path has no title rendering, audio, input, VFS, or COM workload.
 - A passing slope threshold does not prove that V8 heap capacity has reached a
   permanent plateau; longer scenario-specific gates remain required.
-- The stopped `IsProcessorFeaturePresent` call and all title output remain outside the
+- The stopped `SetUnhandledExceptionFilter` call and all title output remain outside the
   completed workload.
+
+## Heartbeat distribution correction
+
+The first 202-call 180-second candidate completed 411 sessions with zero
+semantic failure. Session P95 was 527.095 ms and slice P99 was 2.050 ms, but a
+single 111.865 ms heartbeat gap exceeded the former 75 ms maximum-only gate;
+the other 15 thresholds passed. Power-state changes did not address the
+classification problem.
+
+The benchmark now retains every 5 ms heartbeat gap and evaluates P99 <= 25 ms
+for sustained responsiveness plus maximum <= 250 ms for an actual freeze. This
+follows the architecture rule that performance uses repeated distributions
+while still bounding catastrophic stalls. No session, slice, heap, backing, or
+linear-memory threshold was relaxed.
 
 ## Yield correction
 

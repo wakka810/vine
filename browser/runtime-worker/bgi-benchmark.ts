@@ -32,6 +32,7 @@ interface BgiBenchmarkResult {
   completedSessions: number;
   failedSessions: number;
   heartbeatSamples: number;
+  heartbeatGapMilliseconds: number[];
   maximumHeartbeatGapMilliseconds: number;
   executionEngine: ExecutionEngineIdentity;
   memorySamples: MemorySample[];
@@ -82,6 +83,7 @@ let activeSession:
   | { id: number; resolve: (report: SessionReport) => void; reject: (error: Error) => void }
   | null = null;
 let heartbeatSamples = 0;
+const heartbeatGapMilliseconds: number[] = [];
 let maximumHeartbeatGapMilliseconds = 0;
 let lastHeartbeat = performance.now();
 let finalResult: BgiBenchmarkResult | null = null;
@@ -90,9 +92,11 @@ let executionEngineIdentity: ExecutionEngineIdentity | null = null;
 
 const heartbeat = window.setInterval(() => {
   const now = performance.now();
+  const gap = now - lastHeartbeat;
+  heartbeatGapMilliseconds.push(gap);
   maximumHeartbeatGapMilliseconds = Math.max(
     maximumHeartbeatGapMilliseconds,
-    now - lastHeartbeat,
+    gap,
   );
   lastHeartbeat = now;
   heartbeatSamples += 1;
@@ -176,6 +180,7 @@ async function runBenchmark(): Promise<void> {
       completedSessions: sessions.length,
       failedSessions,
       heartbeatSamples,
+      heartbeatGapMilliseconds,
       maximumHeartbeatGapMilliseconds,
       executionEngine: executionEngineIdentity,
       memorySamples,

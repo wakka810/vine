@@ -24,8 +24,8 @@ pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
     Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32StandardHandleFileType,
-    Kernel32WideCharToMultiBytePolicy,
+    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -36,6 +36,8 @@ pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
 pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
 pub const GET_ACP_IMPLEMENTATION: &str = "kernel32.get-acp.v1";
 pub const GET_CP_INFO_IMPLEMENTATION: &str = "kernel32.get-cp-info.v1";
+pub const IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION: &str =
+    "kernel32.is-processor-feature-present.v1";
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
 pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
@@ -118,6 +120,9 @@ pub fn dispatch_kernel32_api_with_policy(
         SET_LAST_ERROR_IMPLEMENTATION => handle_set_last_error(contract, frame),
         GET_ACP_IMPLEMENTATION => handle_get_acp(policy),
         GET_CP_INFO_IMPLEMENTATION => handle_get_cp_info(policy, contract, frame),
+        IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION => {
+            handle_is_processor_feature_present(policy, contract, frame)
+        }
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
         GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
@@ -206,6 +211,7 @@ pub fn kernel32_contract_for_endpoint(
         "SetLastError" => set_last_error_contract(endpoint)?,
         "GetACP" => get_acp_contract(endpoint)?,
         "GetCPInfo" => get_cp_info_contract(endpoint)?,
+        "IsProcessorFeaturePresent" => is_processor_feature_present_contract(endpoint)?,
         "GetTickCount" => get_tick_count_contract(endpoint)?,
         "GetStdHandle" => get_std_handle_contract(endpoint)?,
         "GetFileType" => get_file_type_contract(endpoint)?,
@@ -345,6 +351,25 @@ fn x86_cp_info_bytes(info: &Kernel32CodePageInfoPolicy) -> Vec<u8> {
     bytes.extend_from_slice(&info.default_char);
     bytes.extend_from_slice(&info.lead_byte);
     bytes
+}
+
+fn handle_is_processor_feature_present(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let index = required_argument(contract, frame, 0, "processor feature index")?;
+    let present = policy.processor_feature_presence(index).ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-processor-feature",
+            "processor-feature-index-unsupported",
+            format!(
+                "compatibility policy {} does not define processor feature index {index}",
+                policy.id
+            ),
+        )
+    })?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(present)))
 }
 
 fn handle_get_tick_count(session: &ExecutionSession<'_>) -> Result<ApiImmediate, ApiFault> {
@@ -2228,6 +2253,18 @@ pub fn get_cp_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract
         ],
         ApiReturnSchema::Bool32,
         GET_CP_INFO_IMPLEMENTATION,
+    )
+}
+
+pub fn is_processor_feature_present_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "IsProcessorFeaturePresent",
+        vec![u32_argument("processorFeature")],
+        ApiReturnSchema::Bool32,
+        IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
     )
 }
 

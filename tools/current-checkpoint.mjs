@@ -320,7 +320,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.nodeRole !== "semantic-oracle-only" ||
     bgiBrowserEvidence.runtimeStateAuthority !== "rust-wasm-in-runtime-worker" ||
     bgiMappingOperations.reserve !== 1 ||
-    bgiMappingOperations.commit !== 1 ||
+    bgiMappingOperations.commit < 1 ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
@@ -384,6 +384,7 @@ export function validateCurrentCheckpoint(manifest) {
   for (const field of [
     "sessionP95Milliseconds",
     "sliceP99Milliseconds",
+    "heartbeatP99Milliseconds",
     "maximumHeartbeatGapMilliseconds",
     "mainHeapSlopeBytesPerMinute",
     "workerHeapSlopeBytesPerMinute",

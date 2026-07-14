@@ -26,6 +26,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-private-heap-size-4-v1.json",
   "fixtures/runtime-policies/kernel32-private-heap-free-size-1-v1.json",
   "fixtures/runtime-policies/kernel32-private-heap-size-128-v1.json",
+  "fixtures/runtime-policies/kernel32-is-processor-feature-present-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -46,6 +47,14 @@ for (const relative of policyFiles) {
   const heapFreeFlags = policy.heapFreeFlags ?? [];
   assert.equal(new Set(heapFreeFlags).size, heapFreeFlags.length);
   assert(heapFreeFlags.every((flags) => flags === 0));
+  const processorFeatures = policy.processorFeatures ?? [];
+  assert.equal(
+    new Set(processorFeatures.map(({ index }) => index)).size,
+    processorFeatures.length,
+  );
+  assert(processorFeatures.every(({ index, present }) =>
+    Number.isInteger(index) && index >= 0 && index <= 0xffffffff &&
+      typeof present === "boolean"));
 }
 
 const manifest = JSON.parse(

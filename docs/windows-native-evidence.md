@@ -1984,3 +1984,42 @@ slices、2,198 yields、2,033 Wasm crossings、final generation `1,586`、
 cancel／watchdog後pending work 0を通す。3分gateは591 sessions／failure 0で
 全16 thresholdを通した。詳細は
 [bgi-private-heap-size-128.md](bgi-private-heap-size-128.md)を正とする。
+
+## 78. BGI processor-feature presence query
+
+Focused `processor-feature` captures r3／r4は329,977 bytes／1,043 lines／
+SHA-256 `1c0d15bc9a6325cd2a5d3eb8a12b5b901424eb954d1433977de75f4884cef054`と
+332,449 bytes／1,055 lines／SHA-256
+`819c0266ad0f98f59f05574049f6bdf207dafa413d6d875c21fce1fadd1fdbf5`
+である。484／490 API pairsはbalanced、diagnosticsはzeroで、processor-feature
+semantic projectionは一致する。
+
+BGIはindex `10`をreturn RVA `0xA4D87`と`0xA7E7C`の2箇所から呼び、どちらも
+BOOL `1`、LastError `0 -> 0`を観測する。直後のconsumerはEAXをimage RVA
+`0x153518`／`0x153500`へstoreし、zeroを返す。Oracle profile
+`x86-processor-feature-query-v1`はindex 10をLastError sentinel `0`／`87`／
+`0x12345678`で反復し、全てresult 1とsentinel preserveを確認する。
+`0xFFFFFFFF`はresult 0、sentinel 122 preserveである。
+
+Policy `kernel32-is-processor-feature-present-v1`はexplicit
+`{index:10,present:true}`だけを所有する。`kernel32.is-processor-feature-present.v1`
+はone DWORD stdcall／BOOL32／LastError preserve／mutation-free contractで、未登録
+indexは`processor-feature-index-unsupported`として停止する。Public fixtureは別の
+explicit false indexもsame handlerで検証し、host CPU discoveryをimportしない。
+
+`npm run check:runtime:bgi -- --profile kernel32-is-processor-feature-present`は41
+contracts／202 calls、203 writebacks／311 dirty pages／4,561 changed bytes、56 host
+deltas、final generation `289`を通す。2 feature calls後、existing policy-enabled
+`HeapAlloc(0x68010001,8,2048)`がallocation ID 8／`0x20000CD8`を返し、one mapping
+operationを含むsecond heap-page deltaを適用する。Instruction `18993`でID `78`／
+`SetUnhandledExceptionFilter(0x100A816F)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`b4e25674b53cc1e159ee02cff2c00610dfbd3499d716c932ee2cd64fc99362e1`、
+896,534-byte reportのSHA-256は
+`c173fd9d2ae2763f15ddafa0b487bddeba9b934a978ddd840766cfbad870cdb5`である。
+
+Chrome Runtime Workerも202 ordered callsとsame stop／memoryを再現し、2,437
+slices、2,234 yields、2,066 Wasm crossings、final generation `1,614`、
+cancel／watchdog後pending work 0を通す。改善後の3分gateは405 sessions／failure 0、
+heartbeat P99 14.970 ms／maximum 37.225 msを含む全17 thresholdを通した。詳細は
+[bgi-is-processor-feature-present.md](bgi-is-processor-feature-present.md)を正とする。

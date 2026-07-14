@@ -74,6 +74,11 @@ let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
 let getCpInfoOracleLastError = null;
 let getCpInfoConsumerRecorded = false;
+let processorFeatureOracleScheduled = false;
+let processorFeatureOracleSentinel = null;
+let processorFeatureOracleResult = null;
+let processorFeatureOracleLastError = null;
+let processorFeatureConsumersRecorded = 0;
 const observedMainModuleHeapAllocations = new Map();
 
 function snapshotNulTerminatedString(pointer, encoding) {
@@ -796,6 +801,41 @@ function snapshotGetCpInfoCall(
     getCpInfo: {
       codePage: codePage.toUInt32(),
       outputBefore: snapshotBoundedRawBytes(output, 32),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              context,
+              4,
+              12,
+            ),
+          }
+        : null,
+    },
+  };
+}
+
+function snapshotProcessorFeatureCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  feature,
+) {
+  const recordsConsumer =
+    processorFeatureConsumersRecorded < 2 &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    processorFeatureConsumersRecorded += 1;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    processorFeature: {
+      index: feature.toUInt32(),
       immediateConsumer: recordsConsumer
         ? {
             apiContinuation: snapshotInstructionsFollowingDirectJump(
@@ -1599,6 +1639,9 @@ if (selectedObservations.has("get-acp")) {
 if (selectedObservations.has("get-cp-info")) {
   hooks["kernel32.dll"].push(["GetCPInfo", [null, null]]);
 }
+if (selectedObservations.has("processor-feature")) {
+  hooks["kernel32.dll"].push(["IsProcessorFeaturePresent", [null]]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -1729,6 +1772,11 @@ function attachHook(module, name, decoders) {
         name === "GetCPInfo" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedProcessorFeatureObservation =
+        selectedObservations.has("processor-feature") &&
+        name === "IsProcessorFeaturePresent" &&
+        caller.module !== null &&
+        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
       const focusedMultiByteObservation =
         selectedObservations.has("multi-byte-to-wide-char") &&
         name === "MultiByteToWideChar" &&
@@ -1769,6 +1817,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("get-cp-info") &&
         name === "GetCPInfo" &&
         !focusedGetCpInfoObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("processor-feature") &&
+        name === "IsProcessorFeaturePresent" &&
+        !focusedProcessorFeatureObservation
       ) {
         this.traceFrame = null;
         return;
@@ -1917,6 +1973,15 @@ function attachHook(module, name, decoders) {
       if (this.traceGetCpInfoOracle) {
         this.lastError = getCpInfoOracleSentinel;
       }
+      this.traceProcessorFeatureOracle =
+        processorFeatureOracleSentinel !== null &&
+        selectedObservations.has("processor-feature") &&
+        name === "IsProcessorFeaturePresent" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceProcessorFeatureOracle) {
+        this.lastError = processorFeatureOracleSentinel;
+      }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
@@ -2063,6 +2128,14 @@ function attachHook(module, name, decoders) {
               this.context,
               this.traceGetCpInfo.codePage,
               this.traceGetCpInfo.output,
+            )
+        : focusedProcessorFeatureObservation
+          ? snapshotProcessorFeatureCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              args[0],
             )
         : this.traceMultiByteConversion !== null
           ? snapshotMultiByteToWideCharCall(
@@ -2255,6 +2328,10 @@ function attachHook(module, name, decoders) {
       if (this.traceGetCpInfoOracle) {
         getCpInfoOracleResult = result.toUInt32();
         getCpInfoOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceProcessorFeatureOracle) {
+        processorFeatureOracleResult = result.toUInt32();
+        processorFeatureOracleLastError = Number(lastError) >>> 0;
       }
       const wideCharResult =
         this.traceWideCharConversion === null ? null : signed32(result);
@@ -3759,6 +3836,81 @@ function scheduleGetCpInfoOracle(module) {
   });
 }
 
+function scheduleProcessorFeatureOracle(module) {
+  if (processorFeatureOracleScheduled) {
+    return;
+  }
+  processorFeatureOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "IsProcessorFeaturePresent");
+      if (address === null) {
+        throw new Error("IsProcessorFeaturePresent export is unavailable");
+      }
+      const query = new SystemFunction(
+        address,
+        "uint32",
+        ["uint32"],
+        "stdcall",
+      );
+      const invoke = (feature, sentinel) => {
+        processorFeatureOracleSentinel = sentinel;
+        processorFeatureOracleResult = null;
+        processorFeatureOracleLastError = null;
+        try {
+          const outcome = query(feature);
+          const result = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            processorFeatureOracleResult === null ||
+            processorFeatureOracleLastError === null
+          ) {
+            throw new Error("processor-feature oracle did not pass through the hook");
+          }
+          return {
+            feature,
+            sentinel,
+            result,
+            hookResult: processorFeatureOracleResult,
+            hookLastErrorAfter: processorFeatureOracleLastError,
+            systemLastError,
+            hookResultMatches: processorFeatureOracleResult === result,
+            hookPreservesLastError: processorFeatureOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          processorFeatureOracleSentinel = null;
+          processorFeatureOracleResult = null;
+          processorFeatureOracleLastError = null;
+        }
+      };
+      const calls = [
+        invoke(10, 0),
+        invoke(10, 87),
+        invoke(10, 0x12345678),
+        invoke(0xffffffff, 122),
+      ];
+      emit("processor-feature-oracle", {
+        profile: "x86-processor-feature-query-v1",
+        calls,
+        feature10Stable: calls
+          .slice(0, 3)
+          .every(
+            (call) =>
+              call.result === calls[0].result && call.hookResultMatches,
+          ),
+        invalidFeatureRejected: calls[3].result === 0,
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("processor-feature-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleTlsLifecycleOracle(module) {
   if (tlsLifecycleOracleScheduled) {
     return;
@@ -4160,6 +4312,12 @@ Process.attachModuleObserver({
       selectedObservations.has("get-cp-info")
     ) {
       scheduleGetCpInfoOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("processor-feature")
+    ) {
+      scheduleProcessorFeatureOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

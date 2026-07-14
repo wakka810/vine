@@ -36,6 +36,7 @@ const supportedObservations = new Set([
   "set-last-error",
   "get-acp",
   "get-cp-info",
+  "processor-feature",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

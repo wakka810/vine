@@ -41,6 +41,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub get_module_file_name_a: Option<Kernel32GetModuleFileNameAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_code_page_info: Option<Kernel32CodePageInfoPolicy>,
+    #[serde(default)]
+    pub processor_features: Vec<Kernel32ProcessorFeaturePolicy>,
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
     #[serde(default)]
     pub heap_free_flags: Vec<u32>,
@@ -104,6 +106,13 @@ pub struct Kernel32CodePageInfoPolicy {
     pub lead_byte: [u8; 12],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32ProcessorFeaturePolicy {
+    pub index: u32,
+    pub present: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Kernel32CompatibilityPolicyError {
     pub code: &'static str,
@@ -138,6 +147,7 @@ impl Kernel32CompatibilityPolicy {
             lc_map_string_w: None,
             get_module_file_name_a: None,
             active_code_page_info: None,
+            processor_features: Vec::new(),
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
                 byte_lengths: vec![0x214],
@@ -169,6 +179,7 @@ impl Kernel32CompatibilityPolicy {
             || self.standard_handle_selectors.len() > MAX_POLICY_ENTRIES
             || self.standard_handle_file_types.len() > MAX_POLICY_ENTRIES
             || self.set_handle_counts.len() > MAX_POLICY_ENTRIES
+            || self.processor_features.len() > MAX_POLICY_ENTRIES
             || self.heap_allocations.is_empty()
             || self.heap_allocations.len() > MAX_POLICY_ENTRIES
             || self.heap_free_flags.len() > MAX_POLICY_ENTRIES
@@ -287,6 +298,18 @@ impl Kernel32CompatibilityPolicy {
             ));
         }
 
+        let processor_feature_indices = self
+            .processor_features
+            .iter()
+            .map(|feature| feature.index)
+            .collect::<BTreeSet<_>>();
+        if processor_feature_indices.len() != self.processor_features.len() {
+            return Err(policy_error(
+                "kernel32-policy-processor-features-invalid",
+                "processor-feature indices must be unique explicitly configured values",
+            ));
+        }
+
         let mut heap_variants = BTreeSet::new();
         for allocation in &self.heap_allocations {
             if !matches!(allocation.flags, 0 | HEAP_ZERO_MEMORY)
@@ -377,6 +400,13 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn get_module_file_name_a(&self) -> Option<Kernel32GetModuleFileNameAPolicy> {
         self.get_module_file_name_a
+    }
+
+    pub fn processor_feature_presence(&self, index: u32) -> Option<bool> {
+        self.processor_features
+            .iter()
+            .find(|feature| feature.index == index)
+            .map(|feature| feature.present)
     }
 
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
@@ -496,6 +526,7 @@ mod tests {
         assert!(policy.lc_map_string_w().is_none());
         assert!(policy.get_module_file_name_a().is_none());
         assert!(policy.active_code_page_info().is_none());
+        assert_eq!(policy.processor_feature_presence(10), None);
 
         let mut invalid_environment_layer = policy.clone();
         invalid_environment_layer.wide_environment_strings = true;
@@ -615,6 +646,22 @@ mod tests {
         assert_eq!(
             invalid_lc_map.validate().unwrap_err().code,
             "kernel32-policy-module-file-name-invalid"
+        );
+
+        let mut duplicate_processor_feature = policy.clone();
+        duplicate_processor_feature.processor_features = vec![
+            Kernel32ProcessorFeaturePolicy {
+                index: 10,
+                present: true,
+            },
+            Kernel32ProcessorFeaturePolicy {
+                index: 10,
+                present: false,
+            },
+        ];
+        assert_eq!(
+            duplicate_processor_feature.validate().unwrap_err().code,
+            "kernel32-policy-processor-features-invalid"
         );
 
         let mut duplicate = policy;

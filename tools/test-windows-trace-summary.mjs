@@ -707,6 +707,13 @@ getCpInfoSelection.find(
 ).selectedObservations = ["get-cp-info"];
 assert.doesNotThrow(() => summarizeTrace(encode(getCpInfoSelection)));
 
+const processorFeatureSelection = structuredClone(events);
+processorFeatureSelection[0].arguments.observations = ["processor-feature"];
+processorFeatureSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["processor-feature"];
+assert.doesNotThrow(() => summarizeTrace(encode(processorFeatureSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

@@ -40,6 +40,7 @@ SUPPORTED_OBSERVATIONS = (
     "set-last-error",
     "get-acp",
     "get-cp-info",
+    "processor-feature",
 )
 
 

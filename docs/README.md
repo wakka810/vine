@@ -95,6 +95,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-private-heap-size-4.md](bgi-private-heap-size-4.md) | empty environmentのterminator tableをどうheapへ持つか | native environment非import、zeroed allocation、HeapFree stop |
 | [bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md) | reached one-byte blockをどう安全にfreeするか | exact heap／pointer lifetime、transactional poison、HeapAlloc size-128 stop |
 | [bgi-private-heap-size-128.md](bgi-private-heap-size-128.md) | fixed 32-entry tableをどうheapへ持つか | native reuse非import、128-byte zeroed allocation、IsProcessorFeaturePresent stop |
+| [bgi-is-processor-feature-present.md](bgi-is-processor-feature-present.md) | CPU feature queryをhost discoveryなしでどう返すか | explicit presence map、BOOL／LastError、SetUnhandledExceptionFilter stop |
 | [browser-runtime-worker.md](browser-runtime-worker.md) | Chrome内でruntime全経路をどこまで通せるか | Worker guest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdog、30分stress |
 | [bgi-browser-worker.md](bgi-browser-worker.md) | current BGI sessionをChromeへ移せたか | Rust/Wasm authority、Node semantic oracle、memory digest、heartbeat、cancel／watchdog |
 | [bgi-browser-benchmark.md](bgi-browser-benchmark.md) | BGI Browser workloadの性能／memoryはgate内か | 3分反復、session／slice分布、main／Worker heap slope、linear memory、Wasm crossing |

@@ -609,6 +609,11 @@ function summarizeBgiBenchmark(result, configuration) {
   const sliceDurations = result.sessions.map(
     ({ maximumSliceMilliseconds }) => maximumSliceMilliseconds,
   );
+  assert.equal(
+    result.heartbeatGapMilliseconds.length,
+    result.heartbeatSamples,
+    "heartbeat sample count differs from its distribution",
+  );
   const mainHeap = heapMetrics(result.memorySamples, "usedJsHeapBytes");
   const workerHeap = heapMetrics(result.workerHeapSamples, "usedSize");
   const workerHeapCapacity = heapMetrics(result.workerHeapSamples, "totalSize");
@@ -644,6 +649,12 @@ function summarizeBgiBenchmark(result, configuration) {
       p95: percentile(sliceDurations, 0.95),
       p99: percentile(sliceDurations, 0.99),
       maximum: Math.max(...sliceDurations),
+    },
+    heartbeatGapMilliseconds: {
+      p50: percentile(result.heartbeatGapMilliseconds, 0.5),
+      p95: percentile(result.heartbeatGapMilliseconds, 0.95),
+      p99: percentile(result.heartbeatGapMilliseconds, 0.99),
+      maximum: result.maximumHeartbeatGapMilliseconds,
     },
     maximumHeartbeatGapMilliseconds: result.maximumHeartbeatGapMilliseconds,
     heartbeatSamples: result.heartbeatSamples,
@@ -694,6 +705,12 @@ function summarizeBgiBenchmark(result, configuration) {
     metrics.maximumSliceMilliseconds.p99,
     "<=",
     thresholds.maximumP99SliceMilliseconds,
+  );
+  evaluateThreshold(
+    "maximum-p99-heartbeat-gap-milliseconds",
+    metrics.heartbeatGapMilliseconds.p99,
+    "<=",
+    thresholds.maximumP99HeartbeatGapMilliseconds,
   );
   evaluateThreshold(
     "maximum-heartbeat-gap-milliseconds",

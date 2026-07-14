@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-private-heap-size-128-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-is-processor-feature-present-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -20,7 +20,8 @@ Win32 semantics
                          |
                          v
 Compatibility policy
-  versioned selectors, file types, HeapAlloc pairs, process-view/code-page enablement
+  versioned selectors, file types, HeapAlloc/HeapFree variants, process-view/code-page enablement
+  explicit processor-feature presence
   bounded validation and mutation-free unsupported result
                          |
                          v
@@ -41,14 +42,15 @@ runtime execution. It contains only target-independent bounded data:
 - opt-in controlled UTF-16 environment authority and copy lifetime;
 - opt-in active ANSI code page, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, Windows-932 private-use byte mappings, bounded CTYPE1 information types, and bounded locale mapping variants;
 - opt-in current-process image-path lookup with a bounded ANSI output capacity;
-- enabled `HeapAlloc` flag and byte-length pairs.
+- enabled `HeapAlloc` flag and byte-length pairs and `HeapFree` flags;
+- explicit processor-feature index and presence mappings.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Selectors,
 file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form twenty-one monotonic controlled policies:
+The current files form twenty-two monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -73,6 +75,7 @@ The current files form twenty-one monotonic controlled policies:
 | `kernel32-private-heap-size-4-v1` | stdin, stdout, stderr | preceding options | zeroed `4`, `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544` |
 | `kernel32-private-heap-free-size-1-v1` | stdin, stdout, stderr | preceding options | preceding allocation pairs; `HeapFree` flags `0` |
 | `kernel32-private-heap-size-128-v1` | stdin, stdout, stderr | preceding options | zeroed `4`, `128`, `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544`; `HeapFree` flags `0` |
+| `kernel32-is-processor-feature-present-v1` | stdin, stdout, stderr | preceding options + processor feature `10` present | preceding allocation/free variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -203,6 +206,15 @@ fixes preceding-policy rejection, allocation ID and address, exact requested
 and reserved lengths, full zero initialization, dirty-only delta, LastError,
 and stdcall cleanup through the unchanged `kernel32.heap-alloc.v2` handler.
 
+The processor-feature policy adds only `{index: 10, present: true}`.
+`kernel32.is-processor-feature-present.v1` returns the policy-owned BOOL through
+one DWORD stdcall contract, preserves LastError, and performs no guest-memory or
+runtime-state mutation. The native callers, occurrence count, consumer stores,
+and host CPU capabilities remain evidence rather than policy. The public fixture
+also exercises an explicit false mapping and rejects an unregistered index
+before mutation, proving that neither the handler nor the policy imports host CPU
+feature discovery.
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -226,6 +238,8 @@ negative-length or broad `GetStringTypeW`, `CT_CTYPE2`／`CT_CTYPE3`,
 negative-length／arbitrary-locale／combined-flag `LCMapStringW`, explicit-module
 file-name lookup／host process-path import, broad locale
 classification, other interlocked APIs／cross-Worker atomicity, or a general Windows console.
+The processor-feature mapping is bounded to explicit policy entries; it is not
+general CPU discovery or browser-host feature reflection.
 Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

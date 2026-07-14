@@ -7,12 +7,13 @@ use vine_core::{
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
     FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
     GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress,
-    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest, ImportTarget,
-    ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
-    Kernel32CompatibilityPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32StandardHandleFileType,
-    Kernel32WideCharToMultiBytePolicy, LC_MAP_STRING_W_IMPLEMENTATION,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
+    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest,
+    IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk, ImportThunkDisposition,
+    ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
+    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32LcMapStringWPolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
+    LC_MAP_STRING_W_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
@@ -1152,6 +1153,128 @@ fn get_cp_info_writes_only_policy_owned_active_page_fields_and_rejects_before_mu
     ));
     assert_eq!(runtime, runtime_before_unsupported);
     assert_eq!(memory.stats(), memory_before_unsupported);
+}
+
+#[test]
+fn processor_feature_query_returns_only_explicit_policy_values_without_mutation() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_058f, 10]),
+        (STACK_BASE + 0x20, vec![0x1000_0590, 6]),
+        (STACK_BASE + 0x40, vec![0x1000_0591, 7]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x64);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize IsProcessorFeaturePresent IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "IsProcessorFeaturePresent".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented IsProcessorFeaturePresent endpoint");
+    assert_eq!(
+        contract.implementation_id,
+        IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.arguments[0].value, ApiValueSchema::U32);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "public-processor-features-v1".to_owned();
+    policy.processor_features = vec![
+        Kernel32ProcessorFeaturePolicy {
+            index: 10,
+            present: true,
+        },
+        Kernel32ProcessorFeaturePolicy {
+            index: 6,
+            present: false,
+        },
+    ];
+    policy.validate().expect("valid processor-feature policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(87).unwrap();
+    let runtime_before = runtime.clone();
+    let memory_before = memory.stats();
+
+    let present = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(present.eax, RegisterUpdate::Set(1));
+    assert_eq!(present.stack_pointer, GuestAddress(frames[0].0 + 8));
+    assert_eq!(present.last_error, 87);
+    assert!(present.guest_writes.is_empty());
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+
+    let absent = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+        &policy,
+    );
+    assert_eq!(absent.eax, RegisterUpdate::Set(0));
+    assert_eq!(absent.stack_pointer, GuestAddress(frames[1].0 + 8));
+    assert_eq!(absent.last_error, 87);
+    assert!(absent.guest_writes.is_empty());
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+
+    let unsupported = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[2].0, frames[2].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        unsupported,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "processor-feature-index-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
 }
 
 #[test]
