@@ -215,6 +215,16 @@ also exercises an explicit false mapping and rejects an unregistered index
 before mutation, proving that neither the handler nor the policy imports host CPU
 feature discovery.
 
+`SetUnhandledExceptionFilter` is policy-independent. Its one semantic handler
+accepts a nullable guest pointer, preflights every non-NULL replacement for
+execute access before mutation, atomically replaces the Rust process-owned
+filter, returns the previous pointer, and preserves LastError. The reached filter
+RVA, initial NULL value, caller, replacement order, and next stop remain evidence
+only. The handler never registers the guest pointer with host SEH or JavaScript
+exception machinery. Public semantics independently cover replacement, removal,
+unmapped-pointer rejection without mutation, stdcall cleanup, and process-exit
+retirement; no new compatibility-policy selector is introduced.
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -240,6 +250,9 @@ file-name lookup／host process-path import, broad locale
 classification, other interlocked APIs／cross-Worker atomicity, or a general Windows console.
 The processor-feature mapping is bounded to explicit policy entries; it is not
 general CPU discovery or browser-host feature reflection.
+The policy-independent top-level filter record does not implement SEH dispatch,
+filter invocation, exception records／contexts, vectored handlers, or host
+exception bridging.
 Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

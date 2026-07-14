@@ -2023,3 +2023,45 @@ slices、2,234 yields、2,066 Wasm crossings、final generation `1,614`、
 cancel／watchdog後pending work 0を通す。改善後の3分gateは405 sessions／failure 0、
 heartbeat P99 14.970 ms／maximum 37.225 msを含む全17 thresholdを通した。詳細は
 [bgi-is-processor-feature-present.md](bgi-is-processor-feature-present.md)を正とする。
+
+## 79. BGI unhandled-exception filter replacement
+
+Focused `unhandled-exception-filter` captures r1／r2は2,238,917 bytes／7,031
+lines／SHA-256
+`d97a220135ce703dd0cfb7be263d264319073d0de3165b5ab6217b6ee2e7664b`と
+2,240,926 bytes／7,037 lines／SHA-256
+`ebc23df0b5d621490dcf8be5232d6a3510e9c87cab19ab36f428a7daea8a26df`
+である。3,478／3,481 API pairsはbalanced、diagnosticsはzeroで、filter replacement
+semantic projectionは一致する。
+
+BGIはfilter RVA `0xA816F`をreturn RVA `0xA81BC`から一度登録する。Nativeは
+previous filter `NULL`を返し、LastError `0 -> 0`を保存する。wrapperはzeroを返し、
+outer consumer RVA `0xA5060`は`test eax,eax`でnonzero previous filterだけを分岐する。
+Oracle profile `x86-process-filter-replacement-v1`はcallback AをBへ置換し、`NULL`で
+解除してoriginalを復元する。return chain `original, A, B, NULL`、original `NULL`、
+LastError sentinels `0`／`87`／`0x12345678`／`122`の保存を両captureで確認した。
+
+`kernel32.set-unhandled-exception-filter.v1`はnullable pointerをone-argument stdcallで
+受け、non-NULL guest execute accessをmutation前にpreflightする。filterはRust
+`RuntimeProcessState`がprocess-owned stateとして保持し、previous pointerを返して
+LastErrorを保存する。Host SEH／JavaScript exceptionへguest callbackを登録せず、exit
+request中は保持し、process exit completion／direct terminationで退役する。このvalid
+semantic domainにBGI-specific selectorは不要なため、active compatibility policyは
+`kernel32-is-processor-feature-present-v1`のままである。
+
+`npm run check:runtime:bgi -- --profile kernel32-set-unhandled-exception-filter`は42
+contracts／206 calls、207 writebacks／316 dirty pages／4,690 changed bytes、57 host
+deltas、final generation `294`を通す。Call 203でfilterを登録後、existing
+`EnterCriticalSection`と2回の`DecodePointer`を完了する。Instruction `19096`でID
+`73`／`HeapSize(0x68010001,0,0x20000C58)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`563d391b69ea3dcad1669d68f167bb35fad5b4d48adbd153a9f95ad1fb072f97`、
+912,806-byte reportのSHA-256は
+`92caa9ef24a63fc1abbac0bfc063361b2c7b9998cd14d2d2ee02e2d5c999defa`である。
+
+Chrome Runtime Workerも206 ordered callsとsame stop／memoryを再現し、2,452
+slices、2,245 yields、2,084 Wasm crossings、final generation `1,628`、
+cancel／watchdog後pending work 0を通す。3分gateは411 sessions／failure 0、session
+P95 526.395 ms、heartbeat P99 16.140 ms／maximum 62.570 msを含む全17 thresholdを
+通した。詳細は
+[bgi-set-unhandled-exception-filter.md](bgi-set-unhandled-exception-filter.md)を正とする。

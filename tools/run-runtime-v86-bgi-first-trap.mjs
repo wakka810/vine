@@ -87,6 +87,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-private-heap-free-size-1",
         "kernel32-private-heap-size-128",
         "kernel32-is-processor-feature-present",
+        "kernel32-set-unhandled-exception-filter",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -113,6 +114,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "kernel32-set-unhandled-exception-filter" ||
     genericRuntimeCapability === "kernel32-is-processor-feature-present"
       ? "kernel32-is-processor-feature-present-v1.json"
       : genericRuntimeCapability === "kernel32-private-heap-size-128"
@@ -197,7 +199,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const setUnhandledExceptionFilterEnabled =
+  genericRuntimeCapability === "kernel32-set-unhandled-exception-filter";
 const isProcessorFeaturePresentEnabled =
+  setUnhandledExceptionFilterEnabled ||
   genericRuntimeCapability === "kernel32-is-processor-feature-present";
 const privateHeapSize128Enabled =
   isProcessorFeaturePresentEnabled ||
@@ -301,7 +306,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? isProcessorFeaturePresentEnabled
+      ? setUnhandledExceptionFilterEnabled
+        ? "v86-bgi-set-unhandled-exception-filter"
+        : isProcessorFeaturePresentEnabled
         ? "v86-bgi-is-processor-feature-present"
         : privateHeapSize128Enabled
         ? "v86-bgi-private-heap-size-128"
@@ -2945,6 +2952,92 @@ const isProcessorFeaturePresentExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const setUnhandledExceptionFilterExpected = {
+  ...isProcessorFeaturePresentExpected,
+  supportedCalls: 206,
+  writebackBatches: 207,
+  dirtyPages: 316,
+  changedBytes: 4690,
+  hostDeltaBatches: 57,
+  finalGeneration: 294,
+  filterCall: {
+    sequence: 203,
+    occurrence: 1,
+    instructionCount: 18993,
+    filterAddress: 0x100a816f,
+    returnAddress: 0x100a81bc,
+    consumerWriteback: {
+      sequence: 204,
+      instructionCount: 19052,
+      dirtyPages: [
+        { address: 0x006ff000, owner: 4 },
+        { address: 0x7ffde000, owner: 5 },
+      ],
+      payloadSha256: "67189a41be50b8fa5528b9b5a2ccf6eaf885ae206f347aee46cedb65268b22cd",
+      fromGeneration: 289,
+      generation: 290,
+      changedBytes: 76,
+    },
+  },
+  continuationCalls: [
+    {
+      sequence: 204,
+      symbol: "EnterCriticalSection",
+      occurrence: 5,
+      instructionCount: 19052,
+      arguments: [0x100ff6c0],
+      result: { action: "preserve" },
+      implementationId: "kernel32.enter-critical-section.v1",
+      returnAddress: 0x100ab763,
+      stackCleanupBytes: 8,
+    },
+    {
+      sequence: 205,
+      symbol: "DecodePointer",
+      occurrence: 3,
+      instructionCount: 19071,
+      arguments: [0xec010010],
+      result: { action: "set", value: 0x20000c58 },
+      implementationId: "kernel32.decode-pointer.v1",
+      returnAddress: 0x100a1d24,
+      stackCleanupBytes: 8,
+    },
+    {
+      sequence: 206,
+      symbol: "DecodePointer",
+      occurrence: 4,
+      instructionCount: 19076,
+      arguments: [0xec010010],
+      result: { action: "set", value: 0x20000c58 },
+      implementationId: "kernel32.decode-pointer.v1",
+      returnAddress: 0x100a1d31,
+      stackCleanupBytes: 8,
+    },
+  ],
+  criticalSectionDelta: {
+    sequence: 204,
+    fromGeneration: 290,
+    generation: 291,
+    address: 0x100ff000,
+    owner: 1,
+    payloadSha256: "01986be151ae34103b6631d77d778644f4a2d931e8cdab261fd41276455f0556",
+  },
+  memoryContentSha256: "563d391b69ea3dcad1669d68f167bb35fad5b4d48adbd153a9f95ad1fb072f97",
+  reportBytes: 912_806,
+  reportSha256: "92caa9ef24a63fc1abbac0bfc063361b2c7b9998cd14d2d2ee02e2d5c999defa",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 73,
+    endpointAddress: 0x7f000480,
+    module: "kernel32.dll",
+    symbol: "HeapSize",
+    iatAddress: 0x100d11cc,
+    arguments: [0x68010001, 0, 0x20000c58],
+    returnAddress: 0x100a4f77,
+    instructionCount: 19096,
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -3407,6 +3500,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setUnhandledExceptionFilterEnabled) {
+        validateSetUnhandledExceptionFilterResult(genericResult);
       } else if (isProcessorFeaturePresentEnabled) {
         validateIsProcessorFeaturePresentResult(genericResult);
       } else if (privateHeapSize128Enabled) {
@@ -3480,7 +3575,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : isProcessorFeaturePresentEnabled
+          : setUnhandledExceptionFilterEnabled
+            ? "bgi SetUnhandledExceptionFilter"
+            : isProcessorFeaturePresentEnabled
             ? "bgi IsProcessorFeaturePresent"
             : privateHeapSize128Enabled
             ? "bgi private-heap size-128 allocation"
@@ -3912,7 +4009,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : isProcessorFeaturePresentEnabled
+        : setUnhandledExceptionFilterEnabled
+          ? 29
+          : isProcessorFeaturePresentEnabled
           ? 28
           : privateHeapSize128Enabled
           ? 27
@@ -6900,11 +6999,14 @@ function validatePrivateHeapSize128Result(
   );
 }
 
-function validateIsProcessorFeaturePresentResult(result) {
-  const expected = isProcessorFeaturePresentExpected;
+function validateIsProcessorFeaturePresentResult(
+  result,
+  expected = isProcessorFeaturePresentExpected,
+  { postAllocationCallCount = 4 } = {},
+) {
   validatePrivateHeapSize128Result(result, expected, {
     allocationCount: 8,
-    postAllocationCallCount: 4,
+    postAllocationCallCount,
   });
   const calls = result.supportedCalls.filter(
     ({ symbol }) => symbol === "IsProcessorFeaturePresent",
@@ -7008,6 +7110,106 @@ function validateIsProcessorFeaturePresentResult(result) {
     flushTlb: true,
     invalidateInstructionFetch: true,
     invalidateGeneratedCode: true,
+  });
+}
+
+function validateSetUnhandledExceptionFilterResult(result) {
+  const expected = setUnhandledExceptionFilterExpected;
+  validateIsProcessorFeaturePresentResult(result, expected, {
+    postAllocationCallCount: 8,
+  });
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "SetUnhandledExceptionFilter",
+  );
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.equal(call.sequence, expected.filterCall.sequence);
+  assert.equal(call.occurrence, expected.filterCall.occurrence);
+  assert.deepEqual(call.arguments, [expected.filterCall.filterAddress]);
+  assert.deepEqual(call.result, { action: "set", value: 0 });
+  assert.equal(call.implementationId, "kernel32.set-unhandled-exception-filter.v1");
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+  assert.equal(call.trapInstructionCount, expected.filterCall.instructionCount);
+  assert.equal(call.returnAddress, expected.filterCall.returnAddress);
+
+  const consumerWriteback = result.writebacks.find(
+    ({ sequence }) => sequence === expected.filterCall.consumerWriteback.sequence,
+  );
+  assert(consumerWriteback, "unhandled-exception filter consumer writeback is missing");
+  assert.equal(
+    consumerWriteback.instructionCount,
+    expected.filterCall.consumerWriteback.instructionCount,
+  );
+  assert.deepEqual(
+    consumerWriteback.dirtyPages,
+    expected.filterCall.consumerWriteback.dirtyPages,
+  );
+  assert.equal(
+    consumerWriteback.payloadSha256,
+    expected.filterCall.consumerWriteback.payloadSha256,
+  );
+  assert.equal(
+    consumerWriteback.receipt.fromGeneration,
+    expected.filterCall.consumerWriteback.fromGeneration,
+  );
+  assert.equal(
+    consumerWriteback.receipt.generation,
+    expected.filterCall.consumerWriteback.generation,
+  );
+  assert.equal(
+    consumerWriteback.receipt.changedBytes,
+    expected.filterCall.consumerWriteback.changedBytes,
+  );
+
+  for (const expectedCall of expected.continuationCalls) {
+    const continuation = result.supportedCalls.find(
+      ({ sequence }) => sequence === expectedCall.sequence,
+    );
+    assert(continuation, `continuation call ${expectedCall.sequence} is missing`);
+    assert.equal(continuation.symbol, expectedCall.symbol);
+    assert.equal(continuation.occurrence, expectedCall.occurrence);
+    assert.equal(continuation.trapInstructionCount, expectedCall.instructionCount);
+    assert.deepEqual(continuation.arguments, expectedCall.arguments);
+    assert.deepEqual(continuation.result, expectedCall.result);
+    assert.equal(continuation.implementationId, expectedCall.implementationId);
+    assert.equal(continuation.returnAddress, expectedCall.returnAddress);
+    assert.equal(
+      continuation.stackPointerAfter,
+      continuation.stackPointerBefore + expectedCall.stackCleanupBytes,
+    );
+    assert.equal(continuation.lastError, 0);
+  }
+
+  const criticalSectionDelta = result.hostDeltas.find(
+    ({ sequence }) => sequence === expected.criticalSectionDelta.sequence,
+  );
+  assert(criticalSectionDelta, "post-filter critical-section delta is missing");
+  assert.equal(
+    criticalSectionDelta.fromGeneration,
+    expected.criticalSectionDelta.fromGeneration,
+  );
+  assert.equal(
+    criticalSectionDelta.generation,
+    expected.criticalSectionDelta.generation,
+  );
+  assert.equal(criticalSectionDelta.mappingOperations, 0);
+  assert.deepEqual(criticalSectionDelta.dirtyPages, [
+    {
+      address: expected.criticalSectionDelta.address,
+      owner: expected.criticalSectionDelta.owner,
+    },
+  ]);
+  assert.equal(criticalSectionDelta.payloadBytes, page.size);
+  assert.equal(
+    criticalSectionDelta.payloadSha256,
+    expected.criticalSectionDelta.payloadSha256,
+  );
+  assert.deepEqual(criticalSectionDelta.cacheEffects, {
+    flushTlb: false,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
   });
 }
 
@@ -7489,7 +7691,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : isProcessorFeaturePresentEnabled
+        : setUnhandledExceptionFilterEnabled
+          ? "vine.v86-bgi-set-unhandled-exception-filter"
+          : isProcessorFeaturePresentEnabled
           ? "vine.v86-bgi-is-processor-feature-present"
           : privateHeapSize128Enabled
           ? "vine.v86-bgi-private-heap-size-128"

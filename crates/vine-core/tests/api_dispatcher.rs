@@ -26,8 +26,9 @@ use vine_core::{
     RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId,
     RuntimeHeapInitialization, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva,
-    SET_LAST_ERROR_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
-    TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
+    SET_LAST_ERROR_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
+    SchedulerThreadState, StackCleanup, TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     kernel32_contract_for_endpoint,
@@ -1274,6 +1275,169 @@ fn processor_feature_query_returns_only_explicit_policy_values_without_mutation(
                 && fault.code == "processor-feature-index-unsupported"
     ));
     assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
+fn unhandled_exception_filter_replacement_is_process_owned_and_fails_before_mutation() {
+    const FILTER_A: u32 = OUTPUT_BASE + 0x100;
+    const FILTER_B: u32 = OUTPUT_BASE + 0x200;
+
+    let (mut memory, owner) = initialized_memory();
+    memory
+        .protect(
+            owner,
+            GuestRange::new(GuestAddress(OUTPUT_BASE), GUEST_PAGE_SIZE)
+                .expect("filter code page range"),
+            PageProtection {
+                read: true,
+                write: true,
+                execute: true,
+            },
+        )
+        .expect("make filter code page executable");
+    let frames = [
+        (STACK_BASE, vec![0x1000_05a1, FILTER_A]),
+        (STACK_BASE + 0x20, vec![0x1000_05a2, FILTER_B]),
+        (STACK_BASE + 0x40, vec![0x1000_05a3, 0]),
+        (STACK_BASE + 0x60, vec![0x1000_05a4, 0x3000_0000]),
+        (STACK_BASE + 0x80, vec![0x1000_05a5, FILTER_A]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x68);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize SetUnhandledExceptionFilter IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SetUnhandledExceptionFilter".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented SetUnhandledExceptionFilter endpoint");
+    assert_eq!(
+        contract.implementation_id,
+        SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(
+        contract.abi.arguments[0].value,
+        ApiValueSchema::OpaquePointer {
+            nullable: true,
+            alignment: 1,
+        }
+    );
+    assert_eq!(
+        contract.abi.return_value,
+        ApiReturnSchema::OpaquePointer { nullable: true }
+    );
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(87).unwrap();
+    let memory_before = memory.stats();
+
+    let install = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+    );
+    assert_eq!(install.eax, RegisterUpdate::Set(0));
+    assert_eq!(install.stack_pointer, GuestAddress(frames[0].0 + 8));
+    assert_eq!(install.last_error, 87);
+    assert!(install.guest_writes.is_empty());
+    assert_eq!(
+        runtime.unhandled_exception_filter(),
+        Some(GuestAddress(FILTER_A))
+    );
+
+    let replace = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(replace.eax, RegisterUpdate::Set(FILTER_A));
+    assert_eq!(replace.last_error, 87);
+    assert_eq!(
+        runtime.unhandled_exception_filter(),
+        Some(GuestAddress(FILTER_B))
+    );
+
+    let remove = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+    );
+    assert_eq!(remove.eax, RegisterUpdate::Set(FILTER_B));
+    assert_eq!(remove.last_error, 87);
+    assert_eq!(runtime.unhandled_exception_filter(), None);
+    assert_eq!(memory.stats(), memory_before);
+
+    let runtime_before_rejection = runtime.clone();
+    let rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[3].0, frames[3].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        rejected,
+        DispatchOutcome::Fault(ref fault) if fault.class == ApiFaultClass::InvalidCall
+    ));
+    assert_eq!(runtime, runtime_before_rejection);
+    assert_eq!(memory.stats(), memory_before);
+
+    let reinstall = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[4].0,
+        frames[4].1[0],
+    );
+    assert_eq!(reinstall.eax, RegisterUpdate::Set(0));
+    assert_eq!(
+        runtime.unhandled_exception_filter(),
+        Some(GuestAddress(FILTER_A))
+    );
+    runtime
+        .terminate_current_process(0)
+        .expect("process termination retires the filter");
+    assert_eq!(runtime.unhandled_exception_filter(), None);
     assert_eq!(memory.stats(), memory_before);
 }
 

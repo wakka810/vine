@@ -38,6 +38,8 @@ pub const GET_ACP_IMPLEMENTATION: &str = "kernel32.get-acp.v1";
 pub const GET_CP_INFO_IMPLEMENTATION: &str = "kernel32.get-cp-info.v1";
 pub const IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION: &str =
     "kernel32.is-processor-feature-present.v1";
+pub const SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION: &str =
+    "kernel32.set-unhandled-exception-filter.v1";
 pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
 pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
 pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
@@ -122,6 +124,9 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_CP_INFO_IMPLEMENTATION => handle_get_cp_info(policy, contract, frame),
         IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION => {
             handle_is_processor_feature_present(policy, contract, frame)
+        }
+        SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION => {
+            handle_set_unhandled_exception_filter(contract, frame, session)
         }
         GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
         GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
@@ -212,6 +217,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetACP" => get_acp_contract(endpoint)?,
         "GetCPInfo" => get_cp_info_contract(endpoint)?,
         "IsProcessorFeaturePresent" => is_processor_feature_present_contract(endpoint)?,
+        "SetUnhandledExceptionFilter" => set_unhandled_exception_filter_contract(endpoint)?,
         "GetTickCount" => get_tick_count_contract(endpoint)?,
         "GetStdHandle" => get_std_handle_contract(endpoint)?,
         "GetFileType" => get_file_type_contract(endpoint)?,
@@ -370,6 +376,28 @@ fn handle_is_processor_feature_present(
         )
     })?;
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(present)))
+}
+
+fn handle_set_unhandled_exception_filter(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let filter_value = required_argument(contract, frame, 0, "unhandled exception filter")?;
+    let filter = (filter_value != 0).then_some(GuestAddress(filter_value));
+    if let Some(address) = filter {
+        session
+            .memory()
+            .validate_access(address, 1, MemoryAccess::Execute)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    }
+    let previous = session
+        .runtime_mut()
+        .set_unhandled_exception_filter(filter)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
+        previous.map_or(0, |address| address.0),
+    )))
 }
 
 fn handle_get_tick_count(session: &ExecutionSession<'_>) -> Result<ApiImmediate, ApiFault> {
@@ -2265,6 +2293,18 @@ pub fn is_processor_feature_present_contract(
         vec![u32_argument("processorFeature")],
         ApiReturnSchema::Bool32,
         IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
+    )
+}
+
+pub fn set_unhandled_exception_filter_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "SetUnhandledExceptionFilter",
+        vec![opaque_pointer("filter", true, 1)],
+        ApiReturnSchema::OpaquePointer { nullable: true },
+        SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
     )
 }
 

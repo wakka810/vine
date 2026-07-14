@@ -41,6 +41,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-acp",
     "get-cp-info",
     "processor-feature",
+    "unhandled-exception-filter",
 )
 
 

@@ -79,6 +79,12 @@ let processorFeatureOracleSentinel = null;
 let processorFeatureOracleResult = null;
 let processorFeatureOracleLastError = null;
 let processorFeatureConsumersRecorded = 0;
+let unhandledExceptionFilterOracleScheduled = false;
+let unhandledExceptionFilterOracleSentinel = null;
+let unhandledExceptionFilterOracleResult = null;
+let unhandledExceptionFilterOracleLastError = null;
+let unhandledExceptionFilterConsumersRecorded = 0;
+const unhandledExceptionFilterCallbacks = [];
 const observedMainModuleHeapAllocations = new Map();
 
 function snapshotNulTerminatedString(pointer, encoding) {
@@ -836,6 +842,42 @@ function snapshotProcessorFeatureCall(
     lastErrorBefore: Number(lastErrorBefore) >>> 0,
     processorFeature: {
       index: feature.toUInt32(),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              context,
+              4,
+              12,
+            ),
+          }
+        : null,
+    },
+  };
+}
+
+function snapshotUnhandledExceptionFilterCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  filter,
+) {
+  const recordsConsumer =
+    unhandledExceptionFilterConsumersRecorded < 2 &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    unhandledExceptionFilterConsumersRecorded += 1;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    unhandledExceptionFilter: {
+      filter: filter.toString(),
+      filterIdentity: filter.isNull() ? null : describeCaller(filter),
       immediateConsumer: recordsConsumer
         ? {
             apiContinuation: snapshotInstructionsFollowingDirectJump(
@@ -1642,6 +1684,9 @@ if (selectedObservations.has("get-cp-info")) {
 if (selectedObservations.has("processor-feature")) {
   hooks["kernel32.dll"].push(["IsProcessorFeaturePresent", [null]]);
 }
+if (selectedObservations.has("unhandled-exception-filter")) {
+  hooks["kernel32.dll"].push(["SetUnhandledExceptionFilter", [null]]);
+}
 
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -1777,6 +1822,11 @@ function attachHook(module, name, decoders) {
         name === "IsProcessorFeaturePresent" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedUnhandledExceptionFilterObservation =
+        selectedObservations.has("unhandled-exception-filter") &&
+        name === "SetUnhandledExceptionFilter" &&
+        caller.module !== null &&
+        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
       const focusedMultiByteObservation =
         selectedObservations.has("multi-byte-to-wide-char") &&
         name === "MultiByteToWideChar" &&
@@ -1825,6 +1875,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("processor-feature") &&
         name === "IsProcessorFeaturePresent" &&
         !focusedProcessorFeatureObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("unhandled-exception-filter") &&
+        name === "SetUnhandledExceptionFilter" &&
+        !focusedUnhandledExceptionFilterObservation
       ) {
         this.traceFrame = null;
         return;
@@ -1982,6 +2040,15 @@ function attachHook(module, name, decoders) {
       if (this.traceProcessorFeatureOracle) {
         this.lastError = processorFeatureOracleSentinel;
       }
+      this.traceUnhandledExceptionFilterOracle =
+        unhandledExceptionFilterOracleSentinel !== null &&
+        selectedObservations.has("unhandled-exception-filter") &&
+        name === "SetUnhandledExceptionFilter" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceUnhandledExceptionFilterOracle) {
+        this.lastError = unhandledExceptionFilterOracleSentinel;
+      }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
@@ -2131,6 +2198,14 @@ function attachHook(module, name, decoders) {
             )
         : focusedProcessorFeatureObservation
           ? snapshotProcessorFeatureCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              args[0],
+            )
+        : focusedUnhandledExceptionFilterObservation
+          ? snapshotUnhandledExceptionFilterCall(
               caller,
               this.returnAddress,
               this.lastError,
@@ -2332,6 +2407,10 @@ function attachHook(module, name, decoders) {
       if (this.traceProcessorFeatureOracle) {
         processorFeatureOracleResult = result.toUInt32();
         processorFeatureOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceUnhandledExceptionFilterOracle) {
+        unhandledExceptionFilterOracleResult = result.toString();
+        unhandledExceptionFilterOracleLastError = Number(lastError) >>> 0;
       }
       const wideCharResult =
         this.traceWideCharConversion === null ? null : signed32(result);
@@ -3911,6 +3990,106 @@ function scheduleProcessorFeatureOracle(module) {
   });
 }
 
+function scheduleUnhandledExceptionFilterOracle(module) {
+  if (unhandledExceptionFilterOracleScheduled) {
+    return;
+  }
+  unhandledExceptionFilterOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "SetUnhandledExceptionFilter");
+      if (address === null) {
+        throw new Error("SetUnhandledExceptionFilter export is unavailable");
+      }
+      const setFilter = new SystemFunction(
+        address,
+        "pointer",
+        ["pointer"],
+        "stdcall",
+      );
+      const callbackA = new NativeCallback(
+        () => 0,
+        "int",
+        ["pointer"],
+        "stdcall",
+      );
+      const callbackB = new NativeCallback(
+        () => 0,
+        "int",
+        ["pointer"],
+        "stdcall",
+      );
+      unhandledExceptionFilterCallbacks.push(callbackA, callbackB);
+
+      const invoke = (step, filter, sentinel) => {
+        unhandledExceptionFilterOracleSentinel = sentinel;
+        unhandledExceptionFilterOracleResult = null;
+        unhandledExceptionFilterOracleLastError = null;
+        try {
+          const outcome = setFilter(filter);
+          const result = outcome.value.toString().toLowerCase();
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            unhandledExceptionFilterOracleResult === null ||
+            unhandledExceptionFilterOracleLastError === null
+          ) {
+            throw new Error(
+              "unhandled-exception-filter oracle did not pass through the hook",
+            );
+          }
+          return {
+            step,
+            filter: filter.toString().toLowerCase(),
+            sentinel,
+            result,
+            hookResult: unhandledExceptionFilterOracleResult.toLowerCase(),
+            hookLastErrorAfter: unhandledExceptionFilterOracleLastError,
+            systemLastError,
+            hookResultMatches:
+              unhandledExceptionFilterOracleResult.toLowerCase() === result,
+            hookPreservesLastError:
+              unhandledExceptionFilterOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          unhandledExceptionFilterOracleSentinel = null;
+          unhandledExceptionFilterOracleResult = null;
+          unhandledExceptionFilterOracleLastError = null;
+        }
+      };
+
+      const installA = invoke("install-a", callbackA, 0);
+      const installB = invoke("replace-with-b", callbackB, 87);
+      const remove = invoke("remove", NULL, 0x12345678);
+      const restore = invoke("restore-original", ptr(installA.result), 122);
+      const calls = [installA, installB, remove, restore];
+      emit("unhandled-exception-filter-oracle", {
+        profile: "x86-process-filter-replacement-v1",
+        callbacks: [
+          callbackA.toString().toLowerCase(),
+          callbackB.toString().toLowerCase(),
+        ],
+        originalFilter: installA.result,
+        calls,
+        replacementChainExact:
+          installB.result === callbackA.toString().toLowerCase() &&
+          remove.result === callbackB.toString().toLowerCase() &&
+          restore.result === NULL.toString().toLowerCase(),
+        originalFilterRestored: restore.filter === installA.result,
+        allHookResultsMatch: calls.every((call) => call.hookResultMatches),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("unhandled-exception-filter-oracle-error", {
+        error: error.message,
+      });
+    }
+  });
+}
+
 function scheduleTlsLifecycleOracle(module) {
   if (tlsLifecycleOracleScheduled) {
     return;
@@ -4318,6 +4497,12 @@ Process.attachModuleObserver({
       selectedObservations.has("processor-feature")
     ) {
       scheduleProcessorFeatureOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("unhandled-exception-filter")
+    ) {
+      scheduleUnhandledExceptionFilterOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

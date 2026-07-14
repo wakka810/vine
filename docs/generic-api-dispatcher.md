@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap allocation/free, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, and IsProcessorFeaturePresent capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap allocation/free, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, and SetUnhandledExceptionFilter capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-is-processor-feature-present`
-- Scope: frozen 17-call equivalence plus 202 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-set-unhandled-exception-filter`
+- Scope: frozen 17-call equivalence plus 206 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -803,6 +803,24 @@ instruction 18,993 on missing
 Full evidence is in
 [bgi-is-processor-feature-present.md](bgi-is-processor-feature-present.md).
 
+The current process-filter profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-set-unhandled-exception-filter
+```
+
+`kernel32.set-unhandled-exception-filter.v1` checks a non-NULL argument for
+executable guest access, replaces one process-owned nullable filter, returns the
+previous pointer, preserves LastError, and writes no guest bytes. Call 203
+registers `0x100A816F` and returns NULL. Existing `EnterCriticalSection` and two
+`DecodePointer` calls then continue through call 206. The profile uses 207
+writebacks／316 dirty pages／4,690 changed bytes and 57 host deltas, ends at
+generation `294`, and stops at instruction 19,096 on missing
+`HeapSize(0x68010001,0,0x20000C58)`. The 912,806-byte report has SHA-256
+`92caa9ef24a63fc1abbac0bfc063361b2c7b9998cd14d2d2ee02e2d5c999defa`.
+Full evidence is in
+[bgi-set-unhandled-exception-filter.md](bgi-set-unhandled-exception-filter.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -842,16 +860,18 @@ Full evidence is in
   locale/flag/length variants, and broad locale tables
   remain absent. Explicit module file-name lookup and host image-path import are
   also absent. Processor feature presence is explicit policy data and does not
-  import host CPU discovery. Its first unsupported operation is
-  `SetUnhandledExceptionFilter(0x100A816F)`; bespoke
+  import host CPU discovery. One process-owned top-level exception-filter
+  pointer is stored, replaced, and retired without bridging to host exception
+  machinery; SEH dispatch and filter invocation remain absent. Its first
+  unsupported operation is `HeapSize(0x68010001,0,0x20000C58)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-set-unhandled-exception-filter` at
-`SetUnhandledExceptionFilter(0x100A816F)`. It must fix filter pointer identity,
-replacement and return behavior, LastError, lifetime, and the consumer without
-delegating guest SEH state to host/browser exception machinery.
+The next proof is `kernel32-heap-size` at
+`HeapSize(0x68010001,0,0x20000C58)`. It must fix live-allocation identity,
+return／failure sentinel, flags, LastError, and the consumer without broadening
+the reached pointer into unrestricted heap introspection.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -874,5 +894,6 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     InterlockedDecrement report is 580,772 bytes, the GetModuleFileNameA report
     is 704,797 bytes, the size-16 heap report is 828,414 bytes, and the current
     size-4 heap report is 833,007 bytes, the one-byte-free report is 875,554
-    bytes, the size-128 heap report is 883,995 bytes, and the current
-    processor-feature report is 896,534 bytes.
+    bytes, the size-128 heap report is 883,995 bytes, the processor-feature
+    report is 896,534 bytes, and the current process-filter report is 912,806
+    bytes.

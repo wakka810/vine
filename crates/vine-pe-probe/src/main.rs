@@ -119,6 +119,7 @@ enum GenericRuntimeCapability {
     PrivateHeapFreeSize1,
     PrivateHeapSize128,
     IsProcessorFeaturePresent,
+    SetUnhandledExceptionFilter,
 }
 
 struct GenericRuntimeProcess {
@@ -2473,6 +2474,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::PrivateHeapFreeSize1
                 | GenericRuntimeCapability::PrivateHeapSize128
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
+                | GenericRuntimeCapability::SetUnhandledExceptionFilter
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2484,6 +2486,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::PrivateHeapFreeSize1
                 | GenericRuntimeCapability::PrivateHeapSize128
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
+                | GenericRuntimeCapability::SetUnhandledExceptionFilter
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2513,7 +2516,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::PrivateHeapSize4
             | GenericRuntimeCapability::PrivateHeapFreeSize1
             | GenericRuntimeCapability::PrivateHeapSize128
-            | GenericRuntimeCapability::IsProcessorFeaturePresent,
+            | GenericRuntimeCapability::IsProcessorFeaturePresent
+            | GenericRuntimeCapability::SetUnhandledExceptionFilter,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3020,6 +3024,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::PrivateHeapFreeSize1
                 | GenericRuntimeCapability::PrivateHeapSize128
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
+                | GenericRuntimeCapability::SetUnhandledExceptionFilter
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3033,12 +3038,18 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::PrivateHeapFreeSize1
                 | GenericRuntimeCapability::PrivateHeapSize128
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
+                | GenericRuntimeCapability::SetUnhandledExceptionFilter
         )
     );
-    let processor_feature_enabled = matches!(
+    let set_unhandled_exception_filter_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::IsProcessorFeaturePresent)
+        Some(GenericRuntimeCapability::SetUnhandledExceptionFilter)
     );
+    let processor_feature_enabled = set_unhandled_exception_filter_enabled
+        || matches!(
+            enabled,
+            Some(GenericRuntimeCapability::IsProcessorFeaturePresent)
+        );
     let lc_map_string_w_enabled = interlocked_decrement_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::LcMapStringW));
     let get_string_type_w_enabled = lc_map_string_w_enabled
@@ -3121,7 +3132,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::PrivateHeapSize4
             | GenericRuntimeCapability::PrivateHeapFreeSize1
             | GenericRuntimeCapability::PrivateHeapSize128
-            | GenericRuntimeCapability::IsProcessorFeaturePresent,
+            | GenericRuntimeCapability::IsProcessorFeaturePresent
+            | GenericRuntimeCapability::SetUnhandledExceptionFilter,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3269,6 +3281,7 @@ fn runtime_capability_enables_endpoint(
         "InterlockedDecrement" => interlocked_decrement_enabled,
         "GetModuleFileNameA" => get_module_file_name_a_enabled,
         "IsProcessorFeaturePresent" => processor_feature_enabled,
+        "SetUnhandledExceptionFilter" => set_unhandled_exception_filter_enabled,
         _ => true,
     }
 }
@@ -3314,7 +3327,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::PrivateHeapSize4
             | GenericRuntimeCapability::PrivateHeapFreeSize1
             | GenericRuntimeCapability::PrivateHeapSize128
-            | GenericRuntimeCapability::IsProcessorFeaturePresent,
+            | GenericRuntimeCapability::IsProcessorFeaturePresent
+            | GenericRuntimeCapability::SetUnhandledExceptionFilter,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8710,6 +8724,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-private-heap-size-128" => GenericRuntimeCapability::PrivateHeapSize128,
                 "kernel32-is-processor-feature-present" => {
                     GenericRuntimeCapability::IsProcessorFeaturePresent
+                }
+                "kernel32-set-unhandled-exception-filter" => {
+                    GenericRuntimeCapability::SetUnhandledExceptionFilter
                 }
                 _ => return Err(usage_error()),
             };

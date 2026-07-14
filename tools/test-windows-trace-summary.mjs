@@ -714,6 +714,15 @@ processorFeatureSelection.find(
 ).selectedObservations = ["processor-feature"];
 assert.doesNotThrow(() => summarizeTrace(encode(processorFeatureSelection)));
 
+const unhandledExceptionFilterSelection = structuredClone(events);
+unhandledExceptionFilterSelection[0].arguments.observations = [
+  "unhandled-exception-filter",
+];
+unhandledExceptionFilterSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["unhandled-exception-filter"];
+assert.doesNotThrow(() => summarizeTrace(encode(unhandledExceptionFilterSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

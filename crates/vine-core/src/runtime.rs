@@ -1503,6 +1503,8 @@ pub struct RuntimeProcessState {
     pub image_path_a: RuntimeProcessImagePathA,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<RuntimeProcessEnvironment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unhandled_exception_filter: Option<GuestAddress>,
     pub heap_termination_on_corruption: bool,
     pub heaps: BTreeMap<u32, RuntimeHeap>,
     pub modules: BTreeMap<u32, RuntimeModule>,
@@ -1641,6 +1643,7 @@ impl RuntimeState {
                 startup_info: bootstrap.startup_info,
                 image_path_a: bootstrap.process_image_path_a,
                 environment: None,
+                unhandled_exception_filter: None,
                 heap_termination_on_corruption: false,
                 heaps: BTreeMap::new(),
                 modules: BTreeMap::new(),
@@ -1698,6 +1701,26 @@ impl RuntimeState {
 
     pub fn process_image_path_a(&self) -> &RuntimeProcessImagePathA {
         &self.process.image_path_a
+    }
+
+    pub fn unhandled_exception_filter(&self) -> Option<GuestAddress> {
+        self.process.unhandled_exception_filter
+    }
+
+    pub fn set_unhandled_exception_filter(
+        &mut self,
+        filter: Option<GuestAddress>,
+    ) -> Result<Option<GuestAddress>, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-exception-filter",
+                "unhandled-exception-filter-process-state-invalid",
+                "unhandled-exception filter replacement requires a running process",
+            ));
+        }
+        let previous = self.process.unhandled_exception_filter;
+        self.process.unhandled_exception_filter = filter;
+        Ok(previous)
     }
 
     pub fn process_address_space_allocator(&self) -> &ProcessAddressSpaceAllocator {
@@ -5136,6 +5159,7 @@ impl RuntimeState {
         for completion in completions {
             self.commit_thread_exit_completion(completion);
         }
+        self.process.unhandled_exception_filter = None;
         self.process.lifecycle = RuntimeProcessLifecycleState::Exited { exit_code };
         Ok(())
     }
@@ -5200,6 +5224,7 @@ impl RuntimeState {
                 .threads
                 .insert(thread_id, SchedulerThreadState::Terminated { exit_code });
         }
+        self.process.unhandled_exception_filter = None;
         self.process.lifecycle = RuntimeProcessLifecycleState::Exited { exit_code };
         Ok(cancellation)
     }
