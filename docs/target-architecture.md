@@ -209,7 +209,11 @@ serializationはflatten adapterで維持し、inspectionはimmutable borrowに�
 mutation-free graph planを作り、typed objectをpreflightした後にrecords／graphをinfallible commitするため、
 failed object registrationでrollback mutationを行わない。Guest import bindingもmemory work成功後にだけ
 candidate graphとmetadataをcommitする。Aggregateはこれらのcollectionを直接mutateしない。DLL lifecycle
-phase／in-flight operationは次のnarrow checkpointまで一時的にaggregateが所有する。詳細は
+phase、attach／unwind／detach operation、callback progress／failure identityもprivate
+`RuntimeDllLifecycle`が所有する。Subsystemはnext callback／graphをmutation-free planし、aggregateは
+thread stack／scheduler laneをpreflight後にtargeted commitする。連続callbackはpop＋pushをatomic
+replacementにし、中間のempty stack／Runnable stateを公開しない。Active operationはgraph／image／binding
+mutationをsame owner内で拒否する。詳細は
 [runtime-module-graph.md](runtime-module-graph.md)、
 [runtime-module-images.md](runtime-module-images.md)、
 [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md)を正とする。

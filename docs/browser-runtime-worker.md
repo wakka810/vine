@@ -218,11 +218,11 @@ cancel and watchdog probes stop after 8 and 4 instructions and confirm Rust
 process exit, module detach, and zero pending host/callback work. Detailed
 evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
 
-The separate 180-second BGI workload gate repeats this complete session 630
-times in the same Worker. It records p95 session latency 315.770 ms, p99
-maximum slice 1.525 ms, heartbeat p99 6.085 ms, main heap slope
--240,142 bytes/min, Worker heap slope -729,038 bytes/min, backing-storage slope
-665,193 bytes/min, stable Rust/engine linear-memory sizes, and 2,850 bridge
+The separate 180-second BGI workload gate repeats this complete session 624
+times in the same Worker. It records p95 session latency 324.640 ms, p99
+maximum slice 1.265 ms, heartbeat p99 6.075 ms, main heap slope
+194,159 bytes/min, Worker heap slope 2,628,180 bytes/min, backing-storage slope
+1,955,005 bytes/min, stable Rust/engine linear-memory sizes, and 2,850 bridge
 operations per session. All 17 versioned thresholds pass; details are in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md).
 

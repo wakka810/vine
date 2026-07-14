@@ -15,8 +15,12 @@ DLL catalog、BGI continuationは含めない。
 Architecture refactor checkpoint S6ではgraph、mapped images、committed import bindings、runtime
 export table、process module recordsをprivate `runtime/modules.rs` ownerへ移した。Import bindingは
 live graphをmutateせずcomplete graph candidateをplanし、object／memory preflight成功後にだけmodule
-metadataをcommitする。DLL lifecycle phaseとin-flight callback operationは一時的に`RuntimeState`へ
-残す。次checkpointはloader capabilityを増やさず、このoperation stateをsame subsystemへ移す。
+metadataをcommitする。
+
+Architecture refactor checkpoint S7ではDLL lifecycle phase、attach／unwind／detach operation、
+remaining／completed order、pending callback identity、attach failureをprivate
+`runtime/modules.rs::RuntimeDllLifecycle`へ移した。`RuntimeState`はprocess／thread／scheduler callback
+preflightを行うcoordinatorに限定し、lifecycle stateを直接mutateしない。
 
 ## Controlled fixture and native oracle
 
@@ -91,24 +95,42 @@ then calls `engine -> codec` before committing graph order `main -> engine -> co
 Frame IDs are monotonic `1..7`; wrong-frame completion and graph mutation during a callback are
 structured conflicts without popping the live frame.
 
+Subsystemはbegin／completionごとにnext lifecycle、next callback descriptor、必要ならcloned next graphを
+mutation-free planする。Aggregateはthread callback stackとscheduler laneをpreflightし、callbackを継続する
+場合はold frame pop＋new frame pushをone replacement planへまとめる。全preflight後、callback stateとmodule
+lifecycle／graphをinfallible targeted commitする。Invalid sentinel、wrong frame、stale plan、missing
+module／image、graph finalization failureはlive callback stack、phase、operation、graphを変えない。
+
+Active operation中はgraph registration／dependency／reference／ready transitionに加え、mapped-image
+registrationとimport-binding planningもsame ownerが拒否する。Lifecycle stateはserialization対象外で、
+existing `process.modules`／root `moduleGraph` report shapeを維持する。
+
 ## Contract and regression
 
 Representative contract:
 
 ```powershell
 npm run check:toolchain
+cargo test -p vine-core --lib runtime::modules::tests --locked
+cargo test -p vine-core --lib runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order --locked
 cargo test -p vine-core --test runtime_dll_lifecycle --locked
 ```
 
-S6 regression preserves the Node BGI oracle at 284 calls／25,256 instructions and next
+Six module subsystem tests fix private lifecycle ownership, pending callback commit, active-operation
+mutation rejection, stale-plan rejection, registration planning, and serialization shape. The thread
+contract fixes mutation-free callback replacement at constant depth. The integration fixture fixes
+invalid-sentinel full-state preservation, wrong-frame preservation, atomic callback replacement,
+attach failure unwind／retry, and reverse detach.
+
+S7 regression preserves the Node BGI oracle at 284 calls／25,256 instructions and next
 `GetCurrentThread`, with semantic report SHA-256
 `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`.
 Chrome `150.0.7871.115` reproduces the same memory and stop, with clean cancel／watchdog and browser
-report SHA-256 `04af5d7305ebd17e1a1fc1415cebfc4dbc05743e50ed941500264aacb3b773c4`.
-The 180-second workload completes 630 sessions with zero failures and all 17 thresholds passed;
-report SHA-256 is `435eaf35b2fb2979c9bafe87ff2294cb585b10675ba063803b5d4d3a244fc234`.
-Runtime core Wasm is 2,070,941 bytes／SHA-256
-`7c94ef0ab815edef68ce51d612a6595274e9505ff2787ac7b3101e9e2ce69d4e`.
+report SHA-256 `42c572627aeb22e04ab4d06749ac5c520e6aa526c1f1a6376b0960b09038fb1e`.
+The 180-second workload completes 624 sessions with zero failures and all 17 thresholds passed;
+report SHA-256 is `c10dc7cfc610ca17abbc69559e2869d47ddc5351d6508b5ead9c06b26c4bade7`.
+Runtime core Wasm is 2,085,717 bytes／SHA-256
+`9c3d9f02eae37441d3705e4b1ceb9ec37b6f9cc4622f0a962d0b63374ad28d8f`.
 
 ## Non-claims and next dependency
 
@@ -118,6 +140,6 @@ thunk, implement arbitrary nested loader callbacks, or unload a module independe
 not add a BGI-specific flag／request／receipt.
 
 The generic BGI process path and Browser Worker equivalence are now established and capability
-expansion remains paused at `GetCurrentThread`. The next responsibility checkpoint moves DLL
-lifecycle phase, attach／detach operation, and callback progress into the private module subsystem
-while preserving this controlled fixture and unwind／retry behavior.
+expansion remains paused at `GetCurrentThread`. Module collections and lifecycle operation now share
+one private owner; the next responsibility checkpoint audits remaining process/kernel aggregate
+state while preserving this controlled fixture and unwind／retry behavior.

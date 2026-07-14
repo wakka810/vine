@@ -1,10 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use serde::Serialize;
 
 use crate::bootstrap::InitialThreadStack;
-use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
 use crate::dynamic_exports::{
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
 };
@@ -49,8 +48,8 @@ pub use messages::{
     RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage,
 };
 use modules::{
-    RuntimeGuestImportBindingPlan, RuntimeModuleRecords, RuntimeModules,
-    runtime_module_graph_error, runtime_module_image_error, runtime_module_image_state_error,
+    RuntimeDllLifecyclePlan, RuntimeGuestImportBindingPlan, RuntimeModuleRecords, RuntimeModules,
+    runtime_module_image_state_error,
 };
 pub use objects::RuntimeObjectTable;
 use process::RuntimeProcessDirectories;
@@ -629,24 +628,6 @@ pub enum RuntimeDllLifecycleAction {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RuntimeDllOperationKind {
-    Attach,
-    AttachUnwind,
-    Detach,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RuntimeDllOperation {
-    kind: RuntimeDllOperationKind,
-    graph_order: Vec<RuntimeModuleId>,
-    remaining: VecDeque<RuntimeModuleId>,
-    completed: Vec<RuntimeModuleId>,
-    pending: Option<RuntimeDllCallbackRequest>,
-    attach_failure: Option<(RuntimeModuleId, String)>,
-    return_sentinel: GuestAddress,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeDynamicEndpoint {
@@ -952,6 +933,14 @@ pub struct RuntimeRegistries {
     pub host_requests: BTreeMap<u64, RuntimeHostRequest>,
 }
 
+struct RuntimeCallbackMutationPlan {
+    thread: RuntimeThreadMutationPlan,
+    scheduler: RuntimeSchedulerLanePlan,
+    next_callback_frame_id: u64,
+    entered: Option<RuntimeCallbackFrame>,
+    exited: Option<RuntimeCallbackFrame>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeState {
@@ -963,10 +952,6 @@ pub struct RuntimeState {
     objects: RuntimeObjectTable,
     #[serde(flatten)]
     modules: RuntimeModules,
-    #[serde(skip)]
-    dll_lifecycle_phase: RuntimeDllLifecyclePhase,
-    #[serde(skip)]
-    dll_operation: Option<RuntimeDllOperation>,
     registries: RuntimeRegistries,
     encoded_pointer_namespace: String,
     encoded_pointer_token_prefix: u32,
@@ -1068,8 +1053,6 @@ impl RuntimeState {
             messages: RuntimeMessages::new(bootstrap.initial_thread_id),
             objects,
             modules: RuntimeModules::default(),
-            dll_lifecycle_phase: RuntimeDllLifecyclePhase::Idle,
-            dll_operation: None,
             registries: RuntimeRegistries {
                 dynamic_endpoints: BTreeMap::new(),
                 encoded_pointers: BTreeMap::new(),
@@ -2655,126 +2638,41 @@ impl RuntimeState {
     }
 
     pub fn attach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
-        if self.dll_lifecycle_phase != RuntimeDllLifecyclePhase::Idle {
-            return Err(RuntimeStateError::conflict(
-                "runtime-dll-lifecycle",
-                "direct-module-attach-after-dll-lifecycle-forbidden",
-                "direct module attach cannot bypass the active DLL lifecycle coordinator",
-            ));
-        }
-        self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.modules.attach_all()
     }
 
     pub fn detach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
-        if self.dll_lifecycle_phase != RuntimeDllLifecyclePhase::Idle {
-            return Err(RuntimeStateError::conflict(
-                "runtime-dll-lifecycle",
-                "direct-module-detach-after-dll-lifecycle-forbidden",
-                "direct module detach cannot bypass the active DLL lifecycle coordinator",
-            ));
-        }
-        self.require_dll_operation_inactive_for_module_graph_mutation()?;
         self.modules.detach_all()
     }
 
     fn require_dll_operation_inactive_for_module_graph_mutation(
         &self,
     ) -> Result<(), RuntimeStateError> {
-        if self.dll_operation.is_some() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-dll-lifecycle",
-                "module-graph-mutation-during-dll-callback-forbidden",
-                "module graph mutation is not supported while DLL callbacks are in progress",
-            ));
-        }
-        Ok(())
+        self.modules.require_graph_mutation_allowed()
     }
 
     pub fn dll_lifecycle_phase(&self) -> RuntimeDllLifecyclePhase {
-        self.dll_lifecycle_phase
+        self.modules.dll_lifecycle_phase()
     }
 
     pub fn begin_dll_process_attach(
         &mut self,
         return_sentinel: GuestAddress,
     ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
-        if self.dll_lifecycle_phase != RuntimeDllLifecyclePhase::Idle
-            || self.dll_operation.is_some()
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-dll-lifecycle",
-                "dll-process-attach-state-invalid",
-                "DLL process attach requires an idle lifecycle coordinator",
-            ));
-        }
+        self.modules.require_process_attach_start()?;
         self.require_dll_callback_thread_state()?;
-        validate_dll_return_sentinel(return_sentinel)?;
-        let graph_order = self
-            .modules
-            .graph()
-            .planned_attach_order()
-            .map_err(runtime_module_graph_error)?;
-        let callback_order = self.dll_callback_order(&graph_order)?;
-        self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessAttaching;
-        self.dll_operation = Some(RuntimeDllOperation {
-            kind: RuntimeDllOperationKind::Attach,
-            graph_order,
-            remaining: callback_order.into(),
-            completed: Vec::new(),
-            pending: None,
-            attach_failure: None,
-            return_sentinel,
-        });
-        match self.schedule_next_dll_callback() {
-            Ok(action) => Ok(action),
-            Err(error) => {
-                self.dll_operation = None;
-                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::Idle;
-                Err(error)
-            }
-        }
+        let plan = self.modules.plan_process_attach(return_sentinel)?;
+        self.commit_dll_lifecycle_plan(None, plan)
     }
 
     pub fn begin_dll_process_detach(
         &mut self,
         return_sentinel: GuestAddress,
     ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
-        if self.dll_lifecycle_phase != RuntimeDllLifecyclePhase::ProcessAttached
-            || self.dll_operation.is_some()
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-dll-lifecycle",
-                "dll-process-detach-state-invalid",
-                "DLL process detach requires a completed process attach",
-            ));
-        }
+        self.modules.require_process_detach_start()?;
         self.require_dll_callback_thread_state()?;
-        validate_dll_return_sentinel(return_sentinel)?;
-        let graph_order = self
-            .modules
-            .graph()
-            .planned_detach_order()
-            .map_err(runtime_module_graph_error)?;
-        let callback_order = self.dll_callback_order(&graph_order)?;
-        self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessDetaching;
-        self.dll_operation = Some(RuntimeDllOperation {
-            kind: RuntimeDllOperationKind::Detach,
-            graph_order,
-            remaining: callback_order.into(),
-            completed: Vec::new(),
-            pending: None,
-            attach_failure: None,
-            return_sentinel,
-        });
-        match self.schedule_next_dll_callback() {
-            Ok(action) => Ok(action),
-            Err(error) => {
-                self.dll_operation = None;
-                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessAttached;
-                Err(error)
-            }
-        }
+        let plan = self.modules.plan_process_detach(return_sentinel)?;
+        self.commit_dll_lifecycle_plan(None, plan)
     }
 
     pub fn complete_dll_callback(
@@ -2782,99 +2680,8 @@ impl RuntimeState {
         frame_id: RuntimeCallbackFrameId,
         result: u32,
     ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
-        let pending = self
-            .dll_operation
-            .as_ref()
-            .and_then(|operation| operation.pending.as_ref())
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-dll-lifecycle",
-                    "dll-callback-not-pending",
-                    "DLL lifecycle coordinator has no pending callback",
-                )
-            })?;
-        if pending.frame.id != frame_id {
-            return Err(RuntimeStateError::conflict(
-                "runtime-dll-lifecycle",
-                "dll-callback-frame-mismatch",
-                "DLL callback completion does not identify the pending callback frame",
-            ));
-        }
-        self.preflight_dll_callback_completion(result)?;
-        self.pop_callback_frame(frame_id)?;
-        let mut operation = self.dll_operation.take().ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-dll-lifecycle",
-                "dll-operation-disappeared",
-                "validated DLL lifecycle operation disappeared before completion",
-            )
-        })?;
-        let pending = operation.pending.take().ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-dll-lifecycle",
-                "dll-pending-callback-disappeared",
-                "validated DLL callback disappeared before completion",
-            )
-        })?;
-        match operation.kind {
-            RuntimeDllOperationKind::Attach if result == 0 => {
-                operation.kind = RuntimeDllOperationKind::AttachUnwind;
-                operation.attach_failure = Some((pending.module_id, pending.module_name));
-                operation.remaining = operation.completed.iter().rev().copied().collect();
-                operation.completed.clear();
-                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::AttachUnwinding;
-            }
-            RuntimeDllOperationKind::Attach
-            | RuntimeDllOperationKind::AttachUnwind
-            | RuntimeDllOperationKind::Detach => {
-                operation.completed.push(pending.module_id);
-            }
-        }
-        self.dll_operation = Some(operation);
-        self.schedule_next_dll_callback()
-    }
-
-    fn preflight_dll_callback_completion(&self, result: u32) -> Result<(), RuntimeStateError> {
-        let operation = self.dll_operation.as_ref().ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-dll-lifecycle",
-                "dll-operation-disappeared",
-                "validated DLL lifecycle operation disappeared before completion preflight",
-            )
-        })?;
-        if !operation.remaining.is_empty()
-            || (operation.kind == RuntimeDllOperationKind::Attach && result == 0)
-            || operation.kind == RuntimeDllOperationKind::AttachUnwind
-        {
-            return Ok(());
-        }
-        let current_order = match operation.kind {
-            RuntimeDllOperationKind::Attach => self
-                .modules
-                .graph()
-                .planned_attach_order()
-                .map_err(runtime_module_graph_error)?,
-            RuntimeDllOperationKind::Detach => self
-                .modules
-                .graph()
-                .planned_detach_order()
-                .map_err(runtime_module_graph_error)?,
-            RuntimeDllOperationKind::AttachUnwind => {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-dll-lifecycle",
-                    "dll-attach-unwind-finalization-preflight-invalid",
-                    "attach unwind cannot commit module graph lifecycle state",
-                ));
-            }
-        };
-        if current_order != operation.graph_order {
-            return Err(RuntimeStateError::conflict(
-                "runtime-dll-lifecycle",
-                "dll-lifecycle-graph-order-changed",
-                "module graph order changed while DLL callbacks were in progress",
-            ));
-        }
-        Ok(())
+        let plan = self.modules.plan_callback_completion(frame_id, result)?;
+        self.commit_dll_lifecycle_plan(Some(frame_id), plan)
     }
 
     fn require_dll_callback_thread_state(&self) -> Result<(), RuntimeStateError> {
@@ -2891,183 +2698,26 @@ impl RuntimeState {
         Ok(())
     }
 
-    fn dll_callback_order(
-        &self,
-        graph_order: &[RuntimeModuleId],
-    ) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
-        let mut callbacks = Vec::new();
-        for module_id in graph_order {
-            let node = self
-                .modules
-                .graph()
-                .module(*module_id)
-                .map_err(runtime_module_graph_error)?;
-            if matches!(
-                node.class,
-                RuntimeModuleClass::MainExecutable | RuntimeModuleClass::GuestDynamicLibrary
-            ) {
-                if !self.modules.has_binding(*module_id) {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-dll-lifecycle",
-                        "dll-module-import-binding-missing",
-                        format!(
-                            "module {} has no committed import binding",
-                            node.canonical_name
-                        ),
-                    ));
-                }
-                let image = self
-                    .modules
-                    .image(*module_id)
-                    .map_err(runtime_module_image_error)?;
-                if node.class == RuntimeModuleClass::GuestDynamicLibrary
-                    && image.entry_point.is_some()
-                {
-                    callbacks.push(*module_id);
-                }
-            }
-        }
-        Ok(callbacks)
-    }
-
-    fn schedule_next_dll_callback(
+    fn commit_dll_lifecycle_plan(
         &mut self,
+        completed_frame: Option<RuntimeCallbackFrameId>,
+        plan: RuntimeDllLifecyclePlan,
     ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
-        let mut operation = self.dll_operation.take().ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-dll-lifecycle",
-                "dll-operation-missing",
-                "DLL lifecycle scheduling requires an active operation",
-            )
-        })?;
-        if operation.pending.is_some() {
-            self.dll_operation = Some(operation);
-            return Err(RuntimeStateError::conflict(
-                "runtime-dll-lifecycle",
-                "dll-callback-already-pending",
-                "DLL lifecycle operation already has a pending callback",
-            ));
-        }
-        let Some(module_id) = operation.remaining.pop_front() else {
-            return self.finish_dll_operation(operation);
+        self.modules.validate_lifecycle_plan(&plan)?;
+        let callback_plan = match (completed_frame, plan.callback_entry()) {
+            (None, Some((target, return_sentinel))) => {
+                Some(self.plan_callback_push(target, return_sentinel)?)
+            }
+            (Some(expected), Some((target, return_sentinel))) => {
+                Some(self.plan_callback_replace(expected, target, return_sentinel)?)
+            }
+            (Some(expected), None) => Some(self.plan_callback_pop(expected)?),
+            (None, None) => None,
         };
-        let reason = match operation.kind {
-            RuntimeDllOperationKind::Attach => RuntimeDllCallbackReason::ProcessAttach,
-            RuntimeDllOperationKind::AttachUnwind | RuntimeDllOperationKind::Detach => {
-                RuntimeDllCallbackReason::ProcessDetach
-            }
-        };
-        let request =
-            match self.create_dll_callback_request(module_id, reason, operation.return_sentinel) {
-                Ok(request) => request,
-                Err(error) => {
-                    operation.remaining.push_front(module_id);
-                    self.dll_operation = Some(operation);
-                    return Err(error);
-                }
-            };
-        operation.pending = Some(request.clone());
-        self.dll_operation = Some(operation);
-        Ok(RuntimeDllLifecycleAction::Callback { request })
-    }
-
-    fn create_dll_callback_request(
-        &mut self,
-        module_id: RuntimeModuleId,
-        reason: RuntimeDllCallbackReason,
-        return_sentinel: GuestAddress,
-    ) -> Result<RuntimeDllCallbackRequest, RuntimeStateError> {
-        let node = self
-            .modules
-            .graph()
-            .module(module_id)
-            .map_err(runtime_module_graph_error)?;
-        let image = self
-            .modules
-            .image(module_id)
-            .map_err(runtime_module_image_error)?;
-        let entry_point = image.entry_point.ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-dll-lifecycle",
-                "dll-callback-entry-point-missing",
-                "DLL callback order includes a module without an entry point",
-            )
-        })?;
-        let module_handle = node.handle;
-        let module_name = node.canonical_name.clone();
-        let module_base = image.load_base;
-        let frame = self.push_callback_frame(entry_point, return_sentinel)?;
-        Ok(RuntimeDllCallbackRequest {
-            frame,
-            module_id,
-            module_handle,
-            module_name,
-            module_base,
-            entry_point,
-            reason,
-            reserved: DLL_PROCESS_STATIC_RESERVED,
-        })
-    }
-
-    fn finish_dll_operation(
-        &mut self,
-        operation: RuntimeDllOperation,
-    ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
-        match operation.kind {
-            RuntimeDllOperationKind::Attach => {
-                let graph_order = match self.modules.attach_all() {
-                    Ok(graph_order) => graph_order,
-                    Err(error) => {
-                        self.dll_operation = Some(operation);
-                        return Err(error);
-                    }
-                };
-                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessAttached;
-                Ok(RuntimeDllLifecycleAction::Complete {
-                    completion: RuntimeDllLifecycleCompletion {
-                        phase: self.dll_lifecycle_phase,
-                        graph_order,
-                        callback_order: operation.completed,
-                    },
-                })
-            }
-            RuntimeDllOperationKind::AttachUnwind => {
-                let (failed_module_id, failed_module) =
-                    operation.attach_failure.ok_or_else(|| {
-                        RuntimeStateError::runtime_defect(
-                            "runtime-dll-lifecycle",
-                            "dll-attach-failure-identity-missing",
-                            "DLL attach unwind lost the failing module identity",
-                        )
-                    })?;
-                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::Idle;
-                Ok(RuntimeDllLifecycleAction::AttachFailed {
-                    failure: RuntimeDllAttachFailure {
-                        failed_module_id,
-                        failed_module,
-                        unwound_modules: operation.completed,
-                        retryable: true,
-                    },
-                })
-            }
-            RuntimeDllOperationKind::Detach => {
-                let graph_order = match self.modules.detach_all() {
-                    Ok(graph_order) => graph_order,
-                    Err(error) => {
-                        self.dll_operation = Some(operation);
-                        return Err(error);
-                    }
-                };
-                self.dll_lifecycle_phase = RuntimeDllLifecyclePhase::ProcessDetached;
-                Ok(RuntimeDllLifecycleAction::Complete {
-                    completion: RuntimeDllLifecycleCompletion {
-                        phase: self.dll_lifecycle_phase,
-                        graph_order,
-                        callback_order: operation.completed,
-                    },
-                })
-            }
-        }
+        self.modules.validate_lifecycle_plan(&plan)?;
+        let entered =
+            callback_plan.and_then(|callback_plan| self.commit_callback_mutation(callback_plan).0);
+        Ok(self.modules.commit_lifecycle_plan(plan, entered))
     }
 
     pub fn register_dynamic_endpoint(
@@ -3693,6 +3343,18 @@ impl RuntimeState {
         target: GuestAddress,
         return_sentinel: GuestAddress,
     ) -> Result<RuntimeCallbackFrame, RuntimeStateError> {
+        let plan = self.plan_callback_push(target, return_sentinel)?;
+        Ok(self
+            .commit_callback_mutation(plan)
+            .0
+            .expect("callback push plan did not enter a frame"))
+    }
+
+    fn plan_callback_push(
+        &self,
+        target: GuestAddress,
+        return_sentinel: GuestAddress,
+    ) -> Result<RuntimeCallbackMutationPlan, RuntimeStateError> {
         let thread_id = self.current_thread_id();
         let current_depth = self.threads.callback_depth(thread_id)?;
         match self.scheduler_state()? {
@@ -3726,16 +3388,30 @@ impl RuntimeState {
         let scheduler_plan = self
             .scheduler
             .plan_transition(thread_id, SchedulerThreadState::InCallback { depth })?;
-        self.next_callback_frame_id = next_callback_frame_id;
-        self.threads.commit(thread_plan);
-        self.scheduler.commit_lane(scheduler_plan);
-        Ok(frame)
+        Ok(RuntimeCallbackMutationPlan {
+            thread: thread_plan,
+            scheduler: scheduler_plan,
+            next_callback_frame_id,
+            entered: Some(frame),
+            exited: None,
+        })
     }
 
     pub fn pop_callback_frame(
         &mut self,
         expected: RuntimeCallbackFrameId,
     ) -> Result<RuntimeCallbackFrame, RuntimeStateError> {
+        let plan = self.plan_callback_pop(expected)?;
+        Ok(self
+            .commit_callback_mutation(plan)
+            .1
+            .expect("callback pop plan did not exit a frame"))
+    }
+
+    fn plan_callback_pop(
+        &self,
+        expected: RuntimeCallbackFrameId,
+    ) -> Result<RuntimeCallbackMutationPlan, RuntimeStateError> {
         let thread_id = self.current_thread_id();
         let current_depth = self.threads.callback_depth(thread_id)?;
         if self.scheduler_state()?
@@ -3759,9 +3435,73 @@ impl RuntimeState {
             }
         };
         let scheduler_plan = self.scheduler.plan_transition(thread_id, scheduler_state)?;
-        self.threads.commit(thread_plan);
-        self.scheduler.commit_lane(scheduler_plan);
-        Ok(frame)
+        Ok(RuntimeCallbackMutationPlan {
+            thread: thread_plan,
+            scheduler: scheduler_plan,
+            next_callback_frame_id: self.next_callback_frame_id,
+            entered: None,
+            exited: Some(frame),
+        })
+    }
+
+    fn plan_callback_replace(
+        &self,
+        expected: RuntimeCallbackFrameId,
+        target: GuestAddress,
+        return_sentinel: GuestAddress,
+    ) -> Result<RuntimeCallbackMutationPlan, RuntimeStateError> {
+        let thread_id = self.current_thread_id();
+        let current_depth = self.threads.callback_depth(thread_id)?;
+        if self.scheduler_state()?
+            != (SchedulerThreadState::InCallback {
+                depth: current_depth,
+            })
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-callback",
+                "callback-return-thread-state-invalid",
+                "callback replacement requires the scheduler to identify the current callback depth",
+            ));
+        }
+        let id = RuntimeCallbackFrameId(self.next_callback_frame_id);
+        let next_callback_frame_id =
+            self.next_callback_frame_id.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-callback",
+                    "callback-frame-id-overflow",
+                    "callback frame ID space is exhausted",
+                )
+            })?;
+        let frame = RuntimeCallbackFrame {
+            id,
+            thread_id,
+            target,
+            return_sentinel,
+            entry_last_error: self.current_last_error()?,
+        };
+        let (thread_plan, exited, depth) = self
+            .threads
+            .plan_callback_replace(thread_id, expected, frame)?;
+        let scheduler_plan = self
+            .scheduler
+            .plan_transition(thread_id, SchedulerThreadState::InCallback { depth })?;
+        Ok(RuntimeCallbackMutationPlan {
+            thread: thread_plan,
+            scheduler: scheduler_plan,
+            next_callback_frame_id,
+            entered: Some(frame),
+            exited: Some(exited),
+        })
+    }
+
+    fn commit_callback_mutation(
+        &mut self,
+        plan: RuntimeCallbackMutationPlan,
+    ) -> (Option<RuntimeCallbackFrame>, Option<RuntimeCallbackFrame>) {
+        self.next_callback_frame_id = plan.next_callback_frame_id;
+        self.threads.commit(plan.thread);
+        self.scheduler.commit_lane(plan.scheduler);
+        (plan.entered, plan.exited)
     }
 
     pub fn begin_host_request(
@@ -4479,18 +4219,6 @@ fn runtime_export_matches_import(
         ) => export_module.eq_ignore_ascii_case(module) && export_ordinal == ordinal,
         _ => false,
     }
-}
-
-fn validate_dll_return_sentinel(return_sentinel: GuestAddress) -> Result<(), RuntimeStateError> {
-    let end = u64::from(CALLBACK_RETURN_ARENA_BASE.0) + CALLBACK_RETURN_ARENA_SIZE;
-    if return_sentinel.0 < CALLBACK_RETURN_ARENA_BASE.0 || u64::from(return_sentinel.0) >= end {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-dll-lifecycle",
-            "dll-return-sentinel-unowned",
-            "DLL callback return sentinel is outside the runtime callback-control arena",
-        ));
-    }
-    Ok(())
 }
 
 fn validate_initial_thread_stack(stack: &InitialThreadStack) -> Result<(), RuntimeStateError> {

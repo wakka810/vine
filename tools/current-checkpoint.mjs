@@ -545,24 +545,31 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    modules.schema !== "vine.runtime-modules.v1" ||
+    modules.schema !== "vine.runtime-modules.v2" ||
     modules.stateOwner !== "runtime/modules.rs::RuntimeModules" ||
     modules.processRecordOwner !== "runtime/modules.rs::RuntimeModuleRecords" ||
+    modules.dllLifecycleOperationOwner !==
+      "runtime/modules.rs::RuntimeDllLifecycle" ||
     modules.mutableCollectionVisibility !== "private" ||
     modules.readInspection !== "immutable-borrow" ||
     modules.serializedRuntimeField !== "moduleGraph" ||
     modules.serializedProcessField !== "modules" ||
     modules.serializationAdapter !== "serde-flatten-private-runtime-modules" ||
+    modules.lifecycleSerialized !== false ||
     !Array.isArray(modules.ownedCollections) ||
     modules.ownedCollections.join(",") !==
-      "process-module-records,module-graph,module-images,module-import-bindings,runtime-system-exports" ||
+      "process-module-records,module-graph,module-images,module-import-bindings,runtime-system-exports,dll-lifecycle-operation-state" ||
     modules.crossSubsystemMutation !==
-      "module-plan-object-memory-preflight-targeted-commit" ||
-    modules.subsystemTests < 3 ||
-    modules.crossSubsystemAtomicTests < 3 ||
+      "module-lifecycle-plan-object-memory-callback-preflight-targeted-commit" ||
+    modules.lifecycleTransition !==
+      "module-plan-thread-scheduler-preflight-infallible-commit" ||
+    modules.subsystemTests < 6 ||
+    modules.crossSubsystemAtomicTests < 4 ||
     modules.registrationRollbackMutation !== false ||
+    modules.callbackReplacementAtomic !== true ||
+    modules.activeLifecycleBlocksModuleMutation !== true ||
     modules.directCollectionMutationFromAggregate !== false ||
-    modules.dllLifecycleOperationOwner !== "runtime-state-temporary" ||
+    modules.directLifecycleMutationFromAggregate !== false ||
     modules.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime module subsystem boundary is invalid");

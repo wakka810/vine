@@ -368,6 +368,50 @@ impl RuntimeThreads {
         ))
     }
 
+    pub(super) fn plan_callback_replace(
+        &self,
+        thread_id: RuntimeThreadId,
+        expected: RuntimeCallbackFrameId,
+        frame: RuntimeCallbackFrame,
+    ) -> Result<(RuntimeThreadMutationPlan, RuntimeCallbackFrame, usize), RuntimeStateError> {
+        if frame.thread_id != thread_id {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-callback",
+                "callback-frame-thread-mismatch",
+                "callback frame identity does not match the selected thread",
+            ));
+        }
+        let previous = self.current_state(thread_id)?.clone();
+        let replaced = previous.callback_frames.last().copied().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-callback",
+                "callback-frame-stack-empty",
+                "current thread has no callback frame to replace",
+            )
+        })?;
+        if replaced.id != expected {
+            return Err(RuntimeStateError::conflict(
+                "runtime-callback",
+                "callback-frame-return-order-mismatch",
+                "callback frame replacement is not strict LIFO order",
+            ));
+        }
+        let mut next = previous.clone();
+        *next
+            .callback_frames
+            .last_mut()
+            .expect("validated callback frame disappeared") = frame;
+        let depth = next.callback_frames.len();
+        Ok((
+            RuntimeThreadMutationPlan {
+                previous: Some(previous),
+                next,
+            },
+            replaced,
+            depth,
+        ))
+    }
+
     pub(super) fn plan_exit_request(
         &self,
         thread_id: RuntimeThreadId,
@@ -500,6 +544,27 @@ mod tests {
         assert_eq!(depth, 1);
         assert_eq!(threads.callback_depth(INITIAL), Ok(0));
         threads.commit(push);
+
+        let replacement = RuntimeCallbackFrame {
+            id: RuntimeCallbackFrameId(2),
+            target: GuestAddress(0x1000_2000),
+            ..frame
+        };
+        let (replace, replaced, depth) = threads
+            .plan_callback_replace(INITIAL, frame.id, replacement)
+            .unwrap();
+        assert_eq!(replaced, frame);
+        assert_eq!(depth, 1);
+        assert_eq!(
+            threads.state(INITIAL).unwrap().callback_frames,
+            [frame],
+            "callback replacement remains mutation-free until commit"
+        );
+        threads.commit(replace);
+        assert_eq!(
+            threads.state(INITIAL).unwrap().callback_frames,
+            [replacement]
+        );
 
         let (request, cancelled) = threads.plan_exit_request(INITIAL, 23).unwrap();
         let terminal = request.terminal_after_request(23).unwrap();

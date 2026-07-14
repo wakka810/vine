@@ -248,12 +248,13 @@ allocation plan、targeted commit、既存`process.heaps` serialization shapeを
 testはobject-table conflict時にheap collectionsとprivate-heap slot allocatorが両方不変であることを固定し、
 GuestMemory integrationはcollision、allocation、free、destroy、process teardownをtransactionalに通す。
 
-Module subsystem unit contractsはprivate process records／graph／image／import／export collection
-ownership、mutation-free registration plan、既存`process.modules`／`moduleGraph` serialization shape、
-duplicate rejection、owned recordsだけを通すgraph operationを固定する。Aggregate atomicity testは
-typed-object registration failure時にrecords／graphが両方不変であることを固定する。Import binding
-contractsはplan／memory／metadata commit ordering、stale-plan rejection、failed memory work後のretryを
-維持する。DLL lifecycle operation stateは一時的にaggregateへ残り、このcheckpointで完了扱いしない。
+Module subsystem unit contractsはprivate process records／graph／image／import／export collectionとDLL
+lifecycle operation ownership、mutation-free registration／lifecycle plan、既存`process.modules`／
+`moduleGraph` serialization shape、duplicate／stale-plan rejection、owned recordsだけを通すgraph
+operationを固定する。Aggregate atomicity testはtyped-object registration failure時のrecords／graph不変、
+invalid sentinel／wrong frame時のlifecycle／callback stack不変、old frame pop＋new frame pushのatomic
+replacementを固定する。Import binding contractsはplan／memory／metadata commit ordering、failed memory
+work後のretryを維持する。Active DLL operationはgraph／image／binding mutationをsubsystem内で拒否する。
 
 controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
 one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact

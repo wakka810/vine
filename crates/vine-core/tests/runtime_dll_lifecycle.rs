@@ -198,6 +198,25 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
     }
     runtime.start_initial_thread().unwrap();
 
+    let graph_before_invalid_sentinel = runtime.module_graph().clone();
+    let runtime_before_invalid_sentinel = serde_json::to_value(&runtime).unwrap();
+    assert_eq!(
+        runtime
+            .begin_dll_process_attach(GuestAddress(CALLBACK_RETURN_ARENA_BASE.0 - 1))
+            .expect_err("unowned callback sentinel must fail before lifecycle mutation")
+            .code,
+        "dll-return-sentinel-unowned"
+    );
+    assert_eq!(runtime.module_graph(), &graph_before_invalid_sentinel);
+    assert_eq!(
+        serde_json::to_value(&runtime).unwrap(),
+        runtime_before_invalid_sentinel
+    );
+    assert_eq!(
+        runtime.dll_lifecycle_phase(),
+        RuntimeDllLifecyclePhase::Idle
+    );
+
     let codec_attach = expect_callback(
         runtime
             .begin_dll_process_attach(CALLBACK_RETURN_ARENA_BASE)
@@ -240,6 +259,15 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
         ENGINE_BASE,
         ENGINE_BASE + 0x1020,
         RuntimeDllCallbackReason::ProcessAttach,
+    );
+    assert_eq!(
+        runtime.current_thread_state().unwrap().callback_frames,
+        [engine_attach.frame],
+        "DLL callback replacement commits without an observable empty stack"
+    );
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::InCallback { depth: 1 }
     );
     assert_eq!(
         runtime

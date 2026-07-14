@@ -130,16 +130,16 @@ The controlled sequence fixes:
 - explicit destroy: two live allocations discarded, 16 MiB reserved／4 KiB committed released
 - process teardown: one backed and one metadata-only heap, final memory generation／ack `13`
 
-Latest S6 regression preserves the same heap behavior:
+Latest S7 regression preserves the same heap behavior:
 
 - Node BGI oracle: 284 calls／25,256 instructions、next `GetCurrentThread`; semantic report
   SHA-256 `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`
 - Chrome Worker: Node-equivalent memory／next stop、cancel／watchdog clean、browser report
-  SHA-256 `04af5d7305ebd17e1a1fc1415cebfc4dbc05743e50ed941500264aacb3b773c4`
-- 180-second BGI workload: 630 sessions、failure `0`、all 17 thresholds passed; report
-  SHA-256 `435eaf35b2fb2979c9bafe87ff2294cb585b10675ba063803b5d4d3a244fc234`
-- Rust runtime core Wasm: 2,070,941 bytes／SHA-256
-  `7c94ef0ab815edef68ce51d612a6595274e9505ff2787ac7b3101e9e2ce69d4e`
+  SHA-256 `42c572627aeb22e04ab4d06749ac5c520e6aa526c1f1a6376b0960b09038fb1e`
+- 180-second BGI workload: 624 sessions、failure `0`、all 17 thresholds passed; report
+  SHA-256 `c10dc7cfc610ca17abbc69559e2869d47ddc5351d6508b5ead9c06b26c4bade7`
+- Rust runtime core Wasm: 2,085,717 bytes／SHA-256
+  `9c3d9f02eae37441d3705e4b1ceb9ec37b6f9cc4622f0a962d0b63374ad28d8f`
 
 The clean commit `a0d99e5` report remains the engine decision authority; current benchmark numbers are
 regression evidence, not a replacement baseline.
@@ -158,5 +158,6 @@ Mapped guest-module／export identity and dependency-ordered `DllMain` lifecycle
 [runtime-module-images.md](runtime-module-images.md) and
 [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). Capability expansion remains paused at the saved
 `GetCurrentThread` stop. Module metadata, image, import binding, and runtime export collections now
-use the same private ownership and plan／preflight／commit boundary. The next responsibility checkpoint
-moves DLL lifecycle phase and in-flight operation state into that module subsystem.
+use the same private ownership and plan／preflight／commit boundary. DLL lifecycle phase and in-flight
+operation state now share that module owner as well. The next responsibility checkpoint audits the
+remaining process/kernel aggregate state.

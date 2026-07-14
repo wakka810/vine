@@ -1,12 +1,16 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::Serialize;
 
 use super::{
-    LOGICAL_LOADED_MODULE_NAMESPACE, RuntimeGuestImport, RuntimeGuestImportBinding,
+    DLL_PROCESS_STATIC_RESERVED, LOGICAL_LOADED_MODULE_NAMESPACE, RuntimeCallbackFrame,
+    RuntimeCallbackFrameId, RuntimeDllAttachFailure, RuntimeDllCallbackReason,
+    RuntimeDllCallbackRequest, RuntimeDllLifecycleAction, RuntimeDllLifecycleCompletion,
+    RuntimeDllLifecyclePhase, RuntimeGuestImport, RuntimeGuestImportBinding,
     RuntimeGuestImportResolution, RuntimeModule, RuntimeModuleDependencyEdge, RuntimeStateError,
     RuntimeStateErrorClass, RuntimeSystemExportTable,
 };
+use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
 use crate::materialize::ImageMaterialization;
 use crate::memory::{GuestAddress, GuestMemory, MemoryInvalidation, MemoryOwnerId};
 use crate::module_graph::{
@@ -36,6 +40,8 @@ pub(super) struct RuntimeModules {
     module_import_bindings: BTreeMap<RuntimeModuleId, RuntimeGuestImportBinding>,
     #[serde(skip)]
     runtime_system_exports: Option<RuntimeSystemExportTable>,
+    #[serde(skip)]
+    dll_lifecycle: RuntimeDllLifecycle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +63,85 @@ pub(crate) struct RuntimeGuestImportBindingPlan {
     previous_graph: RuntimeModuleGraph,
     next_graph: RuntimeModuleGraph,
     previous_runtime_system_exports: Option<RuntimeSystemExportTable>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeDllLifecycle {
+    phase: RuntimeDllLifecyclePhase,
+    operation: Option<RuntimeDllOperation>,
+}
+
+impl Default for RuntimeDllLifecycle {
+    fn default() -> Self {
+        Self {
+            phase: RuntimeDllLifecyclePhase::Idle,
+            operation: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeDllOperationKind {
+    Attach,
+    AttachUnwind,
+    Detach,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeDllOperation {
+    kind: RuntimeDllOperationKind,
+    graph_order: Vec<RuntimeModuleId>,
+    remaining: VecDeque<RuntimeModuleId>,
+    completed: Vec<RuntimeModuleId>,
+    pending: Option<RuntimeDllCallbackRequest>,
+    attach_failure: Option<(RuntimeModuleId, String)>,
+    return_sentinel: GuestAddress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeDllCallbackSpec {
+    module_id: RuntimeModuleId,
+    module_handle: u32,
+    module_name: String,
+    module_base: GuestAddress,
+    entry_point: GuestAddress,
+    reason: RuntimeDllCallbackReason,
+    reserved: u32,
+    return_sentinel: GuestAddress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeDllPlannedAction {
+    Callback {
+        spec: RuntimeDllCallbackSpec,
+    },
+    Complete {
+        completion: RuntimeDllLifecycleCompletion,
+    },
+    AttachFailed {
+        failure: RuntimeDllAttachFailure,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeDllLifecyclePlan {
+    previous: RuntimeDllLifecycle,
+    previous_graph: Option<RuntimeModuleGraph>,
+    next: RuntimeDllLifecycle,
+    next_graph: Option<RuntimeModuleGraph>,
+    action: RuntimeDllPlannedAction,
+}
+
+impl RuntimeDllLifecyclePlan {
+    pub(super) fn callback_entry(&self) -> Option<(GuestAddress, GuestAddress)> {
+        match &self.action {
+            RuntimeDllPlannedAction::Callback { spec } => {
+                Some((spec.entry_point, spec.return_sentinel))
+            }
+            RuntimeDllPlannedAction::Complete { .. }
+            | RuntimeDllPlannedAction::AttachFailed { .. } => None,
+        }
+    }
 }
 
 impl RuntimeModuleRecords {
@@ -128,15 +213,425 @@ impl RuntimeModules {
         self.runtime_system_exports.as_ref()
     }
 
-    pub(super) fn has_binding(&self, module_id: RuntimeModuleId) -> bool {
-        self.module_import_bindings.contains_key(&module_id)
+    pub(super) fn dll_lifecycle_phase(&self) -> RuntimeDllLifecyclePhase {
+        self.dll_lifecycle.phase
     }
 
-    pub(super) fn image(
+    pub(super) fn require_graph_mutation_allowed(&self) -> Result<(), RuntimeStateError> {
+        if self.dll_lifecycle.operation.is_some() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "module-graph-mutation-during-dll-callback-forbidden",
+                "module graph mutation is not supported while DLL callbacks are in progress",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn require_process_attach_start(&self) -> Result<(), RuntimeStateError> {
+        if self.dll_lifecycle.phase != RuntimeDllLifecyclePhase::Idle
+            || self.dll_lifecycle.operation.is_some()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-process-attach-state-invalid",
+                "DLL process attach requires an idle lifecycle coordinator",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn require_process_detach_start(&self) -> Result<(), RuntimeStateError> {
+        if self.dll_lifecycle.phase != RuntimeDllLifecyclePhase::ProcessAttached
+            || self.dll_lifecycle.operation.is_some()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-process-detach-state-invalid",
+                "DLL process detach requires a completed process attach",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn plan_process_attach(
+        &self,
+        return_sentinel: GuestAddress,
+    ) -> Result<RuntimeDllLifecyclePlan, RuntimeStateError> {
+        self.require_process_attach_start()?;
+        validate_dll_return_sentinel(return_sentinel)?;
+        let graph_order = self
+            .module_graph
+            .planned_attach_order()
+            .map_err(runtime_module_graph_error)?;
+        let callback_order = self.dll_callback_order(&graph_order)?;
+        let previous = self.dll_lifecycle.clone();
+        let next = RuntimeDllLifecycle {
+            phase: RuntimeDllLifecyclePhase::ProcessAttaching,
+            operation: Some(RuntimeDllOperation {
+                kind: RuntimeDllOperationKind::Attach,
+                graph_order,
+                remaining: callback_order.into(),
+                completed: Vec::new(),
+                pending: None,
+                attach_failure: None,
+                return_sentinel,
+            }),
+        };
+        self.plan_next_dll_action(previous, next)
+    }
+
+    pub(super) fn plan_process_detach(
+        &self,
+        return_sentinel: GuestAddress,
+    ) -> Result<RuntimeDllLifecyclePlan, RuntimeStateError> {
+        self.require_process_detach_start()?;
+        validate_dll_return_sentinel(return_sentinel)?;
+        let graph_order = self
+            .module_graph
+            .planned_detach_order()
+            .map_err(runtime_module_graph_error)?;
+        let callback_order = self.dll_callback_order(&graph_order)?;
+        let previous = self.dll_lifecycle.clone();
+        let next = RuntimeDllLifecycle {
+            phase: RuntimeDllLifecyclePhase::ProcessDetaching,
+            operation: Some(RuntimeDllOperation {
+                kind: RuntimeDllOperationKind::Detach,
+                graph_order,
+                remaining: callback_order.into(),
+                completed: Vec::new(),
+                pending: None,
+                attach_failure: None,
+                return_sentinel,
+            }),
+        };
+        self.plan_next_dll_action(previous, next)
+    }
+
+    pub(super) fn plan_callback_completion(
+        &self,
+        frame_id: RuntimeCallbackFrameId,
+        result: u32,
+    ) -> Result<RuntimeDllLifecyclePlan, RuntimeStateError> {
+        let pending = self
+            .dll_lifecycle
+            .operation
+            .as_ref()
+            .and_then(|operation| operation.pending.as_ref())
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-dll-lifecycle",
+                    "dll-callback-not-pending",
+                    "DLL lifecycle coordinator has no pending callback",
+                )
+            })?;
+        if pending.frame.id != frame_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-callback-frame-mismatch",
+                "DLL callback completion does not identify the pending callback frame",
+            ));
+        }
+
+        let previous = self.dll_lifecycle.clone();
+        let mut next = previous.clone();
+        let mut operation = next.operation.take().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-dll-lifecycle",
+                "dll-operation-disappeared",
+                "validated DLL lifecycle operation disappeared before completion planning",
+            )
+        })?;
+        let pending = operation.pending.take().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-dll-lifecycle",
+                "dll-pending-callback-disappeared",
+                "validated DLL callback disappeared before completion planning",
+            )
+        })?;
+        match operation.kind {
+            RuntimeDllOperationKind::Attach if result == 0 => {
+                operation.kind = RuntimeDllOperationKind::AttachUnwind;
+                operation.attach_failure = Some((pending.module_id, pending.module_name));
+                operation.remaining = operation.completed.iter().rev().copied().collect();
+                operation.completed.clear();
+                next.phase = RuntimeDllLifecyclePhase::AttachUnwinding;
+            }
+            RuntimeDllOperationKind::Attach
+            | RuntimeDllOperationKind::AttachUnwind
+            | RuntimeDllOperationKind::Detach => {
+                operation.completed.push(pending.module_id);
+            }
+        }
+        next.operation = Some(operation);
+        self.plan_next_dll_action(previous, next)
+    }
+
+    pub(super) fn validate_lifecycle_plan(
+        &self,
+        plan: &RuntimeDllLifecyclePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.dll_lifecycle != plan.previous {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-lifecycle-plan-stale",
+                "DLL lifecycle state changed after transition planning",
+            ));
+        }
+        if let Some(previous_graph) = &plan.previous_graph
+            && &self.module_graph != previous_graph
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-lifecycle-graph-plan-stale",
+                "module graph changed after DLL lifecycle transition planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_lifecycle_plan(
+        &mut self,
+        mut plan: RuntimeDllLifecyclePlan,
+        frame: Option<RuntimeCallbackFrame>,
+    ) -> RuntimeDllLifecycleAction {
+        debug_assert_eq!(self.dll_lifecycle, plan.previous);
+        if let Some(previous_graph) = &plan.previous_graph {
+            debug_assert_eq!(&self.module_graph, previous_graph);
+        }
+        let action = match plan.action {
+            RuntimeDllPlannedAction::Callback { spec } => {
+                let frame = frame.expect("planned DLL callback requires a callback frame");
+                debug_assert_eq!(frame.target, spec.entry_point);
+                debug_assert_eq!(frame.return_sentinel, spec.return_sentinel);
+                let request = RuntimeDllCallbackRequest {
+                    frame,
+                    module_id: spec.module_id,
+                    module_handle: spec.module_handle,
+                    module_name: spec.module_name,
+                    module_base: spec.module_base,
+                    entry_point: spec.entry_point,
+                    reason: spec.reason,
+                    reserved: spec.reserved,
+                };
+                plan.next
+                    .operation
+                    .as_mut()
+                    .expect("planned DLL callback lost its lifecycle operation")
+                    .pending = Some(request.clone());
+                RuntimeDllLifecycleAction::Callback { request }
+            }
+            RuntimeDllPlannedAction::Complete { completion } => {
+                debug_assert!(frame.is_none());
+                RuntimeDllLifecycleAction::Complete { completion }
+            }
+            RuntimeDllPlannedAction::AttachFailed { failure } => {
+                debug_assert!(frame.is_none());
+                RuntimeDllLifecycleAction::AttachFailed { failure }
+            }
+        };
+        if let Some(next_graph) = plan.next_graph {
+            self.module_graph = next_graph;
+        }
+        self.dll_lifecycle = plan.next;
+        action
+    }
+
+    fn plan_next_dll_action(
+        &self,
+        previous: RuntimeDllLifecycle,
+        mut next: RuntimeDllLifecycle,
+    ) -> Result<RuntimeDllLifecyclePlan, RuntimeStateError> {
+        let callback = {
+            let operation = next.operation.as_mut().ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-dll-lifecycle",
+                    "dll-operation-missing",
+                    "DLL lifecycle planning requires an active operation",
+                )
+            })?;
+            operation.remaining.pop_front().map(|module_id| {
+                let reason = match operation.kind {
+                    RuntimeDllOperationKind::Attach => RuntimeDllCallbackReason::ProcessAttach,
+                    RuntimeDllOperationKind::AttachUnwind | RuntimeDllOperationKind::Detach => {
+                        RuntimeDllCallbackReason::ProcessDetach
+                    }
+                };
+                (module_id, reason, operation.return_sentinel)
+            })
+        };
+        if let Some((module_id, reason, return_sentinel)) = callback {
+            let spec = self.dll_callback_spec(module_id, reason, return_sentinel)?;
+            return Ok(RuntimeDllLifecyclePlan {
+                previous,
+                previous_graph: None,
+                next,
+                next_graph: None,
+                action: RuntimeDllPlannedAction::Callback { spec },
+            });
+        }
+
+        let operation = next.operation.take().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-dll-lifecycle",
+                "dll-operation-missing",
+                "DLL lifecycle finalization requires an active operation",
+            )
+        })?;
+        match operation.kind {
+            RuntimeDllOperationKind::Attach => {
+                let previous_graph = self.module_graph.clone();
+                let mut next_graph = previous_graph.clone();
+                let graph_order = next_graph
+                    .attach_all()
+                    .map_err(runtime_module_graph_error)?;
+                if graph_order != operation.graph_order {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-dll-lifecycle",
+                        "dll-lifecycle-graph-order-changed",
+                        "module graph order changed while DLL callbacks were in progress",
+                    ));
+                }
+                next.phase = RuntimeDllLifecyclePhase::ProcessAttached;
+                Ok(RuntimeDllLifecyclePlan {
+                    previous,
+                    previous_graph: Some(previous_graph),
+                    next,
+                    next_graph: Some(next_graph),
+                    action: RuntimeDllPlannedAction::Complete {
+                        completion: RuntimeDllLifecycleCompletion {
+                            phase: RuntimeDllLifecyclePhase::ProcessAttached,
+                            graph_order,
+                            callback_order: operation.completed,
+                        },
+                    },
+                })
+            }
+            RuntimeDllOperationKind::AttachUnwind => {
+                let (failed_module_id, failed_module) =
+                    operation.attach_failure.ok_or_else(|| {
+                        RuntimeStateError::runtime_defect(
+                            "runtime-dll-lifecycle",
+                            "dll-attach-failure-identity-missing",
+                            "DLL attach unwind lost the failing module identity",
+                        )
+                    })?;
+                next.phase = RuntimeDllLifecyclePhase::Idle;
+                Ok(RuntimeDllLifecyclePlan {
+                    previous,
+                    previous_graph: None,
+                    next,
+                    next_graph: None,
+                    action: RuntimeDllPlannedAction::AttachFailed {
+                        failure: RuntimeDllAttachFailure {
+                            failed_module_id,
+                            failed_module,
+                            unwound_modules: operation.completed,
+                            retryable: true,
+                        },
+                    },
+                })
+            }
+            RuntimeDllOperationKind::Detach => {
+                let previous_graph = self.module_graph.clone();
+                let mut next_graph = previous_graph.clone();
+                let graph_order = next_graph
+                    .detach_all()
+                    .map_err(runtime_module_graph_error)?;
+                if graph_order != operation.graph_order {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-dll-lifecycle",
+                        "dll-lifecycle-graph-order-changed",
+                        "module graph order changed while DLL callbacks were in progress",
+                    ));
+                }
+                next.phase = RuntimeDllLifecyclePhase::ProcessDetached;
+                Ok(RuntimeDllLifecyclePlan {
+                    previous,
+                    previous_graph: Some(previous_graph),
+                    next,
+                    next_graph: Some(next_graph),
+                    action: RuntimeDllPlannedAction::Complete {
+                        completion: RuntimeDllLifecycleCompletion {
+                            phase: RuntimeDllLifecyclePhase::ProcessDetached,
+                            graph_order,
+                            callback_order: operation.completed,
+                        },
+                    },
+                })
+            }
+        }
+    }
+
+    fn dll_callback_order(
+        &self,
+        graph_order: &[RuntimeModuleId],
+    ) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+        let mut callbacks = Vec::new();
+        for module_id in graph_order {
+            let node = self
+                .module_graph
+                .module(*module_id)
+                .map_err(runtime_module_graph_error)?;
+            if matches!(
+                node.class,
+                RuntimeModuleClass::MainExecutable | RuntimeModuleClass::GuestDynamicLibrary
+            ) {
+                if !self.module_import_bindings.contains_key(module_id) {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-dll-lifecycle",
+                        "dll-module-import-binding-missing",
+                        format!(
+                            "module {} has no committed import binding",
+                            node.canonical_name
+                        ),
+                    ));
+                }
+                let image = self
+                    .module_images
+                    .image(*module_id)
+                    .map_err(runtime_module_image_error)?;
+                if node.class == RuntimeModuleClass::GuestDynamicLibrary
+                    && image.entry_point.is_some()
+                {
+                    callbacks.push(*module_id);
+                }
+            }
+        }
+        Ok(callbacks)
+    }
+
+    fn dll_callback_spec(
         &self,
         module_id: RuntimeModuleId,
-    ) -> Result<&RuntimeModuleImage, RuntimeModuleImageError> {
-        self.module_images.image(module_id)
+        reason: RuntimeDllCallbackReason,
+        return_sentinel: GuestAddress,
+    ) -> Result<RuntimeDllCallbackSpec, RuntimeStateError> {
+        let node = self
+            .module_graph
+            .module(module_id)
+            .map_err(runtime_module_graph_error)?;
+        let image = self
+            .module_images
+            .image(module_id)
+            .map_err(runtime_module_image_error)?;
+        let entry_point = image.entry_point.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-dll-lifecycle",
+                "dll-callback-entry-point-missing",
+                "DLL callback order includes a module without an entry point",
+            )
+        })?;
+        Ok(RuntimeDllCallbackSpec {
+            module_id,
+            module_handle: node.handle,
+            module_name: node.canonical_name.clone(),
+            module_base: image.load_base,
+            entry_point,
+            reason,
+            reserved: DLL_PROCESS_STATIC_RESERVED,
+            return_sentinel,
+        })
     }
 
     pub(super) fn resolve(
@@ -153,6 +648,7 @@ impl RuntimeModules {
         module: RuntimeModule,
         class: RuntimeModuleClass,
     ) -> Result<RuntimeModuleRegistrationPlan, RuntimeStateError> {
+        self.require_graph_mutation_allowed()?;
         records.validate_registration(&module)?;
         let previous_graph = self.module_graph.clone();
         let mut next_graph = previous_graph.clone();
@@ -203,6 +699,7 @@ impl RuntimeModules {
         requester_handle: u32,
         dependency_handle: u32,
     ) -> Result<(), RuntimeStateError> {
+        self.require_graph_mutation_allowed()?;
         let requester = self.module_id_by_handle(requester_handle)?;
         let dependency = self.module_id_by_handle(dependency_handle)?;
         self.module_graph
@@ -215,6 +712,7 @@ impl RuntimeModules {
         handle: u32,
         thread_id: u32,
     ) -> Result<u32, RuntimeStateError> {
+        self.require_graph_mutation_allowed()?;
         let module = self.module_id_by_handle(handle)?;
         self.module_graph
             .add_dynamic_reference(module, thread_id)
@@ -226,6 +724,7 @@ impl RuntimeModules {
         handle: u32,
         thread_id: u32,
     ) -> Result<u32, RuntimeStateError> {
+        self.require_graph_mutation_allowed()?;
         let module = self.module_id_by_handle(handle)?;
         self.module_graph
             .release_dynamic_reference(module, thread_id)
@@ -233,6 +732,7 @@ impl RuntimeModules {
     }
 
     pub(super) fn mark_ready(&mut self, handle: u32) -> Result<(), RuntimeStateError> {
+        self.require_graph_mutation_allowed()?;
         let module = self.module_id_by_handle(handle)?;
         self.module_graph
             .mark_ready(module)
@@ -240,12 +740,28 @@ impl RuntimeModules {
     }
 
     pub(super) fn attach_all(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+        if self.dll_lifecycle.phase != RuntimeDllLifecyclePhase::Idle {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "direct-module-attach-after-dll-lifecycle-forbidden",
+                "direct module attach cannot bypass the active DLL lifecycle coordinator",
+            ));
+        }
+        self.require_graph_mutation_allowed()?;
         self.module_graph
             .attach_all()
             .map_err(runtime_module_graph_error)
     }
 
     pub(super) fn detach_all(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+        if self.dll_lifecycle.phase != RuntimeDllLifecyclePhase::Idle {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "direct-module-detach-after-dll-lifecycle-forbidden",
+                "direct module detach cannot bypass the active DLL lifecycle coordinator",
+            ));
+        }
+        self.require_graph_mutation_allowed()?;
         self.module_graph
             .detach_all()
             .map_err(runtime_module_graph_error)
@@ -258,6 +774,8 @@ impl RuntimeModules {
         loader: &LoaderIngressReport,
         materialization: &ImageMaterialization,
     ) -> Result<&RuntimeModuleImage, RuntimeModuleImageError> {
+        self.require_graph_mutation_allowed()
+            .map_err(runtime_module_image_state_error)?;
         let node = self
             .module_graph
             .module_by_handle(handle)
@@ -290,6 +808,7 @@ impl RuntimeModules {
         imports: Vec<RuntimeGuestImport>,
         dependency_edges: Vec<RuntimeModuleDependencyEdge>,
     ) -> Result<RuntimeGuestImportBindingPlan, RuntimeStateError> {
+        self.require_graph_mutation_allowed()?;
         let requester = self
             .module_graph
             .module_by_handle(requester_handle)
@@ -462,6 +981,18 @@ impl RuntimeModules {
     }
 }
 
+fn validate_dll_return_sentinel(return_sentinel: GuestAddress) -> Result<(), RuntimeStateError> {
+    let end = u64::from(CALLBACK_RETURN_ARENA_BASE.0) + CALLBACK_RETURN_ARENA_SIZE;
+    if return_sentinel.0 < CALLBACK_RETURN_ARENA_BASE.0 || u64::from(return_sentinel.0) >= end {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-dll-lifecycle",
+            "dll-return-sentinel-unowned",
+            "DLL callback return sentinel is outside the runtime callback-control arena",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn runtime_module_graph_error(error: RuntimeModuleGraphError) -> RuntimeStateError {
     match error.class {
         RuntimeModuleGraphErrorClass::InvalidInput => {
@@ -632,5 +1163,141 @@ mod tests {
         let dependency = modules.graph().module_by_handle(DLL_HANDLE).unwrap();
         assert!(main.dependencies.contains(&dependency.id));
         assert_eq!(records.modules().len(), modules.graph().nodes().len());
+    }
+
+    #[test]
+    fn dll_lifecycle_plan_commits_private_pending_callback_state() {
+        let mut modules = RuntimeModules::default();
+        let previous = modules.dll_lifecycle.clone();
+        let next = RuntimeDllLifecycle {
+            phase: RuntimeDllLifecyclePhase::ProcessAttaching,
+            operation: Some(RuntimeDllOperation {
+                kind: RuntimeDllOperationKind::Attach,
+                graph_order: vec![RuntimeModuleId(1)],
+                remaining: VecDeque::new(),
+                completed: Vec::new(),
+                pending: None,
+                attach_failure: None,
+                return_sentinel: CALLBACK_RETURN_ARENA_BASE,
+            }),
+        };
+        let plan = RuntimeDllLifecyclePlan {
+            previous,
+            previous_graph: None,
+            next,
+            next_graph: None,
+            action: RuntimeDllPlannedAction::Callback {
+                spec: RuntimeDllCallbackSpec {
+                    module_id: RuntimeModuleId(1),
+                    module_handle: DLL_HANDLE,
+                    module_name: "engine.dll".to_owned(),
+                    module_base: GuestAddress(0x3000_0000),
+                    entry_point: GuestAddress(0x3000_1000),
+                    reason: RuntimeDllCallbackReason::ProcessAttach,
+                    reserved: DLL_PROCESS_STATIC_RESERVED,
+                    return_sentinel: CALLBACK_RETURN_ARENA_BASE,
+                },
+            },
+        };
+        modules.validate_lifecycle_plan(&plan).unwrap();
+        assert_eq!(
+            modules.dll_lifecycle_phase(),
+            RuntimeDllLifecyclePhase::Idle
+        );
+        assert!(
+            serde_json::to_value(&modules)
+                .unwrap()
+                .get("dllLifecycle")
+                .is_none()
+        );
+
+        let frame = RuntimeCallbackFrame {
+            id: RuntimeCallbackFrameId(1),
+            thread_id: super::super::RuntimeThreadId(8192),
+            target: GuestAddress(0x3000_1000),
+            return_sentinel: CALLBACK_RETURN_ARENA_BASE,
+            entry_last_error: 0,
+        };
+        let action = modules.commit_lifecycle_plan(plan, Some(frame));
+        let RuntimeDllLifecycleAction::Callback { request } = action else {
+            panic!("expected planned DLL callback");
+        };
+        assert_eq!(request.frame, frame);
+        assert_eq!(
+            modules.dll_lifecycle_phase(),
+            RuntimeDllLifecyclePhase::ProcessAttaching
+        );
+        assert_eq!(
+            modules
+                .dll_lifecycle
+                .operation
+                .as_ref()
+                .and_then(|operation| operation.pending.as_ref())
+                .map(|pending| pending.frame.id),
+            Some(RuntimeCallbackFrameId(1))
+        );
+    }
+
+    #[test]
+    fn active_dll_lifecycle_blocks_graph_mutation_without_rollback() {
+        let records = RuntimeModuleRecords::default();
+        let modules = RuntimeModules {
+            dll_lifecycle: RuntimeDllLifecycle {
+                phase: RuntimeDllLifecyclePhase::ProcessAttaching,
+                operation: Some(RuntimeDllOperation {
+                    kind: RuntimeDllOperationKind::Attach,
+                    graph_order: Vec::new(),
+                    remaining: VecDeque::new(),
+                    completed: Vec::new(),
+                    pending: None,
+                    attach_failure: None,
+                    return_sentinel: CALLBACK_RETURN_ARENA_BASE,
+                }),
+            },
+            ..RuntimeModules::default()
+        };
+        let before = modules.clone();
+        assert_eq!(
+            modules
+                .plan_registration(
+                    &records,
+                    module(MAIN_HANDLE, "game.exe"),
+                    RuntimeModuleClass::MainExecutable,
+                )
+                .unwrap_err()
+                .code,
+            "module-graph-mutation-during-dll-callback-forbidden"
+        );
+        assert_eq!(modules, before);
+        assert!(records.modules().is_empty());
+    }
+
+    #[test]
+    fn stale_dll_lifecycle_plan_is_rejected_before_commit() {
+        let mut modules = RuntimeModules::default();
+        let plan = RuntimeDllLifecyclePlan {
+            previous: modules.dll_lifecycle.clone(),
+            previous_graph: None,
+            next: RuntimeDllLifecycle {
+                phase: RuntimeDllLifecyclePhase::Idle,
+                operation: None,
+            },
+            next_graph: None,
+            action: RuntimeDllPlannedAction::AttachFailed {
+                failure: RuntimeDllAttachFailure {
+                    failed_module_id: RuntimeModuleId(1),
+                    failed_module: "engine.dll".to_owned(),
+                    unwound_modules: Vec::new(),
+                    retryable: true,
+                },
+            },
+        };
+        modules.dll_lifecycle.phase = RuntimeDllLifecyclePhase::ProcessAttached;
+        let before = modules.clone();
+        assert_eq!(
+            modules.validate_lifecycle_plan(&plan).unwrap_err().code,
+            "dll-lifecycle-plan-stale"
+        );
+        assert_eq!(modules, before);
     }
 }

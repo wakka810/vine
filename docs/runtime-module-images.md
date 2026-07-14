@@ -14,6 +14,10 @@ Architecture refactor checkpoint S6ではmapped-image registryをgraph、import 
 export tableとともにprivate `runtime/modules.rs::RuntimeModules`へ移した。`RuntimeState`はimmutable
 inspection／resolution methodだけを公開し、registry collectionを直接所有またはmutateしない。
 
+Architecture refactor checkpoint S7ではDLL lifecycle operationもsame module ownerへ移し、active
+callback中はgraphだけでなくimage registrationとimport-binding planningもsubsystem内で拒否する。
+Lifecycle planが参照したmodule／image／binding identityはcallback completionまで変化しない。
+
 ## Bounded PE32 exports
 
 `Pe32LoadPlan::exports`はexport directoryがある場合だけ次を保持する。
@@ -92,16 +96,16 @@ overlapping range, unknown target, and two-module forwarder cycle. Registration�
 preserves the complete image registry. Five valid images are registered; the overlapping sixth is
 rejected.
 
-S6 regression on the same behavior:
+S7 regression on the same behavior:
 
 - Node BGI oracle: 284 calls／25,256 instructions, next `GetCurrentThread`; semantic report
   SHA-256 `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`
 - Chrome Worker: Node-equivalent memory／next stop, cancel／watchdog clean; browser report
-  SHA-256 `04af5d7305ebd17e1a1fc1415cebfc4dbc05743e50ed941500264aacb3b773c4`
-- 180-second BGI workload: 630 sessions, failure `0`, all 17 thresholds passed; report
-  SHA-256 `435eaf35b2fb2979c9bafe87ff2294cb585b10675ba063803b5d4d3a244fc234`
-- Rust runtime core Wasm: 2,070,941 bytes／SHA-256
-  `7c94ef0ab815edef68ce51d612a6595274e9505ff2787ac7b3101e9e2ce69d4e`
+  SHA-256 `42c572627aeb22e04ab4d06749ac5c520e6aa526c1f1a6376b0960b09038fb1e`
+- 180-second BGI workload: 624 sessions, failure `0`, all 17 thresholds passed; report
+  SHA-256 `c10dc7cfc610ca17abbc69559e2869d47ddc5351d6508b5ead9c06b26c4bade7`
+- Rust runtime core Wasm: 2,085,717 bytes／SHA-256
+  `9c3d9f02eae37441d3705e4b1ceb9ec37b6f9cc4622f0a962d0b63374ad28d8f`
 
 The clean commit `a0d99e5` report remains the engine decision authority; current benchmark values
 are regression evidence only.
@@ -116,6 +120,6 @@ module memory／object retirement, or BGI continuation. It is partial evidence f
 
 The controlled guest import／runtime export catalog binding and dependency-ordered process callback
 lifecycle are implemented in [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). The graph, image,
-import binding, and runtime export collections now have one private module owner. DLL lifecycle
-phase and in-flight operation state remain temporarily in `RuntimeState`; moving those fields is the
-next narrow responsibility checkpoint.
+import binding, runtime export, and DLL lifecycle operation state now have one private module owner.
+The next responsibility checkpoint audits remaining process/kernel aggregate state without adding
+loader capability.

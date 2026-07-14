@@ -138,6 +138,23 @@ assert.ok(
   ),
 );
 
+const aggregateMutatesDllLifecycle = structuredClone(manifest);
+aggregateMutatesDllLifecycle.activeRuntimeCheckpoint.runtimeModules.directLifecycleMutationFromAggregate =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(aggregateMutatesDllLifecycle).some((error) =>
+    error.includes("module subsystem boundary"),
+  ),
+);
+
+const splitDllCallbackCommit = structuredClone(manifest);
+splitDllCallbackCommit.activeRuntimeCheckpoint.runtimeModules.callbackReplacementAtomic = false;
+assert.ok(
+  validateCurrentCheckpoint(splitDllCallbackCommit).some((error) =>
+    error.includes("module subsystem boundary"),
+  ),
+);
+
 const exposedThreads = structuredClone(manifest);
 exposedThreads.activeRuntimeCheckpoint.runtimeThreadRegistry.mutableCollectionVisibility =
   "public";
