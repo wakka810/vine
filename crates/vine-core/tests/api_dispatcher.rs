@@ -370,7 +370,7 @@ fn fls_allocation_contract_owns_bounded_callback_slots() {
         invalid_callback,
         DispatchOutcome::Fault(ref fault) if fault.class == ApiFaultClass::InvalidCall
     ));
-    assert!(runtime.process().fls_slots.is_empty());
+    assert!(runtime.fls_slots().is_empty());
 
     let callback_slot = dispatch_owned(
         &dispatcher,
@@ -425,10 +425,7 @@ fn fls_allocation_contract_owns_bounded_callback_slots() {
             .code,
         "fls-index-space-exhausted"
     );
-    assert_eq!(
-        runtime.process().fls_slots.len(),
-        RUNTIME_FLS_INDEX_LIMIT as usize
-    );
+    assert_eq!(runtime.fls_slots().len(), RUNTIME_FLS_INDEX_LIMIT as usize);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
     assert_eq!(memory.stats(), memory_before);
 }
@@ -6352,7 +6349,7 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
         0,
     );
     assert_eq!(tls.eax, RegisterUpdate::Set(0));
-    assert!(runtime.process().allocated_tls_indices.contains(&0));
+    assert!(runtime.allocated_tls_indices().contains(&0));
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
 
     let ordinal = {

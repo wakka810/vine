@@ -181,11 +181,12 @@ OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は
 
 version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、thread `initialized／running／exit-requested／exited`、scheduler `initialized／terminating`を所有する。controlled registryはsecond TID／typed handle、thread-local LastError／TLS／callback／lane、explicit selectionを加え、process terminationをTID昇順thread signal＋process-last signalとして最大3 object recordsへtargeted atomic commitする。wait queueはmonotonic registration／object FIFO、`WaitingObject`、thread signalによるrunnable wake／exact event、exit cancellationを所有する。message queueはper-thread bounded FIFO、global sequence、`WaitingMessage`、first enqueue wake、exit cleanupを所有する。CPU context／second-thread stack／TEB、last-thread semantics、wait-any／wait-all／timeout、User32 message semanticsは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)を正とする。
 
-Mutable thread recordsはprivate `runtime/thread.rs::RuntimeThreads`だけが所有する。Registration、
-LastError／TLS／FLS、callback frames、initial-stack metadata、lifecycle transitionはmutation-free
-thread planを使う。Aggregateはscheduler、object、message、wait、memoryをpreflightしてからcommitし、
-thread map／recordを直接mutateしない。Scheduler laneはthread collectionへ統合せずscheduler authorityに
-残す。
+Mutable thread records、process-wide TLS index／FLS slot registries、TLS／FLS／callback-frame ID allocatorsは
+private `runtime/thread.rs::RuntimeThreads`だけが所有する。Registration、LastError／TLS／FLS、callback
+frames、initial-stack metadata、lifecycle transitionはmutation-free thread/resource planを使う。Aggregateは
+scheduler、object、message、wait、memoryをpreflightしてからinfallible commitを呼び、thread map／record／
+resource allocatorを直接mutateしない。Existing process TLS/FLS fieldsとroot next-ID fieldsはborrowed
+serialization viewである。Scheduler laneはthread collectionへ統合せずscheduler authorityに残す。
 
 Mutable scheduler lanes／current selector／event FIFO／pending host-request table／request ID allocatorは
 private `runtime/scheduler.rs::RuntimeScheduler`、wait registration／object FIFO／registration ID allocatorは

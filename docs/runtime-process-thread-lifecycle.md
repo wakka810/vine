@@ -40,6 +40,11 @@ mutation-free thread plansを作る。Aggregate coordinatorはprocess lifecycle�
 object wait state、message cleanup、host-request cancellation、wait registrationをpreflightしてからthread planを
 commitし、thread collection／recordを直接mutateしない。
 
+Process-wide TLS index／FLS slot registries and their allocators、plus callback-frame ID allocation also live
+in `RuntimeThreads`. FLS slot creation commits selected-thread storage initialization with the slot／counter;
+callback entry or replacement commits the frame record and ID allocator after scheduler preflight. Existing
+process/root report fields are borrowed serialization views, not aggregate counters.
+
 Scheduler lane／event records、pending host-request table、request ID allocator now live in private
 `runtime/scheduler.rs::RuntimeScheduler`; wait registration／object FIFO／registration ID allocator live in private
 `runtime/waits.rs::RuntimeWaits`. Host start／completion plans lane and identity together before an

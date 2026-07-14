@@ -233,8 +233,9 @@ TLS cleanup、wait/wakeの代用ではない。詳細は
 [runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)を正とする。
 
 controlled thread registryの代表Rust contractはsecond TID／typed handle、duplicate registration時の
-full state不変、LastError／TLS／callback／scheduler laneの分離、explicit selection、thread-only
-exit、2 laneのpending work cleanup、TID昇順thread signal＋process-last signalを1 testで固定する。
+full state不変、LastError／TLS／callback／scheduler laneの分離、TLS／FLS／callback allocator ownership、
+process／root serialization compatibility、explicit selection、thread-only exit、2 laneのpending work cleanup、
+TID昇順thread signal＋process-last signalを固定する。
 これはCPU context／stack／TEB、guest `CreateThread`、wait queue、last-thread semantics、DLL thread
 callbackの代用ではない。詳細は[runtime-thread-registry.md](runtime-thread-registry.md)を正とする。
 

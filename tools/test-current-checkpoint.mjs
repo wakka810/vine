@@ -191,6 +191,24 @@ assert.ok(
   ),
 );
 
+const aggregateMutatesThreadResources = structuredClone(manifest);
+aggregateMutatesThreadResources.activeRuntimeCheckpoint.runtimeThreadRegistry.directResourceMutationFromAggregate =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(aggregateMutatesThreadResources).some((error) =>
+    error.includes("thread subsystem boundary"),
+  ),
+);
+
+const splitCallbackAllocator = structuredClone(manifest);
+splitCallbackAllocator.activeRuntimeCheckpoint.runtimeThreadRegistry.callbackAllocatorAtomic =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(splitCallbackAllocator).some((error) =>
+    error.includes("thread subsystem boundary"),
+  ),
+);
+
 const exposedScheduler = structuredClone(manifest);
 exposedScheduler.activeRuntimeCheckpoint.runtimeScheduler.mutableCollectionVisibility =
   "public";

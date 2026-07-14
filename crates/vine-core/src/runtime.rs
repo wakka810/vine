@@ -64,7 +64,7 @@ pub use synchronization::{
     RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_MUTEX_LIMIT, RuntimeCriticalSection, RuntimeMutex,
     RuntimeMutexId, RuntimeMutexNameA,
 };
-use thread::{RuntimeThreadMutationPlan, RuntimeThreads};
+use thread::{RuntimeCallbackFrameIdPlan, RuntimeThreadMutationPlan, RuntimeThreads};
 
 pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
 pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1";
@@ -894,8 +894,6 @@ pub struct RuntimeProcessState {
     heaps: RuntimeHeaps,
     #[serde(flatten)]
     module_records: RuntimeModuleRecords,
-    pub allocated_tls_indices: BTreeSet<u32>,
-    pub fls_slots: BTreeMap<u32, RuntimeFlsSlot>,
     #[serde(flatten)]
     synchronization: RuntimeSynchronization,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -915,7 +913,7 @@ impl RuntimeProcessState {
 struct RuntimeCallbackMutationPlan {
     thread: RuntimeThreadMutationPlan,
     scheduler: RuntimeSchedulerLanePlan,
-    next_callback_frame_id: u64,
+    callback_frame_id: Option<RuntimeCallbackFrameIdPlan>,
     entered: Option<RuntimeCallbackFrame>,
     exited: Option<RuntimeCallbackFrame>,
 }
@@ -931,9 +929,6 @@ pub struct RuntimeState {
     modules: RuntimeModules,
     registries: RuntimeRegistries,
     next_private_heap_slot: u16,
-    next_tls_index: u32,
-    next_fls_index: u32,
-    next_callback_frame_id: u64,
 }
 
 #[derive(Serialize)]
@@ -946,8 +941,17 @@ struct RuntimeRegistriesSnapshot<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RuntimeStateSnapshot<'a> {
+struct RuntimeProcessStateSnapshot<'a> {
+    #[serde(flatten)]
     process: &'a RuntimeProcessState,
+    allocated_tls_indices: &'a BTreeSet<u32>,
+    fls_slots: &'a BTreeMap<u32, RuntimeFlsSlot>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeStateSnapshot<'a> {
+    process: RuntimeProcessStateSnapshot<'a>,
     address_space_allocator: &'a ProcessAddressSpaceAllocator,
     threads: &'a RuntimeThreads,
     scheduler: &'a RuntimeScheduler,
@@ -974,7 +978,11 @@ impl Serialize for RuntimeState {
         S: Serializer,
     {
         RuntimeStateSnapshot {
-            process: &self.process,
+            process: RuntimeProcessStateSnapshot {
+                process: &self.process,
+                allocated_tls_indices: self.threads.allocated_tls_indices(),
+                fls_slots: self.threads.fls_slots(),
+            },
             address_space_allocator: &self.address_space_allocator,
             threads: &self.threads,
             scheduler: &self.scheduler,
@@ -991,9 +999,9 @@ impl Serialize for RuntimeState {
             encoded_pointer_sources: self.registries.encoded_pointer_sources(),
             next_encoded_pointer_id: self.registries.next_encoded_pointer_id(),
             next_private_heap_slot: self.next_private_heap_slot,
-            next_tls_index: self.next_tls_index,
-            next_fls_index: self.next_fls_index,
-            next_callback_frame_id: self.next_callback_frame_id,
+            next_tls_index: self.threads.next_tls_index(),
+            next_fls_index: self.threads.next_fls_index(),
+            next_callback_frame_id: self.threads.next_callback_frame_id(),
             next_host_request_id: self.scheduler.next_host_request_id(),
             next_wait_registration_id: self.scheduler.next_wait_registration_id(),
         }
@@ -1072,8 +1080,6 @@ impl RuntimeState {
                 heap_termination_on_corruption: false,
                 heaps: RuntimeHeaps::default(),
                 module_records: RuntimeModuleRecords::default(),
-                allocated_tls_indices: BTreeSet::new(),
-                fls_slots: BTreeMap::new(),
                 synchronization: RuntimeSynchronization::default(),
                 standard_handles: BTreeMap::new(),
             },
@@ -1085,9 +1091,6 @@ impl RuntimeState {
             modules: RuntimeModules::default(),
             registries,
             next_private_heap_slot: 1,
-            next_tls_index: 0,
-            next_fls_index: 0,
-            next_callback_frame_id: 1,
         })
     }
 
@@ -1960,6 +1963,14 @@ impl RuntimeState {
         &self.registries
     }
 
+    pub fn allocated_tls_indices(&self) -> &BTreeSet<u32> {
+        self.threads.allocated_tls_indices()
+    }
+
+    pub fn fls_slots(&self) -> &BTreeMap<u32, RuntimeFlsSlot> {
+        self.threads.fls_slots()
+    }
+
     pub fn clock(&self) -> &RuntimeClockState {
         &self.process.clock
     }
@@ -2762,29 +2773,8 @@ impl RuntimeState {
     }
 
     pub fn allocate_tls_index(&mut self) -> Result<u32, RuntimeStateError> {
-        if self.next_tls_index == TLS_OUT_OF_INDEXES {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-tls",
-                "tls-index-space-exhausted",
-                "logical TLS index space is exhausted",
-            ));
-        }
-        let index = self.next_tls_index;
-        if !self.process.allocated_tls_indices.insert(index) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-tls",
-                "tls-index-allocator-collision",
-                "logical TLS allocator selected an already allocated index",
-            ));
-        }
-        self.next_tls_index = self.next_tls_index.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-tls",
-                "tls-index-counter-overflow",
-                "logical TLS index counter overflowed",
-            )
-        })?;
-        Ok(index)
+        let plan = self.threads.plan_tls_index_allocation()?;
+        Ok(self.threads.commit_tls_index_allocation(plan))
     }
 
     pub fn allocate_fls_slot(
@@ -2804,57 +2794,17 @@ impl RuntimeState {
                 "FLS allocation requires a running process and active current thread",
             ));
         }
-        if self.next_fls_index >= RUNTIME_FLS_INDEX_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-fls",
-                "fls-index-space-exhausted",
-                format!("logical FLS allocation is limited to {RUNTIME_FLS_INDEX_LIMIT} slots"),
-            ));
-        }
-        let index = self.next_fls_index;
-        if self.process.fls_slots.contains_key(&index) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-fls",
-                "fls-index-allocator-collision",
-                "logical FLS allocator selected an already allocated index",
-            ));
-        }
+        let slot_plan = self.threads.plan_fls_slot_allocation(callback)?;
         let thread_plan = self
             .threads
             .plan_initialize_fls_storage(self.current_thread_id())?;
-        self.next_fls_index = index.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-fls",
-                "fls-index-counter-overflow",
-                "logical FLS index counter overflowed",
-            )
-        })?;
-        self.process.fls_slots.insert(
-            index,
-            RuntimeFlsSlot {
-                namespace: LOGICAL_FLS_INDEX_NAMESPACE.to_owned(),
-                index,
-                callback,
-            },
-        );
-        self.threads.commit(thread_plan);
-        self.process.fls_slots.get(&index).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-fls",
-                "inserted-fls-slot-missing",
-                "logical FLS slot disappeared after insertion",
-            )
-        })
+        Ok(self
+            .threads
+            .commit_fls_slot_allocation(slot_plan, thread_plan))
     }
 
     pub fn fls_slot(&self, index: u32) -> Result<&RuntimeFlsSlot, RuntimeStateError> {
-        self.process.fls_slots.get(&index).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-fls",
-                "fls-index-unallocated",
-                format!("logical FLS index {index} is not allocated"),
-            )
-        })
+        self.threads.fls_slot(index)
     }
 
     pub fn set_fls_value(
@@ -2875,13 +2825,7 @@ impl RuntimeState {
                 "FLS value storage requires a running process and active current thread",
             ));
         }
-        if !self.process.fls_slots.contains_key(&index) {
-            return Err(RuntimeStateError::not_found(
-                "runtime-fls",
-                "fls-index-unallocated",
-                format!("logical FLS index {index} is not allocated"),
-            ));
-        }
+        self.threads.fls_slot(index)?;
         let (thread_plan, replaced) =
             self.threads
                 .plan_fls_value(self.current_thread_id(), index, value)?;
@@ -2906,13 +2850,7 @@ impl RuntimeState {
     }
 
     pub fn set_tls_value(&mut self, index: u32, value: u32) -> Result<(), RuntimeStateError> {
-        if !self.process.allocated_tls_indices.contains(&index) {
-            return Err(RuntimeStateError::not_found(
-                "runtime-tls",
-                "tls-index-unallocated",
-                format!("logical TLS index {index} is not allocated"),
-            ));
-        }
+        self.threads.require_tls_index(index)?;
         let tls_value = self
             .dynamic_endpoint_at(GuestAddress(value))
             .map(|endpoint| RuntimeTlsValue::DynamicEndpoint {
@@ -2941,13 +2879,7 @@ impl RuntimeState {
         &self,
         index: u32,
     ) -> Result<Option<&RuntimeTlsValue>, RuntimeStateError> {
-        if !self.process.allocated_tls_indices.contains(&index) {
-            return Err(RuntimeStateError::not_found(
-                "runtime-tls",
-                "tls-index-unallocated",
-                format!("logical TLS index {index} is not allocated"),
-            ));
-        }
+        self.threads.require_tls_index(index)?;
         self.threads
             .tls_value_or_unset(self.current_thread_id(), index)
     }
@@ -3196,17 +3128,9 @@ impl RuntimeState {
                 ));
             }
         }
-        let id = RuntimeCallbackFrameId(self.next_callback_frame_id);
-        let next_callback_frame_id =
-            self.next_callback_frame_id.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-callback",
-                    "callback-frame-id-overflow",
-                    "callback frame ID space is exhausted",
-                )
-            })?;
+        let callback_frame_id = self.threads.plan_callback_frame_id()?;
         let frame = RuntimeCallbackFrame {
-            id,
+            id: callback_frame_id.id(),
             thread_id,
             target,
             return_sentinel,
@@ -3219,7 +3143,7 @@ impl RuntimeState {
         Ok(RuntimeCallbackMutationPlan {
             thread: thread_plan,
             scheduler: scheduler_plan,
-            next_callback_frame_id,
+            callback_frame_id: Some(callback_frame_id),
             entered: Some(frame),
             exited: None,
         })
@@ -3266,7 +3190,7 @@ impl RuntimeState {
         Ok(RuntimeCallbackMutationPlan {
             thread: thread_plan,
             scheduler: scheduler_plan,
-            next_callback_frame_id: self.next_callback_frame_id,
+            callback_frame_id: None,
             entered: None,
             exited: Some(frame),
         })
@@ -3291,17 +3215,9 @@ impl RuntimeState {
                 "callback replacement requires the scheduler to identify the current callback depth",
             ));
         }
-        let id = RuntimeCallbackFrameId(self.next_callback_frame_id);
-        let next_callback_frame_id =
-            self.next_callback_frame_id.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-callback",
-                    "callback-frame-id-overflow",
-                    "callback frame ID space is exhausted",
-                )
-            })?;
+        let callback_frame_id = self.threads.plan_callback_frame_id()?;
         let frame = RuntimeCallbackFrame {
-            id,
+            id: callback_frame_id.id(),
             thread_id,
             target,
             return_sentinel,
@@ -3316,7 +3232,7 @@ impl RuntimeState {
         Ok(RuntimeCallbackMutationPlan {
             thread: thread_plan,
             scheduler: scheduler_plan,
-            next_callback_frame_id,
+            callback_frame_id: Some(callback_frame_id),
             entered: Some(frame),
             exited: Some(exited),
         })
@@ -3326,10 +3242,17 @@ impl RuntimeState {
         &mut self,
         plan: RuntimeCallbackMutationPlan,
     ) -> (Option<RuntimeCallbackFrame>, Option<RuntimeCallbackFrame>) {
-        self.next_callback_frame_id = plan.next_callback_frame_id;
-        self.threads.commit(plan.thread);
-        self.scheduler.commit_lane(plan.scheduler);
-        (plan.entered, plan.exited)
+        let RuntimeCallbackMutationPlan {
+            thread,
+            scheduler,
+            callback_frame_id,
+            entered,
+            exited,
+        } = plan;
+        self.threads
+            .commit_callback_mutation(callback_frame_id, thread);
+        self.scheduler.commit_lane(scheduler);
+        (entered, exited)
     }
 
     pub fn begin_host_request(

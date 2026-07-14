@@ -5,7 +5,7 @@
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは46 contracts／284 callsをcommon dispatcherからreturnした。PE header由来の1 MiB initial stack reserve、4 KiB initial commit、movable guardをRust `GuestMemory`とprocess-wide allocation IDへ接続し、Node／Chromeで4回のone-page growthをsemantic一致させた。Process-owned critical-section／named-mutex collectionsはprivate `RuntimeSynchronization`、current-directory identityはprivate `RuntimeProcessDirectories`へ分割済みで、mutex name／owner／recursionとgeneric object／handle lifetimeをtwo-subsystem transactionへ接続した。Next exact stopはinstruction 25,256の`GetCurrentThread()` contract missingである。protocol v4はexplicit `memory-fault` transitionを含むexecution state machineを維持し、production loopをpinned ExecutionEngine contractへ閉じる。3分／607-session workload gateはsession／slice／heartbeat分布、main／Worker heapとbacking-storage slope、linear memory、2,850 Wasm crossings/sessionの17 thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
-- active architecture work: capability expansionをpauseし、`RuntimeState` responsibility splitを進める。Process-owned synchronization／directories、object／handle、thread、scheduler／wait、heap stateに加え、process module records、graph、mapped images、import bindings、runtime export table、DLL lifecycle operationをprivate ownerへ移した。Pending host-request table／ID allocatorは`RuntimeScheduler`、wait registration table／object FIFO／ID allocatorは`RuntimeWaits`、dynamic endpoint／encoded-pointer table／policy／ID allocatorは`RuntimeRegistries`へ移し、aggregateから各collection／allocatorへのdirect mutationを廃止済みである。`GetCurrentThread()`は実装開始前の保存済みnext stopである
+- active architecture work: capability expansionをpauseし、`RuntimeState` responsibility splitを進める。Process-owned synchronization／directories、object／handle、thread、scheduler／wait、heap stateに加え、process module records、graph、mapped images、import bindings、runtime export table、DLL lifecycle operationをprivate ownerへ移した。Pending host-request table／ID allocatorは`RuntimeScheduler`、wait registration table／object FIFO／ID allocatorは`RuntimeWaits`、dynamic endpoint／encoded-pointer table／policy／ID allocatorは`RuntimeRegistries`、TLS／FLS registriesとTLS／FLS／callback allocatorsは`RuntimeThreads`へ移し、aggregateから各collection／allocatorへのdirect mutationを廃止済みである。`GetCurrentThread()`は実装開始前の保存済みnext stopである
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -1074,6 +1074,12 @@ mutation-free plan、pointer allocationは両indexとcounterをsame ownerで進�
 Aggregateはregistry collectionを直接参照またはmutateしない。Existing nested registry mapsとroot pointer
 policy／source／counter serializationはborrowed compatibility viewで維持し、neighboring host request fieldsの
 scheduler authorityを変えない。
+Architecture refactor checkpoint S11はprocess-wide TLS index set、FLS slot map、TLS／FLS index allocators、
+callback-frame ID allocatorをper-thread recordsと同じprivate `runtime/thread.rs::RuntimeThreads`へ移した。
+TLS allocationはset／counter、FLS allocationはslot／counter／selected-thread storage、callback entry／replacementは
+frame stack／ID counterをsame ownerのplan／commitで進める。Aggregateはlifecycle／scheduler preflightだけを
+coordinateし、resource collection／counterを直接mutateしない。Existing process TLS/FLS fieldsとroot next-ID
+serializationはborrowed compatibility viewで維持する。
 
 ## 23. 完了の定義
 

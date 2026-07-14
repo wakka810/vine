@@ -1,22 +1,61 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
 use super::{
-    RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeStateError, RuntimeThreadId,
+    LOGICAL_FLS_INDEX_NAMESPACE, RUNTIME_FLS_INDEX_LIMIT, RuntimeCallbackFrame,
+    RuntimeCallbackFrameId, RuntimeFlsSlot, RuntimeStateError, RuntimeThreadId,
     RuntimeThreadLifecycleState, RuntimeThreadStack, RuntimeThreadState, RuntimeTlsValue,
+    TLS_OUT_OF_INDEXES,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub(super) struct RuntimeThreads {
     states: BTreeMap<RuntimeThreadId, RuntimeThreadState>,
+    #[serde(skip)]
+    allocated_tls_indices: BTreeSet<u32>,
+    #[serde(skip)]
+    fls_slots: BTreeMap<u32, RuntimeFlsSlot>,
+    #[serde(skip)]
+    next_tls_index: u32,
+    #[serde(skip)]
+    next_fls_index: u32,
+    #[serde(skip)]
+    next_callback_frame_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeThreadMutationPlan {
     previous: Option<RuntimeThreadState>,
     next: RuntimeThreadState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeTlsIndexAllocationPlan {
+    previous_next_index: u32,
+    index: u32,
+    next_index: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeFlsSlotAllocationPlan {
+    previous_next_index: u32,
+    slot: RuntimeFlsSlot,
+    next_index: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeCallbackFrameIdPlan {
+    previous_next_id: u64,
+    id: RuntimeCallbackFrameId,
+    next_id: u64,
+}
+
+impl RuntimeCallbackFrameIdPlan {
+    pub(super) const fn id(&self) -> RuntimeCallbackFrameId {
+        self.id
+    }
 }
 
 impl RuntimeThreadMutationPlan {
@@ -56,7 +95,179 @@ impl RuntimeThreads {
         };
         Self {
             states: BTreeMap::from([(initial_thread_id, initial)]),
+            allocated_tls_indices: BTreeSet::new(),
+            fls_slots: BTreeMap::new(),
+            next_tls_index: 0,
+            next_fls_index: 0,
+            next_callback_frame_id: 1,
         }
+    }
+
+    pub(super) fn allocated_tls_indices(&self) -> &BTreeSet<u32> {
+        &self.allocated_tls_indices
+    }
+
+    pub(super) fn fls_slots(&self) -> &BTreeMap<u32, RuntimeFlsSlot> {
+        &self.fls_slots
+    }
+
+    pub(super) const fn next_tls_index(&self) -> u32 {
+        self.next_tls_index
+    }
+
+    pub(super) const fn next_fls_index(&self) -> u32 {
+        self.next_fls_index
+    }
+
+    pub(super) const fn next_callback_frame_id(&self) -> u64 {
+        self.next_callback_frame_id
+    }
+
+    pub(super) fn plan_tls_index_allocation(
+        &self,
+    ) -> Result<RuntimeTlsIndexAllocationPlan, RuntimeStateError> {
+        if self.next_tls_index == TLS_OUT_OF_INDEXES {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-tls",
+                "tls-index-space-exhausted",
+                "logical TLS index space is exhausted",
+            ));
+        }
+        let index = self.next_tls_index;
+        if self.allocated_tls_indices.contains(&index) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-tls",
+                "tls-index-allocator-collision",
+                "logical TLS allocator selected an already allocated index",
+            ));
+        }
+        let next_index = index.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-tls",
+                "tls-index-counter-overflow",
+                "logical TLS index counter overflowed",
+            )
+        })?;
+        Ok(RuntimeTlsIndexAllocationPlan {
+            previous_next_index: self.next_tls_index,
+            index,
+            next_index,
+        })
+    }
+
+    pub(super) fn commit_tls_index_allocation(
+        &mut self,
+        plan: RuntimeTlsIndexAllocationPlan,
+    ) -> u32 {
+        debug_assert_eq!(self.next_tls_index, plan.previous_next_index);
+        let inserted = self.allocated_tls_indices.insert(plan.index);
+        debug_assert!(inserted);
+        self.next_tls_index = plan.next_index;
+        plan.index
+    }
+
+    pub(super) fn require_tls_index(&self, index: u32) -> Result<(), RuntimeStateError> {
+        if !self.allocated_tls_indices.contains(&index) {
+            return Err(RuntimeStateError::not_found(
+                "runtime-tls",
+                "tls-index-unallocated",
+                format!("logical TLS index {index} is not allocated"),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn plan_fls_slot_allocation(
+        &self,
+        callback: Option<crate::memory::GuestAddress>,
+    ) -> Result<RuntimeFlsSlotAllocationPlan, RuntimeStateError> {
+        if self.next_fls_index >= RUNTIME_FLS_INDEX_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-fls",
+                "fls-index-space-exhausted",
+                format!("logical FLS allocation is limited to {RUNTIME_FLS_INDEX_LIMIT} slots"),
+            ));
+        }
+        let index = self.next_fls_index;
+        if self.fls_slots.contains_key(&index) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-fls",
+                "fls-index-allocator-collision",
+                "logical FLS allocator selected an already allocated index",
+            ));
+        }
+        let next_index = index.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-fls",
+                "fls-index-counter-overflow",
+                "logical FLS index counter overflowed",
+            )
+        })?;
+        Ok(RuntimeFlsSlotAllocationPlan {
+            previous_next_index: self.next_fls_index,
+            slot: RuntimeFlsSlot {
+                namespace: LOGICAL_FLS_INDEX_NAMESPACE.to_owned(),
+                index,
+                callback,
+            },
+            next_index,
+        })
+    }
+
+    pub(super) fn commit_fls_slot_allocation(
+        &mut self,
+        plan: RuntimeFlsSlotAllocationPlan,
+        thread_plan: RuntimeThreadMutationPlan,
+    ) -> &RuntimeFlsSlot {
+        debug_assert_eq!(self.next_fls_index, plan.previous_next_index);
+        let index = plan.slot.index;
+        let previous = self.fls_slots.insert(index, plan.slot);
+        debug_assert!(previous.is_none());
+        self.next_fls_index = plan.next_index;
+        self.commit(thread_plan);
+        self.fls_slots
+            .get(&index)
+            .expect("committed FLS slot disappeared")
+    }
+
+    pub(super) fn fls_slot(&self, index: u32) -> Result<&RuntimeFlsSlot, RuntimeStateError> {
+        self.fls_slots.get(&index).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-fls",
+                "fls-index-unallocated",
+                format!("logical FLS index {index} is not allocated"),
+            )
+        })
+    }
+
+    pub(super) fn plan_callback_frame_id(
+        &self,
+    ) -> Result<RuntimeCallbackFrameIdPlan, RuntimeStateError> {
+        let id = RuntimeCallbackFrameId(self.next_callback_frame_id);
+        let next_id = self.next_callback_frame_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-callback",
+                "callback-frame-id-overflow",
+                "callback frame ID space is exhausted",
+            )
+        })?;
+        Ok(RuntimeCallbackFrameIdPlan {
+            previous_next_id: self.next_callback_frame_id,
+            id,
+            next_id,
+        })
+    }
+
+    pub(super) fn commit_callback_mutation(
+        &mut self,
+        id_plan: Option<RuntimeCallbackFrameIdPlan>,
+        thread_plan: RuntimeThreadMutationPlan,
+    ) -> &RuntimeThreadState {
+        if let Some(id_plan) = id_plan {
+            debug_assert_eq!(self.next_callback_frame_id, id_plan.previous_next_id);
+            self.next_callback_frame_id = id_plan.next_id;
+        }
+        self.commit(thread_plan)
     }
 
     pub(super) fn contains(&self, thread_id: RuntimeThreadId) -> bool {
@@ -594,5 +805,83 @@ mod tests {
             "thread-id-zero"
         );
         assert_eq!(threads, before);
+    }
+
+    #[test]
+    fn resource_allocator_plans_commit_with_their_owned_thread_state() {
+        let mut threads = RuntimeThreads::new(INITIAL, 7);
+        let start = threads.plan_start(INITIAL).unwrap();
+        threads.commit(start);
+
+        let tls = threads.plan_tls_index_allocation().unwrap();
+        assert!(threads.allocated_tls_indices().is_empty());
+        assert_eq!(threads.next_tls_index(), 0);
+        assert_eq!(threads.commit_tls_index_allocation(tls), 0);
+        assert_eq!(threads.allocated_tls_indices(), &BTreeSet::from([0]));
+        assert_eq!(threads.next_tls_index(), 1);
+
+        let fls = threads
+            .plan_fls_slot_allocation(Some(GuestAddress(0x1000_2000)))
+            .unwrap();
+        let initialize = threads.plan_initialize_fls_storage(INITIAL).unwrap();
+        assert!(threads.fls_slots().is_empty());
+        assert!(!threads.state(INITIAL).unwrap().fls_storage_initialized);
+        let slot = threads.commit_fls_slot_allocation(fls, initialize).clone();
+        assert_eq!(slot.index, 0);
+        assert_eq!(slot.callback, Some(GuestAddress(0x1000_2000)));
+        assert!(threads.state(INITIAL).unwrap().fls_storage_initialized);
+        assert_eq!(threads.next_fls_index(), 1);
+
+        let callback_id = threads.plan_callback_frame_id().unwrap();
+        let frame = RuntimeCallbackFrame {
+            id: callback_id.id(),
+            thread_id: INITIAL,
+            target: GuestAddress(0x1000_3000),
+            return_sentinel: GuestAddress(0x7f01_0000),
+            entry_last_error: 7,
+        };
+        let (push, depth) = threads.plan_callback_push(INITIAL, frame).unwrap();
+        assert_eq!(depth, 1);
+        assert_eq!(threads.next_callback_frame_id(), 1);
+        assert!(threads.state(INITIAL).unwrap().callback_frames.is_empty());
+        threads.commit_callback_mutation(Some(callback_id), push);
+        assert_eq!(threads.next_callback_frame_id(), 2);
+        assert_eq!(threads.state(INITIAL).unwrap().callback_frames, [frame]);
+    }
+
+    #[test]
+    fn resource_allocator_rejections_preserve_all_owned_state() {
+        let mut threads = RuntimeThreads::new(INITIAL, 0);
+        threads.allocated_tls_indices.insert(0);
+        let before_tls_collision = threads.clone();
+        assert_eq!(
+            threads.plan_tls_index_allocation().unwrap_err().code,
+            "tls-index-allocator-collision"
+        );
+        assert_eq!(threads, before_tls_collision);
+
+        threads.next_tls_index = TLS_OUT_OF_INDEXES;
+        let before_tls_exhaustion = threads.clone();
+        assert_eq!(
+            threads.plan_tls_index_allocation().unwrap_err().code,
+            "tls-index-space-exhausted"
+        );
+        assert_eq!(threads, before_tls_exhaustion);
+
+        threads.next_fls_index = RUNTIME_FLS_INDEX_LIMIT;
+        let before_fls_exhaustion = threads.clone();
+        assert_eq!(
+            threads.plan_fls_slot_allocation(None).unwrap_err().code,
+            "fls-index-space-exhausted"
+        );
+        assert_eq!(threads, before_fls_exhaustion);
+
+        threads.next_callback_frame_id = u64::MAX;
+        let before_callback_exhaustion = threads.clone();
+        assert_eq!(
+            threads.plan_callback_frame_id().unwrap_err().code,
+            "callback-frame-id-overflow"
+        );
+        assert_eq!(threads, before_callback_exhaustion);
     }
 }

@@ -15,7 +15,8 @@ start routine、parameter、suspend countを作らない。Existing initial-thre
 
 ## Subsystem boundary
 
-`RuntimeThreads`だけが`BTreeMap<RuntimeThreadId, RuntimeThreadState>`を所有する。Collectionは
+`RuntimeThreads`だけが`BTreeMap<RuntimeThreadId, RuntimeThreadState>`、process-wide TLS index set、
+FLS slot map、TLS／FLS／callback-frame ID allocatorを所有する。Collectionは
 `runtime/thread.rs`の外へ公開せず、aggregateはimmutable state viewと
 `RuntimeThreadMutationPlan`だけを受け取る。Registration、initial start、LastError、TLS／FLS、
 callback push／pop、stack registration／growth、exit request／completionはすべてprevious／next
@@ -25,6 +26,8 @@ recordを持つmutation-free planを返し、scheduler、object、message、wait
 Aggregateはthread mapへ`get_mut`／`insert`せず、thread recordを直接変更しない。Scheduler lane／
 host-request table／request ID、wait registration、message queueはそれぞれのownerに残し、thread subsystemはそれらの
 mapを参照またはmutateしない。Serialized `RuntimeState.threads` shapeはtransparent newtypeで維持する。
+Existing `process.allocatedTlsIndices`／`process.flsSlots`とroot `nextTlsIndex`／`nextFlsIndex`／
+`nextCallbackFrameId`はborrowed compatibility viewであり、aggregate-owned stateではない。
 
 ## Registration and selection
 
@@ -57,9 +60,13 @@ Controlled contractsは同じTLS indexへinitial thread `0x1111`、second
 thread `0x2222`を保存し、同じprocess-owned FLS indexへ別pointerを保存する。LastError
 `11`／`33`と別callback frameもswitch後に保持する。
 
-Process-owned clock、startup info、module graph、heap、TLS index allocator、FLS slot／callback、
-dynamic endpoint、encoded pointer identityはprocess-wideだが、private
-`runtime/registries.rs::RuntimeRegistries`がtable／policy／allocatorを所有する。Initial-thread reserve／commit／guard
+TLS index allocationはindex setとcounter、FLS allocationはslot map／counterとselected-thread storage initialization、
+callback entry／replacementはframe stackとframe ID counterをそれぞれsame `RuntimeThreads` commitで進める。
+Collision、limit、ID overflow、scheduler preflight failureはcollection／allocatorを不変にする。
+
+Process-owned clock、startup info、module graph、heapはprocess-wideである。Dynamic endpointとencoded pointer
+identityはprivate `RuntimeRegistries`、TLS／FLS slot identityとcallback-frame IDはprivate `RuntimeThreads`が
+所有する。Initial-thread reserve／commit／guard
 metadataはthread recordへ接続済みだが、CPU register／FPU state、second-thread stack、TEBは未実装である。
 
 ## Exit and deterministic process termination
@@ -96,9 +103,10 @@ cargo test -p vine-core --test runtime_initial_thread_stack --locked
 ```
 
 Subsystem unit tests fix mutation-free planning、per-thread value isolation、callback／exit ordering、
-duplicate／zero identity rejection. Scheduler tests add thread-scoped host start／completion／cancellation
-plans and root serialization compatibility. Aggregate tests fix object／scheduler／message／wait atomicity and
-initial-stack GuestMemory coordination. Current Node／Chrome result、runtime artifact、benchmark、
+TLS／FLS／callback allocator co-commit、collision／limit／overflow rollback、duplicate／zero identity rejection.
+Scheduler tests add thread-scoped host start／completion／cancellation plans. Aggregate tests fix
+object／scheduler／message／wait atomicity、initial-stack GuestMemory coordination and the existing process／root
+serialization compatibility view. Current Node／Chrome result、runtime artifact、benchmark、
 next structured stopはこのhistorical foundation文書へ複製せず
 [current checkpoint manifest](current-checkpoint.json)だけを正とする。
 
@@ -115,6 +123,6 @@ The controlled wait-queue dependency is implemented in
 and resumes deterministically after signal. The controlled message queue is implemented in
 [runtime-message-queue.md](runtime-message-queue.md), and private-heap backing is implemented in
 [runtime-heap-backing.md](runtime-heap-backing.md). Scheduler／wait ownership is now private as documented in
-[runtime-wait-queue.md](runtime-wait-queue.md). Capability expansion remains paused while heap／module
-responsibility boundaries are extracted. Per-thread CPU bootstrap remains
+[runtime-wait-queue.md](runtime-wait-queue.md). Capability expansion remains paused while the remaining
+`RuntimeState` responsibility boundaries are extracted. Per-thread CPU bootstrap remains
 separate before guest-created threads can execute.

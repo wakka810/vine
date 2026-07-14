@@ -242,6 +242,43 @@ fn thread_registry_isolates_thread_state_and_terminates_all_lanes_deterministica
     assert_eq!(rejected_process_exit, before_rejected_process_exit);
 }
 
+#[test]
+fn thread_resource_ownership_preserves_the_runtime_serialization_shape() {
+    let mut runtime = running_runtime();
+    let tls_index = runtime.allocate_tls_index().expect("allocate TLS index");
+    let fls_slot = runtime
+        .allocate_fls_slot(Some(GuestAddress(0x1000_2000)))
+        .expect("allocate FLS slot")
+        .clone();
+    let callback = runtime
+        .push_callback_frame(GuestAddress(0x1000_3000), GuestAddress(0x7f01_0000))
+        .expect("push callback frame");
+
+    let serialized = serde_json::to_value(&runtime).expect("serialize thread resource view");
+    assert_eq!(
+        serialized["process"]["allocatedTlsIndices"],
+        serde_json::json!([tls_index])
+    );
+    assert_eq!(
+        serialized["process"]["flsSlots"][fls_slot.index.to_string()]["callback"],
+        serde_json::json!(fls_slot.callback)
+    );
+    assert_eq!(serialized["nextTlsIndex"], serde_json::json!(1));
+    assert_eq!(serialized["nextFlsIndex"], serde_json::json!(1));
+    assert_eq!(serialized["nextCallbackFrameId"], serde_json::json!(2));
+    assert_eq!(
+        serialized["threads"][INITIAL_THREAD_ID.0.to_string()]["callbackFrames"][0]["id"],
+        serde_json::json!(callback.id.0)
+    );
+    assert!(serialized["threads"].get("allocatedTlsIndices").is_none());
+    assert!(serialized["threads"].get("flsSlots").is_none());
+    assert_eq!(
+        runtime.allocated_tls_indices(),
+        &std::collections::BTreeSet::from([0])
+    );
+    assert_eq!(runtime.fls_slots().get(&0), Some(&fls_slot));
+}
+
 fn running_runtime() -> RuntimeState {
     let mut runtime = RuntimeState::new(RuntimeBootstrap {
         process_id: RuntimeProcessId(PROCESS_ID),

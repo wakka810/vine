@@ -614,14 +614,28 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    threads.schema !== "vine.runtime-thread-registry.v2" ||
+    threads.schema !== "vine.runtime-thread-registry.v3" ||
     threads.stateOwner !== "runtime/thread.rs::RuntimeThreads" ||
     threads.mutableCollectionVisibility !== "private" ||
     threads.serializedRuntimeField !== "threads" ||
-    threads.crossSubsystemMutation !== "thread-plan-aggregate-preflight-commit" ||
-    threads.subsystemTests < 3 ||
-    threads.crossSubsystemAtomicTests < 3 ||
+    !Array.isArray(threads.serializedProcessCompatibilityFields) ||
+    threads.serializedProcessCompatibilityFields.join(",") !==
+      "allocatedTlsIndices,flsSlots" ||
+    !Array.isArray(threads.serializedRuntimeCompatibilityFields) ||
+    threads.serializedRuntimeCompatibilityFields.join(",") !==
+      "nextTlsIndex,nextFlsIndex,nextCallbackFrameId" ||
+    threads.serializationAdapter !== "runtime-state-borrowed-compatibility-view" ||
+    !Array.isArray(threads.processWideState) ||
+    threads.processWideState.join(",") !==
+      "tls-index-registry,fls-slot-registry,tls-index-allocator,fls-index-allocator,callback-frame-id-allocator" ||
+    threads.crossSubsystemMutation !==
+      "thread-resource-plan-aggregate-lifecycle-scheduler-preflight-infallible-commit" ||
+    threads.subsystemTests < 5 ||
+    threads.crossSubsystemAtomicTests < 4 ||
     threads.directRecordMutationFromAggregate !== false ||
+    threads.directResourceMutationFromAggregate !== false ||
+    threads.resourceAllocatorFailureMutationFree !== true ||
+    threads.callbackAllocatorAtomic !== true ||
     threads.stackMetadataPlanCommit !== true ||
     !Array.isArray(threads.perThreadState) ||
     threads.perThreadState.join(",") !==
