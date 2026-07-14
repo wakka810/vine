@@ -609,10 +609,18 @@ export function validateCurrentCheckpoint(manifest) {
   requireString(next.capabilityCluster, "nextStructuredStop.capabilityCluster", errors);
   requireString(next.reason, "nextStructuredStop.reason", errors);
   if (next.kind === "api-endpoint") {
+    requireString(next.endpointKind, "nextStructuredStop.endpointKind", errors);
+    requireInteger(next.endpointId, "nextStructuredStop.endpointId", errors);
     requireString(next.api, "nextStructuredStop.api", errors);
     requireOrderedStringArray(next.arguments, "nextStructuredStop.arguments", errors);
     if (typeof next.endpointAddress !== "string" || !HEX32.test(next.endpointAddress)) {
       errors.push("nextStructuredStop.endpointAddress must be a 32-bit hex string");
+    }
+    if (typeof next.iatAddress !== "string" || !HEX32.test(next.iatAddress)) {
+      errors.push("nextStructuredStop.iatAddress must be a 32-bit hex string");
+    }
+    if (typeof next.returnAddress !== "string" || !HEX32.test(next.returnAddress)) {
+      errors.push("nextStructuredStop.returnAddress must be a 32-bit hex string");
     }
   } else if (next.kind === "execution-fault") {
     if (next.endpoint !== null) {

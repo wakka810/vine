@@ -74,6 +74,14 @@ assert.ok(
   ),
 );
 
+const incompleteEndpointIdentity = structuredClone(manifest);
+delete incompleteEndpointIdentity.nextStructuredStop.endpointKind;
+assert.ok(
+  validateCurrentCheckpoint(incompleteEndpointIdentity).some((error) =>
+    error.includes("nextStructuredStop.endpointKind"),
+  ),
+);
+
 const failedBgiBenchmark = structuredClone(manifest);
 failedBgiBenchmark.browserCheckpoint.bgiBenchmarkEvidence.thresholdFailures = 1;
 assert.ok(

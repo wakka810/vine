@@ -1848,9 +1848,11 @@
     "nextCheckpoint": "kernel32-multi-byte-to-wide-char-cp-acp",
     "pausedHistoricalCheckpoint": "twentieth-supported-win32-call-return",
     "instructionCount": 22843,
-    "capabilityCluster": "kernel32-api-contract",
-    "reason": "multi-byte-to-wide-char-variant-unsupported",
-    "api": "KERNEL32.dll!MultiByteToWideChar",
+  "capabilityCluster": "kernel32-api-contract",
+  "reason": "multi-byte-to-wide-char-variant-unsupported",
+  "endpointKind": "runtime-system-export",
+  "endpointId": 130,
+  "api": "KERNEL32.dll!MultiByteToWideChar",
     "arguments": [
       "0x00000000",
       "0x00000000",
@@ -1858,7 +1860,9 @@
       "0xffffffff",
       "0x006fd150",
       "0x0000030c"
-    ],
-    "endpointAddress": "0x7f000810"
-  }
+  ],
+  "endpointAddress": "0x7f000810",
+  "iatAddress": "0x100d12b0",
+  "returnAddress": "0x1002bb13"
+}
 }
