@@ -137,7 +137,7 @@ guest CALL / JMP import thunk
 
 API implementation は `Promise` を guest へ見せない。deferred operation の途中でも、別 guest thread、message、cancel、timeout をRust schedulerが扱い、TypeScriptはbrowser completionをeventとして返す。
 
-現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEB／process-parameters／command-lineを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてmeasured command-line observationとentry completionまで実行した。single processはexplicit lifecycleとcontrolled two-thread registryを持ち、logical laneごとのLastError／TLS／callback／scheduler state、thread exit、all-lane termination、one-object wait／wake、bounded raw message FIFOを固定する。Typed logical private heapはlazy 16 MiB guest arena、8-byte allocation、free／reuse、exit-request teardownへ接続済みである。second threadのCPU context／stack／TEB、general ABI schema、stack growth／guard、wait-any／wait-all／timeout、User32 filter／dispatch、guest HeapAlloc API、general process parametersは未実装である。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)、[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
+現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEB／process-parameters／command-lineを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてmeasured command-line observationとentry completionまで実行した。single processはexplicit lifecycleとcontrolled two-thread registryを持ち、logical laneごとのLastError／TLS／callback／scheduler state、thread exit、all-lane termination、one-object wait／wake、bounded raw message FIFOを固定する。Typed logical private heapはlazy 16 MiB guest arena、8-byte allocation、free／reuse、exit-request teardownとreached `HeapAlloc`／`HeapFree`／`HeapSize` variantsへ接続済みである。second threadのCPU context／stack／TEB、general ABI schema、stack overflow、wait-any／wait-all／timeout、User32 filter／dispatch、broad heap API、general process parametersは未実装である。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)、[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
 ### 4.3 Host から guest callback
 
@@ -193,6 +193,14 @@ Mutable scheduler lanes／current selector／event FIFOはprivate
 維持するが、collection authorityは分離する。Lane transition、wait registration、wake、callback、host
 completion、exitはmutation-free planをaggregateがcross-subsystem preflight後にcommitし、aggregateは
 scheduler／wait mapを直接mutateしない。
+
+Mutable logical heap metadataとGuestMemory backing metadataはprivate
+`runtime/heaps.rs::RuntimeHeaps`だけがco-ownする。`RuntimeProcessState`はこれをflattenして既存
+`process.heaps` serializationを維持し、inspectionはimmutable borrowに限定する。Creation、allocation、
+free、destructionはsubsystem planを作り、aggregateがlifecycle、typed object、process address allocation、
+GuestMemory transactionをpreflightしてからtargeted commitする。Aggregateはheap／backing mapを直接
+mutateせず、failed object registrationではprivate-heap slot allocatorも進めない。詳細は
+[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
 Process-owned critical-section／mutex collectionsとnamed indexは`runtime/synchronization.rs`のprivate
 `RuntimeSynchronization`が所有する。`RuntimeState`はprocess／selected-thread／scheduler lifecycleを

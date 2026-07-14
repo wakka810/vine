@@ -641,6 +641,29 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active runtime synchronization subsystem boundary is invalid");
   }
+  const heaps = requireRecord(
+    active.runtimeHeapBacking,
+    "activeRuntimeCheckpoint.runtimeHeapBacking",
+    errors,
+  );
+  if (
+    heaps.schema !== "vine.runtime-private-heap-backing.v3" ||
+    heaps.stateOwner !== "runtime/heaps.rs::RuntimeHeaps" ||
+    heaps.mutableCollectionVisibility !== "private" ||
+    heaps.readInspection !== "immutable-borrow" ||
+    heaps.serializedProcessField !== "heaps" ||
+    heaps.serializationAdapter !== "serde-flatten-private-runtime-heaps" ||
+    heaps.crossSubsystemMutation !==
+      "heap-plan-object-memory-preflight-targeted-commit" ||
+    heaps.subsystemTests < 3 ||
+    heaps.crossSubsystemAtomicTests < 2 ||
+    heaps.logicalAndBackingCollectionsCoOwned !== true ||
+    heaps.directCollectionMutationFromAggregate !== false ||
+    heaps.failedCreationPreservesSlotAllocator !== true ||
+    heaps.wholeRuntimeStateClone !== false
+  ) {
+    errors.push("active runtime heap subsystem boundary is invalid");
+  }
   const addressSpace = requireRecord(
     active.processAddressSpaceAllocator,
     "activeRuntimeCheckpoint.processAddressSpaceAllocator",

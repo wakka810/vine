@@ -243,6 +243,11 @@ collections、mutation-free plan、serialized scheduler shape、FIFO、duplicate
 excludedとなるwake candidateのcross-subsystem validationを固定する。Aggregate testはimmutable getter
 だけを使い、collectionを直接mutateしない。
 
+Heap subsystem unit contractsはprivate logical／backing collectionsのco-ownership、mutation-free creation／
+allocation plan、targeted commit、既存`process.heaps` serialization shapeを固定する。Aggregate atomicity
+testはobject-table conflict時にheap collectionsとprivate-heap slot allocatorが両方不変であることを固定し、
+GuestMemory integrationはcollision、allocation、free、destroy、process teardownをtransactionalに通す。
+
 controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
 one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact
 signal／runnable wake／one event、already-signaled immediate completion、process-exit cancellationを
@@ -259,7 +264,8 @@ Peek／Get、WM_QUIT、paint、input、timer、Send／dispatch、guest APIの代
 Controlled private-heap backingの代表Rust contractはfixed arena collision時のowner／region／runtime
 rollback、8-byte aligned IDs `1,2,3`、zero／`0xA5` initialization、`0xDD` free poison、exact
 double-free／interior invalid-free rejection、lowest-address reuse、typed heap destroy、exit-request中の
-backed／metadata-only heap teardown、final memory generation／ack `13`を1 testで固定する。これはguest
+backed／metadata-only heap teardown、final memory generation／ack `13`を1 testで固定する。Logical heapと
+backingはprivate `RuntimeHeaps`が同時に所有し、aggregateはcollectionを直接mutateしない。これはguest
 `HeapAlloc`／`HeapFree`／`HeapDestroy` dispatch、zero-size／realloc、concurrent allocator、LFH、title
 capacity profileの代用ではない。詳細は[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 

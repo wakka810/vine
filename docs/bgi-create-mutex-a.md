@@ -129,7 +129,7 @@ npm run check:runtime:bgi-browser-benchmark
 | Final generation | 395 | 2,207 |
 | Memory SHA-256 | `338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add` | same |
 | Report bytes | 1,250,520 | 281,761 |
-| Report SHA-256 | `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164` | `39d39110b70d4cba15807e8f7d5e598b6a748d79d9f65d422f38a2b56bced333` |
+| Report SHA-256 | `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164` | `2e09d322683ad8e3a0557bffefbda4f01d047b71213deb85d5bd779b26567988` |
 
 Call 281 returns logical handle `0x58010001`, mutex ID `1`, typed object ID
 `19`, owner thread `8192`, recursion `1`, and LastError `0`. Calls 282–284 then
@@ -139,15 +139,15 @@ Rust/Wasm bridge operations. Both paths retain identical current-directory and
 mutex metadata, four stack growths, final memory, next fault, cancel／watchdog
 cleanup, process exit, and DLL detach.
 
-Runtime-core Wasm is 2,084,946 bytes with SHA-256
-`e487f01c54dcf1f247e97a6ff67f1cf243b4965968f16a4df52300afd6f53378`.
-The separate 180-second workload completed 626 sessions with zero failures and
-passed all 17 versioned thresholds. Session p95 is `313.740 ms`, slice p99
-`0.975 ms`, heartbeat p99 `6.075 ms`, maximum heartbeat gap `19.590 ms`, main
-heap slope `-377,884.84 bytes/min`, Worker heap slope `1,883,827.71 bytes/min`,
-and backing-storage slope `1,760,812.73 bytes/min`. The 1,183,379-byte report has
+Runtime-core Wasm is 2,087,908 bytes with SHA-256
+`bbab59e92453cfebaadc41f46e6780cf037397763cbab7f67ff86d775be5354d`.
+The separate 180-second workload completed 627 sessions with zero failures and
+passed all 17 versioned thresholds. Session p95 is `316.960 ms`, slice p99
+`1.200 ms`, heartbeat p99 `6.085 ms`, maximum heartbeat gap `18.590 ms`, main
+heap slope `-315,931.13 bytes/min`, Worker heap slope `5,806,537.01 bytes/min`,
+and backing-storage slope `5,031,078.80 bytes/min`. The 1,183,303-byte report has
 SHA-256
-`24fdfa5d491d8f77b2ee36bf174466123b05b9c892950f0e9a84f9c20b4a2132`.
+`7c6bb6e03eca1ec3e5cda718404bc6db47e3f528c33e620d0ce3f64662ff078d`.
 
 ## Next structured stop
 

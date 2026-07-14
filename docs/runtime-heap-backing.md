@@ -7,6 +7,11 @@ review Step 9のseventh foundationとして、既存のtyped logical private hea
 free／reuse、invalid／double free、heap destroy、process-exit teardownを一つのauthoritative
 boundaryで固定する。
 
+Architecture refactor checkpoint S5では、logical heap metadataとGuestMemory backing metadataを
+private `runtime/heaps.rs::RuntimeHeaps`へ移し、同じsubsystem ownerの下へ統合した。
+`RuntimeState`はobject table、process address-space allocation、GuestMemory transactionとの
+cross-subsystem coordinationだけを行い、heap／backing collectionを直接mutateしない。
+
 このfoundation自体はguest dispatchを追加せず、`HeapCreate(0, 0x1000, 0)`をmetadata-onlyの
 ままreturnする境界として成立した。続く
 [bgi-private-heap-allocation.md](bgi-private-heap-allocation.md)は、reached
@@ -16,6 +21,18 @@ the reached exact flags-zero `HeapFree` to this same transaction. Guest
 [`bgi-private-heap-size-128.md`](bgi-private-heap-size-128.md) then proves a
 larger zeroed dirty-only allocation without importing native address reuse.
 `HeapDestroy`／`HeapReAlloc` and broad allocator／free policy remain unimplemented.
+
+## Runtime subsystem ownership
+
+`RuntimeProcessState`はprivate `RuntimeHeaps`を`serde(flatten)`で保持する。既存reportの
+`process.heaps` shapeは維持し、public inspectionは`RuntimeProcessState::heaps()`のimmutable borrowに
+限定する。GuestMemory backing mapはserializeせず、logical heap mapと同じownerだけが更新する。
+
+Heap creation、allocation、free、destructionはsubsystem内でmutation-free planを作り、aggregateが
+process／thread lifecycle、typed object、address allocation、GuestMemory transactionをpreflightした後、
+targeted commitする。Creationはobject-table registrationが成功してからlogical heapをcommitする。
+Automatic handle allocationは候補slotをlocal cursorで探索し、heapとobjectのregistrationが成功した時だけ
+`next_private_heap_slot`を進める。したがってobject-table conflictはslot allocatorを消費しない。
 
 ## Controlled address and memory policy
 
@@ -97,11 +114,15 @@ exit completionは`process-heaps-live-at-exit-completion`、one-shot direct term
 Representative contract:
 
 ```powershell
+cargo test -p vine-core --lib runtime::heaps::tests --locked
 cargo test -p vine-core --test runtime_heap_backing --locked
 ```
 
 The controlled sequence fixes:
 
+- mutation-free creation／allocation plans, co-owned logical／backing commit, and stable
+  `process.heaps` serialization
+- object-table registration failure with unchanged heap collections and private-heap slot allocator
 - first allocation ID `1`: `0x20000000`, requested `0x214`, aligned `0x218`, zeroed
 - second allocation ID `2`: `0x20000218`, requested／aligned `0x800`, `0xA5`
 - free poison `0xDD`, exact double-free rejection, interior-pointer rejection
@@ -109,20 +130,16 @@ The controlled sequence fixes:
 - explicit destroy: two live allocations discarded, 16 MiB reserved／4 KiB committed released
 - process teardown: one backed and one metadata-only heap, final memory generation／ack `13`
 
-Production regression on the same implementation:
+S5 regression on the same implementation:
 
-- Chrome Worker: 46 instructions、cancel／watchdog／clean exit、exit code `0`
-- BGI: 17 calls／238 instructions; report SHA-256
-  `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`
-- BGI reflection SHA-256
-  `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`
-- BGI private-heap capability: one reached allocation at `0x20000000`, 39 calls,
-  final generation `87`, report SHA-256
-  `d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4`
-- version 1 browser benchmark: `go`, threshold failures `0`; integer `135,545,128` ips,
-  production API `11,400/s`
-- Rust runtime core Wasm: 772,038 bytes／SHA-256
-  `aa0d5d69da04fd9a9b6678d8e034e525f81b191351a1603b7fc5fe0f5420d85c`
+- Node BGI oracle: 284 calls／25,256 instructions、next `GetCurrentThread`; semantic report
+  SHA-256 `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`
+- Chrome Worker: Node-equivalent memory／next stop、cancel／watchdog clean、browser report
+  SHA-256 `2e09d322683ad8e3a0557bffefbda4f01d047b71213deb85d5bd779b26567988`
+- 180-second BGI workload: 627 sessions、failure `0`、all 17 thresholds passed; report
+  SHA-256 `7c6bb6e03eca1ec3e5cda718404bc6db47e3f528c33e620d0ce3f64662ff078d`
+- Rust runtime core Wasm: 2,087,908 bytes／SHA-256
+  `bbab59e92453cfebaadc41f46e6780cf037397763cbab7f67ff86d775be5354d`
 
 The clean commit `a0d99e5` report remains the engine decision authority; current benchmark numbers are
 regression evidence, not a replacement baseline.
@@ -137,6 +154,8 @@ serialization, concurrent allocation, corruption termination, guard pages, per-b
 full-title capacity profile. It is partial evidence for `REQ-MEM-01`／`REQ-API-02` and `P3-WIN-01`,
 not their completion.
 
-Mapped guest-module／export identity is now implemented in
-[runtime-module-images.md](runtime-module-images.md). The next Step 9 dependency binds controlled
-guest imports through that registry and drives dependency-ordered `DllMain` attach／detach callbacks.
+Mapped guest-module／export identity and dependency-ordered `DllMain` lifecycle are implemented in
+[runtime-module-images.md](runtime-module-images.md) and
+[runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). Capability expansion remains paused at the saved
+`GetCurrentThread` stop. The next responsibility checkpoint applies the same private ownership and
+plan／preflight／commit boundary to module metadata, image, import binding, and DLL lifecycle state.

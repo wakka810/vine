@@ -165,6 +165,15 @@ assert.ok(
   ),
 );
 
+const splitHeapOwnership = structuredClone(manifest);
+splitHeapOwnership.activeRuntimeCheckpoint.runtimeHeapBacking.logicalAndBackingCollectionsCoOwned =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(splitHeapOwnership).some((error) =>
+    error.includes("heap subsystem boundary"),
+  ),
+);
+
 const disabledActiveCodePageSelector = structuredClone(manifest);
 disabledActiveCodePageSelector.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.multiByteAllowActiveCodePageSelector =
   false;

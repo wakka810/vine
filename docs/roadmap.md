@@ -4,8 +4,8 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは46 contracts／284 callsをcommon dispatcherからreturnした。PE header由来の1 MiB initial stack reserve、4 KiB initial commit、movable guardをRust `GuestMemory`とprocess-wide allocation IDへ接続し、Node／Chromeで4回のone-page growthをsemantic一致させた。Process-owned critical-section／named-mutex collectionsはprivate `RuntimeSynchronization`、current-directory identityはprivate `RuntimeProcessDirectories`へ分割済みで、mutex name／owner／recursionとgeneric object／handle lifetimeをtwo-subsystem transactionへ接続した。Next exact stopはinstruction 25,256の`GetCurrentThread()` contract missingである。protocol v4はexplicit `memory-fault` transitionを含むexecution state machineを維持し、production loopをpinned ExecutionEngine contractへ閉じる。3分／626-session workload gateはsession／slice／heartbeat分布、main／Worker heapとbacking-storage slope、linear memory、2,850 Wasm crossings/sessionの17 thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
-- active architecture work: capability expansionをpauseし、`RuntimeState` responsibility splitを進める。Process-owned synchronization／directories、object／handle、thread stateに加え、scheduler lane／event FIFOをprivate `RuntimeScheduler`、wait registration／object FIFOをprivate `RuntimeWaits`へ移した。Aggregateからのidentity-index、thread／scheduler／wait collection直参照を廃止済みで、`GetCurrentThread()`は実装開始前の保存済みnext stopである
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは46 contracts／284 callsをcommon dispatcherからreturnした。PE header由来の1 MiB initial stack reserve、4 KiB initial commit、movable guardをRust `GuestMemory`とprocess-wide allocation IDへ接続し、Node／Chromeで4回のone-page growthをsemantic一致させた。Process-owned critical-section／named-mutex collectionsはprivate `RuntimeSynchronization`、current-directory identityはprivate `RuntimeProcessDirectories`へ分割済みで、mutex name／owner／recursionとgeneric object／handle lifetimeをtwo-subsystem transactionへ接続した。Next exact stopはinstruction 25,256の`GetCurrentThread()` contract missingである。protocol v4はexplicit `memory-fault` transitionを含むexecution state machineを維持し、production loopをpinned ExecutionEngine contractへ閉じる。3分／627-session workload gateはsession／slice／heartbeat分布、main／Worker heapとbacking-storage slope、linear memory、2,850 Wasm crossings/sessionの17 thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
+- active architecture work: capability expansionをpauseし、`RuntimeState` responsibility splitを進める。Process-owned synchronization／directories、object／handle、thread、scheduler／wait stateに加え、logical heap metadataとGuestMemory backingをprivate `RuntimeHeaps`へ移した。Aggregateからのidentity-index、thread／scheduler／wait／heap collection直参照を廃止済みで、`GetCurrentThread()`は実装開始前の保存済みnext stopである
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -1038,6 +1038,12 @@ current-thread selector、scheduler lane、event FIFOをprivate `runtime/schedul
 wait registration table／object FIFOをprivate `runtime/waits.rs::RuntimeWaits`へ移した。Lane／wait
 mutationはplanを作り、thread／object／message／host request validation後にcommitする。Aggregateの
 scheduler／wait collection直参照を廃止し、既存serialized scheduler shapeはflatten adapterで維持した。
+Architecture refactor checkpoint S5はlogical heap mapとGuestMemory backing mapをprivate
+`runtime/heaps.rs::RuntimeHeaps`へ統合した。Creation／allocation／free／destruction planとvalidationを
+subsystemへ移し、aggregateはlifecycle、typed object、process address allocator、GuestMemory transactionの
+coordinationだけを行う。Aggregateのheap／backing collection直参照を廃止し、existing `process.heaps`
+serializationはflatten adapterで維持した。Object-table registration failureはheap stateとprivate-heap
+slot allocatorを両方不変にする。
 
 ## 23. 完了の定義
 
