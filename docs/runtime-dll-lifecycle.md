@@ -126,11 +126,11 @@ S7 regression preserves the Node BGI oracle at 284 calls／25,256 instructions a
 `GetCurrentThread`, with semantic report SHA-256
 `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`.
 Chrome `150.0.7871.115` reproduces the same memory and stop, with clean cancel／watchdog and browser
-report SHA-256 `11c2e18dd0d3bf1cad34a86146eb9918a3148c7966aa05e3034e449a719587f3`.
-The 180-second workload completes 607 sessions with zero failures and all 17 thresholds passed;
-report SHA-256 is `5f223488cc3212e9195a166ec00fcb9bd5b70031ca0cc1038bdb6e063176d3a0`.
-Runtime core Wasm is 2,089,427 bytes／SHA-256
-`62c9ff244c3e5478c555365f7f3df92ed7f281a511a3808393162ee8886c8ad5`.
+report SHA-256 `e44ff126a5954f2ef3b9704882117dd7024159c730709b23134eafaa49bcf8bd`.
+The 180-second workload completes 613 sessions with zero failures and all 17 thresholds passed;
+report SHA-256 is `ee43cc636fc1a1587bffdb900c9216b1d49057d82a6df0c22c867b4d08a6adae`.
+Runtime core Wasm is 2,089,782 bytes／SHA-256
+`f98b901a33127740860437081dad8eb296c14363fcfe5414a94d7809c5d006c1`.
 
 ## Non-claims and next dependency
 

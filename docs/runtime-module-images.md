@@ -101,11 +101,11 @@ S7 regression on the same behavior:
 - Node BGI oracle: 284 calls／25,256 instructions, next `GetCurrentThread`; semantic report
   SHA-256 `0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`
 - Chrome Worker: Node-equivalent memory／next stop, cancel／watchdog clean; browser report
-  SHA-256 `11c2e18dd0d3bf1cad34a86146eb9918a3148c7966aa05e3034e449a719587f3`
-- 180-second BGI workload: 607 sessions, failure `0`, all 17 thresholds passed; report
-  SHA-256 `5f223488cc3212e9195a166ec00fcb9bd5b70031ca0cc1038bdb6e063176d3a0`
-- Rust runtime core Wasm: 2,089,427 bytes／SHA-256
-  `62c9ff244c3e5478c555365f7f3df92ed7f281a511a3808393162ee8886c8ad5`
+  SHA-256 `e44ff126a5954f2ef3b9704882117dd7024159c730709b23134eafaa49bcf8bd`
+- 180-second BGI workload: 613 sessions, failure `0`, all 17 thresholds passed; report
+  SHA-256 `ee43cc636fc1a1587bffdb900c9216b1d49057d82a6df0c22c867b4d08a6adae`
+- Rust runtime core Wasm: 2,089,782 bytes／SHA-256
+  `f98b901a33127740860437081dad8eb296c14363fcfe5414a94d7809c5d006c1`
 
 The clean commit `a0d99e5` report remains the engine decision authority; current benchmark values
 are regression evidence only.
