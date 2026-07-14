@@ -187,6 +187,13 @@ thread planを使う。Aggregateはscheduler、object、message、wait、memory�
 thread map／recordを直接mutateしない。Scheduler laneはthread collectionへ統合せずscheduler authorityに
 残す。
 
+Mutable scheduler lanes／current selector／event FIFOはprivate
+`runtime/scheduler.rs::RuntimeScheduler`、wait registration／object FIFOはprivate
+`runtime/waits.rs::RuntimeWaits`だけが所有する。Wait stateはscheduler serializationへflattenして既存shapeを
+維持するが、collection authorityは分離する。Lane transition、wait registration、wake、callback、host
+completion、exitはmutation-free planをaggregateがcross-subsystem preflight後にcommitし、aggregateは
+scheduler／wait mapを直接mutateしない。
+
 Process-owned critical-section／mutex collectionsとnamed indexは`runtime/synchronization.rs`のprivate
 `RuntimeSynchronization`が所有する。`RuntimeState`はprocess／selected-thread／scheduler lifecycleを
 preflightしてcurrent thread identityを渡すcoordinatorに限定する。Critical-section and mutex transitionsは

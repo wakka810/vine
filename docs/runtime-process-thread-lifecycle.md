@@ -40,6 +40,11 @@ mutation-free thread plansを作る。Aggregate coordinatorはprocess lifecycle�
 object wait state、message cleanup、host request、wait registrationをpreflightしてからthread planを
 commitし、thread collection／recordを直接mutateしない。
 
+Scheduler lane／event records now live in private
+`runtime/scheduler.rs::RuntimeScheduler`; wait registration／object FIFO live in private
+`runtime/waits.rs::RuntimeWaits`. Lifecycle request／completion builds scheduler and wait plans before
+thread、object、message、host-request mutation. The aggregate no longer mutates either collection directly.
+
 ## Process-owned current directory
 
 The process aggregate now owns `RuntimeProcessDirectories` in
@@ -104,6 +109,8 @@ Representative contract:
 
 ```powershell
 cargo test -p vine-core --lib runtime::thread::tests --locked
+cargo test -p vine-core --lib runtime::scheduler::tests --locked
+cargo test -p vine-core --lib runtime::waits::tests --locked
 cargo test -p vine-core --test runtime_lifecycle --locked
 ```
 
@@ -139,4 +146,4 @@ Per-thread message ownership and empty-queue wake are implemented in
 [runtime-message-queue.md](runtime-message-queue.md). Controlled private-heap backing and the
 required exit-request cleanup boundary are implemented in
 [runtime-heap-backing.md](runtime-heap-backing.md). Capability expansion is paused while the remaining
-scheduler／wait、heap、module boundaries are extracted.
+heap／module boundaries are extracted.

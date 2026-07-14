@@ -138,6 +138,24 @@ assert.ok(
   ),
 );
 
+const exposedScheduler = structuredClone(manifest);
+exposedScheduler.activeRuntimeCheckpoint.runtimeScheduler.mutableCollectionVisibility =
+  "public";
+assert.ok(
+  validateCurrentCheckpoint(exposedScheduler).some((error) =>
+    error.includes("scheduler subsystem boundary"),
+  ),
+);
+
+const incompleteWaitValidation = structuredClone(manifest);
+incompleteWaitValidation.activeRuntimeCheckpoint.runtimeWaitQueue.excludedWakeCandidatesValidated =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(incompleteWaitValidation).some((error) =>
+    error.includes("wait subsystem boundary"),
+  ),
+);
+
 const exposedSynchronization = structuredClone(manifest);
 exposedSynchronization.activeRuntimeCheckpoint.runtimeSynchronization.mutableCollectionVisibility =
   "public";

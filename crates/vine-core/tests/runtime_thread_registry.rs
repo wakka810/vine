@@ -219,7 +219,7 @@ fn thread_registry_isolates_thread_state_and_terminates_all_lanes_deterministica
         RuntimeWaitState::Signaled { exit_code: 7 }
     );
     assert!(process_exit.registries().host_requests.is_empty());
-    assert!(process_exit.scheduler().events.is_empty());
+    assert!(process_exit.scheduler().events().is_empty());
 
     let mut rejected_process_exit = running_runtime();
     rejected_process_exit

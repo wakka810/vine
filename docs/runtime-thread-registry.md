@@ -111,6 +111,7 @@ The controlled wait-queue dependency is implemented in
 [runtime-wait-queue.md](runtime-wait-queue.md): one selected thread waits on the other thread object
 and resumes deterministically after signal. The controlled message queue is implemented in
 [runtime-message-queue.md](runtime-message-queue.md), and private-heap backing is implemented in
-[runtime-heap-backing.md](runtime-heap-backing.md). Capability expansion remains paused while
-scheduler／wait、heap、module responsibility boundaries are extracted. Per-thread CPU bootstrap remains
+[runtime-heap-backing.md](runtime-heap-backing.md). Scheduler／wait ownership is now private as documented in
+[runtime-wait-queue.md](runtime-wait-queue.md). Capability expansion remains paused while heap／module
+responsibility boundaries are extracted. Per-thread CPU bootstrap remains
 separate before guest-created threads can execute.

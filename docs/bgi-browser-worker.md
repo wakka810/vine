@@ -53,7 +53,7 @@ Worker state transitions, 2,850 Rust/Wasm bridge operations, and a maximum
 observed slice of 1.685 ms. The main-thread heartbeat recorded 74 samples with a 22.330 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
 changed from 628,360 to 897,450 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 625
+versioned BGI workload gate repeats 626
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 

@@ -238,6 +238,11 @@ exit、2 laneのpending work cleanup、TID昇順thread signal＋process-last sig
 これはCPU context／stack／TEB、guest `CreateThread`、wait queue、last-thread semantics、DLL thread
 callbackの代用ではない。詳細は[runtime-thread-registry.md](runtime-thread-registry.md)を正とする。
 
+Scheduler／wait subsystem unit contractsはprivate lane／event and registration／object-index
+collections、mutation-free plan、serialized scheduler shape、FIFO、duplicate rejection、process-exitで
+excludedとなるwake candidateのcross-subsystem validationを固定する。Aggregate testはimmutable getter
+だけを使い、collectionを直接mutateしない。
+
 controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
 one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact
 signal／runnable wake／one event、already-signaled immediate completion、process-exit cancellationを

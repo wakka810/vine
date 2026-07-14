@@ -178,7 +178,7 @@ fn message_queue_preserves_fifo_owner_and_wakes_only_on_empty_transition() {
             .unwrap()
             .is_empty()
     );
-    assert!(process_exit.scheduler().events.is_empty());
+    assert!(process_exit.scheduler().events().is_empty());
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn message_capacity_rejection_is_cross_subsystem_atomic() {
             .unwrap(),
         SchedulerThreadState::Runnable
     );
-    assert!(runtime.scheduler().events.is_empty());
+    assert!(runtime.scheduler().events().is_empty());
 }
 
 fn running_runtime() -> RuntimeState {

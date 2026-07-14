@@ -561,6 +561,53 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active runtime thread subsystem boundary is invalid");
   }
+  const scheduler = requireRecord(
+    active.runtimeScheduler,
+    "activeRuntimeCheckpoint.runtimeScheduler",
+    errors,
+  );
+  if (
+    scheduler.schema !== "vine.runtime-scheduler.v1" ||
+    scheduler.stateOwner !== "runtime/scheduler.rs::RuntimeScheduler" ||
+    scheduler.mutableCollectionVisibility !== "private" ||
+    scheduler.serializedRuntimeField !== "scheduler" ||
+    !Array.isArray(scheduler.serializedFields) ||
+    scheduler.serializedFields.join(",") !==
+      "currentThreadId,threads,waitRegistrations,objectWaiters,events" ||
+    scheduler.waitSubsystemAdapter !== "serde-flatten-private-runtime-waits" ||
+    scheduler.crossSubsystemMutation !==
+      "scheduler-plan-aggregate-preflight-commit" ||
+    scheduler.subsystemTests < 4 ||
+    scheduler.crossSubsystemAtomicTests < 4 ||
+    scheduler.directCollectionMutationFromAggregate !== false ||
+    scheduler.hostCompletionPreflightBeforeRemoval !== true ||
+    scheduler.wholeRuntimeStateClone !== false
+  ) {
+    errors.push("active runtime scheduler subsystem boundary is invalid");
+  }
+  const waits = requireRecord(
+    active.runtimeWaitQueue,
+    "activeRuntimeCheckpoint.runtimeWaitQueue",
+    errors,
+  );
+  if (
+    waits.schema !== "vine.runtime-wait-queue.v2" ||
+    waits.stateOwner !== "runtime/waits.rs::RuntimeWaits" ||
+    waits.mutableCollectionVisibility !== "private" ||
+    waits.readInspection !== "immutable-borrow" ||
+    !Array.isArray(waits.serializedSchedulerFields) ||
+    waits.serializedSchedulerFields.join(",") !==
+      "waitRegistrations,objectWaiters" ||
+    waits.crossSubsystemMutation !==
+      "wait-plan-aggregate-validation-scheduler-plan-commit" ||
+    waits.subsystemTests < 4 ||
+    waits.crossSubsystemAtomicTests < 3 ||
+    waits.directCollectionMutationFromAggregate !== false ||
+    waits.excludedWakeCandidatesValidated !== true ||
+    waits.wholeRuntimeStateClone !== false
+  ) {
+    errors.push("active runtime wait subsystem boundary is invalid");
+  }
   const messages = requireRecord(
     active.runtimeMessageQueue,
     "activeRuntimeCheckpoint.runtimeMessageQueue",

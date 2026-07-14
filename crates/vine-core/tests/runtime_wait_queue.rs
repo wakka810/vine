@@ -60,7 +60,7 @@ fn wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit() {
     assert_eq!(
         runtime
             .scheduler()
-            .object_waiters
+            .object_waiters()
             .get(&second_object_id)
             .expect("second thread wait queue")
             .iter()
@@ -117,8 +117,8 @@ fn wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit() {
             .unwrap(),
         SchedulerThreadState::Runnable
     );
-    assert!(runtime.scheduler().wait_registrations.is_empty());
-    assert!(runtime.scheduler().object_waiters.is_empty());
+    assert!(runtime.scheduler().wait_registrations().is_empty());
+    assert!(runtime.scheduler().object_waiters().is_empty());
     let completion = match runtime.pop_scheduler_event() {
         Some(RuntimeSchedulerEvent::WaitSatisfied(completion)) => completion,
         other => panic!("expected exact wait completion, got {other:?}"),
@@ -146,8 +146,8 @@ fn wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit() {
         runtime.scheduler_state().unwrap(),
         SchedulerThreadState::Runnable
     );
-    assert!(runtime.scheduler().wait_registrations.is_empty());
-    assert!(runtime.scheduler().events.is_empty());
+    assert!(runtime.scheduler().wait_registrations().is_empty());
+    assert!(runtime.scheduler().events().is_empty());
 
     let mut process_exit = running_runtime();
     let second_handle = process_exit
@@ -173,9 +173,9 @@ fn wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit() {
             .collect::<Vec<_>>(),
         vec![(SECOND_THREAD_ID, 0), (INITIAL_THREAD_ID, 1)]
     );
-    assert!(process_exit.scheduler().wait_registrations.is_empty());
-    assert!(process_exit.scheduler().object_waiters.is_empty());
-    assert!(process_exit.scheduler().events.is_empty());
+    assert!(process_exit.scheduler().wait_registrations().is_empty());
+    assert!(process_exit.scheduler().object_waiters().is_empty());
+    assert!(process_exit.scheduler().events().is_empty());
 }
 
 fn running_runtime() -> RuntimeState {

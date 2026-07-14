@@ -33,6 +33,11 @@ thread／scheduler laneをpreflightし、message planをcommitした後、必要
 `Runnable`を反映する。message subsystemはscheduler mapを直接mutateせず、schedulerはqueueを直接
 mutateしない。
 
+Scheduler lane／event state is now owned by private
+`runtime/scheduler.rs::RuntimeScheduler`. Message wake and empty receive preflight a scheduler lane plan
+before queue mutation, then commit lane／event through subsystem methods; the aggregate no longer mutates
+the scheduler map or event FIFO directly.
+
 thread registrationはmessage queueの重複をobjects／thread／scheduler commit前にpreflightする。
 thread exitはclear planのmessage countをcancellation receiptへ入れ、同じcoordinator commitでqueue、
 host request、callback、wait、event、lifecycleをretireする。
@@ -101,5 +106,5 @@ This is partial evidence for `P1-SCH-01`／`REQ-UI-02`, not their completion.
 
 The controlled private-heap dependency is now implemented in
 [runtime-heap-backing.md](runtime-heap-backing.md): typed logical heaps own bounded Rust guest-memory
-allocations, deterministic free／reuse, and exit-request teardown. The next Step 9 dependency is
-controlled DLL lifecycle.
+allocations, deterministic free／reuse, and exit-request teardown. Capability expansion remains paused
+while heap／module responsibility boundaries are extracted.

@@ -2,14 +2,27 @@
 
 ## Purpose
 
-review Step 9のfifth foundationとして、controlled two-thread registryとtyped waitable objectを
-Rust-owned wait queueへ接続した。selected threadがnonsignaled objectへwaitを登録し、別threadの
-object signalでdeterministically runnableへ戻るまでを、object lifetimeとscheduler stateから
-推測しないexplicit contractにする。
+reviewのruntime responsibility splitとして、controlled two-thread registryのscheduler lane／event
+queueをprivate `runtime/scheduler.rs::RuntimeScheduler`へ、wait registration／object FIFOをprivate
+`runtime/waits.rs::RuntimeWaits`へ移した。Selected threadがnonsignaled objectへwaitを登録し、別threadの
+object signalでdeterministically runnableへ戻る既存contractとserialized scheduler shapeを維持する。
 
 このcheckpointはguest `WaitForSingleObject`／`WaitForMultipleObjects`を追加せず、timeout、
 wait-any／wait-all、alertable wait、APC、CPU context switchを実装しない。logical scheduler laneと
 object signalを接続するmetadata boundaryである。
+
+## Subsystem boundary
+
+`RuntimeScheduler`だけがcurrent-thread selector、lane map、event FIFOを所有する。`RuntimeWaits`だけが
+registration tableとobject-indexed FIFOを所有し、`serde(flatten)` adapterで既存の
+`scheduler.{currentThreadId,threads,waitRegistrations,objectWaiters,events}` shapeを維持する。Collectionは
+どちらもmodule外へ公開せず、inspectionはimmutable getterだけを使う。
+
+Lane registration／selection／transitionはprevious／nextを持つmutation-free scheduler plan、wait
+registrationはtableとobject indexを同時に扱うwait planを返す。Aggregate coordinatorはthread、
+object、message、host requestをpreflightしてから各planをcommitし、scheduler／wait collectionへ
+`insert`／`get_mut`／`remove`しない。Host completionもpending requestをremoveする前にlane transitionを
+preflightする。
 
 ## Registration model
 
@@ -36,9 +49,10 @@ waited object:       second-thread object
 
 ## Signal and wake
 
-Wait state updateはobject recordsをcloneしたplan上で完成させ、そのsame planからobject FIFO順の
-`RuntimeWaitCompletion`を作る。各registrationはrunning threadとexact `WaitingObject` laneへ
-reverse-validationされる。全preflight後だけ次をcommitする。
+Wait state updateはobject recordsをcloneしたplan上で完成させ、`RuntimeWaits`がobject FIFO順のwake
+candidateを作る。Aggregateは各candidateをrunning threadとexact `WaitingObject` laneへ
+reverse-validationする。Process exitでwake対象から除外するthreadもvalidationを省略しない。全preflight
+後だけ次をcommitする。
 
 1. thread objectを`signaled(exit=23)`へ更新する
 2. registrationとobject FIFO entryをretireする
@@ -65,22 +79,15 @@ stateでemptyである。Whole `RuntimeState` cloneは行わない。
 Representative contract:
 
 ```powershell
+cargo test -p vine-core --lib runtime::scheduler::tests --locked
+cargo test -p vine-core --lib runtime::waits::tests --locked
 cargo test -p vine-core --test runtime_wait_queue --locked
 ```
 
-Production regression on the same implementation:
-
-- Chrome Worker: 46 instructions、cancel／watchdog／clean exit、exit code `0`
-- BGI: 17 calls／238 instructions; report SHA-256
-  `ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4`
-- BGI reflection SHA-256
-  `0b32ce6e6c8d1c291f7fb51928c8da2401f2b0ab67dcf27c4665a2d13c41205a`
-- version 1 browser benchmark regression: `go`, threshold failures `0`
-- Rust runtime core Wasm: 765,531 bytes／SHA-256
-  `3b92ff588f944db29e59cd46ae9a873bbb1d52a1433958499c6eaddd641d59aa`
-
-The clean commit `a0d99e5` report remains the engine decision authority. Worker report identity is
-not embedded in `current-checkpoint.json` because its build manifest hashes that file.
+Subsystem tests fix mutation-free lane／selection／registration plans、event／wait FIFO、serialized shape、
+duplicate rejection and excluded-wake validation. Integration tests fix object／thread／scheduler atomicity、
+wake ordering and process-exit cancellation. Current Node／Chrome semantic result、artifact identity、benchmark、
+next structured stopは[current checkpoint manifest](current-checkpoint.json)だけを正とする。
 
 ## Non-claims and next dependency
 
@@ -97,4 +104,5 @@ The controlled per-thread message queue dependency is now implemented in
 wake share the scheduler metadata. Controlled private-heap backing is implemented in
 [runtime-heap-backing.md](runtime-heap-backing.md). Named mutex ownership／recursion／handle lifetime
 is documented in [runtime-synchronization.md](runtime-synchronization.md) and
-[bgi-create-mutex-a.md](bgi-create-mutex-a.md).
+[bgi-create-mutex-a.md](bgi-create-mutex-a.md). Capability expansion remains paused while heap／module
+responsibility boundaries are extracted.
