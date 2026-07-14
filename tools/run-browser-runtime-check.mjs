@@ -803,12 +803,39 @@ function normalizeBgiCall(call) {
   };
 }
 
+function normalizeStackGrowth(growth) {
+  return {
+    instructionCount: growth.instructionCount,
+    faultAddress: growth.faultAddress,
+    pageFaultErrorCode: growth.pageFaultErrorCode,
+    addressAllocationId: growth.addressAllocationId,
+    memoryOwner: growth.memoryOwner,
+    committedPage: growth.committedPage,
+    previousGuardPage: growth.previousGuardPage,
+    nextGuardPage: growth.nextGuardPage,
+    committedPages: growth.committedPages,
+  };
+}
+
 function validateBgiEquivalence(browser, oracle) {
   assert.deepEqual(
     browser.report.supportedCalls.map(normalizeBgiCall),
     oracle.supportedContinuation.map(normalizeBgiCall),
     "Chrome Worker call semantics differ from the Node oracle",
   );
+  assert.deepEqual(
+    browser.report.stackGrowths.map(normalizeStackGrowth),
+    oracle.synchronization.stackGrowths.map(normalizeStackGrowth),
+    "Chrome Worker stack-growth semantics differ from the Node oracle",
+  );
+  for (const growths of [
+    browser.report.stackGrowths,
+    oracle.synchronization.stackGrowths,
+  ]) {
+    for (const growth of growths) {
+      assert.equal(growth.generation, growth.fromGeneration + 1);
+    }
+  }
   const browserStop = browser.report.firstUnsupported;
   const oracleStop = oracle.firstUnsupported;
   assert(browserStop !== null, "Chrome Worker omitted its structured stop");

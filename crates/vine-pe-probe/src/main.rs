@@ -26,19 +26,19 @@ use vine_core::{
     RuntimeHeapAllocation, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
     RuntimeModuleImageErrorClass, RuntimeProcessId, RuntimeProcessLifecycleState,
     RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeTlsValue, SchedulerThreadState,
-    UnsupportedPoint, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
-    encode_pointer_contract, get_current_process_id_contract, get_current_thread_id_contract,
-    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
-    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
-    heap_set_information_contract, install_callback_return_sentinel,
+    RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack, RuntimeThreadStackGrowth,
+    RuntimeTlsValue, SchedulerThreadState, UnsupportedPoint, bind_pe32_imports,
+    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
-    install_dynamic_export_thunks, install_runtime_return_sentinels,
+    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
     kernel32_contract_for_endpoint, materialize_pe32_image, query_performance_counter_contract,
     tls_alloc_contract, tls_set_value_contract,
 };
@@ -79,6 +79,8 @@ const RUNTIME_FRAME_API_COMPLETION: u32 = 8;
 const RUNTIME_FRAME_API_FAULT: u32 = 9;
 const RUNTIME_FRAME_SESSION_STOP: u32 = 10;
 const RUNTIME_FRAME_SESSION_STOPPED: u32 = 11;
+const RUNTIME_FRAME_STACK_GROWTH: u32 = 12;
+const RUNTIME_FRAME_STACK_GROWTH_COMPLETION: u32 = 13;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 4096;
@@ -178,6 +180,25 @@ struct GenericRuntimeSessionStopped {
     memory_content_sha256: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenericRuntimeStackGrowthRequest {
+    schema: String,
+    schema_version: u32,
+    generation: u64,
+    fault_address: u32,
+    page_fault_error_code: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeStackGrowthCompletion {
+    schema: &'static str,
+    schema_version: u32,
+    growth: RuntimeThreadStackGrowth,
+    memory: MemoryStats,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GenericRuntimeSessionReady {
@@ -195,6 +216,8 @@ struct GenericRuntimeSessionReady {
     runtime_export_endpoints: usize,
     implemented_api_contracts: usize,
     dynamic_export_endpoints: usize,
+    initial_thread_stack: RuntimeThreadStack,
+    initial_stack_address_allocation: vine_core::ProcessAddressAllocationRecord,
     memory: MemoryStats,
 }
 
@@ -1846,7 +1869,17 @@ fn run_v86_reflection_session(
                 "controlled initial stack requires process-entry return metadata",
             )
         })?;
-        Some(install_controlled_initial_stack(&mut memory, entry_return).map_err(memory_error)?)
+        Some(if generic_runtime_reentry {
+            install_initial_thread_stack(
+                &mut memory,
+                entry_return,
+                loader_report.load_plan.image.stack_reserve,
+                loader_report.load_plan.image.stack_commit,
+            )
+            .map_err(memory_error)?
+        } else {
+            install_controlled_initial_stack(&mut memory, entry_return).map_err(memory_error)?
+        })
     } else {
         None
     };
@@ -1921,6 +1954,16 @@ fn run_v86_reflection_session(
         Vec::new()
     };
     if let Some(runtime) = generic_runtime.as_mut() {
+        runtime
+            .runtime
+            .register_initial_thread_stack(initial_thread_stack.as_ref().ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "initial-thread-stack-missing",
+                    "generic runtime process requires an initial thread stack allocation",
+                )
+            })?)
+            .map_err(runtime_state_error)?;
         if ansi_command_line_enabled {
             runtime
                 .runtime
@@ -2663,6 +2706,17 @@ fn run_v86_generic_runtime_session(
     }
     let dispatcher =
         ApiDispatcher::new(dispatcher_endpoints, contracts.clone()).map_err(api_fault)?;
+    let initial_thread_stack = process
+        .runtime
+        .thread_stack(process.runtime.current_thread_id())
+        .map_err(runtime_state_error)?
+        .clone();
+    let initial_stack_address_allocation = process
+        .runtime
+        .process_address_space_allocator()
+        .allocation(initial_thread_stack.address_allocation_id)
+        .map_err(runtime_state_error)?
+        .clone();
     write_runtime_json_frame(
         RUNTIME_FRAME_SESSION_READY,
         &GenericRuntimeSessionReady {
@@ -2689,6 +2743,8 @@ fn run_v86_generic_runtime_session(
             runtime_export_endpoints: endpoints.len(),
             implemented_api_contracts: contracts.len(),
             dynamic_export_endpoints: process.runtime.registries().dynamic_endpoints.len(),
+            initial_thread_stack,
+            initial_stack_address_allocation,
             memory: memory.stats(),
         },
     )?;
@@ -2745,6 +2801,52 @@ fn run_v86_generic_runtime_session(
                 },
             )?;
             return Ok(());
+        }
+        if trap_frame.kind == RUNTIME_FRAME_STACK_GROWTH {
+            if !trap_frame.payload.is_empty() {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-stack-growth-payload-unexpected",
+                    "generic runtime stack-growth frames may not contain a byte payload",
+                ));
+            }
+            let request: GenericRuntimeStackGrowthRequest =
+                serde_json::from_slice(&trap_frame.control).map_err(|error| {
+                    LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-stack-growth-json-invalid",
+                        format!("generic runtime stack-growth metadata is invalid: {error}"),
+                    )
+                })?;
+            if request.schema != "vine.v86-generic-runtime-stack-growth"
+                || request.schema_version != 1
+                || request.generation != memory.stats().generation
+            {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-stack-growth-request-invalid",
+                    "generic runtime stack-growth identity or generation is invalid",
+                ));
+            }
+            let growth = process
+                .runtime
+                .grow_initial_thread_stack(
+                    memory,
+                    GuestAddress(request.fault_address),
+                    request.page_fault_error_code,
+                )
+                .map_err(runtime_state_error)?;
+            send_pending_runtime_delta(input, memory)?;
+            write_runtime_json_frame(
+                RUNTIME_FRAME_STACK_GROWTH_COMPLETION,
+                &GenericRuntimeStackGrowthCompletion {
+                    schema: "vine.v86-generic-runtime-stack-growth-completion",
+                    schema_version: 1,
+                    growth,
+                    memory: memory.stats(),
+                },
+            )?;
+            continue;
         }
         require_runtime_frame_kind(&trap_frame, RUNTIME_FRAME_TRAP)?;
         if !trap_frame.payload.is_empty() {

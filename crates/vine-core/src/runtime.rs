@@ -3,6 +3,7 @@ use std::fmt;
 
 use serde::Serialize;
 
+use crate::bootstrap::InitialThreadStack;
 use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
 use crate::dynamic_exports::{
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
@@ -15,7 +16,7 @@ use crate::imports::{ImportThunkArena, ImportThunkId, RuntimeExport};
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestRange, MemoryInvalidation, MemoryOwnerId,
+    GuestRange, MemoryInvalidation, MemoryOwnerId, MemoryRegionKind, PageProtection,
 };
 use crate::module_graph::{
     RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleGraphError, RuntimeModuleGraphErrorClass,
@@ -1490,6 +1491,37 @@ pub struct RuntimeThreadState {
     pub fls_storage_initialized: bool,
     pub fls_values: BTreeMap<u32, u32>,
     pub callback_frames: Vec<RuntimeCallbackFrame>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack: Option<RuntimeThreadStack>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeThreadStack {
+    pub thread_id: RuntimeThreadId,
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub reserved_range: GuestRange,
+    pub committed_range: GuestRange,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guard_page: Option<GuestRange>,
+    pub committed_pages: usize,
+    pub stack_top: GuestAddress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeThreadStackGrowth {
+    pub thread_id: RuntimeThreadId,
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub fault_address: GuestAddress,
+    pub page_fault_error_code: u32,
+    pub committed_page: GuestRange,
+    pub previous_guard_page: GuestRange,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_guard_page: Option<GuestRange>,
+    pub committed_pages: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1633,6 +1665,7 @@ impl RuntimeState {
             fls_storage_initialized: false,
             fls_values: BTreeMap::new(),
             callback_frames: Vec::new(),
+            stack: None,
         };
         Ok(Self {
             process: RuntimeProcessState {
@@ -2094,6 +2127,238 @@ impl RuntimeState {
         self.current_thread()
     }
 
+    pub fn thread_stack(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<&RuntimeThreadStack, RuntimeStateError> {
+        self.thread_state(thread_id)?.stack.as_ref().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-thread-stack",
+                "thread-stack-not-registered",
+                format!("runtime thread ID {} has no registered stack", thread_id.0),
+            )
+        })
+    }
+
+    pub fn register_initial_thread_stack(
+        &mut self,
+        stack: &InitialThreadStack,
+    ) -> Result<&RuntimeThreadStack, RuntimeStateError> {
+        let thread_id = self.current_thread_id();
+        if self.current_thread()?.stack.is_some() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-stack",
+                "thread-stack-already-registered",
+                "runtime initial thread stack may be registered only once",
+            ));
+        }
+        if matches!(
+            self.process.lifecycle,
+            RuntimeProcessLifecycleState::ExitRequested { .. }
+                | RuntimeProcessLifecycleState::Exited { .. }
+        ) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-stack",
+                "thread-stack-process-state-invalid",
+                "runtime thread stack cannot be registered during process exit",
+            ));
+        }
+        validate_initial_thread_stack(stack)?;
+
+        let guard_pages = u32::from(stack.guard_page.is_some());
+        let usable_byte_length = stack
+            .stack_range
+            .byte_length()
+            .checked_sub(u64::from(guard_pages) * GUEST_PAGE_SIZE)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-thread-stack",
+                    "thread-stack-usable-size-underflow",
+                    "initial thread stack guard exceeds its reserved range",
+                )
+            })?;
+        let reserved_range =
+            RuntimeAddressRange::new(stack.stack_range.start(), stack.stack_range.byte_length())?;
+        let mut allocator = self.address_space_allocator.clone();
+        let allocation = allocator.reserve(ProcessAddressAllocationRequest {
+            purpose: ProcessAddressAllocationPurpose::ThreadStack,
+            owner: format!("runtime-thread-{}-initial-stack", thread_id.0),
+            preferred_address: Some(reserved_range.base),
+            search_range: reserved_range,
+            reserve_size: usable_byte_length,
+            alignment: GUEST_PAGE_SIZE as u32,
+            guard_pages,
+            classification: ProcessAddressAllocationClassification::Stack,
+            lifetime: ProcessAddressAllocationLifetime::Thread,
+            release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+            executable: false,
+        })?;
+        if allocation.range != reserved_range {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-stack",
+                "thread-stack-preferred-address-lost",
+                "process address allocator did not preserve the materialized stack range",
+            ));
+        }
+        let registered = RuntimeThreadStack {
+            thread_id,
+            address_allocation_id: allocation.id,
+            memory_owner: stack.owner,
+            reserved_range: stack.stack_range,
+            committed_range: stack.committed_range,
+            guard_page: stack.guard_page,
+            committed_pages: stack.committed_pages,
+            stack_top: stack.stack_top,
+        };
+        self.address_space_allocator = allocator;
+        self.threads
+            .get_mut(&thread_id)
+            .expect("validated current runtime thread disappeared")
+            .stack = Some(registered);
+        self.thread_stack(thread_id)
+    }
+
+    pub fn grow_initial_thread_stack(
+        &mut self,
+        memory: &mut GuestMemory,
+        fault_address: GuestAddress,
+        page_fault_error_code: u32,
+    ) -> Result<RuntimeThreadStackGrowth, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-stack",
+                "thread-stack-growth-lifecycle-state-invalid",
+                "initial thread stack growth requires a running process and thread",
+            ));
+        }
+        let thread_id = self.current_thread_id();
+        let stack = self.thread_stack(thread_id)?.clone();
+        let guard_page = stack.guard_page.ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-thread-stack",
+                "thread-stack-reserve-exhausted",
+                "initial thread stack has committed its entire reserved range",
+            )
+        })?;
+        let fault_page = GuestAddress(fault_address.0 & !(GUEST_PAGE_SIZE as u32 - 1));
+        if fault_page != guard_page.start() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-thread-stack",
+                "thread-stack-fault-outside-guard",
+                "page fault does not fall within the current initial-thread stack guard page",
+            ));
+        }
+        if page_fault_error_code & 1 != 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-thread-stack",
+                "thread-stack-protection-fault",
+                "present-page protection faults cannot grow the initial thread stack",
+            ));
+        }
+        let stats = memory.stats();
+        if stats.generation != stats.acknowledged_generation || stats.pending_invalidation.is_some()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-stack",
+                "thread-stack-growth-memory-unsynchronized",
+                "initial thread stack growth requires fully acknowledged guest memory",
+            ));
+        }
+        validate_runtime_thread_stack_allocation(&self.address_space_allocator, &stack)?;
+        let stack_region_matches = memory.region_snapshots().iter().any(|region| {
+            region.owner == stack.memory_owner
+                && region.kind == MemoryRegionKind::Stack
+                && region.range == stack.reserved_range
+        });
+        if !stack_region_matches {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-stack",
+                "thread-stack-memory-region-mismatch",
+                "runtime stack metadata does not match the Rust guest-memory reservation",
+            ));
+        }
+        memory
+            .preflight_growth(0, 0, 1, "runtime-thread-stack")
+            .map_err(RuntimeStateError::from_memory)?;
+
+        let next_committed_byte_length = stack
+            .committed_range
+            .byte_length()
+            .checked_add(GUEST_PAGE_SIZE)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-thread-stack",
+                    "thread-stack-committed-size-overflow",
+                    "initial thread stack committed size overflowed",
+                )
+            })?;
+        let committed_range = GuestRange::new(guard_page.start(), next_committed_byte_length)
+            .map_err(RuntimeStateError::from_memory)?;
+        let next_guard_page = (guard_page.start().0 > stack.reserved_range.start().0)
+            .then(|| {
+                guard_page
+                    .start()
+                    .0
+                    .checked_sub(GUEST_PAGE_SIZE as u32)
+                    .map(GuestAddress)
+                    .ok_or_else(|| {
+                        RuntimeStateError::runtime_defect(
+                            "runtime-thread-stack",
+                            "thread-stack-next-guard-underflow",
+                            "initial thread stack guard underflowed its reserved range",
+                        )
+                    })
+            })
+            .transpose()?
+            .map(|base| {
+                GuestRange::new(base, GUEST_PAGE_SIZE).map_err(RuntimeStateError::from_memory)
+            })
+            .transpose()?;
+        let committed_pages = stack.committed_pages.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-thread-stack",
+                "thread-stack-committed-page-count-overflow",
+                "initial thread stack committed page count overflowed host accounting",
+            )
+        })?;
+        let mut next_stack = stack.clone();
+        next_stack.committed_range = committed_range;
+        next_stack.guard_page = next_guard_page;
+        next_stack.committed_pages = committed_pages;
+
+        let mut transaction = memory.begin_transaction();
+        transaction
+            .commit(
+                stack.memory_owner,
+                guard_page,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction.commit_transaction();
+        self.threads
+            .get_mut(&thread_id)
+            .expect("validated current runtime thread disappeared")
+            .stack = Some(next_stack);
+
+        Ok(RuntimeThreadStackGrowth {
+            thread_id,
+            address_allocation_id: stack.address_allocation_id,
+            memory_owner: stack.memory_owner,
+            fault_address,
+            page_fault_error_code,
+            committed_page: guard_page,
+            previous_guard_page: guard_page,
+            next_guard_page,
+            committed_pages,
+        })
+    }
+
     pub fn thread_state(
         &self,
         thread_id: RuntimeThreadId,
@@ -2546,6 +2811,7 @@ impl RuntimeState {
                 fls_storage_initialized: false,
                 fls_values: BTreeMap::new(),
                 callback_frames: Vec::new(),
+                stack: None,
             },
         );
         self.scheduler
@@ -6021,6 +6287,92 @@ fn validate_dll_return_sentinel(return_sentinel: GuestAddress) -> Result<(), Run
             "runtime-dll-lifecycle",
             "dll-return-sentinel-unowned",
             "DLL callback return sentinel is outside the runtime callback-control arena",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_initial_thread_stack(stack: &InitialThreadStack) -> Result<(), RuntimeStateError> {
+    let page_size = GUEST_PAGE_SIZE as u32;
+    if !stack.owner_sealed
+        || !stack.stack_range.start().0.is_multiple_of(page_size)
+        || !stack
+            .stack_range
+            .byte_length()
+            .is_multiple_of(GUEST_PAGE_SIZE)
+        || !stack.committed_range.start().0.is_multiple_of(page_size)
+        || !stack
+            .committed_range
+            .byte_length()
+            .is_multiple_of(GUEST_PAGE_SIZE)
+        || stack.committed_range.byte_length() == 0
+        || stack.committed_pages != stack.committed_range.page_count()
+        || stack.stack_range.start().0 > stack.committed_range.start().0
+        || stack.committed_range.end() != stack.stack_range.end()
+        || stack.stack_range.end() != u64::from(stack.stack_top.0)
+        || stack.initial_esp.0.checked_add(4) != Some(stack.stack_top.0)
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-thread-stack",
+            "initial-thread-stack-layout-invalid",
+            "initial thread stack requires sealed, page-aligned, top-contiguous reserve and commit metadata",
+        ));
+    }
+    let expected_guard = if stack.committed_range.start() == stack.stack_range.start() {
+        None
+    } else {
+        Some(
+            GuestRange::new(
+                GuestAddress(
+                    stack
+                        .committed_range
+                        .start()
+                        .0
+                        .checked_sub(page_size)
+                        .ok_or_else(|| {
+                            RuntimeStateError::invalid_input(
+                                "runtime-thread-stack",
+                                "initial-thread-stack-guard-underflow",
+                                "initial thread stack guard underflows the x86 address space",
+                            )
+                        })?,
+                ),
+                GUEST_PAGE_SIZE,
+            )
+            .map_err(RuntimeStateError::from_memory)?,
+        )
+    };
+    if stack.guard_page != expected_guard {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-thread-stack",
+            "initial-thread-stack-guard-invalid",
+            "initial thread stack guard must be the page immediately below committed storage",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_runtime_thread_stack_allocation(
+    allocator: &ProcessAddressSpaceAllocator,
+    stack: &RuntimeThreadStack,
+) -> Result<(), RuntimeStateError> {
+    let allocation = allocator.allocation(stack.address_allocation_id)?;
+    let expected_range = RuntimeAddressRange::new(
+        stack.reserved_range.start(),
+        stack.reserved_range.byte_length(),
+    )?;
+    if allocation.purpose != ProcessAddressAllocationPurpose::ThreadStack
+        || allocation.range != expected_range
+        || allocation.classification != ProcessAddressAllocationClassification::Stack
+        || allocation.lifetime != ProcessAddressAllocationLifetime::Thread
+        || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+        || allocation.executable
+        || allocation.guard_pages != 1
+    {
+        return Err(RuntimeStateError::runtime_defect(
+            "runtime-thread-stack",
+            "thread-stack-address-allocation-mismatch",
+            "initial thread stack is not backed by its thread-lifetime process allocation record",
         ));
     }
     Ok(())

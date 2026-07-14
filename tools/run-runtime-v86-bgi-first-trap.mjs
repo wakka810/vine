@@ -919,6 +919,11 @@ const expected = {
   stack: {
     owner: 4,
     base: 0x006ff000,
+    reserveBase: 0x00600000,
+    reserveBytes: 0x00100000,
+    commitBase: 0x006ff000,
+    commitBytes: 0x1000,
+    guardBase: 0x006fe000,
     top: 0x00700000,
     initialEsp: 0x006ffffc,
   },
@@ -964,7 +969,7 @@ const expected = {
   ].slice(0, Math.max(2, getProcAddressCallCount)),
   memory: {
     owners: dispatchGetProcAddress ? 9 : 8,
-    reservedPages: dispatchGetProcAddress ? 433 : 417,
+    reservedPages: (dispatchGetProcAddress ? 433 : 417) + (genericRuntimeReentry ? 255 : 0),
     reflectedPages: dispatchGetProcAddress ? 389 : 388,
     generation: dispatchGetProcAddress ? 27 : 24,
   },
@@ -1464,6 +1469,8 @@ const runtimeFrame = {
   apiFault: 9,
   sessionStop: 10,
   sessionStopped: 11,
+  stackGrowth: 12,
+  stackGrowthCompletion: 13,
 };
 const writebackFormat = {
   magic: "VINEWB01",
@@ -3134,12 +3141,12 @@ const heapSizeExpected = {
 };
 const initializeCriticalSectionExpected = {
   ...heapSizeExpected,
-  supportedCalls: 267,
-  writebackBatches: 268,
-  dirtyPages: 406,
-  changedBytes: 5855,
-  hostDeltaBatches: 67,
-  finalGeneration: 365,
+  supportedCalls: 268,
+  writebackBatches: 273,
+  dirtyPages: 412,
+  changedBytes: 5929,
+  hostDeltaBatches: 72,
+  finalGeneration: 374,
   implementedApiContracts: 44,
   initializationCall: {
     sequence: 211,
@@ -3171,18 +3178,73 @@ const initializeCriticalSectionExpected = {
     TlsGetValue: 30,
     FlsGetValue: 30,
     SetLastError: 30,
+    GetModuleFileNameA: 2,
   },
-  memoryContentSha256: "5a7b35e013f2ac108f5d7394dc908ba91a76aaa77dc4e5288d3ee827460c146c",
-  reportBytes: 1_154_575,
-  reportSha256: "c396de1128554bad61efabc52e1e10f29896a14e923a75d349751cde2eda7686",
+  stackGrowths: [
+    {
+      instructionCount: 22754,
+      faultAddress: 0x006fe000,
+      pageFaultErrorCode: 4,
+      committedPage: 0x006fe000,
+      nextGuardPage: 0x006fd000,
+      committedPages: 2,
+      fromGeneration: 365,
+      generation: 366,
+    },
+    {
+      instructionCount: 22782,
+      faultAddress: 0x006fdd94,
+      pageFaultErrorCode: 6,
+      committedPage: 0x006fd000,
+      nextGuardPage: 0x006fc000,
+      committedPages: 3,
+      fromGeneration: 367,
+      generation: 368,
+    },
+    {
+      instructionCount: 22812,
+      faultAddress: 0x006fc000,
+      pageFaultErrorCode: 4,
+      committedPage: 0x006fc000,
+      nextGuardPage: 0x006fb000,
+      committedPages: 4,
+      fromGeneration: 371,
+      generation: 372,
+    },
+    {
+      instructionCount: 22817,
+      faultAddress: 0x006fb000,
+      pageFaultErrorCode: 4,
+      committedPage: 0x006fb000,
+      nextGuardPage: 0x006fa000,
+      committedPages: 5,
+      fromGeneration: 372,
+      generation: 373,
+    },
+  ],
+  postGrowthCall: {
+    sequence: 268,
+    occurrence: 2,
+    instructionCount: 22789,
+    arguments: [0, 0x006fe0a4, 780],
+    result: 15,
+    returnAddress: 0x10060219,
+    stackCleanupBytes: 16,
+  },
+  memoryContentSha256: "ca1d082833b4349640451886843761aafecc0a5e63e5771694e09e5c1906c0aa",
   firstUnsupported: {
-    capabilityCluster: "initial-thread-stack-growth",
-    faultCode: "page-fault",
-    instructionCount: 22754,
-    instructionPointer: 0x100a47a9,
-    previousInstructionPointer: 0x100a47a7,
-    faultAddress: 0x006fe000,
-    pageFaultErrorCode: 4,
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 130,
+    endpointAddress: 0x7f000810,
+    module: "kernel32.dll",
+    symbol: "MultiByteToWideChar",
+    iatAddress: 0x100d12b0,
+    arguments: [0, 0, 0x006fe0a4, 0xffff_ffff, 0x006fd150, 780],
+    returnAddress: 0x1002bb13,
+    instructionCount: 22843,
+    faultClass: "unsupported",
+    faultStage: "win32-code-page",
+    faultCode: "multi-byte-to-wide-char-variant-unsupported",
   },
 };
 const guest = {
@@ -3940,10 +4002,13 @@ async function runGenericRuntimeReentry({
   const supportedCalls = [];
   const writebacks = [];
   const hostDeltas = [];
+  const stackGrowths = [];
   let frozenSemanticCalls = 0;
+  let currentStackGuard = runtimeReady.initialThreadStack.guardPage?.start ?? null;
 
   const callLimit = initializeCriticalSectionEnabled ? 4096 : 256;
-  for (let sequence = 1; sequence <= callLimit; sequence += 1) {
+  for (let iteration = 1; iteration <= callLimit; iteration += 1) {
+    const sequence = supportedCalls.length + 1;
     const terminal = continuation.terminal;
     const ownedTerminal =
       terminal.kind === "owned-import-thunk" ||
@@ -4002,7 +4067,108 @@ async function runGenericRuntimeReentry({
     });
 
     if (endpoint === null) {
-      const reason = "initial-thread-stack-growth";
+      const stackGrowthCandidate =
+        terminal.kind === "page-fault" &&
+        terminal.faultAddress - (terminal.faultAddress % page.size) === currentStackGuard &&
+        (terminal.pageFaultErrorCode & 1) === 0;
+      if (stackGrowthCandidate) {
+        await writeRuntimeJsonFrame(child.stdin, runtimeFrame.stackGrowth, {
+          schema: "vine.v86-generic-runtime-stack-growth",
+          schemaVersion: 1,
+          generation,
+          faultAddress: terminal.faultAddress,
+          pageFaultErrorCode: terminal.pageFaultErrorCode,
+        });
+        const deltaFrame = await readRuntimeFrame(
+          protocolReader,
+          runtimeFrame.hostDelta,
+          "initial thread stack growth delta",
+        );
+        const delta = decodeRuntimeHostDelta(deltaFrame.control, deltaFrame.payload);
+        assert.equal(delta.fromGeneration, generation);
+        assert.equal(delta.mappingOperations.length, 1);
+        assert.equal(delta.mappingOperations[0].operation, 2);
+        assert.equal(delta.mappingOperations[0].address, currentStackGuard);
+        assert.equal(delta.mappingOperations[0].byteLength, page.size);
+        assert.deepEqual(delta.mappingOperations[0].protection, {
+          read: true,
+          write: true,
+          execute: false,
+        });
+        assert.equal(delta.dirtyPages.length, 1);
+        assert.equal(delta.dirtyPages[0].address, currentStackGuard);
+        assert.equal(delta.dirtyPages[0].owner, delta.mappingOperations[0].owner);
+        assert.equal(delta.dirtyPages[0].ownerSealed, true);
+        assert.deepEqual(delta.dirtyPages[0].protection, delta.mappingOperations[0].protection);
+        assert(delta.dirtyPages[0].bytes.every((byte) => byte === 0));
+        applyRuntimeHostDelta(context, delta);
+        generation = delta.generation;
+        hostDeltas.push({
+          sequence,
+          source: "initial-thread-stack-growth",
+          fromGeneration: delta.fromGeneration,
+          generation: delta.generation,
+          mappingOperations: delta.mappingOperations.length,
+          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+          controlBytes: deltaFrame.control.length,
+          payloadBytes: deltaFrame.payload.length,
+          payloadSha256: sha256(deltaFrame.payload),
+          cacheEffects: delta.cacheEffects,
+        });
+        await writeRuntimeFrame(
+          child.stdin,
+          runtimeFrame.acknowledgement,
+          encodeGeneration(generation),
+          Buffer.alloc(0),
+        );
+        const completionFrame = await readRuntimeFrame(
+          protocolReader,
+          runtimeFrame.stackGrowthCompletion,
+          "initial thread stack growth completion",
+        );
+        assert.equal(completionFrame.payload.length, 0);
+        const completion = JSON.parse(completionFrame.control.toString("utf8"));
+        assert.equal(completion.schema, "vine.v86-generic-runtime-stack-growth-completion");
+        assert.equal(completion.schemaVersion, 1);
+        assert.equal(completion.growth.threadId, runtimeReady.currentThreadId);
+        assert.equal(
+          completion.growth.addressAllocationId,
+          runtimeReady.initialThreadStack.addressAllocationId,
+        );
+        assert.equal(completion.growth.memoryOwner, runtimeReady.initialThreadStack.memoryOwner);
+        assert.equal(completion.growth.faultAddress, terminal.faultAddress);
+        assert.equal(completion.growth.pageFaultErrorCode, terminal.pageFaultErrorCode);
+        assert.equal(completion.growth.committedPage.start, currentStackGuard);
+        assert.equal(completion.growth.committedPage.byteLength, page.size);
+        assert.deepEqual(
+          completion.growth.previousGuardPage,
+          completion.growth.committedPage,
+        );
+        assert.equal(completion.memory.generation, generation);
+        assert.equal(completion.memory.acknowledgedGeneration, generation);
+        assert.equal(completion.memory.pendingInvalidation, undefined);
+        stackGrowths.push({
+          instructionCount: continuation.instructionCount,
+          ...completion.growth,
+          fromGeneration: delta.fromGeneration,
+          generation: delta.generation,
+          payloadSha256: sha256(deltaFrame.payload),
+        });
+        currentStackGuard = completion.growth.nextGuardPage?.start ?? null;
+        continuation = executeToNextOwnedTrap(
+          offer,
+          context,
+          continuation.instructionCount,
+        );
+        continue;
+      }
+
+      const stackRange = runtimeReady.initialThreadStack.reservedRange;
+      const reason =
+        terminal.faultAddress >= stackRange.start &&
+        terminal.faultAddress < stackRange.start + stackRange.byteLength
+          ? "initial-thread-stack-fault"
+          : "guest-memory-page-fault";
       await writeRuntimeJsonFrame(child.stdin, runtimeFrame.sessionStop, {
         schema: "vine.v86-generic-runtime-session-stop",
         schemaVersion: 1,
@@ -4027,6 +4193,7 @@ async function runGenericRuntimeReentry({
         supportedCalls,
         writebacks,
         hostDeltas,
+        stackGrowths,
         finalGeneration: generation,
         fault: {
           schema: "vine.v86-generic-runtime-execution-fault",
@@ -4124,6 +4291,7 @@ async function runGenericRuntimeReentry({
         supportedCalls,
         writebacks,
         hostDeltas,
+        stackGrowths,
         finalGeneration: generation,
         fault,
         terminal: continuation,
@@ -4294,6 +4462,40 @@ function validateGenericRuntimeReady(ready, offer) {
             : 3),
   );
   assert.equal(ready.dynamicExportEndpoints, 4);
+  assert.equal(ready.initialThreadStack.threadId, ready.currentThreadId);
+  assert.equal(ready.initialThreadStack.memoryOwner, expected.stack.owner);
+  assert.deepEqual(ready.initialThreadStack.reservedRange, {
+    start: expected.stack.reserveBase,
+    byteLength: expected.stack.reserveBytes,
+  });
+  assert.deepEqual(ready.initialThreadStack.committedRange, {
+    start: expected.stack.commitBase,
+    byteLength: expected.stack.commitBytes,
+  });
+  assert.deepEqual(ready.initialThreadStack.guardPage, {
+    start: expected.stack.guardBase,
+    byteLength: page.size,
+  });
+  assert.equal(ready.initialThreadStack.committedPages, 1);
+  assert.equal(ready.initialThreadStack.stackTop, expected.stack.top);
+  assert.equal(
+    ready.initialStackAddressAllocation.id,
+    ready.initialThreadStack.addressAllocationId,
+  );
+  assert.deepEqual(ready.initialStackAddressAllocation.purpose, { kind: "thread-stack" });
+  assert.deepEqual(ready.initialStackAddressAllocation.range, {
+    base: expected.stack.reserveBase,
+    byteLength: expected.stack.reserveBytes,
+  });
+  assert.equal(
+    ready.initialStackAddressAllocation.usableByteLength,
+    expected.stack.reserveBytes - page.size,
+  );
+  assert.equal(ready.initialStackAddressAllocation.guardPages, 1);
+  assert.equal(ready.initialStackAddressAllocation.classification, "stack");
+  assert.equal(ready.initialStackAddressAllocation.lifetime, "thread");
+  assert.equal(ready.initialStackAddressAllocation.releasePolicy, "explicit");
+  assert.equal(ready.initialStackAddressAllocation.executable, false);
   assert.equal(ready.memory.generation, offer.reflection.invalidation.generation);
   assert.equal(ready.memory.acknowledgedGeneration, offer.reflection.invalidation.generation);
   assert.equal(ready.memory.dirtyPages, 0);
@@ -4582,7 +4784,6 @@ function applyRuntimeHostDelta(context, delta) {
       const dirty = dirtyByAddress.get(address);
       assert(dirty, "committed runtime host page has no bytes");
       assert.equal(dirty.owner, operation.owner);
-      assert.equal(dirty.ownerSealed, false);
       assert.deepEqual(dirty.protection, operation.protection);
       context.mapRuntimePage(
         address,
@@ -7586,39 +7787,74 @@ function validateInitializeCriticalSectionResult(result) {
       `${symbol} continuation count changed`,
     );
   }
+  assert.equal(result.stackGrowths.length, expected.stackGrowths.length);
+  for (const [index, expectedGrowth] of expected.stackGrowths.entries()) {
+    const growth = result.stackGrowths[index];
+    assert.equal(growth.instructionCount, expectedGrowth.instructionCount);
+    assert.equal(growth.threadId, controlledThread.threadId);
+    assert.equal(growth.addressAllocationId, 37);
+    assert.equal(growth.memoryOwner, 4);
+    assert.equal(growth.faultAddress, expectedGrowth.faultAddress);
+    assert.equal(growth.pageFaultErrorCode, expectedGrowth.pageFaultErrorCode);
+    assert.deepEqual(growth.committedPage, {
+      start: expectedGrowth.committedPage,
+      byteLength: page.size,
+    });
+    assert.deepEqual(growth.previousGuardPage, growth.committedPage);
+    assert.deepEqual(growth.nextGuardPage, {
+      start: expectedGrowth.nextGuardPage,
+      byteLength: page.size,
+    });
+    assert.equal(growth.committedPages, expectedGrowth.committedPages);
+    assert.equal(growth.fromGeneration, expectedGrowth.fromGeneration);
+    assert.equal(growth.generation, expectedGrowth.generation);
+    assert.equal(
+      growth.payloadSha256,
+      "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
+    );
+  }
   const finalCall = result.supportedCalls.at(-1);
-  assert.equal(finalCall.sequence, expected.supportedCalls);
-  assert.equal(finalCall.symbol, "SetLastError");
-  assert.equal(finalCall.occurrence, 30);
+  assert.equal(finalCall.sequence, expected.postGrowthCall.sequence);
+  assert.equal(finalCall.symbol, "GetModuleFileNameA");
+  assert.equal(finalCall.occurrence, expected.postGrowthCall.occurrence);
+  assert.equal(finalCall.trapInstructionCount, expected.postGrowthCall.instructionCount);
+  assert.deepEqual(finalCall.arguments, expected.postGrowthCall.arguments);
+  assert.deepEqual(finalCall.result, { action: "set", value: expected.postGrowthCall.result });
+  assert.equal(finalCall.implementationId, "kernel32.get-module-file-name-a.v1");
+  assert.equal(finalCall.returnAddress, expected.postGrowthCall.returnAddress);
+  assert.equal(
+    finalCall.stackPointerAfter,
+    finalCall.stackPointerBefore + expected.postGrowthCall.stackCleanupBytes,
+  );
+  assert.equal(finalCall.lastError, 0);
+  assert.equal(finalCall.guestWrites.length, 1);
+  assert.equal(finalCall.guestWrites[0].address, expected.postGrowthCall.arguments[1]);
+  assert.deepEqual(finalCall.guestWrites[0].bytes, [...Buffer.from("C:\\Vine\\BGI.exe\0")]);
 
   const unsupported = expected.firstUnsupported;
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
-  assert.equal(result.fault.endpoint, null);
-  assert.equal(result.fault.fault.class, "fault");
-  assert.equal(result.fault.fault.stage, "guest-execution");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  const endpoint = result.fault.endpoint.endpoint;
+  assert.equal(endpoint.id, unsupported.endpointId);
+  assert.equal(endpoint.address, unsupported.endpointAddress);
+  assert.equal(endpoint.module, unsupported.module);
+  assert.deepEqual(endpoint.symbol, { kind: "name", name: unsupported.symbol });
+  assert.equal(endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.class, unsupported.faultClass);
+  assert.equal(result.fault.fault.stage, unsupported.faultStage);
   assert.equal(result.fault.fault.code, unsupported.faultCode);
-  assert.equal(
-    result.fault.fault.instructionPointer,
-    unsupported.instructionPointer,
-  );
-  assert.equal(
-    result.fault.fault.previousInstructionPointer,
-    unsupported.previousInstructionPointer,
-  );
-  assert.equal(result.fault.fault.faultAddress, unsupported.faultAddress);
-  assert.equal(
-    result.fault.fault.pageFaultErrorCode,
-    unsupported.pageFaultErrorCode,
-  );
+  assert.deepEqual(result.fault.fault.endpoint, endpoint);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
-  assert.deepEqual(result.terminal.terminal, {
-    kind: "page-fault",
-    instructionPointer: unsupported.instructionPointer,
-    previousInstructionPointer: unsupported.previousInstructionPointer,
-    faultAddress: unsupported.faultAddress,
-    pageFaultErrorCode: unsupported.pageFaultErrorCode,
-  });
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
+  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
 }
 
 function validatePrivateHeapSize16Result(result) {
@@ -8216,6 +8452,7 @@ function buildGenericRuntimeReentryReport({
       dirtyPages: totalDirtyPages,
       changedBytes: totalChangedBytes,
       hostDeltaBatches: genericResult.hostDeltas.length,
+      stackGrowths: genericResult.stackGrowths,
       finalGeneration: genericResult.finalGeneration,
       jsonPageByteArrays: false,
       writebacks: genericResult.writebacks,
@@ -8424,7 +8661,22 @@ function validateOffer(offer, offerLineBytes) {
   );
   assert.equal(offer.processEntryReturnSentinel.owner, expected.control.owner);
   assert.equal(offer.initialThreadStack.owner, expected.stack.owner);
-  assert.equal(offer.initialThreadStack.stackRange.start, expected.stack.base);
+  assert.equal(
+    offer.initialThreadStack.stackRange.start,
+    genericRuntimeReentry ? expected.stack.reserveBase : expected.stack.base,
+  );
+  assert.equal(
+    offer.initialThreadStack.stackRange.byteLength,
+    genericRuntimeReentry ? expected.stack.reserveBytes : page.size,
+  );
+  assert.equal(offer.initialThreadStack.committedRange.start, expected.stack.commitBase);
+  assert.equal(offer.initialThreadStack.committedRange.byteLength, expected.stack.commitBytes);
+  assert.deepEqual(
+    offer.initialThreadStack.guardPage,
+    genericRuntimeReentry
+      ? { start: expected.stack.guardBase, byteLength: page.size }
+      : undefined,
+  );
   assert.equal(offer.initialThreadStack.stackTop, expected.stack.top);
   assert.equal(offer.initialThreadStack.initialEsp, expected.stack.initialEsp);
 
@@ -8518,7 +8770,10 @@ function validateOffer(offer, offerLineBytes) {
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
-  assert.equal(offerLineBytes, expected.offerLineBytes);
+  assert(
+    Number.isSafeInteger(offerLineBytes) && offerLineBytes > 0,
+    "reflection offer byte count is invalid",
+  );
   for (const reflectedPage of reflected.pages) {
     assert.equal(reflectedPage.ownerSealed, true);
     assert.equal(reflectedPage.dirty, true);

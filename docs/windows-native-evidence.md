@@ -2147,3 +2147,27 @@ cancel／watchdog後pending work 0を通す。3分gateは347 sessions／failure 
 P95 619.620 ms、slice P99 1.845 ms、heartbeat P99 15.570 ms／maximum 53.280 msを
 含む全17 thresholdを通した。詳細は
 [bgi-initialize-critical-section.md](bgi-initialize-critical-section.md)を正とする。
+
+## 82. BGI initial-thread stack growth
+
+PE headerの`SizeOfStackReserve = 1,048,576`、`SizeOfStackCommit = 4,096`を
+Rust-owned range `[0x00600000,0x00700000)`へ接続した。Initial commitは
+`0x006FF000`、movable guardは`0x006FE000`、process address allocation IDは
+`37`である。Page faultの含有pageをmutation前にguard identityと比較し、zeroed
+RW/NX pageを一枚ずつcommitする。
+
+Node／Chromeはinstruction `22754`／fault `0x006FE000`、`22782`／
+`0x006FDD94`、`22812`／`0x006FC000`、`22817`／`0x006FB000`の4 growthを
+同じ順で適用する。Second faultがpage baseでないため、raw fault address equalityを
+growth semanticsにはしない。Final guardは`0x006FA000`である。
+
+Call 268のsecond `GetModuleFileNameA`をreturnした後、instruction `22843`で
+`MultiByteToWideChar(0,0,0x006FE0A4,-1,0x006FD150,780)`へ到達する。Existing
+policyはexplicit code page 932／flags 1だけを許可するため、fault code
+`multi-byte-to-wide-char-variant-unsupported`でmutation前に停止する。Nodeは273
+writebacks／412 dirty pages／5,929 changed bytes／72 host deltas／generation `374`、
+Chromeは2,939 slices／2,666 yields／2,606 Wasm crossings／generation `2,010`を
+記録し、memory SHA-256
+`ca1d082833b4349640451886843761aafecc0a5e63e5771694e09e5c1906c0aa`で一致する。
+3分gateは740 sessions／failure 0で全17 thresholdを通した。詳細は
+[bgi-initial-thread-stack-growth.md](bgi-initial-thread-stack-growth.md)を正とする。

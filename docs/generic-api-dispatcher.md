@@ -5,8 +5,8 @@
 - Status: review Step 2／3, Step 4／10, critical-section including one-argument initialization, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-initialize-critical-section`
-- Scope: frozen 17-call equivalence plus 267 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-initial-thread-stack-growth`
+- Scope: frozen 17-call equivalence plus 268 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -863,6 +863,18 @@ The 1,154,575-byte report SHA-256 is
 Full evidence is in
 [bgi-initialize-critical-section.md](bgi-initialize-critical-section.md).
 
+The initial-stack checkpoint preserves those 267 results, installs the PE
+1 MiB reserve／4 KiB commit layout, and registers its thread-lifetime process
+allocation. Four guard-page faults emit one zeroed RW commit each and move the
+guard from `0x006FE000` to `0x006FA000`. The session then completes the second
+`GetModuleFileNameA` occurrence as call 268. It records 273 writebacks／412 dirty
+pages／5,929 changed bytes, 72 host deltas, and Node generation `374`. The next
+stop is the CP_ACP／flags-zero `MultiByteToWideChar` variant at instruction
+22,843. Final memory SHA-256 is
+`ca1d082833b4349640451886843761aafecc0a5e63e5771694e09e5c1906c0aa`.
+Full evidence is in
+[bgi-initial-thread-stack-growth.md](bgi-initial-thread-stack-growth.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -906,17 +918,19 @@ Full evidence is in
   also absent. Processor feature presence is explicit policy data and does not
   import host CPU discovery. One process-owned top-level exception-filter
   pointer is stored, replaced, and retired without bridging to host exception
-  machinery; SEH dispatch and filter invocation remain absent. The first
-  structured stop is the endpoint-null `initial-thread-stack-growth` page fault
-  at `0x006FE000`; bespoke numbered checkpoint expansion stays paused.
+  machinery; SEH dispatch and filter invocation remain absent. Initial-thread
+  stack growth is Rust-owned; additional-thread stacks, overflow, and guard
+  exception delivery remain absent. The first structured stop is now the
+  CP_ACP／flags-zero `MultiByteToWideChar` variant; bespoke numbered checkpoint
+  expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `initial-thread-stack-growth`. It must give the initial stack
-an explicit reserve／commit／guard ownership contract, classify the write fault
-at `0x006FE000`, and apply a checked one-page growth delta through both Node and
-Chrome without adding a second memory authority. Additional guest threads,
-general SEH delivery, and stack-overflow handling are not part of that proof.
+The next proof is the reached `MultiByteToWideChar(CP_ACP,0,...)` variant. It
+must measure NUL-inclusive input/output, LastError, and the immediate consumer,
+then derive code page 932 from the existing active-code-page policy without
+embedding this callsite or buffer size into general semantics. Explicit code
+page 932／flags 1 conversion and the four stack-growth deltas must remain green.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,

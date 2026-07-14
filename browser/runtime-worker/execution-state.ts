@@ -1,6 +1,7 @@
 export type ExecutionState =
   | "ready"
   | "running"
+  | "memory-fault"
   | "budget-yield"
   | "api-trap"
   | "waiting-host"
@@ -27,12 +28,19 @@ export interface ExecutionTransitionContext {
 
 const allowedTransitions: Readonly<Record<ExecutionState, ReadonlySet<ExecutionState>>> = {
   ready: new Set(["running", "stopping"]),
-  running: new Set(["budget-yield", "api-trap", "stopping"]),
+  running: new Set(["budget-yield", "api-trap", "memory-fault", "stopping"]),
+  "memory-fault": new Set(["ready", "guest-callback", "stopping"]),
   "budget-yield": new Set(["ready", "guest-callback", "stopping"]),
   "api-trap": new Set(["ready", "waiting-host", "guest-callback", "stopping"]),
   "waiting-host": new Set(["host-completion", "stopping"]),
   "host-completion": new Set(["ready", "guest-callback", "stopping"]),
-  "guest-callback": new Set(["budget-yield", "api-trap", "callback-return", "stopping"]),
+  "guest-callback": new Set([
+    "budget-yield",
+    "api-trap",
+    "memory-fault",
+    "callback-return",
+    "stopping",
+  ]),
   "callback-return": new Set(["ready", "guest-callback", "stopping"]),
   stopping: new Set(["stopped"]),
   stopped: new Set(),

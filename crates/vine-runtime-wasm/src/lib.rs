@@ -22,7 +22,7 @@ use vine_core::{
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
-    install_dynamic_export_thunks, install_runtime_return_sentinels,
+    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
     kernel32_contract_for_endpoint, materialize_pe32_image,
 };
 
@@ -226,7 +226,17 @@ impl BrowserRuntime {
         let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
             .map_err(error_string)?;
         let (dispatcher, routes) = build_dispatcher(&binding)?;
-        let runtime = controlled_runtime_state()?;
+        let mut runtime = controlled_runtime_state()?;
+        runtime
+            .register_initial_thread_stack(&stack)
+            .map_err(error_string)?;
+        let runtime_stack = runtime
+            .thread_stack(runtime.current_thread_id())
+            .map_err(error_string)?;
+        let stack_allocation = runtime
+            .process_address_space_allocator()
+            .allocation(runtime_stack.address_allocation_id)
+            .map_err(error_string)?;
         let reflection = memory.pending_reflection().map_err(error_string)?;
         let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
         let metadata = json!({
@@ -239,6 +249,8 @@ impl BrowserRuntime {
             "generation": reflection.invalidation.generation,
             "stackTop": stack.stack_top.0,
             "initialStackPointer": stack.initial_esp.0,
+            "initialThreadStack": runtime_stack,
+            "initialStackAddressAllocation": stack_allocation,
             "callbackSentinel": sentinels.callback_return.address.0,
             "entrySentinel": sentinels.process_entry_return.address.0,
             "pageCount": reflection.pages.len(),
@@ -290,7 +302,16 @@ impl BrowserRuntime {
         let mut process =
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
         let sentinels = install_runtime_return_sentinels(&mut memory).map_err(error_string)?;
-        let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
+        let stack = install_initial_thread_stack(
+            &mut memory,
+            &sentinels.process_entry_return,
+            plan.load_plan.image.stack_reserve,
+            plan.load_plan.image.stack_commit,
+        )
+        .map_err(error_string)?;
+        process
+            .runtime
+            .register_initial_thread_stack(&stack)
             .map_err(error_string)?;
         let environment = if kernel32_policy.allows_wide_environment_strings() {
             install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
@@ -328,6 +349,15 @@ impl BrowserRuntime {
             sentinels.callback_return.address,
         )?;
         let (dispatcher, routes, endpoints) = build_bgi_dispatcher(&process, &kernel32_policy)?;
+        let runtime_stack = process
+            .runtime
+            .thread_stack(process.runtime.current_thread_id())
+            .map_err(error_string)?;
+        let stack_allocation = process
+            .runtime
+            .process_address_space_allocator()
+            .allocation(runtime_stack.address_allocation_id)
+            .map_err(error_string)?;
         let reflection = memory.pending_reflection().map_err(error_string)?;
         let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
         let metadata = json!({
@@ -341,6 +371,8 @@ impl BrowserRuntime {
             "contentSha256": reflection.content_sha256,
             "stackTop": stack.stack_top.0,
             "initialStackPointer": stack.initial_esp.0,
+            "initialThreadStack": runtime_stack,
+            "initialStackAddressAllocation": stack_allocation,
             "callbackSentinel": sentinels.callback_return.address.0,
             "entrySentinel": sentinels.process_entry_return.address.0,
             "pageCount": reflection.pages.len(),
@@ -555,6 +587,50 @@ impl BrowserRuntime {
         });
         let buffers = reflection.encode_binary().map_err(error_string)?;
         Ok((metadata, buffers))
+    }
+
+    fn grow_initial_thread_stack(
+        &mut self,
+        fault_address: GuestAddress,
+        page_fault_error_code: u32,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        if !matches!(self.target, BrowserRuntimeTarget::Bgi { .. }) {
+            return Err(
+                "initial thread stack growth is available only to the BGI runtime".to_owned(),
+            );
+        }
+        let growth = match self.runtime.grow_initial_thread_stack(
+            &mut self.memory,
+            fault_address,
+            page_fault_error_code,
+        ) {
+            Ok(growth) => growth,
+            Err(error) => {
+                let stats = self.memory.stats();
+                return Ok((
+                    json!({
+                        "kind": "initial-thread-stack-growth-rejected",
+                        "faultAddress": fault_address.0,
+                        "pageFaultErrorCode": page_fault_error_code,
+                        "error": error,
+                        "memory": stats,
+                    }),
+                    None,
+                ));
+            }
+        };
+        let delta = self.memory.pending_delta().map_err(error_string)?;
+        let metadata = json!({
+            "kind": "initial-thread-stack-growth",
+            "growth": growth,
+            "fromGeneration": delta.from_generation,
+            "generation": delta.generation,
+            "mappingOperations": delta.mapping_operations.iter().map(mapping_operation_name).collect::<Vec<_>>(),
+            "dirtyPages": delta.dirty_pages.len(),
+            "cacheEffects": delta.cache_effects,
+        });
+        let buffers = delta.encode_binary().map_err(error_string)?;
+        Ok((metadata, Some(buffers)))
     }
 
     fn mapping_fixture_heap_handle(&self) -> Result<u32, String> {
@@ -1496,6 +1572,22 @@ pub extern "C" fn vine_bridge_current_reflection() -> u32 {
     run_bridge(|bridge| {
         let (metadata, reflection) = bridge.runtime_mut()?.current_reflection()?;
         bridge.set_output(metadata, reflection.control, reflection.page_bytes)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_grow_initial_thread_stack(
+    fault_address: u32,
+    page_fault_error_code: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let (metadata, delta) = bridge
+            .runtime_mut()?
+            .grow_initial_thread_stack(GuestAddress(fault_address), page_fault_error_code)?;
+        let (control, payload) = delta
+            .map(|buffers| (buffers.control, buffers.page_bytes))
+            .unwrap_or_default();
+        bridge.set_output(metadata, control, payload)
     })
 }
 

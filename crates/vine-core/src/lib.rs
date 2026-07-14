@@ -30,7 +30,7 @@ pub use api::{
 
 pub use bootstrap::{
     CONTROLLED_INITIAL_STACK_BASE, CONTROLLED_INITIAL_STACK_SIZE, CONTROLLED_INITIAL_STACK_TOP,
-    InitialThreadStack, install_controlled_initial_stack,
+    InitialThreadStack, install_controlled_initial_stack, install_initial_thread_stack,
 };
 pub use callbacks::{
     CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE, CALLBACK_RETURN_SLOT_SIZE,
@@ -129,9 +129,10 @@ pub use runtime::{
     RuntimeScheduler, RuntimeSchedulerEvent, RuntimeStandardHandle, RuntimeStartupInfo,
     RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeSystemExportEndpoint,
     RuntimeSystemExportTable, RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMessage,
-    RuntimeThreadState, RuntimeTlsValue, RuntimeWaitCompletion, RuntimeWaitDisposition,
-    RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState, SchedulerThreadState,
-    TLS_OUT_OF_INDEXES, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTlsValue,
+    RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,
+    RuntimeWaitRegistrationId, RuntimeWaitState, SchedulerThreadState, TLS_OUT_OF_INDEXES,
+    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use win32::{

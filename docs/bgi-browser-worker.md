@@ -23,15 +23,16 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 267 | 267 |
-| Guest instructions at next stop | 22,754 | 22,754 |
+| Supported calls | 268 | 268 |
+| Guest instructions at next stop | 22,843 | 22,843 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 1,994 | 365 |
-| Host delta batches | 67 | 67 |
-| Final memory content SHA-256 | `5a7b35e013f2ac108f5d7394dc908ba91a76aaa77dc4e5288d3ee827460c146c` | same |
-| Next capability cluster | `initial-thread-stack-growth` | same |
-| Endpoint | `null` | same |
-| Execution fault | `page-fault` at `0x006FE000`, PFEC `4` | same |
+| Final memory generation | 2,010 | 374 |
+| Host delta batches | 72 | 72 |
+| Initial-stack growths | 4 | 4 |
+| Final memory content SHA-256 | `ca1d082833b4349640451886843761aafecc0a5e63e5771694e09e5c1906c0aa` | same |
+| Next capability cluster | `kernel32-api-contract` | same |
+| Endpoint | `kernel32.dll!MultiByteToWideChar` | same |
+| Structured fault | `multi-byte-to-wide-char-variant-unsupported` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
 arguments, EAX policy, implementation ID, return and stack pointers, LastError,
@@ -40,19 +41,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 2,247
-writeback batches; the Node oracle reconciles at 268 writeback boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 2,258
+writeback batches; the Node oracle reconciles at 273 writeback boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 2,926 CPU slices, 2,658 budget yields, 8,778 validated
-Worker state transitions, 2,585 Rust/Wasm bridge operations, and a maximum
-observed slice of 2.630 ms. The main-thread heartbeat recorded 102 samples with a 28.300 ms
+The successful run used 2,939 CPU slices, 2,666 budget yields, 8,818 validated
+Worker state transitions, 2,606 Rust/Wasm bridge operations, and a maximum
+observed slice of 2.115 ms. The main-thread heartbeat recorded 69 samples with a 17.220 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 869,762 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 347
+changed from 628,360 to 879,586 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 719
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -62,7 +63,7 @@ module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 8,778, 4, and 3 transitions respectively. All three reports
+in `stopped` after 8,818, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -109,8 +110,10 @@ existing critical-section entry and two existing pointer decodes. The following
 requested size 128 without guest writes or LastError mutation. Two existing
 `EncodePointer` calls and one `LeaveCriticalSection` then complete before both
 paths initialize `0x100FD9CC` through the policy-backed one-argument VOID
-contract. Another 56 existing calls complete before both paths stop on the
-endpoint-null initial-thread stack-growth page fault at `0x006FE000`.
+contract. Another 56 existing calls complete before both paths apply four
+Rust-owned initial-thread stack-growth commits. The second
+`GetModuleFileNameA` occurrence then completes, and both paths stop on the
+CP_ACP／flags-zero `MultiByteToWideChar` variant at instruction 22,843.
 
 ## Reproduction
 
@@ -125,7 +128,7 @@ report hash is artifact identity only.
 
 ## Non-claims
 
-- no general stack growth／overflow, negative-length／broad `GetStringTypeW`, general `LCMapStringW`, explicit-module `GetModuleFileNameA`, SEH dispatch／filter invocation, broad `HeapSize`, `HeapReAlloc`, or broad heap variant dispatch is implemented
+- no additional-thread stack lifecycle／stack overflow, negative-length／broad `GetStringTypeW`, general `LCMapStringW`, explicit-module `GetModuleFileNameA`, SEH dispatch／filter invocation, broad `HeapSize`, `HeapReAlloc`, or broad heap variant dispatch is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
 - the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

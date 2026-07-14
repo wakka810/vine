@@ -83,6 +83,19 @@ export interface SessionReport {
   maximumCallbackDepth: number;
   writebackBatches: number;
   writebackPages: number;
+  stackGrowths: Array<{
+    instructionCount: number;
+    faultAddress: number;
+    pageFaultErrorCode: number;
+    addressAllocationId: number;
+    memoryOwner: number;
+    committedPage: { start: number; byteLength: number };
+    previousGuardPage: { start: number; byteLength: number };
+    nextGuardPage?: { start: number; byteLength: number };
+    committedPages: number;
+    fromGeneration: number;
+    generation: number;
+  }>;
   mappingDeltas: number;
   mappingOperations: {
     reserve: number;

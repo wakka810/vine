@@ -117,6 +117,33 @@ interface WritebackMetadata {
   };
 }
 
+interface InitialThreadStackGrowthMetadata {
+  kind: "initial-thread-stack-growth";
+  growth: {
+    threadId: number;
+    addressAllocationId: number;
+    memoryOwner: number;
+    faultAddress: number;
+    pageFaultErrorCode: number;
+    committedPage: { start: number; byteLength: number };
+    previousGuardPage: { start: number; byteLength: number };
+    nextGuardPage?: { start: number; byteLength: number };
+    committedPages: number;
+  };
+  fromGeneration: number;
+  generation: number;
+  mappingOperations: ["commit"];
+  dirtyPages: number;
+}
+
+interface InitialThreadStackGrowthRejectedMetadata {
+  kind: "initial-thread-stack-growth-rejected";
+  faultAddress: number;
+  pageFaultErrorCode: number;
+  error: { code: string };
+  memory: { generation: number; acknowledgedGeneration: number };
+}
+
 interface MappingFixtureMetadata {
   kind: "mapping-fixture-delta";
   stageIndex: number;
@@ -206,6 +233,7 @@ class BrowserRuntimeSession {
     maximumCallbackDepth: 0,
     writebackBatches: 0,
     writebackPages: 0,
+    stackGrowths: [] as SessionReport["stackGrowths"],
     mappingDeltas: 0,
     mappingOperations: {
       reserve: 0,
@@ -290,6 +318,37 @@ class BrowserRuntimeSession {
         (preparedOutput.metadata.workload ?? "controlled-fixture") === workload,
         "prepared workload mismatch",
       );
+      if (workload === "private-bgi") {
+        const stack = preparedOutput.metadata.initialThreadStack;
+        const allocation = preparedOutput.metadata.initialStackAddressAllocation;
+        invariant(stack !== undefined, "BGI initial thread stack metadata is missing");
+        invariant(allocation !== undefined, "BGI stack allocation metadata is missing");
+        const guardPage = stack.guardPage;
+        invariant(guardPage !== undefined, "BGI initial stack guard metadata is missing");
+        invariant(stack.threadId === this.#currentThreadId, "BGI stack belongs to another thread");
+        invariant(
+          stack.addressAllocationId === allocation.id &&
+            stack.memoryOwner > 0 &&
+            stack.reservedRange.start === allocation.range.base &&
+            stack.reservedRange.byteLength === allocation.range.byteLength,
+          "BGI stack allocation identity mismatch",
+        );
+        invariant(
+          stack.committedRange.start + stack.committedRange.byteLength === stack.stackTop &&
+            stack.reservedRange.start + stack.reservedRange.byteLength === stack.stackTop &&
+            guardPage.start + guardPage.byteLength === stack.committedRange.start,
+          "BGI initial stack reserve, commit, and guard are not contiguous",
+        );
+        invariant(
+          allocation.purpose.kind === "thread-stack" &&
+            allocation.classification === "stack" &&
+            allocation.lifetime === "thread" &&
+            allocation.releasePolicy === "explicit" &&
+            allocation.guardPages === 1 &&
+            !allocation.executable,
+          "BGI process stack allocation policy mismatch",
+        );
+      }
       const reflection = decodeReflection(preparedOutput.control, preparedOutput.payload);
       invariant(
         reflection.generation === BigInt(preparedOutput.metadata.generation),
@@ -413,6 +472,17 @@ class BrowserRuntimeSession {
         slice.stop.fault === "page-fault" &&
         prepared.workload === "private-bgi"
       ) {
+        this.#execution.transition("memory-fault", {
+          cause: "guest-page-fault",
+          threadId: this.#currentThreadId,
+        });
+        if (this.#growInitialThreadStack(slice.stop)) {
+          this.#execution.transition(sliceState === "running" ? "ready" : "guest-callback", {
+            cause: "initial-stack-growth-complete",
+            threadId: this.#currentThreadId,
+          });
+          continue;
+        }
         this.#completeExecutionStructuredStop(slice.stop, slice.context);
         continue;
       }
@@ -604,6 +674,108 @@ class BrowserRuntimeSession {
       pendingCallbacks: cancellation.pendingCallbacks,
       error: null,
     });
+  }
+
+  #growInitialThreadStack(
+    stop: Extract<ExecutionStop, { kind: "fault" }>,
+  ): boolean {
+    invariant(stop.fault === "page-fault", "stack growth requires a page fault");
+    invariant(stop.faultAddress !== undefined, "stack growth fault omitted its address");
+    const output = this.#requireBridge().growInitialThreadStack<
+      InitialThreadStackGrowthMetadata | InitialThreadStackGrowthRejectedMetadata
+    >(stop.faultAddress, stop.errorCode);
+    const metadata = output.metadata;
+    if (metadata.kind === "initial-thread-stack-growth-rejected") {
+      invariant(
+        output.control.byteLength === 0 && output.payload.byteLength === 0,
+        "rejected stack growth returned a memory delta",
+      );
+      invariant(metadata.faultAddress === stop.faultAddress, "rejected stack fault address changed");
+      invariant(
+        metadata.pageFaultErrorCode === stop.errorCode,
+        "rejected stack page-fault code changed",
+      );
+      invariant(
+        metadata.memory.generation === Number(this.#generation) &&
+          metadata.memory.acknowledgedGeneration === Number(this.#generation),
+        "rejected stack growth changed memory",
+      );
+      return false;
+    }
+
+    invariant(metadata.growth.faultAddress === stop.faultAddress, "stack fault address changed");
+    invariant(
+      metadata.growth.pageFaultErrorCode === stop.errorCode,
+      "stack page-fault code changed",
+    );
+    invariant(
+      metadata.growth.threadId === this.#currentThreadId,
+      "stack growth belongs to the wrong runtime thread",
+    );
+    const preparedStack = this.#requirePrepared().initialThreadStack;
+    invariant(preparedStack !== undefined, "prepared stack identity is unavailable");
+    invariant(
+      metadata.growth.addressAllocationId === preparedStack.addressAllocationId &&
+        metadata.growth.memoryOwner === preparedStack.memoryOwner,
+      "stack growth authority identity changed",
+    );
+    invariant(metadata.fromGeneration === Number(this.#generation), "stack delta base changed");
+    const delta = decodeHostDelta(output.control, output.payload);
+    invariant(delta.fromGeneration === this.#generation, "stack delta base generation mismatch");
+    invariant(
+      delta.generation === BigInt(metadata.generation),
+      "stack delta generation metadata mismatch",
+    );
+    invariant(
+      delta.mappingOperations.length === 1 &&
+        delta.mappingOperations[0]?.operation === "commit",
+      "stack growth did not contain exactly one commit operation",
+    );
+    const operation = delta.mappingOperations[0];
+    invariant(operation.operation === "commit", "stack growth mapping is not a commit");
+    invariant(
+      operation.owner === metadata.growth.memoryOwner &&
+        operation.range.base === metadata.growth.committedPage.start &&
+        operation.range.byteLength === metadata.growth.committedPage.byteLength,
+      "stack growth commit identity mismatch",
+    );
+    invariant(
+      operation.protection.read && operation.protection.write && !operation.protection.execute,
+      "stack growth commit protection mismatch",
+    );
+    invariant(delta.pages.length === 1, "stack growth did not return one zeroed page");
+    const page = delta.pages[0];
+    invariant(page !== undefined, "stack growth page disappeared after validation");
+    invariant(
+      page.address === operation.range.base &&
+        page.owner === operation.owner &&
+        page.ownerSealed &&
+        page.protection.read &&
+        page.protection.write &&
+        !page.protection.execute &&
+        page.bytes.every((byte) => byte === 0),
+      "stack growth page bytes or ownership mismatch",
+    );
+    this.#report.mappingDeltas += 1;
+    this.#report.mappingOperations.commit += 1;
+    this.#report.mappingDirtyPages += 1;
+    this.#applyAuthoritativeDelta(delta);
+    this.#report.stackGrowths.push({
+      instructionCount: this.#report.instructions,
+      faultAddress: metadata.growth.faultAddress,
+      pageFaultErrorCode: metadata.growth.pageFaultErrorCode,
+      addressAllocationId: metadata.growth.addressAllocationId,
+      memoryOwner: metadata.growth.memoryOwner,
+      committedPage: metadata.growth.committedPage,
+      previousGuardPage: metadata.growth.previousGuardPage,
+      ...(metadata.growth.nextGuardPage === undefined
+        ? {}
+        : { nextGuardPage: metadata.growth.nextGuardPage }),
+      committedPages: metadata.growth.committedPages,
+      fromGeneration: metadata.fromGeneration,
+      generation: metadata.generation,
+    });
+    return true;
   }
 
   #completeExecutionStructuredStop(
@@ -1132,6 +1304,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             maximumCallbackDepth: 0,
             writebackBatches: 0,
             writebackPages: 0,
+            stackGrowths: [],
             mappingDeltas: 0,
             mappingOperations: {
               reserve: 0,

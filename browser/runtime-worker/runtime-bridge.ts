@@ -30,6 +30,29 @@ export interface PreparedMetadata {
   generation: number;
   stackTop: number;
   initialStackPointer: number;
+  initialThreadStack?: {
+    threadId: number;
+    addressAllocationId: number;
+    memoryOwner: number;
+    reservedRange: { start: number; byteLength: number };
+    committedRange: { start: number; byteLength: number };
+    guardPage?: { start: number; byteLength: number };
+    committedPages: number;
+    stackTop: number;
+  };
+  initialStackAddressAllocation?: {
+    id: number;
+    purpose: { kind: "thread-stack" };
+    owner: string;
+    range: { base: number; byteLength: number };
+    usableByteLength: number;
+    alignment: number;
+    guardPages: number;
+    classification: "stack";
+    lifetime: "thread";
+    releasePolicy: "explicit";
+    executable: boolean;
+  };
   callbackSentinel: number;
   entrySentinel: number;
   pageCount: number;
@@ -68,6 +91,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_reconcile_writeback(controlLength: number, payloadLength: number): number;
   vine_bridge_advance_mapping_fixture(stage: number): number;
   vine_bridge_current_reflection(): number;
+  vine_bridge_grow_initial_thread_stack(faultAddress: number, errorCode: number): number;
   vine_bridge_dispatch(endpoint: number, stackPointer: number, returnAddress: number): number;
   vine_bridge_complete_host(low: number, high: number, result: number): number;
   vine_bridge_complete_callback(sentinel: number, result: number): number;
@@ -138,6 +162,15 @@ export class RuntimeBridge {
 
   currentReflection<T = Record<string, unknown>>(): BridgeOutput<T> {
     return this.#invoke(() => this.#exports.vine_bridge_current_reflection());
+  }
+
+  growInitialThreadStack<T = Record<string, unknown>>(
+    faultAddress: number,
+    errorCode: number,
+  ): BridgeOutput<T> {
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_grow_initial_thread_stack(faultAddress, errorCode),
+    );
   }
 
   dispatch<T = Record<string, unknown>>(

@@ -16,6 +16,9 @@ pub const CONTROLLED_INITIAL_STACK_SIZE: u64 = GUEST_PAGE_SIZE;
 pub struct InitialThreadStack {
     pub owner: MemoryOwnerId,
     pub stack_range: GuestRange,
+    pub committed_range: GuestRange,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guard_page: Option<GuestRange>,
     pub committed_pages: usize,
     pub stack_top: GuestAddress,
     pub initial_esp: GuestAddress,
@@ -30,6 +33,20 @@ pub fn install_controlled_initial_stack(
     memory: &mut GuestMemory,
     entry_return: &ProcessEntryReturnSentinel,
 ) -> Result<InitialThreadStack, GuestMemoryError> {
+    install_initial_thread_stack(
+        memory,
+        entry_return,
+        CONTROLLED_INITIAL_STACK_SIZE,
+        CONTROLLED_INITIAL_STACK_SIZE,
+    )
+}
+
+pub fn install_initial_thread_stack(
+    memory: &mut GuestMemory,
+    entry_return: &ProcessEntryReturnSentinel,
+    reserve_size: u64,
+    commit_size: u64,
+) -> Result<InitialThreadStack, GuestMemoryError> {
     if !entry_return.owner_sealed {
         return Err(GuestMemoryError::runtime_defect(
             "process-bootstrap",
@@ -37,12 +54,65 @@ pub fn install_controlled_initial_stack(
             "initial stack requires a sealed process-entry return sentinel",
         ));
     }
-    memory.preflight_growth(1, 1, 1, "process-bootstrap")?;
-    memory.preflight_fixed_reservation(
-        CONTROLLED_INITIAL_STACK_BASE,
-        CONTROLLED_INITIAL_STACK_SIZE,
-        "process-bootstrap",
-    )?;
+    if reserve_size == 0
+        || commit_size == 0
+        || commit_size > reserve_size
+        || !reserve_size.is_multiple_of(GUEST_PAGE_SIZE)
+        || !commit_size.is_multiple_of(GUEST_PAGE_SIZE)
+    {
+        return Err(GuestMemoryError::invalid_request(
+            "process-bootstrap",
+            "initial-stack-layout-invalid",
+            "initial stack reserve and commit sizes must be nonzero page multiples with commit no larger than reserve",
+        ));
+    }
+    let reserve_size_u32 = u32::try_from(reserve_size).map_err(|_| {
+        GuestMemoryError::invalid_request(
+            "process-bootstrap",
+            "initial-stack-reserve-not-representable",
+            "initial stack reserve size does not fit the x86 address space",
+        )
+    })?;
+    let commit_size_u32 = u32::try_from(commit_size).map_err(|_| {
+        GuestMemoryError::invalid_request(
+            "process-bootstrap",
+            "initial-stack-commit-not-representable",
+            "initial stack commit size does not fit the x86 address space",
+        )
+    })?;
+    let stack_base = GuestAddress(
+        CONTROLLED_INITIAL_STACK_TOP
+            .0
+            .checked_sub(reserve_size_u32)
+            .ok_or_else(|| {
+                GuestMemoryError::invalid_request(
+                    "process-bootstrap",
+                    "initial-stack-reserve-underflow",
+                    "initial stack reserve extends below the x86 address-space origin",
+                )
+            })?,
+    );
+    let committed_base = GuestAddress(
+        CONTROLLED_INITIAL_STACK_TOP
+            .0
+            .checked_sub(commit_size_u32)
+            .ok_or_else(|| {
+                GuestMemoryError::invalid_request(
+                    "process-bootstrap",
+                    "initial-stack-commit-underflow",
+                    "initial stack commit extends below the x86 address-space origin",
+                )
+            })?,
+    );
+    let committed_pages = usize::try_from(commit_size / GUEST_PAGE_SIZE).map_err(|_| {
+        GuestMemoryError::invalid_request(
+            "process-bootstrap",
+            "initial-stack-page-count-not-representable",
+            "initial stack commit page count does not fit host accounting",
+        )
+    })?;
+    memory.preflight_growth(1, 1, committed_pages, "process-bootstrap")?;
+    memory.preflight_fixed_reservation(stack_base, reserve_size, "process-bootstrap")?;
     let initial_esp = GuestAddress(CONTROLLED_INITIAL_STACK_TOP.0.checked_sub(4).ok_or_else(
         || {
             GuestMemoryError::runtime_defect(
@@ -53,24 +123,41 @@ pub fn install_controlled_initial_stack(
         },
     )?);
 
+    let plan = InitialThreadStackPlan {
+        stack_base,
+        reserve_size,
+        committed_base,
+        commit_size,
+        committed_pages,
+        initial_esp,
+    };
     let mut transaction = memory.begin_transaction();
-    let stack =
-        install_controlled_initial_stack_transaction(&mut transaction, entry_return, initial_esp)?;
+    let stack = install_initial_thread_stack_transaction(&mut transaction, entry_return, plan)?;
     transaction.commit_transaction();
     Ok(stack)
 }
 
-fn install_controlled_initial_stack_transaction(
+#[derive(Debug, Clone, Copy)]
+struct InitialThreadStackPlan {
+    stack_base: GuestAddress,
+    reserve_size: u64,
+    committed_base: GuestAddress,
+    commit_size: u64,
+    committed_pages: usize,
+    initial_esp: GuestAddress,
+}
+
+fn install_initial_thread_stack_transaction(
     memory: &mut GuestMemory,
     entry_return: &ProcessEntryReturnSentinel,
-    initial_esp: GuestAddress,
+    plan: InitialThreadStackPlan,
 ) -> Result<InitialThreadStack, GuestMemoryError> {
     let owner = memory.create_owner(MemoryOwnerKind::Anonymous)?;
     let stack_range = match memory.reserve_fixed(
         owner,
         MemoryRegionKind::Stack,
-        CONTROLLED_INITIAL_STACK_BASE,
-        CONTROLLED_INITIAL_STACK_SIZE,
+        plan.stack_base,
+        plan.reserve_size,
     ) {
         Ok(range) => range,
         Err(error) => {
@@ -78,25 +165,49 @@ fn install_controlled_initial_stack_transaction(
             return Err(error);
         }
     };
+    let committed_range = GuestRange::new(plan.committed_base, plan.commit_size)?;
     memory.commit(
         owner,
-        stack_range,
+        committed_range,
         PageProtection {
             read: true,
             write: true,
             execute: false,
         },
     )?;
-    memory.write_initialization(owner, initial_esp, &entry_return.address.0.to_le_bytes())?;
-    let content_sha256 = hash_initialization_page(memory, owner)?;
+    memory.write_initialization(
+        owner,
+        plan.initial_esp,
+        &entry_return.address.0.to_le_bytes(),
+    )?;
+    let content_sha256 = hash_initialization_range(memory, owner, committed_range)?;
     let invalidation = memory.seal_owner(owner)?;
+    let guard_page = (plan.committed_base.0 > plan.stack_base.0)
+        .then(|| {
+            plan.committed_base
+                .0
+                .checked_sub(GUEST_PAGE_SIZE as u32)
+                .map(GuestAddress)
+                .ok_or_else(|| {
+                    GuestMemoryError::runtime_defect(
+                        "process-bootstrap",
+                        "initial-stack-guard-underflow",
+                        "initial stack growth guard underflowed the x86 address space",
+                    )
+                })
+        })
+        .transpose()?
+        .map(|base| GuestRange::new(base, GUEST_PAGE_SIZE))
+        .transpose()?;
 
     Ok(InitialThreadStack {
         owner,
         stack_range,
-        committed_pages: 1,
+        committed_range,
+        guard_page,
+        committed_pages: plan.committed_pages,
         stack_top: CONTROLLED_INITIAL_STACK_TOP,
-        initial_esp,
+        initial_esp: plan.initial_esp,
         entry_return_sentinel_id: entry_return.id,
         entry_return_address: entry_return.address,
         content_sha256,
@@ -105,19 +216,26 @@ fn install_controlled_initial_stack_transaction(
     })
 }
 
-fn hash_initialization_page(
+fn hash_initialization_range(
     memory: &GuestMemory,
     owner: MemoryOwnerId,
+    range: GuestRange,
 ) -> Result<String, GuestMemoryError> {
-    let page_size = GUEST_PAGE_SIZE as usize;
-    let chunk_length = memory.limits().max_access_bytes.min(page_size);
+    let byte_length = usize::try_from(range.byte_length()).map_err(|_| {
+        GuestMemoryError::runtime_defect(
+            "process-bootstrap",
+            "initial-stack-hash-size-not-representable",
+            "initial stack committed size does not fit host accounting",
+        )
+    })?;
+    let chunk_length = memory.limits().max_access_bytes.min(byte_length);
     let mut hasher = Sha256::new();
     let mut offset = 0usize;
-    while offset < page_size {
-        let byte_length = (page_size - offset).min(chunk_length);
-        let address = add_offset(CONTROLLED_INITIAL_STACK_BASE, offset)?;
-        hasher.update(memory.read_initialization(owner, address, byte_length)?);
-        offset += byte_length;
+    while offset < byte_length {
+        let chunk_byte_length = (byte_length - offset).min(chunk_length);
+        let address = add_offset(range.start(), offset)?;
+        hasher.update(memory.read_initialization(owner, address, chunk_byte_length)?);
+        offset += chunk_byte_length;
     }
     Ok(hex_digest(&hasher.finalize()))
 }

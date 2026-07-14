@@ -48,6 +48,19 @@ assert.throws(
 );
 assert.deepEqual(normal.snapshot(), beforeIllegal);
 
+const memoryFault = new ExecutionStateMachine();
+memoryFault.transition("running", { cause: "slice", threadId: 8192 });
+memoryFault.transition("memory-fault", { cause: "page-fault", threadId: 8192 });
+memoryFault.transition("ready", { cause: "stack-growth-complete", threadId: 8192 });
+assert.deepEqual(memoryFault.snapshot().lastTransition, {
+  sequence: 3,
+  from: "memory-fault",
+  to: "ready",
+  cause: "stack-growth-complete",
+  threadId: 8192,
+  requestId: null,
+});
+
 const host = new ExecutionStateMachine();
 host.transition("running", { cause: "slice", threadId: 8192 });
 host.transition("api-trap", { cause: "api", threadId: 8192 });
