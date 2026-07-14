@@ -945,7 +945,6 @@ pub struct RuntimeState {
     next_tls_index: u32,
     next_fls_index: u32,
     next_callback_frame_id: u64,
-    next_wait_registration_id: u64,
 }
 
 #[derive(Serialize)]
@@ -1007,7 +1006,7 @@ impl Serialize for RuntimeState {
             next_fls_index: self.next_fls_index,
             next_callback_frame_id: self.next_callback_frame_id,
             next_host_request_id: self.scheduler.next_host_request_id(),
-            next_wait_registration_id: self.next_wait_registration_id,
+            next_wait_registration_id: self.scheduler.next_wait_registration_id(),
         }
         .serialize(serializer)
     }
@@ -1113,7 +1112,6 @@ impl RuntimeState {
             next_tls_index: 0,
             next_fls_index: 0,
             next_callback_frame_id: 1,
-            next_wait_registration_id: 1,
         })
     }
 
@@ -2188,32 +2186,17 @@ impl RuntimeState {
                 wait_state,
             });
         }
-        let id = RuntimeWaitRegistrationId(self.next_wait_registration_id);
-        let next_wait_registration_id =
-            self.next_wait_registration_id
-                .checked_add(1)
-                .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-wait",
-                        "wait-registration-id-overflow",
-                        "wait registration ID space is exhausted",
-                    )
-                })?;
-        let registration = RuntimeWaitRegistration {
-            id,
-            thread_id,
-            object_id: object.id,
-            handle,
-        };
-        let wait_plan = self.scheduler.plan_wait_registration(registration)?;
+        let wait_plan = self
+            .scheduler
+            .plan_wait_registration(thread_id, object.id, handle)?;
+        let registration = wait_plan.registration();
         let scheduler_plan = self.scheduler.plan_transition(
             thread_id,
             SchedulerThreadState::WaitingObject {
-                registration_id: id,
+                registration_id: registration.id,
                 object_id: object.id,
             },
         )?;
-        self.next_wait_registration_id = next_wait_registration_id;
         self.scheduler.commit_wait_registration(wait_plan);
         self.scheduler.commit_lane(scheduler_plan);
         Ok(RuntimeWaitDisposition::Pending { registration })

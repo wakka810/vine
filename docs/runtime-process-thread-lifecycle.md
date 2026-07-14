@@ -41,12 +41,12 @@ object wait state、message cleanup、host-request cancellation、wait registrat
 commitし、thread collection／recordを直接mutateしない。
 
 Scheduler lane／event records、pending host-request table、request ID allocator now live in private
-`runtime/scheduler.rs::RuntimeScheduler`; wait registration／object FIFO live in private
+`runtime/scheduler.rs::RuntimeScheduler`; wait registration／object FIFO／registration ID allocator live in private
 `runtime/waits.rs::RuntimeWaits`. Host start／completion plans lane and identity together before an
 infallible targeted commit. Lifecycle request builds a thread-scoped host cancellation plan before
 thread、object、message、wait mutation. The aggregate no longer mutates scheduler、wait、or host-request
-collections directly. Root `registries.hostRequests`／`nextHostRequestId` JSON remains a borrowed
-serialization view and is not a second authority.
+collections directly. Root `registries.hostRequests`／`nextHostRequestId`／`nextWaitRegistrationId` JSON remains
+a borrowed serialization view and is not a second authority.
 
 ## Process-owned current directory
 

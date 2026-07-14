@@ -637,18 +637,26 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    waits.schema !== "vine.runtime-wait-queue.v2" ||
+    waits.schema !== "vine.runtime-wait-queue.v3" ||
     waits.stateOwner !== "runtime/waits.rs::RuntimeWaits" ||
     waits.mutableCollectionVisibility !== "private" ||
     waits.readInspection !== "immutable-borrow" ||
     !Array.isArray(waits.serializedSchedulerFields) ||
     waits.serializedSchedulerFields.join(",") !==
       "waitRegistrations,objectWaiters" ||
+    waits.allocatorSerializedRuntimeField !== "nextWaitRegistrationId" ||
+    waits.allocatorSerializationAdapter !==
+      "runtime-state-borrowed-compatibility-view" ||
+    !Array.isArray(waits.ownedCollections) ||
+    waits.ownedCollections.join(",") !==
+      "registration-table,object-fifo,registration-id-allocator" ||
     waits.crossSubsystemMutation !==
-      "wait-plan-aggregate-validation-scheduler-plan-commit" ||
-    waits.subsystemTests < 4 ||
-    waits.crossSubsystemAtomicTests < 3 ||
+      "wait-allocation-plan-aggregate-validation-scheduler-plan-infallible-commit" ||
+    waits.subsystemTests < 5 ||
+    waits.crossSubsystemAtomicTests < 4 ||
     waits.directCollectionMutationFromAggregate !== false ||
+    waits.directAllocatorMutationFromAggregate !== false ||
+    waits.allocatorOverflowMutationFree !== true ||
     waits.excludedWakeCandidatesValidated !== true ||
     waits.wholeRuntimeStateClone !== false
   ) {

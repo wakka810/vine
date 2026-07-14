@@ -188,10 +188,10 @@ thread map／recordを直接mutateしない。Scheduler laneはthread collection
 残す。
 
 Mutable scheduler lanes／current selector／event FIFO／pending host-request table／request ID allocatorは
-private `runtime/scheduler.rs::RuntimeScheduler`、wait registration／object FIFOはprivate
-`runtime/waits.rs::RuntimeWaits`だけが所有する。Wait stateはscheduler serializationへflattenし、host
-requestはroot `registries.hostRequests`／`nextHostRequestId`へのborrowed compatibility viewで既存shapeを
-維持するが、collection authorityはschedulerだけにある。Host start／completionはlaneとrequest identityを
+private `runtime/scheduler.rs::RuntimeScheduler`、wait registration／object FIFO／registration ID allocatorは
+private `runtime/waits.rs::RuntimeWaits`だけが所有する。Wait stateはscheduler serializationへflattenし、host
+requestとwait allocatorはroot `registries.hostRequests`／`nextHostRequestId`／`nextWaitRegistrationId`への
+borrowed compatibility viewで既存shapeを維持するが、authorityは各private ownerだけにある。Host start／completionはlaneとrequest identityを
 同じmutation-free planで検査してtargeted commitする。Thread exitはthread／message／waitとscheduler-owned
 host cancellation planをcross-subsystem preflightしてからcommitし、aggregateはscheduler／wait／host-request
 mapを直接mutateしない。

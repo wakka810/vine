@@ -48,6 +48,13 @@ fn wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit() {
     assert_eq!(registration.thread_id, INITIAL_THREAD_ID);
     assert_eq!(registration.object_id, second_object_id);
     assert_eq!(registration.handle, second_handle);
+    let serialized = serde_json::to_value(&runtime).expect("serialize wait authority");
+    assert_eq!(serialized["nextWaitRegistrationId"], serde_json::json!(2));
+    assert!(
+        serialized["scheduler"]
+            .get("nextWaitRegistrationId")
+            .is_none()
+    );
     assert_eq!(
         runtime
             .scheduler_state_for_thread(INITIAL_THREAD_ID)

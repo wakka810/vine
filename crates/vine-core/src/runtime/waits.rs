@@ -3,26 +3,46 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use serde::Serialize;
 
 use super::{
-    RuntimeObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWaitCompletion,
+    RuntimeHandle, RuntimeObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWaitCompletion,
     RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RuntimeWaits {
     wait_registrations: BTreeMap<RuntimeWaitRegistrationId, RuntimeWaitRegistration>,
     object_waiters: BTreeMap<RuntimeObjectId, VecDeque<RuntimeWaitRegistrationId>>,
+    #[serde(skip)]
+    next_registration_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeWaitRegistrationPlan {
     registration: RuntimeWaitRegistration,
+    previous_next_registration_id: u64,
+    next_registration_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeWaitWakeCandidate {
     pub(super) completion: RuntimeWaitCompletion,
     pub(super) excluded: bool,
+}
+
+impl Default for RuntimeWaits {
+    fn default() -> Self {
+        Self {
+            wait_registrations: BTreeMap::new(),
+            object_waiters: BTreeMap::new(),
+            next_registration_id: 1,
+        }
+    }
+}
+
+impl RuntimeWaitRegistrationPlan {
+    pub(super) const fn registration(&self) -> RuntimeWaitRegistration {
+        self.registration
+    }
 }
 
 impl RuntimeWaits {
@@ -38,10 +58,30 @@ impl RuntimeWaits {
         &self.object_waiters
     }
 
+    pub(super) const fn next_registration_id(&self) -> u64 {
+        self.next_registration_id
+    }
+
     pub(super) fn plan_registration(
         &self,
-        registration: RuntimeWaitRegistration,
+        thread_id: RuntimeThreadId,
+        object_id: RuntimeObjectId,
+        handle: RuntimeHandle,
     ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
+        let id = RuntimeWaitRegistrationId(self.next_registration_id);
+        let next_registration_id = self.next_registration_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-wait",
+                "wait-registration-id-overflow",
+                "wait registration ID space is exhausted",
+            )
+        })?;
+        let registration = RuntimeWaitRegistration {
+            id,
+            thread_id,
+            object_id,
+            handle,
+        };
         if self.wait_registrations.contains_key(&registration.id) {
             return Err(RuntimeStateError::runtime_defect(
                 "runtime-wait",
@@ -71,13 +111,21 @@ impl RuntimeWaits {
                 "wait registration ID is already present in an object queue",
             ));
         }
-        Ok(RuntimeWaitRegistrationPlan { registration })
+        Ok(RuntimeWaitRegistrationPlan {
+            registration,
+            previous_next_registration_id: self.next_registration_id,
+            next_registration_id,
+        })
     }
 
     pub(super) fn commit_registration(
         &mut self,
         plan: RuntimeWaitRegistrationPlan,
     ) -> RuntimeWaitRegistration {
+        debug_assert_eq!(
+            self.next_registration_id,
+            plan.previous_next_registration_id
+        );
         let registration = plan.registration;
         let previous = self
             .wait_registrations
@@ -87,6 +135,7 @@ impl RuntimeWaits {
             .entry(registration.object_id)
             .or_default()
             .push_back(registration.id);
+        self.next_registration_id = plan.next_registration_id;
         registration
     }
 
@@ -230,11 +279,20 @@ mod tests {
     fn registration_plans_are_mutation_free_and_indexes_commit_together() {
         let mut waits = RuntimeWaits::default();
         let registration = registration(1, 0x2000, 2);
-        let plan = waits.plan_registration(registration).unwrap();
+        let plan = waits
+            .plan_registration(
+                registration.thread_id,
+                registration.object_id,
+                registration.handle,
+            )
+            .unwrap();
+        assert_eq!(plan.registration(), registration);
         assert!(waits.registrations().is_empty());
         assert!(waits.object_waiters().is_empty());
+        assert_eq!(waits.next_registration_id(), 1);
 
         assert_eq!(waits.commit_registration(plan), registration);
+        assert_eq!(waits.next_registration_id(), 2);
         assert_eq!(
             waits.registration_for_thread(RuntimeThreadId(0x2000)),
             Ok(Some(registration))
@@ -250,9 +308,13 @@ mod tests {
         let mut waits = RuntimeWaits::default();
         let first = registration(1, 0x2000, 2);
         let second = registration(2, 0x1001, 2);
-        let first_plan = waits.plan_registration(first).unwrap();
+        let first_plan = waits
+            .plan_registration(first.thread_id, first.object_id, first.handle)
+            .unwrap();
         waits.commit_registration(first_plan);
-        let second_plan = waits.plan_registration(second).unwrap();
+        let second_plan = waits
+            .plan_registration(second.thread_id, second.object_id, second.handle)
+            .unwrap();
         waits.commit_registration(second_plan);
 
         let candidates = waits
@@ -283,23 +345,59 @@ mod tests {
     fn rejected_registration_preserves_both_indexes() {
         let mut waits = RuntimeWaits::default();
         let existing = registration(1, 0x2000, 2);
-        let plan = waits.plan_registration(existing).unwrap();
+        let plan = waits
+            .plan_registration(existing.thread_id, existing.object_id, existing.handle)
+            .unwrap();
         waits.commit_registration(plan);
         let before = waits.clone();
 
         assert_eq!(
             waits
-                .plan_registration(registration(1, 0x1001, 3))
+                .plan_registration(
+                    RuntimeThreadId(0x2000),
+                    RuntimeObjectId(3),
+                    RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 3).unwrap(),
+                )
+                .unwrap_err()
+                .code,
+            "wait-registration-thread-duplicate"
+        );
+        assert_eq!(waits, before);
+
+        waits.next_registration_id = 1;
+        let collision_before = waits.clone();
+        assert_eq!(
+            waits
+                .plan_registration(
+                    RuntimeThreadId(0x1001),
+                    RuntimeObjectId(3),
+                    RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 3).unwrap(),
+                )
                 .unwrap_err()
                 .code,
             "wait-registration-id-collision"
         );
+        assert_eq!(waits, collision_before);
+    }
+
+    #[test]
+    fn exhausted_registration_allocator_is_mutation_free() {
+        let waits = RuntimeWaits {
+            next_registration_id: u64::MAX,
+            ..RuntimeWaits::default()
+        };
+        let before = waits.clone();
+
         assert_eq!(
             waits
-                .plan_registration(registration(2, 0x2000, 3))
+                .plan_registration(
+                    RuntimeThreadId(0x2000),
+                    RuntimeObjectId(2),
+                    RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 2).unwrap(),
+                )
                 .unwrap_err()
                 .code,
-            "wait-registration-thread-duplicate"
+            "wait-registration-id-overflow"
         );
         assert_eq!(waits, before);
     }
@@ -308,7 +406,13 @@ mod tests {
     fn excluded_wakes_still_return_candidates_for_cross_subsystem_validation() {
         let mut waits = RuntimeWaits::default();
         let registration = registration(1, 0x2000, 2);
-        let plan = waits.plan_registration(registration).unwrap();
+        let plan = waits
+            .plan_registration(
+                registration.thread_id,
+                registration.object_id,
+                registration.handle,
+            )
+            .unwrap();
         waits.commit_registration(plan);
 
         let candidates = waits

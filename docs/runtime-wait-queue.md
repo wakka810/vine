@@ -14,12 +14,13 @@ object signalを接続するmetadata boundaryである。
 ## Subsystem boundary
 
 `RuntimeScheduler`だけがcurrent-thread selector、lane map、event FIFO、pending host-request table／ID allocatorを所有する。`RuntimeWaits`だけが
-registration tableとobject-indexed FIFOを所有し、`serde(flatten)` adapterで既存の
+registration table、object-indexed FIFO、monotonic registration ID allocatorを所有し、`serde(flatten)` adapterで既存の
 `scheduler.{currentThreadId,threads,waitRegistrations,objectWaiters,events}` shapeを維持する。Collectionは
-どちらもmodule外へ公開せず、inspectionはimmutable getterだけを使う。
+どちらもmodule外へ公開せず、inspectionはimmutable getterだけを使う。Root
+`nextWaitRegistrationId`はborrowed compatibility viewであり、aggregate-owned counterではない。
 
 Lane registration／selection／transitionはprevious／nextを持つmutation-free scheduler plan、wait
-registrationはtableとobject indexを同時に扱うwait planを返す。Host start／completionはschedulerが
+registrationはID reservation、table、object indexを同時に扱うwait planを返す。Host start／completionはschedulerが
 request identityとlane transitionを一つのplanにし、pending requestをremoveする前にcompletionを
 preflightする。Aggregate coordinatorはthread、object、message、wait、host cancellation planを検査してから
 各planをcommitし、scheduler／wait／host-request collectionへ`insert`／`get_mut`／`remove`しない。
@@ -30,12 +31,12 @@ preflightする。Aggregate coordinatorはthread、object、message、wait、hos
 handleをtyped object tableで検証し、process／thread objectのwait stateを読み、次のどちらかを返す。
 
 - `already-signaled`: queueやschedulerを変更せずexact terminal wait stateを返す
-- `pending`: monotonic registration ID、thread ID、stable object ID、observed handleを保存し、laneを
+- `pending`: `RuntimeWaits`がmonotonic registration IDをplanし、thread ID、stable object ID、observed handleを保存してlaneを
   `WaitingObject { registration_id, object_id }`へ移す
 
-One threadは同時にone waitだけを持つ。registration tableとobject-indexed FIFOは同じcommitで
-更新する。nonwaitable heap／module、non-runnable lane、duplicate registration、ID／index mismatchは
-mutation前にstructured errorとなる。
+One threadは同時にone waitだけを持つ。registration table、object-indexed FIFO、next IDは同じ
+infallible commitで更新する。nonwaitable heap／module、non-runnable lane、duplicate registration、
+ID／index mismatch、ID overflowはallocator／collection mutation前にstructured errorとなる。
 
 Controlled registrationは次である。
 
@@ -84,9 +85,10 @@ cargo test -p vine-core --lib runtime::waits::tests --locked
 cargo test -p vine-core --test runtime_wait_queue --locked
 ```
 
-Subsystem tests fix mutation-free lane／selection／registration plans、event／wait FIFO、serialized shape、
-duplicate rejection and excluded-wake validation. Integration tests fix object／thread／scheduler atomicity、
-wake ordering and process-exit cancellation. Current Node／Chrome semantic result、artifact identity、benchmark、
+Subsystem tests fix mutation-free lane／selection／registration plans、event／wait FIFO、allocator overflow、
+serialized shape、duplicate rejection and excluded-wake validation. Integration tests fix
+object／thread／scheduler atomicity、root allocator compatibility view、wake ordering and process-exit
+cancellation. Current Node／Chrome semantic result、artifact identity、benchmark、
 next structured stopは[current checkpoint manifest](current-checkpoint.json)だけを正とする。
 
 ## Non-claims and next dependency
@@ -104,5 +106,5 @@ The controlled per-thread message queue dependency is now implemented in
 wake share the scheduler metadata. Controlled private-heap backing is implemented in
 [runtime-heap-backing.md](runtime-heap-backing.md). Named mutex ownership／recursion／handle lifetime
 is documented in [runtime-synchronization.md](runtime-synchronization.md) and
-[bgi-create-mutex-a.md](bgi-create-mutex-a.md). Capability expansion remains paused while heap／module
-responsibility boundaries are extracted.
+[bgi-create-mutex-a.md](bgi-create-mutex-a.md). Capability expansion remains paused while the remaining
+`RuntimeState` responsibility boundaries are extracted.

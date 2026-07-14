@@ -4,8 +4,8 @@ use serde::Serialize;
 
 use super::waits::{RuntimeWaitRegistrationPlan, RuntimeWaitWakeCandidate, RuntimeWaits};
 use super::{
-    RuntimeMessageWake, RuntimeObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWaitCompletion,
-    RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
+    RuntimeHandle, RuntimeMessageWake, RuntimeObjectId, RuntimeStateError, RuntimeThreadId,
+    RuntimeWaitCompletion, RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -173,6 +173,10 @@ impl RuntimeScheduler {
 
     pub(super) fn next_host_request_id(&self) -> u64 {
         self.next_host_request_id
+    }
+
+    pub(super) fn next_wait_registration_id(&self) -> u64 {
+        self.waits.next_registration_id()
     }
 
     pub(super) fn contains_thread(&self, thread_id: RuntimeThreadId) -> bool {
@@ -424,9 +428,11 @@ impl RuntimeScheduler {
 
     pub(super) fn plan_wait_registration(
         &self,
-        registration: RuntimeWaitRegistration,
+        thread_id: RuntimeThreadId,
+        object_id: RuntimeObjectId,
+        handle: RuntimeHandle,
     ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
-        self.waits.plan_registration(registration)
+        self.waits.plan_registration(thread_id, object_id, handle)
     }
 
     pub(super) fn commit_wait_registration(&mut self, plan: RuntimeWaitRegistrationPlan) {

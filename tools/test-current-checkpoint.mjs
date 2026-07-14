@@ -200,6 +200,24 @@ assert.ok(
   ),
 );
 
+const aggregateMutatesWaitAllocator = structuredClone(manifest);
+aggregateMutatesWaitAllocator.activeRuntimeCheckpoint.runtimeWaitQueue.directAllocatorMutationFromAggregate =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(aggregateMutatesWaitAllocator).some((error) =>
+    error.includes("wait subsystem boundary"),
+  ),
+);
+
+const splitWaitAllocatorCommit = structuredClone(manifest);
+splitWaitAllocatorCommit.activeRuntimeCheckpoint.runtimeWaitQueue.allocatorOverflowMutationFree =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(splitWaitAllocatorCommit).some((error) =>
+    error.includes("wait subsystem boundary"),
+  ),
+);
+
 const exposedSynchronization = structuredClone(manifest);
 exposedSynchronization.activeRuntimeCheckpoint.runtimeSynchronization.mutableCollectionVisibility =
   "public";
