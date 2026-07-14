@@ -538,15 +538,17 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    synchronization.schema !== "vine.runtime-synchronization.v1" ||
+    synchronization.schema !== "vine.runtime-synchronization.v2" ||
     synchronization.stateOwner !== "runtime/synchronization.rs::RuntimeSynchronization" ||
     synchronization.mutableCollectionVisibility !== "private" ||
-    synchronization.serializedProcessField !== "criticalSections" ||
+    !Array.isArray(synchronization.serializedProcessFields) ||
+    synchronization.serializedProcessFields.join(",") !== "criticalSections,mutexes" ||
     synchronization.crossSubsystemMutation !==
       "lifecycle-preflight-then-subsystem-plan-commit" ||
     synchronization.subsystemTests < 2 ||
     synchronization.crossSubsystemAtomicTests < 2 ||
     synchronization.criticalSectionLimit !== 4096 ||
+    synchronization.mutexLimit !== 4096 ||
     synchronization.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime synchronization subsystem boundary is invalid");
@@ -587,6 +589,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.multiByteAllowedFlags.join(",") !== "0,1" ||
     kernel32Policy.setCurrentDirectoryProcessImageDirectoryOnly !== true ||
     kernel32Policy.setCurrentDirectoryMaximumPathBytes !== 32768 ||
+    kernel32Policy.createMutexAllowNamed !== true ||
+    kernel32Policy.createMutexAllowUnnamed !== false ||
+    kernel32Policy.createMutexMaximumNameBytes !== 32768 ||
     kernel32Policy.unsupportedBeforeMutation !== true
   ) {
     errors.push("active Kernel32 compatibility policy boundary is invalid");

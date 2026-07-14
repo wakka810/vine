@@ -31,6 +31,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-initialize-critical-section-v1.json",
   "fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-cp-acp-v1.json",
   "fixtures/runtime-policies/kernel32-set-current-directory-a-v1.json",
+  "fixtures/runtime-policies/kernel32-create-mutex-a-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -81,6 +82,17 @@ for (const relative of policyFiles) {
         currentDirectory.maximumPathBytes <= 32768,
     );
     assert.equal(multibyte?.allowActiveCodePageSelector, true);
+  }
+  const mutex = policy.createMutexA ?? null;
+  if (mutex !== null) {
+    assert.equal(typeof mutex.allowNamed, "boolean");
+    assert.equal(typeof mutex.allowUnnamed, "boolean");
+    assert(mutex.allowNamed || mutex.allowUnnamed);
+    assert(
+      Number.isInteger(mutex.maximumNameBytes) &&
+        mutex.maximumNameBytes >= 2 &&
+        mutex.maximumNameBytes <= 32768,
+    );
   }
 }
 

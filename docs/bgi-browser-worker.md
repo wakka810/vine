@@ -23,15 +23,15 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 280 | 280 |
-| Guest instructions at next stop | 24,496 | 24,496 |
+| Supported calls | 284 | 284 |
+| Guest instructions at next stop | 25,256 | 25,256 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 2,136 | 389 |
-| Host delta batches | 75 | 75 |
+| Final memory generation | 2,207 | 395 |
+| Host delta batches | 77 | 77 |
 | Initial-stack growths | 4 | 4 |
-| Final memory content SHA-256 | `7b95978468db1f5664799d9621b990ace2c06332b4e251bf6b377fa6c4e15bb2` | same |
+| Final memory content SHA-256 | `338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add` | same |
 | Next capability cluster | `kernel32-api-contract` | same |
-| Endpoint | `kernel32.dll!CreateMutexA` | same |
+| Endpoint | `kernel32.dll!GetCurrentThread` | same |
 | Structured fault | `endpoint-contract-missing` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
@@ -41,19 +41,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 2,408
-writeback batches; the Node oracle reconciles at 285 writeback boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 2,481
+writeback batches; the Node oracle reconciles at 289 writeback boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 3,149 CPU slices, 2,864 budget yields, 9,448 validated
-Worker state transitions, 2,771 Rust/Wasm bridge operations, and a maximum
-observed slice of 2.075 ms. The main-thread heartbeat recorded 71 samples with a 22.030 ms
+The successful run used 3,246 CPU slices, 2,957 budget yields, 9,739 validated
+Worker state transitions, 2,850 Rust/Wasm bridge operations, and a maximum
+observed slice of 1.685 ms. The main-thread heartbeat recorded 74 samples with a 22.330 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 890,270 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 566
+changed from 628,360 to 897,450 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 621
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -63,7 +63,7 @@ module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 9,448, 4, and 3 transitions respectively. All three reports
+in `stopped` after 9,739, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -120,7 +120,12 @@ copies the normalized process-image-directory identity, commits directory
 generation `0 -> 1`, returns BOOL 1, and preserves LastError without a guest
 write. Browser and Node compare both initial and post-call directory metadata.
 The caller's path copy is reconciled as ordinary CPU writeback before both paths
-stop on `CreateMutexA(0,1,0x100E1CAC)` at instruction 24,496.
+call `CreateMutexA(0,1,0x100E1CAC)`. Rust copies the 57-byte name into the
+private synchronization subsystem, transactionally creates mutex ID `1`／typed
+object ID `19`／logical handle `0x58010001`, grants initial ownership to thread
+`8192`, returns LastError `0`, and retains no guest pointer. `GetLastError`, one
+flags-zero 16-byte `HeapAlloc`, and its `HeapFree` then complete before both
+paths stop on `GetCurrentThread()` at instruction 25,256.
 
 ## Reproduction
 
@@ -135,7 +140,7 @@ report hash is artifact identity only.
 
 ## Non-claims
 
-- no additional-thread stack lifecycle／stack overflow, broad `GetStringTypeW`, general `LCMapStringW`, explicit-module `GetModuleFileNameA`, general relative-path／VFS state, named mutex semantics, SEH dispatch／filter invocation, broad `HeapSize`, `HeapReAlloc`, or broad heap variant dispatch is implemented
+- no additional-thread stack lifecycle／stack overflow, broad `GetStringTypeW`, general `LCMapStringW`, explicit-module `GetModuleFileNameA`, general relative-path／VFS state, cross-thread mutex blocking／abandonment／guest wait-release-close coverage, SEH dispatch／filter invocation, broad `HeapSize`, `HeapReAlloc`, or broad heap variant dispatch is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
 - the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

@@ -3,14 +3,16 @@
 ## Status
 
 `crates/vine-core/src/runtime/synchronization.rs`の`RuntimeSynchronization`を、process-owned
-critical-section collectionのRust state ownerとする。これは`review.md` 3.2に従う責務分割であり、
-Win32 capability、supported variant、guest-visible resultは追加しない。
+critical-section／mutex collectionのRust state ownerとする。最初の分割checkpointでは
+critical-section behaviorを移動するだけだった。Reached `CreateMutexA` checkpointは同じprivate
+boundaryへnamed mutex identity、owner、recursion、lifetimeを追加し、generic object／handle tableとの
+cross-subsystem transactionを固定した。
 
 ## Ownership boundary
 
-`RuntimeSynchronization`だけがprivate `critical_sections` mapを保持する。公開
+`RuntimeSynchronization`だけがprivate `critical_sections`／`mutexes` mapとnamed-mutex indexを保持する。公開
 `RuntimeProcessState`はこのcollectionをmutable fieldとして公開しない。既存report consumerとの
-互換性のため、serialized process shapeでは引き続き`criticalSections` fieldへflattenする。このJSON
+互換性のため、serialized process shapeでは`criticalSections`／`mutexes` fieldへflattenする。このJSON
 shapeはcurrent diagnostic representationであり、persistent snapshot ABIではない。
 
 `RuntimeState` aggregate rootに残す責務は次だけである。
@@ -26,6 +28,11 @@ address、duplicate、capacity、owner、recursion、contentionのvalidationとs
 `commit`だけが1 recordを置換する。したがってlifecycle、Win32 spin-count、subsystem transitionの
 いずれかが失敗してもaggregate stateは変化しない。
 
+Mutex create／open／last-closeはobject tableも変更するため、aggregate coordinatorはobject tableと
+synchronization stateをcloneし、両方のplanとcapacity／lifecycle preflightが成功した後だけsame
+operationとしてcommitする。Synchronization subsystemはhandle slotやobject refcountを直接mutateせず、
+object tableはname、owner、recursionを保持しない。
+
 ## Preserved behavior
 
 - maximum live critical sections: `4096`
@@ -34,22 +41,35 @@ address、duplicate、capacity、owner、recursion、contentionのvalidationとs
 - enter: current thread ownership、checked recursive increment
 - leave: current ownerだけがdecrementし、zeroでownerをclear
 - contention: `critical-section-contended`をmutation前に返す
+- maximum live mutexes: `4096`
+- named identity: owned ANSI bytes plus Windows-932 UTF-16 key
+- create: new typed object／type-tag `0x58` handle; optional current-thread initial ownership
+- existing name: same objectへdistinct handle、initial-owner requestは無視
+- wait: unowned acquire／same-thread recursive acquire; cross-thread contentionはmutation-free stop
+- release: current ownerだけがchecked decrementし、zeroでownerをclear
+- close／teardown: remaining handleはobjectを保持し、last close／process exitでrecordとnameをretire
 
-Blocking contention、delete、wait integration、arbitrary native raw stateは追加していない。
+Blocking contention、abandonment、guest wait／release／close contract、critical-section delete、
+arbitrary native raw stateは追加していない。
 
 ## Regression
 
 ```powershell
 cargo test -p vine-core runtime::synchronization::tests --locked
 cargo test -p vine-core --test runtime_synchronization --locked
+cargo test -p vine-core --test runtime_mutex --locked
 cargo test -p vine-core --test api_dispatcher critical_section_contract --locked
+cargo test -p vine-core --test api_dispatcher create_mutex_a --locked
 ```
 
 Subsystem unit testsはplanのmutation-free性、recursive transition、rejected transitionのstate不変を
-固定する。Integration testはaggregate lifecycle rejection、invalid spin-count、second-thread contention、
-serialized field compatibilityを検査する。Existing dispatcher testはGuestMemory bytes、LastError、ABI、
-recursive owner、contentionのend-to-end behaviorを保持する。
+固定する。Integration testsはaggregate lifecycle rejection、invalid spin-count、second-thread contention、
+named identity copy、distinct-handle shared object、recursive mutex wait／release、last-close recreation、
+process teardown、serialized field compatibilityを検査する。Dispatcher testsはGuestMemory bytes、
+LastError、ABI、policy rejection、critical-section and mutex ownership behaviorを保持する。
 
-This refactor checkpointのprivate regressionはNode／Chromeで268 calls、instruction `22,843`、final memory digest、
-four initial-stack growths、next `MultiByteToWideChar` stopを変更前と同一に保つ。新しいRust/Wasm
-artifactを使う180秒gateは745 sessions／failure 0で17 thresholdをすべて通した。
+Current private regressionはNode／Chromeで46 contracts／284 calls、instruction `25,256`、final memory
+SHA-256 `338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add`、four
+initial-stack growths、next `GetCurrentThread` stopを一致させる。新しいRust/Wasm artifactを使う
+180秒gateは621 sessions／failure 0で17 thresholdをすべて通した。詳細は
+[bgi-create-mutex-a.md](bgi-create-mutex-a.md)を正とする。

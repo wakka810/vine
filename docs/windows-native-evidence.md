@@ -2257,3 +2257,49 @@ generation `2,136`、cancel／watchdog後pending work 0を通す。3分gateは56
 failure 0、session P95 351.465 ms、slice P99 1.460 ms、heartbeat P99 16.135 ms／
 maximum 20.905 msを含む全17 thresholdを通した。詳細は
 [bgi-set-current-directory-a.md](bgi-set-current-directory-a.md)を正とする。
+
+## 85. BGI named mutex creation
+
+Focused `create-mutex-a` capturesは58,888 bytes／94 lines／SHA-256
+`56931882497c18b6126a3dd93d535df07c4e717f2f3c800e78045bf56cb24904`と
+58,776 bytes／94 lines／SHA-256
+`d83862ad0d0effaafd273e3e9624363a6cbd87e1cf59f1c6d49afbd51b6a77cd`
+である。両方21 API pairsはbalanced、sequence `0..91`はcontiguous、diagnosticsは
+zeroである。Second captureはfirst BGI instanceがnameを保持した状態で別processを起動した。
+
+Return RVA `0x87300`のBGI callはnull security attributes、initial owner TRUE、57 ANSI
+bytes including NULの`Buriko General Interpreter for Sakuranouta is executing.`を渡す。
+Name SHA-256は
+`3f423adb8974d8f8cb0748e49b073d2f8f23d97d45fbe7d88b6d0f91cad196e5`、
+FNV-1aは`0x0C6AC3D2`である。New instanceはnonnull opaque handle／LastError 0、
+existing instanceはdistinct nonnull handle／LastError 183を返す。Continuationはhandleを
+process-globalへstoreし、直ちに`GetLastError`を呼んで183と比較する。
+
+Independent `x86-named-copy-owner-handle-lifetime-v1` oracleはcaller buffer mutation前の
+name copy、distinct handles／same named object、first initial-owner grant、existing createの
+initial-owner ignore、recursive zero-time wait／release、unowned releaseのERROR_NOT_OWNER 288、
+remaining-handle lifetime、last-close name retirementを固定する。Native handle numbersとoracle
+PID suffixはsemantic contractへimportしない。
+
+Rust `RuntimeSynchronization`はANSI bytes／Windows-932 UTF-16 identity、owner thread、recursion、
+named indexをprivateに所有する。Generic object tableは`RuntimeObjectKind::Mutex`、type tag
+`0x58`、handle slots、object lifetimeだけを所有する。Create／open／last close／process teardownは
+両stateをclone-planしてlifecycle／capacity preflight後にcommitする。Unowned／same-thread waitは
+acquire／recursive acquireし、other-thread contentionは`mutex-contended-unsupported`でmutation前に
+停止する。`kernel32.create-mutex-a.v1`はactive policyのnamed／32 KiB boundだけを使い、guest
+pointerを保持しない。New objectはLastError 0、existing nameは183を設定する。
+
+Nodeは46 contracts／284 calls、289 writebacks／443 dirty pages／6,633 changed bytes、
+77 host deltas、generation `395`を通す。Call 281はlogical handle `0x58010001`、mutex ID `1`、
+typed object ID `19`、owner thread `8192`、recursion `1`を返す。Calls 282–284は
+`GetLastError`、flags-zero 16-byte `HeapAlloc`、`HeapFree`をreturnする。Instruction `25256`で
+ID `40`／`GetCurrentThread()`を`endpoint-contract-missing`として停止する。Memory SHA-256は
+`338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add`、
+1,250,520-byte reportのSHA-256は
+`0d3fcc6c6497c3b8ef005b88962f8448c7b321f0b77c3dffcae57b107648d164`である。
+
+Chrome Runtime Workerも284 ordered calls、same mutex metadata／stop／memoryを再現し、
+3,246 slices、2,957 yields、2,850 Wasm crossings、final generation `2,207`、
+cancel／watchdog後pending work 0を通す。3分gateは621 sessions／failure 0、session P95
+320.000 ms、slice P99 1.325 ms、heartbeat P99 6.120 ms／maximum 32.145 msを含む全17
+thresholdを通した。詳細は[bgi-create-mutex-a.md](bgi-create-mutex-a.md)を正とする。

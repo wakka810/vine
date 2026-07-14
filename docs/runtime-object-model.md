@@ -29,6 +29,7 @@ double closeを`runtime-handle-stale`で拒否する。generation `255`をclose�
 |---|---:|---|---:|
 | Process | `0x50` | `vine.runtime-process-object.v1` | `0x50010001` |
 | Thread | `0x54` | `vine.runtime-thread-object.v1` | `0x54010001` |
+| Mutex | `0x58` | `vine.runtime-mutex-object.v1` | first reached `0x58010001` |
 | Module | `0x4D` | `vine.logical-loaded-module.v1` | existing `0x4D010001` |
 | Private heap | `0x68` | `vine.logical-private-heap.v1` | existing `0x68010001` |
 
@@ -43,8 +44,8 @@ generation付きhandle entryを分離する。一つのprocess／thread object�
 process payloadを破棄しない。全handle close後に同じobjectを再openしてもtermination
 signalを保持する。
 
-Process／thread handleはgeneric `CloseHandle` policy、module／heap handleはsubsystem-owned
-policyである。generic closeをmodule／heapへ適用すると`runtime-handle-close-policy`で
+Process／thread handleはgeneric close policy、mutex closeはsynchronization-coordinated object
+retirement、module／heap handleはsubsystem-owned policyである。generic closeをmodule／heapへ適用すると`runtime-handle-close-policy`で
 停止する。将来の`FreeLibrary`／`HeapDestroy`がobject retirementとpayload teardownを
 所有する。
 
@@ -54,16 +55,18 @@ recordを検査する。type mismatch、never-allocated、stale／closed、inter
 
 ## Waitable lifetime
 
-Process／thread objectは`nonsignaled`でbootstrapする。schedulerのrunnable／callback／
+Process／thread objectは`nonsignaled`でbootstrapする。Mutex objectはprivate synchronization
+recordのowner／recursionからacquisition stateを得る。schedulerのrunnable／callback／
 host-wait stateとは別に、object tableがwaitable lifetimeを所有する。
 
 - `cancel_current_thread(exit)`はthread objectを`signaled(exit)`へ遷移する。
 - `terminate_current_process(exit)`はinitial threadとprocess objectを同じexit codeでsignalする。
 - open済みの全handleと、termination後にopenしたhandleが同じsignal stateを観測する。
+- mutex waitはunowned／same-threadならacquireし、other-thread ownershipはstructured unsupportedで止める。
 - module／heapはwaitableでなく、queryを`runtime-object-not-waitable`で拒否する。
 
-Actual waiter registration、wait-any／wait-all、wake ordering、timeout、alertable waitは未実装で
-ある。`SchedulerThreadState::WaitingObject`を今回のtableへ遷移させない。
+Process／thread waiter registrationはseparate wait-queue foundationへ接続済みである。Mutexの
+cross-thread registration、wait-any／wait-all、wake ordering、timeout、alertable waitは未実装である。
 
 ## Existing state integration
 
@@ -75,6 +78,13 @@ lifetime boundaryへ入れた。
 
 Rust/Wasm browser sessionのcancel／clean exitは`terminate_current_process`を使う。
 external report schemaとpending work countは変えず、内部process／thread objectをsignalする。
+
+Reached `CreateMutexA` extensionはsame named objectへ複数handleを発行し、one closeではobjectを
+保持、last closeでobject record／name／synchronization payloadをtransactionally retireする。
+Process teardownも全mutex handleとpayloadを同時にretireする。Object tableはnameやownerを持たず、
+private `RuntimeSynchronization`のmapを直接mutateしない。詳細は
+[bgi-create-mutex-a.md](bgi-create-mutex-a.md)と
+[runtime-synchronization.md](runtime-synchronization.md)を正とする。
 
 ## Contract test and regression
 
@@ -109,8 +119,10 @@ Production regression on the same implementation:
 ## Non-claims and next dependency
 
 This checkpoint does not implement access masks, duplicate-handle inheritance, pseudo handles,
-cross-process handle tables, object destruction/refcount, thread creation, wait queues, message
-queues, heap allocation backing, exports／forwarders, or guest DLL callbacks. It is partial evidence
+cross-process handle tables, general object destruction/refcount, thread creation, mutex blocking,
+wait-any／wait-all, or guest wait／close API coverage. Later checkpoints have added one-object wait
+registration, message queues, heap backing, exports／forwarders, DLL callbacks, and named-mutex
+lifetime over this foundation. It remains partial evidence
 for `REQ-API-02`／`REQ-API-03` and `P3-WIN-01`, not their completion.
 
 The process-owned module graph and controlled process／initial-thread lifecycle dependencies are now

@@ -84,12 +84,17 @@ not embedded in `current-checkpoint.json` because its build manifest hashes that
 
 ## Non-claims and next dependency
 
-This checkpoint does not implement event／mutex／semaphore／timer objects, manual／auto reset,
-ownership or abandonment, waiter priority, multiple waiters contract evidence, timeout clock,
-wait-any／wait-all, alertable wait, APC, message wake, guest API dispatch, or CPU context switching.
+This checkpoint did not initially implement event／mutex／semaphore／timer objects. The reached
+`CreateMutexA` checkpoint now adds named mutex object identity and immediate unowned／recursive
+acquisition through this one-object boundary, but not cross-thread waiter registration. Event／
+semaphore／timer, manual／auto reset, mutex abandonment, waiter priority, multiple waiters contract evidence,
+timeout clock, wait-any／wait-all, alertable wait, APC, message wake, guest API dispatch, and CPU context
+switching remain unimplemented.
 It is partial evidence for `P1-SCH-01`／`REQ-API-03`, not their completion.
 
 The controlled per-thread message queue dependency is now implemented in
 [runtime-message-queue.md](runtime-message-queue.md): ordered enqueue／owner dequeue and empty-queue
 wake share the scheduler metadata. Controlled private-heap backing is implemented in
-[runtime-heap-backing.md](runtime-heap-backing.md). The next Step 9 dependency is DLL lifecycle.
+[runtime-heap-backing.md](runtime-heap-backing.md). Named mutex ownership／recursion／handle lifetime
+is documented in [runtime-synchronization.md](runtime-synchronization.md) and
+[bgi-create-mutex-a.md](bgi-create-mutex-a.md).

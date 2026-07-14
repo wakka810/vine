@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section including one-argument initialization, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, SetCurrentDirectoryA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section including one-argument initialization, named CreateMutexA, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, SetCurrentDirectoryA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-set-current-directory-a`
-- Scope: frozen 17-call equivalence plus 280 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-create-mutex-a`
+- Scope: frozen 17-call equivalence plus 284 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -899,6 +899,20 @@ is `7b95978468db1f5664799d9621b990ace2c06332b4e251bf6b377fa6c4e15bb2`.
 Full evidence is in
 [bgi-set-current-directory-a.md](bgi-set-current-directory-a.md).
 
+The named-mutex checkpoint adds `kernel32.create-mutex-a.v1` without embedding
+the reached BGI name or callsite. Call 281 copies the 57-byte Windows-932 name,
+transactionally creates mutex ID `1`, typed object ID `19`, and logical handle
+`0x58010001`, grants owner thread `8192` recursion `1`, returns the handle, and
+sets LastError `0`. The private synchronization subsystem owns name／owner／
+recursion while the generic object table owns handle slots and object lifetime;
+neither exposes its mutable collection to the other. Calls 282–284 complete
+`GetLastError`, one existing flags-zero 16-byte allocation, and its free. The
+session records 289 writebacks／443 dirty pages／6,633 changed bytes, 77 host
+deltas, and Node generation `395`. At instruction 25,256 it stops on missing
+`GetCurrentThread()`. Final memory SHA-256 is
+`338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add`.
+Full evidence is in [bgi-create-mutex-a.md](bgi-create-mutex-a.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -946,18 +960,20 @@ Full evidence is in
   stack growth is Rust-owned; additional-thread stacks, overflow, and guard
   exception delivery remain absent. Process current-directory identity and the
   reached process-image-directory update are Rust-owned; general ANSI relative-path
-  resolution and VFS effects remain absent. The first structured
-  stop is now `CreateMutexA`; bespoke numbered checkpoint expansion stays
+  resolution and VFS effects remain absent. Named mutex identity, initial owner,
+  recursive immediate wait／release, distinct-handle lifetime, and teardown are
+  Rust-owned; security attributes, unnamed objects, abandonment, cross-thread
+  blocking／wake, and guest wait／release／close API coverage remain absent. The first structured
+  stop is now `GetCurrentThread`; bespoke numbered checkpoint expansion stays
   paused.
 
 ## Next checkpoint
 
-The next proof is the reached `CreateMutexA(0,1,0x100E1CAC)` call. It must
-measure the ANSI name bytes and lifetime, initial-owner behavior, logical handle,
-LastError／already-existing result, wait／close consumers, and teardown before
-choosing how the object table, waits, and synchronization subsystem coordinate.
-Current-directory identity, CP_ACP conversion, and the four stack-growth deltas
-must remain green.
+The next proof is the reached zero-argument `GetCurrentThread()` call. It must
+measure native pseudo-handle identity and the immediate consumer relation, then
+return the selected Rust-owned thread identity without importing a host TID or
+creating TypeScript Windows state. Named mutex lifetime, current-directory
+identity, CP_ACP conversion, and the four stack-growth deltas must remain green.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -984,4 +1000,5 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     896,534 bytes, the process-filter report is 912,806 bytes, the heap-size
     report is 929,421 bytes, the InitializeCriticalSection report is 1,154,575
     bytes, and the initial-stack-growth report is 1,179,850 bytes. The current
-    CP_ACP report is 1,225,836 bytes.
+    CP_ACP report is 1,225,836 bytes, and the current-directory report is
+    1,230,591 bytes. The current CreateMutexA report is 1,250,520 bytes.

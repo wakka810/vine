@@ -15,7 +15,8 @@ use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
     RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeCriticalSection,
-    RuntimeHeapInitialization, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeHeapInitialization, RuntimeMutexNameA, X86_CRITICAL_SECTION_BYTE_LENGTH,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -23,9 +24,9 @@ mod policy;
 pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
-    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32CreateMutexAPolicy, Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy,
+    Kernel32HeapAllocationPolicy, Kernel32InitializeCriticalSectionPolicy,
+    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
     Kernel32WideCharToMultiBytePolicy,
 };
@@ -54,6 +55,7 @@ pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
 pub const WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION: &str = "kernel32.wide-char-to-multi-byte.v1";
 pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to-wide-char.v1";
 pub const SET_CURRENT_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.set-current-directory-a.v1";
+pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
 pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
@@ -92,6 +94,7 @@ const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const ERROR_INVALID_NAME: u32 = 123;
+const ERROR_ALREADY_EXISTS: u32 = 183;
 
 pub fn dispatch_kernel32_api(
     contract: &ApiContract,
@@ -158,6 +161,7 @@ pub fn dispatch_kernel32_api_with_policy(
         SET_CURRENT_DIRECTORY_A_IMPLEMENTATION => {
             handle_set_current_directory_a(policy, contract, frame, session)
         }
+        CREATE_MUTEX_A_IMPLEMENTATION => handle_create_mutex_a(policy, contract, frame, session),
         GET_STRING_TYPE_W_IMPLEMENTATION => {
             handle_get_string_type_w(policy, contract, frame, session)
         }
@@ -243,6 +247,7 @@ pub fn kernel32_contract_for_endpoint(
         "WideCharToMultiByte" => wide_char_to_multi_byte_contract(endpoint)?,
         "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
         "SetCurrentDirectoryA" => set_current_directory_a_contract(endpoint)?,
+        "CreateMutexA" => create_mutex_a_contract(endpoint)?,
         "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
         "LCMapStringW" => lc_map_string_w_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
@@ -1228,6 +1233,118 @@ fn read_nul_terminated_ansi_path(
         format!(
             "ANSI directory path did not terminate within the policy limit of {} bytes",
             policy.maximum_path_bytes
+        ),
+    ))
+}
+
+fn handle_create_mutex_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let mutex_policy = policy.create_mutex_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-mutex",
+            "create-mutex-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable CreateMutexA",
+                policy.id
+            ),
+        )
+    })?;
+    let security_attributes = required_argument(contract, frame, 0, "security attributes")?;
+    let initial_owner = required_argument(contract, frame, 1, "initial owner")? != 0;
+    let name_address = required_argument(contract, frame, 2, "ANSI mutex name")?;
+    if security_attributes != 0 {
+        return Err(ApiFault::unsupported(
+            "win32-mutex",
+            "create-mutex-a-security-attributes-unsupported",
+            "the selected CreateMutexA policy enables only null security attributes",
+        ));
+    }
+    let name_a = if name_address == 0 {
+        if !mutex_policy.allow_unnamed {
+            return Err(ApiFault::unsupported(
+                "win32-mutex",
+                "create-mutex-a-unnamed-unsupported",
+                "the selected CreateMutexA policy does not enable unnamed mutexes",
+            ));
+        }
+        None
+    } else {
+        if !mutex_policy.allow_named {
+            return Err(ApiFault::unsupported(
+                "win32-mutex",
+                "create-mutex-a-named-unsupported",
+                "the selected CreateMutexA policy does not enable named mutexes",
+            ));
+        }
+        let bytes_with_nul = read_nul_terminated_ansi_mutex_name(
+            contract,
+            session,
+            GuestAddress(name_address),
+            mutex_policy,
+        )?;
+        if bytes_with_nul == [0] {
+            return Err(ApiFault::unsupported(
+                "win32-mutex",
+                "create-mutex-a-empty-name-unsupported",
+                "the selected CreateMutexA policy does not enable an empty object-manager name",
+            ));
+        }
+        let utf16_units_with_nul = decode_windows_932(&bytes_with_nul);
+        Some(
+            RuntimeMutexNameA::new(bytes_with_nul, utf16_units_with_nul)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
+        )
+    };
+    let result = session
+        .runtime_mut()
+        .create_mutex_a(name_a, initial_owner)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(
+        ApiImmediate::new(ApiReturnValue::U32(result.handle.0)).with_last_error(
+            if result.already_exists {
+                ERROR_ALREADY_EXISTS
+            } else {
+                ERROR_SUCCESS
+            },
+        ),
+    )
+}
+
+fn read_nul_terminated_ansi_mutex_name(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+    source: GuestAddress,
+    policy: Kernel32CreateMutexAPolicy,
+) -> Result<Vec<u8>, ApiFault> {
+    let maximum = usize::try_from(policy.maximum_name_bytes).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-mutex",
+            "create-mutex-a-limit-not-representable",
+            "validated ANSI mutex name limit does not fit host accounting",
+        )
+    })?;
+    let mut bytes = Vec::new();
+    for offset in 0..maximum {
+        let address = add_guest_offset(contract, source, offset)?;
+        let byte = session
+            .memory()
+            .read(address, 1)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+        bytes.push(byte);
+        if byte == 0 {
+            return Ok(bytes);
+        }
+    }
+    Err(ApiFault::resource_limit(
+        "win32-mutex",
+        "create-mutex-a-name-not-terminated",
+        format!(
+            "ANSI mutex name did not terminate within the policy limit of {} bytes",
+            policy.maximum_name_bytes
         ),
     ))
 }
@@ -2660,6 +2777,22 @@ pub fn set_current_directory_a_contract(
         vec![dynamic_in_bytes("directoryPath", true, 1, 1, 32_768)],
         ApiReturnSchema::Bool32,
         SET_CURRENT_DIRECTORY_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn create_mutex_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "CreateMutexA",
+        vec![
+            opaque_pointer("securityAttributes", true, 4),
+            u32_argument("initialOwner"),
+            dynamic_in_bytes("mutexName", true, 1, 1, 32_768),
+        ],
+        ApiReturnSchema::U32,
+        CREATE_MUTEX_A_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

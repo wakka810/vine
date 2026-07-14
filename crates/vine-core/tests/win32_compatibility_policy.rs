@@ -44,6 +44,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
             "../../../fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-cp-acp-v1.json"
         ),
         include_str!("../../../fixtures/runtime-policies/kernel32-set-current-directory-a-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-create-mutex-a-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -181,4 +182,10 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         .expect("process current-directory policy");
     assert!(current_directory_policy.process_image_directory_only);
     assert_eq!(current_directory_policy.maximum_path_bytes, 32_768);
+    assert!(current_directory.create_mutex_a().is_none());
+    let mutex: Kernel32CompatibilityPolicy = serde_json::from_str(policies[26]).unwrap();
+    let mutex_policy = mutex.create_mutex_a().expect("named mutex policy");
+    assert!(mutex_policy.allow_named);
+    assert!(!mutex_policy.allow_unnamed);
+    assert_eq!(mutex_policy.maximum_name_bytes, 32_768);
 }

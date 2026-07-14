@@ -801,6 +801,7 @@ function normalizeBgiCall(call) {
     lastError: call.lastError,
     guestWrites: call.guestWrites.map(({ address, bytes }) => ({ address, bytes })),
     currentDirectory: call.currentDirectory ?? null,
+    mutex: call.mutex ?? null,
   };
 }
 

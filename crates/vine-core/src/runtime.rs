@@ -48,7 +48,10 @@ pub use messages::{
 use process::RuntimeProcessDirectories;
 pub use process::{RuntimeCurrentDirectoryA, RuntimeSetCurrentDirectoryAPlan};
 use synchronization::RuntimeSynchronization;
-pub use synchronization::{RUNTIME_CRITICAL_SECTION_LIMIT, RuntimeCriticalSection};
+pub use synchronization::{
+    RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_MUTEX_LIMIT, RuntimeCriticalSection, RuntimeMutex,
+    RuntimeMutexId, RuntimeMutexNameA,
+};
 
 pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
 pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1";
@@ -58,6 +61,7 @@ pub const LOGICAL_ENCODED_POINTER_NAMESPACE: &str = "vine.logical-encoded-pointe
 pub const LOGICAL_STANDARD_HANDLE_NAMESPACE: &str = "vine.logical-standard-handle.v1";
 pub const RUNTIME_PROCESS_OBJECT_NAMESPACE: &str = "vine.runtime-process-object.v1";
 pub const RUNTIME_THREAD_OBJECT_NAMESPACE: &str = "vine.runtime-thread-object.v1";
+pub const RUNTIME_MUTEX_OBJECT_NAMESPACE: &str = "vine.runtime-mutex-object.v1";
 pub const RUNTIME_PRIVATE_HEAP_ARENA_BASE: GuestAddress = GuestAddress(0x2000_0000);
 pub const RUNTIME_PRIVATE_HEAP_ARENA_STRIDE: u32 = 0x0100_0000;
 pub const RUNTIME_PRIVATE_HEAP_BACKING_LIMIT: u16 = 32;
@@ -100,6 +104,7 @@ pub struct RuntimeThreadId(pub u32);
 pub enum RuntimeObjectKind {
     Process,
     Thread,
+    Mutex,
     PrivateHeap,
     Module,
 }
@@ -109,6 +114,7 @@ impl RuntimeObjectKind {
         match self {
             Self::Process => 0x50,
             Self::Thread => 0x54,
+            Self::Mutex => 0x58,
             Self::PrivateHeap => 0x68,
             Self::Module => 0x4d,
         }
@@ -118,6 +124,7 @@ impl RuntimeObjectKind {
         match tag {
             0x50 => Some(Self::Process),
             0x54 => Some(Self::Thread),
+            0x58 => Some(Self::Mutex),
             0x68 => Some(Self::PrivateHeap),
             0x4d => Some(Self::Module),
             _ => None,
@@ -175,6 +182,7 @@ impl RuntimeHandle {
 pub enum RuntimeObjectKey {
     Process { process_id: u32 },
     Thread { thread_id: u32 },
+    Mutex { mutex_id: u64 },
     PrivateHeap { handle: u32 },
     Module { handle: u32 },
 }
@@ -184,6 +192,7 @@ impl RuntimeObjectKey {
         match self {
             Self::Process { .. } => RuntimeObjectKind::Process,
             Self::Thread { .. } => RuntimeObjectKind::Thread,
+            Self::Mutex { .. } => RuntimeObjectKind::Mutex,
             Self::PrivateHeap { .. } => RuntimeObjectKind::PrivateHeap,
             Self::Module { .. } => RuntimeObjectKind::Module,
         }
@@ -238,6 +247,20 @@ pub enum RuntimeWaitDisposition {
     Pending {
         registration: RuntimeWaitRegistration,
     },
+    MutexAcquired {
+        object_id: RuntimeObjectId,
+        mutex_id: RuntimeMutexId,
+        recursion_count: u32,
+        abandoned: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCreateMutexAResult {
+    pub mutex_id: RuntimeMutexId,
+    pub handle: RuntimeHandle,
+    pub already_exists: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -320,14 +343,15 @@ impl RuntimeObjectTable {
         })?;
         let kind = key.kind();
         let (namespace, close_policy, wait_state) = match kind {
-            RuntimeObjectKind::Process | RuntimeObjectKind::Thread => (
-                if kind == RuntimeObjectKind::Process {
-                    RUNTIME_PROCESS_OBJECT_NAMESPACE
-                } else {
-                    RUNTIME_THREAD_OBJECT_NAMESPACE
+            RuntimeObjectKind::Process | RuntimeObjectKind::Thread | RuntimeObjectKind::Mutex => (
+                match kind {
+                    RuntimeObjectKind::Process => RUNTIME_PROCESS_OBJECT_NAMESPACE,
+                    RuntimeObjectKind::Thread => RUNTIME_THREAD_OBJECT_NAMESPACE,
+                    RuntimeObjectKind::Mutex => RUNTIME_MUTEX_OBJECT_NAMESPACE,
+                    RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => unreachable!(),
                 },
                 RuntimeHandleClosePolicy::CloseHandle,
-                Some(RuntimeWaitState::Nonsignaled),
+                (kind != RuntimeObjectKind::Mutex).then_some(RuntimeWaitState::Nonsignaled),
             ),
             RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => (
                 if kind == RuntimeObjectKind::PrivateHeap {
@@ -497,6 +521,86 @@ impl RuntimeObjectTable {
             slot.generation += 1;
         }
         Ok(removed)
+    }
+
+    fn remove_closed_mutex_object(
+        &mut self,
+        key: &RuntimeObjectKey,
+    ) -> Result<RuntimeObjectRecord, RuntimeStateError> {
+        if key.kind() != RuntimeObjectKind::Mutex {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-mutex-retirement-kind-invalid",
+                "closed-object retirement is restricted to mutex objects",
+            ));
+        }
+        let id = self.identity_index.get(key).copied().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-object",
+                "runtime-object-identity-unknown",
+                "mutex object identity is not registered",
+            )
+        })?;
+        let record = self.objects.get(&id).cloned().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-object-index-dangling",
+                "mutex object identity index references a missing object",
+            )
+        })?;
+        if record.open_handles != 0
+            || record.close_policy != RuntimeHandleClosePolicy::CloseHandle
+            || self.handles.values().any(|entry| entry.object_id == id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-object",
+                "runtime-mutex-retirement-handles-live",
+                "mutex object cannot retire while a handle remains open",
+            ));
+        }
+        self.identity_index.remove(key);
+        self.objects.remove(&id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-object-retirement-missing",
+                "preflighted mutex object disappeared during retirement",
+            )
+        })
+    }
+
+    fn retire_mutex_objects(
+        &mut self,
+        keys: &[RuntimeObjectKey],
+    ) -> Result<usize, RuntimeStateError> {
+        let mut retired_handles = 0;
+        for key in keys {
+            if key.kind() != RuntimeObjectKind::Mutex {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-object",
+                    "runtime-mutex-retirement-kind-invalid",
+                    "process mutex teardown received a non-mutex object identity",
+                ));
+            }
+            let id = self.identity_index.get(key).copied().ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-object",
+                    "runtime-object-identity-unknown",
+                    "process mutex teardown targets an unregistered object",
+                )
+            })?;
+            let handles = self
+                .handles
+                .values()
+                .filter(|entry| entry.object_id == id)
+                .map(|entry| entry.handle)
+                .collect::<Vec<_>>();
+            for handle in handles {
+                self.close_handle(handle)?;
+                retired_handles += 1;
+            }
+            self.remove_closed_mutex_object(key)?;
+        }
+        Ok(retired_handles)
     }
 
     pub(crate) fn retire_subsystem_objects(
@@ -2731,7 +2835,39 @@ impl RuntimeState {
         &mut self,
         handle: RuntimeHandle,
     ) -> Result<RuntimeHandleEntry, RuntimeStateError> {
-        self.objects.close_handle(handle)
+        if handle.kind()? != RuntimeObjectKind::Mutex {
+            return self.objects.close_handle(handle);
+        }
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::Mutex)?
+            .clone();
+        let RuntimeObjectKey::Mutex { mutex_id } = record.key.clone() else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-mutex",
+                "mutex-object-key-invalid",
+                "mutex handle resolved to a non-mutex object identity",
+            ));
+        };
+        let retirement = (record.open_handles == 1)
+            .then(|| {
+                self.process
+                    .synchronization
+                    .plan_mutex_retirement(RuntimeMutexId(mutex_id))
+            })
+            .transpose()?;
+        let mut next_objects = self.objects.clone();
+        let removed = next_objects.close_handle(handle)?;
+        if retirement.is_some() {
+            next_objects.remove_closed_mutex_object(&record.key)?;
+        }
+        let mut next_synchronization = self.process.synchronization.clone();
+        if let Some(retirement) = retirement {
+            next_synchronization.commit_mutex_retirement(retirement);
+        }
+        self.objects = next_objects;
+        self.process.synchronization = next_synchronization;
+        Ok(removed)
     }
 
     pub fn object_wait_state(
@@ -2942,6 +3078,29 @@ impl RuntimeState {
         }
         let kind = handle.kind()?;
         let object = self.objects.object_for_handle(handle, kind)?.clone();
+        if kind == RuntimeObjectKind::Mutex {
+            let RuntimeObjectKey::Mutex { mutex_id } = &object.key else {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-mutex",
+                    "mutex-object-key-invalid",
+                    "mutex wait resolved to a non-mutex object identity",
+                ));
+            };
+            let mutex_id = RuntimeMutexId(*mutex_id);
+            let plan = self
+                .process
+                .synchronization
+                .plan_mutex_wait(mutex_id, thread_id)?;
+            let recursion_count = plan.recursion_count();
+            let abandoned = plan.abandoned_acquisition();
+            self.process.synchronization.commit_mutex_transition(plan);
+            return Ok(RuntimeWaitDisposition::MutexAcquired {
+                object_id: object.id,
+                mutex_id,
+                recursion_count,
+                abandoned,
+            });
+        }
         let wait_state = object.wait_state.ok_or_else(|| {
             RuntimeStateError::invalid_input(
                 "runtime-wait",
@@ -4888,6 +5047,110 @@ impl RuntimeState {
             .count()
     }
 
+    pub fn create_mutex_a(
+        &mut self,
+        name_a: Option<RuntimeMutexNameA>,
+        initial_owner: bool,
+    ) -> Result<RuntimeCreateMutexAResult, RuntimeStateError> {
+        self.require_mutex_operation_state()?;
+        let current_thread_id = self.current_thread_id();
+        let plan = self.process.synchronization.plan_mutex_creation(
+            name_a,
+            initial_owner,
+            current_thread_id,
+        )?;
+        let mutex_id = plan.id();
+        let already_exists = plan.already_exists();
+        let key = RuntimeObjectKey::Mutex {
+            mutex_id: mutex_id.0,
+        };
+        let mut next_objects = self.objects.clone();
+        let handle = if already_exists {
+            next_objects.open_handle(&key)?
+        } else {
+            next_objects.register_object_and_open_handle(key)?.1
+        };
+        let mut next_synchronization = self.process.synchronization.clone();
+        next_synchronization.commit_mutex_creation(plan);
+        self.objects = next_objects;
+        self.process.synchronization = next_synchronization;
+        Ok(RuntimeCreateMutexAResult {
+            mutex_id,
+            handle,
+            already_exists,
+        })
+    }
+
+    pub fn mutex_for_handle(
+        &self,
+        handle: RuntimeHandle,
+    ) -> Result<&RuntimeMutex, RuntimeStateError> {
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::Mutex)?;
+        let RuntimeObjectKey::Mutex { mutex_id } = &record.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-mutex",
+                "mutex-object-key-invalid",
+                "mutex handle resolved to a non-mutex object identity",
+            ));
+        };
+        self.process
+            .synchronization
+            .mutex(RuntimeMutexId(*mutex_id))
+    }
+
+    pub fn release_mutex(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<&RuntimeMutex, RuntimeStateError> {
+        self.require_mutex_operation_state()?;
+        let id = self.mutex_for_handle(handle)?.id;
+        let plan = self
+            .process
+            .synchronization
+            .plan_mutex_release(id, self.current_thread_id())?;
+        Ok(self.process.synchronization.commit_mutex_transition(plan))
+    }
+
+    fn require_mutex_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-mutex",
+                "mutex-operation-state-invalid",
+                "mutex operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
+    }
+
+    fn teardown_mutexes(&mut self) -> Result<usize, RuntimeStateError> {
+        let ids = self.process.synchronization.mutex_ids();
+        let keys = ids
+            .iter()
+            .map(|id| RuntimeObjectKey::Mutex { mutex_id: id.0 })
+            .collect::<Vec<_>>();
+        let plans = ids
+            .iter()
+            .map(|id| self.process.synchronization.plan_mutex_retirement(*id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut next_objects = self.objects.clone();
+        let retired_handles = next_objects.retire_mutex_objects(&keys)?;
+        let mut next_synchronization = self.process.synchronization.clone();
+        for plan in plans {
+            next_synchronization.commit_mutex_retirement(plan);
+        }
+        self.objects = next_objects;
+        self.process.synchronization = next_synchronization;
+        Ok(retired_handles)
+    }
+
     pub fn initialize_critical_section(
         &mut self,
         address: GuestAddress,
@@ -5405,6 +5668,7 @@ impl RuntimeState {
                 "process exit cannot leave a registered waiter to resume",
             ));
         }
+        self.teardown_mutexes()?;
         self.objects.apply_wait_state_updates(wait_updates);
         for completion in completions {
             self.commit_thread_exit_completion(completion);
@@ -5462,6 +5726,7 @@ impl RuntimeState {
                 "process termination cannot leave a registered waiter to resume",
             ));
         }
+        self.teardown_mutexes()?;
         let cancellation = plan.cancellation.clone();
         self.objects.apply_wait_state_updates(wait_updates);
         for thread_plan in plan.thread_plans {

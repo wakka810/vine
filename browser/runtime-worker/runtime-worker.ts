@@ -10,6 +10,7 @@ import {
   type SessionFinishedMessage,
   type SessionReport,
   type RuntimeCurrentDirectorySnapshot,
+  type RuntimeMutexSnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -81,6 +82,7 @@ interface CompletionMetadata {
   };
   memory?: { generation: number; acknowledgedGeneration: number };
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
+  mutex?: RuntimeMutexSnapshot;
 }
 
 interface ApiFaultMetadata {
@@ -646,6 +648,11 @@ class BrowserRuntimeSession {
       isSetCurrentDirectory === (metadata.currentDirectory !== undefined),
       "BGI current-directory completion metadata mismatch",
     );
+    const isCreateMutex = completion.implementationId === "kernel32.create-mutex-a.v1";
+    invariant(
+      isCreateMutex === (metadata.mutex !== undefined),
+      "BGI mutex completion metadata mismatch",
+    );
     this.#report.supportedCalls.push({
       sequence: this.#report.supportedCalls.length + 1,
       module: endpoint.module,
@@ -664,6 +671,7 @@ class BrowserRuntimeSession {
       ...(metadata.currentDirectory === undefined
         ? {}
         : { currentDirectory: metadata.currentDirectory }),
+      ...(metadata.mutex === undefined ? {} : { mutex: metadata.mutex }),
     });
   }
 

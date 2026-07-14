@@ -35,6 +35,13 @@ let setCurrentDirectoryOracleSentinel = null;
 let setCurrentDirectoryOracleResult = null;
 let setCurrentDirectoryOracleLastError = null;
 let setCurrentDirectoryConsumersRecorded = 0;
+let createMutexOracleScheduled = false;
+let createMutexOracleSentinel = null;
+let createMutexOracleResult = null;
+let createMutexOracleLastError = null;
+let createMutexConsumersRecorded = 0;
+let mutexLifecycleConsumersRecorded = 0;
+const trackedMutexHandles = new Map();
 let getStringTypeOracleScheduled = false;
 let getStringTypeOracleSentinel = null;
 let getStringTypeOracleResult = null;
@@ -1024,6 +1031,46 @@ function snapshotSetCurrentDirectoryACall(
   };
 }
 
+function snapshotCreateMutexACall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  securityAttributes,
+  initialOwner,
+  name,
+) {
+  const recordsConsumer =
+    createMutexConsumersRecorded < 2 &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    createMutexConsumersRecorded += 1;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    createMutexA: {
+      securityAttributes: securityAttributes.toString(),
+      initialOwner: initialOwner.toUInt32(),
+      nameBefore: snapshotMultiByteSource(name, -1),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations:
+              snapshotX86FrameCallerContinuationsFollowingDirectJump(
+                context,
+                4,
+                32,
+              ),
+          }
+        : null,
+    },
+  };
+}
+
 function snapshotGetStringTypeWCall(
   caller,
   returnAddress,
@@ -1750,6 +1797,14 @@ if (selectedObservations.has("multi-byte-to-wide-char")) {
 if (selectedObservations.has("set-current-directory-a")) {
   hooks["kernel32.dll"].push(["SetCurrentDirectoryA", ["ansi"]]);
 }
+if (selectedObservations.has("create-mutex-a")) {
+  hooks["kernel32.dll"].push(
+    ["CreateMutexA", [null, null, "ansi"]],
+    ["WaitForSingleObject", [null, null]],
+    ["ReleaseMutex", [null]],
+    ["CloseHandle", [null]],
+  );
+}
 if (selectedObservations.has("get-string-type-w")) {
   hooks["kernel32.dll"].push([
     "GetStringTypeW",
@@ -1950,6 +2005,26 @@ function attachHook(module, name, decoders) {
         (isMainModuleCaller ||
           (caller.module.toLowerCase() === "frida-agent.dll" &&
             setCurrentDirectoryOracleSentinel !== null));
+      const isCreateMutexA = name === "CreateMutexA";
+      const isMutexLifecycleApi =
+        name === "WaitForSingleObject" ||
+        name === "ReleaseMutex" ||
+        name === "CloseHandle";
+      const mutexHandleKey = isMutexLifecycleApi
+        ? args[0].toString().toLowerCase()
+        : null;
+      const focusedCreateMutexAObservation =
+        selectedObservations.has("create-mutex-a") &&
+        isCreateMutexA &&
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            createMutexOracleSentinel !== null));
+      const focusedMutexLifecycleObservation =
+        selectedObservations.has("create-mutex-a") &&
+        isMutexLifecycleApi &&
+        mutexHandleKey !== null &&
+        trackedMutexHandles.has(mutexHandleKey);
       const focusedGetStringTypeObservation =
         selectedObservations.has("get-string-type-w") &&
         name === "GetStringTypeW" &&
@@ -2051,6 +2126,15 @@ function attachHook(module, name, decoders) {
         return;
       }
       if (
+        selectedObservations.has("create-mutex-a") &&
+        (isCreateMutexA || isMutexLifecycleApi) &&
+        !focusedCreateMutexAObservation &&
+        !focusedMutexLifecycleObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
         selectedObservations.has("get-string-type-w") &&
         name === "GetStringTypeW" &&
         !focusedGetStringTypeObservation
@@ -2124,6 +2208,15 @@ function attachHook(module, name, decoders) {
         caller.module.toLowerCase() === "frida-agent.dll";
       if (this.traceSetCurrentDirectoryOracle) {
         this.lastError = setCurrentDirectoryOracleSentinel;
+      }
+      this.traceCreateMutexOracle =
+        createMutexOracleSentinel !== null &&
+        selectedObservations.has("create-mutex-a") &&
+        (isCreateMutexA || isMutexLifecycleApi) &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceCreateMutexOracle) {
+        this.lastError = createMutexOracleSentinel;
       }
       this.traceGetStringTypeOracle =
         getStringTypeOracleSentinel !== null &&
@@ -2336,6 +2429,35 @@ function attachHook(module, name, decoders) {
               })(),
             }
           : null;
+      this.traceCreateMutexA =
+        focusedCreateMutexAObservation
+          ? {
+              securityAttributes: args[0],
+              initialOwner: args[1],
+              name: args[2],
+              nameBefore: snapshotMultiByteSource(args[2], -1),
+            }
+          : null;
+      const recordsMutexLifecycleConsumer =
+        focusedMutexLifecycleObservation &&
+        isMainModuleCaller &&
+        mutexLifecycleConsumersRecorded < 6;
+      if (recordsMutexLifecycleConsumer) {
+        mutexLifecycleConsumersRecorded += 1;
+      }
+      this.traceMutexLifecycle =
+        focusedMutexLifecycleObservation
+          ? {
+              operation: name,
+              handle: mutexHandleKey,
+              trackedObject: trackedMutexHandles.get(mutexHandleKey),
+              timeoutMilliseconds:
+                name === "WaitForSingleObject" ? args[1].toUInt32() : null,
+              immediateConsumer: recordsMutexLifecycleConsumer
+                ? snapshotInstructionsFollowingDirectJump(this.returnAddress, 24)
+                : null,
+            }
+          : null;
       this.traceGetStringTypeW =
         focusedGetStringTypeObservation
           ? {
@@ -2459,6 +2581,21 @@ function attachHook(module, name, decoders) {
               this.traceSetCurrentDirectoryA.path,
               this.traceSetCurrentDirectoryA.currentDirectoryBefore,
             )
+        : this.traceCreateMutexA !== null
+          ? snapshotCreateMutexACall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceCreateMutexA.securityAttributes,
+              this.traceCreateMutexA.initialOwner,
+              this.traceCreateMutexA.name,
+            )
+        : this.traceMutexLifecycle !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              mutexLifecycle: this.traceMutexLifecycle,
+            }
         : this.traceGetStringTypeW !== null
           ? snapshotGetStringTypeWCall(
               caller,
@@ -2633,6 +2770,10 @@ function attachHook(module, name, decoders) {
       if (this.traceSetCurrentDirectoryOracle) {
         setCurrentDirectoryOracleResult = result.toUInt32();
         setCurrentDirectoryOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceCreateMutexOracle && name === "CreateMutexA") {
+        createMutexOracleResult = result.toString();
+        createMutexOracleLastError = Number(lastError) >>> 0;
       }
       if (this.traceGetStringTypeOracle) {
         getStringTypeOracleResult = result.toUInt32();
@@ -2830,6 +2971,25 @@ function attachHook(module, name, decoders) {
                 currentDirectoryAfter: setCurrentDirectoryAfter,
               },
             }),
+        ...(this.traceCreateMutexA === null
+          ? {}
+          : {
+              createMutexA: {
+                result: result.toString(),
+                nameAfter: snapshotMultiByteSource(
+                  this.traceCreateMutexA.name,
+                  -1,
+                ),
+              },
+            }),
+        ...(this.traceMutexLifecycle === null
+          ? {}
+          : {
+              mutexLifecycle: {
+                ...this.traceMutexLifecycle,
+                result: result.toString(),
+              },
+            }),
         ...(this.traceGetStringTypeW === null
           ? {}
           : {
@@ -2887,6 +3047,20 @@ function attachHook(module, name, decoders) {
       }
       if (this.traceHeapFree !== null && result.toUInt32() !== 0) {
         observedMainModuleHeapAllocations.delete(this.traceHeapFree.pointer);
+      }
+      if (this.traceCreateMutexA !== null && !result.isNull()) {
+        trackedMutexHandles.set(result.toString().toLowerCase(), {
+          createdByCallId: this.traceFrame.callId,
+          initialOwner: this.traceCreateMutexA.initialOwner.toUInt32(),
+          name: this.traceCreateMutexA.nameBefore,
+        });
+      }
+      if (
+        this.traceMutexLifecycle !== null &&
+        name === "CloseHandle" &&
+        result.toUInt32() !== 0
+      ) {
+        trackedMutexHandles.delete(this.traceMutexLifecycle.handle);
       }
       if (name === "Direct3DCreate9" && selectedVtables.has("idirect3d9")) {
         attachIdirect3d9(result);
@@ -3027,6 +3201,273 @@ function scheduleSetCurrentDirectoryAOracle(module) {
           emit("set-current-directory-a-oracle-restore-error", {
             error: error.message,
           });
+        }
+      }
+    }
+  });
+}
+
+function scheduleCreateMutexAOracle(module) {
+  if (createMutexOracleScheduled) {
+    return;
+  }
+  createMutexOracleScheduled = true;
+  setImmediate(() => {
+    const handles = [];
+    let closeHandle = null;
+    try {
+      const address = (name) => {
+        const result = findExport(module, name);
+        if (result === null) {
+          throw new Error(`${name} export is unavailable`);
+        }
+        return result;
+      };
+      const createMutexA = new SystemFunction(
+        address("CreateMutexA"),
+        "pointer",
+        ["pointer", "uint32", "pointer"],
+        "stdcall",
+      );
+      const waitForSingleObject = new SystemFunction(
+        address("WaitForSingleObject"),
+        "uint32",
+        ["pointer", "uint32"],
+        "stdcall",
+      );
+      const releaseMutex = new SystemFunction(
+        address("ReleaseMutex"),
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      closeHandle = new SystemFunction(
+        address("CloseHandle"),
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const nameBytes = [
+        ...`Local\\VineCreateMutexAOracle-${Process.id}`,
+      ].map((character) => character.charCodeAt(0));
+      nameBytes.push(0);
+      const allocateName = () => {
+        const pointer = Memory.alloc(nameBytes.length);
+        pointer.writeByteArray(nameBytes);
+        return pointer;
+      };
+      const invokeCreate = (id, sentinel, initialOwner, name) => {
+        createMutexOracleSentinel = sentinel;
+        createMutexOracleResult = null;
+        createMutexOracleLastError = null;
+        try {
+          const outcome = createMutexA(ptr(0), initialOwner, name);
+          const result = outcome.value.toString();
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            createMutexOracleResult === null ||
+            createMutexOracleLastError === null
+          ) {
+            throw new Error(`${id} did not pass through the CreateMutexA hook`);
+          }
+          if (result !== "0x0") {
+            handles.push(outcome.value);
+          }
+          return {
+            id,
+            sentinel,
+            initialOwner,
+            name: snapshotMultiByteSource(name, -1),
+            result,
+            hookResult: createMutexOracleResult,
+            hookLastErrorAfter: createMutexOracleLastError,
+            systemLastError,
+          };
+        } finally {
+          createMutexOracleSentinel = null;
+          createMutexOracleResult = null;
+          createMutexOracleLastError = null;
+        }
+      };
+      const invokeUint32 = (api, id, sentinel, operation) => {
+        createMutexOracleSentinel = sentinel;
+        try {
+          const outcome = operation();
+          return {
+            api,
+            id,
+            sentinel,
+            result: Number(outcome.value) >>> 0,
+            systemLastError: Number(outcome.lastError) >>> 0,
+          };
+        } finally {
+          createMutexOracleSentinel = null;
+        }
+      };
+
+      const firstName = allocateName();
+      const first = invokeCreate("create-initial-owner", 87, 1, firstName);
+      firstName.writeU8(0x58);
+      const firstInputAfterMutation = snapshotMultiByteSource(firstName, -1);
+      const duplicateName = allocateName();
+      const duplicate = invokeCreate(
+        "create-existing-initial-owner-ignored",
+        88,
+        1,
+        duplicateName,
+      );
+      const firstHandle = ptr(first.result);
+      const duplicateHandle = ptr(duplicate.result);
+      const recursiveWait = invokeUint32(
+        "WaitForSingleObject",
+        "wait-recursive-through-duplicate-handle",
+        89,
+        () => waitForSingleObject(duplicateHandle, 0),
+      );
+      const releaseRecursive = invokeUint32(
+        "ReleaseMutex",
+        "release-recursive-acquisition",
+        90,
+        () => releaseMutex(duplicateHandle),
+      );
+      const releaseInitial = invokeUint32(
+        "ReleaseMutex",
+        "release-initial-ownership",
+        91,
+        () => releaseMutex(firstHandle),
+      );
+      const releaseUnowned = invokeUint32(
+        "ReleaseMutex",
+        "reject-release-while-unowned",
+        92,
+        () => releaseMutex(firstHandle),
+      );
+      const waitAfterRelease = invokeUint32(
+        "WaitForSingleObject",
+        "wait-after-full-release",
+        93,
+        () => waitForSingleObject(duplicateHandle, 0),
+      );
+      const releaseAfterWait = invokeUint32(
+        "ReleaseMutex",
+        "release-after-wait",
+        94,
+        () => releaseMutex(duplicateHandle),
+      );
+      const closeFirst = invokeUint32(
+        "CloseHandle",
+        "close-first-handle",
+        95,
+        () => closeHandle(firstHandle),
+      );
+      const waitAfterFirstClose = invokeUint32(
+        "WaitForSingleObject",
+        "wait-through-remaining-handle",
+        96,
+        () => waitForSingleObject(duplicateHandle, 0),
+      );
+      const releaseAfterFirstClose = invokeUint32(
+        "ReleaseMutex",
+        "release-through-remaining-handle",
+        97,
+        () => releaseMutex(duplicateHandle),
+      );
+      const closeDuplicate = invokeUint32(
+        "CloseHandle",
+        "close-last-handle",
+        98,
+        () => closeHandle(duplicateHandle),
+      );
+      const recreatedName = allocateName();
+      const recreated = invokeCreate(
+        "recreate-after-last-close",
+        99,
+        0,
+        recreatedName,
+      );
+      const recreatedHandle = ptr(recreated.result);
+      const waitRecreated = invokeUint32(
+        "WaitForSingleObject",
+        "wait-recreated-unowned-mutex",
+        100,
+        () => waitForSingleObject(recreatedHandle, 0),
+      );
+      const releaseRecreated = invokeUint32(
+        "ReleaseMutex",
+        "release-recreated-mutex",
+        101,
+        () => releaseMutex(recreatedHandle),
+      );
+      const closeRecreated = invokeUint32(
+        "CloseHandle",
+        "close-recreated-handle",
+        102,
+        () => closeHandle(recreatedHandle),
+      );
+
+      emit("create-mutex-a-oracle", {
+        profile: "x86-named-copy-owner-handle-lifetime-v1",
+        constants: {
+          errorAlreadyExists: 183,
+          errorNotOwner: 288,
+          waitObject0: 0,
+          zeroTimeoutMilliseconds: 0,
+        },
+        nameBytes,
+        firstInputAfterMutation,
+        calls: [
+          first,
+          duplicate,
+          recursiveWait,
+          releaseRecursive,
+          releaseInitial,
+          releaseUnowned,
+          waitAfterRelease,
+          releaseAfterWait,
+          closeFirst,
+          waitAfterFirstClose,
+          releaseAfterFirstClose,
+          closeDuplicate,
+          recreated,
+          waitRecreated,
+          releaseRecreated,
+          closeRecreated,
+        ],
+        relations: {
+          nameCopiedBeforeCallerMutation: duplicate.systemLastError === 183,
+          sameObjectReturnedThroughDistinctHandles:
+            duplicate.systemLastError === 183 && first.result !== duplicate.result,
+          newObjectClearsLastError:
+            first.systemLastError === 0 && recreated.systemLastError === 0,
+          initialOwnerGrantedAndExistingInitialOwnerIgnored:
+            recursiveWait.result === 0 &&
+            releaseRecursive.result !== 0 &&
+            releaseInitial.result !== 0 &&
+            releaseUnowned.result === 0 &&
+            releaseUnowned.systemLastError === 288,
+          remainingHandleKeepsObjectAlive:
+            closeFirst.result !== 0 &&
+            waitAfterFirstClose.result === 0 &&
+            releaseAfterFirstClose.result !== 0,
+          lastCloseRetiresNamedObject:
+            closeDuplicate.result !== 0 &&
+            recreated.result !== "0x0" &&
+            recreated.systemLastError === 0,
+        },
+      });
+    } catch (error) {
+      emit("create-mutex-a-oracle-error", { error: error.message });
+    } finally {
+      createMutexOracleSentinel = null;
+      createMutexOracleResult = null;
+      createMutexOracleLastError = null;
+      if (closeHandle !== null) {
+        for (const handle of handles) {
+          try {
+            closeHandle(handle);
+          } catch {
+            // Best-effort cleanup after a partial oracle sequence.
+          }
         }
       }
     }
@@ -5107,6 +5548,12 @@ Process.attachModuleObserver({
       selectedObservations.has("set-current-directory-a")
     ) {
       scheduleSetCurrentDirectoryAOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("create-mutex-a")
+    ) {
+      scheduleCreateMutexAOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

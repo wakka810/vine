@@ -32,6 +32,7 @@ const supportedObservations = new Set([
   "wide-char-to-multi-byte",
   "multi-byte-to-wide-char",
   "set-current-directory-a",
+  "create-mutex-a",
   "get-string-type-w",
   "lc-map-string-w",
   "get-last-error",

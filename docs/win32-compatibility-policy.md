@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-set-current-directory-a-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-create-mutex-a-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -20,7 +20,7 @@ Win32 semantics
                          |
                          v
 Compatibility policy
-  versioned selectors, file types, HeapAlloc/HeapFree/HeapSize variants, process-view/code-page/current-directory enablement
+  versioned selectors, file types, HeapAlloc/HeapFree/HeapSize variants, process-view/code-page/current-directory/mutex enablement
   measured InitializeCriticalSection raw spin-state field
   explicit processor-feature presence
   bounded validation and mutation-free unsupported result
@@ -45,6 +45,8 @@ runtime execution. It contains only target-independent bounded data:
 - opt-in current-process image-path lookup with a bounded ANSI output capacity;
 - opt-in process-image-directory-only `SetCurrentDirectoryA` with a bounded
   Windows-932 input scan;
+- opt-in named `CreateMutexA` with null security attributes and a bounded
+  Windows-932 name scan;
 - enabled `HeapAlloc` flag and byte-length pairs, `HeapFree` flags, and `HeapSize` flags;
 - an opt-in x86 `InitializeCriticalSection` raw spin-state field for the measured
   Windows compatibility profile;
@@ -55,7 +57,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form twenty-six monotonic controlled policies:
+The current files form twenty-seven monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -85,6 +87,7 @@ The current files form twenty-six monotonic controlled policies:
 | `kernel32-initialize-critical-section-v1` | stdin, stdout, stderr | preceding options + measured default x86 critical-section spin-state field | preceding allocation/free/size variants |
 | `kernel32-multi-byte-to-wide-char-cp-acp-v1` | stdin, stdout, stderr | preceding options + `CP_ACP` selector／flags `0,1`／65,536-byte decode bound | preceding allocation/free/size variants |
 | `kernel32-set-current-directory-a-v1` | stdin, stdout, stderr | preceding options + registered process-image directory only／32 KiB input bound | preceding allocation/free/size variants |
+| `kernel32-create-mutex-a-v1` | stdin, stdout, stderr | preceding options + named mutexes／32 KiB input bound; unnamed disabled | preceding allocation/free/size variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -271,6 +274,18 @@ stop before mutation. Public fixtures cover alternate case／separator spelling,
 DBCS trail `0x5C`, caller-buffer ownership, generation, ABI cleanup, stale plan,
 lifecycle conflict, and mutation-free rejection without loading BGI evidence.
 
+`CreateMutexA` uses one policy-backed three-argument semantic handler. The
+policy enables named objects, disables unnamed objects, and bounds the ANSI name
+scan to 32 KiB; it contains no BGI name, guest pointer, caller, result handle,
+call order, or next stop. The handler accepts only null security attributes,
+copies and decodes the Windows-932 name before planning state, and returns a
+logical typed handle with LastError `0` for a new object or `183` for an existing
+name. Public fixtures use an independent mutex name and cover caller-buffer
+ownership, distinct handles sharing one object, initial ownership, ABI cleanup,
+policy-disabled／security-attribute／unnamed／unterminated mutation-free rejection,
+runtime wait／release, last-close recreation, and process teardown without
+loading BGI evidence.
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -306,6 +321,9 @@ state layouts, contention, deletion, wait scheduling, or cross-thread blocking.
 The current-directory policy does not implement general relative resolution,
 filesystem existence, directory enumeration, file identity, host path import,
 mounts, or a browser VFS backend.
+The mutex policy does not implement security descriptors, inheritance, unnamed
+objects, `OpenMutex`, access masks, abandonment, cross-process state,
+cross-thread blocking／wake, or guest wait／release／close API coverage.
 Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

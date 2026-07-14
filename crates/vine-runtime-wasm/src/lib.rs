@@ -13,13 +13,13 @@ use vine_core::{
     HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
     MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
-    ProcessAddressSpaceLayout, ReentrancyPolicy, RuntimeBootstrap, RuntimeCallbackFrameId,
-    RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport,
-    RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHeapInitialization, RuntimeModule,
-    RuntimeModuleId, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState,
-    RuntimeThreadId, SchedulerThreadState, StackCleanup, bind_pe32_imports, build_pe32_load_plan,
-    dispatch_kernel32_api_with_policy, install_controlled_initial_stack,
-    install_controlled_process_environment_with_command_line,
+    ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
+    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHandle,
+    RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId,
+    RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, SchedulerThreadState,
+    StackCleanup, bind_pe32_imports, build_pe32_load_plan, dispatch_kernel32_api_with_policy,
+    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
@@ -802,6 +802,20 @@ impl BrowserRuntime {
                             metadata["currentDirectory"] = json!({
                                 "directory": self.runtime.current_directory_a(),
                                 "generation": self.runtime.current_directory_generation(),
+                            });
+                        }
+                        if completion.implementation_id == "kernel32.create-mutex-a.v1"
+                            && let RegisterUpdate::Set(handle) = completion.eax
+                        {
+                            let handle = RuntimeHandle(handle);
+                            metadata["mutex"] = json!({
+                                "handle": handle,
+                                "object": self.runtime.mutex_for_handle(handle).map_err(error_string)?,
+                                "objectRecord": self.runtime.object_for_handle(
+                                    handle,
+                                    RuntimeObjectKind::Mutex,
+                                ).map_err(error_string)?,
+                                "alreadyExists": completion.last_error == 183,
                             });
                         }
                         metadata

@@ -23,17 +23,18 @@ use vine_core::{
     ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
     RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,
     RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
-    RuntimeHeapAllocation, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
-    RuntimeModuleImageErrorClass, RuntimeProcessId, RuntimeProcessLifecycleState,
-    RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack, RuntimeThreadStackGrowth,
-    RuntimeTlsValue, SchedulerThreadState, UnsupportedPoint, bind_pe32_imports,
-    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_controlled_process_environment,
+    RuntimeHandle, RuntimeHeapAllocation, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
+    RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord,
+    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo,
+    RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack,
+    RuntimeThreadStackGrowth, RuntimeTlsValue, SchedulerThreadState, UnsupportedPoint,
+    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
+    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, encode_pointer_contract,
+    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
+    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
+    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
+    install_callback_return_sentinel, install_controlled_initial_stack,
+    install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -127,6 +128,7 @@ enum GenericRuntimeCapability {
     HeapSize,
     InitializeCriticalSection,
     SetCurrentDirectoryA,
+    CreateMutexA,
 }
 
 struct GenericRuntimeProcess {
@@ -252,6 +254,8 @@ struct GenericRuntimeCompletion {
     file_type: Option<GenericRuntimeFileType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     current_directory: Option<GenericRuntimeCurrentDirectory>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mutex: Option<GenericRuntimeMutex>,
     memory: MemoryStats,
 }
 
@@ -260,6 +264,15 @@ struct GenericRuntimeCompletion {
 struct GenericRuntimeCurrentDirectory {
     directory: vine_core::RuntimeCurrentDirectoryA,
     generation: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeMutex {
+    handle: RuntimeHandle,
+    object: RuntimeMutex,
+    object_record: RuntimeObjectRecord,
+    already_exists: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -2556,6 +2569,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::HeapSize
                 | GenericRuntimeCapability::InitializeCriticalSection
                 | GenericRuntimeCapability::SetCurrentDirectoryA
+                | GenericRuntimeCapability::CreateMutexA
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2571,6 +2585,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::HeapSize
                 | GenericRuntimeCapability::InitializeCriticalSection
                 | GenericRuntimeCapability::SetCurrentDirectoryA
+                | GenericRuntimeCapability::CreateMutexA
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2604,7 +2619,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SetUnhandledExceptionFilter
             | GenericRuntimeCapability::HeapSize
             | GenericRuntimeCapability::InitializeCriticalSection
-            | GenericRuntimeCapability::SetCurrentDirectoryA,
+            | GenericRuntimeCapability::SetCurrentDirectoryA
+            | GenericRuntimeCapability::CreateMutexA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3053,6 +3069,33 @@ fn run_v86_generic_runtime_session(
                                 directory: session.runtime().current_directory_a().clone(),
                                 generation: session.runtime().current_directory_generation(),
                             });
+                        let mutex = if completion.implementation_id == "kernel32.create-mutex-a.v1"
+                        {
+                            let RegisterUpdate::Set(handle) = completion.eax else {
+                                return Err(LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "create-mutex-handle-result-invalid",
+                                    "CreateMutexA completion did not set a logical handle",
+                                ));
+                            };
+                            let handle = RuntimeHandle(handle);
+                            Some(GenericRuntimeMutex {
+                                handle,
+                                object: session
+                                    .runtime()
+                                    .mutex_for_handle(handle)
+                                    .map_err(runtime_state_error)?
+                                    .clone(),
+                                object_record: session
+                                    .runtime()
+                                    .object_for_handle(handle, RuntimeObjectKind::Mutex)
+                                    .map_err(runtime_state_error)?
+                                    .clone(),
+                                already_exists: completion.last_error == 183,
+                            })
+                        } else {
+                            None
+                        };
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -3068,6 +3111,7 @@ fn run_v86_generic_runtime_session(
                                 standard_handle,
                                 file_type,
                                 current_directory,
+                                mutex,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3175,6 +3219,7 @@ fn run_v86_generic_runtime_session(
                                 standard_handle: None,
                                 file_type: None,
                                 current_directory: None,
+                                mutex: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3227,6 +3272,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::HeapSize
                 | GenericRuntimeCapability::InitializeCriticalSection
                 | GenericRuntimeCapability::SetCurrentDirectoryA
+                | GenericRuntimeCapability::CreateMutexA
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3244,12 +3290,16 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::HeapSize
                 | GenericRuntimeCapability::InitializeCriticalSection
                 | GenericRuntimeCapability::SetCurrentDirectoryA
+                | GenericRuntimeCapability::CreateMutexA
         )
     );
     let set_current_directory_a_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::SetCurrentDirectoryA)
+        Some(
+            GenericRuntimeCapability::SetCurrentDirectoryA | GenericRuntimeCapability::CreateMutexA
+        )
     );
+    let create_mutex_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::CreateMutexA));
     let initialize_critical_section_enabled = set_current_directory_a_enabled
         || matches!(
             enabled,
@@ -3353,7 +3403,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::SetUnhandledExceptionFilter
             | GenericRuntimeCapability::HeapSize
             | GenericRuntimeCapability::InitializeCriticalSection
-            | GenericRuntimeCapability::SetCurrentDirectoryA,
+            | GenericRuntimeCapability::SetCurrentDirectoryA
+            | GenericRuntimeCapability::CreateMutexA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3505,6 +3556,7 @@ fn runtime_capability_enables_endpoint(
         "HeapSize" => heap_size_enabled,
         "InitializeCriticalSection" => initialize_critical_section_enabled,
         "SetCurrentDirectoryA" => set_current_directory_a_enabled,
+        "CreateMutexA" => create_mutex_a_enabled,
         _ => true,
     }
 }
@@ -3554,7 +3606,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::SetUnhandledExceptionFilter
             | GenericRuntimeCapability::HeapSize
             | GenericRuntimeCapability::InitializeCriticalSection
-            | GenericRuntimeCapability::SetCurrentDirectoryA,
+            | GenericRuntimeCapability::SetCurrentDirectoryA
+            | GenericRuntimeCapability::CreateMutexA,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8967,6 +9020,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-set-current-directory-a" => {
                     GenericRuntimeCapability::SetCurrentDirectoryA
                 }
+                "kernel32-create-mutex-a" => GenericRuntimeCapability::CreateMutexA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

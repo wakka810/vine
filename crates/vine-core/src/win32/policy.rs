@@ -38,6 +38,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_current_directory_a: Option<Kernel32SetCurrentDirectoryAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_mutex_a: Option<Kernel32CreateMutexAPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lc_map_string_w: Option<Kernel32LcMapStringWPolicy>,
@@ -97,6 +99,14 @@ pub struct Kernel32MultiByteToWideCharPolicy {
 pub struct Kernel32SetCurrentDirectoryAPolicy {
     pub process_image_directory_only: bool,
     pub maximum_path_bytes: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32CreateMutexAPolicy {
+    pub allow_named: bool,
+    pub allow_unnamed: bool,
+    pub maximum_name_bytes: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,6 +177,7 @@ impl Kernel32CompatibilityPolicy {
             wide_char_to_multi_byte: None,
             multi_byte_to_wide_char: None,
             set_current_directory_a: None,
+            create_mutex_a: None,
             get_string_type_w: None,
             lc_map_string_w: None,
             get_module_file_name_a: None,
@@ -306,6 +317,16 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-set-current-directory-invalid",
                 "SetCurrentDirectoryA requires the CP_ACP conversion layer, process-image-directory selection, and a bounded DOS path limit",
+            ));
+        }
+        if let Some(mutex) = self.create_mutex_a
+            && (self.active_code_page() != Some(932)
+                || (!mutex.allow_named && !mutex.allow_unnamed)
+                || !(2..=32_768).contains(&mutex.maximum_name_bytes))
+        {
+            return Err(policy_error(
+                "kernel32-policy-create-mutex-invalid",
+                "CreateMutexA requires Windows-932 ACP, an enabled name mode, and a bounded name limit",
             ));
         }
         if let Some(classification) = self.get_string_type_w.as_ref()
@@ -454,6 +475,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn set_current_directory_a(&self) -> Option<Kernel32SetCurrentDirectoryAPolicy> {
         self.set_current_directory_a
+    }
+
+    pub fn create_mutex_a(&self) -> Option<Kernel32CreateMutexAPolicy> {
+        self.create_mutex_a
     }
 
     pub fn get_string_type_w(&self) -> Option<&Kernel32GetStringTypeWPolicy> {

@@ -674,6 +674,13 @@ setCurrentDirectorySelection.find(
 ).selectedObservations = ["set-current-directory-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(setCurrentDirectorySelection)));
 
+const createMutexSelection = structuredClone(events);
+createMutexSelection[0].arguments.observations = ["create-mutex-a"];
+createMutexSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["create-mutex-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(createMutexSelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

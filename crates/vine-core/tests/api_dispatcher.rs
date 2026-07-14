@@ -3,17 +3,17 @@ use std::cell::Cell;
 use vine_core::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDirection, ApiDispatcher,
     ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiOwnedTrap,
-    ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CallbackPolicy, CallingConvention,
-    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
-    FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
-    GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress,
-    GuestCallbackRequest, GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion,
-    HostRequest, INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION,
-    IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk, ImportThunkDisposition,
-    ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
-    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
-    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CREATE_MUTEX_A_IMPLEMENTATION,
+    CallbackPolicy, CallingConvention, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome,
+    ExecutionSession, FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION,
+    GET_CP_INFO_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION,
+    GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange,
+    HEAP_SIZE_IMPLEMENTATION, HostCompletion, HostRequest,
+    INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
+    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
+    Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32GetStringTypeWPolicy,
+    Kernel32HeapAllocationPolicy, Kernel32InitializeCriticalSectionPolicy,
+    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
     Kernel32WideCharToMultiBytePolicy, LC_MAP_STRING_W_IMPLEMENTATION,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
@@ -27,8 +27,8 @@ use vine_core::{
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
     RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId,
-    RuntimeHeapInitialization, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva,
+    RuntimeHeapInitialization, RuntimeModule, RuntimeObjectKind, RuntimeProcessId,
+    RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva,
     SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
     SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
     TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
@@ -4824,6 +4824,200 @@ fn set_current_directory_a_owns_normalized_process_directory_transactionally() {
     ));
     assert_eq!(runtime, runtime_before_disabled);
     assert_eq!(memory.stats(), memory_before_disabled);
+}
+
+#[test]
+fn create_mutex_a_copies_named_identity_and_returns_object_handles() {
+    const FIRST_NAME: u32 = OUTPUT_BASE + 0x800;
+    const DUPLICATE_NAME: u32 = OUTPUT_BASE + 0x840;
+    const UNTERMINATED_NAME: u32 = OUTPUT_BASE + 0x880;
+    const NAME: &[u8] = b"Vine public mutex\0";
+
+    let (mut memory, owner) = initialized_memory();
+    memory
+        .write_initialization(owner, GuestAddress(FIRST_NAME), NAME)
+        .expect("first ANSI mutex name");
+    memory
+        .write_initialization(owner, GuestAddress(DUPLICATE_NAME), NAME)
+        .expect("duplicate ANSI mutex name");
+    memory
+        .write_initialization(owner, GuestAddress(UNTERMINATED_NAME), &[b'X'; 32])
+        .expect("unterminated ANSI mutex name");
+
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x10c);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize CreateMutexA IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "CreateMutexA".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("CreateMutexA contract");
+    assert_eq!(contract.implementation_id, CREATE_MUTEX_A_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 3);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let frames = [
+        vec![0x1000_0d01, 0, 1, FIRST_NAME],
+        vec![0x1000_0d02, 0, 1, DUPLICATE_NAME],
+        vec![0x1000_0d03, 4, 1, DUPLICATE_NAME],
+        vec![0x1000_0d04, 0, 0, 0],
+        vec![0x1000_0d05, 0, 0, UNTERMINATED_NAME],
+    ];
+    for (index, words) in frames.iter().enumerate() {
+        write_frame(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_BASE + index as u32 * 0x20),
+            words,
+        );
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+
+    let mut policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-create-mutex-a-v1.json"
+    ))
+    .expect("CreateMutexA policy fixture");
+    policy.id = "public-create-mutex-a-v1".to_owned();
+    policy.create_mutex_a = Some(Kernel32CreateMutexAPolicy {
+        allow_named: true,
+        allow_unnamed: false,
+        maximum_name_bytes: 32,
+    });
+    policy.validate().expect("valid bounded named mutex policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let dispatch = |index: usize,
+                    memory: &mut GuestMemory,
+                    runtime: &mut RuntimeState,
+                    selected_policy: &Kernel32CompatibilityPolicy|
+     -> DispatchOutcome {
+        let mut session = ExecutionSession::new(memory, runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(
+                &endpoint,
+                STACK_BASE + index as u32 * 0x20,
+                frames[index][0],
+            ),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(selected_policy, contract, frame, session)
+            },
+        )
+    };
+
+    let first = dispatch(0, &mut memory, &mut runtime, &policy);
+    let DispatchOutcome::Immediate(first) = first else {
+        panic!("expected new mutex handle, got {first:?}");
+    };
+    assert_eq!(first.eax, RegisterUpdate::Set(0x5801_0001));
+    assert_eq!(first.stack_pointer, GuestAddress(STACK_BASE + 16));
+    assert_eq!(first.last_error, 0);
+    assert!(first.guest_writes.is_empty());
+    let first_handle = vine_core::RuntimeHandle(0x5801_0001);
+    assert_eq!(
+        runtime
+            .mutex_for_handle(first_handle)
+            .unwrap()
+            .name_a
+            .as_ref()
+            .unwrap()
+            .bytes_with_nul,
+        NAME
+    );
+
+    memory
+        .write(GuestAddress(FIRST_NAME), b"X")
+        .expect("mutate caller buffer after return");
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        runtime
+            .mutex_for_handle(first_handle)
+            .unwrap()
+            .name_a
+            .as_ref()
+            .unwrap()
+            .bytes_with_nul,
+        NAME,
+        "runtime mutex identity must not retain the guest pointer"
+    );
+
+    let duplicate = dispatch(1, &mut memory, &mut runtime, &policy);
+    let DispatchOutcome::Immediate(duplicate) = duplicate else {
+        panic!("expected duplicate mutex handle, got {duplicate:?}");
+    };
+    assert_eq!(duplicate.eax, RegisterUpdate::Set(0x5801_0002));
+    assert_eq!(duplicate.last_error, 183);
+    assert!(duplicate.guest_writes.is_empty());
+    let duplicate_handle = vine_core::RuntimeHandle(0x5801_0002);
+    assert_eq!(
+        runtime.mutex_for_handle(first_handle).unwrap().id,
+        runtime.mutex_for_handle(duplicate_handle).unwrap().id
+    );
+    assert_eq!(
+        runtime
+            .mutex_for_handle(duplicate_handle)
+            .unwrap()
+            .recursion_count,
+        1
+    );
+    assert_eq!(
+        runtime
+            .object_for_handle(duplicate_handle, RuntimeObjectKind::Mutex)
+            .unwrap()
+            .open_handles,
+        2
+    );
+
+    for (index, code) in [
+        (2_usize, "create-mutex-a-security-attributes-unsupported"),
+        (3, "create-mutex-a-unnamed-unsupported"),
+        (4, "create-mutex-a-name-not-terminated"),
+    ] {
+        let runtime_before = runtime.clone();
+        let memory_before = memory.stats();
+        let rejected = dispatch(index, &mut memory, &mut runtime, &policy);
+        assert!(matches!(
+            rejected,
+            DispatchOutcome::Fault(ref fault) if fault.code == code
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    let mut disabled_policy = policy.clone();
+    disabled_policy.create_mutex_a = None;
+    disabled_policy.validate().expect("valid preceding policy");
+    let runtime_before_disabled = runtime.clone();
+    let disabled = dispatch(1, &mut memory, &mut runtime, &disabled_policy);
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.code == "create-mutex-a-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before_disabled);
 }
 
 #[test]

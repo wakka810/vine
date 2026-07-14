@@ -17,6 +17,31 @@ export interface RuntimeCurrentDirectorySnapshot {
   generation: number;
 }
 
+export interface RuntimeMutexSnapshot {
+  handle: number;
+  object: {
+    id: number;
+    nameA?: {
+      bytesWithNul: number[];
+      utf16UnitsWithNul: number[];
+      encoding: string;
+    };
+    owningThreadId: number | null;
+    recursionCount: number;
+    abandoned: boolean;
+  };
+  objectRecord: {
+    id: number;
+    key: { kind: "mutex"; mutex_id: number };
+    kind: "mutex";
+    namespace: string;
+    closePolicy: "close-handle";
+    waitState: null;
+    openHandles: number;
+  };
+  alreadyExists: boolean;
+}
+
 export interface SessionConfiguration {
   mode: SessionMode;
   workload?: SessionWorkload;
@@ -147,6 +172,7 @@ export interface SessionReport {
     lastError: number;
     guestWrites: Array<{ address: number; bytes: number[] }>;
     currentDirectory?: RuntimeCurrentDirectorySnapshot;
+    mutex?: RuntimeMutexSnapshot;
   }>;
   firstUnsupported: {
     capabilityCluster: string;
