@@ -123,12 +123,19 @@ thresholdの入力には使わない。
 
 ## CI policy
 
-GitHub Actionsはpublic fixture E2E後にprepared benchmarkを実行する。`go`だけがexit 0
-であり、`conditional-go`と`no-go`はいずれもregression failureである。report、PNG、
+GitHub Actionsはpublic fixture E2E後に`check:runtime:v86-benchmark:ci:prepared`を実行する。
+同じthresholdを測定してreportへ全failureを残すが、hosted runnerの単発performance差は
+semantic required signalと分離するため、`go`とnon-severe `conditional-go`をexit 0、`no-go`を
+regression failureとする。Strict local commandは引き続き`go`だけをacceptする。report、PNG、
 toolchain report、Worker semantic report、browser build manifestは`if: always()`
 artifactとして保存する。reference Windows値は
 decision evidence、Linux stable Chrome値はportable floor regressionとして扱い、両者の
 raw throughput equalityは要求しない。
+
+Commit `ac13b4c`のLinux runはsemantic／fixture checksと他のperformance boundariesを通し、
+16 ms slice relative throughputだけが`0.8857 < 0.9`で`conditional-go`になった。Reportが
+非重大と分類したこのsingle observationを一律exit 1へ変換していたrunner policyを上記の
+two-mode gateへ修正した。Threshold自体は変更していない。
 
 ## Non-claims
 

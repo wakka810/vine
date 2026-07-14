@@ -7,10 +7,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { observeArtifactIdentity } from "./evidence-classification.mjs";
+import { evaluateV86BenchmarkGate } from "./v86-benchmark-gate.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = path.join(root, ".work", "v86-browser-benchmark");
 const reportPath = path.join(outputDirectory, "report.json");
+
+let allowConditionalGo = false;
+for (const argument of process.argv.slice(2)) {
+  if (argument === "--allow-conditional-go" && !allowConditionalGo) {
+    allowConditionalGo = true;
+  } else {
+    throw new Error(`unsupported or duplicate argument: ${argument}`);
+  }
+}
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -381,8 +391,10 @@ try {
     readFile(path.join(root, "fixtures", "benchmarks", "v86-browser-v1.json"), "utf8"),
     optionalBgiBenchmark(),
   ]);
+  const gate = evaluateV86BenchmarkGate(browserReport.decision, { allowConditionalGo });
   const report = {
     ...browserReport,
+    gate,
     source: {
       commit: commit.stdout.trim(),
       dirty: status.stdout.trim().length > 0,
@@ -413,9 +425,10 @@ try {
           : `${Number(report.foreground.memorySteady.bytes).toLocaleString()} bytes`
       }, ` +
       `background=${report.background.foregroundRatio.toFixed(3)}, ` +
-      `failures=${report.failures.length}, Chrome=${version}`,
+      `failures=${report.failures.length}, gate=${report.gate.mode}/${report.gate.accepted}, ` +
+      `Chrome=${version}`,
   );
-  if (report.decision !== "go") process.exitCode = 1;
+  if (!gate.accepted) process.exitCode = 1;
 } finally {
   pageClient?.close();
   browserClient?.close();

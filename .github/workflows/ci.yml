@@ -59,8 +59,8 @@ jobs:
         env:
           VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
 
-      - name: Run v86 browser benchmark gate
-        run: npm run check:runtime:v86-benchmark:prepared
+      - name: Run v86 browser benchmark observation
+        run: npm run check:runtime:v86-benchmark:ci:prepared
         env:
           VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
 

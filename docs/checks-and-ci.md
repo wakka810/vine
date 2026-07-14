@@ -105,6 +105,18 @@ tracked `v86-browser-baseline-v1` thresholds. Only `go` exits successfully;
 Windows result, threshold semantics, and non-claims are recorded in
 [v86-browser-benchmark.md](v86-browser-benchmark.md).
 
+Public CI uses the explicit prepared observation mode:
+
+```powershell
+npm run check:runtime:v86-benchmark:ci:prepared
+```
+
+It still runs the same versioned suite and uploads every threshold failure.
+`go` and non-severe `conditional-go` exit successfully in this mode; `no-go`
+remains a required failure. This keeps a single hosted-runner scheduling outlier
+from overriding the deterministic semantic signals while retaining the strict
+local decision command above.
+
 Windows runs execute the two bootstrap fixtures as native self-oracles. Linux
 runs cannot execute PE32 directly, so they require the same fixed fixture
 SHA-256 and carry `recorded-windows-i386-self-oracle` provenance in the report
@@ -157,7 +169,7 @@ Chrome. The PE toolchain is the pinned
 `534b92e067b22a6b4441f48ae9240a3341b17825d04d577eab0cf85c44b4deda`;
 the runner's system clang handles the separate Wasm smoke. It executes
 `npm ci`, `check:fast`, `check:fixture-e2e`, and the prepared v86 browser
-benchmark. The workflow has read-only repository permissions and does not run
+observation mode. The workflow has read-only repository permissions and does not run
 private-corpus checks. It uploads the benchmark JSON report／screenshot,
 toolchain report, Worker semantic report, and browser build manifest even when
 the benchmark step fails.
