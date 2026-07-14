@@ -43,31 +43,31 @@ required sample is a failure. Report schema version 2 also stores a structured
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 621 sessions with no
+The authoritative clean-profile Chrome run completed 626 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 621 |
+| Completed sessions | >= 120 | 626 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 36 |
-| Session latency p95 | <= 3,000 ms | 320.000 ms |
-| Maximum slice p99 | <= 10 ms | 1.325 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.120 ms |
-| Main heartbeat gap maximum | <= 250 ms | 32.145 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 10,933,179 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 27,070.80 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 27,006,216 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 4,277,935.94 bytes/min |
+| Session latency p95 | <= 3,000 ms | 325.200 ms |
+| Maximum slice p99 | <= 10 ms | 1.355 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.065 ms |
+| Main heartbeat gap maximum | <= 250 ms | 20.300 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 10,767,676 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | -35,449.27 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 24,730,488 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 513,247.58 bytes/min |
 | Worker heap capacity maximum | <= 67,108,864 bytes | 57,933,824 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 34,188,937 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 2,541,854.69 bytes/min |
+| Worker backing storage maximum | <= 67,108,864 bytes | 35,415,380 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 643,971.63 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 9,895,936 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 1,178,833 bytes with SHA-256
-`b49a571bfae86ef502f0c3d3f1f8b5ec0be1e0da1fda93932e976e46f6fef2e1`.
+The exact report is 1,182,756 bytes with SHA-256
+`0a7618ed0c53fd628d1a1688d371bac1106ddfa747627de215f643b49d53c5da`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -84,7 +84,7 @@ Artifact hash, source revision, and ABI are Worker-level invariants, so the
 loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
-storage below the unchanged limit. The current checkpoint observes 34,188,937
+storage below the unchanged limit. The current checkpoint observes 35,415,380
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -108,7 +108,7 @@ commit.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 2,060,024 | `3ace120485ddbc3b97d5d4cc94f3dc1a23f0130c5ee0e7521d8769135a8ab1f6` |
+| Rust runtime core Wasm | 2,063,058 | `dc01b44f09ffd2132dc6f1b82d85b65044ab38056eb7165dde198f0054985d87` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
 | Runtime Worker bundle | 97,041 | `6ef22e88125dc3afdacd7b3a10d378ac4e522994215e7e09c7a56f6028bfaa5b` |
 | BGI benchmark bundle | 8,965 | `f882c1b309bb467bb347c4899f80540915ef8c30169b20e77493ff5077b4913e` |
