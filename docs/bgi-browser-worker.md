@@ -23,15 +23,15 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 197 | 197 |
-| Guest instructions at next stop | 18,653 | 18,653 |
+| Supported calls | 199 | 199 |
+| Guest instructions at next stop | 18,693 | 18,693 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 1,582 | 281 |
-| Host delta batches | 54 | 54 |
-| Final memory content SHA-256 | `f248e7dafa44a4a036822bd2eda199959e01c5d39090f67fba5f9f15c0de0186` | same |
-| Next capability cluster | `kernel32-private-heap-allocation` | same |
-| Next API | `KERNEL32.dll!HeapAlloc(0x68010001, 8, 128)` | same |
-| Fault | `heap-alloc-variant-unsupported` | same |
+| Final memory generation | 1,586 | 284 |
+| Host delta batches | 55 | 55 |
+| Final memory content SHA-256 | `5262246193dbe482a09781cac162f4f23f4eabaa4981c5f50ec2c9460ce96a89` | same |
+| Next capability cluster | `kernel32-api-contract` | same |
+| Next API | `KERNEL32.dll!IsProcessorFeaturePresent(10)` | same |
+| Fault | `endpoint-contract-missing` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
 arguments, EAX policy, implementation ID, return and stack pointers, LastError,
@@ -40,29 +40,29 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 1,772
-writeback batches; the Node oracle reconciles at 198 writeback boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 1,775
+writeback batches; the Node oracle reconciles at 200 writeback boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 2,392 CPU slices, 2,194 budget yields, 7,177 validated
-Worker state transitions, 2,027 Rust/Wasm bridge operations, and a maximum
-observed slice of 2.275 ms. The main-thread heartbeat recorded 64 samples with a 21.855 ms
+The successful run used 2,398 CPU slices, 2,198 budget yields, 7,195 validated
+Worker state transitions, 2,033 Rust/Wasm bridge operations, and a maximum
+observed slice of 2.040 ms. The main-thread heartbeat recorded 64 samples with a 22.185 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 830,906 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 615
+changed from 628,738 to 831,614 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 591
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
-Separate cancellation and watchdog probes stop after 8 and 4 instructions.
+Separate cancellation and watchdog probes stop after 50 and 4 instructions.
 Both retire pending host calls and callbacks, detach the callback-free system
 module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 7,177, 4, and 3 transitions respectively. All three reports
+in `stopped` after 7,195, 28, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -95,8 +95,10 @@ host delta and ordinary CPU writeback. The controlled empty environment then
 allocates one zeroed four-byte pointer-table terminator and stores its global
 identity. The reached flags-zero one-byte block is then freed through the same
 Rust-owned transactional heap path; Node and Chrome apply one dirty-only free
-delta, complete ten existing `EncodePointer` calls, and converge before stopping
-at `HeapAlloc(0x68010001, 8, 128)`.
+delta and complete ten existing `EncodePointer` calls. The following zeroed
+128-byte allocation is applied as a dirty-only heap delta, passed through one
+more `EncodePointer`, and consumed through ordinary stack／image／heap writeback.
+Both paths converge before stopping at `IsProcessorFeaturePresent(10)`.
 
 ## Reproduction
 
@@ -111,7 +113,7 @@ report hash is artifact identity only.
 
 ## Non-claims
 
-- no negative-length／broad `GetStringTypeW`, general `LCMapStringW`, explicit-module `GetModuleFileNameA`, `HeapReAlloc`, size-128 allocation, or broad heap variant dispatch is implemented
+- no negative-length／broad `GetStringTypeW`, general `LCMapStringW`, explicit-module `GetModuleFileNameA`, `IsProcessorFeaturePresent`, `HeapReAlloc`, or broad heap variant dispatch is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
 - the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

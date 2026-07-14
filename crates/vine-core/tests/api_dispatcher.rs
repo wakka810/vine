@@ -1379,7 +1379,8 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
         (FRAME_BASE + 0x60, vec![0x1000_0604, 0x6801_0001, 0, 0x220]),
         (FRAME_BASE + 0x80, vec![0x1000_0605, 0x6801_0001, 0, 16]),
         (FRAME_BASE + 0xa0, vec![0x1000_0606, 0x6801_0001, 0x8, 4]),
-        (FRAME_BASE + 0xc0, vec![0x1000_0607, 0x6801_0001, 0x8, 0xbc]),
+        (FRAME_BASE + 0xc0, vec![0x1000_0607, 0x6801_0001, 0x8, 128]),
+        (FRAME_BASE + 0xe0, vec![0x1000_0608, 0x6801_0001, 0x8, 0xbc]),
     ];
     for (address, words) in &frames {
         write_frame(&mut memory, owner, GuestAddress(*address), words);
@@ -1763,6 +1764,51 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
     assert_eq!(memory.stats(), memory_before_later_rejection);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
 
+    let mut size_128_policy = compatibility_policy(
+        "heap-size-128-test",
+        vec![RUNTIME_STANDARD_INPUT_SELECTOR],
+        vec![(RUNTIME_STANDARD_INPUT_SELECTOR, 2)],
+        vec![(0x8, vec![4, 128, 0x214, 0x800]), (0, vec![1, 16, 0x220])],
+    );
+    size_128_policy.heap_free_flags = vec![0];
+    size_128_policy.validate().expect("valid size-128 policy");
+    let size_128 = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[6].0,
+        frames[6].1[0],
+        &size_128_policy,
+    );
+    assert_eq!(size_128.eax, RegisterUpdate::Set(0x2000_0c58));
+    let size_128_allocation = runtime
+        .heap_backing(0x6801_0001)
+        .unwrap()
+        .unwrap()
+        .allocations
+        .get(&0x2000_0c58)
+        .expect("128-byte zeroed allocation");
+    assert_eq!(size_128_allocation.id, RuntimeHeapAllocationId(7));
+    assert_eq!(size_128_allocation.byte_length, 128);
+    assert_eq!(size_128_allocation.reserved_byte_length, 128);
+    assert_eq!(
+        size_128_allocation.initialization,
+        RuntimeHeapInitialization::Zeroed
+    );
+    let size_128_delta = memory.pending_delta().expect("size-128 allocation delta");
+    assert!(size_128_delta.mapping_operations.is_empty());
+    assert_eq!(size_128_delta.dirty_pages.len(), 1);
+    memory
+        .acknowledge_delta(size_128_delta.generation)
+        .expect("acknowledge size-128 allocation delta");
+    assert_eq!(
+        memory
+            .read(GuestAddress(0x2000_0c58), 128)
+            .expect("zeroed 128-byte allocation"),
+        vec![0; 128]
+    );
+
     let public_fixture_policy = compatibility_policy(
         "public-additional-size-test",
         vec![RUNTIME_STANDARD_INPUT_SELECTOR],
@@ -1774,11 +1820,11 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
         &mut memory,
         &mut runtime,
         &endpoint,
-        frames[6].0,
-        frames[6].1[0],
+        frames[7].0,
+        frames[7].1[0],
         &public_fixture_policy,
     );
-    assert_eq!(third.eax, RegisterUpdate::Set(0x2000_0c58));
+    assert_eq!(third.eax, RegisterUpdate::Set(0x2000_0cd8));
     assert_eq!(
         runtime
             .heap_backing(0x6801_0001)
@@ -1786,7 +1832,7 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
             .unwrap()
             .allocations
             .len(),
-        7
+        8
     );
 }
 

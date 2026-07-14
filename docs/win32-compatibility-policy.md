@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-private-heap-free-size-1-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-private-heap-size-128-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -48,7 +48,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form nineteen monotonic controlled policies:
+The current files form twenty-one monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -72,6 +72,7 @@ The current files form nineteen monotonic controlled policies:
 | `kernel32-private-heap-size-16-v1` | stdin, stdout, stderr | preceding options | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544` |
 | `kernel32-private-heap-size-4-v1` | stdin, stdout, stderr | preceding options | zeroed `4`, `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544` |
 | `kernel32-private-heap-free-size-1-v1` | stdin, stdout, stderr | preceding options | preceding allocation pairs; `HeapFree` flags `0` |
+| `kernel32-private-heap-size-128-v1` | stdin, stdout, stderr | preceding options | zeroed `4`, `128`, `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544`; `HeapFree` flags `0` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -193,6 +194,14 @@ address, ID, call order, and caller RVA remain evidence data rather than policy.
 unsupported flags stop before heap metadata or guest bytes change. NULL,
 interior, foreign-heap, and stale pointers are rejected by ABI/runtime semantic
 validation rather than added as reached compatibility variants.
+
+The 128-byte fixed-table policy adds only
+`(flags=HEAP_ZERO_MEMORY, byteLength=128)`. Native requests the same size from
+a checked `32 * 4` source and happens to reuse a just-freed larger host block;
+the native pointer/reuse relation does not enter policy. The public heap fixture
+fixes preceding-policy rejection, allocation ID and address, exact requested
+and reserved lengths, full zero initialization, dirty-only delta, LastError,
+and stdcall cleanup through the unchanged `kernel32.heap-alloc.v2` handler.
 
 Policy JSON parsing and validation is covered independently:
 

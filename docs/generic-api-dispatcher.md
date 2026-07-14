@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap allocation/free, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte zeroed environment-pointer table, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap allocation/free, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, and LCMapStringW capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-private-heap-free-size-1`
-- Scope: frozen 17-call equivalence plus 197 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-private-heap-size-128`
+- Scope: frozen 17-call equivalence plus 199 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -765,11 +765,30 @@ and stops at instruction 18,653 on policy-disabled
 `HeapAlloc(0x68010001,8,128)`. Full evidence is in
 [bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md).
 
+The current fixed-table allocation profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-private-heap-size-128
+```
+
+Policy `kernel32-private-heap-size-128-v1` adds only
+`(flags=8,size=128)` to the existing `kernel32.heap-alloc.v2` handler. It
+returns allocation ID `7` at `0x20000C58`, zeroes all 128 requested/reserved
+bytes, preserves LastError, and emits one dirty-only heap delta. One existing
+`EncodePointer` call retains the result, then ordinary CPU writeback reconciles
+the consumer's two global stores and first-DWORD zero. The profile completes
+199 calls, uses 200 writebacks／304 dirty pages／4,444 changed bytes and 55 host
+deltas, and ends at generation `284`. Its 883,995-byte report has SHA-256
+`51382513962b57159e178966b16aac2010513a3c58cccaf9b9d6abbfc857d073`
+and stops at instruction 18,693 on missing
+`IsProcessorFeaturePresent(10)`. Full evidence is in
+[bgi-private-heap-size-128.md](bgi-private-heap-size-128.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
 - The runtime has controlled process／thread, wait／message, mapped-module, guest-import, and DLL process lifecycle foundations; general CPU-context-backed threads, wait variants, dynamic load／unload, and TLS／thread DLL callbacks remain absent.
-- Private heaps have bounded guest-memory backing, the first three reached zeroed
+- Private heaps have bounded guest-memory backing, the first four reached zeroed
   allocations, and flags-zero deterministic-uninitialized size-1, size-16, and size-544
   allocations enabled by policy; exact flags-zero free is enabled for reached
   live allocations. Other sizes/flags, destroy/realloc dispatch, Windows
@@ -804,15 +823,15 @@ and stops at instruction 18,653 on policy-disabled
   locale/flag/length variants, and broad locale tables
   remain absent. Explicit module file-name lookup and host image-path import are
   also absent. Its first unsupported operation is
-  `HeapAlloc(0x68010001, 8, 128)`; bespoke
+  `IsProcessorFeaturePresent(10)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-private-heap-size-128` at
-`HeapAlloc(0x68010001, 8, 128)`. It must first fix the native size source,
-initialization, consumer, failure, LastError, and lifetime relation, then add
-only the reached flag-size pair to the existing allocation policy.
+The next proof is `kernel32-is-processor-feature-present` at
+`IsProcessorFeaturePresent(10)`. It must first fix the native result,
+LastError, immediate branch consumer, fixed-environment CPU meaning, and
+unsupported-index behavior without importing arbitrary host CPU features.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -834,5 +853,5 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     468,010 bytes, the LCMapStringW report is 550,988 bytes, the
     InterlockedDecrement report is 580,772 bytes, the GetModuleFileNameA report
     is 704,797 bytes, the size-16 heap report is 828,414 bytes, and the current
-    size-4 heap report is 833,007 bytes, and the current one-byte-free report is
-    875,554 bytes.
+    size-4 heap report is 833,007 bytes, the one-byte-free report is 875,554
+    bytes, and the current size-128 heap report is 883,995 bytes.

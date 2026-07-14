@@ -25,6 +25,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-private-heap-size-16-v1.json",
   "fixtures/runtime-policies/kernel32-private-heap-size-4-v1.json",
   "fixtures/runtime-policies/kernel32-private-heap-free-size-1-v1.json",
+  "fixtures/runtime-policies/kernel32-private-heap-size-128-v1.json",
 ];
 
 for (const relative of policyFiles) {

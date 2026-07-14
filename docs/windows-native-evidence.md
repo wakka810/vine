@@ -1946,3 +1946,41 @@ pending work 0を通す。3分gateは615 sessions／failure 0で全16 threshold�
 NULL／interior／foreign／double-freeのmutation-free rejection、freed byte `0xDD`、reuse
 identityはpublic semantic testで固定する。詳細は
 [bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md)を正とする。
+
+## 77. BGI private-heap 128-byte allocation
+
+同じ2件のaccepted focused heap capturesは、直前のfreeに続くsequence `162/163`、
+call ID `58`で`HeapAlloc(sameNativeHeap,8,128)`を記録する。Return RVAは
+`0xAC3CC`、resultは両runともnon-NULL、LastErrorは`0 -> 0`、全128 bytesはNUL、
+FNV-1aは`0xA7B537C5`である。Native resultはsequence `160/161`でfreeした
+3,637-byte blockのaddressを再利用するが、Vineでfree済みなのはreserved 8 bytes
+なので、このhost allocator reuseはsemantic inputへimportしない。
+
+Fingerprint済みimageのRVA `0xA1DC3`は`push 4; push 0x20; call 0xA4EAC`で、
+RVA `0xAC383`のchecked multiply/allocation helperへ32 elements * 4 bytesを渡す。
+RVA `0xA1DCF`のconsumerはresultをESIへ保持し、`EncodePointer`へ渡してtwo
+globalsへstoreし、non-NULL success pathでfirst DWORDをzeroにする。Accepted
+capture内にこのallocationとrelatedなlater `HeapFree`はない。
+
+Policy `kernel32-private-heap-size-128-v1`はexisting
+`kernel32.heap-alloc.v2`へ`(flags=8,size=128)`だけを追加する。Reached
+allocationはID `7`／`0x20000C58`、requested／reserved 128 bytes、zeroed、
+live allocations `5 -> 6`である。Host delta sequence `198`はgeneration
+`281 -> 282`のdirty-only owner-10 page updateで、supported call `199`の
+`EncodePointer`後、consumer writeback sequence `200`はinstruction `18693`／
+generation `283 -> 284`／14 changed bytesを固定する。
+
+`npm run check:runtime:bgi -- --profile kernel32-private-heap-size-128`は40
+contracts／199 calls、200 writebacks／304 dirty pages／4,444 changed bytes、55
+host deltas、final generation `284`を通す。instruction `18693`でID `74`／
+`IsProcessorFeaturePresent(10)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`5262246193dbe482a09781cac162f4f23f4eabaa4981c5f50ec2c9460ce96a89`、
+883,995-byte reportのSHA-256は
+`51382513962b57159e178966b16aac2010513a3c58cccaf9b9d6abbfc857d073`である。
+
+Chrome Runtime Workerも199 ordered callsとsame stop／memoryを再現し、2,398
+slices、2,198 yields、2,033 Wasm crossings、final generation `1,586`、
+cancel／watchdog後pending work 0を通す。3分gateは591 sessions／failure 0で
+全16 thresholdを通した。詳細は
+[bgi-private-heap-size-128.md](bgi-private-heap-size-128.md)を正とする。

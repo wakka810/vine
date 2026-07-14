@@ -117,6 +117,7 @@ enum GenericRuntimeCapability {
     PrivateHeapSize16,
     PrivateHeapSize4,
     PrivateHeapFreeSize1,
+    PrivateHeapSize128,
 }
 
 struct GenericRuntimeProcess {
@@ -2469,6 +2470,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::PrivateHeapSize16
                 | GenericRuntimeCapability::PrivateHeapSize4
                 | GenericRuntimeCapability::PrivateHeapFreeSize1
+                | GenericRuntimeCapability::PrivateHeapSize128
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2478,6 +2480,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::PrivateHeapSize16
                 | GenericRuntimeCapability::PrivateHeapSize4
                 | GenericRuntimeCapability::PrivateHeapFreeSize1
+                | GenericRuntimeCapability::PrivateHeapSize128
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2505,7 +2508,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetModuleFileNameA
             | GenericRuntimeCapability::PrivateHeapSize16
             | GenericRuntimeCapability::PrivateHeapSize4
-            | GenericRuntimeCapability::PrivateHeapFreeSize1,
+            | GenericRuntimeCapability::PrivateHeapFreeSize1
+            | GenericRuntimeCapability::PrivateHeapSize128,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3010,6 +3014,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::PrivateHeapSize16
                 | GenericRuntimeCapability::PrivateHeapSize4
                 | GenericRuntimeCapability::PrivateHeapFreeSize1
+                | GenericRuntimeCapability::PrivateHeapSize128
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3019,7 +3024,10 @@ fn runtime_capability_enables_endpoint(
         );
     let heap_free_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::PrivateHeapFreeSize1)
+        Some(
+            GenericRuntimeCapability::PrivateHeapFreeSize1
+                | GenericRuntimeCapability::PrivateHeapSize128
+        )
     );
     let lc_map_string_w_enabled = interlocked_decrement_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::LcMapStringW));
@@ -3101,7 +3109,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::GetModuleFileNameA
             | GenericRuntimeCapability::PrivateHeapSize16
             | GenericRuntimeCapability::PrivateHeapSize4
-            | GenericRuntimeCapability::PrivateHeapFreeSize1,
+            | GenericRuntimeCapability::PrivateHeapFreeSize1
+            | GenericRuntimeCapability::PrivateHeapSize128,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3291,7 +3300,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::GetModuleFileNameA
             | GenericRuntimeCapability::PrivateHeapSize16
             | GenericRuntimeCapability::PrivateHeapSize4
-            | GenericRuntimeCapability::PrivateHeapFreeSize1,
+            | GenericRuntimeCapability::PrivateHeapFreeSize1
+            | GenericRuntimeCapability::PrivateHeapSize128,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8684,6 +8694,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-private-heap-free-size-1" => {
                     GenericRuntimeCapability::PrivateHeapFreeSize1
                 }
+                "kernel32-private-heap-size-128" => GenericRuntimeCapability::PrivateHeapSize128,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

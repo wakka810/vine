@@ -13,6 +13,8 @@ boundaryで固定する。
 `HeapAlloc(0x68010001,HEAP_ZERO_MEMORY,0x214)`だけをsame transactionへ接続した。
 Later [bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md) connects
 the reached exact flags-zero `HeapFree` to this same transaction. Guest
+[`bgi-private-heap-size-128.md`](bgi-private-heap-size-128.md) then proves a
+larger zeroed dirty-only allocation without importing native address reuse.
 `HeapDestroy`／`HeapReAlloc` and broad allocator／free policy remain unimplemented.
 
 ## Controlled address and memory policy
@@ -127,9 +129,9 @@ regression evidence, not a replacement baseline.
 
 ## Non-claims and next dependency
 
-The reached guest policy currently covers six measured nonzero allocation
-flag-size pairs and one exact flags-zero free. It does not implement size 128,
-other allocation/free variants, failure return, zero-size behavior, realloc,
+The reached guest policy currently covers seven measured nonzero allocation
+flag-size pairs and one exact flags-zero free. It does not implement other
+allocation/free variants, failure return, zero-size behavior, realloc,
 size／validate／compact／walk, heap lock, LFH,
 serialization, concurrent allocation, corruption termination, guard pages, per-block decommit, or a
 full-title capacity profile. It is partial evidence for `REQ-MEM-01`／`REQ-API-02` and `P3-WIN-01`,
