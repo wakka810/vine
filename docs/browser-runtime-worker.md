@@ -212,7 +212,7 @@ checked transitions while the main-thread heartbeat remains active.
 The Chrome memory generation ends at 1,586 rather than the Node oracle's 284
 because Chrome reconciles dirty pages at every 8-instruction budget boundary.
 This difference is synchronization identity, not guest-visible state. Separate
-cancel and watchdog probes stop after 50 and 4 instructions and confirm Rust
+cancel and watchdog probes stop after 8 and 4 instructions and confirm Rust
 process exit, module detach, and zero pending host/callback work. Detailed
 evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
 

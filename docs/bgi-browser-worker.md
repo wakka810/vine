@@ -49,20 +49,20 @@ therefore synchronization identity, not guest-visible equivalence.
 
 The successful run used 2,398 CPU slices, 2,198 budget yields, 7,195 validated
 Worker state transitions, 2,033 Rust/Wasm bridge operations, and a maximum
-observed slice of 2.040 ms. The main-thread heartbeat recorded 64 samples with a 22.185 ms
+observed slice of 3.290 ms. The main-thread heartbeat recorded 64 samples with a 21.945 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 831,614 bytes; this remains run identity. The separate
+changed from 628,738 to 831,630 bytes; this remains run identity. The separate
 versioned BGI workload gate repeats 591
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
-Separate cancellation and watchdog probes stop after 50 and 4 instructions.
+Separate cancellation and watchdog probes stop after 8 and 4 instructions.
 Both retire pending host calls and callbacks, detach the callback-free system
 module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 7,195, 28, and 3 transitions respectively. All three reports
+in `stopped` after 7,195, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,

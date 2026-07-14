@@ -133,8 +133,8 @@ npm run check:runtime:bgi-browser-benchmark
 | Host mapping deltas | 55 | 55 |
 | Final generation | 284 | 1,586 |
 | Memory content SHA-256 | `5262246193dbe482a09781cac162f4f23f4eabaa4981c5f50ec2c9460ce96a89` | same |
-| Report bytes | 883,995 | 221,316 |
-| Report SHA-256 | `51382513962b57159e178966b16aac2010513a3c58cccaf9b9d6abbfc857d073` | `3499d4527f89b3a373d3711dbe87629bb8781212371d77b2927ae62713500f3e` |
+| Report bytes | 883,995 | 218,302 |
+| Report SHA-256 | `51382513962b57159e178966b16aac2010513a3c58cccaf9b9d6abbfc857d073` | `ff611b35fe525989527e2bf7eca52537d6b68caf2d04421749a17f334d53c6eb` |
 
 Chrome used 2,398 slices, 2,198 budget yields, and 2,033 Rust/Wasm bridge
 operations. Success, cancellation, and watchdog all ended in `stopped` with no

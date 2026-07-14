@@ -216,7 +216,7 @@
       },
       "cancellation": {
         "finalState": "stopped",
-        "transitionCount": 28,
+        "transitionCount": 4,
         "lastTransitionTo": "stopped",
         "pendingHostRequestRecords": 0,
         "watchdogContext": null
@@ -254,13 +254,13 @@
     "nextFaultCode": "endpoint-contract-missing",
     "wasmBridgeCalls": 2033,
     "executionEngineLinearMemoryBytes": 11796480,
-    "maximumSliceMilliseconds": 2.040000021457672,
-    "elapsedMilliseconds": 359.539999961853,
+    "maximumSliceMilliseconds": 3.2899999618530273,
+    "elapsedMilliseconds": 372.0250000357628,
     "heartbeatSamples": 64,
-    "maximumHeartbeatGapMilliseconds": 22.185000002384186,
+    "maximumHeartbeatGapMilliseconds": 21.944999992847443,
     "usedJsHeapBytesBefore": 628738,
-    "usedJsHeapBytesAfter": 831614,
-    "cancelInstructions": 50,
+    "usedJsHeapBytesAfter": 831630,
+    "cancelInstructions": 8,
     "watchdogInstructions": 4,
     "pendingHostCallsAfterCleanup": 0,
     "pendingCallbacksAfterCleanup": 0,
@@ -268,8 +268,8 @@
     "dllLifecycleAfterCleanup": "process-detached",
     "nodeOracleReportBytes": 883995,
     "nodeOracleReportSha256": "51382513962b57159e178966b16aac2010513a3c58cccaf9b9d6abbfc857d073",
-    "browserReportBytes": 221316,
-    "browserReportSha256": "3499d4527f89b3a373d3711dbe87629bb8781212371d77b2927ae62713500f3e"
+    "browserReportBytes": 218302,
+    "browserReportSha256": "ff611b35fe525989527e2bf7eca52537d6b68caf2d04421749a17f334d53c6eb"
   },
   "bgiBenchmarkEvidence": {
     "schema": "vine.browser-bgi-benchmark-report",
