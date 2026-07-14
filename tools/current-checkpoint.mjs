@@ -539,6 +539,40 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active runtime object subsystem boundary is invalid");
   }
+  const registries = requireRecord(
+    active.runtimeRegistries,
+    "activeRuntimeCheckpoint.runtimeRegistries",
+    errors,
+  );
+  if (
+    registries.schema !== "vine.runtime-registries.v1" ||
+    registries.stateOwner !== "runtime/registries.rs::RuntimeRegistries" ||
+    registries.mutableCollectionVisibility !== "private" ||
+    registries.readInspection !== "immutable-borrow" ||
+    !Array.isArray(registries.serializedRegistryFields) ||
+    registries.serializedRegistryFields.join(",") !==
+      "dynamicEndpoints,encodedPointers" ||
+    !Array.isArray(registries.serializedRuntimeCompatibilityFields) ||
+    registries.serializedRuntimeCompatibilityFields.join(",") !==
+      "encodedPointerNamespace,encodedPointerTokenPrefix,encodedPointerSources,nextEncodedPointerId" ||
+    registries.hostRequestCompatibilityField !== "registries.hostRequests" ||
+    registries.hostRequestAuthority !== "runtime/scheduler.rs::RuntimeScheduler" ||
+    !Array.isArray(registries.ownedCollections) ||
+    registries.ownedCollections.join(",") !==
+      "dynamic-endpoint-table,encoded-pointer-token-table,encoded-pointer-source-index,encoded-pointer-id-allocator,encoded-pointer-policy" ||
+    registries.dynamicEndpointTransition !==
+      "registry-plan-aggregate-address-preflight-infallible-commit" ||
+    registries.encodedPointerTransition !==
+      "registry-plan-infallible-targeted-commit" ||
+    registries.subsystemTests < 5 ||
+    registries.crossSubsystemAtomicTests < 3 ||
+    registries.directCollectionMutationFromAggregate !== false ||
+    registries.encodedPointerIndexAtomic !== true ||
+    registries.duplicateEndpointMutationFree !== true ||
+    registries.wholeRuntimeStateClone !== false
+  ) {
+    errors.push("active runtime registry subsystem boundary is invalid");
+  }
   const modules = requireRecord(
     active.runtimeModules,
     "activeRuntimeCheckpoint.runtimeModules",

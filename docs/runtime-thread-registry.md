@@ -58,7 +58,8 @@ thread `0x2222`を保存し、同じprocess-owned FLS indexへ別pointerを保�
 `11`／`33`と別callback frameもswitch後に保持する。
 
 Process-owned clock、startup info、module graph、heap、TLS index allocator、FLS slot／callback、
-dynamic endpoint、encoded pointer registryは共有のままである。Initial-thread reserve／commit／guard
+dynamic endpoint、encoded pointer identityはprocess-wideだが、private
+`runtime/registries.rs::RuntimeRegistries`がtable／policy／allocatorを所有する。Initial-thread reserve／commit／guard
 metadataはthread recordへ接続済みだが、CPU register／FPU state、second-thread stack、TEBは未実装である。
 
 ## Exit and deterministic process termination

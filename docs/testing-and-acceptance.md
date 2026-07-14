@@ -246,6 +246,13 @@ cross-subsystem validationを固定する。Aggregate testはunknown completion�
 identityをpartial mutationしないこと、およびwait plan失敗がIDを消費しないことを固定し、inspectionは
 immutable getterだけを使う。
 
+Runtime registry subsystem unit contractsはprivate dynamic-endpoint table、encoded-pointer token／source
+indexes、policy／ID allocator、mutation-free plan、targeted commit、identity reuse、collision／exhaustionの
+mutation-free rejectionを固定する。Aggregate testはprocess address rangeを使うendpoint preflight、
+endpoint-to-thread TLS classification、pointer inverse relation、existing root／nested serialization shapeを
+固定し、host request authorityをregistryへ移さない。詳細は
+[runtime-registries.md](runtime-registries.md)を正とする。
+
 Heap subsystem unit contractsはprivate logical／backing collectionsのco-ownership、mutation-free creation／
 allocation plan、targeted commit、既存`process.heaps` serialization shapeを固定する。Aggregate atomicity
 testはobject-table conflict時にheap collectionsとprivate-heap slot allocatorが両方不変であることを固定し、

@@ -196,6 +196,13 @@ borrowed compatibility viewで既存shapeを維持するが、authorityは各pri
 host cancellation planをcross-subsystem preflightしてからcommitし、aggregateはscheduler／wait／host-request
 mapを直接mutateしない。
 
+Mutable dynamic endpoint table、encoded-pointer token table／source index、pointer namespace／prefix policy、
+token ID allocatorはprivate `runtime/registries.rs::RuntimeRegistries`だけが所有する。Endpoint registrationは
+aggregateがprocess dynamic-export rangeを渡し、subsystem plan／address preflight／infallible commitを通す。
+Pointer allocationはtokenとsourceの両indexおよびcounterをsame ownerでcommitする。Root pointer policy／
+source／counter serializationはborrowed compatibility viewであり、同じ`registries` JSON objectにある
+host requestは引き続き`RuntimeScheduler` authorityである。
+
 Mutable logical heap metadataとGuestMemory backing metadataはprivate
 `runtime/heaps.rs::RuntimeHeaps`だけがco-ownする。`RuntimeProcessState`はこれをflattenして既存
 `process.heaps` serializationを維持し、inspectionはimmutable borrowに限定する。Creation、allocation、

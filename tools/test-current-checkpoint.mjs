@@ -129,6 +129,33 @@ assert.ok(
   ),
 );
 
+const exposedRegistries = structuredClone(manifest);
+exposedRegistries.activeRuntimeCheckpoint.runtimeRegistries.mutableCollectionVisibility =
+  "public";
+assert.ok(
+  validateCurrentCheckpoint(exposedRegistries).some((error) =>
+    error.includes("registry subsystem boundary"),
+  ),
+);
+
+const aggregateMutatesRegistries = structuredClone(manifest);
+aggregateMutatesRegistries.activeRuntimeCheckpoint.runtimeRegistries.directCollectionMutationFromAggregate =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(aggregateMutatesRegistries).some((error) =>
+    error.includes("registry subsystem boundary"),
+  ),
+);
+
+const splitEncodedPointerIndexes = structuredClone(manifest);
+splitEncodedPointerIndexes.activeRuntimeCheckpoint.runtimeRegistries.encodedPointerIndexAtomic =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(splitEncodedPointerIndexes).some((error) =>
+    error.includes("registry subsystem boundary"),
+  ),
+);
+
 const aggregateMutatesModules = structuredClone(manifest);
 aggregateMutatesModules.activeRuntimeCheckpoint.runtimeModules.directCollectionMutationFromAggregate =
   true;

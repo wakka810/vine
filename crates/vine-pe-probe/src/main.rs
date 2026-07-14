@@ -2775,7 +2775,7 @@ fn run_v86_generic_runtime_session(
             attach_order: process.attach_order.clone(),
             runtime_export_endpoints: endpoints.len(),
             implemented_api_contracts: contracts.len(),
-            dynamic_export_endpoints: process.runtime.registries().dynamic_endpoints.len(),
+            dynamic_export_endpoints: process.runtime.registries().dynamic_endpoints().len(),
             initial_thread_stack,
             initial_stack_address_allocation,
             memory: memory.stats(),

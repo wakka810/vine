@@ -150,7 +150,7 @@ One `RuntimeState` is created at cumulative-session start. It owns:
 
 - process ID, address-space control ranges, clock, startup profile, heap policy, logical heaps, loaded modules, and TLS indices;
 - current thread ID, per-thread LastError, TLS／FLS values, and callback frame stack;
-- dynamic endpoints, deterministic encoded pointers, pending host requests, and scheduler events.
+- private `RuntimeRegistries`-owned dynamic endpoints and deterministic encoded pointers, scheduler-owned pending host requests, and scheduler events.
 - process-owned critical sections keyed by guest address, with spin count,
   controlled thread ownership, and recursion state.
 - bounded process-owned FLS slots keyed by logical index, with retained optional
@@ -171,6 +171,11 @@ Protocol request values remain only as private evidence assertions. A mismatch f
 LastError is current-thread state and all 33 contracts declare an explicit preserve-or-handler policy. Callback frames record thread identity and entry LastError, enforce strict LIFO return, and keep callback depth synchronized.
 
 A host request changes `Runnable` or `InCallback` to `WaitingHost`. Completion restores the saved state and enqueues `RuntimeSchedulerEvent::HostCompleted`. Private `runtime/scheduler.rs::RuntimeScheduler` owns the lane、event queue、pending request table、and monotonic request ID. Start／completion plan lane and identity before targeted commit; thread exit uses a thread-scoped cancellation plan. The root `registries.hostRequests`／`nextHostRequestId` report fields are a borrowed compatibility view, not duplicate state. Critical-section recursion is synchronous for the current thread; cross-thread contention returns structured `critical-section-contention-unimplemented` before mutation because scheduler-backed blocking is not implemented. This remains a scheduler foundation: no current BGI contract performs a browser asynchronous request.
+
+Private `runtime/registries.rs::RuntimeRegistries` owns dynamic endpoint records、encoded-pointer token/source
+indexes、pointer policy and token allocator. Endpoint registration and pointer allocation are mutation-free plans
+followed by targeted commits; root pointer-policy／source／counter report fields are borrowed compatibility views.
+The neighboring `registries.hostRequests` report field remains scheduler-owned and is not registry state.
 
 ## Verification
 

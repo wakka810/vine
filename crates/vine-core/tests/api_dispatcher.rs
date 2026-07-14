@@ -191,7 +191,7 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
             .namespace,
         LOGICAL_ENCODED_POINTER_NAMESPACE
     );
-    assert_eq!(runtime.registries().encoded_pointers.len(), 2);
+    assert_eq!(runtime.registries().encoded_pointers().len(), 2);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
     assert!(runtime.process().heap_termination_on_corruption);
     assert_eq!(runtime.heap(0x6801_0001).unwrap().initial_size, 0x1000);
@@ -5937,7 +5937,7 @@ fn pointer_encoding_contract_round_trips_only_process_owned_tokens() {
         0x7f02_0000
     );
 
-    let encoded_pointers_before = runtime.registries().encoded_pointers.clone();
+    let encoded_pointers_before = runtime.registries().encoded_pointers().clone();
     for (frame, expected_code) in [
         (&frames[5], "encoded-pointer-token-unknown"),
         (&frames[6], "encoded-pointer-token-invalid"),
@@ -5957,8 +5957,8 @@ fn pointer_encoding_contract_round_trips_only_process_owned_tokens() {
         ));
     }
     assert_eq!(
-        runtime.registries().encoded_pointers,
-        encoded_pointers_before
+        runtime.registries().encoded_pointers(),
+        &encoded_pointers_before
     );
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
     assert_eq!(memory.stats(), memory_before);

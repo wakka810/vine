@@ -490,6 +490,25 @@
     "browserBenchmarkDecision": "go",
     "browserBenchmarkThresholdFailures": 0
   },
+  "runtimeRegistries": {
+    "schema": "vine.runtime-registries.v1",
+    "stateOwner": "runtime/registries.rs::RuntimeRegistries",
+    "mutableCollectionVisibility": "private",
+    "readInspection": "immutable-borrow",
+    "serializedRegistryFields": ["dynamicEndpoints", "encodedPointers"],
+    "serializedRuntimeCompatibilityFields": ["encodedPointerNamespace", "encodedPointerTokenPrefix", "encodedPointerSources", "nextEncodedPointerId"],
+    "hostRequestCompatibilityField": "registries.hostRequests",
+    "hostRequestAuthority": "runtime/scheduler.rs::RuntimeScheduler",
+    "ownedCollections": ["dynamic-endpoint-table", "encoded-pointer-token-table", "encoded-pointer-source-index", "encoded-pointer-id-allocator", "encoded-pointer-policy"],
+    "dynamicEndpointTransition": "registry-plan-aggregate-address-preflight-infallible-commit",
+    "encodedPointerTransition": "registry-plan-infallible-targeted-commit",
+    "subsystemTests": 5,
+    "crossSubsystemAtomicTests": 3,
+    "directCollectionMutationFromAggregate": false,
+    "encodedPointerIndexAtomic": true,
+    "duplicateEndpointMutationFree": true,
+    "wholeRuntimeStateClone": false
+  },
   "runtimeModules": {
     "schema": "vine.runtime-modules.v2",
     "stateOwner": "runtime/modules.rs::RuntimeModules",

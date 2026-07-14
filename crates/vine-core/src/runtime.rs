@@ -4,9 +4,7 @@ use std::fmt;
 use serde::{Serialize, Serializer};
 
 use crate::bootstrap::InitialThreadStack;
-use crate::dynamic_exports::{
-    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
-};
+use crate::dynamic_exports::DynamicExportThunk;
 use crate::environment::{
     CONTROLLED_ANSI_COMMAND_LINE_ENCODING, CONTROLLED_WIDE_ENVIRONMENT_ENCODING,
     InitialProcessEnvironment,
@@ -30,6 +28,7 @@ mod messages;
 mod modules;
 mod objects;
 mod process;
+mod registries;
 mod scheduler;
 mod synchronization;
 mod thread;
@@ -54,6 +53,7 @@ use modules::{
 pub use objects::RuntimeObjectTable;
 use process::RuntimeProcessDirectories;
 pub use process::{RuntimeCurrentDirectoryA, RuntimeSetCurrentDirectoryAPlan};
+pub use registries::RuntimeRegistries;
 pub use scheduler::{
     RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler, RuntimeSchedulerEvent,
     SchedulerThreadState,
@@ -912,13 +912,6 @@ impl RuntimeProcessState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeRegistries {
-    pub dynamic_endpoints: BTreeMap<u32, RuntimeDynamicEndpoint>,
-    pub encoded_pointers: BTreeMap<u32, RuntimeEncodedPointer>,
-}
-
 struct RuntimeCallbackMutationPlan {
     thread: RuntimeThreadMutationPlan,
     scheduler: RuntimeSchedulerLanePlan,
@@ -937,10 +930,6 @@ pub struct RuntimeState {
     objects: RuntimeObjectTable,
     modules: RuntimeModules,
     registries: RuntimeRegistries,
-    encoded_pointer_namespace: String,
-    encoded_pointer_token_prefix: u32,
-    encoded_pointer_sources: BTreeMap<u32, u32>,
-    next_encoded_pointer_id: u16,
     next_private_heap_slot: u16,
     next_tls_index: u32,
     next_fls_index: u32,
@@ -993,14 +982,14 @@ impl Serialize for RuntimeState {
             objects: &self.objects,
             modules: &self.modules,
             registries: RuntimeRegistriesSnapshot {
-                dynamic_endpoints: &self.registries.dynamic_endpoints,
-                encoded_pointers: &self.registries.encoded_pointers,
+                dynamic_endpoints: self.registries.dynamic_endpoints(),
+                encoded_pointers: self.registries.encoded_pointers(),
                 host_requests: self.scheduler.host_requests(),
             },
-            encoded_pointer_namespace: &self.encoded_pointer_namespace,
-            encoded_pointer_token_prefix: self.encoded_pointer_token_prefix,
-            encoded_pointer_sources: &self.encoded_pointer_sources,
-            next_encoded_pointer_id: self.next_encoded_pointer_id,
+            encoded_pointer_namespace: self.registries.encoded_pointer_namespace(),
+            encoded_pointer_token_prefix: self.registries.encoded_pointer_token_prefix(),
+            encoded_pointer_sources: self.registries.encoded_pointer_sources(),
+            next_encoded_pointer_id: self.registries.next_encoded_pointer_id(),
             next_private_heap_slot: self.next_private_heap_slot,
             next_tls_index: self.next_tls_index,
             next_fls_index: self.next_fls_index,
@@ -1052,16 +1041,10 @@ impl RuntimeState {
             bootstrap.initial_current_directory_a.clone(),
             &bootstrap.process_image_path_a,
         )?;
-        if bootstrap.encoded_pointer_namespace != LOGICAL_ENCODED_POINTER_NAMESPACE
-            || bootstrap.encoded_pointer_token_prefix == 0
-            || bootstrap.encoded_pointer_token_prefix & 0xffff != 0
-        {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-state",
-                "encoded-pointer-policy-invalid",
-                "encoded pointer policy requires the runtime namespace and a nonzero 16-bit-aligned token prefix",
-            ));
-        }
+        let registries = RuntimeRegistries::new(
+            bootstrap.encoded_pointer_namespace,
+            bootstrap.encoded_pointer_token_prefix,
+        )?;
 
         let process_key = RuntimeObjectKey::Process {
             process_id: bootstrap.process_id.0,
@@ -1100,14 +1083,7 @@ impl RuntimeState {
             messages: RuntimeMessages::new(bootstrap.initial_thread_id),
             objects,
             modules: RuntimeModules::default(),
-            registries: RuntimeRegistries {
-                dynamic_endpoints: BTreeMap::new(),
-                encoded_pointers: BTreeMap::new(),
-            },
-            encoded_pointer_namespace: bootstrap.encoded_pointer_namespace,
-            encoded_pointer_token_prefix: bootstrap.encoded_pointer_token_prefix,
-            encoded_pointer_sources: BTreeMap::new(),
-            next_encoded_pointer_id: 1,
+            registries,
             next_private_heap_slot: 1,
             next_tls_index: 0,
             next_fls_index: 0,
@@ -2753,68 +2729,10 @@ impl RuntimeState {
         &mut self,
         endpoint: RuntimeDynamicEndpoint,
     ) -> Result<&RuntimeDynamicEndpoint, RuntimeStateError> {
-        if endpoint.namespace != DYNAMIC_EXPORT_ENDPOINT_NAMESPACE
-            || endpoint.id == 0
-            || endpoint.module.is_empty()
-            || endpoint.name.is_empty()
-            || endpoint.lifetime.is_empty()
-        {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-endpoint",
-                "dynamic-endpoint-identity-invalid",
-                "dynamic endpoint requires controlled namespace, ID, module, and name",
-            ));
-        }
-        let slot_offset = u64::from(endpoint.id - 1)
-            .checked_mul(u64::from(DYNAMIC_EXPORT_SLOT_SIZE))
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-endpoint",
-                    "dynamic-endpoint-slot-overflow",
-                    "dynamic endpoint slot offset overflowed runtime accounting",
-                )
-            })?;
-        let dynamic_exports = self.process.address_space.dynamic_exports;
-        let expected_address = u64::from(dynamic_exports.base.0)
-            .checked_add(slot_offset)
-            .filter(|_| slot_offset < dynamic_exports.byte_length)
-            .and_then(|address| u32::try_from(address).ok())
-            .ok_or_else(|| {
-                RuntimeStateError::invalid_input(
-                    "runtime-endpoint",
-                    "dynamic-endpoint-outside-arena",
-                    "dynamic endpoint ID does not fit the process dynamic-export arena",
-                )
-            })?;
-        if endpoint.address != GuestAddress(expected_address) {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-endpoint",
-                "dynamic-endpoint-slot-mismatch",
-                "dynamic endpoint address does not match its stable process-arena slot",
-            ));
-        }
-        if self.registries.dynamic_endpoints.contains_key(&endpoint.id)
-            || self
-                .registries
-                .dynamic_endpoints
-                .values()
-                .any(|registered| registered.address == endpoint.address)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-endpoint",
-                "dynamic-endpoint-duplicate",
-                "dynamic endpoint ID or address is already registered",
-            ));
-        }
-        let id = endpoint.id;
-        self.registries.dynamic_endpoints.insert(id, endpoint);
-        self.registries.dynamic_endpoints.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-endpoint",
-                "inserted-dynamic-endpoint-missing",
-                "dynamic endpoint disappeared after insertion",
-            )
-        })
+        let plan = self
+            .registries
+            .plan_dynamic_endpoint(self.process.address_space.dynamic_exports, endpoint)?;
+        Ok(self.registries.commit_dynamic_endpoint(plan))
     }
 
     pub fn register_dynamic_export_thunk(
@@ -2825,33 +2743,14 @@ impl RuntimeState {
     }
 
     pub fn dynamic_endpoint(&self, id: u32) -> Result<&RuntimeDynamicEndpoint, RuntimeStateError> {
-        self.registries.dynamic_endpoints.get(&id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-endpoint",
-                "dynamic-endpoint-id-unknown",
-                format!("dynamic endpoint ID {id} is not registered"),
-            )
-        })
+        self.registries.dynamic_endpoint(id)
     }
 
     pub fn dynamic_endpoint_at(
         &self,
         address: GuestAddress,
     ) -> Result<&RuntimeDynamicEndpoint, RuntimeStateError> {
-        self.registries
-            .dynamic_endpoints
-            .values()
-            .find(|endpoint| endpoint.address == address)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-endpoint",
-                    "dynamic-endpoint-address-unknown",
-                    format!(
-                        "dynamic endpoint address {:#010x} is not registered",
-                        address.0
-                    ),
-                )
-            })
+        self.registries.dynamic_endpoint_at(address)
     }
 
     pub fn dynamic_endpoint_by_name(
@@ -2859,17 +2758,7 @@ impl RuntimeState {
         module: &str,
         name: &str,
     ) -> Result<&RuntimeDynamicEndpoint, RuntimeStateError> {
-        self.registries
-            .dynamic_endpoints
-            .values()
-            .find(|endpoint| endpoint.module.eq_ignore_ascii_case(module) && endpoint.name == name)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-endpoint",
-                    "dynamic-endpoint-name-unknown",
-                    format!("dynamic endpoint {module}!{name} is not registered"),
-                )
-            })
+        self.registries.dynamic_endpoint_by_name(module, name)
     }
 
     pub fn allocate_tls_index(&mut self) -> Result<u32, RuntimeStateError> {
@@ -3255,116 +3144,26 @@ impl RuntimeState {
     }
 
     pub fn encoded_pointer_namespace(&self) -> &str {
-        &self.encoded_pointer_namespace
+        self.registries.encoded_pointer_namespace()
     }
 
     pub fn encode_pointer(
         &mut self,
         source: u32,
     ) -> Result<&RuntimeEncodedPointer, RuntimeStateError> {
-        if let Some(token) = self.encoded_pointer_sources.get(&source) {
-            return self.registries.encoded_pointers.get(token).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-pointer-encoding",
-                    "encoded-pointer-source-index-dangling",
-                    "encoded pointer source index references a missing token",
-                )
-            });
-        }
-        if self.next_encoded_pointer_id == 0 {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-pointer-encoding",
-                "encoded-pointer-token-space-exhausted",
-                "logical encoded pointer token space is exhausted",
-            ));
-        }
-        let token_id = self.next_encoded_pointer_id;
-        let token = self.encoded_pointer_token_prefix | u32::from(token_id);
-        if self.registries.encoded_pointers.contains_key(&token) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-pointer-encoding",
-                "encoded-pointer-token-collision",
-                "logical encoded pointer allocator selected a live token",
-            ));
-        }
-        self.next_encoded_pointer_id = self.next_encoded_pointer_id.checked_add(1).unwrap_or(0);
-        self.encoded_pointer_sources.insert(source, token);
-        self.registries.encoded_pointers.insert(
-            token,
-            RuntimeEncodedPointer {
-                namespace: self.encoded_pointer_namespace.clone(),
-                token_id,
-                token,
-                source,
-            },
-        );
-        self.registries.encoded_pointers.get(&token).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-pointer-encoding",
-                "inserted-encoded-pointer-missing",
-                "logical encoded pointer disappeared after insertion",
-            )
-        })
+        let plan = self.registries.plan_encode_pointer(source)?;
+        Ok(self.registries.commit_encode_pointer(plan))
     }
 
     pub fn encoded_pointer_for_source(
         &self,
         source: u32,
     ) -> Result<&RuntimeEncodedPointer, RuntimeStateError> {
-        let token = self.encoded_pointer_sources.get(&source).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-pointer-encoding",
-                "encoded-pointer-source-unknown",
-                format!("guest pointer source {source:#010x} has not been encoded"),
-            )
-        })?;
-        self.registries.encoded_pointers.get(token).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-pointer-encoding",
-                "encoded-pointer-source-index-dangling",
-                "encoded pointer source index references a missing token",
-            )
-        })
+        self.registries.encoded_pointer_for_source(source)
     }
 
     pub fn decode_pointer(&self, token: u32) -> Result<&RuntimeEncodedPointer, RuntimeStateError> {
-        let token_id = token & 0xffff;
-        if token_id == 0 || token & 0xffff_0000 != self.encoded_pointer_token_prefix {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-pointer-encoding",
-                "encoded-pointer-token-invalid",
-                format!("pointer token {token:#010x} is outside the runtime-owned token namespace"),
-            ));
-        }
-        let encoded = self
-            .registries
-            .encoded_pointers
-            .get(&token)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-pointer-encoding",
-                    "encoded-pointer-token-unknown",
-                    format!("pointer token {token:#010x} is not registered in this process"),
-                )
-            })?;
-        if encoded.namespace != self.encoded_pointer_namespace
-            || encoded.token != token
-            || u32::from(encoded.token_id) != token_id
-        {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-pointer-encoding",
-                "encoded-pointer-record-inconsistent",
-                "registered encoded pointer does not match its process token identity",
-            ));
-        }
-        match self.encoded_pointer_sources.get(&encoded.source) {
-            Some(indexed_token) if *indexed_token == token => Ok(encoded),
-            _ => Err(RuntimeStateError::runtime_defect(
-                "runtime-pointer-encoding",
-                "encoded-pointer-source-index-inconsistent",
-                "registered encoded pointer does not match its process source index",
-            )),
-        }
+        self.registries.decode_pointer(token)
     }
 
     pub fn push_callback_frame(
