@@ -140,7 +140,7 @@ generation `1,542`. Success, cancel, and watchdog end in `stopped` with no
 pending work. Runtime-core Wasm remains 1,858,027 bytes with SHA-256
 `4f2d3c11fd37b5a53ed84696420c922ab680f8ea4c8215abadc3628ed978dab1`.
 
-The separate 180-second workload completed 627 sessions with zero failure. All
+The separate 180-second workload completed 624 sessions with zero failure. All
 16 thresholds passed: session p95 `349.845 ms`, slice p99 `1.950 ms`, maximum
 heartbeat gap `50.985 ms`, main heap slope `-99,181.06 bytes/min`, Worker heap
 slope `2,802,419.43 bytes/min`, and backing-storage slope
