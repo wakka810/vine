@@ -23,15 +23,15 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 185 | 185 |
-| Guest instructions at next stop | 18,143 | 18,143 |
+| Supported calls | 186 | 186 |
+| Guest instructions at next stop | 18,180 | 18,180 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 1,538 | 267 |
-| Host delta batches | 52 | 52 |
-| Final memory content SHA-256 | `b648580e9ea1840e7c2703115d144e3b7014040f74a6670a14136808ee2782ff` | same |
-| Next capability cluster | `kernel32-private-heap-allocation` | same |
-| Next API | `KERNEL32.dll!HeapAlloc(0x68010001, 8, 4)` | same |
-| Fault | `heap-alloc-variant-unsupported` | same |
+| Final memory generation | 1,542 | 269 |
+| Host delta batches | 53 | 53 |
+| Final memory content SHA-256 | `d9abc780ef3d253810695351cb66296b1aeb727e7e8590f73fe20e2c1c73cd2c` | same |
+| Next capability cluster | `kernel32-api-contract` | same |
+| Next API | `KERNEL32.dll!HeapFree(0x68010001, 0, 0x20000A18)` | same |
+| Fault | `endpoint-contract-missing` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
 arguments, EAX policy, implementation ID, return and stack pointers, LastError,
@@ -40,19 +40,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 1,728
-writeback batches; the Node oracle reconciles at 186 writeback boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 1,731
+writeback batches; the Node oracle reconciles at 187 writeback boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 2,325 CPU slices, 2,139 budget yields, 6,976 validated
-Worker state transitions, 1,969 Rust/Wasm bridge operations, and a maximum
-observed slice of 1.660 ms. The main-thread heartbeat recorded 60 samples with an 18.135 ms
+The successful run used 2,330 CPU slices, 2,143 budget yields, 6,991 validated
+Worker state transitions, 1,974 Rust/Wasm bridge operations, and a maximum
+observed slice of 2.715 ms. The main-thread heartbeat recorded 65 samples with a 27.595 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 825,010 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 918
+changed from 628,738 to 825,838 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 627
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -62,7 +62,7 @@ module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 6,976, 4, and 3 transitions respectively. All three reports
+in `stopped` after 6,991, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -91,8 +91,10 @@ increment and critical-section calls before both paths stop at
 `GetModuleFileNameA`. The Rust-owned virtual path `C:\Vine\BGI.exe\0` is then
 copied through the checked 16-byte output write. The following flags-zero
 16-byte heap block and its path consumer are then applied through a dirty-only
-host delta and ordinary CPU writeback; Node and Chrome converge before stopping
-at `HeapAlloc(0x68010001, 8, 4)`.
+host delta and ordinary CPU writeback. The controlled empty environment then
+allocates one zeroed four-byte pointer-table terminator and stores its global
+identity; Node and Chrome converge before stopping at
+`HeapFree(0x68010001, 0, 0x20000A18)`.
 
 ## Reproduction
 

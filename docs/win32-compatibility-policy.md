@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-private-heap-size-16-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-private-heap-size-4-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -48,7 +48,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form eighteen monotonic controlled policies:
+The current files form nineteen monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -70,6 +70,7 @@ The current files form eighteen monotonic controlled policies:
 | `kernel32-lc-map-string-w-v1` | stdin, stdout, stderr | preceding options + locale `1041`／lowercase and uppercase／65,536-unit mapping bound | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 | `kernel32-get-module-file-name-a-v1` | stdin, stdout, stderr | preceding options + main-module-only path lookup／32 KiB capacity | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `544` |
 | `kernel32-private-heap-size-16-v1` | stdin, stdout, stderr | preceding options | zeroed `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544` |
+| `kernel32-private-heap-size-4-v1` | stdin, stdout, stderr | preceding options | zeroed `4`, `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -177,6 +178,13 @@ The 16-byte path-buffer policy reuses `kernel32.heap-alloc.v2` and adds only
 enter policy. The public heap fixture fixes preceding-policy rejection,
 deterministic initialization, allocation identity／alignment, dirty-only delta,
 LastError, and stdcall cleanup through the same handler.
+The four-byte environment-pointer-table policy adds only
+`(flags=HEAP_ZERO_MEMORY, byteLength=4)`. Native requests 188 bytes for 46 host
+environment entries plus a terminator, while the controlled empty environment
+requests one four-byte terminator slot. Host entries and the native size do not
+enter policy. The public heap fixture fixes preceding-policy rejection, full
+reserved-range zero initialization, allocation identity／alignment, dirty-only
+delta, LastError, and stdcall cleanup through the same handler.
 
 Policy JSON parsing and validation is covered independently:
 

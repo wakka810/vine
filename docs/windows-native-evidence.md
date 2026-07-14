@@ -1868,3 +1868,44 @@ Chrome Runtime Workerも185 ordered callsとsame stop／memoryを再現し、2,3
 2,139 yields、1,969 Wasm crossings、final generation `1,538`、cancel／watchdog後pending
 work 0を通す。3分gateは918 sessions／failure 0で全16 thresholdを通した。詳細は
 [bgi-private-heap-size-16.md](bgi-private-heap-size-16.md)を正とする。
+
+## 75. BGI private-heap 4-byte allocation
+
+focused `heap-allocation` observerのaccepted capturesは361,115 bytes／168 lines／
+SHA-256 `9ab295457772c0a71f93cafb32f054f45dd0b64a8d07c21fb72f0aff30f15ed6`と
+360,997 bytes／168 lines／SHA-256
+`2836f8c51c84cab7690e0f66a4ec953ddeae9802669710981f0ff2d3f6c12c47`
+である。どちらも166 contiguous events、59 balanced API pairs、diagnostics zeroを保持する。
+Sequence `64`／`65`のpath用flags-zero 36-byte allocation直後、sequence `66`／`67`で
+environment pointer tableのdirect BGI allocationを記録する。
+
+Native callはRVA `0xAC3CC`へ戻る`HeapAlloc(nativeHeap,8,188)`で、non-NULLを返して
+LastError `0 -> 0`を保存する。全188 bytesは両runでNUL、FNV-1a `0x67691275`である。
+RVA `0xA821E`のcallerはANSI environment blockを走査し、先頭`=`でない46 entriesを数え、
+NULL terminatorを1 slot加えてfour-byte pointer widthとchecked multiplyする。従ってnative
+requestは`(46 + 1) * 4 = 188`である。Controlled empty environmentはzero entriesなので、
+same guest codeのrequestは`(0 + 1) * 4 = 4`となる。Host environmentとsize 188はruntimeへ
+importしない。
+
+Consumer RVA `0xA8261`はresultをglobalへstore／NULL testし、各native entryのcopy pointerを
+four-byte slotへ書き、最後のDWORDをNULL化する。Failure pathだけはtableをfreeしてglobalを
+clearする。Accepted capture内にsuccessful tableとrelatedな`HeapFree`はない。
+
+Policy `kernel32-private-heap-size-4-v1`はexisting `kernel32.heap-alloc.v2`のzeroed listへ
+size `4`だけを追加する。Reached allocationはID `6`／block `0x20000C50`、requested 4／
+reserved 8 bytes、zeroedである。Host delta sequence `186`はgeneration `267 -> 268`の
+dirty-only one-page update、consumer writeback sequence `187`はinstruction `18180`／
+generation `268 -> 269`／16 changed bytesである。
+
+`npm run check:runtime:bgi -- --profile kernel32-private-heap-size-4`は39 contracts／
+186 calls、187 writebacks／274 dirty pages／4,194 changed bytes、53 host deltas、final
+generation `269`を通す。instruction `18180`でID `76`／
+`HeapFree(0x68010001,0,0x20000A18)`を`endpoint-contract-missing`として停止する。Memory
+SHA-256は`d9abc780ef3d253810695351cb66296b1aeb727e7e8590f73fe20e2c1c73cd2c`、
+833,007-byte reportのSHA-256は
+`80f28db63bf8400b7ea7d1db5d7552303dec05dc71addb1ac2ed1ecea29eefa1`である。
+
+Chrome Runtime Workerも186 ordered callsとsame stop／memoryを再現し、2,330 slices、
+2,143 yields、1,974 Wasm crossings、final generation `1,542`、cancel／watchdog後pending
+work 0を通す。3分gateは627 sessions／failure 0で全16 thresholdを通した。詳細は
+[bgi-private-heap-size-4.md](bgi-private-heap-size-4.md)を正とする。
