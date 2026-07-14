@@ -325,7 +325,7 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
     assert_eq!(cancellation.host_requests_cancelled, 1);
     assert_eq!(cancellation.callback_frames_cancelled, 2);
     assert_eq!(cancellation.scheduler_events_discarded, 0);
-    assert!(runtime.registries().host_requests.is_empty());
+    assert!(runtime.scheduler().host_requests().is_empty());
     assert!(
         runtime
             .current_thread_state()

@@ -22,8 +22,8 @@ callback push／pop、stack registration／growth、exit request／completionは
 recordを持つmutation-free planを返し、scheduler、object、message、wait、GuestMemoryのpreflightが
 成功した後にcommitする。
 
-Aggregateはthread mapへ`get_mut`／`insert`せず、thread recordを直接変更しない。Scheduler lane、
-wait registration、message queue、host requestはそれぞれのownerに残し、thread subsystemはそれらの
+Aggregateはthread mapへ`get_mut`／`insert`せず、thread recordを直接変更しない。Scheduler lane／
+host-request table／request ID、wait registration、message queueはそれぞれのownerに残し、thread subsystemはそれらの
 mapを参照またはmutateしない。Serialized `RuntimeState.threads` shapeはtransparent newtypeで維持する。
 
 ## Registration and selection
@@ -51,7 +51,8 @@ SelectionはCPU context switchではない。現在のthread-local Rust APIsが�
 ## Thread-local ownership
 
 LastError、logical TLS／FLS value、callback frame stack、initial-thread stack metadataは
-TIDごとに分離する。Scheduler stateとpending host requestもTIDへ帰属するが、別subsystemが所有する。
+TIDごとに分離する。Scheduler stateとpending host requestもTIDへ帰属し、private
+`RuntimeScheduler`が同じplan／commit境界で所有する。
 Controlled contractsは同じTLS indexへinitial thread `0x1111`、second
 thread `0x2222`を保存し、同じprocess-owned FLS indexへ別pointerを保存する。LastError
 `11`／`33`と別callback frameもswitch後に保持する。
@@ -67,7 +68,7 @@ signalしてもprocessとinitial threadをrunning／nonsignaledに保つ。exite
 typed handleからterminal wait stateを取得できる。
 
 Process exitはregistered thread mapのTID昇順で全live laneをpreflightする。各laneのpending host
-request、callback frame、scheduler eventを数えてretireし、thread wait-object updateを同じ順で
+request ID list、callback frame、scheduler eventをmutation-free planで数えてretireし、thread wait-object updateを同じ順で
 planした後、process objectを最後にplanする。controlled orderは次である。
 
 ```text
@@ -94,7 +95,8 @@ cargo test -p vine-core --test runtime_initial_thread_stack --locked
 ```
 
 Subsystem unit tests fix mutation-free planning、per-thread value isolation、callback／exit ordering、
-duplicate／zero identity rejection. Aggregate tests fix object／scheduler／message／wait atomicity and
+duplicate／zero identity rejection. Scheduler tests add thread-scoped host start／completion／cancellation
+plans and root serialization compatibility. Aggregate tests fix object／scheduler／message／wait atomicity and
 initial-stack GuestMemory coordination. Current Node／Chrome result、runtime artifact、benchmark、
 next structured stopはこのhistorical foundation文書へ複製せず
 [current checkpoint manifest](current-checkpoint.json)だけを正とする。

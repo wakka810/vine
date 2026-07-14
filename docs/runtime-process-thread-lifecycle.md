@@ -37,13 +37,16 @@ scheduler statesを同時にrunningへ進める。double startとstart前のexit
 Thread lifecycle records now live in private
 `runtime/thread.rs::RuntimeThreads`. Start、exit request、exit completion、direct cancellationは
 mutation-free thread plansを作る。Aggregate coordinatorはprocess lifecycle、scheduler lane、
-object wait state、message cleanup、host request、wait registrationをpreflightしてからthread planを
+object wait state、message cleanup、host-request cancellation、wait registrationをpreflightしてからthread planを
 commitし、thread collection／recordを直接mutateしない。
 
-Scheduler lane／event records now live in private
+Scheduler lane／event records、pending host-request table、request ID allocator now live in private
 `runtime/scheduler.rs::RuntimeScheduler`; wait registration／object FIFO live in private
-`runtime/waits.rs::RuntimeWaits`. Lifecycle request／completion builds scheduler and wait plans before
-thread、object、message、host-request mutation. The aggregate no longer mutates either collection directly.
+`runtime/waits.rs::RuntimeWaits`. Host start／completion plans lane and identity together before an
+infallible targeted commit. Lifecycle request builds a thread-scoped host cancellation plan before
+thread、object、message、wait mutation. The aggregate no longer mutates scheduler、wait、or host-request
+collections directly. Root `registries.hostRequests`／`nextHostRequestId` JSON remains a borrowed
+serialization view and is not a second authority.
 
 ## Process-owned current directory
 
@@ -71,7 +74,7 @@ effects remain deferred until reached.
 
 Thread/process exitは二段階である。
 
-1. Requestはlive scheduler laneを検査し、そのthreadのpending host requests、callback frames、
+1. Requestはlive scheduler laneを検査し、schedulerがplanしたそのthreadのpending host request IDsとcallback frames、
    completed scheduler eventsをretireする。threadは`exit-requested`、schedulerは`terminating`へ
    進むが、waitable objectsはまだsignalしない。
 2. Completionはretained workが0であることを再検査し、planned wait-object recordsをcommitする。
@@ -119,6 +122,7 @@ The test fixes:
 - bootstrap `process=bootstrapping / thread=initialized / scheduler=initialized`
 - explicit start to three running states and mutation-free double-start rejection
 - one callback plus one pending host request retired by process exit request
+- unknown host completion preserves the complete aggregate before lifecycle cancellation
 - request state with both waitable objects still nonsignaled
 - mutation-free duplicate request／completion rejection
 - completion to thread/scheduler/process terminal state and exact exit code `7`

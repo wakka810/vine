@@ -4,8 +4,8 @@ use serde::Serialize;
 
 use super::waits::{RuntimeWaitRegistrationPlan, RuntimeWaitWakeCandidate, RuntimeWaits};
 use super::{
-    RuntimeHostCompletion, RuntimeMessageWake, RuntimeObjectId, RuntimeStateError, RuntimeThreadId,
-    RuntimeWaitCompletion, RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
+    RuntimeMessageWake, RuntimeObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWaitCompletion,
+    RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -30,6 +30,23 @@ pub enum SchedulerThreadState {
     Terminated {
         exit_code: u32,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHostRequest {
+    pub request_id: u64,
+    pub thread_id: RuntimeThreadId,
+    pub service: String,
+    pub resume_state: SchedulerThreadState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHostCompletion {
+    pub request_id: u64,
+    pub thread_id: RuntimeThreadId,
+    pub service: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -58,6 +75,10 @@ pub struct RuntimeScheduler {
     #[serde(flatten)]
     waits: RuntimeWaits,
     events: VecDeque<RuntimeSchedulerEvent>,
+    #[serde(skip)]
+    host_requests: BTreeMap<u64, RuntimeHostRequest>,
+    #[serde(skip)]
+    next_host_request_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +92,33 @@ pub(super) struct RuntimeSchedulerLanePlan {
 pub(super) struct RuntimeSchedulerSelectionPlan {
     previous: RuntimeThreadId,
     next: RuntimeThreadId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeHostRequestPlan {
+    previous_next_request_id: u64,
+    next_request_id: u64,
+    request: RuntimeHostRequest,
+    scheduler: RuntimeSchedulerLanePlan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeHostCompletionPlan {
+    request: RuntimeHostRequest,
+    completion: RuntimeHostCompletion,
+    scheduler: RuntimeSchedulerLanePlan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeHostRequestCancellationPlan {
+    thread_id: RuntimeThreadId,
+    request_ids: Vec<u64>,
+}
+
+impl RuntimeHostRequestCancellationPlan {
+    pub(super) fn request_count(&self) -> usize {
+        self.request_ids.len()
+    }
 }
 
 impl RuntimeSchedulerLanePlan {
@@ -90,6 +138,8 @@ impl RuntimeScheduler {
             threads: BTreeMap::from([(initial_thread_id, SchedulerThreadState::Initialized)]),
             waits: RuntimeWaits::default(),
             events: VecDeque::new(),
+            host_requests: BTreeMap::new(),
+            next_host_request_id: 1,
         }
     }
 
@@ -115,6 +165,14 @@ impl RuntimeScheduler {
 
     pub fn events(&self) -> &VecDeque<RuntimeSchedulerEvent> {
         &self.events
+    }
+
+    pub fn host_requests(&self) -> &BTreeMap<u64, RuntimeHostRequest> {
+        &self.host_requests
+    }
+
+    pub(super) fn next_host_request_id(&self) -> u64 {
+        self.next_host_request_id
     }
 
     pub(super) fn contains_thread(&self, thread_id: RuntimeThreadId) -> bool {
@@ -199,6 +257,169 @@ impl RuntimeScheduler {
     pub(super) fn commit_selection(&mut self, plan: RuntimeSchedulerSelectionPlan) {
         debug_assert_eq!(self.current_thread_id, plan.previous);
         self.current_thread_id = plan.next;
+    }
+
+    pub(super) fn plan_host_request(
+        &self,
+        service: String,
+    ) -> Result<RuntimeHostRequestPlan, RuntimeStateError> {
+        if service.is_empty() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-host-request",
+                "host-service-empty",
+                "host request requires a nonempty service identity",
+            ));
+        }
+        let resume_state = match self.current_state()? {
+            state @ (SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }) => {
+                state
+            }
+            _ => {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-host-request",
+                    "thread-not-runnable",
+                    "only a runnable guest thread or active callback can begin a host request",
+                ));
+            }
+        };
+        let request_id = self.next_host_request_id;
+        let next_request_id = request_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-host-request",
+                "host-request-id-overflow",
+                "host request ID space is exhausted",
+            )
+        })?;
+        if self.host_requests.contains_key(&request_id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-host-request",
+                "host-request-id-duplicate",
+                format!("next host request ID {request_id} is already pending"),
+            ));
+        }
+        let request = RuntimeHostRequest {
+            request_id,
+            thread_id: self.current_thread_id,
+            service,
+            resume_state,
+        };
+        let scheduler =
+            self.plan_current_transition(SchedulerThreadState::WaitingHost { request_id })?;
+        Ok(RuntimeHostRequestPlan {
+            previous_next_request_id: request_id,
+            next_request_id,
+            request,
+            scheduler,
+        })
+    }
+
+    pub(super) fn commit_host_request(
+        &mut self,
+        plan: RuntimeHostRequestPlan,
+    ) -> RuntimeHostRequest {
+        debug_assert_eq!(self.next_host_request_id, plan.previous_next_request_id);
+        debug_assert!(!self.host_requests.contains_key(&plan.request.request_id));
+        self.next_host_request_id = plan.next_request_id;
+        let request = plan.request;
+        let previous = self
+            .host_requests
+            .insert(request.request_id, request.clone());
+        debug_assert!(previous.is_none());
+        self.commit_lane(plan.scheduler);
+        request
+    }
+
+    pub(super) fn plan_host_completion(
+        &self,
+        request_id: u64,
+    ) -> Result<RuntimeHostCompletionPlan, RuntimeStateError> {
+        let request = self
+            .host_requests
+            .get(&request_id)
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-host-request",
+                    "host-request-id-unknown",
+                    format!("host request ID {request_id} is not pending"),
+                )
+            })?;
+        if self.current_state()? != (SchedulerThreadState::WaitingHost { request_id }) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-host-request",
+                "host-completion-thread-state-mismatch",
+                "host completion does not match the current thread wait state",
+            ));
+        }
+        if request.thread_id != self.current_thread_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-host-request",
+                "host-completion-thread-mismatch",
+                "host completion belongs to a different guest thread",
+            ));
+        }
+        let scheduler = self.plan_current_transition(request.resume_state)?;
+        let completion = RuntimeHostCompletion {
+            request_id,
+            thread_id: request.thread_id,
+            service: request.service.clone(),
+        };
+        Ok(RuntimeHostCompletionPlan {
+            request,
+            completion,
+            scheduler,
+        })
+    }
+
+    pub(super) fn commit_host_completion(
+        &mut self,
+        plan: RuntimeHostCompletionPlan,
+    ) -> RuntimeHostCompletion {
+        debug_assert_eq!(
+            self.host_requests.get(&plan.request.request_id),
+            Some(&plan.request)
+        );
+        let removed = self.host_requests.remove(&plan.request.request_id);
+        debug_assert_eq!(removed, Some(plan.request));
+        self.commit_lane(plan.scheduler);
+        let completion = plan.completion;
+        self.commit_event(RuntimeSchedulerEvent::HostCompleted(completion.clone()));
+        completion
+    }
+
+    pub(super) fn plan_host_request_cancellation(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> RuntimeHostRequestCancellationPlan {
+        RuntimeHostRequestCancellationPlan {
+            thread_id,
+            request_ids: self
+                .host_requests
+                .iter()
+                .filter_map(|(&request_id, request)| {
+                    (request.thread_id == thread_id).then_some(request_id)
+                })
+                .collect(),
+        }
+    }
+
+    pub(super) fn commit_host_request_cancellation(
+        &mut self,
+        plan: RuntimeHostRequestCancellationPlan,
+    ) {
+        for request_id in plan.request_ids {
+            let removed = self.host_requests.remove(&request_id);
+            debug_assert_eq!(
+                removed.as_ref().map(|request| request.thread_id),
+                Some(plan.thread_id)
+            );
+        }
+    }
+
+    pub(super) fn has_host_request_for_thread(&self, thread_id: RuntimeThreadId) -> bool {
+        self.host_requests
+            .values()
+            .any(|request| request.thread_id == thread_id)
     }
 
     pub(super) fn plan_wait_registration(
@@ -331,6 +552,97 @@ mod tests {
                 "objectWaiters": {},
                 "events": [],
             })
+        );
+    }
+
+    #[test]
+    fn host_request_plans_do_not_mutate_and_completion_commits_one_event() {
+        let mut scheduler = RuntimeScheduler::new(INITIAL);
+        let running = scheduler
+            .plan_current_transition(SchedulerThreadState::Runnable)
+            .unwrap();
+        scheduler.commit_lane(running);
+
+        let start = scheduler
+            .plan_host_request("browser.storage.read".to_owned())
+            .unwrap();
+        assert_eq!(
+            scheduler.current_state(),
+            Ok(SchedulerThreadState::Runnable)
+        );
+        assert!(scheduler.host_requests().is_empty());
+        assert_eq!(scheduler.next_host_request_id(), 1);
+        let request = scheduler.commit_host_request(start);
+        assert_eq!(request.request_id, 1);
+        assert_eq!(scheduler.host_requests().get(&1), Some(&request));
+        assert_eq!(scheduler.next_host_request_id(), 2);
+        assert_eq!(
+            scheduler.current_state(),
+            Ok(SchedulerThreadState::WaitingHost { request_id: 1 })
+        );
+
+        let before_unknown = scheduler.clone();
+        assert_eq!(
+            scheduler
+                .plan_host_completion(2)
+                .expect_err("unknown completion must not mutate")
+                .code,
+            "host-request-id-unknown"
+        );
+        assert_eq!(scheduler, before_unknown);
+
+        let completion = scheduler.plan_host_completion(1).unwrap();
+        assert_eq!(scheduler.host_requests().get(&1), Some(&request));
+        assert!(scheduler.events().is_empty());
+        let completion = scheduler.commit_host_completion(completion);
+        assert_eq!(completion.request_id, 1);
+        assert!(scheduler.host_requests().is_empty());
+        assert_eq!(
+            scheduler.current_state(),
+            Ok(SchedulerThreadState::Runnable)
+        );
+        assert_eq!(
+            scheduler.pop_event(),
+            Some(RuntimeSchedulerEvent::HostCompleted(completion))
+        );
+    }
+
+    #[test]
+    fn host_request_cancellation_plan_is_thread_scoped_and_mutation_free() {
+        let mut scheduler = RuntimeScheduler::new(INITIAL);
+        let initial_running = scheduler
+            .plan_current_transition(SchedulerThreadState::Runnable)
+            .unwrap();
+        scheduler.commit_lane(initial_running);
+        let second_registration = scheduler
+            .plan_registration(SECOND, SchedulerThreadState::Runnable)
+            .unwrap();
+        scheduler.commit_lane(second_registration);
+
+        let initial_request = scheduler
+            .plan_host_request("initial.pending".to_owned())
+            .unwrap();
+        let initial_request = scheduler.commit_host_request(initial_request);
+        let select_second = scheduler.plan_selection(SECOND).unwrap();
+        scheduler.commit_selection(select_second);
+        let second_request = scheduler
+            .plan_host_request("second.pending".to_owned())
+            .unwrap();
+        let second_request = scheduler.commit_host_request(second_request);
+
+        let before_plan = scheduler.clone();
+        let cancellation = scheduler.plan_host_request_cancellation(INITIAL);
+        assert_eq!(cancellation.request_count(), 1);
+        assert_eq!(scheduler, before_plan);
+        scheduler.commit_host_request_cancellation(cancellation);
+        assert!(
+            !scheduler
+                .host_requests()
+                .contains_key(&initial_request.request_id)
+        );
+        assert_eq!(
+            scheduler.host_requests().get(&second_request.request_id),
+            Some(&second_request)
         );
     }
 }

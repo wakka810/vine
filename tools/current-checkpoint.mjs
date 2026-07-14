@@ -602,19 +602,30 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    scheduler.schema !== "vine.runtime-scheduler.v1" ||
+    scheduler.schema !== "vine.runtime-scheduler.v2" ||
     scheduler.stateOwner !== "runtime/scheduler.rs::RuntimeScheduler" ||
     scheduler.mutableCollectionVisibility !== "private" ||
     scheduler.serializedRuntimeField !== "scheduler" ||
     !Array.isArray(scheduler.serializedFields) ||
     scheduler.serializedFields.join(",") !==
       "currentThreadId,threads,waitRegistrations,objectWaiters,events" ||
+    !Array.isArray(scheduler.hostRequestSerializedRuntimeFields) ||
+    scheduler.hostRequestSerializedRuntimeFields.join(",") !==
+      "registries.hostRequests,nextHostRequestId" ||
+    scheduler.hostRequestSerializationAdapter !==
+      "runtime-state-borrowed-compatibility-view" ||
+    !Array.isArray(scheduler.ownedCollections) ||
+    scheduler.ownedCollections.join(",") !==
+      "current-thread-selector,thread-lanes,event-fifo,host-request-table,host-request-id-allocator" ||
     scheduler.waitSubsystemAdapter !== "serde-flatten-private-runtime-waits" ||
     scheduler.crossSubsystemMutation !==
-      "scheduler-plan-aggregate-preflight-commit" ||
-    scheduler.subsystemTests < 4 ||
-    scheduler.crossSubsystemAtomicTests < 4 ||
+      "scheduler-host-plan-aggregate-lifecycle-preflight-targeted-commit" ||
+    scheduler.hostRequestTransition !== "scheduler-plan-infallible-targeted-commit" ||
+    scheduler.subsystemTests < 6 ||
+    scheduler.crossSubsystemAtomicTests < 5 ||
     scheduler.directCollectionMutationFromAggregate !== false ||
+    scheduler.directHostRequestMutationFromAggregate !== false ||
+    scheduler.hostRequestCancellationPlan !== true ||
     scheduler.hostCompletionPreflightBeforeRemoval !== true ||
     scheduler.wholeRuntimeStateClone !== false
   ) {

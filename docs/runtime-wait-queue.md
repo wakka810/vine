@@ -13,16 +13,16 @@ object signalを接続するmetadata boundaryである。
 
 ## Subsystem boundary
 
-`RuntimeScheduler`だけがcurrent-thread selector、lane map、event FIFOを所有する。`RuntimeWaits`だけが
+`RuntimeScheduler`だけがcurrent-thread selector、lane map、event FIFO、pending host-request table／ID allocatorを所有する。`RuntimeWaits`だけが
 registration tableとobject-indexed FIFOを所有し、`serde(flatten)` adapterで既存の
 `scheduler.{currentThreadId,threads,waitRegistrations,objectWaiters,events}` shapeを維持する。Collectionは
 どちらもmodule外へ公開せず、inspectionはimmutable getterだけを使う。
 
 Lane registration／selection／transitionはprevious／nextを持つmutation-free scheduler plan、wait
-registrationはtableとobject indexを同時に扱うwait planを返す。Aggregate coordinatorはthread、
-object、message、host requestをpreflightしてから各planをcommitし、scheduler／wait collectionへ
-`insert`／`get_mut`／`remove`しない。Host completionもpending requestをremoveする前にlane transitionを
-preflightする。
+registrationはtableとobject indexを同時に扱うwait planを返す。Host start／completionはschedulerが
+request identityとlane transitionを一つのplanにし、pending requestをremoveする前にcompletionを
+preflightする。Aggregate coordinatorはthread、object、message、wait、host cancellation planを検査してから
+各planをcommitし、scheduler／wait／host-request collectionへ`insert`／`get_mut`／`remove`しない。
 
 ## Registration model
 

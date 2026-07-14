@@ -5,7 +5,7 @@
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは46 contracts／284 callsをcommon dispatcherからreturnした。PE header由来の1 MiB initial stack reserve、4 KiB initial commit、movable guardをRust `GuestMemory`とprocess-wide allocation IDへ接続し、Node／Chromeで4回のone-page growthをsemantic一致させた。Process-owned critical-section／named-mutex collectionsはprivate `RuntimeSynchronization`、current-directory identityはprivate `RuntimeProcessDirectories`へ分割済みで、mutex name／owner／recursionとgeneric object／handle lifetimeをtwo-subsystem transactionへ接続した。Next exact stopはinstruction 25,256の`GetCurrentThread()` contract missingである。protocol v4はexplicit `memory-fault` transitionを含むexecution state machineを維持し、production loopをpinned ExecutionEngine contractへ閉じる。3分／624-session workload gateはsession／slice／heartbeat分布、main／Worker heapとbacking-storage slope、linear memory、2,850 Wasm crossings/sessionの17 thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
-- active architecture work: capability expansionをpauseし、`RuntimeState` responsibility splitを進める。Process-owned synchronization／directories、object／handle、thread、scheduler／wait、heap stateに加え、process module records、graph、mapped images、import bindings、runtime export table、DLL lifecycle operationをprivate `RuntimeModuleRecords`／`RuntimeModules`へ移した。Aggregateからmodule collection／lifecycle stateへのdirect mutationを廃止済みで、`GetCurrentThread()`は実装開始前の保存済みnext stopである
+- active architecture work: capability expansionをpauseし、`RuntimeState` responsibility splitを進める。Process-owned synchronization／directories、object／handle、thread、scheduler／wait、heap stateに加え、process module records、graph、mapped images、import bindings、runtime export table、DLL lifecycle operationをprivate ownerへ移した。Pending host-request table／ID allocatorも`RuntimeScheduler`へ移し、aggregateからmodule collection／lifecycle／host-request stateへのdirect mutationを廃止済みである。`GetCurrentThread()`は実装開始前の保存済みnext stopである
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -1056,6 +1056,12 @@ remaining／completed callback order、pending frame、failure identityをprivat
 aggregateはthread stack／scheduler laneをpreflightしてからinfallible targeted commitする。連続callbackは
 atomic frame replacementを使い、active operationはgraph／image／binding mutationをsame owner内で拒否する。
 Existing serialization shapeとattach failure unwind／retry／reverse detach behaviorは維持する。
+Architecture refactor checkpoint S8はpending host-request table、monotonic request ID allocator、request／
+completion型、start／complete／thread-exit cancellation mutationをprivate
+`runtime/scheduler.rs::RuntimeScheduler`へ移した。Start／completionはlaneとrequest identityを一つの
+mutation-free planで検証してtargeted commitし、thread exitはthread-scoped request ID listを先にplanする。
+Aggregateはhost-request map／allocatorを直接参照またはmutateしない。Existing
+`registries.hostRequests`／`nextHostRequestId` serializationはborrowed compatibility viewで維持する。
 
 ## 23. 完了の定義
 

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 
 use crate::bootstrap::InitialThreadStack;
 use crate::dynamic_exports::{
@@ -54,8 +54,11 @@ use modules::{
 pub use objects::RuntimeObjectTable;
 use process::RuntimeProcessDirectories;
 pub use process::{RuntimeCurrentDirectoryA, RuntimeSetCurrentDirectoryAPlan};
-use scheduler::RuntimeSchedulerLanePlan;
-pub use scheduler::{RuntimeScheduler, RuntimeSchedulerEvent, SchedulerThreadState};
+pub use scheduler::{
+    RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler, RuntimeSchedulerEvent,
+    SchedulerThreadState,
+};
+use scheduler::{RuntimeHostRequestCancellationPlan, RuntimeSchedulerLanePlan};
 use synchronization::RuntimeSynchronization;
 pub use synchronization::{
     RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_MUTEX_LIMIT, RuntimeCriticalSection, RuntimeMutex,
@@ -723,23 +726,6 @@ pub enum RuntimeThreadLifecycleState {
     Exited { exit_code: u32 },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeHostRequest {
-    pub request_id: u64,
-    pub thread_id: RuntimeThreadId,
-    pub service: String,
-    pub resume_state: SchedulerThreadState,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeHostCompletion {
-    pub request_id: u64,
-    pub thread_id: RuntimeThreadId,
-    pub service: String,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeCancellation {
@@ -770,6 +756,7 @@ struct RuntimeThreadExitRequestPlan {
     thread_plan: RuntimeThreadMutationPlan,
     scheduler_plan: RuntimeSchedulerLanePlan,
     cancelled_wait: Option<RuntimeWaitRegistration>,
+    host_request_cancellation: RuntimeHostRequestCancellationPlan,
     message_clear: RuntimeMessageClearPlan,
     cancellation: RuntimeCancellation,
 }
@@ -930,7 +917,6 @@ impl RuntimeProcessState {
 pub struct RuntimeRegistries {
     pub dynamic_endpoints: BTreeMap<u32, RuntimeDynamicEndpoint>,
     pub encoded_pointers: BTreeMap<u32, RuntimeEncodedPointer>,
-    pub host_requests: BTreeMap<u64, RuntimeHostRequest>,
 }
 
 struct RuntimeCallbackMutationPlan {
@@ -941,8 +927,7 @@ struct RuntimeCallbackMutationPlan {
     exited: Option<RuntimeCallbackFrame>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeState {
     process: RuntimeProcessState,
     address_space_allocator: ProcessAddressSpaceAllocator,
@@ -950,7 +935,6 @@ pub struct RuntimeState {
     scheduler: RuntimeScheduler,
     messages: RuntimeMessages,
     objects: RuntimeObjectTable,
-    #[serde(flatten)]
     modules: RuntimeModules,
     registries: RuntimeRegistries,
     encoded_pointer_namespace: String,
@@ -961,8 +945,72 @@ pub struct RuntimeState {
     next_tls_index: u32,
     next_fls_index: u32,
     next_callback_frame_id: u64,
+    next_wait_registration_id: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeRegistriesSnapshot<'a> {
+    dynamic_endpoints: &'a BTreeMap<u32, RuntimeDynamicEndpoint>,
+    encoded_pointers: &'a BTreeMap<u32, RuntimeEncodedPointer>,
+    host_requests: &'a BTreeMap<u64, RuntimeHostRequest>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeStateSnapshot<'a> {
+    process: &'a RuntimeProcessState,
+    address_space_allocator: &'a ProcessAddressSpaceAllocator,
+    threads: &'a RuntimeThreads,
+    scheduler: &'a RuntimeScheduler,
+    messages: &'a RuntimeMessages,
+    objects: &'a RuntimeObjectTable,
+    #[serde(flatten)]
+    modules: &'a RuntimeModules,
+    registries: RuntimeRegistriesSnapshot<'a>,
+    encoded_pointer_namespace: &'a str,
+    encoded_pointer_token_prefix: u32,
+    encoded_pointer_sources: &'a BTreeMap<u32, u32>,
+    next_encoded_pointer_id: u16,
+    next_private_heap_slot: u16,
+    next_tls_index: u32,
+    next_fls_index: u32,
+    next_callback_frame_id: u64,
     next_host_request_id: u64,
     next_wait_registration_id: u64,
+}
+
+impl Serialize for RuntimeState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        RuntimeStateSnapshot {
+            process: &self.process,
+            address_space_allocator: &self.address_space_allocator,
+            threads: &self.threads,
+            scheduler: &self.scheduler,
+            messages: &self.messages,
+            objects: &self.objects,
+            modules: &self.modules,
+            registries: RuntimeRegistriesSnapshot {
+                dynamic_endpoints: &self.registries.dynamic_endpoints,
+                encoded_pointers: &self.registries.encoded_pointers,
+                host_requests: self.scheduler.host_requests(),
+            },
+            encoded_pointer_namespace: &self.encoded_pointer_namespace,
+            encoded_pointer_token_prefix: self.encoded_pointer_token_prefix,
+            encoded_pointer_sources: &self.encoded_pointer_sources,
+            next_encoded_pointer_id: self.next_encoded_pointer_id,
+            next_private_heap_slot: self.next_private_heap_slot,
+            next_tls_index: self.next_tls_index,
+            next_fls_index: self.next_fls_index,
+            next_callback_frame_id: self.next_callback_frame_id,
+            next_host_request_id: self.scheduler.next_host_request_id(),
+            next_wait_registration_id: self.next_wait_registration_id,
+        }
+        .serialize(serializer)
+    }
 }
 
 impl RuntimeState {
@@ -1056,7 +1104,6 @@ impl RuntimeState {
             registries: RuntimeRegistries {
                 dynamic_endpoints: BTreeMap::new(),
                 encoded_pointers: BTreeMap::new(),
-                host_requests: BTreeMap::new(),
             },
             encoded_pointer_namespace: bootstrap.encoded_pointer_namespace,
             encoded_pointer_token_prefix: bootstrap.encoded_pointer_token_prefix,
@@ -1066,7 +1113,6 @@ impl RuntimeState {
             next_tls_index: 0,
             next_fls_index: 0,
             next_callback_frame_id: 1,
-            next_host_request_id: 1,
             next_wait_registration_id: 1,
         })
     }
@@ -3508,94 +3554,16 @@ impl RuntimeState {
         &mut self,
         service: impl Into<String>,
     ) -> Result<RuntimeHostRequest, RuntimeStateError> {
-        let service = service.into();
-        if service.is_empty() {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-host-request",
-                "host-service-empty",
-                "host request requires a nonempty service identity",
-            ));
-        }
-        let resume_state = match self.scheduler_state()? {
-            state @ (SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }) => {
-                state
-            }
-            _ => {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-host-request",
-                    "thread-not-runnable",
-                    "only a runnable guest thread or active callback can begin a host request",
-                ));
-            }
-        };
-        let request_id = self.next_host_request_id;
-        let next_host_request_id = self.next_host_request_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-host-request",
-                "host-request-id-overflow",
-                "host request ID space is exhausted",
-            )
-        })?;
-        let request = RuntimeHostRequest {
-            request_id,
-            thread_id: self.current_thread_id(),
-            service,
-            resume_state,
-        };
-        let scheduler_plan = self
-            .scheduler
-            .plan_current_transition(SchedulerThreadState::WaitingHost { request_id })?;
-        self.next_host_request_id = next_host_request_id;
-        self.registries
-            .host_requests
-            .insert(request_id, request.clone());
-        self.scheduler.commit_lane(scheduler_plan);
-        Ok(request)
+        let plan = self.scheduler.plan_host_request(service.into())?;
+        Ok(self.scheduler.commit_host_request(plan))
     }
 
     pub fn complete_host_request(
         &mut self,
         request_id: u64,
     ) -> Result<RuntimeHostCompletion, RuntimeStateError> {
-        let request = self
-            .registries
-            .host_requests
-            .get(&request_id)
-            .cloned()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-host-request",
-                    "host-request-id-unknown",
-                    format!("host request ID {request_id} is not pending"),
-                )
-            })?;
-        if self.scheduler_state()? != (SchedulerThreadState::WaitingHost { request_id }) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-host-request",
-                "host-completion-thread-state-mismatch",
-                "host completion does not match the current thread wait state",
-            ));
-        }
-        if request.thread_id != self.current_thread_id() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-host-request",
-                "host-completion-thread-mismatch",
-                "host completion belongs to a different guest thread",
-            ));
-        }
-        let scheduler_plan = self
-            .scheduler
-            .plan_current_transition(request.resume_state)?;
-        let completion = RuntimeHostCompletion {
-            request_id,
-            thread_id: request.thread_id,
-            service: request.service,
-        };
-        self.registries.host_requests.remove(&request_id);
-        self.scheduler.commit_lane(scheduler_plan);
-        self.scheduler
-            .commit_event(RuntimeSchedulerEvent::HostCompleted(completion.clone()));
-        Ok(completion)
+        let plan = self.scheduler.plan_host_completion(request_id)?;
+        Ok(self.scheduler.commit_host_completion(plan))
     }
 
     pub fn pop_scheduler_event(&mut self) -> Option<RuntimeSchedulerEvent> {
@@ -3976,20 +3944,17 @@ impl RuntimeState {
             .scheduler
             .plan_transition(thread_id, SchedulerThreadState::Terminating { exit_code })?;
         let cancelled_wait = self.plan_thread_wait_cancellation(thread_id, scheduler_state)?;
+        let host_request_cancellation = self.scheduler.plan_host_request_cancellation(thread_id);
         let message_clear = self.messages.plan_clear(thread_id)?;
         let messages_discarded = message_clear.message_count;
-        let host_requests_cancelled = self
-            .registries
-            .host_requests
-            .values()
-            .filter(|request| request.thread_id == thread_id)
-            .count();
+        let host_requests_cancelled = host_request_cancellation.request_count();
         let scheduler_events_discarded = self.scheduler.event_count_for_thread(thread_id);
         Ok(RuntimeThreadExitRequestPlan {
             thread_id,
             thread_plan,
             scheduler_plan,
             cancelled_wait,
+            host_request_cancellation,
             message_clear,
             cancellation: RuntimeCancellation {
                 thread_id,
@@ -4005,9 +3970,8 @@ impl RuntimeState {
 
     fn commit_thread_exit_request(&mut self, plan: RuntimeThreadExitRequestPlan) {
         self.messages.commit_clear(plan.message_clear);
-        self.registries
-            .host_requests
-            .retain(|_, request| request.thread_id != plan.thread_id);
+        self.scheduler
+            .commit_host_request_cancellation(plan.host_request_cancellation);
         if let Some(registration) = plan.cancelled_wait {
             self.commit_remove_wait_registration(registration);
         }
@@ -4024,11 +3988,7 @@ impl RuntimeState {
         let (thread_plan, exit_code) = self.threads.plan_exit_completion(thread_id)?;
         if self.scheduler_state_for_thread(thread_id)?
             != (SchedulerThreadState::Terminating { exit_code })
-            || self
-                .registries
-                .host_requests
-                .values()
-                .any(|request| request.thread_id == thread_id)
+            || self.scheduler.has_host_request_for_thread(thread_id)
             || !thread_plan.next().callback_frames.is_empty()
             || !self.messages.is_empty(thread_id)?
             || self.scheduler.has_wait_registration_for_thread(thread_id)
@@ -4462,5 +4422,52 @@ mod tests {
 
         assert_eq!(error.code, "runtime-handle-slot-live");
         assert_eq!(runtime, before, "failed creation must not consume a slot");
+    }
+
+    #[test]
+    fn host_request_serialization_preserves_the_runtime_compatibility_shape() {
+        let mut runtime = RuntimeState::new(RuntimeBootstrap {
+            process_id: RuntimeProcessId(0x1000),
+            initial_thread_id: RuntimeThreadId(0x2000),
+            initial_last_error: 0,
+            address_space: ProcessAddressSpaceLayout::vine_v1(),
+            clock: RuntimeClockState {
+                wall_clock_file_time: 134_282_016_000_000_000,
+                tick_count: 3_600_000,
+                performance_counter: 12_345_678_901,
+            },
+            startup_info: RuntimeStartupInfo {
+                profile_id: "runtime-host-request-serialization-test".to_owned(),
+                bytes: vec![0; X86_STARTUP_INFO_W_BYTE_LENGTH],
+            },
+            process_image_path_a: RuntimeProcessImagePathA {
+                source_authority: "runtime-host-request-serialization-fixture".to_owned(),
+                bytes_with_nul: b"C:\\Vine\\fixture.exe\0".to_vec(),
+                encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+            },
+            initial_current_directory_a: RuntimeCurrentDirectoryA {
+                source_authority: "runtime-host-request-serialization-fixture".to_owned(),
+                bytes_with_nul: b"C:\\Vine\0".to_vec(),
+                encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+            },
+            encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
+            encoded_pointer_token_prefix: 0xec01_0000,
+        })
+        .expect("controlled runtime");
+        runtime.start_initial_thread().unwrap();
+        let request = runtime.begin_host_request("browser.storage.read").unwrap();
+
+        let serialized = serde_json::to_value(&runtime).unwrap();
+        assert_eq!(
+            serialized["registries"]["hostRequests"]["1"]["requestId"],
+            serde_json::json!(request.request_id)
+        );
+        assert_eq!(serialized["nextHostRequestId"], serde_json::json!(2));
+        assert!(serialized["scheduler"].get("hostRequests").is_none());
+        assert!(serialized["scheduler"].get("nextHostRequestId").is_none());
+        assert_eq!(
+            runtime.scheduler().host_requests().get(&request.request_id),
+            Some(&request)
+        );
     }
 }

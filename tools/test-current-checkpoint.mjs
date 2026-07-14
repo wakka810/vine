@@ -173,6 +173,24 @@ assert.ok(
   ),
 );
 
+const aggregateMutatesHostRequests = structuredClone(manifest);
+aggregateMutatesHostRequests.activeRuntimeCheckpoint.runtimeScheduler.directHostRequestMutationFromAggregate =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(aggregateMutatesHostRequests).some((error) =>
+    error.includes("scheduler subsystem boundary"),
+  ),
+);
+
+const splitHostRequestCancellation = structuredClone(manifest);
+splitHostRequestCancellation.activeRuntimeCheckpoint.runtimeScheduler.hostRequestCancellationPlan =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(splitHostRequestCancellation).some((error) =>
+    error.includes("scheduler subsystem boundary"),
+  ),
+);
+
 const incompleteWaitValidation = structuredClone(manifest);
 incompleteWaitValidation.activeRuntimeCheckpoint.runtimeWaitQueue.excludedWakeCandidatesValidated =
   false;

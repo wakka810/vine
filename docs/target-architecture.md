@@ -187,12 +187,14 @@ thread planを使う。Aggregateはscheduler、object、message、wait、memory�
 thread map／recordを直接mutateしない。Scheduler laneはthread collectionへ統合せずscheduler authorityに
 残す。
 
-Mutable scheduler lanes／current selector／event FIFOはprivate
-`runtime/scheduler.rs::RuntimeScheduler`、wait registration／object FIFOはprivate
-`runtime/waits.rs::RuntimeWaits`だけが所有する。Wait stateはscheduler serializationへflattenして既存shapeを
-維持するが、collection authorityは分離する。Lane transition、wait registration、wake、callback、host
-completion、exitはmutation-free planをaggregateがcross-subsystem preflight後にcommitし、aggregateは
-scheduler／wait mapを直接mutateしない。
+Mutable scheduler lanes／current selector／event FIFO／pending host-request table／request ID allocatorは
+private `runtime/scheduler.rs::RuntimeScheduler`、wait registration／object FIFOはprivate
+`runtime/waits.rs::RuntimeWaits`だけが所有する。Wait stateはscheduler serializationへflattenし、host
+requestはroot `registries.hostRequests`／`nextHostRequestId`へのborrowed compatibility viewで既存shapeを
+維持するが、collection authorityはschedulerだけにある。Host start／completionはlaneとrequest identityを
+同じmutation-free planで検査してtargeted commitする。Thread exitはthread／message／waitとscheduler-owned
+host cancellation planをcross-subsystem preflightしてからcommitし、aggregateはscheduler／wait／host-request
+mapを直接mutateしない。
 
 Mutable logical heap metadataとGuestMemory backing metadataはprivate
 `runtime/heaps.rs::RuntimeHeaps`だけがco-ownする。`RuntimeProcessState`はこれをflattenして既存

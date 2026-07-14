@@ -238,10 +238,11 @@ exit、2 laneのpending work cleanup、TID昇順thread signal＋process-last sig
 これはCPU context／stack／TEB、guest `CreateThread`、wait queue、last-thread semantics、DLL thread
 callbackの代用ではない。詳細は[runtime-thread-registry.md](runtime-thread-registry.md)を正とする。
 
-Scheduler／wait subsystem unit contractsはprivate lane／event and registration／object-index
-collections、mutation-free plan、serialized scheduler shape、FIFO、duplicate rejection、process-exitで
-excludedとなるwake candidateのcross-subsystem validationを固定する。Aggregate testはimmutable getter
-だけを使い、collectionを直接mutateしない。
+Scheduler／wait subsystem unit contractsはprivate lane／event／host-request／ID allocator and
+registration／object-index collections、mutation-free start／completion／cancellation plan、serialized
+schedulerとroot host-request compatibility shape、FIFO、duplicate rejection、process-exitでexcludedとなる
+wake candidateのcross-subsystem validationを固定する。Aggregate testはunknown completionとthread／process
+exitがhost identityをpartial mutationしないことを固定し、inspectionはimmutable getterだけを使う。
 
 Heap subsystem unit contractsはprivate logical／backing collectionsのco-ownership、mutation-free creation／
 allocation plan、targeted commit、既存`process.heaps` serialization shapeを固定する。Aggregate atomicity

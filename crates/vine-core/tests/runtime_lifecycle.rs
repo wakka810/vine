@@ -66,9 +66,18 @@ fn process_and_thread_lifecycle_separates_exit_request_from_waitable_completion(
     runtime
         .push_callback_frame(GuestAddress(0x1000_1000), GuestAddress(0x7f01_0000))
         .expect("active callback before process exit");
-    runtime
+    let pending_request = runtime
         .begin_host_request("browser.storage.flush")
         .expect("pending host request before process exit");
+    let before_unknown_completion = runtime.clone();
+    assert_eq!(
+        runtime
+            .complete_host_request(pending_request.request_id + 1)
+            .expect_err("unknown completion must preserve scheduler state")
+            .code,
+        "host-request-id-unknown"
+    );
+    assert_eq!(runtime, before_unknown_completion);
     let cancellation = runtime
         .request_current_process_exit(7)
         .expect("request process exit");
