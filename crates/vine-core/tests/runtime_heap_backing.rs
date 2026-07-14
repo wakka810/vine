@@ -258,6 +258,11 @@ fn running_runtime() -> RuntimeState {
             bytes_with_nul: b"C:\\Vine\\fixture.exe\0".to_vec(),
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
+        initial_current_directory_a: vine_core::RuntimeCurrentDirectoryA {
+            source_authority: "runtime-heap-backing-process-bootstrap".to_owned(),
+            bytes_with_nul: b"C:\\Vine\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec01_0000,
     })

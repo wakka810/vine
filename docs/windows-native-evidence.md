@@ -2211,3 +2211,49 @@ pending work 0を通す。3分gateは607 sessions／failure 0、session P95 326.
 slice P99 1.230 ms、heartbeat P99 8.530 ms／maximum 23.800 msを含む全17 thresholdを
 通した。詳細は
 [bgi-multi-byte-to-wide-char-cp-acp.md](bgi-multi-byte-to-wide-char-cp-acp.md)を正とする。
+
+## 84. BGI process current directory
+
+Focused `set-current-directory-a` capturesは42,686 bytes／74 lines／SHA-256
+`b6ea50c32a22c4beb28ce71fabc3329ec64553a74a1f56e96dc343003a94eee1`と
+42,764 bytes／74 lines／SHA-256
+`9a60c2e7562f5d3889c392e267bca332caf4031afdc0fe34404e7f0b54d873ed`
+である。両方11 API pairsはbalanced、sequence `0..71`はcontiguous、diagnosticsは
+zeroである。
+
+Return RVA `0x6084A`のBGI callは21 Windows-932 bytes including NULの
+`V:\softs\サクラノ詩\`を渡す。Path SHA-256は
+`8c0d0e2de4dc6bacd126c540e2c5ade2c95d2f60aed46130cee309b1dc8dade4`、
+FNV-1aは`0x6BEEB8DB`である。BOOLは1、LastErrorは`0 -> 0`、input bytesは
+不変で、process current directoryはtrailing separatorを除くsame normalized identityを
+保持する。Immediate continuationはEAXをdiscardし、source globalから別のprocess-global
+bufferへpathをcopyする。302,028-byte／922-line extended capture（SHA-256
+`b0a3a972029cc86e21fd7738d4331ea5d51a7fae7723100883715347cef4f43d`）では、
+later `CreateFileA`がそのrootを持つabsolute `...\BGI.gdb`等を使う。
+
+Controlled oracleはrelative `..`／`.` successがLastError 87／88を保存し、return後の
+caller buffer mutationがprocess stateを変えないことを固定する。Existing file、missing
+directory、empty stringはそれぞれBOOL 0／LastError 267、2、123を返す。Original directory
+restoreはsuccessしLastError 92を保存する。
+
+Rustはprivate `RuntimeProcessDirectories`へWindows-932 normalized identityとgenerationを
+置く。Active policyはregistered process-image directoryと32 KiB scanだけを許可し、
+`kernel32.set-current-directory-a.v1`はguest pointerを保持せず
+`plan -> lifecycle preflight -> commit`する。Null／empty failureはWin32 result、validだが
+unsupportedなrelative／other absolute pathとunterminated bound超過はmutation前のstructured
+stopである。VFS/backendは追加していない。
+
+Nodeは45 contracts／280 calls、285 writebacks／435 dirty pages／6,307 changed bytes、
+75 host deltas、generation `389`を通す。Call 280はcontrolled `C:\Vine\0`をprocess-owned
+identityへcopyしgeneration `1`を記録する。Instruction `24496`でID `59`／
+`CreateMutexA(0,1,0x100E1CAC)`を`endpoint-contract-missing`として停止する。Memory
+SHA-256は`7b95978468db1f5664799d9621b990ace2c06332b4e251bf6b377fa6c4e15bb2`、
+1,230,591-byte reportのSHA-256は
+`a90733ca1dc9b8017263c5c5439e55570403927420f1a535ff61e2774278fd68`である。
+
+Chrome Runtime Workerも280 ordered calls、initial／post-call current-directory metadata、
+same stop／memoryを再現し、3,149 slices、2,864 yields、2,771 Wasm crossings、final
+generation `2,136`、cancel／watchdog後pending work 0を通す。3分gateは566 sessions／
+failure 0、session P95 351.465 ms、slice P99 1.460 ms、heartbeat P99 16.135 ms／
+maximum 20.905 msを含む全17 thresholdを通した。詳細は
+[bgi-set-current-directory-a.md](bgi-set-current-directory-a.md)を正とする。

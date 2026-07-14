@@ -126,6 +126,7 @@ enum GenericRuntimeCapability {
     SetUnhandledExceptionFilter,
     HeapSize,
     InitializeCriticalSection,
+    SetCurrentDirectoryA,
 }
 
 struct GenericRuntimeProcess {
@@ -206,6 +207,8 @@ struct GenericRuntimeSessionReady {
     schema_version: u32,
     process_id: u32,
     current_thread_id: u32,
+    current_directory_a: vine_core::RuntimeCurrentDirectoryA,
+    current_directory_generation: u64,
     process_lifecycle: RuntimeProcessLifecycleState,
     scheduler_state: SchedulerThreadState,
     dll_lifecycle: RuntimeDllLifecyclePhase,
@@ -247,7 +250,16 @@ struct GenericRuntimeCompletion {
     standard_handle: Option<RuntimeStandardHandle>,
     #[serde(skip_serializing_if = "Option::is_none")]
     file_type: Option<GenericRuntimeFileType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_directory: Option<GenericRuntimeCurrentDirectory>,
     memory: MemoryStats,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeCurrentDirectory {
+    directory: vine_core::RuntimeCurrentDirectoryA,
+    generation: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -2543,6 +2555,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
                 | GenericRuntimeCapability::HeapSize
                 | GenericRuntimeCapability::InitializeCriticalSection
+                | GenericRuntimeCapability::SetCurrentDirectoryA
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2557,6 +2570,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
                 | GenericRuntimeCapability::HeapSize
                 | GenericRuntimeCapability::InitializeCriticalSection
+                | GenericRuntimeCapability::SetCurrentDirectoryA
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2589,7 +2603,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::IsProcessorFeaturePresent
             | GenericRuntimeCapability::SetUnhandledExceptionFilter
             | GenericRuntimeCapability::HeapSize
-            | GenericRuntimeCapability::InitializeCriticalSection,
+            | GenericRuntimeCapability::InitializeCriticalSection
+            | GenericRuntimeCapability::SetCurrentDirectoryA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2724,6 +2739,8 @@ fn run_v86_generic_runtime_session(
             schema_version: 1,
             process_id: process.runtime.process_id().0,
             current_thread_id: process.runtime.current_thread_id().0,
+            current_directory_a: process.runtime.current_directory_a().clone(),
+            current_directory_generation: process.runtime.current_directory_generation(),
             process_lifecycle: process.runtime.process().lifecycle,
             scheduler_state: process
                 .runtime
@@ -3030,6 +3047,12 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let current_directory = (completion.implementation_id
+                            == "kernel32.set-current-directory-a.v1")
+                            .then(|| GenericRuntimeCurrentDirectory {
+                                directory: session.runtime().current_directory_a().clone(),
+                                generation: session.runtime().current_directory_generation(),
+                            });
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -3044,6 +3067,7 @@ fn run_v86_generic_runtime_session(
                                 heap_allocation,
                                 standard_handle,
                                 file_type,
+                                current_directory,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3150,6 +3174,7 @@ fn run_v86_generic_runtime_session(
                                 heap_allocation: None,
                                 standard_handle: None,
                                 file_type: None,
+                                current_directory: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3201,6 +3226,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
                 | GenericRuntimeCapability::HeapSize
                 | GenericRuntimeCapability::InitializeCriticalSection
+                | GenericRuntimeCapability::SetCurrentDirectoryA
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3217,12 +3243,18 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
                 | GenericRuntimeCapability::HeapSize
                 | GenericRuntimeCapability::InitializeCriticalSection
+                | GenericRuntimeCapability::SetCurrentDirectoryA
         )
     );
-    let initialize_critical_section_enabled = matches!(
+    let set_current_directory_a_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::InitializeCriticalSection)
+        Some(GenericRuntimeCapability::SetCurrentDirectoryA)
     );
+    let initialize_critical_section_enabled = set_current_directory_a_enabled
+        || matches!(
+            enabled,
+            Some(GenericRuntimeCapability::InitializeCriticalSection)
+        );
     let heap_size_enabled = initialize_critical_section_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::HeapSize));
     let set_unhandled_exception_filter_enabled = heap_size_enabled
@@ -3320,7 +3352,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::IsProcessorFeaturePresent
             | GenericRuntimeCapability::SetUnhandledExceptionFilter
             | GenericRuntimeCapability::HeapSize
-            | GenericRuntimeCapability::InitializeCriticalSection,
+            | GenericRuntimeCapability::InitializeCriticalSection
+            | GenericRuntimeCapability::SetCurrentDirectoryA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3471,6 +3504,7 @@ fn runtime_capability_enables_endpoint(
         "SetUnhandledExceptionFilter" => set_unhandled_exception_filter_enabled,
         "HeapSize" => heap_size_enabled,
         "InitializeCriticalSection" => initialize_critical_section_enabled,
+        "SetCurrentDirectoryA" => set_current_directory_a_enabled,
         _ => true,
     }
 }
@@ -3519,7 +3553,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::IsProcessorFeaturePresent
             | GenericRuntimeCapability::SetUnhandledExceptionFilter
             | GenericRuntimeCapability::HeapSize
-            | GenericRuntimeCapability::InitializeCriticalSection,
+            | GenericRuntimeCapability::InitializeCriticalSection
+            | GenericRuntimeCapability::SetCurrentDirectoryA,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -7859,6 +7894,11 @@ fn controlled_runtime_state(
             bytes_with_nul: b"C:\\Vine\\BGI.exe\0".to_vec(),
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
+        initial_current_directory_a: vine_core::RuntimeCurrentDirectoryA {
+            source_authority: "node-private-process-bootstrap".to_owned(),
+            bytes_with_nul: b"C:\\Vine\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
         encoded_pointer_namespace: X86LogicalEncodedPointer::NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: ENCODED_POINTER_TOKEN_PREFIX,
     })
@@ -8923,6 +8963,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-initialize-critical-section"
                 | "kernel32-multi-byte-to-wide-char-cp-acp" => {
                     GenericRuntimeCapability::InitializeCriticalSection
+                }
+                "kernel32-set-current-directory-a" => {
+                    GenericRuntimeCapability::SetCurrentDirectoryA
                 }
                 _ => return Err(usage_error()),
             };

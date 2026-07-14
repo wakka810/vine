@@ -91,6 +91,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-heap-size",
         "kernel32-initialize-critical-section",
         "kernel32-multi-byte-to-wide-char-cp-acp",
+        "kernel32-set-current-directory-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -117,7 +118,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-multi-byte-to-wide-char-cp-acp"
+    genericRuntimeCapability === "kernel32-set-current-directory-a"
+      ? "kernel32-set-current-directory-a-v1.json"
+      : genericRuntimeCapability === "kernel32-multi-byte-to-wide-char-cp-acp"
       ? "kernel32-multi-byte-to-wide-char-cp-acp-v1.json"
       : genericRuntimeCapability === "kernel32-initialize-critical-section"
       ? "kernel32-initialize-critical-section-v1.json"
@@ -208,7 +211,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const setCurrentDirectoryAEnabled =
+  genericRuntimeCapability === "kernel32-set-current-directory-a";
 const multiByteToWideCharCpAcpEnabled =
+  setCurrentDirectoryAEnabled ||
   genericRuntimeCapability === "kernel32-multi-byte-to-wide-char-cp-acp";
 const initializeCriticalSectionEnabled =
   multiByteToWideCharCpAcpEnabled ||
@@ -324,7 +330,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? multiByteToWideCharCpAcpEnabled
+      ? setCurrentDirectoryAEnabled
+        ? "v86-bgi-set-current-directory-a"
+        : multiByteToWideCharCpAcpEnabled
         ? "v86-bgi-multi-byte-to-wide-char-cp-acp"
         : initializeCriticalSectionEnabled
         ? "v86-bgi-initialize-critical-section"
@@ -3417,6 +3425,49 @@ const multiByteToWideCharCpAcpExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const setCurrentDirectoryAExpected = {
+  ...multiByteToWideCharCpAcpExpected,
+  supportedCalls: 280,
+  writebackBatches: 285,
+  dirtyPages: 435,
+  changedBytes: 6307,
+  hostDeltaBatches: 75,
+  finalGeneration: 389,
+  implementedApiContracts: 45,
+  call: {
+    sequence: 280,
+    occurrence: 1,
+    instructionCount: 24294,
+    arguments: [0x10104048],
+    result: 1,
+    returnAddress: 0x1006084a,
+    stackCleanupBytes: 8,
+    lastError: 0,
+    currentDirectory: {
+      directory: {
+        sourceAuthority: "runtime-process-image-directory-v1",
+        bytesWithNul: [0x43, 0x3a, 0x5c, 0x56, 0x69, 0x6e, 0x65, 0x00],
+        encoding: "windows-932-v1",
+      },
+      generation: 1,
+    },
+  },
+  memoryContentSha256: "7b95978468db1f5664799d9621b990ace2c06332b4e251bf6b377fa6c4e15bb2",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 59,
+    endpointAddress: 0x7f0003a0,
+    module: "kernel32.dll",
+    symbol: "CreateMutexA",
+    iatAddress: 0x100d1194,
+    arguments: [0, 1, 0x100e1cac],
+    returnAddress: 0x10087300,
+    instructionCount: 24496,
+    faultClass: "unsupported",
+    faultStage: "api-dispatch",
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -3879,6 +3930,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setCurrentDirectoryAEnabled) {
+        validateSetCurrentDirectoryAResult(genericResult);
       } else if (multiByteToWideCharCpAcpEnabled) {
         validateMultiByteToWideCharCpAcpResult(genericResult);
       } else if (initializeCriticalSectionEnabled) {
@@ -3960,7 +4013,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : multiByteToWideCharCpAcpEnabled
+          : setCurrentDirectoryAEnabled
+            ? "bgi SetCurrentDirectoryA"
+            : multiByteToWideCharCpAcpEnabled
             ? "bgi MultiByteToWideChar CP_ACP"
             : initializeCriticalSectionEnabled
             ? "bgi InitializeCriticalSection"
@@ -4512,6 +4567,9 @@ async function runGenericRuntimeReentry({
       ...(completionFrame.fileType === undefined
         ? {}
         : { fileType: completionFrame.fileType }),
+      ...(completionFrame.currentDirectory === undefined
+        ? {}
+        : { currentDirectory: completionFrame.currentDirectory }),
     };
 
     const manifestCheckpoint =
@@ -4560,6 +4618,12 @@ function validateGenericRuntimeReady(ready, offer) {
   assert.equal(ready.schemaVersion, 1);
   assert.equal(ready.processId, controlledProcess.processId);
   assert.equal(ready.currentThreadId, controlledThread.threadId);
+  assert.deepEqual(ready.currentDirectoryA, {
+    sourceAuthority: "node-private-process-bootstrap",
+    bytesWithNul: [0x43, 0x3a, 0x5c, 0x56, 0x69, 0x6e, 0x65, 0x00],
+    encoding: "windows-932-v1",
+  });
+  assert.equal(ready.currentDirectoryGeneration, 0);
   assert.deepEqual(ready.processLifecycle, { state: "running" });
   assert.deepEqual(ready.schedulerState, { state: "runnable" });
   assert.equal(ready.dllLifecycle, "process-attached");
@@ -4571,7 +4635,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : multiByteToWideCharCpAcpEnabled
+        : setCurrentDirectoryAEnabled
+          ? 32
+          : multiByteToWideCharCpAcpEnabled
           ? 31
           : initializeCriticalSectionEnabled
           ? 31
@@ -8033,6 +8099,71 @@ function validateInitializeCriticalSectionResult(result) {
   );
 }
 
+function validateSetCurrentDirectoryAResult(result) {
+  const expected = setCurrentDirectoryAExpected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+  const call = result.supportedCalls.find(
+    ({ sequence }) => sequence === expected.call.sequence,
+  );
+  assert(call, "SetCurrentDirectoryA call is missing");
+  assert.equal(call.symbol, "SetCurrentDirectoryA");
+  assert.equal(call.occurrence, expected.call.occurrence);
+  assert.equal(call.trapInstructionCount, expected.call.instructionCount);
+  assert.deepEqual(call.arguments, expected.call.arguments);
+  assert.deepEqual(call.result, { action: "set", value: expected.call.result });
+  assert.equal(call.implementationId, "kernel32.set-current-directory-a.v1");
+  assert.equal(call.returnAddress, expected.call.returnAddress);
+  assert.equal(
+    call.stackPointerAfter,
+    call.stackPointerBefore + expected.call.stackCleanupBytes,
+  );
+  assert.equal(call.lastError, expected.call.lastError);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.currentDirectory, expected.call.currentDirectory);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  const endpoint = result.fault.endpoint.endpoint;
+  assert.equal(endpoint.id, unsupported.endpointId);
+  assert.equal(endpoint.address, unsupported.endpointAddress);
+  assert.equal(endpoint.module, unsupported.module);
+  assert.deepEqual(endpoint.symbol, { kind: "name", name: unsupported.symbol });
+  assert.equal(endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.class, unsupported.faultClass);
+  assert.equal(result.fault.fault.stage, unsupported.faultStage);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
+  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validateMultiByteToWideCharCpAcpResult(result) {
   const expected = multiByteToWideCharCpAcpExpected;
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
@@ -8658,7 +8789,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : multiByteToWideCharCpAcpEnabled
+        : setCurrentDirectoryAEnabled
+          ? "vine.v86-bgi-set-current-directory-a"
+          : multiByteToWideCharCpAcpEnabled
           ? "vine.v86-bgi-multi-byte-to-wide-char-cp-acp"
           : initializeCriticalSectionEnabled
           ? "vine.v86-bgi-initialize-critical-section"

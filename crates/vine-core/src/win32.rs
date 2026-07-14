@@ -26,7 +26,8 @@ pub use policy::{
     Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
     Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
-    Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
+    Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
+    Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -52,6 +53,7 @@ pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
     "kernel32.free-environment-strings-w.v1";
 pub const WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION: &str = "kernel32.wide-char-to-multi-byte.v1";
 pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to-wide-char.v1";
+pub const SET_CURRENT_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.set-current-directory-a.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
 pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
@@ -89,6 +91,7 @@ const WINDOWS_932_CODE_PAGE: u32 = 932;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
+const ERROR_INVALID_NAME: u32 = 123;
 
 pub fn dispatch_kernel32_api(
     contract: &ApiContract,
@@ -151,6 +154,9 @@ pub fn dispatch_kernel32_api_with_policy(
         }
         MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION => {
             handle_multi_byte_to_wide_char(policy, contract, frame, session)
+        }
+        SET_CURRENT_DIRECTORY_A_IMPLEMENTATION => {
+            handle_set_current_directory_a(policy, contract, frame, session)
         }
         GET_STRING_TYPE_W_IMPLEMENTATION => {
             handle_get_string_type_w(policy, contract, frame, session)
@@ -236,6 +242,7 @@ pub fn kernel32_contract_for_endpoint(
         "FreeEnvironmentStringsW" => free_environment_strings_w_contract(endpoint)?,
         "WideCharToMultiByte" => wide_char_to_multi_byte_contract(endpoint)?,
         "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
+        "SetCurrentDirectoryA" => set_current_directory_a_contract(endpoint)?,
         "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
         "LCMapStringW" => lc_map_string_w_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
@@ -1119,6 +1126,110 @@ fn handle_multi_byte_to_wide_char(
         immediate = immediate.with_guest_write(GuestAddress(destination_address), output);
     }
     Ok(immediate)
+}
+
+fn handle_set_current_directory_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let directory_policy = policy.set_current_directory_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-process-directory",
+            "set-current-directory-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable SetCurrentDirectoryA",
+                policy.id
+            ),
+        )
+    })?;
+    let path_address = required_argument(contract, frame, 0, "ANSI directory path")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if path_address == 0 {
+        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+            .with_last_error(ERROR_INVALID_PARAMETER));
+    }
+    let path = read_nul_terminated_ansi_path(
+        contract,
+        session,
+        GuestAddress(path_address),
+        directory_policy,
+    )?;
+    if path == [0] {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_INVALID_NAME)
+        );
+    }
+    let is_process_image_directory = session
+        .runtime()
+        .is_process_image_directory_a(&path)
+        .map_err(|error| {
+            ApiFault::unsupported(
+                "win32-process-directory",
+                "set-current-directory-a-path-unsupported",
+                format!(
+                    "compatibility policy {} enables only the normalized process image directory: {}",
+                    policy.id, error.message
+                ),
+            )
+        })?;
+    if !directory_policy.process_image_directory_only || !is_process_image_directory {
+        return Err(ApiFault::unsupported(
+            "win32-process-directory",
+            "set-current-directory-a-path-unsupported",
+            format!(
+                "compatibility policy {} enables only the normalized process image directory",
+                policy.id
+            ),
+        ));
+    }
+    let plan = session
+        .runtime()
+        .plan_set_current_directory_a(&path)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    session
+        .runtime_mut()
+        .commit_set_current_directory_a(plan)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(preserved_last_error))
+}
+
+fn read_nul_terminated_ansi_path(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+    source: GuestAddress,
+    policy: Kernel32SetCurrentDirectoryAPolicy,
+) -> Result<Vec<u8>, ApiFault> {
+    let maximum = usize::try_from(policy.maximum_path_bytes).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-process-directory",
+            "set-current-directory-a-limit-not-representable",
+            "validated ANSI directory path limit does not fit host accounting",
+        )
+    })?;
+    let mut bytes = Vec::new();
+    for offset in 0..maximum {
+        let address = add_guest_offset(contract, source, offset)?;
+        let byte = session
+            .memory()
+            .read(address, 1)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+        bytes.push(byte);
+        if byte == 0 {
+            return Ok(bytes);
+        }
+    }
+    Err(ApiFault::resource_limit(
+        "win32-process-directory",
+        "set-current-directory-a-path-not-terminated",
+        format!(
+            "ANSI directory path did not terminate within the policy limit of {} bytes",
+            policy.maximum_path_bytes
+        ),
+    ))
 }
 
 fn handle_get_string_type_w(
@@ -2535,6 +2646,20 @@ pub fn multi_byte_to_wide_char_contract(
         ],
         ApiReturnSchema::U32,
         MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn set_current_directory_a_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "SetCurrentDirectoryA",
+        vec![dynamic_in_bytes("directoryPath", true, 1, 1, 32_768)],
+        ApiReturnSchema::Bool32,
+        SET_CURRENT_DIRECTORY_A_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

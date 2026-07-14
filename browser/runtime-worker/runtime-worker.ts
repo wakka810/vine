@@ -9,6 +9,7 @@ import {
   type SessionConfiguration,
   type SessionFinishedMessage,
   type SessionReport,
+  type RuntimeCurrentDirectorySnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -79,6 +80,7 @@ interface CompletionMetadata {
     symbol: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
   };
   memory?: { generation: number; acknowledgedGeneration: number };
+  currentDirectory?: RuntimeCurrentDirectorySnapshot;
 }
 
 interface ApiFaultMetadata {
@@ -252,6 +254,7 @@ class BrowserRuntimeSession {
     },
     mirrorRebuilds: 0,
     initialGeneration: 0,
+    initialCurrentDirectory: null as SessionReport["initialCurrentDirectory"],
     maximumSliceMilliseconds: 0,
     supportedCalls: [] as SessionReport["supportedCalls"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
@@ -313,6 +316,21 @@ class BrowserRuntimeSession {
         "prepared runtime thread ID is invalid",
       );
       this.#currentThreadId = preparedOutput.metadata.runtime.threadId;
+      const initialCurrentDirectory = preparedOutput.metadata.runtime.currentDirectoryA;
+      invariant(
+        initialCurrentDirectory.sourceAuthority.length > 0 &&
+          initialCurrentDirectory.encoding === "windows-932-v1" &&
+          initialCurrentDirectory.bytesWithNul.length >= 4 &&
+          initialCurrentDirectory.bytesWithNul.at(-1) === 0 &&
+          !initialCurrentDirectory.bytesWithNul.slice(0, -1).includes(0) &&
+          Number.isSafeInteger(preparedOutput.metadata.runtime.currentDirectoryGeneration) &&
+          preparedOutput.metadata.runtime.currentDirectoryGeneration >= 0,
+        "prepared runtime current-directory metadata is invalid",
+      );
+      this.#report.initialCurrentDirectory = {
+        directory: initialCurrentDirectory,
+        generation: preparedOutput.metadata.runtime.currentDirectoryGeneration,
+      };
       this.#armWatchdog();
       invariant(
         (preparedOutput.metadata.workload ?? "controlled-fixture") === workload,
@@ -622,6 +640,12 @@ class BrowserRuntimeSession {
     const guestWrites = completion.guestWrites;
     invariant(frame !== undefined, "BGI completion omitted its decoded ABI frame");
     invariant(guestWrites !== undefined, "BGI completion omitted its guest writes");
+    const isSetCurrentDirectory =
+      completion.implementationId === "kernel32.set-current-directory-a.v1";
+    invariant(
+      isSetCurrentDirectory === (metadata.currentDirectory !== undefined),
+      "BGI current-directory completion metadata mismatch",
+    );
     this.#report.supportedCalls.push({
       sequence: this.#report.supportedCalls.length + 1,
       module: endpoint.module,
@@ -637,6 +661,9 @@ class BrowserRuntimeSession {
         address: write.address,
         bytes: write.bytes,
       })),
+      ...(metadata.currentDirectory === undefined
+        ? {}
+        : { currentDirectory: metadata.currentDirectory }),
     });
   }
 
@@ -1323,6 +1350,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             },
             mirrorRebuilds: 0,
             initialGeneration: 0,
+            initialCurrentDirectory: null,
             finalGeneration: 0,
             pendingHostCalls: 0,
             pendingCallbacks: 0,

@@ -146,6 +146,12 @@ function prepared(entryPoint: number, pages: ReflectedPage[]): PreparedMetadata 
     runtime: {
       processId: 1,
       threadId: 1,
+      currentDirectoryA: {
+        sourceAuthority: "v86-benchmark-fixture",
+        bytesWithNul: [0x43, 0x3a, 0x5c, 0x56, 0x69, 0x6e, 0x65, 0],
+        encoding: "windows-932-v1",
+      },
+      currentDirectoryGeneration: 0,
     },
     endpoints: [],
   };

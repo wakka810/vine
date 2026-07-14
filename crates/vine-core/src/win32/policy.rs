@@ -36,6 +36,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multi_byte_to_wide_char: Option<Kernel32MultiByteToWideCharPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_current_directory_a: Option<Kernel32SetCurrentDirectoryAPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lc_map_string_w: Option<Kernel32LcMapStringWPolicy>,
@@ -88,6 +90,13 @@ pub struct Kernel32MultiByteToWideCharPolicy {
     pub allow_active_code_page_selector: bool,
     pub allowed_flags: Vec<u32>,
     pub maximum_source_bytes: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32SetCurrentDirectoryAPolicy {
+    pub process_image_directory_only: bool,
+    pub maximum_path_bytes: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +166,7 @@ impl Kernel32CompatibilityPolicy {
             wide_environment_strings: false,
             wide_char_to_multi_byte: None,
             multi_byte_to_wide_char: None,
+            set_current_directory_a: None,
             get_string_type_w: None,
             lc_map_string_w: None,
             get_module_file_name_a: None,
@@ -283,6 +293,19 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-multi-byte-conversion-invalid",
                 "multibyte conversion requires Windows-932 ACP, bounded unique implemented flags, and a bounded nonzero source limit",
+            ));
+        }
+        if let Some(directory) = self.set_current_directory_a
+            && (!self
+                .multi_byte_to_wide_char
+                .as_ref()
+                .is_some_and(|conversion| conversion.allow_active_code_page_selector)
+                || !directory.process_image_directory_only
+                || !(4..=32_768).contains(&directory.maximum_path_bytes))
+        {
+            return Err(policy_error(
+                "kernel32-policy-set-current-directory-invalid",
+                "SetCurrentDirectoryA requires the CP_ACP conversion layer, process-image-directory selection, and a bounded DOS path limit",
             ));
         }
         if let Some(classification) = self.get_string_type_w.as_ref()
@@ -429,6 +452,10 @@ impl Kernel32CompatibilityPolicy {
         self.multi_byte_to_wide_char.as_ref()
     }
 
+    pub fn set_current_directory_a(&self) -> Option<Kernel32SetCurrentDirectoryAPolicy> {
+        self.set_current_directory_a
+    }
+
     pub fn get_string_type_w(&self) -> Option<&Kernel32GetStringTypeWPolicy> {
         self.get_string_type_w.as_ref()
     }
@@ -570,6 +597,7 @@ mod tests {
         assert!(!policy.allows_wide_environment_strings());
         assert!(policy.wide_char_to_multi_byte().is_none());
         assert!(policy.multi_byte_to_wide_char().is_none());
+        assert!(policy.set_current_directory_a().is_none());
         assert!(policy.get_string_type_w().is_none());
         assert!(policy.lc_map_string_w().is_none());
         assert!(policy.get_module_file_name_a().is_none());
@@ -630,6 +658,17 @@ mod tests {
         assert_eq!(
             invalid_multi_byte.validate().unwrap_err().code,
             "kernel32-policy-multi-byte-conversion-invalid"
+        );
+
+        let mut invalid_current_directory = policy.clone();
+        invalid_current_directory.set_current_directory_a =
+            Some(Kernel32SetCurrentDirectoryAPolicy {
+                process_image_directory_only: true,
+                maximum_path_bytes: 32_768,
+            });
+        assert_eq!(
+            invalid_current_directory.validate().unwrap_err().code,
+            "kernel32-policy-set-current-directory-invalid"
         );
 
         invalid_multi_byte.ansi_command_line = true;

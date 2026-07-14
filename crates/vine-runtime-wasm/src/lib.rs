@@ -259,6 +259,8 @@ impl BrowserRuntime {
             "runtime": {
                 "processId": runtime.process_id().0,
                 "threadId": runtime.current_thread_id().0,
+                "currentDirectoryA": runtime.current_directory_a(),
+                "currentDirectoryGeneration": runtime.current_directory_generation(),
             },
         });
         Ok((
@@ -381,6 +383,8 @@ impl BrowserRuntime {
             "runtime": {
                 "processId": process.runtime.process_id().0,
                 "threadId": process.runtime.current_thread_id().0,
+                "currentDirectoryA": process.runtime.current_directory_a(),
+                "currentDirectoryGeneration": process.runtime.current_directory_generation(),
                 "moduleCount": process.runtime.process().modules.len(),
                 "dependencyEdges": process.binding.dependency_edges.len(),
                 "attachOrder": process.attach_order,
@@ -787,12 +791,21 @@ impl BrowserRuntime {
                     BrowserRuntimeTarget::ControlledFixture => {
                         completion_metadata("api-complete", &completion)
                     }
-                    BrowserRuntimeTarget::Bgi { .. } => json!({
-                        "kind": "api-complete",
-                        "endpoint": endpoint,
-                        "completion": completion,
-                        "memory": self.memory.stats(),
-                    }),
+                    BrowserRuntimeTarget::Bgi { .. } => {
+                        let mut metadata = json!({
+                            "kind": "api-complete",
+                            "endpoint": endpoint,
+                            "completion": completion,
+                            "memory": self.memory.stats(),
+                        });
+                        if completion.implementation_id == "kernel32.set-current-directory-a.v1" {
+                            metadata["currentDirectory"] = json!({
+                                "directory": self.runtime.current_directory_a(),
+                                "generation": self.runtime.current_directory_generation(),
+                            });
+                        }
+                        metadata
+                    }
                 };
                 Ok((metadata, delta))
             }
@@ -1153,6 +1166,11 @@ fn controlled_bgi_runtime_state() -> Result<RuntimeState, String> {
             bytes_with_nul: b"C:\\Vine\\BGI.exe\0".to_vec(),
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
+        initial_current_directory_a: vine_core::RuntimeCurrentDirectoryA {
+            source_authority: "browser-private-process-bootstrap".to_owned(),
+            bytes_with_nul: b"C:\\Vine\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
         encoded_pointer_token_prefix: 0xec01_0000,
     })
@@ -1426,6 +1444,11 @@ fn controlled_runtime_state() -> Result<RuntimeState, String> {
         process_image_path_a: vine_core::RuntimeProcessImagePathA {
             source_authority: "browser-fixture-virtual-path".to_owned(),
             bytes_with_nul: b"C:\\Vine\\browser-vertical.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
+        initial_current_directory_a: vine_core::RuntimeCurrentDirectoryA {
+            source_authority: "browser-fixture-process-bootstrap".to_owned(),
+            bytes_with_nul: b"C:\\Vine\0".to_vec(),
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),

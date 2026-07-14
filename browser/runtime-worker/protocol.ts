@@ -6,6 +6,17 @@ export const protocolVersion = 4 as const;
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "private-bgi";
 
+export interface RuntimeCurrentDirectoryA {
+  sourceAuthority: string;
+  bytesWithNul: number[];
+  encoding: string;
+}
+
+export interface RuntimeCurrentDirectorySnapshot {
+  directory: RuntimeCurrentDirectoryA;
+  generation: number;
+}
+
 export interface SessionConfiguration {
   mode: SessionMode;
   workload?: SessionWorkload;
@@ -114,6 +125,7 @@ export interface SessionReport {
   };
   mirrorRebuilds: number;
   initialGeneration: number;
+  initialCurrentDirectory: RuntimeCurrentDirectorySnapshot | null;
   finalGeneration: number;
   pendingHostCalls: number;
   pendingCallbacks: number;
@@ -134,6 +146,7 @@ export interface SessionReport {
     stackPointerAfter: number;
     lastError: number;
     guestWrites: Array<{ address: number; bytes: number[] }>;
+    currentDirectory?: RuntimeCurrentDirectorySnapshot;
   }>;
   firstUnsupported: {
     capabilityCluster: string;

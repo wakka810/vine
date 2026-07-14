@@ -14,8 +14,9 @@ use vine_core::{
     Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
     Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
-    Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
-    LC_MAP_STRING_W_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
+    Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
+    Kernel32WideCharToMultiBytePolicy, LC_MAP_STRING_W_IMPLEMENTATION,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
@@ -28,9 +29,9 @@ use vine_core::{
     RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId,
     RuntimeHeapInitialization, RuntimeModule, RuntimeProcessId, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva,
-    SET_LAST_ERROR_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
-    SchedulerThreadState, StackCleanup, TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy,
+    SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
+    SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
+    TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     kernel32_contract_for_endpoint,
@@ -4616,6 +4617,216 @@ fn multi_byte_to_wide_char_models_windows_932_and_cp_acp_query_conversion() {
 }
 
 #[test]
+fn set_current_directory_a_owns_normalized_process_directory_transactionally() {
+    const EXACT_PATH: u32 = OUTPUT_BASE + 0x700;
+    const ALIAS_PATH: u32 = OUTPUT_BASE + 0x720;
+    const UNSUPPORTED_PATH: u32 = OUTPUT_BASE + 0x740;
+    const RELATIVE_PATH: u32 = OUTPUT_BASE + 0x760;
+    const EMPTY_PATH: u32 = OUTPUT_BASE + 0x780;
+    const UNTERMINATED_PATH: u32 = OUTPUT_BASE + 0x7a0;
+
+    let (mut memory, owner) = initialized_memory();
+    for (address, bytes) in [
+        (EXACT_PATH, b"C:\\Vine\\\0".as_slice()),
+        (ALIAS_PATH, b"c:/vInE/\0".as_slice()),
+        (UNSUPPORTED_PATH, b"C:\\Other\0".as_slice()),
+        (RELATIVE_PATH, b".\0".as_slice()),
+        (EMPTY_PATH, b"\0".as_slice()),
+        (
+            UNTERMINATED_PATH,
+            b"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".as_slice(),
+        ),
+    ] {
+        memory
+            .write_initialization(owner, GuestAddress(address), bytes)
+            .expect("initialize ANSI directory path");
+    }
+
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x108);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize SetCurrentDirectoryA IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SetCurrentDirectoryA".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("SetCurrentDirectoryA contract");
+    assert_eq!(
+        contract.implementation_id,
+        SET_CURRENT_DIRECTORY_A_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let frames = [
+        vec![0x1000_0c01, EXACT_PATH],
+        vec![0x1000_0c02, ALIAS_PATH],
+        vec![0x1000_0c03, UNSUPPORTED_PATH],
+        vec![0x1000_0c04, RELATIVE_PATH],
+        vec![0x1000_0c05, EMPTY_PATH],
+        vec![0x1000_0c06, 0],
+        vec![0x1000_0c07, UNTERMINATED_PATH],
+    ];
+    for (index, words) in frames.iter().enumerate() {
+        write_frame(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_BASE + index as u32 * 0x20),
+            words,
+        );
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "public-process-current-directory-v1".to_owned();
+    policy.ansi_command_line = true;
+    policy.wide_environment_strings = true;
+    policy.wide_char_to_multi_byte = Some(Kernel32WideCharToMultiBytePolicy {
+        active_code_page: 932,
+        maximum_source_code_units: 65_536,
+    });
+    policy.multi_byte_to_wide_char = Some(Kernel32MultiByteToWideCharPolicy {
+        allow_active_code_page_selector: true,
+        allowed_flags: vec![0, 1],
+        maximum_source_bytes: 65_536,
+    });
+    policy.set_current_directory_a = Some(Kernel32SetCurrentDirectoryAPolicy {
+        process_image_directory_only: true,
+        maximum_path_bytes: 32,
+    });
+    policy
+        .validate()
+        .expect("valid process current-directory policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    assert_eq!(runtime.current_directory_a().bytes_with_nul, b"C:\\Vine\0");
+    assert_eq!(runtime.current_directory_generation(), 0);
+
+    let dispatch = |index: usize,
+                    memory: &mut GuestMemory,
+                    runtime: &mut RuntimeState,
+                    selected_policy: &Kernel32CompatibilityPolicy|
+     -> DispatchOutcome {
+        let mut session = ExecutionSession::new(memory, runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(
+                &endpoint,
+                STACK_BASE + index as u32 * 0x20,
+                frames[index][0],
+            ),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(selected_policy, contract, frame, session)
+            },
+        )
+    };
+
+    let exact_input_before = memory.read(GuestAddress(EXACT_PATH), 9).unwrap();
+    let exact = dispatch(0, &mut memory, &mut runtime, &policy);
+    let DispatchOutcome::Immediate(exact) = exact else {
+        panic!("expected SetCurrentDirectoryA success, got {exact:?}");
+    };
+    assert_eq!(exact.eax, RegisterUpdate::Set(1));
+    assert_eq!(exact.stack_pointer, GuestAddress(STACK_BASE + 8));
+    assert_eq!(exact.last_error, INITIAL_LAST_ERROR);
+    assert!(exact.guest_writes.is_empty());
+    assert_eq!(runtime.current_directory_a().bytes_with_nul, b"C:\\Vine\0");
+    assert_eq!(runtime.current_directory_generation(), 1);
+    assert_eq!(
+        memory.read(GuestAddress(EXACT_PATH), 9).unwrap(),
+        exact_input_before
+    );
+
+    let alias = dispatch(1, &mut memory, &mut runtime, &policy);
+    let DispatchOutcome::Immediate(alias) = alias else {
+        panic!("expected normalized directory alias success, got {alias:?}");
+    };
+    assert_eq!(alias.eax, RegisterUpdate::Set(1));
+    assert_eq!(alias.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(runtime.current_directory_a().bytes_with_nul, b"C:\\Vine\0");
+    assert_eq!(runtime.current_directory_generation(), 2);
+
+    for index in [2_usize, 3] {
+        let runtime_before = runtime.clone();
+        let memory_before = memory.stats();
+        let unsupported = dispatch(index, &mut memory, &mut runtime, &policy);
+        assert!(matches!(
+            unsupported,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == ApiFaultClass::Unsupported
+                    && fault.code == "set-current-directory-a-path-unsupported"
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    for (index, expected_error) in [(4_usize, 123), (5, 87)] {
+        let directory_before = runtime.current_directory_a().clone();
+        let generation_before = runtime.current_directory_generation();
+        let memory_before = memory.stats();
+        let failure = dispatch(index, &mut memory, &mut runtime, &policy);
+        let DispatchOutcome::Immediate(failure) = failure else {
+            panic!("expected Win32 directory failure, got {failure:?}");
+        };
+        assert_eq!(failure.eax, RegisterUpdate::Set(0));
+        assert_eq!(failure.last_error, expected_error);
+        assert!(failure.guest_writes.is_empty());
+        assert_eq!(runtime.current_directory_a(), &directory_before);
+        assert_eq!(runtime.current_directory_generation(), generation_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    let runtime_before_limit = runtime.clone();
+    let memory_before_limit = memory.stats();
+    let limit = dispatch(6, &mut memory, &mut runtime, &policy);
+    assert!(matches!(
+        limit,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::ResourceLimit
+                && fault.code == "set-current-directory-a-path-not-terminated"
+    ));
+    assert_eq!(runtime, runtime_before_limit);
+    assert_eq!(memory.stats(), memory_before_limit);
+
+    let mut disabled_policy = policy.clone();
+    disabled_policy.set_current_directory_a = None;
+    disabled_policy.validate().expect("valid preceding policy");
+    let runtime_before_disabled = runtime.clone();
+    let memory_before_disabled = memory.stats();
+    let disabled = dispatch(0, &mut memory, &mut runtime, &disabled_policy);
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "set-current-directory-a-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before_disabled);
+    assert_eq!(memory.stats(), memory_before_disabled);
+}
+
+#[test]
 fn get_string_type_w_models_measured_ctype1_and_fails_closed() {
     const SOURCE: u32 = OUTPUT_BASE + 0x100;
     const DESTINATION: u32 = OUTPUT_BASE + 0x500;
@@ -6696,6 +6907,11 @@ fn controlled_runtime(startup_bytes: Vec<u8>) -> RuntimeState {
         process_image_path_a: vine_core::RuntimeProcessImagePathA {
             source_authority: "api-dispatcher-fixture".to_owned(),
             bytes_with_nul: b"C:\\Vine\\fixture.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
+        initial_current_directory_a: vine_core::RuntimeCurrentDirectoryA {
+            source_authority: "api-dispatcher-process-bootstrap".to_owned(),
+            bytes_with_nul: b"C:\\Vine\0".to_vec(),
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),

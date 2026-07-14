@@ -48,7 +48,7 @@ controlled public fixtureの`passed`をBGI Browser executionの成功として�
 completion、最終memory digest、structured stop、cancel／watchdog teardownをChromeで確認した結果である。
 `browserCheckpoint.bgiBenchmark`は別のversioned 3分 workload gateのoutcomeである。
 `threshold-passed`はsession／slice分布、main／Worker memory slope、linear memory、Wasm crossingの
-全threshold合格、`threshold-blocked`はfailure IDを伴う未完了checkpointを表す。現在の279-call
+全threshold合格、`threshold-blocked`はfailure IDを伴う未完了checkpointを表す。現在の280-call
 workloadはtimer clamp非依存のWorker yieldへ修正後に全thresholdを通した。どちらのstatusも
 full play、title output、long-idle steady memoryを含めない。
 

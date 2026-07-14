@@ -223,6 +223,48 @@ fn process_image_path_bootstrap_rejects_invalid_ansi_authority() {
     }
 }
 
+#[test]
+fn current_directory_bootstrap_rejects_invalid_process_authority() {
+    for (mutate, expected_code) in [
+        (
+            (|bootstrap: &mut RuntimeBootstrap| {
+                bootstrap
+                    .initial_current_directory_a
+                    .source_authority
+                    .clear()
+            }) as fn(&mut RuntimeBootstrap),
+            "current-directory-authority-invalid",
+        ),
+        (
+            |bootstrap: &mut RuntimeBootstrap| {
+                bootstrap.initial_current_directory_a.encoding = "utf-8".to_owned()
+            },
+            "current-directory-authority-invalid",
+        ),
+        (
+            |bootstrap: &mut RuntimeBootstrap| {
+                bootstrap.initial_current_directory_a.bytes_with_nul = b".\0".to_vec()
+            },
+            "current-directory-path-not-absolute",
+        ),
+        (
+            |bootstrap: &mut RuntimeBootstrap| {
+                bootstrap.initial_current_directory_a.bytes_with_nul = b"C:\\Vine\0other\0".to_vec()
+            },
+            "current-directory-path-shape-invalid",
+        ),
+    ] {
+        let mut bootstrap = controlled_bootstrap();
+        mutate(&mut bootstrap);
+        assert_eq!(
+            RuntimeState::new(bootstrap)
+                .expect_err("invalid current-directory authority must stop bootstrap")
+                .code,
+            expected_code
+        );
+    }
+}
+
 fn controlled_bootstrap() -> RuntimeBootstrap {
     RuntimeBootstrap {
         process_id: RuntimeProcessId(PROCESS_ID),
@@ -241,6 +283,11 @@ fn controlled_bootstrap() -> RuntimeBootstrap {
         process_image_path_a: vine_core::RuntimeProcessImagePathA {
             source_authority: "runtime-lifecycle-fixture".to_owned(),
             bytes_with_nul: b"C:\\Vine\\fixture.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
+        initial_current_directory_a: vine_core::RuntimeCurrentDirectoryA {
+            source_authority: "runtime-lifecycle-process-bootstrap".to_owned(),
+            bytes_with_nul: b"C:\\Vine\0".to_vec(),
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),

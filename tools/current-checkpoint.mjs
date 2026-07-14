@@ -585,6 +585,8 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.multiByteAllowActiveCodePageSelector !== true ||
     !Array.isArray(kernel32Policy.multiByteAllowedFlags) ||
     kernel32Policy.multiByteAllowedFlags.join(",") !== "0,1" ||
+    kernel32Policy.setCurrentDirectoryProcessImageDirectoryOnly !== true ||
+    kernel32Policy.setCurrentDirectoryMaximumPathBytes !== 32768 ||
     kernel32Policy.unsupportedBeforeMutation !== true
   ) {
     errors.push("active Kernel32 compatibility policy boundary is invalid");

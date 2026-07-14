@@ -665,6 +665,15 @@ multiByteSelection.find(
 ).selectedObservations = ["multi-byte-to-wide-char"];
 assert.doesNotThrow(() => summarizeTrace(encode(multiByteSelection)));
 
+const setCurrentDirectorySelection = structuredClone(events);
+setCurrentDirectorySelection[0].arguments.observations = [
+  "set-current-directory-a",
+];
+setCurrentDirectorySelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["set-current-directory-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(setCurrentDirectorySelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

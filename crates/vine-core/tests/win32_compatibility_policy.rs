@@ -43,6 +43,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!(
             "../../../fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-cp-acp-v1.json"
         ),
+        include_str!("../../../fixtures/runtime-policies/kernel32-set-current-directory-a-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -172,4 +173,12 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert!(active_code_page_conversion.allow_active_code_page_selector);
     assert_eq!(active_code_page_conversion.allowed_flags, [0, 1]);
     assert_eq!(active_code_page_conversion.maximum_source_bytes, 65_536);
+    assert!(active_code_page.set_current_directory_a().is_none());
+    let current_directory: Kernel32CompatibilityPolicy =
+        serde_json::from_str(policies[25]).unwrap();
+    let current_directory_policy = current_directory
+        .set_current_directory_a()
+        .expect("process current-directory policy");
+    assert!(current_directory_policy.process_image_directory_only);
+    assert_eq!(current_directory_policy.maximum_path_bytes, 32_768);
 }

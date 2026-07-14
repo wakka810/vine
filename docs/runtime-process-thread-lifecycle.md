@@ -34,6 +34,28 @@ module／endpoint metadataを登録できる。`start_initial_thread`だけがma
 scheduler statesを同時にrunningへ進める。double startとstart前のexit completionはstateを
 変えずstructured conflictになる。
 
+## Process-owned current directory
+
+The process aggregate now owns `RuntimeProcessDirectories` in
+`runtime/process.rs`. Its mutable collection is private; other subsystems see
+only the normalized `RuntimeCurrentDirectoryA` value and monotonic generation.
+Bootstrap explicitly supplies a Windows-932 absolute DOS path, and the process
+image path derives the registered image-directory identity independently of the
+host installation path.
+
+`SetCurrentDirectoryA` mutation follows the same lifecycle coordination rule as
+other cross-subsystem operations: the process subsystem produces a plan, the
+aggregate preflights a running process, and the subsystem commits only if its
+previous identity and generation still match. Null／empty／unterminated input,
+unsupported relative or other absolute paths, lifecycle conflict, and stale plan
+all stop before mutation. The runtime copies path bytes and never retains the
+guest pointer. TypeScript receives directory metadata for equivalence reporting
+only and does not own or update guest-visible current-directory state.
+
+This bounded process-image-directory subset is not a VFS. General `.`／`..`,
+drive-relative resolution, directory existence, file identity, and mount/backend
+effects remain deferred until reached.
+
 ## Exit request and completion
 
 Thread/process exitは二段階である。
@@ -87,6 +109,7 @@ The test fixes:
 - mutation-free duplicate request／completion rejection
 - completion to thread/scheduler/process terminal state and exact exit code `7`
 - thread-only request／completion with thread signal and process nonsignal
+- current-directory bootstrap validation and lifecycle-preflighted plan commit
 
 Production regression on the same implementation:
 

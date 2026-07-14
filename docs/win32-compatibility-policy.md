@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-cp-acp-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-set-current-directory-a-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -20,7 +20,7 @@ Win32 semantics
                          |
                          v
 Compatibility policy
-  versioned selectors, file types, HeapAlloc/HeapFree/HeapSize variants, process-view/code-page enablement
+  versioned selectors, file types, HeapAlloc/HeapFree/HeapSize variants, process-view/code-page/current-directory enablement
   measured InitializeCriticalSection raw spin-state field
   explicit processor-feature presence
   bounded validation and mutation-free unsupported result
@@ -43,6 +43,8 @@ runtime execution. It contains only target-independent bounded data:
 - opt-in controlled UTF-16 environment authority and copy lifetime;
 - opt-in active ANSI code page, explicit opt-in for the `CP_ACP` selector, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, Windows-932 private-use byte mappings, bounded CTYPE1 information types, and bounded locale mapping variants;
 - opt-in current-process image-path lookup with a bounded ANSI output capacity;
+- opt-in process-image-directory-only `SetCurrentDirectoryA` with a bounded
+  Windows-932 input scan;
 - enabled `HeapAlloc` flag and byte-length pairs, `HeapFree` flags, and `HeapSize` flags;
 - an opt-in x86 `InitializeCriticalSection` raw spin-state field for the measured
   Windows compatibility profile;
@@ -53,7 +55,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form twenty-five monotonic controlled policies:
+The current files form twenty-six monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -82,6 +84,7 @@ The current files form twenty-five monotonic controlled policies:
 | `kernel32-heap-size-v1` | stdin, stdout, stderr | preceding options + `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` | preceding allocation/free variants |
 | `kernel32-initialize-critical-section-v1` | stdin, stdout, stderr | preceding options + measured default x86 critical-section spin-state field | preceding allocation/free/size variants |
 | `kernel32-multi-byte-to-wide-char-cp-acp-v1` | stdin, stdout, stderr | preceding options + `CP_ACP` selector／flags `0,1`／65,536-byte decode bound | preceding allocation/free/size variants |
+| `kernel32-set-current-directory-a-v1` | stdin, stdout, stderr | preceding options + registered process-image directory only／32 KiB input bound | preceding allocation/free/size variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -256,6 +259,18 @@ The public semantic fixture uses distinct value `0x02001234` and independently
 checks exact bytes, ABI, policy-disabled atomic failure, ownership, and duplicate
 initialization.
 
+`SetCurrentDirectoryA` uses one policy-backed one-argument semantic handler.
+The policy enables only the process image directory already registered by Rust
+bootstrap and a 32 KiB ANSI scan bound; it contains no BGI pointer, native path,
+caller, result, call order, or next stop. The handler performs checked
+Windows-932 read and path normalization, plans the process-owned identity change,
+preflights process lifecycle, and commits once. Success preserves LastError;
+null and empty paths return the Windows failure codes independently of policy.
+Valid but unregistered absolute／relative paths and bounded resource failures
+stop before mutation. Public fixtures cover alternate case／separator spelling,
+DBCS trail `0x5C`, caller-buffer ownership, generation, ABI cleanup, stale plan,
+lifecycle conflict, and mutation-free rejection without loading BGI evidence.
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -288,6 +303,9 @@ The heap-size policy does not enable host/process heap introspection, arbitrary
 flags, heap walking／validation, or `HeapReAlloc`.
 The InitializeCriticalSection policy does not implement arbitrary private raw
 state layouts, contention, deletion, wait scheduling, or cross-thread blocking.
+The current-directory policy does not implement general relative resolution,
+filesystem existence, directory enumeration, file identity, host path import,
+mounts, or a browser VFS backend.
 Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

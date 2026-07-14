@@ -30,6 +30,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-heap-size-v1.json",
   "fixtures/runtime-policies/kernel32-initialize-critical-section-v1.json",
   "fixtures/runtime-policies/kernel32-multi-byte-to-wide-char-cp-acp-v1.json",
+  "fixtures/runtime-policies/kernel32-set-current-directory-a-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -71,6 +72,16 @@ for (const relative of policyFiles) {
   if (multibyte?.allowActiveCodePageSelector !== undefined) {
     assert.equal(typeof multibyte.allowActiveCodePageSelector, "boolean");
   }
+  const currentDirectory = policy.setCurrentDirectoryA ?? null;
+  if (currentDirectory !== null) {
+    assert.equal(currentDirectory.processImageDirectoryOnly, true);
+    assert(
+      Number.isInteger(currentDirectory.maximumPathBytes) &&
+        currentDirectory.maximumPathBytes >= 4 &&
+        currentDirectory.maximumPathBytes <= 32768,
+    );
+    assert.equal(multibyte?.allowActiveCodePageSelector, true);
+  }
 }
 
 const manifest = JSON.parse(
@@ -86,6 +97,14 @@ assert.equal(
   summary.multiByteAllowActiveCodePageSelector,
 );
 assert.deepEqual(activePolicy.multiByteToWideChar.allowedFlags, summary.multiByteAllowedFlags);
+assert.equal(
+  activePolicy.setCurrentDirectoryA.processImageDirectoryOnly,
+  summary.setCurrentDirectoryProcessImageDirectoryOnly,
+);
+assert.equal(
+  activePolicy.setCurrentDirectoryA.maximumPathBytes,
+  summary.setCurrentDirectoryMaximumPathBytes,
+);
 
 const implementation = fs.readFileSync(
   path.join(root, "crates", "vine-core", "src", "win32.rs"),

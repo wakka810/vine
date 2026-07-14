@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section including one-argument initialization, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section including one-argument initialization, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, SetCurrentDirectoryA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-multi-byte-to-wide-char-cp-acp`
-- Scope: frozen 17-call equivalence plus 279 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-set-current-directory-a`
+- Scope: frozen 17-call equivalence plus 280 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -888,6 +888,17 @@ generation `388`. At instruction 24,294 it stops on missing
 Full evidence is in
 [bgi-multi-byte-to-wide-char-cp-acp.md](bgi-multi-byte-to-wide-char-cp-acp.md).
 
+The current-directory checkpoint keeps guest-visible process state in Rust.
+Call 280 reads `0x10104048`, normalizes the controlled `C:\Vine\0` identity,
+returns BOOL 1, preserves LastError 0, and commits generation `0 -> 1` without
+retaining the guest pointer or writing guest memory. The following guest copy is
+ordinary CPU writeback. The session records 285 writebacks／435 dirty pages／
+6,307 changed bytes, 75 host deltas, and Node generation `389`. At instruction
+24,496 it stops on missing `CreateMutexA(0,1,0x100E1CAC)`. Final memory SHA-256
+is `7b95978468db1f5664799d9621b990ace2c06332b4e251bf6b377fa6c4e15bb2`.
+Full evidence is in
+[bgi-set-current-directory-a.md](bgi-set-current-directory-a.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -933,18 +944,20 @@ Full evidence is in
   pointer is stored, replaced, and retired without bridging to host exception
   machinery; SEH dispatch and filter invocation remain absent. Initial-thread
   stack growth is Rust-owned; additional-thread stacks, overflow, and guard
-  exception delivery remain absent. Process current-directory state, ANSI
-  relative-path resolution, and VFS effects remain absent. The first structured
-  stop is now `SetCurrentDirectoryA`; bespoke numbered checkpoint expansion stays
+  exception delivery remain absent. Process current-directory identity and the
+  reached process-image-directory update are Rust-owned; general ANSI relative-path
+  resolution and VFS effects remain absent. The first structured
+  stop is now `CreateMutexA`; bespoke numbered checkpoint expansion stays
   paused.
 
 ## Next checkpoint
 
-The next proof is the reached `SetCurrentDirectoryA(0x10104048)` call. It must
-measure the ANSI path bytes and lifetime, BOOL, LastError, process current-directory
-state, and the first relative-path consumer before deciding how the logical state
-will later connect to a browser VFS. CP_ACP conversion and the four stack-growth
-deltas must remain green.
+The next proof is the reached `CreateMutexA(0,1,0x100E1CAC)` call. It must
+measure the ANSI name bytes and lifetime, initial-owner behavior, logical handle,
+LastError／already-existing result, wait／close consumers, and teardown before
+choosing how the object table, waits, and synchronization subsystem coordinate.
+Current-directory identity, CP_ACP conversion, and the four stack-growth deltas
+must remain green.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,

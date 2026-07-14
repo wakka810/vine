@@ -30,6 +30,11 @@ let multiByteOracleScheduled = false;
 let multiByteOracleSentinel = null;
 let multiByteOracleLastError = null;
 const multiByteConsumerKeys = new Set();
+let setCurrentDirectoryOracleScheduled = false;
+let setCurrentDirectoryOracleSentinel = null;
+let setCurrentDirectoryOracleResult = null;
+let setCurrentDirectoryOracleLastError = null;
+let setCurrentDirectoryConsumersRecorded = 0;
 let getStringTypeOracleScheduled = false;
 let getStringTypeOracleSentinel = null;
 let getStringTypeOracleResult = null;
@@ -340,6 +345,38 @@ function snapshotMultiByteSource(pointer, requestedBytes) {
       maximumBytes,
       error: error.message,
     };
+  }
+}
+
+function snapshotCurrentDirectoryA(module) {
+  const capacity = 32 * 1024;
+  try {
+    const address = findExport(module, "GetCurrentDirectoryA");
+    if (address === null) {
+      return { capacity, error: "GetCurrentDirectoryA export is unavailable" };
+    }
+    const getCurrentDirectoryA = new SystemFunction(
+      address,
+      "uint32",
+      ["uint32", "pointer"],
+      "stdcall",
+    );
+    const buffer = Memory.alloc(capacity);
+    buffer.writeByteArray(Array(capacity).fill(0xa5));
+    const outcome = getCurrentDirectoryA(capacity, buffer);
+    const result = Number(outcome.value) >>> 0;
+    const systemLastError = Number(outcome.lastError) >>> 0;
+    return {
+      capacity,
+      result,
+      systemLastError,
+      path:
+        result > 0 && result < capacity
+          ? snapshotMultiByteSource(buffer, -1)
+          : null,
+    };
+  } catch (error) {
+    return { capacity, error: error.message };
   }
 }
 
@@ -943,6 +980,44 @@ function snapshotMultiByteToWideCharCall(
               4,
               12,
             ),
+          }
+        : null,
+    },
+  };
+}
+
+function snapshotSetCurrentDirectoryACall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  path,
+  currentDirectoryBefore,
+) {
+  const recordsConsumer =
+    setCurrentDirectoryConsumersRecorded < 2 &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    setCurrentDirectoryConsumersRecorded += 1;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    setCurrentDirectoryA: {
+      pathBefore: snapshotMultiByteSource(path, -1),
+      currentDirectoryBefore,
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations:
+              snapshotX86FrameCallerContinuationsFollowingDirectJump(
+                context,
+                4,
+                32,
+              ),
           }
         : null,
     },
@@ -1672,6 +1747,9 @@ if (selectedObservations.has("multi-byte-to-wide-char")) {
     [null, null, null, null, null, null],
   ]);
 }
+if (selectedObservations.has("set-current-directory-a")) {
+  hooks["kernel32.dll"].push(["SetCurrentDirectoryA", ["ansi"]]);
+}
 if (selectedObservations.has("get-string-type-w")) {
   hooks["kernel32.dll"].push([
     "GetStringTypeW",
@@ -1865,6 +1943,13 @@ function attachHook(module, name, decoders) {
         name === "MultiByteToWideChar" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedSetCurrentDirectoryAObservation =
+        selectedObservations.has("set-current-directory-a") &&
+        name === "SetCurrentDirectoryA" &&
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            setCurrentDirectoryOracleSentinel !== null));
       const focusedGetStringTypeObservation =
         selectedObservations.has("get-string-type-w") &&
         name === "GetStringTypeW" &&
@@ -1958,6 +2043,14 @@ function attachHook(module, name, decoders) {
         return;
       }
       if (
+        selectedObservations.has("set-current-directory-a") &&
+        name === "SetCurrentDirectoryA" &&
+        !focusedSetCurrentDirectoryAObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
         selectedObservations.has("get-string-type-w") &&
         name === "GetStringTypeW" &&
         !focusedGetStringTypeObservation
@@ -2022,6 +2115,15 @@ function attachHook(module, name, decoders) {
         caller.module.toLowerCase() === "frida-agent.dll";
       if (this.traceMultiByteOracle) {
         this.lastError = multiByteOracleSentinel;
+      }
+      this.traceSetCurrentDirectoryOracle =
+        setCurrentDirectoryOracleSentinel !== null &&
+        selectedObservations.has("set-current-directory-a") &&
+        name === "SetCurrentDirectoryA" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceSetCurrentDirectoryOracle) {
+        this.lastError = setCurrentDirectoryOracleSentinel;
       }
       this.traceGetStringTypeOracle =
         getStringTypeOracleSentinel !== null &&
@@ -2222,6 +2324,18 @@ function attachHook(module, name, decoders) {
               destinationUnits: signed32(args[5]),
             }
           : null;
+      this.traceSetCurrentDirectoryA =
+        focusedSetCurrentDirectoryAObservation
+          ? {
+              path: args[0],
+              currentDirectoryBefore: (() => {
+                const lastErrorBefore = Number(this.lastError) >>> 0;
+                const currentDirectory = snapshotCurrentDirectoryA(module);
+                this.lastError = lastErrorBefore;
+                return currentDirectory;
+              })(),
+            }
+          : null;
       this.traceGetStringTypeW =
         focusedGetStringTypeObservation
           ? {
@@ -2335,6 +2449,15 @@ function attachHook(module, name, decoders) {
               this.traceMultiByteConversion.sourceBytes,
               this.traceMultiByteConversion.destination,
               this.traceMultiByteConversion.destinationUnits,
+            )
+        : this.traceSetCurrentDirectoryA !== null
+          ? snapshotSetCurrentDirectoryACall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceSetCurrentDirectoryA.path,
+              this.traceSetCurrentDirectoryA.currentDirectoryBefore,
             )
         : this.traceGetStringTypeW !== null
           ? snapshotGetStringTypeWCall(
@@ -2507,6 +2630,10 @@ function attachHook(module, name, decoders) {
       if (this.traceMultiByteOracle) {
         multiByteOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceSetCurrentDirectoryOracle) {
+        setCurrentDirectoryOracleResult = result.toUInt32();
+        setCurrentDirectoryOracleLastError = Number(lastError) >>> 0;
+      }
       if (this.traceGetStringTypeOracle) {
         getStringTypeOracleResult = result.toUInt32();
         getStringTypeOracleLastError = Number(lastError) >>> 0;
@@ -2557,6 +2684,14 @@ function attachHook(module, name, decoders) {
         this.traceMultiByteConversion === null ? null : signed32(result);
       const lcMapStringResult =
         this.traceLCMapStringW === null ? null : signed32(result);
+      const setCurrentDirectoryAfter =
+        this.traceSetCurrentDirectoryA === null
+          ? null
+          : (() => {
+              const currentDirectory = snapshotCurrentDirectoryA(module);
+              this.lastError = lastError;
+              return currentDirectory;
+            })();
       const observation = {
         ...(this.traceHeapAllocation === null
           ? {}
@@ -2683,6 +2818,18 @@ function attachHook(module, name, decoders) {
                 ),
               },
             }),
+        ...(this.traceSetCurrentDirectoryA === null
+          ? {}
+          : {
+              setCurrentDirectoryA: {
+                result: result.toUInt32(),
+                pathAfter: snapshotMultiByteSource(
+                  this.traceSetCurrentDirectoryA.path,
+                  -1,
+                ),
+                currentDirectoryAfter: setCurrentDirectoryAfter,
+              },
+            }),
         ...(this.traceGetStringTypeW === null
           ? {}
           : {
@@ -2745,6 +2892,144 @@ function attachHook(module, name, decoders) {
         attachIdirect3d9(result);
       }
     },
+  });
+}
+
+function scheduleSetCurrentDirectoryAOracle(module) {
+  if (setCurrentDirectoryOracleScheduled) {
+    return;
+  }
+  setCurrentDirectoryOracleScheduled = true;
+  setImmediate(() => {
+    let setCurrentDirectoryA = null;
+    let originalPointer = null;
+    let restored = false;
+    try {
+      const address = findExport(module, "SetCurrentDirectoryA");
+      if (address === null) {
+        throw new Error("SetCurrentDirectoryA export is unavailable");
+      }
+      setCurrentDirectoryA = new SystemFunction(
+        address,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const original = snapshotCurrentDirectoryA(module);
+      const originalBytes = original.path?.bytes ?? null;
+      if (
+        original.error !== undefined ||
+        originalBytes === null ||
+        originalBytes.length < 2 ||
+        originalBytes.at(-1) !== 0
+      ) {
+        throw new Error("current-directory oracle could not snapshot its original path");
+      }
+
+      const allocatePath = (bytes) => {
+        const pointer = Memory.alloc(Math.max(1, bytes.length));
+        pointer.writeByteArray(bytes.length === 0 ? [0] : bytes);
+        return pointer;
+      };
+      originalPointer = allocatePath(originalBytes);
+      const invoke = (id, sentinel, pathBytes) => {
+        const pointer = allocatePath(pathBytes);
+        setCurrentDirectoryOracleSentinel = sentinel;
+        setCurrentDirectoryOracleResult = null;
+        setCurrentDirectoryOracleLastError = null;
+        try {
+          const outcome = setCurrentDirectoryA(pointer);
+          const result = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            setCurrentDirectoryOracleResult === null ||
+            setCurrentDirectoryOracleLastError === null
+          ) {
+            throw new Error(`${id} did not pass through the current-directory hook`);
+          }
+          return {
+            record: {
+              id,
+              sentinel,
+              pathBytes,
+              result,
+              hookResult: setCurrentDirectoryOracleResult,
+              hookLastErrorAfter: setCurrentDirectoryOracleLastError,
+              systemLastError,
+              currentDirectoryAfter: snapshotCurrentDirectoryA(module),
+            },
+            pointer,
+          };
+        } finally {
+          setCurrentDirectoryOracleSentinel = null;
+          setCurrentDirectoryOracleResult = null;
+          setCurrentDirectoryOracleLastError = null;
+        }
+      };
+
+      const parent = invoke("relative-parent", 87, [0x2e, 0x2e, 0]);
+      parent.pointer.writeByteArray([0x58, 0x58, 0]);
+      const currentDirectoryAfterInputMutation = snapshotCurrentDirectoryA(module);
+      const self = invoke("relative-self", 88, [0x2e, 0]);
+
+      const originalWithoutNul = originalBytes.slice(0, -1);
+      const separator = originalWithoutNul.at(-1) === 0x5c ? [] : [0x5c];
+      const moduleNameBytes = [...Process.mainModule.name].map((character) =>
+        character.charCodeAt(0),
+      );
+      const filePathBytes = [
+        ...originalWithoutNul,
+        ...separator,
+        ...moduleNameBytes,
+        0,
+      ];
+      const missingPathBytes = [
+        ...originalWithoutNul,
+        ...separator,
+        ..."__vine_missing_current_directory_oracle_31__"].map((value) =>
+          typeof value === "number" ? value : value.charCodeAt(0),
+        );
+      missingPathBytes.push(0);
+      const file = invoke("existing-file-not-directory", 89, filePathBytes);
+      const missing = invoke("missing-directory", 90, missingPathBytes);
+      const empty = invoke("empty-path", 91, [0]);
+      const restore = invoke("restore-original", 92, originalBytes);
+      restored = restore.record.result !== 0;
+
+      emit("set-current-directory-a-oracle", {
+        profile: "x86-process-directory-copy-relative-failure-v1",
+        original,
+        inputCopiedBeforeMutation:
+          parent.record.result !== 0 &&
+          currentDirectoryAfterInputMutation.path?.contentFnv1a32 ===
+            parent.record.currentDirectoryAfter.path?.contentFnv1a32,
+        currentDirectoryAfterInputMutation,
+        calls: [
+          parent.record,
+          self.record,
+          file.record,
+          missing.record,
+          empty.record,
+          restore.record,
+        ],
+        restored,
+      });
+    } catch (error) {
+      emit("set-current-directory-a-oracle-error", { error: error.message });
+    } finally {
+      setCurrentDirectoryOracleSentinel = null;
+      setCurrentDirectoryOracleResult = null;
+      setCurrentDirectoryOracleLastError = null;
+      if (!restored && setCurrentDirectoryA !== null && originalPointer !== null) {
+        try {
+          setCurrentDirectoryA(originalPointer);
+        } catch (error) {
+          emit("set-current-directory-a-oracle-restore-error", {
+            error: error.message,
+          });
+        }
+      }
+    }
   });
 }
 
@@ -4816,6 +5101,12 @@ Process.attachModuleObserver({
       selectedObservations.has("multi-byte-to-wide-char")
     ) {
       scheduleMultiByteOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("set-current-directory-a")
+    ) {
+      scheduleSetCurrentDirectoryAOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

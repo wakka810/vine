@@ -2,8 +2,8 @@ use vine_core::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, MappingOperation, MemoryLimits,
     ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationReleasePolicy,
-    ProcessAddressSpaceLayout, RuntimeBootstrap, RuntimeClockState, RuntimeProcessId,
-    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    ProcessAddressSpaceLayout, RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA,
+    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
     install_initial_thread_stack, install_runtime_return_sentinels,
 };
 
@@ -222,6 +222,11 @@ fn runtime_bootstrap() -> RuntimeBootstrap {
         process_image_path_a: RuntimeProcessImagePathA {
             source_authority: "initial-thread-stack-test".to_owned(),
             bytes_with_nul: b"C:\\Vine\\stack-test.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
+        initial_current_directory_a: RuntimeCurrentDirectoryA {
+            source_authority: "initial-thread-stack-process-bootstrap".to_owned(),
+            bytes_with_nul: b"C:\\Vine\0".to_vec(),
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: vine_core::LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),

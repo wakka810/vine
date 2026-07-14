@@ -1,4 +1,5 @@
 import type { MemoryRegionSnapshot } from "./memory-transport.js";
+import type { RuntimeCurrentDirectoryA } from "./protocol.js";
 
 export type RegisterUpdate =
   | { action: "preserve" }
@@ -60,6 +61,8 @@ export interface PreparedMetadata {
   runtime: {
     processId: number;
     threadId: number;
+    currentDirectoryA: RuntimeCurrentDirectoryA;
+    currentDirectoryGeneration: number;
   };
   endpoints: Array<{
     id: number;

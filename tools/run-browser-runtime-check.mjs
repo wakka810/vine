@@ -800,6 +800,18 @@ function normalizeBgiCall(call) {
     stackPointerAfter: call.stackPointerAfter,
     lastError: call.lastError,
     guestWrites: call.guestWrites.map(({ address, bytes }) => ({ address, bytes })),
+    currentDirectory: call.currentDirectory ?? null,
+  };
+}
+
+function normalizeCurrentDirectorySnapshot(snapshot) {
+  assert(snapshot !== null && snapshot !== undefined, "current-directory snapshot is missing");
+  assert.equal(typeof snapshot.directory.sourceAuthority, "string");
+  assert(snapshot.directory.sourceAuthority.length > 0);
+  return {
+    bytesWithNul: snapshot.directory.bytesWithNul,
+    encoding: snapshot.directory.encoding,
+    generation: snapshot.generation,
   };
 }
 
@@ -818,6 +830,14 @@ function normalizeStackGrowth(growth) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  assert.deepEqual(
+    normalizeCurrentDirectorySnapshot(browser.report.initialCurrentDirectory),
+    normalizeCurrentDirectorySnapshot({
+      directory: oracle.process.currentDirectoryA,
+      generation: oracle.process.currentDirectoryGeneration,
+    }),
+    "Chrome Worker initial current directory differs from the Node oracle",
+  );
   assert.deepEqual(
     browser.report.supportedCalls.map(normalizeBgiCall),
     oracle.supportedContinuation.map(normalizeBgiCall),

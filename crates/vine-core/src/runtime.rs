@@ -31,6 +31,7 @@ use crate::snapshot::ModuleIdentity;
 
 mod address_space;
 mod messages;
+mod process;
 mod synchronization;
 
 pub use address_space::{
@@ -44,6 +45,8 @@ use messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessag
 pub use messages::{
     RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage,
 };
+use process::RuntimeProcessDirectories;
+pub use process::{RuntimeCurrentDirectoryA, RuntimeSetCurrentDirectoryAPlan};
 use synchronization::RuntimeSynchronization;
 pub use synchronization::{RUNTIME_CRITICAL_SECTION_LIMIT, RuntimeCriticalSection};
 
@@ -936,6 +939,7 @@ pub struct RuntimeBootstrap {
     pub clock: RuntimeClockState,
     pub startup_info: RuntimeStartupInfo,
     pub process_image_path_a: RuntimeProcessImagePathA,
+    pub initial_current_directory_a: RuntimeCurrentDirectoryA,
     pub encoded_pointer_namespace: String,
     pub encoded_pointer_token_prefix: u32,
 }
@@ -1526,6 +1530,8 @@ pub struct RuntimeProcessState {
     pub clock: RuntimeClockState,
     pub startup_info: RuntimeStartupInfo,
     pub image_path_a: RuntimeProcessImagePathA,
+    #[serde(flatten)]
+    directories: RuntimeProcessDirectories,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<RuntimeProcessEnvironment>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1630,6 +1636,10 @@ impl RuntimeState {
         }
         let address_space_allocator =
             ProcessAddressSpaceAllocator::vine_v1(bootstrap.address_space)?;
+        let process_directories = RuntimeProcessDirectories::new(
+            bootstrap.initial_current_directory_a.clone(),
+            &bootstrap.process_image_path_a,
+        )?;
         if bootstrap.encoded_pointer_namespace != LOGICAL_ENCODED_POINTER_NAMESPACE
             || bootstrap.encoded_pointer_token_prefix == 0
             || bootstrap.encoded_pointer_token_prefix & 0xffff != 0
@@ -1669,6 +1679,7 @@ impl RuntimeState {
                 clock: bootstrap.clock,
                 startup_info: bootstrap.startup_info,
                 image_path_a: bootstrap.process_image_path_a,
+                directories: process_directories,
                 environment: None,
                 unhandled_exception_filter: None,
                 heap_termination_on_corruption: false,
@@ -1728,6 +1739,53 @@ impl RuntimeState {
 
     pub fn process_image_path_a(&self) -> &RuntimeProcessImagePathA {
         &self.process.image_path_a
+    }
+
+    pub fn current_directory_a(&self) -> &RuntimeCurrentDirectoryA {
+        self.process.directories.current_directory_a()
+    }
+
+    pub fn current_directory_generation(&self) -> u64 {
+        self.process.directories.current_directory_generation()
+    }
+
+    pub fn is_process_image_directory_a(
+        &self,
+        requested: &[u8],
+    ) -> Result<bool, RuntimeStateError> {
+        self.process
+            .directories
+            .is_process_image_directory(requested)
+    }
+
+    pub fn plan_set_current_directory_a(
+        &self,
+        requested: &[u8],
+    ) -> Result<RuntimeSetCurrentDirectoryAPlan, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-directory",
+                "current-directory-process-state-invalid",
+                "current-directory replacement requires a running process",
+            ));
+        }
+        self.process
+            .directories
+            .plan_process_image_directory(requested)
+    }
+
+    pub fn commit_set_current_directory_a(
+        &mut self,
+        plan: RuntimeSetCurrentDirectoryAPlan,
+    ) -> Result<&RuntimeCurrentDirectoryA, RuntimeStateError> {
+        if self.process.lifecycle != RuntimeProcessLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-directory",
+                "current-directory-process-state-invalid",
+                "current-directory replacement requires a running process",
+            ));
+        }
+        self.process.directories.commit(plan)
     }
 
     pub fn unhandled_exception_filter(&self) -> Option<GuestAddress> {
