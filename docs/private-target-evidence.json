@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 4,
   "status": "passed",
-  "recordedAt": "2026-07-14T17:42:51.545Z",
+  "recordedAt": "2026-07-14T17:53:55.813Z",
   "repository": {
-    "implementationCommit": "e7e42ee475ea5bde1faf1d4bfc5db50a76a574d2",
-    "implementationTree": "6071f882514b45d4f37f5b51370ecbce9293aa65",
-    "headCommit": "e7e42ee475ea5bde1faf1d4bfc5db50a76a574d2",
+    "implementationCommit": "d6d6b05e0fbda95a3c3aa9589242cb2f8d4c8a05",
+    "implementationTree": "874a5a40ebd7d9c69ca084f0ab2ad2176e5926c3",
+    "headCommit": "d6d6b05e0fbda95a3c3aa9589242cb2f8d4c8a05",
     "dirty": true,
     "dirtyPaths": [
       "AGENTS.md",
@@ -176,8 +176,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 281765,
-      "sha256": "93b98ff8b45474ad48cc6f0bca1614e9da88b8d38d5ad0be347d8e3d56d354ed"
+      "bytes": 281764,
+      "sha256": "6db2bfb609bd4cb4d250f5ee5975b5f2fd20751f1c226e384ce12fff28a3b081"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -192,7 +192,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3199,
-      "sha256": "f82c3a0091c9d77cd00d7f5268c3c92dea726ea5715298d7a4854fed4add6c7c"
+      "sha256": "3e1a68e3c075fd50dcc93388351b167cd162d7dd1e675f1328d7e76986da12d5"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -229,5 +229,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "c10dc7cfc610ca17abbc69559e2869d47ddc5351d6508b5ead9c06b26c4bade7"
   },
-  "payloadSha256": "36db1171353e302a6558266aa0d66dd9035c54e3f1d118264a71e452907b2092"
+  "payloadSha256": "99784718cfde497dbeb1e0878c40a63267a0b561480962e9e2bf1ff9df86f124"
 }
