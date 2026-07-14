@@ -27,6 +27,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-private-heap-free-size-1-v1.json",
   "fixtures/runtime-policies/kernel32-private-heap-size-128-v1.json",
   "fixtures/runtime-policies/kernel32-is-processor-feature-present-v1.json",
+  "fixtures/runtime-policies/kernel32-heap-size-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -47,6 +48,9 @@ for (const relative of policyFiles) {
   const heapFreeFlags = policy.heapFreeFlags ?? [];
   assert.equal(new Set(heapFreeFlags).size, heapFreeFlags.length);
   assert(heapFreeFlags.every((flags) => flags === 0));
+  const heapSizeFlags = policy.heapSizeFlags ?? [];
+  assert.equal(new Set(heapSizeFlags).size, heapSizeFlags.length);
+  assert(heapSizeFlags.every((flags) => flags === 0 || flags === 1));
   const processorFeatures = policy.processorFeatures ?? [];
   assert.equal(
     new Set(processorFeatures.map(({ index }) => index)).size,

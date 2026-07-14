@@ -2065,3 +2065,43 @@ cancel／watchdog後pending work 0を通す。3分gateは411 sessions／failure 
 P95 526.395 ms、heartbeat P99 16.140 ms／maximum 62.570 msを含む全17 thresholdを
 通した。詳細は
 [bgi-set-unhandled-exception-filter.md](bgi-set-unhandled-exception-filter.md)を正とする。
+
+## 80. BGI private-heap size query
+
+Focused `heap-size` captures r1／r2は2,248,521 bytes／7,038 lines／SHA-256
+`705979af74515682f36f6b5149394a393c9c7099ec211524075efd6052f40952`と
+2,247,585 bytes／7,035 lines／SHA-256
+`c74e88eb1a51c8e2e1e05d99cdb49510077be0960f0de4eef9ea930fb68d65fa`
+である。3,482／3,480 API pairsはbalanced、diagnosticsはzeroで、heap-size
+semantic projectionは一致する。
+
+BGIは各captureでreturn RVA `0xA4F77`から5回同じlive allocationを問い合わせる。
+Flags 0、earlier requested size 128、result 128、LastError `0 -> 0`が全callで一致する。
+Caller RVA `0xA1D4D`はEAXをEBXへ保存し、current capacityと比較して不足時は最低
+2,048 bytesのgrowth sizeを計算する。Oracle profile
+`x86-private-heap-size-query-v1`はseparate private heapの128-byte allocationでflags
+0／`HEAP_NO_SERIALIZE`が同じ128を返してLastErrorを保存すること、interior／freed
+pointerが`0xFFFFFFFF`とLastError 87を返すことを両captureで確認した。
+
+Policy `kernel32-heap-size-v1`はflags 0と`HEAP_NO_SERIALIZE`だけを追加する。
+`kernel32.heap-size.v1`はRust process-owned heap backingからexact live allocationの
+requested byte lengthを返し、aligned reservation／committed capacity／host heapを参照しない。
+NULL／interior／foreign／freed pointerはfailure sentinel／87、unknown logical heapと
+unlisted flagsはmutation前のstructured stopである。Public fixtureはBGI値と異なる
+requested 129／reserved 136-byte allocationで同じhandlerを検証する。
+
+`npm run check:runtime:bgi -- --profile kernel32-heap-size`は43 contracts／210
+calls、211 writebacks／324 dirty pages／4,757 changed bytes、58 host deltas、final
+generation `299`を通す。Call 207が128を返し、calls 208／209の`EncodePointer`とcall
+210の`LeaveCriticalSection`を完了する。Instruction `19185`でID `147`／
+`InitializeCriticalSection(0x100FD9CC)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`90c245267e933a01c1e54fa0305bec1d54a16180a3e7465b6a3b6b3c8d3dd0b8`、
+929,421-byte reportのSHA-256は
+`058ca051ad9b4118ce8854333eafd35aab117dc70da860b28188a2e1afff8fac`である。
+
+Chrome Runtime Workerも210 ordered callsとsame stop／memoryを再現し、2,465
+slices、2,254 yields、2,100 Wasm crossings、final generation `1,640`、
+cancel／watchdog後pending work 0を通す。3分gateは438 sessions／failure 0、session
+P95 536.710 ms、heartbeat P99 9.935 ms／maximum 37.930 msを含む全17 thresholdを
+通した。詳細は[bgi-heap-size.md](bgi-heap-size.md)を正とする。

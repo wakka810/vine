@@ -23,14 +23,14 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 206 | 206 |
-| Guest instructions at next stop | 19,096 | 19,096 |
+| Supported calls | 210 | 210 |
+| Guest instructions at next stop | 19,185 | 19,185 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 1,628 | 294 |
-| Host delta batches | 57 | 57 |
-| Final memory content SHA-256 | `563d391b69ea3dcad1669d68f167bb35fad5b4d48adbd153a9f95ad1fb072f97` | same |
-| Next capability cluster | `kernel32-api-contract` | same |
-| Next API | `KERNEL32.dll!HeapSize(0x68010001,0,0x20000C58)` | same |
+| Final memory generation | 1,640 | 299 |
+| Host delta batches | 58 | 58 |
+| Final memory content SHA-256 | `90c245267e933a01c1e54fa0305bec1d54a16180a3e7465b6a3b6b3c8d3dd0b8` | same |
+| Next capability cluster | `kernel32-critical-section-synchronization` | same |
+| Next API | `KERNEL32.dll!InitializeCriticalSection(0x100FD9CC)` | same |
 | Fault | `endpoint-contract-missing` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
@@ -40,19 +40,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 1,817
-writeback batches; the Node oracle reconciles at 207 writeback boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 1,828
+writeback batches; the Node oracle reconciles at 211 writeback boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 2,452 CPU slices, 2,245 budget yields, 7,357 validated
-Worker state transitions, 2,084 Rust/Wasm bridge operations, and a maximum
-observed slice of 3.040 ms. The main-thread heartbeat recorded 90 samples with a 28.090 ms
+The successful run used 2,465 CPU slices, 2,254 budget yields, 7,396 validated
+Worker state transitions, 2,100 Rust/Wasm bridge operations, and a maximum
+observed slice of 2.880 ms. The main-thread heartbeat recorded 95 samples with a 27.345 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 838,014 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 411
+changed from 628,738 to 840,218 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 438
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -62,7 +62,7 @@ module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 7,357, 4, and 3 transitions respectively. All three reports
+in `stopped` after 7,396, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -104,8 +104,11 @@ zeroed allocation crosses a heap-page boundary, applies the second commit, and
 returns allocation ID 8 before both paths converge at
 `SetUnhandledExceptionFilter(0x100A816F)`. The checked process-owned filter
 replacement returns NULL, preserves LastError, and continues through one
-existing critical-section entry and two existing pointer decodes before both
-paths converge at `HeapSize(0x68010001,0,0x20000C58)`.
+existing critical-section entry and two existing pointer decodes. The following
+`HeapSize(0x68010001,0,0x20000C58)` returns the Rust-owned live allocation's
+requested size 128 without guest writes or LastError mutation. Two existing
+`EncodePointer` calls and one `LeaveCriticalSection` then complete before both
+paths converge at `InitializeCriticalSection(0x100FD9CC)`.
 
 ## Reproduction
 

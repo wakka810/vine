@@ -59,6 +59,7 @@ pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-informa
 pub const HEAP_CREATE_IMPLEMENTATION: &str = "kernel32.heap-create.v1";
 pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v2";
 pub const HEAP_FREE_IMPLEMENTATION: &str = "kernel32.heap-free.v1";
+pub const HEAP_SIZE_IMPLEMENTATION: &str = "kernel32.heap-size.v1";
 pub const GET_MODULE_HANDLE_W_IMPLEMENTATION: &str = "kernel32.get-module-handle-w.v1";
 pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1";
 pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
@@ -162,6 +163,7 @@ pub fn dispatch_kernel32_api_with_policy(
         HEAP_CREATE_IMPLEMENTATION => handle_heap_create(contract, frame, session),
         HEAP_ALLOC_IMPLEMENTATION => handle_heap_alloc(policy, contract, frame, session),
         HEAP_FREE_IMPLEMENTATION => handle_heap_free(policy, contract, frame, session),
+        HEAP_SIZE_IMPLEMENTATION => handle_heap_size(policy, contract, frame, session),
         GET_MODULE_HANDLE_W_IMPLEMENTATION => handle_get_module_handle_w(contract, frame, session),
         GET_PROC_ADDRESS_IMPLEMENTATION => handle_get_proc_address(contract, frame, session),
         TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
@@ -236,6 +238,7 @@ pub fn kernel32_contract_for_endpoint(
         "HeapCreate" => heap_create_contract(endpoint)?,
         "HeapAlloc" => heap_alloc_contract(endpoint)?,
         "HeapFree" => heap_free_contract(endpoint)?,
+        "HeapSize" => heap_size_contract(endpoint)?,
         "GetModuleHandleW" => get_module_handle_w_contract(endpoint)?,
         "GetProcAddress" => get_proc_address_contract(endpoint)?,
         "TlsAlloc" => tls_alloc_contract(endpoint)?,
@@ -1733,6 +1736,42 @@ fn handle_heap_free(
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
 }
 
+fn handle_heap_size(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let heap = required_argument(contract, frame, 0, "heap handle")?;
+    let flags = required_argument(contract, frame, 1, "heap size flags")?;
+    let address = required_argument(contract, frame, 2, "heap allocation")?;
+    if !policy.allows_heap_size(flags) {
+        return Err(ApiFault::unsupported(
+            "win32-heap",
+            "heap-size-flags-unsupported",
+            format!(
+                "compatibility policy {} does not enable HeapSize flags {flags:#010x}",
+                policy.id
+            ),
+        ));
+    }
+    let allocation = match session
+        .runtime()
+        .private_heap_allocation(heap, GuestAddress(address))
+    {
+        Ok(allocation) => allocation,
+        Err(error) if error.code == "heap-allocation-pointer-invalid" => {
+            return Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
+                .with_last_error(ERROR_INVALID_PARAMETER));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(allocation.byte_length)).with_last_error(last_error))
+}
+
 fn handle_get_module_handle_w(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -2573,6 +2612,22 @@ pub fn heap_free_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, 
         ApiReturnSchema::Bool32,
         HEAP_FREE_IMPLEMENTATION,
     )
+}
+
+pub fn heap_size_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "HeapSize",
+        vec![
+            logical_handle("heap", LOGICAL_PRIVATE_HEAP_NAMESPACE, false),
+            u32_argument("flags"),
+            opaque_pointer("allocation", true, 1),
+        ],
+        ApiReturnSchema::U32,
+        HEAP_SIZE_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn get_module_handle_w_contract(

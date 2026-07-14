@@ -7,9 +7,9 @@ use vine_core::{
     DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
     FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
     GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress,
-    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest,
-    IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk, ImportThunkDisposition,
-    ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
+    GuestCallbackRequest, GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion,
+    HostRequest, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk,
+    ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
     Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32LcMapStringWPolicy,
     Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
@@ -2414,6 +2414,248 @@ fn heap_free_policy_retires_only_an_exact_live_allocation_transactionally() {
     assert_eq!(reused.address, reached.address);
     assert!(reused.id.0 > reached.id.0);
     assert_ne!(reused.id, reached.id);
+}
+
+#[test]
+fn heap_size_queries_process_owned_live_allocations_and_models_native_failures() {
+    const FRAME_BASE: u32 = STACK_BASE;
+
+    let (mut memory, owner) = initialized_memory_with_environment_capacity();
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x70);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize HeapSize IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "HeapSize".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented HeapSize endpoint");
+    assert_eq!(contract.implementation_id, HEAP_SIZE_IMPLEMENTATION);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(
+        contract.abi.arguments[2].value,
+        ApiValueSchema::OpaquePointer {
+            nullable: true,
+            alignment: 1,
+        }
+    );
+
+    let frames = [
+        (FRAME_BASE, vec![0x1000_0751, 0x6801_0002, 0, 0x2100_0000]),
+        (
+            FRAME_BASE + 0x20,
+            vec![0x1000_0752, 0x6801_0002, 1, 0x2100_0000],
+        ),
+        (
+            FRAME_BASE + 0x40,
+            vec![0x1000_0753, 0x6801_0002, 0, 0x2100_0001],
+        ),
+        (FRAME_BASE + 0x60, vec![0x1000_0754, 0x6801_0002, 0, 0]),
+        (
+            FRAME_BASE + 0x80,
+            vec![0x1000_0755, 0x6801_0002, 0, 0x2200_0000],
+        ),
+        (
+            FRAME_BASE + 0xa0,
+            vec![0x1000_0756, 0x6801_0002, 8, 0x2100_0000],
+        ),
+        (
+            FRAME_BASE + 0xc0,
+            vec![0x1000_0757, 0x6801_0004, 0, 0x2100_0000],
+        ),
+        (
+            FRAME_BASE + 0xe0,
+            vec![0x1000_0758, 0x6801_0002, 0, 0x2100_0000],
+        ),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime
+        .allocate_private_heap(0, 0x1000, 0)
+        .expect("reserved first logical heap slot");
+    let heap = runtime
+        .allocate_private_heap(0, 0x1000, 0)
+        .expect("queried logical heap")
+        .handle;
+    let foreign_heap = runtime
+        .allocate_private_heap(0, 0x1000, 0)
+        .expect("foreign logical heap")
+        .handle;
+    assert_eq!(heap, 0x6801_0002);
+    assert_eq!(foreign_heap, 0x6801_0003);
+    let allocation = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            heap,
+            129,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .expect("non-BGI-sized allocation");
+    let allocation_delta = memory.pending_delta().expect("allocation delta");
+    memory
+        .acknowledge_delta(allocation_delta.generation)
+        .expect("acknowledge allocation");
+    let foreign = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            foreign_heap,
+            17,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .expect("foreign allocation");
+    let foreign_delta = memory.pending_delta().expect("foreign allocation delta");
+    memory
+        .acknowledge_delta(foreign_delta.generation)
+        .expect("acknowledge foreign allocation");
+    assert_eq!(allocation.address, GuestAddress(0x2100_0000));
+    assert_eq!(allocation.byte_length, 129);
+    assert_eq!(allocation.reserved_byte_length, 136);
+    assert_eq!(foreign.address, GuestAddress(0x2200_0000));
+
+    let mut policy = compatibility_policy(
+        "heap-size-test",
+        vec![RUNTIME_STANDARD_INPUT_SELECTOR],
+        vec![(RUNTIME_STANDARD_INPUT_SELECTOR, 2)],
+        vec![(0x8, vec![0x214])],
+    );
+    policy.heap_size_flags = vec![0, 1];
+    policy.validate().expect("valid HeapSize policy");
+
+    let before_disabled = runtime.clone();
+    let memory_before_disabled = memory.stats();
+    let disabled = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[0].0, frames[0].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "heap-size-flags-unsupported"
+    ));
+    assert_eq!(runtime, before_disabled);
+    assert_eq!(memory.stats(), memory_before_disabled);
+
+    let memory_before_queries = memory.stats();
+    let success = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(success.eax, RegisterUpdate::Set(129));
+    assert_eq!(success.stack_pointer, GuestAddress(frames[0].0 + 16));
+    assert_eq!(success.last_error, INITIAL_LAST_ERROR);
+    assert!(success.guest_writes.is_empty());
+
+    runtime.set_current_last_error(87).unwrap();
+    let no_serialize = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+        &policy,
+    );
+    assert_eq!(no_serialize.eax, RegisterUpdate::Set(129));
+    assert_eq!(no_serialize.last_error, 87);
+
+    for (frame_index, sentinel) in [(2, 122), (3, 5), (4, 0x1234_5678)] {
+        runtime.set_current_last_error(sentinel).unwrap();
+        let mut expected = runtime.clone();
+        expected.set_current_last_error(87).unwrap();
+        let failure = dispatch_owned_with_policy(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoint,
+            frames[frame_index].0,
+            frames[frame_index].1[0],
+            &policy,
+        );
+        assert_eq!(failure.eax, RegisterUpdate::Set(u32::MAX));
+        assert_eq!(failure.last_error, 87);
+        assert!(failure.guest_writes.is_empty());
+        assert_eq!(runtime, expected);
+        assert_eq!(memory.stats(), memory_before_queries);
+    }
+
+    for frame_index in [5, 6] {
+        let expected_runtime = runtime.clone();
+        let expected_memory = memory.stats();
+        let outcome = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(&endpoint, frames[frame_index].0, frames[frame_index].1[0]),
+                &mut session,
+                |contract, frame, session| {
+                    dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+                },
+            )
+        };
+        assert!(matches!(outcome, DispatchOutcome::Fault(_)));
+        assert_eq!(runtime, expected_runtime);
+        assert_eq!(memory.stats(), expected_memory);
+    }
+
+    ExecutionSession::new(&mut memory, &mut runtime)
+        .free_private_heap_block(heap, allocation.address)
+        .expect("retire queried allocation");
+    let free_delta = memory.pending_delta().expect("free delta");
+    memory
+        .acknowledge_delta(free_delta.generation)
+        .expect("acknowledge free delta");
+    runtime.set_current_last_error(5).unwrap();
+    let mut expected = runtime.clone();
+    expected.set_current_last_error(87).unwrap();
+    let memory_after_free = memory.stats();
+    let freed = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[7].0,
+        frames[7].1[0],
+        &policy,
+    );
+    assert_eq!(freed.eax, RegisterUpdate::Set(u32::MAX));
+    assert_eq!(freed.last_error, 87);
+    assert_eq!(runtime, expected);
+    assert_eq!(memory.stats(), memory_after_free);
 }
 
 #[test]

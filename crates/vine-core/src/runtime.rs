@@ -2933,6 +2933,30 @@ impl RuntimeState {
         Ok(self.heap_backings.get(&handle))
     }
 
+    pub fn private_heap_allocation(
+        &self,
+        handle: u32,
+        address: GuestAddress,
+    ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
+        self.require_private_heap_operation_state()?;
+        let heap = self.heap(handle)?;
+        let backing = self.heap_backings.get(&handle).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-heap-backing",
+                "heap-allocation-pointer-invalid",
+                "private heap has no backing containing the requested pointer",
+            )
+        })?;
+        validate_runtime_heap_backing(heap, backing)?;
+        backing.allocations.get(&address.0).copied().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-heap-backing",
+                "heap-allocation-pointer-invalid",
+                "private heap pointer does not identify a live allocation",
+            )
+        })
+    }
+
     pub(crate) fn plan_private_heap_allocation(
         &self,
         handle: u32,

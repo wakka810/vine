@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-is-processor-feature-present-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-heap-size-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -20,7 +20,7 @@ Win32 semantics
                          |
                          v
 Compatibility policy
-  versioned selectors, file types, HeapAlloc/HeapFree variants, process-view/code-page enablement
+  versioned selectors, file types, HeapAlloc/HeapFree/HeapSize variants, process-view/code-page enablement
   explicit processor-feature presence
   bounded validation and mutation-free unsupported result
                          |
@@ -42,7 +42,7 @@ runtime execution. It contains only target-independent bounded data:
 - opt-in controlled UTF-16 environment authority and copy lifetime;
 - opt-in active ANSI code page, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, Windows-932 private-use byte mappings, bounded CTYPE1 information types, and bounded locale mapping variants;
 - opt-in current-process image-path lookup with a bounded ANSI output capacity;
-- enabled `HeapAlloc` flag and byte-length pairs and `HeapFree` flags;
+- enabled `HeapAlloc` flag and byte-length pairs, `HeapFree` flags, and `HeapSize` flags;
 - explicit processor-feature index and presence mappings.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Selectors,
@@ -50,7 +50,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form twenty-two monotonic controlled policies:
+The current files form twenty-three monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -76,6 +76,7 @@ The current files form twenty-two monotonic controlled policies:
 | `kernel32-private-heap-free-size-1-v1` | stdin, stdout, stderr | preceding options | preceding allocation pairs; `HeapFree` flags `0` |
 | `kernel32-private-heap-size-128-v1` | stdin, stdout, stderr | preceding options | zeroed `4`, `128`, `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544`; `HeapFree` flags `0` |
 | `kernel32-is-processor-feature-present-v1` | stdin, stdout, stderr | preceding options + processor feature `10` present | preceding allocation/free variants |
+| `kernel32-heap-size-v1` | stdin, stdout, stderr | preceding options + `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` | preceding allocation/free variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -225,6 +226,17 @@ exception machinery. Public semantics independently cover replacement, removal,
 unmapped-pointer rejection without mutation, stdcall cleanup, and process-exit
 retirement; no new compatibility-policy selector is introduced.
 
+The heap-size policy adds only flags 0 and `HEAP_NO_SERIALIZE`.
+`kernel32.heap-size.v1` reads the exact live allocation record from the Rust
+process-owned heap backing and returns its requested byte length rather than the
+aligned reservation or committed capacity. NULL, interior, foreign-heap, and
+freed pointers return `SIZE_T_MAX` with LastError 87; unknown logical heaps and
+unlisted flags stop before mutation. The native pointer, requested 128-byte
+sample, caller, call count, and consumer remain evidence rather than policy.
+The public fixture independently queries a 129-byte allocation reserved as 136
+bytes and covers both flags, all invalid pointer relations, LastError, ABI
+cleanup, and unchanged runtime／memory state.
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -253,6 +265,8 @@ general CPU discovery or browser-host feature reflection.
 The policy-independent top-level filter record does not implement SEH dispatch,
 filter invocation, exception records／contexts, vectored handlers, or host
 exception bridging.
+The heap-size policy does not enable host/process heap introspection, arbitrary
+flags, heap walking／validation, or `HeapReAlloc`.
 Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

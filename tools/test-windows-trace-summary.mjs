@@ -723,6 +723,13 @@ unhandledExceptionFilterSelection.find(
 ).selectedObservations = ["unhandled-exception-filter"];
 assert.doesNotThrow(() => summarizeTrace(encode(unhandledExceptionFilterSelection)));
 
+const heapSizeSelection = structuredClone(events);
+heapSizeSelection[0].arguments.observations = ["heap-size"];
+heapSizeSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["heap-size"];
+assert.doesNotThrow(() => summarizeTrace(encode(heapSizeSelection)));
+
 const legacyEvents = structuredClone(events);
 for (const event of legacyEvents) {
   event.schema = "vine.win32-trace.v1";

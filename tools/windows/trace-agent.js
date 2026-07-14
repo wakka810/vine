@@ -85,6 +85,11 @@ let unhandledExceptionFilterOracleResult = null;
 let unhandledExceptionFilterOracleLastError = null;
 let unhandledExceptionFilterConsumersRecorded = 0;
 const unhandledExceptionFilterCallbacks = [];
+let heapSizeOracleScheduled = false;
+let heapSizeOracleSentinel = null;
+let heapSizeOracleResult = null;
+let heapSizeOracleLastError = null;
+let heapSizeConsumersRecorded = 0;
 const observedMainModuleHeapAllocations = new Map();
 
 function snapshotNulTerminatedString(pointer, encoding) {
@@ -1575,6 +1580,13 @@ if (selectedObservations.has("heap-allocation")) {
     ["HeapFree", [null, null, null]],
   );
 }
+if (selectedObservations.has("heap-size")) {
+  hooks["kernel32.dll"].push(
+    ["HeapAlloc", [null, null, null]],
+    ["HeapFree", [null, null, null]],
+    ["HeapSize", [null, null, null]],
+  );
+}
 if (selectedObservations.has("module-handle")) {
   hooks["kernel32.dll"].push(
     ["GetModuleHandleA", ["ansi"]],
@@ -1812,6 +1824,11 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("heap-allocation") &&
         isFocusedHeapApi &&
         isMainModuleCaller;
+      const heapSizeAllocationTracking =
+        selectedObservations.has("heap-size") &&
+        !selectedObservations.has("heap-allocation") &&
+        isFocusedHeapApi &&
+        isMainModuleCaller;
       const focusedGetCpInfoObservation =
         selectedObservations.has("get-cp-info") &&
         name === "GetCPInfo" &&
@@ -1825,6 +1842,11 @@ function attachHook(module, name, decoders) {
       const focusedUnhandledExceptionFilterObservation =
         selectedObservations.has("unhandled-exception-filter") &&
         name === "SetUnhandledExceptionFilter" &&
+        caller.module !== null &&
+        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedHeapSizeObservation =
+        selectedObservations.has("heap-size") &&
+        name === "HeapSize" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
       const focusedMultiByteObservation =
@@ -1854,6 +1876,27 @@ function attachHook(module, name, decoders) {
         (isMainModuleCaller ||
           (caller.module.toLowerCase() === "frida-agent.dll" &&
             getModuleFileNameAOracleSentinel !== null));
+      if (heapSizeAllocationTracking) {
+        this.traceFrame = null;
+        this.trackHeapSizeAllocation =
+          name === "HeapAlloc"
+            ? {
+                requestedBytes: args[2].toUInt32(),
+              }
+            : null;
+        this.trackHeapSizeFree =
+          name === "HeapFree" ? args[2].toString().toLowerCase() : null;
+        return;
+      }
+      if (
+        selectedObservations.has("heap-size") &&
+        !selectedObservations.has("heap-allocation") &&
+        !selectedObservations.has("heap-lifecycle") &&
+        isFocusedHeapApi
+      ) {
+        this.traceFrame = null;
+        return;
+      }
       if (
         selectedObservations.has("heap-allocation") &&
         !selectedObservations.has("heap-lifecycle") &&
@@ -1883,6 +1926,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("unhandled-exception-filter") &&
         name === "SetUnhandledExceptionFilter" &&
         !focusedUnhandledExceptionFilterObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("heap-size") &&
+        name === "HeapSize" &&
+        !focusedHeapSizeObservation
       ) {
         this.traceFrame = null;
         return;
@@ -2049,6 +2100,15 @@ function attachHook(module, name, decoders) {
       if (this.traceUnhandledExceptionFilterOracle) {
         this.lastError = unhandledExceptionFilterOracleSentinel;
       }
+      this.traceHeapSizeOracle =
+        heapSizeOracleSentinel !== null &&
+        selectedObservations.has("heap-size") &&
+        name === "HeapSize" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceHeapSizeOracle) {
+        this.lastError = heapSizeOracleSentinel;
+      }
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
@@ -2093,6 +2153,41 @@ function attachHook(module, name, decoders) {
                       args[2],
                       relatedHeapAllocation.requestedBytes,
                     ),
+            };
+      const heapSizePointer = focusedHeapSizeObservation
+        ? args[2].toString().toLowerCase()
+        : null;
+      const relatedHeapSizeAllocation =
+        heapSizePointer === null
+          ? null
+          : (observedMainModuleHeapAllocations.get(heapSizePointer) ?? null);
+      const recordsHeapSizeConsumer =
+        focusedHeapSizeObservation && isMainModuleCaller && heapSizeConsumersRecorded < 2;
+      if (recordsHeapSizeConsumer) {
+        heapSizeConsumersRecorded += 1;
+      }
+      this.traceHeapSize =
+        heapSizePointer === null
+          ? null
+          : {
+              heap: args[0].toString().toLowerCase(),
+              flags: args[1].toUInt32(),
+              pointer: heapSizePointer,
+              relatedAllocationCallId: relatedHeapSizeAllocation?.callId ?? null,
+              requestedBytes: relatedHeapSizeAllocation?.requestedBytes ?? null,
+              immediateConsumer: recordsHeapSizeConsumer
+                ? {
+                    apiContinuation: snapshotInstructionsFollowingDirectJump(
+                      this.returnAddress,
+                      24,
+                    ),
+                    frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                      this.context,
+                      4,
+                      12,
+                    ),
+                  }
+                : null,
             };
       this.traceWideCharConversion =
         name === "WideCharToMultiByte" &&
@@ -2160,6 +2255,11 @@ function attachHook(module, name, decoders) {
           ? {
               lastErrorBefore: Number(this.lastError) >>> 0,
               heapFree: this.traceHeapFree,
+            }
+        : this.traceHeapSize !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              heapSize: this.traceHeapSize,
             }
         : name === "SetLastError" && selectedObservations.has("set-last-error")
           ? snapshotSetLastErrorCall(
@@ -2356,6 +2456,15 @@ function attachHook(module, name, decoders) {
       );
     },
     onLeave(result) {
+      if (this.trackHeapSizeAllocation != null && !result.isNull()) {
+        observedMainModuleHeapAllocations.set(result.toString().toLowerCase(), {
+          callId: null,
+          requestedBytes: this.trackHeapSizeAllocation.requestedBytes,
+        });
+      }
+      if (this.trackHeapSizeFree != null && result.toUInt32() !== 0) {
+        observedMainModuleHeapAllocations.delete(this.trackHeapSizeFree);
+      }
       if (this.traceFrame === null) {
         return;
       }
@@ -2412,6 +2521,10 @@ function attachHook(module, name, decoders) {
         unhandledExceptionFilterOracleResult = result.toString();
         unhandledExceptionFilterOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceHeapSizeOracle) {
+        heapSizeOracleResult = result.toUInt32();
+        heapSizeOracleLastError = Number(lastError) >>> 0;
+      }
       const wideCharResult =
         this.traceWideCharConversion === null ? null : signed32(result);
       const multiByteResult =
@@ -2440,6 +2553,19 @@ function attachHook(module, name, decoders) {
                 relatedAllocationCallId:
                   this.traceHeapFree.relatedAllocationCallId,
                 requestedBytes: this.traceHeapFree.requestedBytes,
+              },
+            }),
+        ...(this.traceHeapSize === null
+          ? {}
+          : {
+              heapSize: {
+                heap: this.traceHeapSize.heap,
+                flags: this.traceHeapSize.flags,
+                pointer: this.traceHeapSize.pointer,
+                relatedAllocationCallId:
+                  this.traceHeapSize.relatedAllocationCallId,
+                requestedBytes: this.traceHeapSize.requestedBytes,
+                result: result.toUInt32(),
               },
             }),
         ...(this.traceStartupInfoPointer === null
@@ -4090,6 +4216,174 @@ function scheduleUnhandledExceptionFilterOracle(module) {
   });
 }
 
+function scheduleHeapSizeOracle(module) {
+  if (heapSizeOracleScheduled) {
+    return;
+  }
+  heapSizeOracleScheduled = true;
+  setImmediate(() => {
+    let heap = NULL;
+    let allocation = NULL;
+    let allocationLive = false;
+    try {
+      const requireExport = (name) => {
+        const address = findExport(module, name);
+        if (address === null) {
+          throw new Error(`${name} export is unavailable`);
+        }
+        return address;
+      };
+      const heapCreate = new SystemFunction(
+        requireExport("HeapCreate"),
+        "pointer",
+        ["uint", "uint", "uint"],
+        "stdcall",
+      );
+      const heapAlloc = new SystemFunction(
+        requireExport("HeapAlloc"),
+        "pointer",
+        ["pointer", "uint", "uint"],
+        "stdcall",
+      );
+      const heapSize = new SystemFunction(
+        requireExport("HeapSize"),
+        "uint",
+        ["pointer", "uint", "pointer"],
+        "stdcall",
+      );
+      const heapFree = new SystemFunction(
+        requireExport("HeapFree"),
+        "bool",
+        ["pointer", "uint", "pointer"],
+        "stdcall",
+      );
+      const heapDestroy = new SystemFunction(
+        requireExport("HeapDestroy"),
+        "bool",
+        ["pointer"],
+        "stdcall",
+      );
+
+      heap = heapCreate(0, 0, 0).value;
+      if (heap.isNull()) {
+        throw new Error("HeapCreate returned NULL");
+      }
+      allocation = heapAlloc(heap, 0, 128).value;
+      if (allocation.isNull()) {
+        throw new Error("HeapAlloc returned NULL");
+      }
+      allocationLive = true;
+
+      const invoke = (step, flags, pointer, sentinel) => {
+        heapSizeOracleSentinel = sentinel;
+        heapSizeOracleResult = null;
+        heapSizeOracleLastError = null;
+        try {
+          const outcome = heapSize(heap, flags, pointer);
+          const result = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (heapSizeOracleResult === null || heapSizeOracleLastError === null) {
+            throw new Error("heap-size oracle did not pass through the hook");
+          }
+          return {
+            step,
+            heap: heap.toString().toLowerCase(),
+            flags,
+            pointer: pointer.toString().toLowerCase(),
+            sentinel,
+            result,
+            hookResult: heapSizeOracleResult,
+            hookLastErrorAfter: heapSizeOracleLastError,
+            systemLastError,
+            hookResultMatches: heapSizeOracleResult === result,
+            hookPreservesLastError: heapSizeOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          heapSizeOracleSentinel = null;
+          heapSizeOracleResult = null;
+          heapSizeOracleLastError = null;
+        }
+      };
+
+      const live = invoke("live-flags-zero", 0, allocation, 0);
+      const liveRepeat = invoke("live-repeat", 0, allocation, 87);
+      const noSerialize = invoke(
+        "live-no-serialize",
+        1,
+        allocation,
+        0x12345678,
+      );
+      const interior = invoke("interior-pointer", 0, allocation.add(1), 122);
+      const freeOutcome = heapFree(heap, 0, allocation);
+      if (!freeOutcome.value) {
+        throw new Error("HeapFree failed in heap-size oracle");
+      }
+      allocationLive = false;
+      const freed = invoke("freed-pointer", 0, allocation, 5);
+      const calls = [live, liveRepeat, noSerialize, interior, freed];
+      emit("heap-size-oracle", {
+        profile: "x86-private-heap-size-query-v1",
+        requestedBytes: 128,
+        allocation: allocation.toString().toLowerCase(),
+        failureSentinel: 0xffffffff,
+        calls,
+        liveResultStable:
+          live.result === liveRepeat.result && live.result === noSerialize.result,
+        invalidPointersReturnFailure:
+          interior.result === 0xffffffff && freed.result === 0xffffffff,
+        allHookResultsMatch: calls.every((call) => call.hookResultMatches),
+        successfulCallsPreserveLastError: [live, liveRepeat, noSerialize].every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+        invalidCallsSetErrorInvalidParameter: [interior, freed].every(
+          (call) =>
+            call.hookLastErrorAfter === 87 && call.systemLastError === 87,
+        ),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("heap-size-oracle-error", { error: error.message });
+    } finally {
+      heapSizeOracleSentinel = null;
+      heapSizeOracleResult = null;
+      heapSizeOracleLastError = null;
+      try {
+        if (allocationLive && !heap.isNull() && !allocation.isNull()) {
+          const address = findExport(module, "HeapFree");
+          if (address !== null) {
+            new NativeFunction(
+              address,
+              "bool",
+              ["pointer", "uint", "pointer"],
+              "stdcall",
+            )(heap, 0, allocation);
+          }
+        }
+        if (!heap.isNull()) {
+          const address = findExport(module, "HeapDestroy");
+          if (address !== null) {
+            new NativeFunction(
+              address,
+              "bool",
+              ["pointer"],
+              "stdcall",
+            )(heap);
+          }
+        }
+      } catch (cleanupError) {
+        emit("heap-size-oracle-cleanup-error", {
+          error: cleanupError.message,
+        });
+      }
+    }
+  });
+}
+
 function scheduleTlsLifecycleOracle(module) {
   if (tlsLifecycleOracleScheduled) {
     return;
@@ -4503,6 +4797,12 @@ Process.attachModuleObserver({
       selectedObservations.has("unhandled-exception-filter")
     ) {
       scheduleUnhandledExceptionFilterOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("heap-size")
+    ) {
+      scheduleHeapSizeOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

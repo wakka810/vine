@@ -36,6 +36,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!(
             "../../../fixtures/runtime-policies/kernel32-is-processor-feature-present-v1.json"
         ),
+        include_str!("../../../fixtures/runtime-policies/kernel32-heap-size-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -137,4 +138,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         serde_json::from_str(policies[21]).unwrap();
     assert_eq!(processor_feature.processor_feature_presence(10), Some(true));
     assert_eq!(processor_feature.processor_feature_presence(6), None);
+    assert!(!processor_feature.allows_heap_size(0));
+    let heap_size: Kernel32CompatibilityPolicy = serde_json::from_str(policies[22]).unwrap();
+    assert!(heap_size.allows_heap_size(0));
+    assert!(heap_size.allows_heap_size(1));
+    assert!(!heap_size.allows_heap_size(8));
 }

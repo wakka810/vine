@@ -120,6 +120,7 @@ enum GenericRuntimeCapability {
     PrivateHeapSize128,
     IsProcessorFeaturePresent,
     SetUnhandledExceptionFilter,
+    HeapSize,
 }
 
 struct GenericRuntimeProcess {
@@ -2475,6 +2476,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::PrivateHeapSize128
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
+                | GenericRuntimeCapability::HeapSize
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2487,6 +2489,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::PrivateHeapSize128
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
+                | GenericRuntimeCapability::HeapSize
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2517,7 +2520,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::PrivateHeapFreeSize1
             | GenericRuntimeCapability::PrivateHeapSize128
             | GenericRuntimeCapability::IsProcessorFeaturePresent
-            | GenericRuntimeCapability::SetUnhandledExceptionFilter,
+            | GenericRuntimeCapability::SetUnhandledExceptionFilter
+            | GenericRuntimeCapability::HeapSize,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3025,6 +3029,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::PrivateHeapSize128
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
+                | GenericRuntimeCapability::HeapSize
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3039,12 +3044,15 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::PrivateHeapSize128
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
+                | GenericRuntimeCapability::HeapSize
         )
     );
-    let set_unhandled_exception_filter_enabled = matches!(
-        enabled,
-        Some(GenericRuntimeCapability::SetUnhandledExceptionFilter)
-    );
+    let heap_size_enabled = matches!(enabled, Some(GenericRuntimeCapability::HeapSize));
+    let set_unhandled_exception_filter_enabled = heap_size_enabled
+        || matches!(
+            enabled,
+            Some(GenericRuntimeCapability::SetUnhandledExceptionFilter)
+        );
     let processor_feature_enabled = set_unhandled_exception_filter_enabled
         || matches!(
             enabled,
@@ -3133,7 +3141,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::PrivateHeapFreeSize1
             | GenericRuntimeCapability::PrivateHeapSize128
             | GenericRuntimeCapability::IsProcessorFeaturePresent
-            | GenericRuntimeCapability::SetUnhandledExceptionFilter,
+            | GenericRuntimeCapability::SetUnhandledExceptionFilter
+            | GenericRuntimeCapability::HeapSize,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3282,6 +3291,7 @@ fn runtime_capability_enables_endpoint(
         "GetModuleFileNameA" => get_module_file_name_a_enabled,
         "IsProcessorFeaturePresent" => processor_feature_enabled,
         "SetUnhandledExceptionFilter" => set_unhandled_exception_filter_enabled,
+        "HeapSize" => heap_size_enabled,
         _ => true,
     }
 }
@@ -3328,7 +3338,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::PrivateHeapFreeSize1
             | GenericRuntimeCapability::PrivateHeapSize128
             | GenericRuntimeCapability::IsProcessorFeaturePresent
-            | GenericRuntimeCapability::SetUnhandledExceptionFilter,
+            | GenericRuntimeCapability::SetUnhandledExceptionFilter
+            | GenericRuntimeCapability::HeapSize,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8728,6 +8739,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-set-unhandled-exception-filter" => {
                     GenericRuntimeCapability::SetUnhandledExceptionFilter
                 }
+                "kernel32-heap-size" => GenericRuntimeCapability::HeapSize,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

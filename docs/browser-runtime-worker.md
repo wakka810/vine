@@ -200,27 +200,27 @@ or after one preflighted batch, never between its mapping and dirty-page commits
 
 ## Private BGI result
 
-`npm run check:runtime:bgi-browser` now executes the current 206-call generic BGI
+`npm run check:runtime:bgi-browser` now executes the current 210-call generic BGI
 session in this same Runtime Worker. Rust/Wasm owns PE load, process/module/heap
 state, Kernel32 dispatch, and guest bytes; Node supplies only an independently
 generated semantic oracle. Chrome reaches the same unsupported
-`HeapSize(0x68010001,0,0x20000C58)` stop after 19,096
+`InitializeCriticalSection(0x100FD9CC)` stop after 19,185
 instructions, with equal ordered API results and final memory content SHA-256.
-The bounded Worker loop uses 2,452 slices, 2,245 periodic yields, and 7,357
+The bounded Worker loop uses 2,465 slices, 2,254 periodic yields, and 7,396
 checked transitions while the main-thread heartbeat remains active.
 
-The Chrome memory generation ends at 1,628 rather than the Node oracle's 294
+The Chrome memory generation ends at 1,640 rather than the Node oracle's 299
 because Chrome reconciles dirty pages at every 8-instruction budget boundary.
 This difference is synchronization identity, not guest-visible state. Separate
 cancel and watchdog probes stop after 8 and 4 instructions and confirm Rust
 process exit, module detach, and zero pending host/callback work. Detailed
 evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
 
-The separate 180-second BGI workload gate repeats this complete session 411
-times in the same Worker. It records p95 session latency 526.395 ms, p99
-maximum slice 2.125 ms, heartbeat p99 16.140 ms, main heap slope
--63,540 bytes/min, Worker heap slope 1,476,679 bytes/min, backing-storage slope
-2,936,928 bytes/min, stable Rust/engine linear-memory sizes, and 2,084 bridge
+The separate 180-second BGI workload gate repeats this complete session 438
+times in the same Worker. It records p95 session latency 536.710 ms, p99
+maximum slice 2.730 ms, heartbeat p99 9.935 ms, main heap slope
+-31,200 bytes/min, Worker heap slope 1,019,353 bytes/min, backing-storage slope
+512,752 bytes/min, stable Rust/engine linear-memory sizes, and 2,100 bridge
 operations per session. All 17 versioned thresholds pass; details are in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md).
 

@@ -12,6 +12,7 @@ pub const KERNEL32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.kernel32-compatibil
 pub const KERNEL32_COMPATIBILITY_POLICY_VERSION: u32 = 1;
 
 const HEAP_ZERO_MEMORY: u32 = 0x0000_0008;
+const HEAP_NO_SERIALIZE: u32 = 0x0000_0001;
 const MAX_POLICY_ID_BYTES: usize = 128;
 const MAX_POLICY_ENTRIES: usize = 32;
 
@@ -46,6 +47,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
     #[serde(default)]
     pub heap_free_flags: Vec<u32>,
+    #[serde(default)]
+    pub heap_size_flags: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +156,7 @@ impl Kernel32CompatibilityPolicy {
                 byte_lengths: vec![0x214],
             }],
             heap_free_flags: Vec::new(),
+            heap_size_flags: Vec::new(),
         }
     }
 
@@ -183,6 +187,7 @@ impl Kernel32CompatibilityPolicy {
             || self.heap_allocations.is_empty()
             || self.heap_allocations.len() > MAX_POLICY_ENTRIES
             || self.heap_free_flags.len() > MAX_POLICY_ENTRIES
+            || self.heap_size_flags.len() > MAX_POLICY_ENTRIES
         {
             return Err(policy_error(
                 "kernel32-policy-entry-count-invalid",
@@ -346,6 +351,19 @@ impl Kernel32CompatibilityPolicy {
                 "HeapFree variants must be unique implemented flag values",
             ));
         }
+        let heap_size_flags = self
+            .heap_size_flags
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        if heap_size_flags.len() != self.heap_size_flags.len()
+            || !heap_size_flags.is_subset(&BTreeSet::from([0, HEAP_NO_SERIALIZE]))
+        {
+            return Err(policy_error(
+                "kernel32-policy-heap-size-flags-invalid",
+                "HeapSize flags must be unique implemented zero or HEAP_NO_SERIALIZE values",
+            ));
+        }
         Ok(())
     }
 
@@ -417,6 +435,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn allows_heap_free(&self, flags: u32) -> bool {
         self.heap_free_flags.contains(&flags)
+    }
+
+    pub fn allows_heap_size(&self, flags: u32) -> bool {
+        self.heap_size_flags.contains(&flags)
     }
 }
 
@@ -681,6 +703,17 @@ mod tests {
         assert_eq!(
             duplicate.validate().unwrap_err().code,
             "kernel32-policy-heap-free-flags-invalid"
+        );
+        duplicate.heap_free_flags.clear();
+        duplicate.heap_size_flags = vec![0, 0];
+        assert_eq!(
+            duplicate.validate().unwrap_err().code,
+            "kernel32-policy-heap-size-flags-invalid"
+        );
+        duplicate.heap_size_flags = vec![8];
+        assert_eq!(
+            duplicate.validate().unwrap_err().code,
+            "kernel32-policy-heap-size-flags-invalid"
         );
     }
 }

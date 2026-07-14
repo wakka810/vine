@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap allocation/free, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, and SetUnhandledExceptionFilter capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-set-unhandled-exception-filter`
-- Scope: frozen 17-call equivalence plus 206 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-heap-size`
+- Scope: frozen 17-call equivalence plus 210 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -48,15 +48,16 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `GetProcAddress` | 4 | bounded ASCII dynamic-endpoint lookup |
 | `TlsAlloc` | 1 | allocates a process TLS index |
 | `TlsSetValue` | 1 | stores a current-thread endpoint value |
-| `EncodePointer` | 6 | allocates stable process pointer tokens |
-| `DecodePointer` | 2 | resolves only registered process tokens to their original source |
+| `EncodePointer` | 19 | allocates stable process pointer tokens |
+| `DecodePointer` | 4 | resolves only registered process tokens to their original source |
 | `InitializeCriticalSectionAndSpinCount` | 17 | creates process-owned synchronization state and exact x86 bytes |
-| `EnterCriticalSection` | 3 | acquires or recursively enters for the current thread |
-| `LeaveCriticalSection` | 3 | decrements recursion and releases at zero |
+| `EnterCriticalSection` | 5 | acquires or recursively enters for the current thread |
+| `LeaveCriticalSection` | 5 | decrements recursion and releases at zero |
 | `FlsAlloc` | 1 | allocates a bounded process-owned logical FLS slot and retains its callback |
 | `FlsSetValue` | 1 | stores an opaque value in the selected thread's allocated FLS slot |
-| `HeapAlloc` | 6 | allocates three zeroed and three flags-zero deterministic-uninitialized reached blocks through transactional guest-memory backing |
-| `InterlockedIncrement` | 3 | performs a checked wrapping LONG update in guest memory |
+| `HeapAlloc` | 8 | allocates five zeroed and three flags-zero deterministic-uninitialized reached blocks through transactional guest-memory backing |
+| `HeapFree` | 1 | retires one exact live allocation through transactional guest-memory backing |
+| `InterlockedIncrement` | 5 | performs a checked wrapping LONG update in guest memory |
 | `GetStdHandle` | 3 | returns versioned process-owned logical input／output／error identities |
 | `GetFileType` | 3 | classifies registered logical stdin as character and stdout／stderr as pipes |
 | `SetHandleCount` | 1 | returns the reached compatibility-policy count without resizing host state |
@@ -64,10 +65,10 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `GetEnvironmentStringsW` | 1 | acquires one process-owned copy lease for the controlled UTF-16 environment block |
 | `FreeEnvironmentStringsW` | 1 | retires only the exact active copy lease and returns BOOL success |
 | `WideCharToMultiByte` | 4 | performs host-locale-independent Windows-932 query/conversion shapes |
-| `GetLastError` | 7 | reads selected-thread LastError without mutation |
-| `TlsGetValue` | 7 | reads the selected thread's allocated TLS value and applies Win32 LastError semantics |
-| `FlsGetValue` | 7 | reads initialized selected-thread FLS storage and applies Win32 LastError semantics |
-| `SetLastError` | 7 | writes the full selected-thread LastError value without guest-memory mutation |
+| `GetLastError` | 23 | reads selected-thread LastError without mutation |
+| `TlsGetValue` | 23 | reads the selected thread's allocated TLS value and applies Win32 LastError semantics |
+| `FlsGetValue` | 23 | reads initialized selected-thread FLS storage and applies Win32 LastError semantics |
+| `SetLastError` | 23 | writes the full selected-thread LastError value without guest-memory mutation |
 | `GetACP` | 1 | returns the policy-owned active ANSI code page without mutation |
 | `GetCPInfo` | 1 | writes the policy-owned 18-byte active code-page fields |
 | `MultiByteToWideChar` | 6 | queries and writes checked Windows-932 UTF-16 output without host-locale input |
@@ -75,18 +76,16 @@ An owned endpoint without a contract returns `endpoint-contract-missing` with ex
 | `LCMapStringW` | 4 | queries and writes checked ja-JP lowercase／uppercase output without host-locale input |
 | `InterlockedDecrement` | 2 | performs a checked aligned wrapping LONG decrement in guest memory |
 | `GetModuleFileNameA` | 1 | copies the bootstrap-owned main-module ANSI path to checked output |
+| `IsProcessorFeaturePresent` | 2 | returns explicit policy-owned processor-feature presence without host discovery |
+| `SetUnhandledExceptionFilter` | 1 | replaces the process-owned nullable top-level exception-filter pointer |
+| `HeapSize` | 1 | returns exact requested size from Rust-owned live-allocation metadata |
 
-All 39 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
+All 43 distinct APIs use `ApiDispatcher` and `dispatch_kernel32_api`. The frozen
 17 occurrences remain the compatibility anchor; the capability profile completes
-119 BGI calls, including six `EncodePointer` occurrences, 17 critical-section
-initializations, two `DecodePointer` calls, dynamic `FlsAlloc`／`FlsSetValue`,
-four `HeapAlloc`, three `InterlockedIncrement` calls, and later existing
-critical-section／thread／startup occurrences plus three `GetStdHandle`, three
-`GetFileType`, `SetHandleCount`, `GetCommandLineA`, and
-`GetEnvironmentStringsW`, four `WideCharToMultiByte`, seven each of
-`GetLastError`, `TlsGetValue`, `FlsGetValue`, and `SetLastError`, one `GetACP`,
-one `GetCPInfo`, six `MultiByteToWideChar`, one `GetStringTypeW`, four
-`LCMapStringW`, and two `InterlockedDecrement` calls.
+210 BGI calls. Current occurrence counts are listed above rather than encoded as
+handler branches; caller RVA, argument sequence, and next stop remain evidence
+data. The final four calls add exact `HeapSize`, two existing `EncodePointer`
+occurrences, and one existing `LeaveCriticalSection` continuation.
 Leave semantics remain fixed by native evidence and the controlled public test.
 The source-v86 Node oracle harness still performs callsite provenance checks and
 adapter-specific dirty-page synchronization around the common semantic path.
@@ -821,6 +820,25 @@ generation `294`, and stops at instruction 19,096 on missing
 Full evidence is in
 [bgi-set-unhandled-exception-filter.md](bgi-set-unhandled-exception-filter.md).
 
+The current private-heap size profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-heap-size
+```
+
+`kernel32.heap-size.v1` accepts policy-enabled flags `0` and
+`HEAP_NO_SERIALIZE`, identifies an exact live allocation owned by the selected
+logical private heap, and returns its requested byte length rather than reserved
+or committed capacity. Invalid, interior, foreign-heap, and freed pointers return
+`0xFFFFFFFF` with LastError 87; unknown heap and unsupported flags fault before
+mutation. Call 207 returns 128 and preserves LastError. Two existing
+`EncodePointer` calls and one `LeaveCriticalSection` continue through call 210.
+The profile uses 211 writebacks／324 dirty pages／4,757 changed bytes and 58 host
+deltas, ends at generation `299`, and stops at instruction 19,185 on missing
+`InitializeCriticalSection(0x100FD9CC)`. The 929,421-byte report has SHA-256
+`058ca051ad9b4118ce8854333eafd35aab117dc70da860b28188a2e1afff8fac`.
+Full evidence is in [bgi-heap-size.md](bgi-heap-size.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -828,7 +846,8 @@ Full evidence is in
 - Private heaps have bounded guest-memory backing, the first four reached zeroed
   allocations, and flags-zero deterministic-uninitialized size-1, size-16, and size-544
   allocations enabled by policy; exact flags-zero free is enabled for reached
-  live allocations. Other sizes/flags, destroy/realloc dispatch, Windows
+  live allocations. Exact live-allocation `HeapSize` is enabled for flags 0 and
+  `HEAP_NO_SERIALIZE`. Other sizes/flags, destroy/realloc dispatch, Windows
   corruption termination, and broad allocator policy remain absent.
 - FLS free／callback teardown／fiber switching and TLS free／teardown／guest-thread
   lifecycle, critical-section deletion／contention blocking, and arbitrary export
@@ -862,16 +881,16 @@ Full evidence is in
   also absent. Processor feature presence is explicit policy data and does not
   import host CPU discovery. One process-owned top-level exception-filter
   pointer is stored, replaced, and retired without bridging to host exception
-  machinery; SEH dispatch and filter invocation remain absent. Its first
-  unsupported operation is `HeapSize(0x68010001,0,0x20000C58)`; bespoke
+  machinery; SEH dispatch and filter invocation remain absent. The first
+  unsupported operation is `InitializeCriticalSection(0x100FD9CC)`; bespoke
   checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-heap-size` at
-`HeapSize(0x68010001,0,0x20000C58)`. It must fix live-allocation identity,
-return／failure sentinel, flags, LastError, and the consumer without broadening
-the reached pointer into unrestricted heap introspection.
+The next proof is `kernel32-initialize-critical-section` at
+`InitializeCriticalSection(0x100FD9CC)`. It must fix native initial bytes,
+zero-spin equivalence, LastError／exception behavior, lifetime, and the caller
+consumer while reusing the process-owned critical-section subsystem.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -892,8 +911,8 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     MultiByteToWideChar report is 423,814 bytes, the GetStringTypeW report is
     468,010 bytes, the LCMapStringW report is 550,988 bytes, the
     InterlockedDecrement report is 580,772 bytes, the GetModuleFileNameA report
-    is 704,797 bytes, the size-16 heap report is 828,414 bytes, and the current
-    size-4 heap report is 833,007 bytes, the one-byte-free report is 875,554
-    bytes, the size-128 heap report is 883,995 bytes, the processor-feature
-    report is 896,534 bytes, and the current process-filter report is 912,806
-    bytes.
+    is 704,797 bytes, the size-16 heap report is 828,414 bytes, the size-4 heap
+    report is 833,007 bytes, the one-byte-free report is 875,554 bytes, the
+    size-128 heap report is 883,995 bytes, the processor-feature report is
+    896,534 bytes, the process-filter report is 912,806 bytes, and the current
+    heap-size report is 929,421 bytes.
