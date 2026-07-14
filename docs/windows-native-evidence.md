@@ -2300,6 +2300,6 @@ ID `40`／`GetCurrentThread()`を`endpoint-contract-missing`として停止す�
 
 Chrome Runtime Workerも284 ordered calls、same mutex metadata／stop／memoryを再現し、
 3,246 slices、2,957 yields、2,850 Wasm crossings、final generation `2,207`、
-cancel／watchdog後pending work 0を通す。3分gateは624 sessions／failure 0、session P95
-324.640 ms、slice P99 1.265 ms、heartbeat P99 6.075 ms／maximum 32.700 msを含む全17
+cancel／watchdog後pending work 0を通す。3分gateは627 sessions／failure 0、session P95
+320.230 ms、slice P99 1.050 ms、heartbeat P99 6.085 ms／maximum 25.910 msを含む全17
 thresholdを通した。詳細は[bgi-create-mutex-a.md](bgi-create-mutex-a.md)を正とする。
