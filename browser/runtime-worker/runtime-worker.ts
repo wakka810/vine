@@ -226,6 +226,7 @@ class BrowserRuntimeSession {
   readonly #execution = new ExecutionStateMachine();
   readonly #pendingHostRequests = new PendingHostRequestTable();
   #watchdogContext: SessionReport["watchdogContext"] = null;
+  #watchdogArmedAt: number | null = null;
   #watchdogTimer: number | null = null;
   readonly #report = {
     instructions: 0,
@@ -333,7 +334,9 @@ class BrowserRuntimeSession {
         directory: initialCurrentDirectory,
         generation: preparedOutput.metadata.runtime.currentDirectoryGeneration,
       };
-      this.#armWatchdog();
+      if (this.#configuration.mode !== "watchdog") {
+        this.#armWatchdog();
+      }
       invariant(
         (preparedOutput.metadata.workload ?? "controlled-fixture") === workload,
         "prepared workload mismatch",
@@ -1127,6 +1130,9 @@ class BrowserRuntimeSession {
         threadId: metadata.threadId,
         requestId: metadata.requestId,
       });
+      if (this.#configuration.mode === "watchdog" && this.#watchdogArmedAt === null) {
+        this.#armWatchdog();
+      }
       post(request);
     });
   }
@@ -1139,12 +1145,14 @@ class BrowserRuntimeSession {
   }
 
   #checkWatchdog(): void {
-    const elapsed = performance.now() - this.#startedAt;
     if (this.#report.instructions > this.#configuration.watchdogInstructionLimit) {
       this.#triggerWatchdog("instruction limit");
       throw new SessionStopped("watchdog terminated the guest");
     }
-    if (elapsed > this.#configuration.watchdogWallMilliseconds) {
+    if (
+      this.#watchdogArmedAt !== null &&
+      performance.now() - this.#watchdogArmedAt > this.#configuration.watchdogWallMilliseconds
+    ) {
       this.#triggerWatchdog("wall-clock limit");
       throw new SessionStopped("watchdog terminated the guest");
     }
@@ -1152,12 +1160,12 @@ class BrowserRuntimeSession {
 
   #armWatchdog(): void {
     invariant(this.#watchdogTimer === null, "watchdog timer is already armed");
-    const elapsed = performance.now() - this.#startedAt;
-    const remaining = Math.max(0, this.#configuration.watchdogWallMilliseconds - elapsed);
+    invariant(this.#watchdogArmedAt === null, "watchdog clock is already armed");
+    this.#watchdogArmedAt = performance.now();
     this.#watchdogTimer = worker.setTimeout(() => {
       this.#watchdogTimer = null;
       this.#triggerWatchdog("wall-clock limit");
-    }, remaining);
+    }, this.#configuration.watchdogWallMilliseconds);
   }
 
   #triggerWatchdog(reason: "instruction limit" | "wall-clock limit"): void {
