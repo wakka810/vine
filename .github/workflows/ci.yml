@@ -14,6 +14,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Commit-bound private evidence may reference an implementation
+          # commit older than the evidence-only HEAD commit.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
