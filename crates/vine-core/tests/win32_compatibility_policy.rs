@@ -37,6 +37,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
             "../../../fixtures/runtime-policies/kernel32-is-processor-feature-present-v1.json"
         ),
         include_str!("../../../fixtures/runtime-policies/kernel32-heap-size-v1.json"),
+        include_str!(
+            "../../../fixtures/runtime-policies/kernel32-initialize-critical-section-v1.json"
+        ),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -143,4 +146,14 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert!(heap_size.allows_heap_size(0));
     assert!(heap_size.allows_heap_size(1));
     assert!(!heap_size.allows_heap_size(8));
+    assert_eq!(
+        heap_size.initialize_critical_section_spin_count_field(),
+        None
+    );
+    let initialize_critical_section: Kernel32CompatibilityPolicy =
+        serde_json::from_str(policies[23]).unwrap();
+    assert_eq!(
+        initialize_critical_section.initialize_critical_section_spin_count_field(),
+        Some(0x0200_07d0)
+    );
 }

@@ -493,13 +493,10 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     errors,
   );
   for (const field of [
-    "api",
+    "kind",
+    "nextCheckpoint",
+    "instructionCount",
     "capabilityCluster",
-    "endpointKind",
-    "endpointId",
-    "endpointAddress",
-    "iatAddress",
-    "returnAddress",
     "reason",
   ]) {
     checkEqual(
@@ -508,6 +505,47 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       `evidence.semantic.nextStructuredStop.${field}`,
       errors,
     );
+  }
+  if (checkpoint.nextStructuredStop.kind === "api-endpoint") {
+    for (const field of [
+      "api",
+      "endpointKind",
+      "endpointId",
+      "endpointAddress",
+      "iatAddress",
+      "returnAddress",
+    ]) {
+      checkEqual(
+        next[field],
+        checkpoint.nextStructuredStop[field],
+        `evidence.semantic.nextStructuredStop.${field}`,
+        errors,
+      );
+    }
+  } else {
+    checkEqual(next.endpoint, null, "evidence.semantic.nextStructuredStop.endpoint", errors);
+    const nextFault = requireRecord(
+      next.fault,
+      "evidence.semantic.nextStructuredStop.fault",
+      errors,
+    );
+    const expectedFault = checkpoint.nextStructuredStop.fault;
+    for (const field of [
+      "class",
+      "stage",
+      "code",
+      "instructionPointer",
+      "previousInstructionPointer",
+      "faultAddress",
+      "pageFaultErrorCode",
+    ]) {
+      checkEqual(
+        nextFault[field],
+        expectedFault[field],
+        `evidence.semantic.nextStructuredStop.fault.${field}`,
+        errors,
+      );
+    }
   }
 
   const cleanup = requireRecord(semantic.cleanup, "evidence.semantic.cleanup", errors);

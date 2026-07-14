@@ -24,7 +24,8 @@ pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
     Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
 };
 
@@ -74,6 +75,8 @@ pub const INTERLOCKED_INCREMENT_IMPLEMENTATION: &str = "kernel32.interlocked-inc
 pub const INTERLOCKED_DECREMENT_IMPLEMENTATION: &str = "kernel32.interlocked-decrement.v1";
 pub const INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION: &str =
     "kernel32.initialize-critical-section-and-spin-count.v1";
+pub const INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION: &str =
+    "kernel32.initialize-critical-section.v1";
 pub const ENTER_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.enter-critical-section.v1";
 pub const LEAVE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.leave-critical-section.v1";
 
@@ -183,6 +186,9 @@ pub fn dispatch_kernel32_api_with_policy(
         INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION => {
             handle_initialize_critical_section_and_spin_count(contract, frame, session)
         }
+        INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION => {
+            handle_initialize_critical_section(policy, contract, frame, session)
+        }
         ENTER_CRITICAL_SECTION_IMPLEMENTATION => {
             handle_enter_critical_section(contract, frame, session)
         }
@@ -254,6 +260,7 @@ pub fn kernel32_contract_for_endpoint(
         "InitializeCriticalSectionAndSpinCount" => {
             initialize_critical_section_and_spin_count_contract(endpoint)?
         }
+        "InitializeCriticalSection" => initialize_critical_section_contract(endpoint)?,
         "EnterCriticalSection" => enter_critical_section_contract(endpoint)?,
         "LeaveCriticalSection" => leave_critical_section_contract(endpoint)?,
         _ => return Ok(None),
@@ -2021,6 +2028,38 @@ fn handle_initialize_critical_section_and_spin_count(
         .with_guest_write(address, x86_critical_section_bytes(section)))
 }
 
+fn handle_initialize_critical_section(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(
+        contract,
+        frame,
+        0,
+        "critical section storage",
+    )?);
+    let spin_count_field = policy
+        .initialize_critical_section_spin_count_field()
+        .ok_or_else(|| {
+            ApiFault::unsupported(
+                "win32-critical-section",
+                "initialize-critical-section-policy-unsupported",
+                format!(
+                    "compatibility policy {} does not enable InitializeCriticalSection",
+                    policy.id
+                ),
+            )
+        })?;
+    let section = session
+        .runtime_mut()
+        .initialize_critical_section_with_spin_state(address, spin_count_field)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Void)
+        .with_guest_write(address, x86_critical_section_bytes(section)))
+}
+
 fn handle_enter_critical_section(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -2798,6 +2837,22 @@ pub fn initialize_critical_section_and_spin_count_contract(
         ],
         ApiReturnSchema::Bool32,
         INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION,
+    )
+}
+
+pub fn initialize_critical_section_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "InitializeCriticalSection",
+        vec![out_struct(
+            "criticalSection",
+            "RTL_CRITICAL_SECTION",
+            X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
+        )],
+        ApiReturnSchema::Void,
+        INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION,
     )
 }
 

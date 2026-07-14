@@ -606,11 +606,65 @@ export function validateCurrentCheckpoint(manifest) {
   const next = requireRecord(root.nextStructuredStop, "nextStructuredStop", errors);
   requireString(next.nextCheckpoint, "nextStructuredStop.nextCheckpoint", errors);
   requireInteger(next.instructionCount, "nextStructuredStop.instructionCount", errors);
-  requireString(next.api, "nextStructuredStop.api", errors);
+  requireString(next.capabilityCluster, "nextStructuredStop.capabilityCluster", errors);
   requireString(next.reason, "nextStructuredStop.reason", errors);
-  requireOrderedStringArray(next.arguments, "nextStructuredStop.arguments", errors);
-  if (typeof next.endpointAddress !== "string" || !HEX32.test(next.endpointAddress)) {
-    errors.push("nextStructuredStop.endpointAddress must be a 32-bit hex string");
+  if (next.kind === "api-endpoint") {
+    requireString(next.api, "nextStructuredStop.api", errors);
+    requireOrderedStringArray(next.arguments, "nextStructuredStop.arguments", errors);
+    if (typeof next.endpointAddress !== "string" || !HEX32.test(next.endpointAddress)) {
+      errors.push("nextStructuredStop.endpointAddress must be a 32-bit hex string");
+    }
+  } else if (next.kind === "execution-fault") {
+    if (next.endpoint !== null) {
+      errors.push("nextStructuredStop.endpoint must be null for an execution fault");
+    }
+    const fault = requireRecord(next.fault, "nextStructuredStop.fault", errors);
+    for (const field of ["class", "stage", "code"]) {
+      requireString(fault[field], `nextStructuredStop.fault.${field}`, errors);
+    }
+    for (const field of [
+      "instructionPointer",
+      "previousInstructionPointer",
+      "faultAddress",
+    ]) {
+      if (typeof fault[field] !== "string" || !HEX32.test(fault[field])) {
+        errors.push(`nextStructuredStop.fault.${field} must be a 32-bit hex string`);
+      }
+    }
+    requireInteger(
+      fault.pageFaultErrorCode,
+      "nextStructuredStop.fault.pageFaultErrorCode",
+      errors,
+    );
+    if (
+      fault.class !== "fault" ||
+      fault.stage !== "guest-execution" ||
+      fault.code !== next.reason
+    ) {
+      errors.push("nextStructuredStop execution fault identity is inconsistent");
+    }
+  } else {
+    errors.push("nextStructuredStop.kind must be api-endpoint or execution-fault");
+  }
+
+  if (
+    bgiBrowserEvidence.nextCapabilityCluster !== next.capabilityCluster ||
+    bgiBrowserEvidence.nextFaultCode !== next.reason
+  ) {
+    errors.push("browser BGI structured-stop summary must match nextStructuredStop");
+  }
+  if (next.kind === "execution-fault") {
+    const expectedFault = next.fault ?? {};
+    if (
+      bgiBrowserEvidence.nextEndpoint !== null ||
+      bgiBrowserEvidence.nextInstructionPointer !== expectedFault.instructionPointer ||
+      bgiBrowserEvidence.nextPreviousInstructionPointer !==
+        expectedFault.previousInstructionPointer ||
+      bgiBrowserEvidence.nextFaultAddress !== expectedFault.faultAddress ||
+      bgiBrowserEvidence.nextPageFaultErrorCode !== expectedFault.pageFaultErrorCode
+    ) {
+      errors.push("browser BGI execution-fault summary must match nextStructuredStop");
+    }
   }
 
   return errors;
@@ -633,6 +687,12 @@ export function renderReadmeStatus(manifest) {
   const engine = manifest.engineDecisionEvidence.v86EngineGate;
   const next = manifest.nextStructuredStop;
   const APIs = active.genericDispatcherApis.map((api) => `- \`${api}\``).join("\n");
+  const nextSummary =
+    next.kind === "execution-fault"
+      ? `\`${next.capabilityCluster}\` at instruction ${next.instructionCount}: ` +
+        `\`${next.reason}\` at \`${next.fault.faultAddress}\``
+      : `\`${next.api}(${next.arguments.join(", ")})\` at instruction ` +
+        `${next.instructionCount}: \`${next.reason}\``;
 
   return `${README_STATUS_START}
 ## Current Status
@@ -646,7 +706,7 @@ Edit the manifest and run \`npm run docs:generate\`; do not edit this block by h
 | Active runtime | \`${active.runtimeKernelCheckpoint}\`: ${active.genericDispatcherCallOccurrenceCount} calls across ${active.genericDispatcherApiCount} API contracts, memory generation ${latest.finalMemoryGeneration} |
 | Browser | \`${browser.workload}\` ${browser.status}; BGI session \`${browser.bgiSession}\`; benchmark \`${browser.bgiBenchmark}\` (${browser.bgiBenchmarkEvidence.completedSessions} sessions) |
 | Engine evidence | v86 \`${engine.decision}\` from \`${engine.configuration}\` |
-| Next structured stop | \`${next.api}(${next.arguments.join(", ")})\` at instruction ${next.instructionCount}: \`${next.reason}\` |
+| Next structured stop | ${nextSummary} |
 
 The active semantic report is ${latest.reportBytes.toLocaleString("en-US")} bytes with SHA-256
 \`${latest.reportSha256}\`. The hash identifies the artifact; semantic checks are the gate.

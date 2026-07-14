@@ -89,6 +89,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-is-processor-feature-present",
         "kernel32-set-unhandled-exception-filter",
         "kernel32-heap-size",
+        "kernel32-initialize-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -115,7 +116,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-heap-size"
+    genericRuntimeCapability === "kernel32-initialize-critical-section"
+      ? "kernel32-initialize-critical-section-v1.json"
+      : genericRuntimeCapability === "kernel32-heap-size"
       ? "kernel32-heap-size-v1.json"
       : genericRuntimeCapability === "kernel32-set-unhandled-exception-filter" ||
     genericRuntimeCapability === "kernel32-is-processor-feature-present"
@@ -202,7 +205,11 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const heapSizeEnabled = genericRuntimeCapability === "kernel32-heap-size";
+const initializeCriticalSectionEnabled =
+  genericRuntimeCapability === "kernel32-initialize-critical-section";
+const heapSizeEnabled =
+  initializeCriticalSectionEnabled ||
+  genericRuntimeCapability === "kernel32-heap-size";
 const setUnhandledExceptionFilterEnabled =
   heapSizeEnabled ||
   genericRuntimeCapability === "kernel32-set-unhandled-exception-filter";
@@ -311,7 +318,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? heapSizeEnabled
+      ? initializeCriticalSectionEnabled
+        ? "v86-bgi-initialize-critical-section"
+        : heapSizeEnabled
         ? "v86-bgi-heap-size"
         : setUnhandledExceptionFilterEnabled
         ? "v86-bgi-set-unhandled-exception-filter"
@@ -1453,6 +1462,8 @@ const runtimeFrame = {
   trap: 7,
   apiCompletion: 8,
   apiFault: 9,
+  sessionStop: 10,
+  sessionStopped: 11,
 };
 const writebackFormat = {
   magic: "VINEWB01",
@@ -3121,6 +3132,59 @@ const heapSizeExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const initializeCriticalSectionExpected = {
+  ...heapSizeExpected,
+  supportedCalls: 267,
+  writebackBatches: 268,
+  dirtyPages: 406,
+  changedBytes: 5855,
+  hostDeltaBatches: 67,
+  finalGeneration: 365,
+  implementedApiContracts: 44,
+  initializationCall: {
+    sequence: 211,
+    occurrence: 1,
+    instructionCount: 19185,
+    arguments: [0x100fd9cc],
+    returnAddress: 0x1009b2c3,
+    stackCleanupBytes: 8,
+    bytes: [
+      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
+    ],
+    delta: {
+      fromGeneration: 299,
+      generation: 300,
+      address: 0x100fd000,
+      owner: 1,
+      payloadSha256: "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
+    },
+  },
+  occurrenceCounts: {
+    HeapSize: 5,
+    DecodePointer: 12,
+    EncodePointer: 27,
+    EnterCriticalSection: 9,
+    LeaveCriticalSection: 9,
+    GetLastError: 30,
+    TlsGetValue: 30,
+    FlsGetValue: 30,
+    SetLastError: 30,
+  },
+  memoryContentSha256: "5a7b35e013f2ac108f5d7394dc908ba91a76aaa77dc4e5288d3ee827460c146c",
+  reportBytes: 1_154_575,
+  reportSha256: "c396de1128554bad61efabc52e1e10f29896a14e923a75d349751cde2eda7686",
+  firstUnsupported: {
+    capabilityCluster: "initial-thread-stack-growth",
+    faultCode: "page-fault",
+    instructionCount: 22754,
+    instructionPointer: 0x100a47a9,
+    previousInstructionPointer: 0x100a47a7,
+    faultAddress: 0x006fe000,
+    pageFaultErrorCode: 4,
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -3583,6 +3647,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (initializeCriticalSectionEnabled) {
+        validateInitializeCriticalSectionResult(genericResult);
       } else if (heapSizeEnabled) {
         validateHeapSizeResult(genericResult);
       } else if (setUnhandledExceptionFilterEnabled) {
@@ -3660,7 +3726,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : heapSizeEnabled
+          : initializeCriticalSectionEnabled
+            ? "bgi InitializeCriticalSection"
+            : heapSizeEnabled
             ? "bgi HeapSize"
             : setUnhandledExceptionFilterEnabled
             ? "bgi SetUnhandledExceptionFilter"
@@ -3735,7 +3803,7 @@ async function run() {
               : "bgi critical-section synchronization";
       console.log(
         `${checkpointLabel} passed: ${genericResult.supportedCalls.length} generic calls, ` +
-          `first unsupported cluster ${genericResult.fault.capabilityCluster}`,
+          `first structured stop cluster ${genericResult.fault.capabilityCluster}`,
       );
       console.log(
         `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
@@ -3845,6 +3913,11 @@ async function run() {
       `historical report artifact ${historicalReportIdentity.matches ? "matched" : "changed"}; ` +
         `classification=${historicalReportIdentity.classification}, semantic gate=independent`,
     );
+  } catch (error) {
+    if (stderr.trim() !== "") {
+      error.message = `${error.message}\nprobe stderr:\n${stderr.trim()}`;
+    }
+    throw error;
   } finally {
     if (!sessionCompleted && child.exitCode === null) {
       child.kill();
@@ -3869,18 +3942,25 @@ async function runGenericRuntimeReentry({
   const hostDeltas = [];
   let frozenSemanticCalls = 0;
 
-  for (let sequence = 1; sequence <= 256; sequence += 1) {
+  const callLimit = initializeCriticalSectionEnabled ? 4096 : 256;
+  for (let sequence = 1; sequence <= callLimit; sequence += 1) {
     const terminal = continuation.terminal;
-    assert(
+    const ownedTerminal =
       terminal.kind === "owned-import-thunk" ||
-        terminal.kind === "owned-dynamic-export-thunk",
-      `generic runtime reached non-owned terminal ${terminal.kind}`,
-    );
-    const endpoint = genericTerminalEndpoint(terminal);
-    const occurrenceKey = `${endpoint.module.toLowerCase()}!${endpoint.symbol}`;
-    const occurrence = (occurrences.get(occurrenceKey) ?? 0) + 1;
+      terminal.kind === "owned-dynamic-export-thunk";
+    if (!ownedTerminal) {
+      assert(
+        initializeCriticalSectionEnabled && terminal.kind === "page-fault",
+        `generic runtime reached non-owned terminal at call ${sequence}, ` +
+          `instruction ${continuation.instructionCount}: ${JSON.stringify(terminal)}`,
+      );
+    }
+    const endpoint = ownedTerminal ? genericTerminalEndpoint(terminal) : null;
+    const occurrenceKey =
+      endpoint === null ? null : `${endpoint.module.toLowerCase()}!${endpoint.symbol}`;
+    const occurrence = occurrenceKey === null ? null : (occurrences.get(occurrenceKey) ?? 0) + 1;
 
-    if (sequence <= checkpointManifest.checkpoints.length) {
+    if (endpoint !== null && sequence <= checkpointManifest.checkpoints.length) {
       const stopCheckpoint = checkpointManifest.checkpoints[sequence - 1];
       assertGenericStopMatchesCheckpoint(
         continuation,
@@ -3920,6 +4000,57 @@ async function runGenericRuntimeReentry({
       payloadSha256: sha256(writeback.payload),
       receipt: writebackReceipt,
     });
+
+    if (endpoint === null) {
+      const reason = "initial-thread-stack-growth";
+      await writeRuntimeJsonFrame(child.stdin, runtimeFrame.sessionStop, {
+        schema: "vine.v86-generic-runtime-session-stop",
+        schemaVersion: 1,
+        generation,
+        reason,
+      });
+      const stoppedFrame = await readRuntimeFrame(
+        protocolReader,
+        runtimeFrame.sessionStopped,
+        "generic runtime session stopped",
+      );
+      assert.equal(stoppedFrame.payload.length, 0);
+      const stopped = JSON.parse(stoppedFrame.control.toString("utf8"));
+      assert.equal(stopped.schema, "vine.v86-generic-runtime-session-stopped");
+      assert.equal(stopped.schemaVersion, 1);
+      assert.equal(stopped.reason, reason);
+      assert.equal(stopped.memory.generation, generation);
+      assert.equal(stopped.memory.acknowledgedGeneration, generation);
+      assert.match(stopped.memoryContentSha256, /^[0-9a-f]{64}$/);
+      return {
+        frozenSemanticCalls,
+        supportedCalls,
+        writebacks,
+        hostDeltas,
+        finalGeneration: generation,
+        fault: {
+          schema: "vine.v86-generic-runtime-execution-fault",
+          schemaVersion: 1,
+          capabilityCluster: reason,
+          endpoint: null,
+          fault: {
+            class: "fault",
+            stage: "guest-execution",
+            code: "page-fault",
+            message:
+              `guest page fault at 0x${terminal.faultAddress.toString(16)} ` +
+              `while executing 0x${terminal.instructionPointer.toString(16)}`,
+            instructionPointer: terminal.instructionPointer,
+            previousInstructionPointer: terminal.previousInstructionPointer,
+            faultAddress: terminal.faultAddress,
+            pageFaultErrorCode: terminal.pageFaultErrorCode,
+          },
+          memory: stopped.memory,
+          memoryContentSha256: stopped.memoryContentSha256,
+        },
+        terminal: continuation,
+      };
+    }
 
     const trapRequest = {
       schema: "vine.v86-generic-runtime-trap",
@@ -4077,7 +4208,9 @@ async function runGenericRuntimeReentry({
     }
     continuation = next;
   }
-  throw new Error("generic runtime re-entry exceeded its bounded call limit");
+  throw new Error(
+    `generic runtime re-entry exceeded its bounded ${callLimit}-call limit`,
+  );
 }
 
 function validateGenericRuntimeReady(ready, offer) {
@@ -4096,7 +4229,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : heapSizeEnabled
+        : initializeCriticalSectionEnabled
+          ? 31
+          : heapSizeEnabled
           ? 30
           : setUnhandledExceptionFilterEnabled
           ? 29
@@ -7374,6 +7509,118 @@ function validateHeapSizeResult(result) {
   );
 }
 
+function validateInitializeCriticalSectionResult(result) {
+  const expected = initializeCriticalSectionExpected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  const initializations = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "InitializeCriticalSection",
+  );
+  assert.equal(initializations.length, 1);
+  const call = initializations[0];
+  assert.equal(call.sequence, expected.initializationCall.sequence);
+  assert.equal(call.occurrence, expected.initializationCall.occurrence);
+  assert.equal(call.trapInstructionCount, expected.initializationCall.instructionCount);
+  assert.deepEqual(call.arguments, expected.initializationCall.arguments);
+  assert.deepEqual(call.result, { action: "preserve" });
+  assert.equal(
+    call.implementationId,
+    "kernel32.initialize-critical-section.v1",
+  );
+  assert.equal(call.returnAddress, expected.initializationCall.returnAddress);
+  assert.equal(
+    call.stackPointerAfter,
+    call.stackPointerBefore + expected.initializationCall.stackCleanupBytes,
+  );
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, expected.initializationCall.arguments[0]);
+  assert.deepEqual(call.guestWrites[0].bytes, expected.initializationCall.bytes);
+
+  const initializationDelta = result.hostDeltas.find(
+    ({ sequence }) => sequence === expected.initializationCall.sequence,
+  );
+  assert(initializationDelta, "InitializeCriticalSection host delta is missing");
+  assert.equal(
+    initializationDelta.fromGeneration,
+    expected.initializationCall.delta.fromGeneration,
+  );
+  assert.equal(
+    initializationDelta.generation,
+    expected.initializationCall.delta.generation,
+  );
+  assert.equal(initializationDelta.mappingOperations, 0);
+  assert.deepEqual(initializationDelta.dirtyPages, [
+    {
+      address: expected.initializationCall.delta.address,
+      owner: expected.initializationCall.delta.owner,
+    },
+  ]);
+  assert.equal(
+    initializationDelta.payloadSha256,
+    expected.initializationCall.delta.payloadSha256,
+  );
+
+  for (const [symbol, count] of Object.entries(expected.occurrenceCounts)) {
+    assert.equal(
+      result.supportedCalls.filter((call_) => call_.symbol === symbol).length,
+      count,
+      `${symbol} continuation count changed`,
+    );
+  }
+  const finalCall = result.supportedCalls.at(-1);
+  assert.equal(finalCall.sequence, expected.supportedCalls);
+  assert.equal(finalCall.symbol, "SetLastError");
+  assert.equal(finalCall.occurrence, 30);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint, null);
+  assert.equal(result.fault.fault.class, "fault");
+  assert.equal(result.fault.fault.stage, "guest-execution");
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(
+    result.fault.fault.instructionPointer,
+    unsupported.instructionPointer,
+  );
+  assert.equal(
+    result.fault.fault.previousInstructionPointer,
+    unsupported.previousInstructionPointer,
+  );
+  assert.equal(result.fault.fault.faultAddress, unsupported.faultAddress);
+  assert.equal(
+    result.fault.fault.pageFaultErrorCode,
+    unsupported.pageFaultErrorCode,
+  );
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.deepEqual(result.terminal.terminal, {
+    kind: "page-fault",
+    instructionPointer: unsupported.instructionPointer,
+    previousInstructionPointer: unsupported.previousInstructionPointer,
+    faultAddress: unsupported.faultAddress,
+    pageFaultErrorCode: unsupported.pageFaultErrorCode,
+  });
+}
+
 function validatePrivateHeapSize16Result(result) {
   const expected = privateHeapSize16Expected;
   const allocations = result.supportedCalls.filter(
@@ -7852,7 +8099,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : heapSizeEnabled
+        : initializeCriticalSectionEnabled
+          ? "vine.v86-bgi-initialize-critical-section"
+          : heapSizeEnabled
           ? "vine.v86-bgi-heap-size"
           : setUnhandledExceptionFilterEnabled
           ? "vine.v86-bgi-set-unhandled-exception-filter"

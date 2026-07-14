@@ -6,7 +6,7 @@
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
 - Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-heap-size-v1.json`
+- Active policy: `fixtures/runtime-policies/kernel32-initialize-critical-section-v1.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -21,6 +21,7 @@ Win32 semantics
                          v
 Compatibility policy
   versioned selectors, file types, HeapAlloc/HeapFree/HeapSize variants, process-view/code-page enablement
+  measured InitializeCriticalSection raw spin-state field
   explicit processor-feature presence
   bounded validation and mutation-free unsupported result
                          |
@@ -43,6 +44,8 @@ runtime execution. It contains only target-independent bounded data:
 - opt-in active ANSI code page, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, Windows-932 private-use byte mappings, bounded CTYPE1 information types, and bounded locale mapping variants;
 - opt-in current-process image-path lookup with a bounded ANSI output capacity;
 - enabled `HeapAlloc` flag and byte-length pairs, `HeapFree` flags, and `HeapSize` flags;
+- an opt-in x86 `InitializeCriticalSection` raw spin-state field for the measured
+  Windows compatibility profile;
 - explicit processor-feature index and presence mappings.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Selectors,
@@ -50,7 +53,7 @@ file types, heap flags, zero size, and the private-heap capacity are rejected if
 the semantic implementation cannot support them. Invalid policy data stops the
 probe before guest execution.
 
-The current files form twenty-three monotonic controlled policies:
+The current files form twenty-four monotonic controlled policies:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -77,6 +80,7 @@ The current files form twenty-three monotonic controlled policies:
 | `kernel32-private-heap-size-128-v1` | stdin, stdout, stderr | preceding options | zeroed `4`, `128`, `0x214`, `0x800`; flags-zero sizes `1`, `16`, `544`; `HeapFree` flags `0` |
 | `kernel32-is-processor-feature-present-v1` | stdin, stdout, stderr | preceding options + processor feature `10` present | preceding allocation/free variants |
 | `kernel32-heap-size-v1` | stdin, stdout, stderr | preceding options + `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` | preceding allocation/free variants |
+| `kernel32-initialize-critical-section-v1` | stdin, stdout, stderr | preceding options + measured default x86 critical-section spin-state field | preceding allocation/free/size variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -237,6 +241,17 @@ The public fixture independently queries a 129-byte allocation reserved as 136
 bytes and covers both flags, all invalid pointer relations, LastError, ABI
 cleanup, and unchanged runtime／memory state.
 
+The InitializeCriticalSection policy adds one raw x86 spin-state field. The
+one-argument Win32 semantic handler remains a single VOID stdcall contract: it
+validates a 24-byte output, preserves EAX and LastError, and creates state in the
+process-owned critical-section subsystem. A missing policy stops before
+runtime／memory mutation. The active value `0x020007D0` is the measured Windows
+11 private structure state, not a portable definition of zero spin and not a
+BGI callsite selector. Policy validation rejects unknown high-byte state flags.
+The public semantic fixture uses distinct value `0x02001234` and independently
+checks exact bytes, ABI, policy-disabled atomic failure, ownership, and duplicate
+initialization.
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -267,6 +282,8 @@ filter invocation, exception records／contexts, vectored handlers, or host
 exception bridging.
 The heap-size policy does not enable host/process heap introspection, arbitrary
 flags, heap walking／validation, or `HeapReAlloc`.
+The InitializeCriticalSection policy does not implement arbitrary private raw
+state layouts, contention, deletion, wait scheduling, or cross-thread blocking.
 Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.

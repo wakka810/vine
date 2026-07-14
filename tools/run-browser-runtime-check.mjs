@@ -818,14 +818,28 @@ function validateBgiEquivalence(browser, oracle) {
   assert(browser.report.finalGeneration >= browser.report.initialGeneration);
   assert.equal(browserStop.memoryContentSha256, oracleStop.memoryContentSha256);
   assert.equal(browserStop.capabilityCluster, oracleStop.capabilityCluster);
-  assert.equal(browserStop.endpoint.id, oracleStop.endpoint.endpoint.id);
-  assert.equal(browserStop.endpoint.address, oracleStop.endpoint.endpoint.address);
-  assert.equal(browserStop.endpoint.module, oracleStop.endpoint.endpoint.module);
-  const oracleSymbol = oracleStop.endpoint.endpoint.symbol ?? {
-    kind: "name",
-    name: oracleStop.endpoint.endpoint.name,
-  };
-  assert.deepEqual(browserStop.endpoint.symbol, oracleSymbol);
+  if (oracleStop.endpoint === null) {
+    assert.equal(browserStop.endpoint, null);
+    assert.equal(browserStop.fault.instructionPointer, oracleStop.fault.instructionPointer);
+    assert.equal(
+      browserStop.fault.previousInstructionPointer,
+      oracleStop.fault.previousInstructionPointer,
+    );
+    assert.equal(browserStop.fault.faultAddress, oracleStop.fault.faultAddress);
+    assert.equal(
+      browserStop.fault.pageFaultErrorCode,
+      oracleStop.fault.pageFaultErrorCode,
+    );
+  } else {
+    assert.equal(browserStop.endpoint.id, oracleStop.endpoint.endpoint.id);
+    assert.equal(browserStop.endpoint.address, oracleStop.endpoint.endpoint.address);
+    assert.equal(browserStop.endpoint.module, oracleStop.endpoint.endpoint.module);
+    const oracleSymbol = oracleStop.endpoint.endpoint.symbol ?? {
+      kind: "name",
+      name: oracleStop.endpoint.endpoint.name,
+    };
+    assert.deepEqual(browserStop.endpoint.symbol, oracleSymbol);
+  }
   assert.equal(browserStop.fault.class, oracleStop.fault.class);
   assert.equal(browserStop.fault.stage, oracleStop.fault.stage);
   assert.equal(browserStop.fault.code, oracleStop.fault.code);

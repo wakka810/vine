@@ -110,10 +110,10 @@ fault:             endpoint-contract-missing
 cluster:           kernel32-critical-section-synchronization
 ```
 
-The next checkpoint must distinguish zero-spin initialization from the existing
-`InitializeCriticalSectionAndSpinCount` contract, measure initial bytes,
-LastError／exception behavior, lifecycle, and the caller consumer without
-generalizing to every synchronization primitive.
+This historical stop is closed by
+[bgi-initialize-critical-section.md](bgi-initialize-critical-section.md), which
+measures the one-argument initial bytes／ABI and advances to the initial-thread
+stack-growth fault without generalizing every synchronization primitive.
 
 ## Non-claims
 

@@ -225,7 +225,6 @@ function runSession(sessionId: number): Promise<SessionReport> {
 function validateSession(report: SessionReport, expected: any): void {
   const endpoint = report.firstUnsupported?.endpoint;
   const fault = report.firstUnsupported?.fault;
-  invariant(isRecord(endpoint) && isRecord(endpoint.symbol), "BGI next endpoint is malformed");
   invariant(isRecord(fault), "BGI next fault is malformed");
   invariant(report.outcome === "structured-stop", report.error ?? "BGI session did not stop cleanly");
   invariant(report.pendingHostCalls === 0 && report.pendingCallbacks === 0, "BGI retained work");
@@ -243,10 +242,32 @@ function validateSession(report: SessionReport, expected: any): void {
   invariant(report.supportedCalls.length === expected.supportedCalls, "BGI call count changed");
   invariant(report.instructions === expected.guestInstructions, "BGI instruction count changed");
   invariant(report.wasmBridgeCalls === expected.wasmBridgeCalls, "BGI Wasm crossing count changed");
-  invariant(
-    `${endpoint.module}!${endpoint.symbol.name}`.toLowerCase() === expected.nextApi.toLowerCase(),
-    "BGI next API changed",
-  );
+  if (expected.nextEndpoint === null) {
+    invariant(endpoint === null, "BGI execution fault unexpectedly retained an endpoint");
+    invariant(
+      fault.instructionPointer === Number.parseInt(expected.nextInstructionPointer, 16),
+      "BGI fault instruction changed",
+    );
+    invariant(
+      fault.previousInstructionPointer ===
+        Number.parseInt(expected.nextPreviousInstructionPointer, 16),
+      "BGI previous instruction changed",
+    );
+    invariant(
+      fault.faultAddress === Number.parseInt(expected.nextFaultAddress, 16),
+      "BGI fault address changed",
+    );
+    invariant(
+      fault.pageFaultErrorCode === expected.nextPageFaultErrorCode,
+      "BGI page-fault error code changed",
+    );
+  } else {
+    invariant(isRecord(endpoint) && isRecord(endpoint.symbol), "BGI next endpoint is malformed");
+    invariant(
+      `${endpoint.module}!${endpoint.symbol.name}`.toLowerCase() === expected.nextApi.toLowerCase(),
+      "BGI next API changed",
+    );
+  }
   invariant(fault.code === expected.nextFaultCode, "BGI next fault changed");
   invariant(
     report.firstUnsupported?.memoryContentSha256 === expected.memoryContentSha256,

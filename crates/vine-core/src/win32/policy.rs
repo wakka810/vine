@@ -13,6 +13,7 @@ pub const KERNEL32_COMPATIBILITY_POLICY_VERSION: u32 = 1;
 
 const HEAP_ZERO_MEMORY: u32 = 0x0000_0008;
 const HEAP_NO_SERIALIZE: u32 = 0x0000_0001;
+const CRITICAL_SECTION_DYNAMIC_SPIN_STATE: u32 = 0x0200_0000;
 const MAX_POLICY_ID_BYTES: usize = 128;
 const MAX_POLICY_ENTRIES: usize = 32;
 
@@ -49,6 +50,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub heap_free_flags: Vec<u32>,
     #[serde(default)]
     pub heap_size_flags: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initialize_critical_section: Option<Kernel32InitializeCriticalSectionPolicy>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +66,12 @@ pub struct Kernel32StandardHandleFileType {
 pub struct Kernel32HeapAllocationPolicy {
     pub flags: u32,
     pub byte_lengths: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32InitializeCriticalSectionPolicy {
+    pub spin_count_field: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +166,7 @@ impl Kernel32CompatibilityPolicy {
             }],
             heap_free_flags: Vec::new(),
             heap_size_flags: Vec::new(),
+            initialize_critical_section: None,
         }
     }
 
@@ -364,6 +374,15 @@ impl Kernel32CompatibilityPolicy {
                 "HeapSize flags must be unique implemented zero or HEAP_NO_SERIALIZE values",
             ));
         }
+        if let Some(initialization) = self.initialize_critical_section {
+            let state_flags = initialization.spin_count_field & 0xff00_0000;
+            if state_flags != 0 && state_flags != CRITICAL_SECTION_DYNAMIC_SPIN_STATE {
+                return Err(policy_error(
+                    "kernel32-policy-initialize-critical-section-invalid",
+                    "InitializeCriticalSection spin-count field has unsupported state flags",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -439,6 +458,11 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn allows_heap_size(&self, flags: u32) -> bool {
         self.heap_size_flags.contains(&flags)
+    }
+
+    pub fn initialize_critical_section_spin_count_field(&self) -> Option<u32> {
+        self.initialize_critical_section
+            .map(|initialization| initialization.spin_count_field)
     }
 }
 
@@ -714,6 +738,14 @@ mod tests {
         assert_eq!(
             duplicate.validate().unwrap_err().code,
             "kernel32-policy-heap-size-flags-invalid"
+        );
+        duplicate.heap_size_flags.clear();
+        duplicate.initialize_critical_section = Some(Kernel32InitializeCriticalSectionPolicy {
+            spin_count_field: 0x0100_07d0,
+        });
+        assert_eq!(
+            duplicate.validate().unwrap_err().code,
+            "kernel32-policy-initialize-critical-section-invalid"
         );
     }
 }

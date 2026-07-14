@@ -36,6 +36,7 @@ export type ExecutionStop =
       fault: "divide-error" | "general-protection" | "page-fault" | "engine-stop";
       errorCode: number;
       engineReason: number;
+      faultAddress?: number;
     }
   | { kind: "halt" };
 

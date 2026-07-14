@@ -23,15 +23,15 @@ policy used by the Node oracle.
 
 | Evidence | Chrome Worker | Node oracle |
 |---|---:|---:|
-| Supported calls | 210 | 210 |
-| Guest instructions at next stop | 19,185 | 19,185 |
+| Supported calls | 267 | 267 |
+| Guest instructions at next stop | 22,754 | 22,754 |
 | Initial memory generation | 27 | 27 |
-| Final memory generation | 1,640 | 299 |
-| Host delta batches | 58 | 58 |
-| Final memory content SHA-256 | `90c245267e933a01c1e54fa0305bec1d54a16180a3e7465b6a3b6b3c8d3dd0b8` | same |
-| Next capability cluster | `kernel32-critical-section-synchronization` | same |
-| Next API | `KERNEL32.dll!InitializeCriticalSection(0x100FD9CC)` | same |
-| Fault | `endpoint-contract-missing` | same |
+| Final memory generation | 1,994 | 365 |
+| Host delta batches | 67 | 67 |
+| Final memory content SHA-256 | `5a7b35e013f2ac108f5d7394dc908ba91a76aaa77dc4e5288d3ee827460c146c` | same |
+| Next capability cluster | `initial-thread-stack-growth` | same |
+| Endpoint | `null` | same |
+| Execution fault | `page-fault` at `0x006FE000`, PFEC `4` | same |
 
 Every completion is compared by ordered module/symbol occurrence, decoded
 arguments, EAX policy, implementation ID, return and stack pointers, LastError,
@@ -40,19 +40,19 @@ match. Node does not retain a production scheduler, Windows state, or memory
 authority for the browser session.
 
 Generation is intentionally not equal at the end. Chrome reconciles dirty CPU
-pages after each bounded 8-instruction slice and API trap, producing 1,828
-writeback batches; the Node oracle reconciles at 211 writeback boundaries.
+pages after each bounded 8-instruction slice and API trap, producing 2,247
+writeback batches; the Node oracle reconciles at 268 writeback boundaries.
 Both paths begin at generation 27 and converge on identical bytes. Generation is
 therefore synchronization identity, not guest-visible equivalence.
 
 ## Worker lifecycle
 
-The successful run used 2,465 CPU slices, 2,254 budget yields, 7,396 validated
-Worker state transitions, 2,100 Rust/Wasm bridge operations, and a maximum
-observed slice of 2.880 ms. The main-thread heartbeat recorded 95 samples with a 27.345 ms
+The successful run used 2,926 CPU slices, 2,658 budget yields, 8,778 validated
+Worker state transitions, 2,585 Rust/Wasm bridge operations, and a maximum
+observed slice of 2.630 ms. The main-thread heartbeat recorded 102 samples with a 28.300 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,738 to 840,218 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 438
+changed from 628,738 to 869,762 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 347
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 
@@ -62,7 +62,7 @@ module graph, and leave the Rust process in `exited` state. Cancellation can be
 delivered only between complete CPU/writeback transactions.
 
 The explicit state machine ends success, cancellation, and watchdog
-in `stopped` after 7,396, 4, and 3 transitions respectively. All three reports
+in `stopped` after 8,778, 4, and 3 transitions respectively. All three reports
 retain zero host request records. Success and cancellation carry no watchdog
 context; the watchdog records thread `8192`, no active request, and the last
 `ready -> running` transition. Request records also retain thread identity,
@@ -108,7 +108,9 @@ existing critical-section entry and two existing pointer decodes. The following
 `HeapSize(0x68010001,0,0x20000C58)` returns the Rust-owned live allocation's
 requested size 128 without guest writes or LastError mutation. Two existing
 `EncodePointer` calls and one `LeaveCriticalSection` then complete before both
-paths converge at `InitializeCriticalSection(0x100FD9CC)`.
+paths initialize `0x100FD9CC` through the policy-backed one-argument VOID
+contract. Another 56 existing calls complete before both paths stop on the
+endpoint-null initial-thread stack-growth page fault at `0x006FE000`.
 
 ## Reproduction
 
@@ -123,7 +125,7 @@ report hash is artifact identity only.
 
 ## Non-claims
 
-- no negative-length／broad `GetStringTypeW`, general `LCMapStringW`, explicit-module `GetModuleFileNameA`, SEH dispatch／filter invocation, broad `HeapSize`, `HeapReAlloc`, or broad heap variant dispatch is implemented
+- no general stack growth／overflow, negative-length／broad `GetStringTypeW`, general `LCMapStringW`, explicit-module `GetModuleFileNameA`, SEH dispatch／filter invocation, broad `HeapSize`, `HeapReAlloc`, or broad heap variant dispatch is implemented
 - no title rendering, audio, input, VFS, COM, or full-play path is claimed
 - the three-minute workload gate is not a full-play or long-idle soak
 - Node remains available for differential evidence but is not a production path

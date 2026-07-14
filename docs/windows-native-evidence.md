@@ -2105,3 +2105,45 @@ slices、2,254 yields、2,100 Wasm crossings、final generation `1,640`、
 cancel／watchdog後pending work 0を通す。3分gateは438 sessions／failure 0、session
 P95 536.710 ms、heartbeat P99 9.935 ms／maximum 37.930 msを含む全17 thresholdを
 通した。詳細は[bgi-heap-size.md](bgi-heap-size.md)を正とする。
+
+## 81. BGI one-argument critical-section initialization
+
+Focused `critical-section` captures r4／r5は295,301 bytes／524 lines／SHA-256
+`62758a647a37e270c4d2f969055c814d7559d1c398f0324ed0243b29135bc689`と
+294,495 bytes／524 lines／SHA-256
+`ecc73e513eefdee295dc324bd0bff8a699ea8819bc99b6cad7694b336599ebc4`
+である。両方236 API pairsはbalanced、diagnosticsはzeroで、default
+initializationのsemantic projectionは一致する。
+
+BGI callはreturn RVA `0x9B2C3`からimage RVA `0xFD9CC`の24-byte zero storageを
+初期化する。Return後は
+`FFFFFFFFFFFFFFFF000000000000000000000000D0070002`、raw SpinCount fieldは
+`0x020007D0`である。LastError `0 -> 0`、exceptionなし、controlled sentinel 86も
+保存される。Direct wrapperは`mov eax,esi; pop esi; ret`で独自returnを作り、outer
+consumer RVA `0xA37BE`はそのwrapper EAXをESIと比較するため、VOID API自身のEAXは
+consumerへ渡らない。
+
+`kernel32.initialize-critical-section.v1`はone-argument stdcall／VOID／EAX preserve／
+LastError preserveとchecked 24-byte outputを実装する。Existing Rust process-owned
+critical-section subsystemを使い、missing policy／duplicate initializationはmutation前に
+停止する。Private raw fieldはgeneral semanticsへ埋め込まず、policy
+`kernel32-initialize-critical-section-v1`が`33556432`を所有する。Public semantic
+fixtureはdistinct `0x02001234`で同じhandlerを検証する。
+
+`npm run check:runtime:bgi -- --profile kernel32-initialize-critical-section`は44
+contracts／267 calls、268 writebacks／406 dirty pages／5,855 changed bytes、67 host
+deltas、final generation `365`を通す。Call 211はinstruction `19185`で
+`InitializeCriticalSection(0x100FD9CC)`をreturnし、generation `299 -> 300`の
+page `0x100FD000` deltaを書く。Instruction `22754`でendpointなしのpage fault
+`0x006FE000`／PFEC `4`へ到達し、clusterは`initial-thread-stack-growth`である。
+Memory SHA-256は
+`5a7b35e013f2ac108f5d7394dc908ba91a76aaa77dc4e5288d3ee827460c146c`、
+1,154,575-byte reportのSHA-256は
+`c396de1128554bad61efabc52e1e10f29896a14e923a75d349751cde2eda7686`である。
+
+Chrome Runtime Workerも267 ordered calls、same endpoint-null fault／memoryを再現し、
+2,926 slices、2,658 yields、2,585 Wasm crossings、final generation `1,994`、
+cancel／watchdog後pending work 0を通す。3分gateは347 sessions／failure 0、session
+P95 619.620 ms、slice P99 1.845 ms、heartbeat P99 15.570 ms／maximum 53.280 msを
+含む全17 thresholdを通した。詳細は
+[bgi-initialize-critical-section.md](bgi-initialize-critical-section.md)を正とする。

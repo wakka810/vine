@@ -217,7 +217,11 @@ async function sha256(bytes: Uint8Array): Promise<string> {
   return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function classifyV86Stop(reason: number, errorCode: number): ExecutionStop {
+export function classifyV86Stop(
+  reason: number,
+  errorCode: number,
+  faultAddress?: number,
+): ExecutionStop {
   switch (reason) {
     case v86StopReason.budget:
       return { kind: "budget-yield" };
@@ -235,7 +239,13 @@ export function classifyV86Stop(reason: number, errorCode: number): ExecutionSto
         engineReason: reason,
       };
     case v86StopReason.pageFault:
-      return { kind: "fault", fault: "page-fault", errorCode, engineReason: reason };
+      return {
+        kind: "fault",
+        fault: "page-fault",
+        errorCode,
+        engineReason: reason,
+        faultAddress,
+      };
     default:
       return { kind: "fault", fault: "engine-stop", errorCode, engineReason: reason };
   }
@@ -469,7 +479,11 @@ export class V86Mirror implements ExecutionEngine {
   executeBudget(instructionBudget: number): ExecutionSlice {
     const result = this.execute(instructionBudget);
     return {
-      stop: classifyV86Stop(result.reason, result.errorCode),
+      stop: classifyV86Stop(
+        result.reason,
+        result.errorCode,
+        result.state.words[stateWord.controlRegisterBase + 2],
+      ),
       instructions: result.instructions,
       context: this.#executionContext(result.state),
     };

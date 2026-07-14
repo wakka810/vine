@@ -20,7 +20,9 @@ import {
 import {
   ExecutionMemoryAccessFault,
   instantiateExecutionEngine,
+  type ExecutionCpuContext,
   type ExecutionEngine,
+  type ExecutionStop,
 } from "./execution-engine.js";
 import {
   ExecutionStateMachine,
@@ -136,6 +138,7 @@ interface CurrentReflectionMetadata {
   generation: number;
   acknowledgedGeneration: number;
   pageCount: number;
+  contentSha256: string;
   regions: MemoryRegionSnapshot[];
 }
 
@@ -405,6 +408,15 @@ class BrowserRuntimeSession {
         continue;
       }
 
+      if (
+        slice.stop.kind === "fault" &&
+        slice.stop.fault === "page-fault" &&
+        prepared.workload === "private-bgi"
+      ) {
+        this.#completeExecutionStructuredStop(slice.stop, slice.context);
+        continue;
+      }
+
       invariant(
         slice.stop.kind === "trap" &&
           slice.stop.trap === "invalid-opcode" &&
@@ -583,6 +595,64 @@ class BrowserRuntimeSession {
     invariant(cancellation.kind === "cancelled", "structured-stop cleanup metadata is invalid");
     invariant(cancellation.pendingHostCalls === 0, "structured-stop cleanup retained host work");
     invariant(cancellation.pendingCallbacks === 0, "structured-stop cleanup retained callbacks");
+    invariant(cancellation.processLifecycle.state === "exited", "BGI process did not exit");
+    invariant(cancellation.dllLifecycle === "process-detached", "BGI modules did not detach");
+    this.#finish({
+      outcome: "structured-stop",
+      exitCode: null,
+      pendingHostCalls: cancellation.pendingHostCalls,
+      pendingCallbacks: cancellation.pendingCallbacks,
+      error: null,
+    });
+  }
+
+  #completeExecutionStructuredStop(
+    stop: Extract<ExecutionStop, { kind: "fault" }>,
+    context: ExecutionCpuContext,
+  ): void {
+    const prepared = this.#requirePrepared();
+    invariant(prepared.workload === "private-bgi", "fixture returned an execution stop");
+    invariant(stop.fault === "page-fault", "unsupported execution fault kind");
+    invariant(stop.faultAddress !== undefined, "page fault omitted its guest address");
+    const stackRegion = prepared.regions.find(
+      ({ kind, range }) =>
+        kind === "stack" &&
+        ((stop.faultAddress! >= range.start &&
+          stop.faultAddress! < range.start + range.byteLength) ||
+          (range.start >= 0x1000 && stop.faultAddress === range.start - 0x1000)),
+    );
+    const capabilityCluster =
+      stackRegion === undefined ? "guest-memory-page-fault" : "initial-thread-stack-growth";
+    const reflection = this.#requireBridge().currentReflection<CurrentReflectionMetadata>().metadata;
+    invariant(reflection.kind === "current-reflection", "invalid execution-stop reflection");
+    invariant(
+      reflection.generation === Number(this.#generation) &&
+        reflection.acknowledgedGeneration === Number(this.#generation),
+      "execution stop memory is not fully acknowledged",
+    );
+    invariant(/^[0-9a-f]{64}$/.test(reflection.contentSha256), "invalid memory digest");
+    this.#report.firstUnsupported = {
+      capabilityCluster,
+      endpoint: null,
+      fault: {
+        class: "fault",
+        stage: "guest-execution",
+        code: "page-fault",
+        message:
+          `guest page fault at 0x${stop.faultAddress.toString(16)} ` +
+          `while executing 0x${context.instructionPointer.toString(16)}`,
+        instructionPointer: context.instructionPointer,
+        previousInstructionPointer: context.previousInstructionPointer,
+        faultAddress: stop.faultAddress,
+        pageFaultErrorCode: stop.errorCode,
+      },
+      instructionCount: this.#report.instructions,
+      memoryContentSha256: reflection.contentSha256,
+    };
+    const cancellation = this.#requireBridge().cancel<CancellationMetadata>().metadata;
+    invariant(cancellation.kind === "cancelled", "execution-stop cleanup metadata is invalid");
+    invariant(cancellation.pendingHostCalls === 0, "execution stop retained host work");
+    invariant(cancellation.pendingCallbacks === 0, "execution stop retained callbacks");
     invariant(cancellation.processLifecycle.state === "exited", "BGI process did not exit");
     invariant(cancellation.dllLifecycle === "process-detached", "BGI modules did not detach");
     this.#finish({

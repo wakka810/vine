@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
+- Status: review Step 2／3, Step 4／10, critical-section including one-argument initialization, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
 - Date: 2026-07-14
 - Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-heap-size`
-- Scope: frozen 17-call equivalence plus 210 calls through one persistent generic runtime session
+- Runtime-kernel checkpoint: `bgi-initialize-critical-section`
+- Scope: frozen 17-call equivalence plus 267 calls through one persistent generic runtime session
 
 ## Dispatcher boundary
 
@@ -820,7 +820,7 @@ generation `294`, and stops at instruction 19,096 on missing
 Full evidence is in
 [bgi-set-unhandled-exception-filter.md](bgi-set-unhandled-exception-filter.md).
 
-The current private-heap size profile is:
+The preceding private-heap size profile is:
 
 ```powershell
 npm run check:runtime:bgi -- --profile kernel32-heap-size
@@ -839,6 +839,30 @@ deltas, ends at generation `299`, and stops at instruction 19,185 on missing
 `058ca051ad9b4118ce8854333eafd35aab117dc70da860b28188a2e1afff8fac`.
 Full evidence is in [bgi-heap-size.md](bgi-heap-size.md).
 
+The current one-argument critical-section profile is:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-initialize-critical-section
+```
+
+`kernel32.initialize-critical-section.v1` validates one checked 24-byte output,
+uses the policy-owned raw spin-state field, and creates state through the same
+process-owned critical-section subsystem as the existing spin-count contract.
+The VOID stdcall preserves EAX and LastError. Missing policy and duplicate
+initialization stop before guest-memory mutation. Call 211 writes the measured
+`FF FF FF FF FF FF FF FF ... D0 07 00 02` state to `0x100FD9CC` through a
+generation `299 -> 300` host delta.
+
+The session continues through 267 calls with 268 writebacks／406 dirty pages／
+5,855 changed bytes and 67 host deltas, ending at generation `365`. At
+instruction 22,754 it records an endpoint-null page fault at `0x006FE000`, the
+page immediately below the initial-thread stack mapping. Final memory SHA-256 is
+`5a7b35e013f2ac108f5d7394dc908ba91a76aaa77dc4e5288d3ee827460c146c`.
+The 1,154,575-byte report SHA-256 is
+`c396de1128554bad61efabc52e1e10f29896a14e923a75d349751cde2eda7686`.
+Full evidence is in
+[bgi-initialize-critical-section.md](bgi-initialize-critical-section.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -850,7 +874,8 @@ Full evidence is in [bgi-heap-size.md](bgi-heap-size.md).
   `HEAP_NO_SERIALIZE`. Other sizes/flags, destroy/realloc dispatch, Windows
   corruption termination, and broad allocator policy remain absent.
 - FLS free／callback teardown／fiber switching and TLS free／teardown／guest-thread
-  lifecycle, critical-section deletion／contention blocking, and arbitrary export
+  lifecycle, critical-section deletion／contention blocking, general raw
+  initialization policy, and arbitrary export
   pages are absent. TLS and FLS reads are limited to process allocation and
   selected-thread state already owned by the runtime.
 - Host completion is connected to controlled Worker／browser services; general
@@ -882,15 +907,16 @@ Full evidence is in [bgi-heap-size.md](bgi-heap-size.md).
   import host CPU discovery. One process-owned top-level exception-filter
   pointer is stored, replaced, and retired without bridging to host exception
   machinery; SEH dispatch and filter invocation remain absent. The first
-  unsupported operation is `InitializeCriticalSection(0x100FD9CC)`; bespoke
-  checkpoint expansion stays paused.
+  structured stop is the endpoint-null `initial-thread-stack-growth` page fault
+  at `0x006FE000`; bespoke numbered checkpoint expansion stays paused.
 
 ## Next checkpoint
 
-The next proof is `kernel32-initialize-critical-section` at
-`InitializeCriticalSection(0x100FD9CC)`. It must fix native initial bytes,
-zero-spin equivalence, LastError／exception behavior, lifetime, and the caller
-consumer while reusing the process-owned critical-section subsystem.
+The next proof is `initial-thread-stack-growth`. It must give the initial stack
+an explicit reserve／commit／guard ownership contract, classify the write fault
+at `0x006FE000`, and apply a checked one-page growth delta through both Node and
+Chrome without adding a second memory authority. Additional guest threads,
+general SEH delivery, and stack-overflow handling are not part of that proof.
 Existing import, bootstrap, DLL lifecycle,
 bidirectional memory sync, frozen 17-call report, generic 96,244-byte report,
 critical-section 167,719-byte report, pointer-decoding 171,356-byte report,
@@ -914,5 +940,6 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     is 704,797 bytes, the size-16 heap report is 828,414 bytes, the size-4 heap
     report is 833,007 bytes, the one-byte-free report is 875,554 bytes, the
     size-128 heap report is 883,995 bytes, the processor-feature report is
-    896,534 bytes, the process-filter report is 912,806 bytes, and the current
-    heap-size report is 929,421 bytes.
+    896,534 bytes, the process-filter report is 912,806 bytes, the heap-size
+    report is 929,421 bytes, and the current InitializeCriticalSection report is
+    1,154,575 bytes.

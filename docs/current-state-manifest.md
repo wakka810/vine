@@ -20,7 +20,7 @@ full JSON byte identityはsemantic gateではない。semantic testとstructured
 | `browserCheckpoint` | controlled Browser Worker state。BGI workloadの状態を別フィールドで明示する |
 | `engineDecisionEvidence` | v86 adapterを継続する判断と、その測定artifact |
 | `activeRuntimeCheckpoint` | current runtime profile、capability一覧、generic `latestEvidence` |
-| `nextStructuredStop` | 次のunsupported API、argument、instruction、reason |
+| `nextStructuredStop` | `api-endpoint`またはendpoint-null `execution-fault`のdiscriminated union、instruction、reason |
 
 root直下へ旧schemaの`checkpoint`、`runtimeKernelCheckpoint`、`nextCheckpoint`を再追加しない。
 historical、active、browserを同じ意味のcurrent checkpointとして扱わない。
@@ -37,7 +37,8 @@ semantic oracleとして再生成した後、同じprofileをChrome Runtime Work
 `check:runtime:bgi`は引数なしでmanifestのactive profile／policy／latest report directoryを選ぶ。
 Historical reproductionは同じcommandの`--checkpoint <id>`または`--profile <capability>`を使い、
 API固有のnpm aliasは置かない。新しいcapability checkpointでは`latestEvidence`、profile、policy、
-API一覧、next stopをmanifest内で更新し、runnerやBrowser oracle pathへAPI名を追加しない。
+API一覧、next stopをmanifest内で更新し、runnerやBrowser oracle pathへcurrent endpoint／fault値を
+複製しない。Execution fault branchはEIP、previous EIP、fault address、error codeを保持する。
 
 ## Browser non-claim
 
@@ -47,7 +48,7 @@ controlled public fixtureの`passed`をBGI Browser executionの成功として�
 completion、最終memory digest、structured stop、cancel／watchdog teardownをChromeで確認した結果である。
 `browserCheckpoint.bgiBenchmark`は別のversioned 3分 workload gateのoutcomeである。
 `threshold-passed`はsession／slice分布、main／Worker memory slope、linear memory、Wasm crossingの
-全threshold合格、`threshold-blocked`はfailure IDを伴う未完了checkpointを表す。現在の62-call
+全threshold合格、`threshold-blocked`はfailure IDを伴う未完了checkpointを表す。現在の267-call
 workloadはtimer clamp非依存のWorker yieldへ修正後に全thresholdを通した。どちらのstatusも
 full play、title output、long-idle steady memoryを含めない。
 

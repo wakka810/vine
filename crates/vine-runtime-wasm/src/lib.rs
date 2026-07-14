@@ -550,6 +550,7 @@ impl BrowserRuntime {
             "generation": reflection.invalidation.generation,
             "acknowledgedGeneration": stats.acknowledged_generation,
             "pageCount": reflection.pages.len(),
+            "contentSha256": reflection.content_sha256,
             "regions": self.memory.region_snapshots(),
         });
         let buffers = reflection.encode_binary().map_err(error_string)?;

@@ -77,9 +77,11 @@ const RUNTIME_FRAME_SESSION_READY: u32 = 6;
 const RUNTIME_FRAME_TRAP: u32 = 7;
 const RUNTIME_FRAME_API_COMPLETION: u32 = 8;
 const RUNTIME_FRAME_API_FAULT: u32 = 9;
+const RUNTIME_FRAME_SESSION_STOP: u32 = 10;
+const RUNTIME_FRAME_SESSION_STOPPED: u32 = 11;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
-const GENERIC_RUNTIME_TRAP_LIMIT: usize = 256;
+const GENERIC_RUNTIME_TRAP_LIMIT: usize = 4096;
 const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +123,7 @@ enum GenericRuntimeCapability {
     IsProcessorFeaturePresent,
     SetUnhandledExceptionFilter,
     HeapSize,
+    InitializeCriticalSection,
 }
 
 struct GenericRuntimeProcess {
@@ -154,6 +157,25 @@ struct GenericRuntimeTrapRequest {
     endpoint_address: u32,
     stack_pointer: u32,
     return_address: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenericRuntimeSessionStopRequest {
+    schema: String,
+    schema_version: u32,
+    generation: u64,
+    reason: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeSessionStopped {
+    schema: &'static str,
+    schema_version: u32,
+    reason: String,
+    memory: MemoryStats,
+    memory_content_sha256: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -2477,6 +2499,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
                 | GenericRuntimeCapability::HeapSize
+                | GenericRuntimeCapability::InitializeCriticalSection
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2490,6 +2513,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
                 | GenericRuntimeCapability::HeapSize
+                | GenericRuntimeCapability::InitializeCriticalSection
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2521,7 +2545,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::PrivateHeapSize128
             | GenericRuntimeCapability::IsProcessorFeaturePresent
             | GenericRuntimeCapability::SetUnhandledExceptionFilter
-            | GenericRuntimeCapability::HeapSize,
+            | GenericRuntimeCapability::HeapSize
+            | GenericRuntimeCapability::InitializeCriticalSection,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2678,6 +2703,49 @@ fn run_v86_generic_runtime_session(
         write_runtime_frame(RUNTIME_FRAME_WRITEBACK_RECEIPT, &receipt_control, &[])?;
 
         let trap_frame = read_runtime_frame(input)?;
+        if trap_frame.kind == RUNTIME_FRAME_SESSION_STOP {
+            if !trap_frame.payload.is_empty() {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-session-stop-payload-unexpected",
+                    "generic runtime session-stop frames may not contain a byte payload",
+                ));
+            }
+            let stop: GenericRuntimeSessionStopRequest =
+                serde_json::from_slice(&trap_frame.control).map_err(|error| {
+                    LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-session-stop-json-invalid",
+                        format!("generic runtime session-stop frame is invalid JSON: {error}"),
+                    )
+                })?;
+            if stop.schema != "vine.v86-generic-runtime-session-stop"
+                || stop.schema_version != 1
+                || stop.generation != memory.stats().generation
+                || stop.reason.is_empty()
+            {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-session-stop-invalid",
+                    "generic runtime session-stop identity, generation, or reason is invalid",
+                ));
+            }
+            let memory_content_sha256 = memory
+                .current_reflection()
+                .map_err(memory_error)?
+                .content_sha256;
+            write_runtime_json_frame(
+                RUNTIME_FRAME_SESSION_STOPPED,
+                &GenericRuntimeSessionStopped {
+                    schema: "vine.v86-generic-runtime-session-stopped",
+                    schema_version: 1,
+                    reason: stop.reason,
+                    memory: memory.stats(),
+                    memory_content_sha256,
+                },
+            )?;
+            return Ok(());
+        }
         require_runtime_frame_kind(&trap_frame, RUNTIME_FRAME_TRAP)?;
         if !trap_frame.payload.is_empty() {
             return Err(LoaderError::invalid_input(
@@ -3030,6 +3098,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
                 | GenericRuntimeCapability::HeapSize
+                | GenericRuntimeCapability::InitializeCriticalSection
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3045,9 +3114,15 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::IsProcessorFeaturePresent
                 | GenericRuntimeCapability::SetUnhandledExceptionFilter
                 | GenericRuntimeCapability::HeapSize
+                | GenericRuntimeCapability::InitializeCriticalSection
         )
     );
-    let heap_size_enabled = matches!(enabled, Some(GenericRuntimeCapability::HeapSize));
+    let initialize_critical_section_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::InitializeCriticalSection)
+    );
+    let heap_size_enabled = initialize_critical_section_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::HeapSize));
     let set_unhandled_exception_filter_enabled = heap_size_enabled
         || matches!(
             enabled,
@@ -3142,7 +3217,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::PrivateHeapSize128
             | GenericRuntimeCapability::IsProcessorFeaturePresent
             | GenericRuntimeCapability::SetUnhandledExceptionFilter
-            | GenericRuntimeCapability::HeapSize,
+            | GenericRuntimeCapability::HeapSize
+            | GenericRuntimeCapability::InitializeCriticalSection,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3292,6 +3368,7 @@ fn runtime_capability_enables_endpoint(
         "IsProcessorFeaturePresent" => processor_feature_enabled,
         "SetUnhandledExceptionFilter" => set_unhandled_exception_filter_enabled,
         "HeapSize" => heap_size_enabled,
+        "InitializeCriticalSection" => initialize_critical_section_enabled,
         _ => true,
     }
 }
@@ -3339,7 +3416,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::PrivateHeapSize128
             | GenericRuntimeCapability::IsProcessorFeaturePresent
             | GenericRuntimeCapability::SetUnhandledExceptionFilter
-            | GenericRuntimeCapability::HeapSize,
+            | GenericRuntimeCapability::HeapSize
+            | GenericRuntimeCapability::InitializeCriticalSection,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -8740,6 +8818,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::SetUnhandledExceptionFilter
                 }
                 "kernel32-heap-size" => GenericRuntimeCapability::HeapSize,
+                "kernel32-initialize-critical-section" => {
+                    GenericRuntimeCapability::InitializeCriticalSection
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -16,6 +16,7 @@ const activeCallsByThread = new Map();
 let criticalSectionOracleScheduled = false;
 let criticalSectionOracleSentinel = null;
 let criticalSectionOracleLastError = null;
+let initializeCriticalSectionConsumersRecorded = 0;
 let commandLineOracleScheduled = false;
 const commandLineFirstPointers = new Map();
 const commandLineLatestPointers = new Map();
@@ -1820,6 +1821,14 @@ function attachHook(module, name, decoders) {
       const isMainModuleCaller =
         caller.module !== null &&
         caller.module.toLowerCase() === Process.mainModule.name.toLowerCase();
+      const recordsInitializeCriticalSectionConsumer =
+        selectedObservations.has("critical-section") &&
+        name === "InitializeCriticalSection" &&
+        isMainModuleCaller &&
+        initializeCriticalSectionConsumersRecorded < 2;
+      if (recordsInitializeCriticalSectionConsumer) {
+        initializeCriticalSectionConsumersRecorded += 1;
+      }
       const focusedHeapObservation =
         selectedObservations.has("heap-allocation") &&
         isFocusedHeapApi &&
@@ -2374,6 +2383,21 @@ function attachHook(module, name, decoders) {
             ? {
                 lastErrorBefore: Number(this.lastError) >>> 0,
                 criticalSectionBefore: snapshotCriticalSection(args[0]),
+                initializeCriticalSectionConsumer:
+                  recordsInitializeCriticalSectionConsumer
+                    ? {
+                        apiContinuation: snapshotInstructions(
+                          this.returnAddress,
+                          16,
+                        ),
+                        frameCallerContinuations:
+                          snapshotX86FrameCallerContinuations(
+                            this.context,
+                            4,
+                            12,
+                          ),
+                      }
+                    : null,
               }
           : name === "InterlockedIncrement" &&
               selectedObservations.has("interlocked-increment")
@@ -4628,6 +4652,12 @@ function scheduleCriticalSectionOracle(module) {
         ["pointer", "uint32"],
         "stdcall",
       );
+      const initializeDefault = new NativeFunction(
+        address("InitializeCriticalSection"),
+        "void",
+        ["pointer"],
+        "stdcall",
+      );
       const enter = new NativeFunction(
         address("EnterCriticalSection"),
         "void",
@@ -4649,6 +4679,25 @@ function scheduleCriticalSectionOracle(module) {
       const storage = Memory.alloc(24);
       storage.writeByteArray(Array(24).fill(0xa5));
       const states = [{ step: "before", snapshot: snapshotCriticalSection(storage) }];
+      const defaultStorage = Memory.alloc(24);
+      defaultStorage.writeByteArray(Array(24).fill(0xa5));
+      const defaultBefore = snapshotCriticalSection(defaultStorage);
+      criticalSectionOracleSentinel = 86;
+      criticalSectionOracleLastError = null;
+      let defaultLastError = null;
+      try {
+        initializeDefault(defaultStorage);
+        defaultLastError = criticalSectionOracleLastError;
+        if (defaultLastError === null) {
+          throw new Error(
+            "initialize-default did not pass through the critical-section hook",
+          );
+        }
+      } finally {
+        criticalSectionOracleSentinel = null;
+        criticalSectionOracleLastError = null;
+      }
+      const defaultAfter = snapshotCriticalSection(defaultStorage);
       const invoke = (step, sentinel, operation) => {
         criticalSectionOracleSentinel = sentinel;
         criticalSectionOracleLastError = null;
@@ -4677,9 +4726,16 @@ function scheduleCriticalSectionOracle(module) {
       invoke("leave-final", 91, () => leave(storage));
       invoke("delete", 92, () => delete_(storage));
       emit("critical-section-oracle", {
-        profile: "x86-uncontended-recursive-v1",
+        profile: "x86-default-and-uncontended-recursive-v2",
         structureSize: 24,
         spinCount: 4000,
+        defaultInitialization: {
+          sentinel: 86,
+          lastError: defaultLastError,
+          exception: null,
+          before: defaultBefore,
+          after: defaultAfter,
+        },
         states,
       });
     } catch (error) {

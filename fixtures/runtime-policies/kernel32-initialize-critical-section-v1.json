@@ -1,0 +1,70 @@
+{
+  "schema": "vine.kernel32-compatibility-policy",
+  "schemaVersion": 1,
+  "id": "kernel32-initialize-critical-section-v1",
+  "standardHandleSelectors": [4294967286, 4294967285, 4294967284],
+  "standardHandleFileTypes": [
+    {
+      "selector": 4294967286,
+      "fileType": 2
+    },
+    {
+      "selector": 4294967285,
+      "fileType": 3
+    },
+    {
+      "selector": 4294967284,
+      "fileType": 3
+    }
+  ],
+  "setHandleCounts": [32],
+  "ansiCommandLine": true,
+  "wideEnvironmentStrings": true,
+  "wideCharToMultiByte": {
+    "activeCodePage": 932,
+    "maximumSourceCodeUnits": 65536
+  },
+  "multiByteToWideChar": {
+    "allowedFlags": [1],
+    "maximumSourceBytes": 65536
+  },
+  "getStringTypeW": {
+    "allowedInfoTypes": [1],
+    "maximumSourceCodeUnits": 65536
+  },
+  "lcMapStringW": {
+    "allowedLocales": [1041],
+    "allowedFlags": [256, 512],
+    "maximumSourceCodeUnits": 65536
+  },
+  "getModuleFileNameA": {
+    "mainModuleOnly": true,
+    "maximumCapacityBytes": 32768
+  },
+  "activeCodePageInfo": {
+    "maxCharSize": 2,
+    "defaultChar": [63, 0],
+    "leadByte": [129, 159, 224, 252, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "processorFeatures": [
+    {
+      "index": 10,
+      "present": true
+    }
+  ],
+  "heapAllocations": [
+    {
+      "flags": 8,
+      "byteLengths": [4, 128, 532, 2048]
+    },
+    {
+      "flags": 0,
+      "byteLengths": [1, 16, 544]
+    }
+  ],
+  "heapFreeFlags": [0],
+  "heapSizeFlags": [0, 1],
+  "initializeCriticalSection": {
+    "spinCountField": 33556432
+  }
+}

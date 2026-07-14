@@ -4575,19 +4575,36 @@ impl RuntimeState {
         address: GuestAddress,
         spin_count: u32,
     ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
+        self.preflight_critical_section_initialization(address)?;
+        if spin_count > 0x00ff_ffff {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-critical-section",
+                "critical-section-spin-count-invalid",
+                "critical section spin count exceeds the Win32 24-bit range",
+            ));
+        }
+        self.commit_critical_section_initialization(address, spin_count)
+    }
+
+    pub fn initialize_critical_section_with_spin_state(
+        &mut self,
+        address: GuestAddress,
+        spin_count_field: u32,
+    ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
+        self.preflight_critical_section_initialization(address)?;
+        self.commit_critical_section_initialization(address, spin_count_field)
+    }
+
+    fn preflight_critical_section_initialization(
+        &self,
+        address: GuestAddress,
+    ) -> Result<(), RuntimeStateError> {
         self.require_critical_section_operation_state()?;
         if address.0 == 0 || !address.0.is_multiple_of(4) {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-critical-section",
                 "critical-section-address-invalid",
                 "critical section storage must be a nonzero 4-byte-aligned guest address",
-            ));
-        }
-        if spin_count > 0x00ff_ffff {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-critical-section",
-                "critical-section-spin-count-invalid",
-                "critical section spin count exceeds the Win32 24-bit range",
             ));
         }
         if self.process.critical_sections.contains_key(&address) {
@@ -4607,11 +4624,19 @@ impl RuntimeState {
                 "process critical section count exceeds the runtime bound",
             ));
         }
+        Ok(())
+    }
+
+    fn commit_critical_section_initialization(
+        &mut self,
+        address: GuestAddress,
+        spin_count_field: u32,
+    ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
         self.process.critical_sections.insert(
             address,
             RuntimeCriticalSection {
                 address,
-                spin_count,
+                spin_count: spin_count_field,
                 owning_thread_id: None,
                 recursion_count: 0,
             },

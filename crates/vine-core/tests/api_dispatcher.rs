@@ -8,9 +8,11 @@ use vine_core::{
     FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
     GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress,
     GuestCallbackRequest, GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion,
-    HostRequest, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk,
-    ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
-    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32LcMapStringWPolicy,
+    HostRequest, INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION,
+    IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk, ImportThunkDisposition,
+    ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
+    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
+    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
     Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32StandardHandleFileType, Kernel32WideCharToMultiBytePolicy,
     LC_MAP_STRING_W_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
@@ -5624,6 +5626,141 @@ fn critical_section_contract_owns_recursive_state_and_guest_bytes() {
             .expect("released critical section bytes"),
         expected_critical_section_bytes(4000, None, 0)
     );
+}
+
+#[test]
+fn initialize_critical_section_uses_policy_owned_spin_state_and_void_abi() {
+    const CRITICAL_SECTION_ADDRESS: u32 = OUTPUT_BASE + 0x500;
+    const POLICY_SPIN_COUNT_FIELD: u32 = 0x0200_1234;
+
+    let (mut memory, owner) = initialized_memory();
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x90);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize InitializeCriticalSection IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "InitializeCriticalSection".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented InitializeCriticalSection endpoint");
+    assert_eq!(
+        contract.implementation_id,
+        INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Void);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.abi.arguments.len(), 1);
+
+    let frame = (STACK_BASE, vec![0x1000_0780, CRITICAL_SECTION_ADDRESS]);
+    write_frame(&mut memory, owner, GuestAddress(frame.0), &frame.1);
+    memory
+        .write_initialization(owner, GuestAddress(CRITICAL_SECTION_ADDRESS), &[0xa5; 24])
+        .expect("initialize critical-section output storage");
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+
+    let before_disabled = runtime.clone();
+    let memory_before_disabled = memory.stats();
+    let disabled = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frame.0, frame.1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "initialize-critical-section-policy-unsupported"
+    ));
+    assert_eq!(runtime, before_disabled);
+    assert_eq!(memory.stats(), memory_before_disabled);
+
+    let mut policy = compatibility_policy(
+        "initialize-critical-section-test",
+        vec![RUNTIME_STANDARD_INPUT_SELECTOR],
+        vec![(RUNTIME_STANDARD_INPUT_SELECTOR, 2)],
+        vec![(0x8, vec![0x214])],
+    );
+    policy.initialize_critical_section = Some(Kernel32InitializeCriticalSectionPolicy {
+        spin_count_field: POLICY_SPIN_COUNT_FIELD,
+    });
+    policy
+        .validate()
+        .expect("valid InitializeCriticalSection policy");
+    let initialized = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frame.0,
+        frame.1[0],
+        &policy,
+    );
+    assert_eq!(initialized.eax, RegisterUpdate::Preserve);
+    assert_eq!(initialized.stack_pointer, GuestAddress(frame.0 + 8));
+    assert_eq!(initialized.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(initialized.guest_writes.len(), 1);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(CRITICAL_SECTION_ADDRESS), 24)
+            .expect("initialized one-argument critical section bytes"),
+        expected_critical_section_bytes(POLICY_SPIN_COUNT_FIELD, None, 0)
+    );
+    assert_eq!(
+        runtime
+            .critical_section(GuestAddress(CRITICAL_SECTION_ADDRESS))
+            .expect("process-owned one-argument critical section")
+            .spin_count,
+        POLICY_SPIN_COUNT_FIELD
+    );
+
+    let before_duplicate = runtime.clone();
+    let memory_before_duplicate = memory.stats();
+    let duplicate = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frame.0, frame.1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        duplicate,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall
+                && fault.code == "critical-section-already-initialized"
+    ));
+    assert_eq!(runtime, before_duplicate);
+    assert_eq!(memory.stats(), memory_before_duplicate);
 }
 
 #[test]

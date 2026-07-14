@@ -249,18 +249,41 @@ function assertReportSemantics({
     expectedBrowser.memoryContentSha256,
   );
 
-  const nodeEndpoint = nodeReport.firstUnsupported.endpoint.endpoint;
-  assert.equal(nodeReport.firstUnsupported.endpoint.kind, expectedNext.endpointKind);
-  assert.equal(nodeEndpoint.id, expectedNext.endpointId);
-  assert.equal(hex32(nodeEndpoint.address), expectedNext.endpointAddress);
-  assert.equal(optionalHex32(nodeEndpoint.iatAddress), expectedNext.iatAddress);
-  assert.equal(
-    `${nodeEndpoint.module}!${endpointName(nodeEndpoint)}`.toLowerCase(),
-    expectedNext.api.toLowerCase(),
-  );
-  assert.equal(hex32(nodeReport.firstUnsupported.terminal.returnAddress), expectedNext.returnAddress);
   assert.equal(nodeReport.firstUnsupported.capabilityCluster, expectedNext.capabilityCluster);
   assert.equal(nodeReport.firstUnsupported.fault.code, expectedNext.reason);
+  if (expectedNext.kind === "execution-fault") {
+    assert.equal(nodeReport.firstUnsupported.endpoint, null);
+    assert.equal(
+      nodeReport.firstUnsupported.fault.instructionPointer,
+      Number.parseInt(expectedNext.fault.instructionPointer, 16),
+    );
+    assert.equal(
+      nodeReport.firstUnsupported.fault.previousInstructionPointer,
+      Number.parseInt(expectedNext.fault.previousInstructionPointer, 16),
+    );
+    assert.equal(
+      nodeReport.firstUnsupported.fault.faultAddress,
+      Number.parseInt(expectedNext.fault.faultAddress, 16),
+    );
+    assert.equal(
+      nodeReport.firstUnsupported.fault.pageFaultErrorCode,
+      expectedNext.fault.pageFaultErrorCode,
+    );
+  } else {
+    const nodeEndpoint = nodeReport.firstUnsupported.endpoint.endpoint;
+    assert.equal(nodeReport.firstUnsupported.endpoint.kind, expectedNext.endpointKind);
+    assert.equal(nodeEndpoint.id, expectedNext.endpointId);
+    assert.equal(hex32(nodeEndpoint.address), expectedNext.endpointAddress);
+    assert.equal(optionalHex32(nodeEndpoint.iatAddress), expectedNext.iatAddress);
+    assert.equal(
+      `${nodeEndpoint.module}!${endpointName(nodeEndpoint)}`.toLowerCase(),
+      expectedNext.api.toLowerCase(),
+    );
+    assert.equal(
+      hex32(nodeReport.firstUnsupported.terminal.returnAddress),
+      expectedNext.returnAddress,
+    );
+  }
 
   assert.equal(browserReport.runtimeProtocol, checkpoint.browserCheckpoint.browserRuntimeProtocol);
   assert.equal(browserReport.schema, "vine.browser-bgi-runtime-worker");
@@ -278,17 +301,37 @@ function assertReportSemantics({
   );
   const browserUnsupported = browserReport.success.report.firstUnsupported;
   assert.equal(browserUnsupported.capabilityCluster, expectedNext.capabilityCluster);
-  assert.equal(browserUnsupported.endpoint.id, expectedNext.endpointId);
-  assert.equal(hex32(browserUnsupported.endpoint.address), expectedNext.endpointAddress);
-  assert.equal(
-    optionalHex32(browserUnsupported.endpoint.iatAddress),
-    expectedNext.iatAddress,
-  );
-  assert.equal(
-    `${browserUnsupported.endpoint.module}!${endpointName(browserUnsupported.endpoint)}`.toLowerCase(),
-    expectedNext.api.toLowerCase(),
-  );
   assert.equal(browserUnsupported.fault.code, expectedNext.reason);
+  if (expectedNext.kind === "execution-fault") {
+    assert.equal(browserUnsupported.endpoint, null);
+    assert.equal(
+      browserUnsupported.fault.instructionPointer,
+      Number.parseInt(expectedNext.fault.instructionPointer, 16),
+    );
+    assert.equal(
+      browserUnsupported.fault.previousInstructionPointer,
+      Number.parseInt(expectedNext.fault.previousInstructionPointer, 16),
+    );
+    assert.equal(
+      browserUnsupported.fault.faultAddress,
+      Number.parseInt(expectedNext.fault.faultAddress, 16),
+    );
+    assert.equal(
+      browserUnsupported.fault.pageFaultErrorCode,
+      expectedNext.fault.pageFaultErrorCode,
+    );
+  } else {
+    assert.equal(browserUnsupported.endpoint.id, expectedNext.endpointId);
+    assert.equal(hex32(browserUnsupported.endpoint.address), expectedNext.endpointAddress);
+    assert.equal(
+      optionalHex32(browserUnsupported.endpoint.iatAddress),
+      expectedNext.iatAddress,
+    );
+    assert.equal(
+      `${browserUnsupported.endpoint.module}!${endpointName(browserUnsupported.endpoint)}`.toLowerCase(),
+      expectedNext.api.toLowerCase(),
+    );
+  }
   assert.equal(browserReport.success.report.pendingHostCalls, 0);
   assert.equal(browserReport.success.report.pendingCallbacks, 0);
   assert.equal(browserReport.cancellation.report.pendingHostCalls, 0);
@@ -595,6 +638,10 @@ fs.writeFileSync(temporary, `${JSON.stringify(evidence, null, 2)}\n`, { flag: "w
 fs.renameSync(temporary, options.output);
 console.log(
   `private target gate passed: ${evidence.semantic.node.supportedCalls} Node/Chrome calls, ` +
-    `${evidence.semantic.nextStructuredStop.api} structured stop; ` +
+    `${
+      evidence.semantic.nextStructuredStop.kind === "execution-fault"
+        ? evidence.semantic.nextStructuredStop.capabilityCluster
+        : evidence.semantic.nextStructuredStop.api
+    } structured stop; ` +
     `${options.outputRelative} payload ${evidence.payloadSha256}`,
 );
