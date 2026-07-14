@@ -50,10 +50,10 @@ therefore synchronization identity, not guest-visible equivalence.
 
 The successful run used 2,939 CPU slices, 2,666 budget yields, 8,818 validated
 Worker state transitions, 2,606 Rust/Wasm bridge operations, and a maximum
-observed slice of 2.115 ms. The main-thread heartbeat recorded 69 samples with a 17.220 ms
+observed slice of 1.615 ms. The main-thread heartbeat recorded 68 samples with a 17.135 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
-changed from 628,360 to 879,586 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats 719
+changed from 628,360 to 879,546 bytes; this remains run identity. The separate
+versioned BGI workload gate repeats 745
 complete sessions and measures main／Worker heap, backing storage, linear memory,
 slice distribution, heartbeat, and Wasm crossings.
 

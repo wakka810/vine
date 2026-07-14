@@ -181,6 +181,12 @@ OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は
 
 version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、thread `initialized／running／exit-requested／exited`、scheduler `initialized／terminating`を所有する。controlled registryはsecond TID／typed handle、thread-local LastError／TLS／callback／lane、explicit selectionを加え、process terminationをTID昇順thread signal＋process-last signalとして最大3 object recordsへtargeted atomic commitする。wait queueはmonotonic registration／object FIFO、`WaitingObject`、thread signalによるrunnable wake／exact event、exit cancellationを所有する。message queueはper-thread bounded FIFO、global sequence、`WaitingMessage`、first enqueue wake、exit cleanupを所有する。CPU context／stack／TEB、last-thread semantics、wait-any／wait-all／timeout、User32 message semanticsは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)を正とする。
 
+Process-owned critical-section collectionは`runtime/synchronization.rs`のprivate
+`RuntimeSynchronization`が所有する。`RuntimeState`はprocess／selected-thread／scheduler lifecycleを
+preflightしてcurrent thread identityを渡すcoordinatorに限定し、initialize／enter／recursive-enter／leaveは
+subsystem内のmutation-free plan後に1 recordだけcommitする。詳細は
+[runtime-synchronization.md](runtime-synchronization.md)を正とする。
+
 ### 5.3 Clock ownership
 
 clock を browser の複数時刻源へ分散させない。

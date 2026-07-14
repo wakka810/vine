@@ -14,7 +14,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active runtime | `bgi-initial-thread-stack-growth`: 268 calls across 44 API contracts, memory generation 374 |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (719 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (745 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `KERNEL32.dll!MultiByteToWideChar(0x00000000, 0x00000000, 0x006fe0a4, 0xffffffff, 0x006fd150, 0x0000030c)` at instruction 22843: `multi-byte-to-wide-char-variant-unsupported` |
 

@@ -532,6 +532,25 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active runtime message subsystem boundary is invalid");
   }
+  const synchronization = requireRecord(
+    active.runtimeSynchronization,
+    "activeRuntimeCheckpoint.runtimeSynchronization",
+    errors,
+  );
+  if (
+    synchronization.schema !== "vine.runtime-synchronization.v1" ||
+    synchronization.stateOwner !== "runtime/synchronization.rs::RuntimeSynchronization" ||
+    synchronization.mutableCollectionVisibility !== "private" ||
+    synchronization.serializedProcessField !== "criticalSections" ||
+    synchronization.crossSubsystemMutation !==
+      "lifecycle-preflight-then-subsystem-plan-commit" ||
+    synchronization.subsystemTests < 2 ||
+    synchronization.crossSubsystemAtomicTests < 2 ||
+    synchronization.criticalSectionLimit !== 4096 ||
+    synchronization.wholeRuntimeStateClone !== false
+  ) {
+    errors.push("active runtime synchronization subsystem boundary is invalid");
+  }
   const addressSpace = requireRecord(
     active.processAddressSpaceAllocator,
     "activeRuntimeCheckpoint.processAddressSpaceAllocator",

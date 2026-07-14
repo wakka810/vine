@@ -120,6 +120,15 @@ assert.ok(
   ),
 );
 
+const exposedSynchronization = structuredClone(manifest);
+exposedSynchronization.activeRuntimeCheckpoint.runtimeSynchronization.mutableCollectionVisibility =
+  "public";
+assert.ok(
+  validateCurrentCheckpoint(exposedSynchronization).some((error) =>
+    error.includes("synchronization subsystem boundary"),
+  ),
+);
+
 const detachedHeapAddress = structuredClone(manifest);
 detachedHeapAddress.activeRuntimeCheckpoint.processAddressSpaceAllocator.heapBackingUsesAllocationId =
   false;

@@ -4,7 +4,7 @@
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは44 contracts／268 callsをcommon dispatcherからreturnした。PE header由来の1 MiB initial stack reserve、4 KiB initial commit、movable guardをRust `GuestMemory`とprocess-wide allocation IDへ接続し、Node／Chromeで4回のone-page growthをsemantic一致させた。現在はinstruction 22,843の`MultiByteToWideChar(CP_ACP,0,...)` unsupported variantで停止する。protocol v4はexplicit `memory-fault` transitionを含むexecution state machineを維持し、production loopをpinned ExecutionEngine contractへ閉じる。3分／719-session workload gateはsession／slice／heartbeat分布、main／Worker heapとbacking-storage slope、linear memory、2,606 Wasm crossings/sessionの17 thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
+- 現在地: Phase 0 In discovery／W1／W2／W3／W7 PE32 load／memory／entry return／stack bootstrap／bootstrap ingress／explicit import traps／BGI seventeenth Win32 call。Frozen BGI evidenceは最初の17 API returnで固定し、separate runtime-kernel profileは44 contracts／268 callsをcommon dispatcherからreturnした。PE header由来の1 MiB initial stack reserve、4 KiB initial commit、movable guardをRust `GuestMemory`とprocess-wide allocation IDへ接続し、Node／Chromeで4回のone-page growthをsemantic一致させた。現在はcapability追加をpauseし、process-owned critical-section collectionをprivate `RuntimeSynchronization`へ分割した。Next exact stopはinstruction 22,843の`MultiByteToWideChar(CP_ACP,0,...)` unsupported variantのまま維持する。protocol v4はexplicit `memory-fault` transitionを含むexecution state machineを維持し、production loopをpinned ExecutionEngine contractへ閉じる。3分／745-session workload gateはsession／slice／heartbeat分布、main／Worker heapとbacking-storage slope、linear memory、2,606 Wasm crossings/sessionの17 thresholdを通した。full-play steady-memory、visual critical scenarioとdevice-level COM continuationは未完了
 - repository baseline: `main` の `4e8f29d` はルート `README.md` 1 行だけ。現在は docs、repository check、PE32 fixtures、v86 source adapter、W1／W2／W3、high-address memory、Rust W7 load／memory／stack／bootstrap、sealed BGI trap binding、388-page entry-to-trap execution、controlled Chrome Runtime Worker、version 1 v86 browser engine gate、mapped module／bounded PE32 export registry、controlled guest import／DLL process callback lifecycle、public CIがある。bound multi-module CPU execution、dynamic DLL lifecycle、general process integration、Win32 runtime、title browser appは未実装
 - 対象: PE32 / i386、Win32、GDI／GDI+、bounded D3D9、DirectInput 8、DirectSound によるサクラノ詩 full-play runtime
 
@@ -1016,7 +1016,11 @@ storage slope、Rust／execution-engine linear memory、2,033 Wasm crossings/ses
 29. [完了] initial thread stackのPE header由来1 MiB reserve／4 KiB commit／movable guard ownershipをRust `GuestMemory`とprocess-wide address allocation ID `37`へ接続した。Guard page内faultをmutation前に分類し、4回のzeroed RW one-page deltaをNode／Chromeへ適用した。268 callsまで進み、instruction 22,843の`MultiByteToWideChar(CP_ACP,0,...)` unsupported variantを次のexact stopとして固定した。Stack overflow、追加thread、SEH deliveryは一般化していない。
 30. `MultiByteToWideChar(CP_ACP,0,0x006FE0A4,-1,0x006FD150,780)`のnative query／conversion、NUL-inclusive length、LastError、output、caller consumerを固定し、existing active-code-page policyへgeneral semanticsとして接続する。Explicit code page 932／flags 1 variantを退行させず、same sessionの次のexact structured stopまで進める。
 
-frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated nineteenth-call expansionはpauseを続ける。Initial-thread stack growthは完了し、現在は`MultiByteToWideChar`のCP_ACP／flags-zero variantを進める。この queue の各 checkpoint は、必要なnative evidenceまたはguest fault evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
+frozen third `EncodePointer(0x7F020000)`はhistorical trapとして保持し、dedicated nineteenth-call expansionはpauseを続ける。Initial-thread stack growthは完了し、`MultiByteToWideChar`のCP_ACP／flags-zero variantは次のcapability itemとして保持する。この queue の各 checkpoint は、必要なnative evidenceまたはguest fault evidence、実装、代表 automated test 1 本、既存evidenceとのsemantic同等性、短い結果記録で閉じる。
+
+Capability expansionはitem 30着手前でpauseする。Architecture refactor checkpoint S1は既存
+critical-section stateを`runtime/synchronization.rs`へ移し、private collection、mutation-free plan、
+aggregate lifecycle preflight後のcommitを固定する。Supported API、call数、memory result、next stopは変更しない。
 
 ## 23. 完了の定義
 
