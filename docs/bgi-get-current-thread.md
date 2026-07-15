@@ -96,6 +96,11 @@ SHA-256
 `5ae9a13a397f2c2f2a78833bfe16fb22cebf60d8c444941d3d23c3dbca203d56`;
 cancel and watchdog teardown both leave zero pending work.
 
+The commit-bound 180-second Chrome workload gate completed 306 repetitions with
+zero failures and passed all 17 versioned thresholds. It retains 2,852 Wasm
+bridge operations per session; the 912,820-byte report has SHA-256
+`cf288c91072a115db539fafaffa0a21553df7518eb69a1eefaa0901423e9cf8f`.
+
 ## Non-claims
 
 This checkpoint does not implement `SetThreadAffinityMask`, native scheduler

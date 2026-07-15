@@ -222,7 +222,8 @@ evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
 The separate 180-second BGI workload gate repeats this complete session in the
 same Worker and records latency distributions, heartbeat, main／Worker heap,
 backing-storage slope, linear-memory sizes, and 2,852 bridge operations per
-session. Its commit-bound measurement is refreshed separately; details are in
+session. The commit-bound run completed 306 sessions with zero failures and
+passed all 17 thresholds; details are in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md).
 
 ## 30-minute stress

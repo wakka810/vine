@@ -53,9 +53,11 @@ Worker state transitions, 2,852 Rust/Wasm bridge operations, and a maximum
 observed slice of 2.780 ms. The main-thread heartbeat recorded 106 samples with a 28.010 ms
 maximum gap while the Worker ran. A single-run `usedJSHeapSize` observation
 changed from 628,738 to 899,918 bytes; this remains run identity. The separate
-versioned BGI workload gate repeats
-complete sessions and measures main／Worker heap, backing storage, linear memory,
-slice distribution, heartbeat, and Wasm crossings.
+versioned BGI workload gate completed 306 sessions with zero failures and passed
+all 17 thresholds. It measures main／Worker heap, backing storage, linear memory,
+slice distribution, heartbeat, and 2,852 Wasm crossings per session; the exact
+912,820-byte report has SHA-256
+`cf288c91072a115db539fafaffa0a21553df7518eb69a1eefaa0901423e9cf8f`.
 
 Separate cancellation and watchdog probes stop after 8 and 4 instructions.
 Both retire pending host calls and callbacks, detach the callback-free system
