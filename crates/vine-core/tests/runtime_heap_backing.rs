@@ -244,10 +244,10 @@ fn private_heap_backing_is_atomic_reusable_and_process_owned() {
     assert_eq!(process_teardown.allocations_discarded, 1);
     runtime.complete_current_process_exit().unwrap();
     assert_eq!(
-        runtime.process().lifecycle,
+        runtime.process().lifecycle(),
         RuntimeProcessLifecycleState::Exited { exit_code: 7 }
     );
-    assert!(runtime.process().heaps().is_empty());
+    assert!(runtime.heaps().is_empty());
     assert_eq!(memory.stats().owners, 0);
     assert_eq!(memory.stats().regions, 0);
     assert_eq!(memory.stats().physical_pages, 0);

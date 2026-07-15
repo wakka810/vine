@@ -463,6 +463,62 @@
     "KERNEL32.dll!CreateMutexA"
   ],
   "allSupportedCallsUseGenericDispatcher": true,
+  "runtimeKernelBoundary": {
+    "schema": "vine.runtime-kernel-boundary.v1",
+    "checkpoint": "S13",
+    "publicFacade": "runtime.rs",
+    "aggregateType": "runtime/kernel.rs::RuntimeKernel",
+    "compatibilityAlias": "RuntimeState",
+    "compatibilityAliasKind": "type-alias",
+    "aggregateRole": [
+      "private-subsystem-ownership",
+      "cross-subsystem-transaction-coordination",
+      "compatibility-serialization"
+    ],
+    "directFields": [
+      "process-state",
+      "process-address-space-allocator",
+      "threads",
+      "scheduler-and-waits",
+      "messages",
+      "objects",
+      "heaps",
+      "module-records",
+      "synchronization",
+      "modules",
+      "registries"
+    ],
+    "directMutableCollectionFields": 0,
+    "directScalarAllocators": 0,
+    "directSubsystemCollectionMutation": false,
+    "subsystemMutableCollectionVisibility": "private",
+    "processStateOwner": "runtime/process.rs::RuntimeProcessState",
+    "processMutableCollectionVisibility": "private",
+    "processIndependentSubsystemOwners": [
+      "heaps",
+      "module-records",
+      "synchronization"
+    ],
+    "processSerializationView": "runtime/kernel.rs::RuntimeProcessView",
+    "processSerializationViewAccess": "immutable-borrow",
+    "processLifecyclePlansRejectStaleCommit": true,
+    "mutexObjectPlan": "runtime/objects.rs::RuntimeMutexObjectMutationPlan",
+    "mutexObjectPlanVisibility": "opaque-to-kernel",
+    "mutexSubsystemRootCloneOrReplacementFromKernel": false,
+    "representativeSubsystemTests": [
+      "runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections",
+      "runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state",
+      "runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order",
+      "runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit"
+    ],
+    "representativeCrossSubsystemAtomicTests": [
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned",
+      "runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle",
+      "runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion",
+      "runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit"
+    ],
+    "capabilityExpansionPausedAt": "kernel32-get-current-thread"
+  },
   "runtimeObjectModel": {
     "schema": "vine.runtime-object-table.v2",
     "stateOwner": "runtime/objects.rs::RuntimeObjectTable",

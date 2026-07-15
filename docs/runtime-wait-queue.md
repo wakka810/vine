@@ -106,5 +106,6 @@ The controlled per-thread message queue dependency is now implemented in
 wake share the scheduler metadata. Controlled private-heap backing is implemented in
 [runtime-heap-backing.md](runtime-heap-backing.md). Named mutex ownership／recursion／handle lifetime
 is documented in [runtime-synchronization.md](runtime-synchronization.md) and
-[bgi-create-mutex-a.md](bgi-create-mutex-a.md). Capability expansion remains paused while the remaining
-`RuntimeState` responsibility boundaries are extracted.
+[bgi-create-mutex-a.md](bgi-create-mutex-a.md). Runtime responsibility checkpoint S13 completes the
+remaining aggregate ownership audit; capability expansion resumes from the saved `GetCurrentThread`
+stop after its evidence gate.

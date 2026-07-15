@@ -15,7 +15,7 @@ cross-subsystem transactionを固定した。
 互換性のため、serialized process shapeでは`criticalSections`／`mutexes` fieldへflattenする。このJSON
 shapeはcurrent diagnostic representationであり、persistent snapshot ABIではない。
 
-`RuntimeState` aggregate rootに残す責務は次だけである。
+`RuntimeKernel` aggregate root（既存caller向けaliasは`RuntimeState`）に残す責務は次だけである。
 
 - process lifecycleが`running`であることを確認する
 - selected thread lifecycleが`running`であることを確認する
@@ -28,10 +28,11 @@ address、duplicate、capacity、owner、recursion、contentionのvalidationとs
 `commit`だけが1 recordを置換する。したがってlifecycle、Win32 spin-count、subsystem transitionの
 いずれかが失敗してもaggregate stateは変化しない。
 
-Mutex create／open／last-closeはobject tableも変更するため、aggregate coordinatorはobject tableと
-synchronization stateをcloneし、両方のplanとcapacity／lifecycle preflightが成功した後だけsame
-operationとしてcommitする。Synchronization subsystemはhandle slotやobject refcountを直接mutateせず、
-object tableはname、owner、recursionを保持しない。
+Mutex create／open／last-closeはobject tableも変更する。Object subsystemはprevious／next stateを閉じ込めた
+opaque `RuntimeMutexObjectMutationPlan`を返し、stale commitをmutation前に拒否する。Aggregate coordinatorは
+object／synchronization collectionを参照・clone・置換せず、両方のplanとcapacity／lifecycle preflightが
+成功した後だけ各ownerのcommitをsame operationで呼ぶ。Synchronization subsystemはhandle slotやobject
+refcountを直接mutateせず、object tableはname、owner、recursionを保持しない。
 
 ## Preserved behavior
 

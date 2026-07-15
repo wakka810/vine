@@ -144,23 +144,27 @@ npm run check:runtime:bgi -- --profile kernel32-file-type
 npm run check:runtime:bgi -- --profile kernel32-standard-output-handle
 ```
 
-## RuntimeState authority
+## Runtime kernel authority
 
-One `RuntimeState` is created at cumulative-session start. It owns:
+One `RuntimeKernel` is created at cumulative-session start; `RuntimeState` is
+its compatibility type alias. The kernel is the aggregate authority, but it does
+not keep subsystem collections as flat fields or mutate their maps directly:
 
-- process ID, address-space control ranges, clock, startup profile, heap policy, logical heaps, loaded modules, and TLS indices;
-- current thread ID, per-thread LastError, TLS／FLS values, and callback frame stack;
-- private `RuntimeRegistries`-owned dynamic endpoints and deterministic encoded pointers, scheduler-owned pending host requests, and scheduler events.
-- process-owned critical sections keyed by guest address, with spin count,
-  controlled thread ownership, and recursion state.
-- bounded process-owned FLS slots keyed by logical index, with retained optional
-  guest cleanup callbacks.
-- bounded private-heap backing and reached guest allocation metadata, with
-  `GuestMemory` as byte and mapping authority.
-- the reached process standard input／output identities, without importing host handles.
-- a process-owned ANSI command-line pointer derived from the UTF-16 process-parameter authority.
-- one controlled UTF-16 environment authority and one bounded copy lease; host environment
-  names and values are never imported.
+- private `RuntimeProcessState` owns process ID, lifecycle, clock, startup
+  profile, heap policy, standard handles, image／directory policy, command line,
+  environment authority, and bounded environment-copy lifetime;
+- private `RuntimeThreads` owns thread records, per-thread LastError, TLS／FLS
+  values, callback frames, process-wide TLS／FLS registries, and their allocators;
+- private scheduler／wait／message owners hold current selection, lanes, events,
+  host requests, wait registrations, and per-thread message FIFOs;
+- private object, heap, module, synchronization, and registry owners hold their
+  respective identities, maps, allocators, and lifecycle plans;
+- `ProcessAddressSpaceAllocator` owns address-range identity, while
+  `GuestMemory` remains byte and mapping authority.
+
+The kernel exposes the existing API surface and coordinates owner-local
+`plan -> preflight -> commit` transactions. Existing diagnostic JSON is emitted
+through borrowed compatibility views; it is not a second mutable authority.
 
 The Rust profile preloads the logical runtime KERNEL32 module and installed FLS endpoints. `HeapCreate` and `TlsAlloc` allocate through runtime-owned deterministic allocators. `GetModuleHandleW` and `GetProcAddress` resolve state by canonical module and exact export name. No handler receives a result value from the JSON protocol.
 

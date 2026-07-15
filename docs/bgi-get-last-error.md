@@ -17,7 +17,7 @@ Kernel32 contract. It adds no compatibility-policy option and no second copy of
 thread state.
 
 ```text
-Rust RuntimeState selected thread owns LastError = 87
+Rust RuntimeThreads selected-thread record owns LastError = 87
   -> GetLastError() returns 87
   -> dispatcher preserves LastError = 87
   -> BGI copies EAX into EDI for the following call chain

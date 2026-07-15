@@ -2,13 +2,47 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use crate::dynamic_exports::{DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DYNAMIC_EXPORT_SLOT_SIZE};
+use crate::dynamic_exports::{
+    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk,
+};
 use crate::memory::GuestAddress;
 
-use super::{
-    LOGICAL_ENCODED_POINTER_NAMESPACE, RuntimeAddressRange, RuntimeDynamicEndpoint,
-    RuntimeEncodedPointer, RuntimeStateError,
-};
+use super::{RuntimeAddressRange, RuntimeStateError};
+
+pub const LOGICAL_ENCODED_POINTER_NAMESPACE: &str = "vine.logical-encoded-pointer.v1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDynamicEndpoint {
+    pub namespace: String,
+    pub id: u32,
+    pub address: GuestAddress,
+    pub module: String,
+    pub name: String,
+    pub lifetime: String,
+}
+
+impl From<&DynamicExportThunk> for RuntimeDynamicEndpoint {
+    fn from(thunk: &DynamicExportThunk) -> Self {
+        Self {
+            namespace: thunk.namespace.to_owned(),
+            id: thunk.id.0,
+            address: thunk.address,
+            module: thunk.module.clone(),
+            name: thunk.name.clone(),
+            lifetime: thunk.lifetime.to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeEncodedPointer {
+    pub namespace: String,
+    pub token_id: u16,
+    pub token: u32,
+    pub source: u32,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

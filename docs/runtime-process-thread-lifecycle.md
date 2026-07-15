@@ -154,5 +154,6 @@ wait registration／wake dependency is implemented in [runtime-wait-queue.md](ru
 Per-thread message ownership and empty-queue wake are implemented in
 [runtime-message-queue.md](runtime-message-queue.md). Controlled private-heap backing and the
 required exit-request cleanup boundary are implemented in
-[runtime-heap-backing.md](runtime-heap-backing.md). Capability expansion is paused while the remaining
-heap／module boundaries are extracted.
+[runtime-heap-backing.md](runtime-heap-backing.md). Heap／module ownership and the final process／kernel
+aggregate audit are complete in responsibility checkpoint S13. The saved `GetCurrentThread` stop is
+the next capability checkpoint after S13 evidence is committed.

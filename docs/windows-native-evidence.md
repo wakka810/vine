@@ -2283,8 +2283,9 @@ PID suffixはsemantic contractへimportしない。
 
 Rust `RuntimeSynchronization`はANSI bytes／Windows-932 UTF-16 identity、owner thread、recursion、
 named indexをprivateに所有する。Generic object tableは`RuntimeObjectKind::Mutex`、type tag
-`0x58`、handle slots、object lifetimeだけを所有する。Create／open／last close／process teardownは
-両stateをclone-planしてlifecycle／capacity preflight後にcommitする。Unowned／same-thread waitは
+`0x58`、handle slots、object lifetimeだけを所有する。Create／open／last close／process teardownでは
+synchronization ownerがmutation-free plan、object ownerがopaque mutation planを作る。`RuntimeKernel`は
+lifecycle／capacity preflight後に両ownerのcommitだけを呼び、subsystem rootをclone／置換しない。Unowned／same-thread waitは
 acquire／recursive acquireし、other-thread contentionは`mutex-contended-unsupported`でmutation前に
 停止する。`kernel32.create-mutex-a.v1`はactive policyのnamed／32 KiB boundだけを使い、guest
 pointerを保持しない。New objectはLastError 0、existing nameは183を設定する。

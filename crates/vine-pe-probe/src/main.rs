@@ -2757,19 +2757,13 @@ fn run_v86_generic_runtime_session(
             current_thread_id: process.runtime.current_thread_id().0,
             current_directory_a: process.runtime.current_directory_a().clone(),
             current_directory_generation: process.runtime.current_directory_generation(),
-            process_lifecycle: process.runtime.process().lifecycle,
+            process_lifecycle: process.runtime.process().lifecycle(),
             scheduler_state: process
                 .runtime
                 .scheduler_state()
                 .map_err(runtime_state_error)?,
             dll_lifecycle: process.runtime.dll_lifecycle_phase(),
-            modules: process
-                .runtime
-                .process()
-                .modules()
-                .values()
-                .cloned()
-                .collect(),
+            modules: process.runtime.modules().values().cloned().collect(),
             main_module_handle: process.main_module_handle,
             dependency_edges: process.binding.dependency_edges.len(),
             attach_order: process.attach_order.clone(),
@@ -5303,7 +5297,7 @@ fn run_v86_heap_set_information_return_session(
         transaction.commit_transaction();
         (reconciliation, result)
     };
-    let termination_on_corruption_enabled = runtime.process().heap_termination_on_corruption;
+    let termination_on_corruption_enabled = runtime.process().heap_termination_on_corruption();
     if !termination_on_corruption_enabled
         || result != 1
         || runtime.current_last_error().map_err(runtime_state_error)? != last_error_before
@@ -5425,7 +5419,7 @@ fn run_v86_heap_create_return_session(
     let contract =
         heap_create_contract(ApiEndpointIdentity::from_import_thunk(&thunk)).map_err(api_fault)?;
 
-    if !runtime.process().heap_termination_on_corruption {
+    if !runtime.process().heap_termination_on_corruption() {
         return Err(LoaderError::invalid_input(
             "win32-private-heap",
             "heap-policy-runtime-state-missing",

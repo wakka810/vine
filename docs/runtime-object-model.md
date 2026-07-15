@@ -21,9 +21,10 @@ mutateしない。外部のdiagnostic consumerにはobject／handle mapのimmuta
 
 Wait-state transitionはmutation-free planを作り、scheduler wakeのpreflight後にobject subsystemへ
 commitする。Heap／module retirementは全identityとhandle slotをpreflightしてからbatch commitする。
-Named mutex create／last closeはobject tableとprivate synchronization stateをclone-planし、両方の
-preflightが成功した場合だけaggregateが二つのsubsystem rootを置換する。whole `RuntimeState`は
-cloneしない。
+Named mutex create／last close／process teardownはobject subsystemがopaque
+`RuntimeMutexObjectMutationPlan`を作り、private synchronization planとの両方のpreflightが成功した場合だけ
+aggregateが各ownerのcommitを呼ぶ。Planningとstale-plan rejectionはobject mapsを変更せず、aggregateは
+object／synchronization rootをcloneまたは置換しない。
 
 Exact-handle registrationの失敗時はobject record、identity indexだけでなくmonotonic object ID
 allocatorも元へ戻す。これによりruntime-defectを含むfailure pathで、後続のopaque identityへ
@@ -89,9 +90,9 @@ cross-thread registration、wait-any／wait-all、wake ordering、timeout、aler
 
 ## Existing state integration
 
-`RuntimeState::new`はaggregate coordinatorとしてprocess／initial-thread objectとfirst handleを
-object subsystemへ必ず作らせる。Existing `RuntimeProcessState.heaps`／`modules`はpayload registryと
-して残すが、create／load時に
+`RuntimeKernel::new`（互換名`RuntimeState::new`）はaggregate coordinatorとしてprocess／initial-thread
+objectとfirst handleをobject subsystemへ必ず作らせる。Heap／module payload registryはprocess stateへ
+nestせず、それぞれ独立したprivate ownerとしてkernelが保持する。create／load時に
 同じexact handleをobject tableへatomic registrationし、lookup前にkind／generation／
 livenessを検証する。これにより既存BGIのheap／KERNEL32 handlesを変えずにcommon
 lifetime boundaryへ入れた。
@@ -152,5 +153,7 @@ thread registry is implemented in [runtime-thread-registry.md](runtime-thread-re
 controlled wait-queue dependency is implemented in [runtime-wait-queue.md](runtime-wait-queue.md).
 Per-thread message ownership is implemented in [runtime-message-queue.md](runtime-message-queue.md).
 Subsystem-owned heap retirement and guest-memory backing are implemented in
-[runtime-heap-backing.md](runtime-heap-backing.md). Capability expansion is paused while the remaining
-thread、scheduler／wait、heap、module responsibility boundaries are extracted in bounded checkpoints.
+[runtime-heap-backing.md](runtime-heap-backing.md). Runtime responsibility checkpoint S13 closes the
+aggregate audit: `RuntimeKernel` owns only private subsystem roots and transaction coordination, while
+`RuntimeState` remains a compatibility alias. The saved `GetCurrentThread` stop is the next capability
+checkpoint after S13 evidence is committed.

@@ -4,8 +4,8 @@
 
 review Step 9のsixth foundationとして、controlled thread registryへRust-owned per-thread FIFOを
 追加した。別registered threadからordered messageをenqueueし、ownerがdequeueするまでのidentity、
-empty-queue blocking、first-message wake、thread/process exit cleanupをauthoritative `RuntimeState`へ
-置く。
+empty-queue blocking、first-message wake、thread/process exit cleanupをauthoritative Rust runtime
+kernelへ置く。Mutable queue authorityそのものはprivate `RuntimeMessages`に限定する。
 
 このcheckpointはUser32 `PostMessage`／`PostThreadMessage`／`PeekMessage`／`GetMessage`／
 `DispatchMessage`を追加しない。HWND、message、WPARAM、LPARAMはopaque 32-bit metadataであり、
@@ -20,7 +20,7 @@ window ownership、filter、paint generation、WM_QUIT semanticsを検証しな�
 - `message`, `w_param`, `l_param`
 
 Queueとprocess-global ID allocatorは`runtime/messages.rs`のprivate `RuntimeMessages`が所有する。
-mutable `BTreeMap<RuntimeThreadId, VecDeque<_>>`は`RuntimeState`、thread subsystem、schedulerへ公開しない。
+mutable `BTreeMap<RuntimeThreadId, VecDeque<_>>`は`RuntimeKernel`、thread subsystem、schedulerへ公開しない。
 read-only inspectionは`queued_thread_messages`が返すcopy snapshotを使う。controlled capacityは4,096
 messages／threadであり、registration時はemptyである。IDsはoverflow前に停止し、host pointerや
 JavaScript objectをguest metadataへ入れない。
@@ -28,8 +28,8 @@ JavaScript objectをguest metadataへ入れない。
 ## Mutation boundary
 
 `RuntimeMessages`はqueue／allocatorだけを検査して`RuntimeMessagePostPlan`、receive plan、clear planを
-返す。plan作成はstateを変更しない。aggregate rootの`RuntimeState`はprocess／source thread／target
-thread／scheduler laneをpreflightし、message planをcommitした後、必要な場合だけ`MessageReady`と
+返す。plan作成はstateを変更しない。aggregate rootの`RuntimeKernel`（互換名`RuntimeState`）は
+process／source thread／target thread／scheduler laneをpreflightし、message planをcommitした後、必要な場合だけ`MessageReady`と
 `Runnable`を反映する。message subsystemはscheduler mapを直接mutateせず、schedulerはqueueを直接
 mutateしない。
 
@@ -104,7 +104,8 @@ reentrancy, dispatch callback, cross-process post, broadcast, quota parity, gues
 or CPU context switching. Existing W2 message／paint flow remains a separate fixed JavaScript harness.
 This is partial evidence for `P1-SCH-01`／`REQ-UI-02`, not their completion.
 
-The controlled private-heap dependency is now implemented in
+The controlled private-heap dependency is implemented in
 [runtime-heap-backing.md](runtime-heap-backing.md): typed logical heaps own bounded Rust guest-memory
-allocations, deterministic free／reuse, and exit-request teardown. Capability expansion remains paused
-while heap／module responsibility boundaries are extracted.
+allocations, deterministic free／reuse, and exit-request teardown. Runtime responsibility checkpoint
+S13 closes the remaining aggregate boundary; capability expansion resumes from the saved
+`GetCurrentThread` stop only after that checkpoint's evidence gate.

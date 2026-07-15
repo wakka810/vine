@@ -21,6 +21,12 @@ const rendered = renderReadmeStatus(manifest);
 assert.ok(rendered.startsWith(README_STATUS_START));
 assert.ok(rendered.endsWith(README_STATUS_END));
 assert.ok(rendered.includes(manifest.activeRuntimeCheckpoint.runtimeKernelCheckpoint));
+assert.ok(
+  rendered.includes(manifest.activeRuntimeCheckpoint.runtimeKernelBoundary.checkpoint),
+);
+assert.ok(
+  rendered.includes(manifest.activeRuntimeCheckpoint.runtimeKernelBoundary.aggregateType),
+);
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
 for (const api of manifest.activeRuntimeCheckpoint.genericDispatcherApis) {
@@ -108,6 +114,32 @@ mismatchedBenchmarkCrossings.browserCheckpoint.bgiBenchmarkEvidence.wasmBridgeCa
 assert.ok(
   validateCurrentCheckpoint(mismatchedBenchmarkCrossings).some((error) =>
     error.includes("benchmark evidence"),
+  ),
+);
+
+const aggregateMutatesSubsystemCollection = structuredClone(manifest);
+aggregateMutatesSubsystemCollection.activeRuntimeCheckpoint.runtimeKernelBoundary.directSubsystemCollectionMutation =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(aggregateMutatesSubsystemCollection).some((error) =>
+    error.includes("kernel responsibility boundary"),
+  ),
+);
+
+const exposedProcessCollections = structuredClone(manifest);
+exposedProcessCollections.activeRuntimeCheckpoint.runtimeKernelBoundary.processMutableCollectionVisibility =
+  "public";
+assert.ok(
+  validateCurrentCheckpoint(exposedProcessCollections).some((error) =>
+    error.includes("kernel responsibility boundary"),
+  ),
+);
+
+const incompleteRepresentativeAtomicCoverage = structuredClone(manifest);
+incompleteRepresentativeAtomicCoverage.activeRuntimeCheckpoint.runtimeKernelBoundary.representativeCrossSubsystemAtomicTests.pop();
+assert.ok(
+  validateCurrentCheckpoint(incompleteRepresentativeAtomicCoverage).some((error) =>
+    error.includes("kernel responsibility boundary"),
   ),
 );
 

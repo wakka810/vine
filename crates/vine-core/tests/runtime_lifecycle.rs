@@ -16,7 +16,7 @@ fn process_and_thread_lifecycle_separates_exit_request_from_waitable_completion(
         .current_thread_handle()
         .expect("bootstrap thread handle");
     assert_eq!(
-        runtime.process().lifecycle,
+        runtime.process().lifecycle(),
         RuntimeProcessLifecycleState::Bootstrapping
     );
     assert_eq!(
@@ -42,7 +42,7 @@ fn process_and_thread_lifecycle_separates_exit_request_from_waitable_completion(
         .start_initial_thread()
         .expect("start initial runtime thread");
     assert_eq!(
-        runtime.process().lifecycle,
+        runtime.process().lifecycle(),
         RuntimeProcessLifecycleState::Running
     );
     assert_eq!(
@@ -85,7 +85,7 @@ fn process_and_thread_lifecycle_separates_exit_request_from_waitable_completion(
     assert_eq!(cancellation.callback_frames_cancelled, 1);
     assert_eq!(cancellation.scheduler_events_discarded, 0);
     assert_eq!(
-        runtime.process().lifecycle,
+        runtime.process().lifecycle(),
         RuntimeProcessLifecycleState::ExitRequested {
             exit_code: 7,
             initiating_thread_id: RuntimeThreadId(THREAD_ID),
@@ -126,7 +126,7 @@ fn process_and_thread_lifecycle_separates_exit_request_from_waitable_completion(
         .complete_current_process_exit()
         .expect("complete process exit");
     assert_eq!(
-        runtime.process().lifecycle,
+        runtime.process().lifecycle(),
         RuntimeProcessLifecycleState::Exited { exit_code: 7 }
     );
     assert_eq!(
@@ -167,7 +167,7 @@ fn process_and_thread_lifecycle_separates_exit_request_from_waitable_completion(
         .request_current_thread_exit(0xc000_013a)
         .expect("request thread-only exit");
     assert_eq!(
-        thread_only.process().lifecycle,
+        thread_only.process().lifecycle(),
         RuntimeProcessLifecycleState::Running
     );
     assert_eq!(

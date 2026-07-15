@@ -269,6 +269,17 @@ invalid sentinel／wrong frame時のlifecycle／callback stack不変、old frame
 replacementを固定する。Import binding contractsはplan／memory／metadata commit ordering、failed memory
 work後のretryを維持する。Active DLL operationはgraph／image／binding mutationをsubsystem内で拒否する。
 
+Runtime responsibility checkpoint S13のcontractは、`runtime.rs`がsubsystem宣言／re-exportだけのfacade、
+`RuntimeKernel`がaggregate実体、`RuntimeState`がcompatibility aliasであることを固定する。Kernelのdirect
+fieldはprocess state、address allocator、private subsystem ownerだけとし、direct scalar allocatorと
+subsystem collection mutationを持たない。`RuntimeProcessState`のlifecycle／environment／standard-handle
+collectionはprivateで、heap／module／synchronizationはindependent owner、従来の`process` JSONは
+`RuntimeProcessView`のimmutable borrowed serializationで維持する。Mutex object planはkernelへopaqueで、
+create／open／last close／teardownのstale commitが両ownerをpartial mutationしないことをunit／integration
+testで固定する。Heap、module attach、thread exit、wait wakeの各operationはowner-local plan testと
+cross-subsystem atomic testを両方要求する。Manifest validatorはこのboundary、representative operation、
+compatibility view、saved next stopをcurrent-state invariantとして検査する。
+
 controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
 one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact
 signal／runnable wake／one event、already-signaled immediate completion、process-exit cancellationを

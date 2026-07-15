@@ -520,6 +520,73 @@ export function validateCurrentCheckpoint(manifest) {
       "activeRuntimeCheckpoint.allSupportedCallsUseGenericDispatcher must be true",
     );
   }
+  const kernelBoundary = requireRecord(
+    active.runtimeKernelBoundary,
+    "activeRuntimeCheckpoint.runtimeKernelBoundary",
+    errors,
+  );
+  const kernelRoles = requireStringArray(
+    kernelBoundary.aggregateRole,
+    "activeRuntimeCheckpoint.runtimeKernelBoundary.aggregateRole",
+    errors,
+  );
+  const kernelFields = requireStringArray(
+    kernelBoundary.directFields,
+    "activeRuntimeCheckpoint.runtimeKernelBoundary.directFields",
+    errors,
+  );
+  const processIndependentOwners = requireStringArray(
+    kernelBoundary.processIndependentSubsystemOwners,
+    "activeRuntimeCheckpoint.runtimeKernelBoundary.processIndependentSubsystemOwners",
+    errors,
+  );
+  const representativeSubsystemTests = requireStringArray(
+    kernelBoundary.representativeSubsystemTests,
+    "activeRuntimeCheckpoint.runtimeKernelBoundary.representativeSubsystemTests",
+    errors,
+  );
+  const representativeAtomicTests = requireStringArray(
+    kernelBoundary.representativeCrossSubsystemAtomicTests,
+    "activeRuntimeCheckpoint.runtimeKernelBoundary.representativeCrossSubsystemAtomicTests",
+    errors,
+  );
+  if (
+    kernelBoundary.schema !== "vine.runtime-kernel-boundary.v1" ||
+    kernelBoundary.checkpoint !== "S13" ||
+    kernelBoundary.publicFacade !== "runtime.rs" ||
+    kernelBoundary.aggregateType !== "runtime/kernel.rs::RuntimeKernel" ||
+    kernelBoundary.compatibilityAlias !== "RuntimeState" ||
+    kernelBoundary.compatibilityAliasKind !== "type-alias" ||
+    kernelRoles.join(",") !==
+      "private-subsystem-ownership,cross-subsystem-transaction-coordination,compatibility-serialization" ||
+    kernelFields.join(",") !==
+      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,objects,heaps,module-records,synchronization,modules,registries" ||
+    kernelBoundary.directMutableCollectionFields !== 0 ||
+    kernelBoundary.directScalarAllocators !== 0 ||
+    kernelBoundary.directSubsystemCollectionMutation !== false ||
+    kernelBoundary.subsystemMutableCollectionVisibility !== "private" ||
+    kernelBoundary.processStateOwner !==
+      "runtime/process.rs::RuntimeProcessState" ||
+    kernelBoundary.processMutableCollectionVisibility !== "private" ||
+    processIndependentOwners.join(",") !==
+      "heaps,module-records,synchronization" ||
+    kernelBoundary.processSerializationView !==
+      "runtime/kernel.rs::RuntimeProcessView" ||
+    kernelBoundary.processSerializationViewAccess !== "immutable-borrow" ||
+    kernelBoundary.processLifecyclePlansRejectStaleCommit !== true ||
+    kernelBoundary.mutexObjectPlan !==
+      "runtime/objects.rs::RuntimeMutexObjectMutationPlan" ||
+    kernelBoundary.mutexObjectPlanVisibility !== "opaque-to-kernel" ||
+    kernelBoundary.mutexSubsystemRootCloneOrReplacementFromKernel !== false ||
+    representativeSubsystemTests.join(",") !==
+      "runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit" ||
+    representativeAtomicTests.join(",") !==
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit" ||
+    kernelBoundary.capabilityExpansionPausedAt !==
+      root.nextStructuredStop?.nextCheckpoint
+  ) {
+    errors.push("active runtime kernel responsibility boundary is invalid");
+  }
   const objects = requireRecord(
     active.runtimeObjectModel,
     "activeRuntimeCheckpoint.runtimeObjectModel",
@@ -946,6 +1013,7 @@ export function loadCurrentCheckpoint(file) {
 export function renderReadmeStatus(manifest) {
   const historical = manifest.historicalBaseline;
   const active = manifest.activeRuntimeCheckpoint;
+  const kernelBoundary = active.runtimeKernelBoundary;
   const latest = active.latestEvidence;
   const browser = manifest.browserCheckpoint;
   const engine = manifest.engineDecisionEvidence.v86EngineGate;
@@ -968,6 +1036,7 @@ Edit the manifest and run \`npm run docs:generate\`; do not edit this block by h
 |---|---|
 | Historical baseline | \`${historical.checkpoint}\`: ${historical.supportedCallCount} calls, ${historical.entryInstructionCount} instructions |
 | Active runtime | \`${active.runtimeKernelCheckpoint}\`: ${active.genericDispatcherCallOccurrenceCount} calls across ${active.genericDispatcherApiCount} API contracts, memory generation ${latest.finalMemoryGeneration} |
+| Runtime architecture | \`${kernelBoundary.checkpoint}\`: \`${kernelBoundary.aggregateType}\`; \`${kernelBoundary.compatibilityAlias}\` remains a compatibility alias |
 | Browser | \`${browser.workload}\` ${browser.status}; BGI session \`${browser.bgiSession}\`; benchmark \`${browser.bgiBenchmark}\` (${browser.bgiBenchmarkEvidence.completedSessions} sessions) |
 | Engine evidence | v86 \`${engine.decision}\` from \`${engine.configuration}\` |
 | Next structured stop | ${nextSummary} |

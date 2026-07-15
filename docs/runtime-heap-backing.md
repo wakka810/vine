@@ -9,12 +9,12 @@ boundaryで固定する。
 
 Architecture refactor checkpoint S5では、logical heap metadataとGuestMemory backing metadataを
 private `runtime/heaps.rs::RuntimeHeaps`へ移し、同じsubsystem ownerの下へ統合した。
-`RuntimeState`はobject table、process address-space allocation、GuestMemory transactionとの
+`RuntimeKernel`（既存名`RuntimeState`）はobject table、process address-space allocation、GuestMemory transactionとの
 cross-subsystem coordinationだけを行い、heap／backing collectionを直接mutateしない。
 Architecture refactor checkpoint S12ではautomatic private-heap handle slot allocatorも同じ
 `RuntimeHeaps`へ移した。Heap identity、以前のcursor、commit後のcursorを一つのmutation-free creation
 planへ束ね、object registrationが成功した場合だけheap metadataとallocatorを同時にcommitする。
-これにより`RuntimeState`から最後のdirect scalar allocator fieldを除去した。
+これによりaggregate rootから最後のdirect scalar allocator fieldを除去した。
 
 このfoundation自体はguest dispatchを追加せず、`HeapCreate(0, 0x1000, 0)`をmetadata-onlyの
 ままreturnする境界として成立した。続く
@@ -28,10 +28,10 @@ larger zeroed dirty-only allocation without importing native address reuse.
 
 ## Runtime subsystem ownership
 
-`RuntimeProcessState`はprivate `RuntimeHeaps`を`serde(flatten)`で保持する。既存reportの
-`process.heaps` shapeは維持し、public inspectionは`RuntimeProcessState::heaps()`のimmutable borrowに
-限定する。GuestMemory backing mapとslot allocatorはserializeせず、logical heap mapと同じownerだけが
-更新する。既存root `nextPrivateHeapSlot`は`RuntimeState` serializerがownerからimmutable borrowする
+`RuntimeHeaps`は`RuntimeProcessState`のfieldではなく`RuntimeKernel`が独立したsubsystem ownerとして保持する。
+既存reportの`process.heaps` shapeは`RuntimeProcessView`がimmutable borrowをflattenして維持し、public
+inspectionは`RuntimeKernel::heaps()`のimmutable borrowに限定する。GuestMemory backing mapとslot allocatorは
+serializeせず、logical heap mapと同じownerだけが更新する。既存root `nextPrivateHeapSlot`はkernel serializerがownerからimmutable borrowする
 compatibility viewであり、第二authorityではない。
 
 Heap creation、allocation、free、destructionはsubsystem内でmutation-free planを作り、aggregateが
@@ -168,5 +168,5 @@ Mapped guest-module／export identity and dependency-ordered `DllMain` lifecycle
 [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). Capability expansion remains paused at the saved
 `GetCurrentThread` stop. Module metadata, image, import binding, and runtime export collections now
 use the same private ownership and plan／preflight／commit boundary. DLL lifecycle phase and in-flight
-operation state now share that module owner as well. The next responsibility checkpoint audits the
-remaining process/kernel aggregate state.
+operation state now share that module owner as well. Responsibility checkpoint S13 completes the
+remaining process/kernel aggregate audit and preserves the same serialized compatibility shape.

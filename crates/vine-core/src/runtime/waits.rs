@@ -3,9 +3,47 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use serde::Serialize;
 
 use super::{
-    RuntimeHandle, RuntimeObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWaitCompletion,
-    RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
+    RuntimeHandle, RuntimeMutexId, RuntimeObjectId, RuntimeStateError, RuntimeThreadId,
+    RuntimeWaitState,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeWaitRegistrationId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWaitRegistration {
+    pub id: RuntimeWaitRegistrationId,
+    pub thread_id: RuntimeThreadId,
+    pub object_id: RuntimeObjectId,
+    pub handle: RuntimeHandle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWaitCompletion {
+    pub registration: RuntimeWaitRegistration,
+    pub wait_state: RuntimeWaitState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "kebab-case")]
+pub enum RuntimeWaitDisposition {
+    AlreadySignaled {
+        object_id: RuntimeObjectId,
+        wait_state: RuntimeWaitState,
+    },
+    Pending {
+        registration: RuntimeWaitRegistration,
+    },
+    MutexAcquired {
+        object_id: RuntimeObjectId,
+        mutex_id: RuntimeMutexId,
+        recursion_count: u32,
+        abandoned: bool,
+    },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -120,7 +120,7 @@ fn thread_registry_isolates_thread_state_and_terminates_all_lanes_deterministica
         .complete_current_thread_exit()
         .expect("complete second thread exit");
     assert_eq!(
-        runtime.process().lifecycle,
+        runtime.process().lifecycle(),
         RuntimeProcessLifecycleState::Running
     );
     assert_eq!(
@@ -209,7 +209,7 @@ fn thread_registry_isolates_thread_state_and_terminates_all_lanes_deterministica
         );
     }
     assert_eq!(
-        process_exit.process().lifecycle,
+        process_exit.process().lifecycle(),
         RuntimeProcessLifecycleState::Exited { exit_code: 7 }
     );
     assert_eq!(

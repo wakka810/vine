@@ -4,10 +4,13 @@ use serde::Serialize;
 
 use crate::memory::GuestAddress;
 
-use super::{RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeStateError, RuntimeThreadId};
+use super::{
+    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeHandle, RuntimeStateError, RuntimeThreadId,
+};
 
 pub const RUNTIME_CRITICAL_SECTION_LIMIT: usize = 4096;
 pub const RUNTIME_MUTEX_LIMIT: usize = 4096;
+pub const X86_CRITICAL_SECTION_BYTE_LENGTH: usize = 24;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +24,14 @@ pub struct RuntimeCriticalSection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct RuntimeMutexId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCreateMutexAResult {
+    pub mutex_id: RuntimeMutexId,
+    pub handle: RuntimeHandle,
+    pub already_exists: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

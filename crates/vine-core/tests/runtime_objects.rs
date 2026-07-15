@@ -220,7 +220,7 @@ fn typed_runtime_handles_preserve_object_lifetime_and_reject_stale_generations()
         RuntimeModuleLoadState::ProcessDetached { sequence: 2 }
     );
     let module_graph_before_failed_registration = runtime.module_graph().clone();
-    let module_records_before_failed_registration = runtime.process().modules().clone();
+    let module_records_before_failed_registration = runtime.modules().clone();
     let object_count = runtime.objects().objects().len();
     assert_eq!(
         runtime
@@ -242,7 +242,7 @@ fn typed_runtime_handles_preserve_object_lifetime_and_reject_stale_generations()
         &module_graph_before_failed_registration
     );
     assert_eq!(
-        runtime.process().modules(),
+        runtime.modules(),
         &module_records_before_failed_registration
     );
     assert_eq!(runtime.objects().objects().len(), object_count);

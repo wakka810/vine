@@ -78,5 +78,6 @@ Current Node／Chrome result、artifact identity、benchmark、next structured s
 
 Dynamic endpoint IDのlifetime retirement、FLS callback teardown、snapshot-stable identity、COM vtable endpoint、
 general executable arena allocationは未実装である。Existing fixed dynamic-export rangeはprocess address-space
-allocator migration前のversion 1 preferred layoutであり、このcheckpointは新しいfixed guest addressを
-追加しない。Capability expansion remains paused while the remaining `RuntimeState` responsibilities are split.
+allocator registryへ登録したversion 1 preferred layoutであり、このcheckpointは新しいfixed guest addressを
+追加しない。Runtime responsibility checkpoint S13 completes the aggregate ownership split; the saved
+`GetCurrentThread` stop remains the next capability checkpoint.

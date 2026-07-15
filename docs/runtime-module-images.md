@@ -121,5 +121,5 @@ module memory／object retirement, or BGI continuation. It is partial evidence f
 The controlled guest import／runtime export catalog binding and dependency-ordered process callback
 lifecycle are implemented in [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). The graph, image,
 import binding, runtime export, and DLL lifecycle operation state now have one private module owner.
-The next responsibility checkpoint audits remaining process/kernel aggregate state without adding
-loader capability.
+Responsibility checkpoint S13 completes the remaining process/kernel aggregate audit without adding
+loader capability. The saved `GetCurrentThread` stop remains the next capability checkpoint.

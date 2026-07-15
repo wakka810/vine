@@ -3,14 +3,10 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use serde::Serialize;
 
 use super::{
-    DLL_PROCESS_STATIC_RESERVED, LOGICAL_LOADED_MODULE_NAMESPACE, RuntimeCallbackFrame,
-    RuntimeCallbackFrameId, RuntimeDllAttachFailure, RuntimeDllCallbackReason,
-    RuntimeDllCallbackRequest, RuntimeDllLifecycleAction, RuntimeDllLifecycleCompletion,
-    RuntimeDllLifecyclePhase, RuntimeGuestImport, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeModule, RuntimeModuleDependencyEdge, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeSystemExportTable,
+    RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeStateError, RuntimeStateErrorClass,
 };
 use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
+use crate::imports::{ImportThunkArena, ImportThunkId, RuntimeExport};
 use crate::materialize::ImageMaterialization;
 use crate::memory::{GuestAddress, GuestMemory, MemoryInvalidation, MemoryOwnerId};
 use crate::module_graph::{
@@ -21,8 +17,182 @@ use crate::module_images::{
     RuntimeModuleImage, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
     RuntimeModuleImageRegistry, RuntimeResolvedExport,
 };
-use crate::pe32::{ExportLookup, LoaderIngressReport};
+use crate::pe32::{ExportLookup, ImportTarget, LoaderIngressReport};
 use crate::snapshot::ModuleIdentity;
+
+pub const LOGICAL_LOADED_MODULE_NAMESPACE: &str = "vine.logical-loaded-module.v1";
+pub const DLL_PROCESS_DETACH: u32 = 0;
+pub const DLL_PROCESS_ATTACH: u32 = 1;
+pub const DLL_PROCESS_STATIC_RESERVED: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeModule {
+    pub owner: String,
+    pub variant_id: String,
+    pub namespace: String,
+    pub handle: u32,
+    pub requested_name: String,
+    pub canonical_name: String,
+    pub runtime_system_module: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGuestImport {
+    pub requested_module_id: RuntimeModuleId,
+    pub requested_module: String,
+    #[serde(flatten)]
+    pub target: ImportTarget,
+    pub iat_address: GuestAddress,
+    pub original_iat_value: u32,
+    pub resolution: RuntimeGuestImportResolution,
+}
+
+impl RuntimeGuestImport {
+    pub fn resolved_address(&self) -> GuestAddress {
+        match &self.resolution {
+            RuntimeGuestImportResolution::GuestExport { export } => export.address,
+            RuntimeGuestImportResolution::RuntimeExport { endpoint } => endpoint.address,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RuntimeGuestImportResolution {
+    GuestExport {
+        export: RuntimeResolvedExport,
+    },
+    RuntimeExport {
+        endpoint: RuntimeSystemExportEndpoint,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSystemExportEndpoint {
+    pub id: ImportThunkId,
+    pub address: GuestAddress,
+    pub export: RuntimeExport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSystemExportTable {
+    pub arena: ImportThunkArena,
+    pub endpoints: Vec<RuntimeSystemExportEndpoint>,
+}
+
+impl RuntimeSystemExportTable {
+    pub fn endpoint(
+        &self,
+        module: &str,
+        target: &ImportTarget,
+    ) -> Option<&RuntimeSystemExportEndpoint> {
+        self.endpoints
+            .iter()
+            .find(|endpoint| runtime_export_matches_import(&endpoint.export, module, target))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeModuleDependencyEdge {
+    pub requester: RuntimeModuleId,
+    pub dependency: RuntimeModuleId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGuestImportBinding {
+    pub requester_module_id: RuntimeModuleId,
+    pub requester_handle: u32,
+    pub source: ModuleIdentity,
+    pub image_owner: MemoryOwnerId,
+    pub image_load_base: GuestAddress,
+    pub imports: Vec<RuntimeGuestImport>,
+    pub dependency_edges: Vec<RuntimeModuleDependencyEdge>,
+    pub image_owner_sealed: bool,
+    pub invalidation: MemoryInvalidation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeDllLifecyclePhase {
+    Idle,
+    ProcessAttaching,
+    AttachUnwinding,
+    ProcessAttached,
+    ProcessDetaching,
+    ProcessDetached,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeDllCallbackReason {
+    ProcessAttach,
+    ProcessDetach,
+}
+
+impl RuntimeDllCallbackReason {
+    pub const fn value(self) -> u32 {
+        match self {
+            Self::ProcessAttach => DLL_PROCESS_ATTACH,
+            Self::ProcessDetach => DLL_PROCESS_DETACH,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDllCallbackRequest {
+    pub frame: RuntimeCallbackFrame,
+    pub module_id: RuntimeModuleId,
+    pub module_handle: u32,
+    pub module_name: String,
+    pub module_base: GuestAddress,
+    pub entry_point: GuestAddress,
+    pub reason: RuntimeDllCallbackReason,
+    pub reserved: u32,
+}
+
+impl RuntimeDllCallbackRequest {
+    pub fn arguments(&self) -> [u32; 3] {
+        [self.module_base.0, self.reason.value(), self.reserved]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDllLifecycleCompletion {
+    pub phase: RuntimeDllLifecyclePhase,
+    pub graph_order: Vec<RuntimeModuleId>,
+    pub callback_order: Vec<RuntimeModuleId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDllAttachFailure {
+    pub failed_module_id: RuntimeModuleId,
+    pub failed_module: String,
+    pub unwound_modules: Vec<RuntimeModuleId>,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+pub enum RuntimeDllLifecycleAction {
+    Callback {
+        request: RuntimeDllCallbackRequest,
+    },
+    Complete {
+        completion: RuntimeDllLifecycleCompletion,
+    },
+    AttachFailed {
+        failure: RuntimeDllAttachFailure,
+    },
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1047,6 +1217,30 @@ pub(super) fn runtime_module_image_error(error: RuntimeModuleImageError) -> Runt
         RuntimeModuleImageErrorClass::RuntimeDefect => {
             RuntimeStateError::runtime_defect("runtime-module-image", error.code, error.message)
         }
+    }
+}
+
+fn runtime_export_matches_import(
+    export: &RuntimeExport,
+    module: &str,
+    target: &ImportTarget,
+) -> bool {
+    match (export, target) {
+        (
+            RuntimeExport::Name {
+                module: export_module,
+                name: export_name,
+            },
+            ImportTarget::Name { name, .. },
+        ) => export_module.eq_ignore_ascii_case(module) && export_name == name,
+        (
+            RuntimeExport::Ordinal {
+                module: export_module,
+                ordinal: export_ordinal,
+            },
+            ImportTarget::Ordinal { ordinal },
+        ) => export_module.eq_ignore_ascii_case(module) && export_ordinal == ordinal,
+        _ => false,
     }
 }
 

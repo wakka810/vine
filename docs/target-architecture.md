@@ -181,6 +181,15 @@ OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は
 
 version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、thread `initialized／running／exit-requested／exited`、scheduler `initialized／terminating`を所有する。controlled registryはsecond TID／typed handle、thread-local LastError／TLS／callback／lane、explicit selectionを加え、process terminationをTID昇順thread signal＋process-last signalとして最大3 object recordsへtargeted atomic commitする。wait queueはmonotonic registration／object FIFO、`WaitingObject`、thread signalによるrunnable wake／exact event、exit cancellationを所有する。message queueはper-thread bounded FIFO、global sequence、`WaitingMessage`、first enqueue wake、exit cleanupを所有する。CPU context／second-thread stack／TEB、last-thread semantics、wait-any／wait-all／timeout、User32 message semanticsは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)を正とする。
 
+`runtime.rs`はsubsystem宣言とpublic re-exportだけのfacadeである。実体のaggregate rootは
+`runtime/kernel.rs::RuntimeKernel`で、既存caller向けの`RuntimeState`はそのtype aliasとする。
+この最終ownership auditをarchitecture refactor checkpoint S13とする。
+`RuntimeKernel`のdirect fieldはprocess state、address allocator、各private subsystem ownerだけであり、
+subsystem collectionやscalar allocatorを持たない。Process lifecycle／environment／directory／standard
+handle／policyは`runtime/process.rs::RuntimeProcessState`が所有する。既存diagnostic JSONは
+`RuntimeProcessView`がheap、module、synchronization、TLS／FLS ownerをimmutable borrowして従来の
+`process` shapeへflattenするが、このviewはmutation authorityではない。
+
 Mutable thread records、process-wide TLS index／FLS slot registries、TLS／FLS／callback-frame ID allocatorsは
 private `runtime/thread.rs::RuntimeThreads`だけが所有する。Registration、LastError／TLS／FLS、callback
 frames、initial-stack metadata、lifecycle transitionはmutation-free thread/resource planを使う。Aggregateは
@@ -205,13 +214,13 @@ source／counter serializationはborrowed compatibility viewであり、同じ`r
 host requestは引き続き`RuntimeScheduler` authorityである。
 
 Mutable logical heap metadata、GuestMemory backing metadata、automatic private-heap slot allocatorはprivate
-`runtime/heaps.rs::RuntimeHeaps`だけがco-ownする。`RuntimeProcessState`はこれをflattenして既存
+`runtime/heaps.rs::RuntimeHeaps`だけがco-ownする。`RuntimeProcessView`がimmutable borrowをflattenして既存
 `process.heaps` serializationを維持し、root `nextPrivateHeapSlot`はborrowed compatibility viewとする。
 Inspectionはimmutable borrowに限定する。Automatic creationはheap identityとallocator cursorを同じ
 mutation-free planへ束ね、allocation、free、destructionもsubsystem planを作る。Aggregateはlifecycle、
 typed object、process address allocation、GuestMemory transactionをpreflightしてからtargeted commitする。
 Aggregateはheap／backing map／slot allocatorを直接mutateせず、failed object registrationではheapと
-allocatorを両方不変にする。`RuntimeState`自身にはdirect scalar allocator fieldを残さない。詳細は
+allocatorを両方不変にする。`RuntimeKernel`自身にはdirect scalar allocator fieldを残さない。詳細は
 [runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
 Mutable process module recordsはprivate `runtime/modules.rs::RuntimeModuleRecords`、graph、mapped
@@ -231,10 +240,11 @@ mutationをsame owner内で拒否する。詳細は
 [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md)を正とする。
 
 Process-owned critical-section／mutex collectionsとnamed indexは`runtime/synchronization.rs`のprivate
-`RuntimeSynchronization`が所有する。`RuntimeState`はprocess／selected-thread／scheduler lifecycleを
+`RuntimeSynchronization`が所有する。`RuntimeKernel`はprocess／selected-thread／scheduler lifecycleを
 preflightしてcurrent thread identityを渡すcoordinatorに限定する。Critical-section and mutex transitionsは
 subsystem内のmutation-free plan後にcommitし、mutex create／last closeはgeneric object tableと両方を
-clone-plan／preflightしてからsame operationとしてcommitする。詳細は
+preflightする。Object tableはopaque `RuntimeMutexObjectMutationPlan`を返し、kernelはobject／synchronization
+collectionをcloneまたは置換せず、両planの成功後にownerのtargeted commitだけを呼ぶ。詳細は
 [runtime-synchronization.md](runtime-synchronization.md)を正とする。
 
 ### 5.3 Clock ownership

@@ -107,10 +107,12 @@ validation throws.
 
 ## Runtime contract
 
-`RuntimeState` owns a bounded map of at most 4,096 critical sections keyed by
-their nonzero, 4-byte-aligned guest storage address. Each record owns the spin
-count, optional controlled thread ID, and recursion count. Native thread IDs and
-kernel synchronization handles are not imported.
+Private `runtime/synchronization.rs::RuntimeSynchronization` owns a bounded map
+of at most 4,096 critical sections keyed by their nonzero, 4-byte-aligned guest
+storage address. Each record owns the spin count, optional controlled thread ID,
+and recursion count. `RuntimeKernel`（compatibility alias `RuntimeState`）only
+coordinates process／thread／scheduler preflight and the owner-local commit.
+Native thread IDs and kernel synchronization handles are not imported.
 
 Three Kernel32 contracts are registered:
 

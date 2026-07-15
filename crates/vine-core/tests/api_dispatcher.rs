@@ -193,7 +193,7 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
     );
     assert_eq!(runtime.registries().encoded_pointers().len(), 2);
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
-    assert!(runtime.process().heap_termination_on_corruption);
+    assert!(runtime.process().heap_termination_on_corruption());
     assert_eq!(runtime.heap(0x6801_0001).unwrap().initial_size, 0x1000);
     assert_eq!(
         runtime.module(0x4d01_0001).unwrap().canonical_name,
@@ -2730,7 +2730,7 @@ fn get_std_handle_default_policy_owns_only_standard_input_identity() {
         assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
         assert!(completion.guest_writes.is_empty());
     }
-    assert_eq!(runtime.process().standard_handles.len(), 1);
+    assert_eq!(runtime.process().standard_handles().len(), 1);
     let standard_handle = runtime
         .standard_handle_by_value(RUNTIME_STANDARD_INPUT_HANDLE)
         .expect("logical standard input handle");
@@ -2871,7 +2871,7 @@ fn get_std_handle_policy_adds_only_process_owned_standard_output_identity() {
         assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
         assert!(completion.guest_writes.is_empty());
     }
-    assert_eq!(runtime.process().standard_handles.len(), 1);
+    assert_eq!(runtime.process().standard_handles().len(), 1);
     let standard_output = runtime
         .standard_handle_by_value(RUNTIME_STANDARD_OUTPUT_HANDLE)
         .expect("logical standard output handle");
@@ -3003,7 +3003,7 @@ fn get_std_handle_policy_adds_only_process_owned_standard_error_identity() {
         assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
         assert!(completion.guest_writes.is_empty());
     }
-    assert_eq!(runtime.process().standard_handles.len(), 1);
+    assert_eq!(runtime.process().standard_handles().len(), 1);
     let standard_error = runtime
         .standard_handle_by_value(RUNTIME_STANDARD_ERROR_HANDLE)
         .expect("logical standard error handle");
@@ -6305,7 +6305,7 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
         16,
     );
     assert_eq!(heap_policy.eax, RegisterUpdate::Set(1));
-    assert!(runtime.process().heap_termination_on_corruption);
+    assert!(runtime.process().heap_termination_on_corruption());
     let heap = dispatch(
         &dispatcher,
         &mut memory,

@@ -79,14 +79,16 @@ the decoded Windows-932 UTF-16 identity; no guest pointer survives dispatch.
 A mutex record owns a monotonic mutex ID, its paired typed object ID, optional
 owner thread, and recursion count.
 
-Creation is a cross-subsystem transaction. The aggregate coordinator clones the
-generic object table and synchronization state, plans name lookup／creation,
-allocates or opens the `RuntimeObjectKind::Mutex` object, allocates a type-tag
-`0x58` handle, and commits both subsystems only after lifecycle and capacity
-preflight succeeds. Existing-name creates allocate another handle to the same
-object without changing ownership. The last handle close retires the object,
-mutex record, and named index together; process teardown retires every remaining
-mutex handle and record.
+Creation is a cross-subsystem transaction. `RuntimeSynchronization` plans name
+lookup／creation without mutation, while `RuntimeObjectTable` returns an opaque
+`RuntimeMutexObjectMutationPlan` that allocates or opens the
+`RuntimeObjectKind::Mutex` object and its type-tag `0x58` handle. The
+`RuntimeKernel` coordinator commits those owner-local plans only after lifecycle
+and capacity preflight succeeds; it does not clone, inspect, or replace either
+subsystem root. Existing-name creates allocate another handle to the same object
+without changing ownership. The last handle close retires the object, mutex
+record, and named index together; process teardown retires every remaining mutex
+handle and record through the same ordering.
 
 The existing one-object wait boundary now has mutex-specific terminal results:
 

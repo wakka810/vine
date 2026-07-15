@@ -78,10 +78,11 @@ NULL value from an invalid index:
 - allocated／unset returns NULL and LastError `0`;
 - unallocated index returns NULL and LastError `87`.
 
-`RuntimeState::tls_value_or_unset` first validates the process-owned allocation
-registry, then reads only the selected `RuntimeThread` map. The read does not
-change TLS state or guest memory. The dispatcher applies only the contract's
-LastError result to the selected thread.
+`RuntimeState::tls_value_or_unset` is the compatibility facade for private
+`RuntimeThreads`: the subsystem first validates its process-wide allocated-index
+registry, then reads only the selected thread record. The read does not change
+TLS state or guest memory. The dispatcher applies only the contract's LastError
+result to that same owner.
 
 No option is added to `vine.kernel32-compatibility-policy`; the active
 `kernel32-private-heap-size-1-v1` policy remains unchanged. The runtime handler

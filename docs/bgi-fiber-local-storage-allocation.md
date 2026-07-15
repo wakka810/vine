@@ -93,7 +93,9 @@ heap's first allocation consumer.
 
 ## Runtime contract
 
-`RuntimeState::allocate_fls_slot` owns a monotonic process-local table with:
+Private `runtime/thread.rs::RuntimeThreads` owns the monotonic process-local FLS
+table and allocator exposed through the compatibility method
+`RuntimeState::allocate_fls_slot`:
 
 - namespace `vine.logical-fls-index.v1`;
 - logical indices `0..127`;

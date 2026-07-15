@@ -385,7 +385,7 @@ impl BrowserRuntime {
                 "threadId": process.runtime.current_thread_id().0,
                 "currentDirectoryA": process.runtime.current_directory_a(),
                 "currentDirectoryGeneration": process.runtime.current_directory_generation(),
-                "moduleCount": process.runtime.process().modules().len(),
+                "moduleCount": process.runtime.modules().len(),
                 "dependencyEdges": process.binding.dependency_edges.len(),
                 "attachOrder": process.attach_order,
                 "kernel32Policy": kernel32_policy.id,
@@ -1025,7 +1025,7 @@ impl BrowserRuntime {
         Ok(json!({
             "kind": "cancelled",
             "cancellation": cancellation,
-            "processLifecycle": self.runtime.process().lifecycle,
+            "processLifecycle": self.runtime.process().lifecycle(),
             "dllLifecycle": self.runtime.dll_lifecycle_phase(),
             "pendingHostCalls": usize::from(self.pending_host.is_some()),
             "pendingCallbacks": self.callbacks.len(),

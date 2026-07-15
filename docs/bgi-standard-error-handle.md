@@ -68,8 +68,9 @@ enables stdin, stdout, and stderr selectors while retaining only the reached
 stdin／stdout file classifications and the two reached heap allocations.
 Historical policies remain unchanged.
 
-`RuntimeState` owns logical stderr `0x53010003` under owner
-`runtime-process-standard-handles`, namespace
+Private `RuntimeProcessState` owns logical stderr `0x53010003` under owner
+`runtime-process-standard-handles`; `RuntimeKernel` delegates lookup without a
+second handle table. Its namespace is
 `vine.logical-standard-handle.v1`, and variant
 `standard-error-logical-v1`. Repeated lookup returns the same identity. An
 unlisted selector fails before runtime or memory mutation.

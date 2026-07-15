@@ -2,13 +2,149 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
-use super::{
-    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
-    RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PROCESS_OBJECT_NAMESPACE,
-    RUNTIME_THREAD_OBJECT_NAMESPACE, RuntimeHandle, RuntimeHandleClosePolicy, RuntimeHandleEntry,
-    RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeStateError,
-    RuntimeWaitState,
-};
+use super::{LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE, RuntimeStateError};
+
+pub const RUNTIME_PROCESS_OBJECT_NAMESPACE: &str = "vine.runtime-process-object.v1";
+pub const RUNTIME_THREAD_OBJECT_NAMESPACE: &str = "vine.runtime-thread-object.v1";
+pub const RUNTIME_MUTEX_OBJECT_NAMESPACE: &str = "vine.runtime-mutex-object.v1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeObjectKind {
+    Process,
+    Thread,
+    Mutex,
+    PrivateHeap,
+    Module,
+}
+
+impl RuntimeObjectKind {
+    const fn handle_tag(self) -> u8 {
+        match self {
+            Self::Process => 0x50,
+            Self::Thread => 0x54,
+            Self::Mutex => 0x58,
+            Self::PrivateHeap => 0x68,
+            Self::Module => 0x4d,
+        }
+    }
+
+    fn from_handle_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0x50 => Some(Self::Process),
+            0x54 => Some(Self::Thread),
+            0x58 => Some(Self::Mutex),
+            0x68 => Some(Self::PrivateHeap),
+            0x4d => Some(Self::Module),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeHandle(pub u32);
+
+impl RuntimeHandle {
+    pub fn from_parts(
+        kind: RuntimeObjectKind,
+        generation: u8,
+        slot: u16,
+    ) -> Result<Self, RuntimeStateError> {
+        if generation == 0 || slot == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-handle-parts-invalid",
+                "runtime handles require nonzero generation and slot fields",
+            ));
+        }
+        Ok(Self(
+            (u32::from(kind.handle_tag()) << 24) | (u32::from(generation) << 16) | u32::from(slot),
+        ))
+    }
+
+    pub fn kind(self) -> Result<RuntimeObjectKind, RuntimeStateError> {
+        let tag = (self.0 >> 24) as u8;
+        RuntimeObjectKind::from_handle_tag(tag).ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-handle-type-unknown",
+                format!(
+                    "runtime handle {:#010x} has unknown type tag {tag:#04x}",
+                    self.0
+                ),
+            )
+        })
+    }
+
+    pub const fn generation(self) -> u8 {
+        ((self.0 >> 16) & 0xff) as u8
+    }
+
+    pub const fn slot(self) -> u16 {
+        (self.0 & 0xffff) as u16
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RuntimeObjectKey {
+    Process { process_id: u32 },
+    Thread { thread_id: u32 },
+    Mutex { mutex_id: u64 },
+    PrivateHeap { handle: u32 },
+    Module { handle: u32 },
+}
+
+impl RuntimeObjectKey {
+    pub const fn kind(&self) -> RuntimeObjectKind {
+        match self {
+            Self::Process { .. } => RuntimeObjectKind::Process,
+            Self::Thread { .. } => RuntimeObjectKind::Thread,
+            Self::Mutex { .. } => RuntimeObjectKind::Mutex,
+            Self::PrivateHeap { .. } => RuntimeObjectKind::PrivateHeap,
+            Self::Module { .. } => RuntimeObjectKind::Module,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeObjectId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeHandleClosePolicy {
+    CloseHandle,
+    SubsystemOwned,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum RuntimeWaitState {
+    Nonsignaled,
+    Signaled { exit_code: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeObjectRecord {
+    pub id: RuntimeObjectId,
+    pub key: RuntimeObjectKey,
+    pub kind: RuntimeObjectKind,
+    pub namespace: String,
+    pub close_policy: RuntimeHandleClosePolicy,
+    pub wait_state: Option<RuntimeWaitState>,
+    pub open_handles: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHandleEntry {
+    pub handle: RuntimeHandle,
+    pub object_id: RuntimeObjectId,
+    pub kind: RuntimeObjectKind,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeHandleSlot {
@@ -22,6 +158,43 @@ struct RuntimeObjectRetirementPlan {
     key: RuntimeObjectKey,
     handles: Vec<RuntimeHandleEntry>,
     next_slots: Vec<(u32, RuntimeHandleSlot)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeMutexObjectMutationPlan {
+    previous: RuntimeObjectTable,
+    next: RuntimeObjectTable,
+    outcome: RuntimeMutexObjectMutationOutcome,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeMutexObjectMutationOutcome {
+    Opened(RuntimeHandle),
+    Closed(RuntimeHandleEntry),
+    Teardown { retired_handles: usize },
+}
+
+impl RuntimeMutexObjectMutationPlan {
+    pub(super) fn opened_handle(&self) -> RuntimeHandle {
+        match self.outcome {
+            RuntimeMutexObjectMutationOutcome::Opened(handle) => handle,
+            _ => unreachable!("mutex object plan does not open a handle"),
+        }
+    }
+
+    pub(super) fn closed_entry(&self) -> RuntimeHandleEntry {
+        match self.outcome {
+            RuntimeMutexObjectMutationOutcome::Closed(entry) => entry,
+            _ => unreachable!("mutex object plan does not close a handle"),
+        }
+    }
+
+    pub(super) fn retired_handles(&self) -> usize {
+        match self.outcome {
+            RuntimeMutexObjectMutationOutcome::Teardown { retired_handles } => retired_handles,
+            _ => unreachable!("mutex object plan is not a teardown"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -48,6 +221,83 @@ impl Default for RuntimeObjectTable {
 }
 
 impl RuntimeObjectTable {
+    pub(super) fn plan_mutex_handle_open(
+        &self,
+        key: RuntimeObjectKey,
+        already_exists: bool,
+    ) -> Result<RuntimeMutexObjectMutationPlan, RuntimeStateError> {
+        if key.kind() != RuntimeObjectKind::Mutex {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-mutex-plan-kind-invalid",
+                "mutex handle planning requires a mutex object identity",
+            ));
+        }
+        let mut next = self.clone();
+        let handle = if already_exists {
+            next.open_handle(&key)?
+        } else {
+            next.register_object_and_open_handle(key)?.1
+        };
+        Ok(RuntimeMutexObjectMutationPlan {
+            previous: self.clone(),
+            next,
+            outcome: RuntimeMutexObjectMutationOutcome::Opened(handle),
+        })
+    }
+
+    pub(super) fn plan_mutex_handle_close(
+        &self,
+        handle: RuntimeHandle,
+        retiring_key: Option<&RuntimeObjectKey>,
+    ) -> Result<RuntimeMutexObjectMutationPlan, RuntimeStateError> {
+        if handle.kind()? != RuntimeObjectKind::Mutex {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-mutex-plan-kind-invalid",
+                "mutex handle close planning requires a mutex handle",
+            ));
+        }
+        let mut next = self.clone();
+        let closed = next.close_handle(handle)?;
+        if let Some(key) = retiring_key {
+            next.remove_closed_mutex_object(key)?;
+        }
+        Ok(RuntimeMutexObjectMutationPlan {
+            previous: self.clone(),
+            next,
+            outcome: RuntimeMutexObjectMutationOutcome::Closed(closed),
+        })
+    }
+
+    pub(super) fn plan_mutex_teardown(
+        &self,
+        keys: &[RuntimeObjectKey],
+    ) -> Result<RuntimeMutexObjectMutationPlan, RuntimeStateError> {
+        let mut next = self.clone();
+        let retired_handles = next.retire_mutex_objects(keys)?;
+        Ok(RuntimeMutexObjectMutationPlan {
+            previous: self.clone(),
+            next,
+            outcome: RuntimeMutexObjectMutationOutcome::Teardown { retired_handles },
+        })
+    }
+
+    pub(super) fn commit_mutex_mutation(
+        &mut self,
+        plan: RuntimeMutexObjectMutationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if *self != plan.previous {
+            return Err(RuntimeStateError::conflict(
+                "runtime-object",
+                "runtime-mutex-object-plan-stale",
+                "runtime object state changed after mutex transaction preflight",
+            ));
+        }
+        *self = plan.next;
+        Ok(())
+    }
+
     pub(super) fn register_object(
         &mut self,
         key: RuntimeObjectKey,
@@ -734,6 +984,54 @@ mod tests {
             .expect_err("dangling handle collision must fail");
         assert_eq!(error.code, "runtime-handle-entry-collision");
         assert_eq!(objects, before, "failed registration must be atomic");
+    }
+
+    #[test]
+    fn mutex_object_plans_are_atomic_and_reject_stale_commits() {
+        let mut objects = RuntimeObjectTable::default();
+        let key = RuntimeObjectKey::Mutex { mutex_id: 7 };
+        let initial = objects.clone();
+        let first = objects
+            .plan_mutex_handle_open(key.clone(), false)
+            .expect("new mutex object plan");
+        let first_handle = first.opened_handle();
+        assert_eq!(objects, initial, "open planning must not mutate tables");
+        objects
+            .commit_mutex_mutation(first)
+            .expect("commit first mutex handle");
+
+        let stale_close = objects
+            .plan_mutex_handle_close(first_handle, Some(&key))
+            .expect("last-handle close plan");
+        let second = objects
+            .plan_mutex_handle_open(key.clone(), true)
+            .expect("existing mutex handle plan");
+        objects
+            .commit_mutex_mutation(second)
+            .expect("commit second mutex handle");
+        let before_stale_commit = objects.clone();
+        assert_eq!(
+            objects
+                .commit_mutex_mutation(stale_close)
+                .expect_err("stale close plan must fail")
+                .code,
+            "runtime-mutex-object-plan-stale"
+        );
+        assert_eq!(objects, before_stale_commit);
+
+        let teardown = objects
+            .plan_mutex_teardown(std::slice::from_ref(&key))
+            .expect("mutex teardown plan");
+        assert_eq!(teardown.retired_handles(), 2);
+        assert_eq!(
+            objects, before_stale_commit,
+            "teardown planning must be pure"
+        );
+        objects
+            .commit_mutex_mutation(teardown)
+            .expect("commit mutex teardown");
+        assert!(objects.objects().is_empty());
+        assert!(objects.handles().is_empty());
     }
 
     #[test]

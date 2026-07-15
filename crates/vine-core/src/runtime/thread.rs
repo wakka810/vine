@@ -2,12 +2,125 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
-use super::{
-    LOGICAL_FLS_INDEX_NAMESPACE, RUNTIME_FLS_INDEX_LIMIT, RuntimeCallbackFrame,
-    RuntimeCallbackFrameId, RuntimeFlsSlot, RuntimeStateError, RuntimeThreadId,
-    RuntimeThreadLifecycleState, RuntimeThreadStack, RuntimeThreadState, RuntimeTlsValue,
-    TLS_OUT_OF_INDEXES,
-};
+use super::{ProcessAddressAllocationId, RuntimeStateError};
+use crate::memory::{GuestAddress, GuestRange, MemoryOwnerId};
+
+pub const LOGICAL_TLS_INDEX_NAMESPACE: &str = "vine.logical-tls-index.v1";
+pub const LOGICAL_FLS_INDEX_NAMESPACE: &str = "vine.logical-fls-index.v1";
+pub const TLS_OUT_OF_INDEXES: u32 = u32::MAX;
+pub const FLS_OUT_OF_INDEXES: u32 = u32::MAX;
+pub const RUNTIME_FLS_INDEX_LIMIT: u32 = 128;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeThreadId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeCallbackFrameId(pub u64);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RuntimeTlsValue {
+    Raw {
+        value: u32,
+    },
+    DynamicEndpoint {
+        endpoint_id: u32,
+        address: GuestAddress,
+    },
+}
+
+impl RuntimeTlsValue {
+    pub fn raw_value(&self) -> u32 {
+        match self {
+            Self::Raw { value } => *value,
+            Self::DynamicEndpoint { address, .. } => address.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeFlsSlot {
+    pub namespace: String,
+    pub index: u32,
+    pub callback: Option<GuestAddress>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCallbackFrame {
+    pub id: RuntimeCallbackFrameId,
+    pub thread_id: RuntimeThreadId,
+    pub target: GuestAddress,
+    pub return_sentinel: GuestAddress,
+    pub entry_last_error: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum RuntimeThreadLifecycleState {
+    Initialized,
+    Running,
+    ExitRequested { exit_code: u32 },
+    Exited { exit_code: u32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCancellation {
+    pub thread_id: RuntimeThreadId,
+    pub exit_code: u32,
+    pub host_requests_cancelled: usize,
+    pub callback_frames_cancelled: usize,
+    pub wait_registrations_cancelled: usize,
+    pub messages_discarded: usize,
+    pub scheduler_events_discarded: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeThreadState {
+    pub id: RuntimeThreadId,
+    pub lifecycle: RuntimeThreadLifecycleState,
+    pub last_error: u32,
+    pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
+    pub fls_storage_initialized: bool,
+    pub fls_values: BTreeMap<u32, u32>,
+    pub callback_frames: Vec<RuntimeCallbackFrame>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack: Option<RuntimeThreadStack>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeThreadStack {
+    pub thread_id: RuntimeThreadId,
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub reserved_range: GuestRange,
+    pub committed_range: GuestRange,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guard_page: Option<GuestRange>,
+    pub committed_pages: usize,
+    pub stack_top: GuestAddress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeThreadStackGrowth {
+    pub thread_id: RuntimeThreadId,
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub fault_address: GuestAddress,
+    pub page_fault_error_code: u32,
+    pub committed_page: GuestRange,
+    pub previous_guard_page: GuestRange,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_guard_page: Option<GuestRange>,
+    pub committed_pages: usize,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]

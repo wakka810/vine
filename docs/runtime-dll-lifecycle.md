@@ -141,5 +141,5 @@ not add a BGI-specific flag／request／receipt.
 
 The generic BGI process path and Browser Worker equivalence are now established and capability
 expansion remains paused at `GetCurrentThread`. Module collections and lifecycle operation now share
-one private owner; the next responsibility checkpoint audits remaining process/kernel aggregate
-state while preserving this controlled fixture and unwind／retry behavior.
+one private owner. Responsibility checkpoint S13 completes the remaining process/kernel aggregate
+audit while preserving this controlled fixture and unwind／retry behavior.

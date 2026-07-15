@@ -151,5 +151,6 @@ implemented in [runtime-message-queue.md](runtime-message-queue.md), and private
 implemented in [runtime-heap-backing.md](runtime-heap-backing.md). Guest import binding plus
 dependency-ordered `DllMain` process attach／detach callbacks are implemented in
 [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). The graph／image／import／export collections and
-DLL lifecycle operation now share the private module owner. Capability expansion remains paused;
-the next responsibility checkpoint audits the remaining process/kernel aggregate state.
+DLL lifecycle operation now share the private module owner. Responsibility checkpoint S13 completes
+the remaining process/kernel aggregate audit; capability expansion resumes from the saved
+`GetCurrentThread` stop after its evidence gate.

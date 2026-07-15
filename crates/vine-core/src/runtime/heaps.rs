@@ -3,19 +3,147 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use super::{
-    LOGICAL_PRIVATE_HEAP_NAMESPACE, ProcessAddressAllocationClassification,
-    ProcessAddressAllocationPurpose, ProcessAddressSpaceAllocator, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
-    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
-    RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS, RuntimeAddressRange, RuntimeHandle, RuntimeHeap,
-    RuntimeHeapAllocation, RuntimeHeapAllocationId, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
-    RuntimeHeapBackingPlan, RuntimeHeapDestructionPlan, RuntimeHeapFreePlan,
-    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeStateError,
+    ProcessAddressAllocationClassification, ProcessAddressAllocationPurpose,
+    ProcessAddressSpaceAllocator, RuntimeAddressRange, RuntimeHandle, RuntimeStateError,
 };
 use crate::memory::{GUEST_PAGE_SIZE, GuestAddress, GuestRange, MemoryOwnerId};
+
+pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
+pub const RUNTIME_PRIVATE_HEAP_ARENA_BASE: GuestAddress = GuestAddress(0x2000_0000);
+pub const RUNTIME_PRIVATE_HEAP_ARENA_STRIDE: u32 = 0x0100_0000;
+pub const RUNTIME_PRIVATE_HEAP_BACKING_LIMIT: u16 = 32;
+pub const RUNTIME_PRIVATE_HEAP_ALIGNMENT: u32 = 8;
+pub const RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE: u8 = 0xa5;
+pub const RUNTIME_PRIVATE_HEAP_FREED_BYTE: u8 = 0xdd;
+pub const RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS: usize = 65_536;
 
 const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
 const RUNTIME_PRIVATE_HEAP_OWNER: &str = "runtime-process-private-heaps";
 const RUNTIME_PRIVATE_HEAP_VARIANT: &str = "heap-create-metadata-v1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHeap {
+    pub owner: String,
+    pub variant_id: String,
+    pub namespace: String,
+    pub handle: u32,
+    pub creation_flags: u32,
+    pub initial_size: u32,
+    pub maximum_size: u32,
+    pub growable: bool,
+    pub live_allocations: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeHeapAllocationId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeHeapInitialization {
+    Zeroed,
+    DeterministicUninitialized,
+}
+
+impl RuntimeHeapInitialization {
+    pub const fn fill_byte(self) -> u8 {
+        match self {
+            Self::Zeroed => 0,
+            Self::DeterministicUninitialized => RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHeapAllocation {
+    pub id: RuntimeHeapAllocationId,
+    pub address: GuestAddress,
+    pub byte_length: u32,
+    pub reserved_byte_length: u32,
+    pub initialization: RuntimeHeapInitialization,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHeapBacking {
+    pub memory_owner: MemoryOwnerId,
+    pub address_allocation_id: super::ProcessAddressAllocationId,
+    pub range: GuestRange,
+    pub alignment: u32,
+    pub committed_bytes: u32,
+    pub high_water_mark: u32,
+    pub next_allocation_id: RuntimeHeapAllocationId,
+    pub allocations: BTreeMap<u32, RuntimeHeapAllocation>,
+    pub free_blocks: BTreeMap<u32, u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeHeapTeardown {
+    pub handles: Vec<u32>,
+    pub address_allocation_ids: Vec<super::ProcessAddressAllocationId>,
+    pub allocations_discarded: usize,
+    pub reserved_bytes_released: u64,
+    pub committed_bytes_released: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RuntimeHeapBackingPlan {
+    New {
+        address_allocation_id: super::ProcessAddressAllocationId,
+        range: GuestRange,
+        initial_committed_bytes: u32,
+    },
+    Existing {
+        memory_owner: MemoryOwnerId,
+        address_allocation_id: super::ProcessAddressAllocationId,
+        range: GuestRange,
+        committed_bytes: u32,
+    },
+}
+
+impl RuntimeHeapBackingPlan {
+    pub(crate) const fn range(self) -> GuestRange {
+        match self {
+            Self::New { range, .. } | Self::Existing { range, .. } => range,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RuntimeHeapAllocationPlan {
+    pub handle: u32,
+    pub allocation: RuntimeHeapAllocation,
+    pub allocation_offset: u32,
+    pub backing: RuntimeHeapBackingPlan,
+    pub source_free_block: Option<(u32, u32)>,
+    pub previous_high_water_mark: u32,
+    pub next_committed_bytes: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RuntimeHeapFreePlan {
+    pub handle: u32,
+    pub allocation: RuntimeHeapAllocation,
+    pub memory_owner: MemoryOwnerId,
+    pub merged_free_block: (u32, u32),
+    pub predecessor: Option<(u32, u32)>,
+    pub successor: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RuntimeHeapDestructionPlan {
+    pub handle: u32,
+    pub backing: Option<(
+        super::ProcessAddressAllocationId,
+        MemoryOwnerId,
+        GuestRange,
+        u32,
+    )>,
+    pub live_allocations: usize,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
