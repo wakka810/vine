@@ -113,8 +113,8 @@
   "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
       "imports": 0,
-      "bytes": 2101772,
-      "sha256": "af6342777488afb538ab73c8b4e889f5d7c97237800c8f4210b69f9f112da656"
+      "bytes": 2138810,
+      "sha256": "52bc8aae82bac784ef9ede3a0036fbbba84c03679518fb5fcaa1036a7df8c537"
   },
   "browserRuntimeFixture": {
     "bytes": 2560,
@@ -293,35 +293,35 @@
     "thresholdEvaluationCount": 17,
     "chromeVersion": "150.0.7871.115",
     "durationMilliseconds": 180000,
-      "completedSessions": 306,
+      "completedSessions": 300,
       "failedSessions": 0,
       "mainHeapSamples": 38,
-      "workerHeapSamples": 37,
-      "sessionP95Milliseconds": 709.0500000119209,
-      "sliceP99Milliseconds": 2.875,
-      "heartbeatP99Milliseconds": 16.415000021457672,
-      "maximumHeartbeatGapMilliseconds": 30.444999992847443,
-      "mainHeapMaximumBytes": 5988709,
-      "mainHeapSlopeBytesPerMinute": -143982.97729457394,
-      "workerHeapMaximumBytes": 25585024,
-      "workerHeapSlopeBytesPerMinute": 3065898.3095457526,
+      "workerHeapSamples": 36,
+      "sessionP95Milliseconds": 680.4200000166893,
+      "sliceP99Milliseconds": 3.8549999594688416,
+      "heartbeatP99Milliseconds": 6.375,
+      "maximumHeartbeatGapMilliseconds": 32.4200000166893,
+      "mainHeapMaximumBytes": 6155218,
+      "mainHeapSlopeBytesPerMinute": -99282.80802085967,
+      "workerHeapMaximumBytes": 26830048,
+      "workerHeapSlopeBytesPerMinute": 994961.8210659113,
       "workerHeapCapacityMaximumBytes": 57409536,
-      "workerBackingStorageMaximumBytes": 34254793,
-      "workerBackingStorageSlopeBytesPerMinute": 2702141.1082479917,
-    "runtimeCoreLinearMemoryBytes": 9895936,
+      "workerBackingStorageMaximumBytes": 29920774,
+      "workerBackingStorageSlopeBytesPerMinute": 278242.9146871766,
+    "runtimeCoreLinearMemoryBytes": 9961472,
     "executionEngineLinearMemoryBytes": 11796480,
       "wasmBridgeCallsPerSession": 2852,
     "thresholdFailures": 0,
     "thresholdFailureIds": [],
-      "runtimeCoreWasmSha256": "af6342777488afb538ab73c8b4e889f5d7c97237800c8f4210b69f9f112da656",
-      "runtimeWorkerBytes": 97283,
-      "runtimeWorkerSha256": "c9767db112ea0cf63f4c22a1241cd61e8b664e0530f897075a928e5d735ca836",
+      "runtimeCoreWasmSha256": "52bc8aae82bac784ef9ede3a0036fbbba84c03679518fb5fcaa1036a7df8c537",
+      "runtimeWorkerBytes": 99685,
+      "runtimeWorkerSha256": "99b494f3f05f70387d79fc33776abaea519ae1526cc4a34d9cf9b1f3c19ea6d2",
     "benchmarkMainBytes": 8965,
     "benchmarkMainSha256": "f882c1b309bb467bb347c4899f80540915ef8c30169b20e77493ff5077b4913e",
     "v86AdapterWasmBytes": 1882836,
     "v86AdapterWasmSha256": "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
-      "reportBytes": 912820,
-      "reportSha256": "cf288c91072a115db539fafaffa0a21553df7518eb69a1eefaa0901423e9cf8f"
+      "reportBytes": 1042533,
+      "reportSha256": "3b9b6ff5d3a58d60b65d845d8cd02cbfc56aaad085b17bf5c44ead4c384ae6b0"
   },
   "browserStressEvidence": {
     "durationMilliseconds": 1800073.5,
@@ -484,6 +484,7 @@
       "scheduler-and-waits",
       "messages",
       "objects",
+      "com",
       "heaps",
       "module-records",
       "synchronization",
@@ -499,7 +500,8 @@
     "processIndependentSubsystemOwners": [
       "heaps",
       "module-records",
-      "synchronization"
+      "synchronization",
+      "com"
     ],
     "processSerializationView": "runtime/kernel.rs::RuntimeProcessView",
     "processSerializationViewAccess": "immutable-borrow",
@@ -511,13 +513,15 @@
       "runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections",
       "runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state",
       "runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order",
-      "runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit"
+      "runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit",
+      "runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts"
     ],
     "representativeCrossSubsystemAtomicTests": [
       "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned",
       "runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle",
       "runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion",
-      "runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit"
+      "runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit",
+      "com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops"
     ],
     "capabilityExpansionPausedAt": "kernel32-set-thread-affinity-mask"
   },
@@ -550,6 +554,40 @@
     "runtimeCoreWasmSha256": "ad1941f95e96577f2e84462d534b95ca9e09f39d1e39e9f4f922ba0fac00b633",
     "browserBenchmarkDecision": "go",
     "browserBenchmarkThresholdFailures": 0
+  },
+  "runtimeComFoundation": {
+    "schema": "vine.runtime-com-foundation.v1",
+    "status": "implemented-and-verified",
+    "stateOwner": "runtime/com.rs::RuntimeCom",
+    "aggregateCoordinator": "runtime/kernel.rs::RuntimeKernel",
+    "mutableCollectionVisibility": "private",
+    "readInspection": "immutable-borrow",
+    "logicalIdentityAuthority": "rust",
+    "logicalIdentitySerialization": "decimal-string",
+    "sharedReferenceCountAuthority": "rust",
+    "canonicalIUnknownIid": "00000000-0000-0000-c000-000000000046",
+    "abi": "x86-com-stdcall",
+    "implementedMethods": ["QueryInterface", "AddRef", "Release"],
+    "returnKinds": ["hresult", "u32"],
+    "guestLayout": "two-page-readonly-data-rx-endpoints",
+    "endpointInstruction": "ud2",
+    "addressAllocationPurpose": "com-endpoint",
+    "addressAllocationIdentity": true,
+    "queryInterfaceOutputAndRefcountAtomic": true,
+    "completionPreflightBeforeMutation": true,
+    "finalReleaseRetiresGuestMappingAndAllocation": true,
+    "lastErrorPolicy": "preserve",
+    "unsupportedMethodPolicy": "structured-stop-before-mutation",
+    "faultIdentityFields": ["interface", "vtable-slot", "method", "call-site"],
+    "browserResourceStateOwner": "browser/runtime-worker/browser-resource-table.ts",
+    "browserIdentityNamespace": "browser-resource:<positive-safe-integer>",
+    "browserAssociationOwnsComReference": false,
+    "subsystemTests": 1,
+    "fixtureTests": 4,
+    "atomicFailureTests": 3,
+    "wholeRuntimeStateClone": false,
+    "concreteGraphicsOrAudioInterfaces": false,
+    "comInitializationOrAutomation": false
   },
   "runtimeRegistries": {
     "schema": "vine.runtime-registries.v1",
@@ -835,17 +873,18 @@
   "processAddressSpaceAllocator": {
     "schema": "vine.process-address-space-allocator.v1",
     "authority": "rust-runtime-kernel",
-      "rootAllocationCount": 6,
+    "rootAllocationCount": 6,
     "heapSlotAllocationCount": 32,
-      "totalAllocationCount": 38,
+    "totalAllocationCount": 38,
     "registeredPurposes": [
       "import-thunks",
       "callback-returns",
       "dynamic-exports",
       "private-heap-band",
       "private-heap-slot",
-        "process-environment",
-        "thread-stack"
+      "process-environment",
+      "thread-stack",
+      "com-endpoint"
     ],
     "centralValidation": [
       "alignment",
@@ -856,13 +895,15 @@
     ],
     "searchReservationFixtures": ["guest-image", "thread-stack", "com-endpoint"],
     "heapBackingUsesAllocationId": true,
+    "comBackingUsesAllocationId": true,
+    "comFinalReleaseRetiresAllocation": true,
     "controlMappingCommitUsesAllocationId": true,
     "mappingDeltaBinaryVersion": 2,
     "mappingDeltaAllocationIdWidthBits": 64,
     "browserMirrorValidatesAllocationId": true,
     "processEnvironmentReservationCommit": "memory-runtime-atomic-plan",
-      "initialEnvironmentRegistered": true,
-      "initialThreadStackRegistered": true
+    "initialEnvironmentRegistered": true,
+    "initialThreadStackRegistered": true
   },
   "kernel32CompatibilityPolicy": {
     "schema": "vine.kernel32-compatibility-policy",

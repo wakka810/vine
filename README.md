@@ -15,7 +15,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active runtime | `bgi-get-current-thread`: 285 calls across 47 API contracts, memory generation 396 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (306 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (300 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `KERNEL32.dll!SetThreadAffinityMask(0xfffffffe, 0x00000001)` at instruction 25261: `endpoint-contract-missing` |
 

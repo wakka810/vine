@@ -1088,7 +1088,7 @@ allocatorのinfallible targeted commitを呼ぶ。Object conflict／exhaustion�
 compatibility viewで維持する。これにより`RuntimeState`からdirect scalar allocator fieldをすべて除去し、
 aggregate rootのdirect fieldsをsubsystem ownerだけに限定した。
 
-Architecture refactor checkpoint S13は`runtime.rs`を93-line public facadeへ縮め、aggregate実体を
+Architecture refactor checkpoint S13は`runtime.rs`をpublic facadeへ縮め、aggregate実体を
 `runtime/kernel.rs::RuntimeKernel`へ移した。既存`RuntimeState`はtype aliasとして維持する。Process lifecycle、
 environment／command line、standard handle、directory、exception-filter、heap policyはprivate fieldを持つ
 `runtime/process.rs::RuntimeProcessState`へ移し、heap、module record、synchronization ownerはkernel直下の
@@ -1103,6 +1103,14 @@ commitだけを呼ぶ。Heap、module attach、thread exit、wait wakeはそれ�
 cross-subsystem atomic testを持つ。これによりreview §3.2のaggregate ownership／transaction coordination
 境界を完了した。後続の`GetCurrentThread()` checkpointも完了し、capability expansionの次項目は
 保存済み`SetThreadAffinityMask(0xFFFFFFFE,1)`とする。
+
+COM foundation checkpoint C1は`P3-COM-01`／`AC-P3-08`の共通境界として完了した。Private
+`RuntimeCom`がlogical object／interface／IID／shared reference countを所有し、allocation ID-backedの
+read-only vtable pageとRX `UD2` endpoint pageをx86 stdcall gatewayへ接続する。Canonical
+`QueryInterface`／`AddRef`／`Release`、HRESULT、LastError preserve、final mapping／owner／allocation
+retirement、failure atomicityをsynthetic fixtureで固定した。Browser resourceは独立namespaceの非所有
+associationとし、local releaseからRust refcountを変更しない。Concrete Direct3D／DirectInput／
+DirectSound／DirectDraw interfaceとCOM initialization／automationは後続corpus-driven taskのままである。
 
 ## 23. 完了の定義
 

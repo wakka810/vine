@@ -2,6 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
+use crate::com::{
+    ComCallTrap, ComDispatchOutcome, ComObjectSpec, InstalledComObject, dispatch_com_call,
+    install_com_object,
+};
 use crate::environment::InitialProcessEnvironment;
 use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId, RuntimeExportCatalog};
 use crate::materialize::ImageMaterialization;
@@ -727,6 +731,17 @@ impl<'a> ExecutionSession<'a> {
 
     pub fn last_error(&self) -> Result<u32, RuntimeStateError> {
         self.runtime.current_last_error()
+    }
+
+    pub fn install_com_object(
+        &mut self,
+        spec: ComObjectSpec,
+    ) -> Result<InstalledComObject, RuntimeStateError> {
+        install_com_object(self.memory, self.runtime, spec)
+    }
+
+    pub fn dispatch_com_call(&mut self, trap: ComCallTrap) -> ComDispatchOutcome {
+        dispatch_com_call(self.memory, self.runtime, trap)
     }
 }
 

@@ -5,6 +5,7 @@
 //! its compatibility name for existing callers.
 
 mod address_space;
+mod com;
 mod heaps;
 mod kernel;
 mod messages;
@@ -24,6 +25,13 @@ pub use address_space::{
     ProcessAddressAllocationRequest, ProcessAddressMappingRequirements,
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RuntimeAddressRange,
     validate_process_address_mapping_allocation,
+};
+pub use com::{
+    RUNTIME_COM_IUNKNOWN_IID, RUNTIME_COM_MAX_INTERFACES_PER_OBJECT,
+    RUNTIME_COM_MAX_METHODS_PER_INTERFACE, RuntimeCom, RuntimeComBacking, RuntimeComIid,
+    RuntimeComInterfaceId, RuntimeComInterfaceRecord, RuntimeComMethodImplementation,
+    RuntimeComMethodRecord, RuntimeComMethodTarget, RuntimeComObjectId, RuntimeComObjectRecord,
+    RuntimeComReturnKind,
 };
 pub use heaps::{
     LOGICAL_PRIVATE_HEAP_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
@@ -90,6 +98,10 @@ pub use waits::{
 pub type RuntimeState = RuntimeKernel;
 
 pub(crate) use address_space::validate_process_address_mapping_allocation_for_memory;
+pub(crate) use com::{
+    RUNTIME_COM_ADDRESS_OWNER, RuntimeComInterfaceRegistration, RuntimeComMethodRegistration,
+    RuntimeComObjectRegistration,
+};
 pub(crate) use heaps::{
     RuntimeHeapAllocationPlan, RuntimeHeapBackingPlan, RuntimeHeapDestructionPlan,
 };

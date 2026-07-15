@@ -27,6 +27,11 @@ use super::address_space::{
     ProcessAddressAllocationRequest, ProcessAddressReservationPlan, ProcessAddressSpaceAllocator,
     ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
+use super::com::{
+    RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComInterfaceId, RuntimeComInterfaceRecord,
+    RuntimeComMethodTarget, RuntimeComMutationPlan, RuntimeComObjectRegistration,
+    RuntimeComReferenceResult, RuntimeComRegistrationResult,
+};
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
     RuntimeHeapCreationPlan, RuntimeHeapDestructionPlan, RuntimeHeapFreePlan,
@@ -125,6 +130,18 @@ struct RuntimeCallbackMutationPlan {
     exited: Option<RuntimeCallbackFrame>,
 }
 
+pub(crate) struct RuntimeComReleasePlan {
+    com: RuntimeComMutationPlan,
+    previous_address_space: Option<ProcessAddressSpaceAllocator>,
+    next_address_space: Option<ProcessAddressSpaceAllocator>,
+}
+
+impl RuntimeComReleasePlan {
+    pub(crate) fn result(&self) -> RuntimeComReferenceResult {
+        self.com.reference_result()
+    }
+}
+
 pub const RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE: u32 = 0xffff_fffe;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -143,6 +160,7 @@ pub struct RuntimeKernel {
     scheduler: RuntimeScheduler,
     messages: RuntimeMessages,
     objects: RuntimeObjectTable,
+    com: RuntimeCom,
     heaps: RuntimeHeaps,
     module_records: RuntimeModuleRecords,
     synchronization: RuntimeSynchronization,
@@ -217,6 +235,8 @@ struct RuntimeStateSnapshot<'a> {
     scheduler: &'a RuntimeScheduler,
     messages: &'a RuntimeMessages,
     objects: &'a RuntimeObjectTable,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    com: Option<&'a RuntimeCom>,
     #[serde(flatten)]
     modules: &'a RuntimeModules,
     registries: RuntimeRegistriesSnapshot<'a>,
@@ -251,6 +271,7 @@ impl Serialize for RuntimeKernel {
             scheduler: &self.scheduler,
             messages: &self.messages,
             objects: &self.objects,
+            com: (!self.com.is_empty()).then_some(&self.com),
             modules: &self.modules,
             registries: RuntimeRegistriesSnapshot {
                 dynamic_endpoints: self.registries.dynamic_endpoints(),
@@ -343,6 +364,7 @@ impl RuntimeKernel {
             scheduler: RuntimeScheduler::new(bootstrap.initial_thread_id),
             messages: RuntimeMessages::new(bootstrap.initial_thread_id),
             objects,
+            com: RuntimeCom::default(),
             heaps: RuntimeHeaps::default(),
             module_records: RuntimeModuleRecords::default(),
             synchronization: RuntimeSynchronization::default(),
@@ -420,6 +442,171 @@ impl RuntimeKernel {
 
     pub fn process_address_space_allocator(&self) -> &ProcessAddressSpaceAllocator {
         &self.address_space_allocator
+    }
+
+    pub fn com(&self) -> &RuntimeCom {
+        &self.com
+    }
+
+    pub fn resolve_com_method(
+        &self,
+        endpoint: GuestAddress,
+    ) -> Result<RuntimeComMethodTarget, RuntimeStateError> {
+        self.com.resolve_method(endpoint)
+    }
+
+    pub fn com_interface_for_pointer(
+        &self,
+        pointer: GuestAddress,
+    ) -> Result<&RuntimeComInterfaceRecord, RuntimeStateError> {
+        self.com.interface_for_pointer(pointer)
+    }
+
+    pub(crate) fn plan_com_address_reservation(
+        &self,
+        request: ProcessAddressAllocationRequest,
+    ) -> Result<ProcessAddressReservationPlan, RuntimeStateError> {
+        if request.purpose != ProcessAddressAllocationPurpose::ComEndpoint
+            || request.owner != RUNTIME_COM_ADDRESS_OWNER
+            || request.classification != ProcessAddressAllocationClassification::Com
+            || request.lifetime != ProcessAddressAllocationLifetime::Object
+            || request.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+            || !request.executable
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-com",
+                "com-address-allocation-request-invalid",
+                "COM backing requires an executable, explicit-release, object-lifetime COM allocation",
+            ));
+        }
+        self.address_space_allocator.plan_reservation(request)
+    }
+
+    pub(crate) fn plan_com_registration(
+        &self,
+        registration: RuntimeComObjectRegistration,
+    ) -> Result<RuntimeComMutationPlan, RuntimeStateError> {
+        self.com.plan_registration(registration)
+    }
+
+    pub(crate) fn commit_com_installation(
+        &mut self,
+        reservation: ProcessAddressReservationPlan,
+        com: RuntimeComMutationPlan,
+    ) -> Result<RuntimeComRegistrationResult, RuntimeStateError> {
+        self.address_space_allocator
+            .preflight_reservation_commit(&reservation)?;
+        self.com.preflight(&com)?;
+        let result = com.registration_result();
+        let object = &result.object;
+        let allocation = &reservation.allocation;
+        if object.backing.address_allocation_id != allocation.id
+            || object.backing.range != allocation.range
+            || allocation.purpose != ProcessAddressAllocationPurpose::ComEndpoint
+            || allocation.owner != RUNTIME_COM_ADDRESS_OWNER
+            || allocation.classification != ProcessAddressAllocationClassification::Com
+            || allocation.lifetime != ProcessAddressAllocationLifetime::Object
+            || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+            || !allocation.executable
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-com",
+                "com-backing-allocation-mismatch",
+                "logical COM object backing does not match its planned process allocation",
+            ));
+        }
+        self.address_space_allocator.commit_reservation(reservation);
+        self.com.commit(com);
+        Ok(result)
+    }
+
+    pub(crate) fn plan_com_query_interface(
+        &self,
+        interface_id: RuntimeComInterfaceId,
+        iid: super::RuntimeComIid,
+    ) -> Result<RuntimeComMutationPlan, RuntimeStateError> {
+        self.com.plan_query_interface(interface_id, iid)
+    }
+
+    pub(crate) fn plan_com_add_ref(
+        &self,
+        interface_id: RuntimeComInterfaceId,
+    ) -> Result<RuntimeComMutationPlan, RuntimeStateError> {
+        self.com.plan_add_ref(interface_id)
+    }
+
+    pub(crate) fn commit_com_mutation(
+        &mut self,
+        plan: RuntimeComMutationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.com.preflight(&plan)?;
+        self.com.commit(plan);
+        Ok(())
+    }
+
+    pub(crate) fn plan_com_release(
+        &self,
+        interface_id: RuntimeComInterfaceId,
+    ) -> Result<RuntimeComReleasePlan, RuntimeStateError> {
+        let com = self.com.plan_release(interface_id)?;
+        let result = com.reference_result();
+        let (previous_address_space, next_address_space) =
+            if let Some(backing) = &result.retired_backing {
+                let mut next = self.address_space_allocator.clone();
+                let released = next.release(backing.address_allocation_id)?;
+                if released.range != backing.range
+                    || released.purpose != ProcessAddressAllocationPurpose::ComEndpoint
+                    || released.owner != RUNTIME_COM_ADDRESS_OWNER
+                    || released.classification != ProcessAddressAllocationClassification::Com
+                    || released.lifetime != ProcessAddressAllocationLifetime::Object
+                    || released.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+                    || !released.executable
+                {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-com",
+                        "com-retirement-allocation-mismatch",
+                        "retiring COM object does not own the expected process allocation",
+                    ));
+                }
+                (Some(self.address_space_allocator.clone()), Some(next))
+            } else {
+                (None, None)
+            };
+        Ok(RuntimeComReleasePlan {
+            com,
+            previous_address_space,
+            next_address_space,
+        })
+    }
+
+    pub(crate) fn preflight_com_release(
+        &self,
+        plan: &RuntimeComReleasePlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.com.preflight(&plan.com)?;
+        if let Some(previous) = &plan.previous_address_space
+            && &self.address_space_allocator != previous
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-com",
+                "com-release-allocation-plan-stale",
+                "process address allocations changed after COM release planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_com_release(
+        &mut self,
+        plan: RuntimeComReleasePlan,
+    ) -> Result<RuntimeComReferenceResult, RuntimeStateError> {
+        self.preflight_com_release(&plan)?;
+        let result = plan.result();
+        self.com.commit(plan.com);
+        if let Some(next) = plan.next_address_space {
+            self.address_space_allocator = next;
+        }
+        Ok(result)
     }
 
     pub(crate) fn plan_initial_process_environment_reservation(

@@ -230,6 +230,13 @@ Aggregateはheap／backing map／slot allocatorを直接mutateせず、failed ob
 allocatorを両方不変にする。`RuntimeKernel`自身にはdirect scalar allocator fieldを残さない。詳細は
 [runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
+Mutable logical COM object／interface／IID／pointer／endpoint indexとshared reference countはprivate
+`runtime/com.rs::RuntimeCom`だけが所有する。COM identityはWin32 HANDLE用`RuntimeObjectTable`へ混在させず、
+aggregateはCOM plan、process address allocation、GuestMemory transactionをpreflightしてからtargeted
+commitする。Final `Release`は全interface index、guest mapping、memory owner、allocation IDを同時に退役
+させる。Browser-side Web API resourceは別namespaceの非所有associationであり、COM refcount authorityを
+持たない。詳細は[com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
+
 Mutable process module recordsはprivate `runtime/modules.rs::RuntimeModuleRecords`、graph、mapped
 images、import bindings、runtime export tableはprivate
 `runtime/modules.rs::RuntimeModules`だけが所有する。既存`process.modules`／root `moduleGraph`

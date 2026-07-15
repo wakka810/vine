@@ -289,6 +289,15 @@ testで固定する。Heap、module attach、thread exit、wait wakeの各operat
 cross-subsystem atomic testを両方要求する。Manifest validatorはこのboundary、representative operation、
 compatibility view、saved next stopをcurrent-state invariantとして検査する。
 
+COM foundationの代表Rust fixtureはread-only interface／vtable page、RX `UD2` endpoint、x86 stdcall
+decode／callee cleanup、canonical IUnknown identity、supported／unknown IIDのHRESULT、shared
+`QueryInterface`／`AddRef`／`Release` count、LastError preserve、final mapping／owner／allocation retirementを
+固定する。Malformed stack／`this`／output memory、duplicate install、failed final releaseはCOM state、
+guest memory、address allocatorをpartial mutationしない。Unsupported slotはinterface、IID、slot、method、
+endpoint、callsite付きで停止する。Browser contractは独立IDの非再利用、immutable decimal-string
+association、local releaseがRust refcountを変更しないことを固定する。詳細は
+[com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
+
 controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
 one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact
 signal／runnable wake／one event、already-signaled immediate completion、process-exit cancellationを

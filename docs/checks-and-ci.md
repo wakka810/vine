@@ -10,7 +10,7 @@ npm run check
 ```
 
 `check:fast` is the public short gate. It runs documentation and runtime
-checkpoint-manifest validation, evidence-classification contracts, public fixture generation, `cargo fmt --all
+checkpoint-manifest validation, evidence-classification contracts, COM foundation contracts, public fixture generation, `cargo fmt --all
 --check`, workspace tests, clippy for all targets and features with warnings
 denied, JavaScript syntax checks, the pinned small v86 smoke, and the Windows
 trace-summary contract.
@@ -24,6 +24,15 @@ npm run check:evidence-classification
 It fixes the six evidence classes, accepts valid scheduler partial-order
 interleavings, rejects forbidden order, keeps whole-report mismatch non-semantic,
 and verifies structured benchmark pass／fail reasons.
+
+The focused COM foundation contract is:
+
+```powershell
+npm run check:com-foundation
+```
+
+It runs the Rust IUnknown ABI／identity／lifetime／rollback fixture, TypeScript Runtime Worker
+typecheck, and the Browser-resource identity-separation contract.
 
 `check:fixture-e2e` prepares the pinned source adapter, fixes its generic
 execution-engine contract against the actual Wasm, then runs the controlled

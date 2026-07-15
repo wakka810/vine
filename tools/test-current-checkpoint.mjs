@@ -161,6 +161,42 @@ assert.ok(
   ),
 );
 
+const browserOwnedComIdentity = structuredClone(manifest);
+browserOwnedComIdentity.activeRuntimeCheckpoint.runtimeComFoundation.logicalIdentityAuthority =
+  "browser";
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedComIdentity).some((error) =>
+    error.includes("COM foundation boundary"),
+  ),
+);
+
+const unsafeNumericComIdentity = structuredClone(manifest);
+unsafeNumericComIdentity.activeRuntimeCheckpoint.runtimeComFoundation.logicalIdentitySerialization =
+  "json-number";
+assert.ok(
+  validateCurrentCheckpoint(unsafeNumericComIdentity).some((error) =>
+    error.includes("COM foundation boundary"),
+  ),
+);
+
+const postMutationComCompletionValidation = structuredClone(manifest);
+postMutationComCompletionValidation.activeRuntimeCheckpoint.runtimeComFoundation.completionPreflightBeforeMutation =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(postMutationComCompletionValidation).some((error) =>
+    error.includes("COM foundation boundary"),
+  ),
+);
+
+const browserOwnsComReference = structuredClone(manifest);
+browserOwnsComReference.activeRuntimeCheckpoint.runtimeComFoundation.browserAssociationOwnsComReference =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnsComReference).some((error) =>
+    error.includes("COM foundation boundary"),
+  ),
+);
+
 const exposedRegistries = structuredClone(manifest);
 exposedRegistries.activeRuntimeCheckpoint.runtimeRegistries.mutableCollectionVisibility =
   "public";
@@ -354,6 +390,15 @@ detachedHeapAddress.activeRuntimeCheckpoint.processAddressSpaceAllocator.heapBac
   false;
 assert.ok(
   validateCurrentCheckpoint(detachedHeapAddress).some((error) =>
+    error.includes("address-space allocator boundary"),
+  ),
+);
+
+const detachedComAddress = structuredClone(manifest);
+detachedComAddress.activeRuntimeCheckpoint.processAddressSpaceAllocator.comBackingUsesAllocationId =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(detachedComAddress).some((error) =>
     error.includes("address-space allocator boundary"),
   ),
 );

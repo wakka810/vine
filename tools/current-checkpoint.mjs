@@ -560,7 +560,7 @@ export function validateCurrentCheckpoint(manifest) {
     kernelRoles.join(",") !==
       "private-subsystem-ownership,cross-subsystem-transaction-coordination,compatibility-serialization" ||
     kernelFields.join(",") !==
-      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,objects,heaps,module-records,synchronization,modules,registries" ||
+      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,objects,com,heaps,module-records,synchronization,modules,registries" ||
     kernelBoundary.directMutableCollectionFields !== 0 ||
     kernelBoundary.directScalarAllocators !== 0 ||
     kernelBoundary.directSubsystemCollectionMutation !== false ||
@@ -569,7 +569,7 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/process.rs::RuntimeProcessState" ||
     kernelBoundary.processMutableCollectionVisibility !== "private" ||
     processIndependentOwners.join(",") !==
-      "heaps,module-records,synchronization" ||
+      "heaps,module-records,synchronization,com" ||
     kernelBoundary.processSerializationView !==
       "runtime/kernel.rs::RuntimeProcessView" ||
     kernelBoundary.processSerializationViewAccess !== "immutable-borrow" ||
@@ -579,9 +579,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernelBoundary.mutexObjectPlanVisibility !== "opaque-to-kernel" ||
     kernelBoundary.mutexSubsystemRootCloneOrReplacementFromKernel !== false ||
     representativeSubsystemTests.join(",") !==
-      "runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit" ||
+      "runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -605,6 +605,65 @@ export function validateCurrentCheckpoint(manifest) {
     objects.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime object subsystem boundary is invalid");
+  }
+  const comFoundation = requireRecord(
+    active.runtimeComFoundation,
+    "activeRuntimeCheckpoint.runtimeComFoundation",
+    errors,
+  );
+  const comMethods = requireStringArray(
+    comFoundation.implementedMethods,
+    "activeRuntimeCheckpoint.runtimeComFoundation.implementedMethods",
+    errors,
+  );
+  const comReturnKinds = requireStringArray(
+    comFoundation.returnKinds,
+    "activeRuntimeCheckpoint.runtimeComFoundation.returnKinds",
+    errors,
+  );
+  const comFaultIdentityFields = requireStringArray(
+    comFoundation.faultIdentityFields,
+    "activeRuntimeCheckpoint.runtimeComFoundation.faultIdentityFields",
+    errors,
+  );
+  if (
+    comFoundation.schema !== "vine.runtime-com-foundation.v1" ||
+    comFoundation.status !== "implemented-and-verified" ||
+    comFoundation.stateOwner !== "runtime/com.rs::RuntimeCom" ||
+    comFoundation.aggregateCoordinator !== "runtime/kernel.rs::RuntimeKernel" ||
+    comFoundation.mutableCollectionVisibility !== "private" ||
+    comFoundation.readInspection !== "immutable-borrow" ||
+    comFoundation.logicalIdentityAuthority !== "rust" ||
+    comFoundation.logicalIdentitySerialization !== "decimal-string" ||
+    comFoundation.sharedReferenceCountAuthority !== "rust" ||
+    comFoundation.canonicalIUnknownIid !==
+      "00000000-0000-0000-c000-000000000046" ||
+    comFoundation.abi !== "x86-com-stdcall" ||
+    comMethods.join(",") !== "QueryInterface,AddRef,Release" ||
+    comReturnKinds.join(",") !== "hresult,u32" ||
+    comFoundation.guestLayout !== "two-page-readonly-data-rx-endpoints" ||
+    comFoundation.endpointInstruction !== "ud2" ||
+    comFoundation.addressAllocationPurpose !== "com-endpoint" ||
+    comFoundation.addressAllocationIdentity !== true ||
+    comFoundation.queryInterfaceOutputAndRefcountAtomic !== true ||
+    comFoundation.completionPreflightBeforeMutation !== true ||
+    comFoundation.finalReleaseRetiresGuestMappingAndAllocation !== true ||
+    comFoundation.lastErrorPolicy !== "preserve" ||
+    comFoundation.unsupportedMethodPolicy !== "structured-stop-before-mutation" ||
+    comFaultIdentityFields.join(",") !== "interface,vtable-slot,method,call-site" ||
+    comFoundation.browserResourceStateOwner !==
+      "browser/runtime-worker/browser-resource-table.ts" ||
+    comFoundation.browserIdentityNamespace !==
+      "browser-resource:<positive-safe-integer>" ||
+    comFoundation.browserAssociationOwnsComReference !== false ||
+    comFoundation.subsystemTests < 1 ||
+    comFoundation.fixtureTests < 4 ||
+    comFoundation.atomicFailureTests < 3 ||
+    comFoundation.wholeRuntimeStateClone !== false ||
+    comFoundation.concreteGraphicsOrAudioInterfaces !== false ||
+    comFoundation.comInitializationOrAutomation !== false
+  ) {
+    errors.push("active runtime COM foundation boundary is invalid");
   }
   const registries = requireRecord(
     active.runtimeRegistries,
@@ -857,6 +916,8 @@ export function validateCurrentCheckpoint(manifest) {
     addressSpace.totalAllocationCount !==
       addressSpace.rootAllocationCount + addressSpace.heapSlotAllocationCount ||
     addressSpace.heapBackingUsesAllocationId !== true ||
+    addressSpace.comBackingUsesAllocationId !== true ||
+    addressSpace.comFinalReleaseRetiresAllocation !== true ||
     addressSpace.controlMappingCommitUsesAllocationId !== true ||
     addressSpace.mappingDeltaBinaryVersion !== 2 ||
     addressSpace.mappingDeltaAllocationIdWidthBits !== 64 ||

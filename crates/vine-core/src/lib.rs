@@ -3,6 +3,7 @@
 mod api;
 mod bootstrap;
 mod callbacks;
+mod com;
 mod dll;
 mod dynamic_exports;
 mod environment;
@@ -37,6 +38,13 @@ pub use callbacks::{
     CallbackReturnSentinel, CallbackReturnSentinelId, PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS,
     ProcessEntryReturnSentinel, ProcessEntryReturnSentinelId, RuntimeReturnSentinels,
     install_callback_return_sentinel, install_runtime_return_sentinels,
+};
+pub use com::{
+    COM_E_NOINTERFACE, COM_E_POINTER, COM_S_OK, ComCallCompletion, ComCallFrame, ComCallTrap,
+    ComDispatchOutcome, ComFault, ComFaultClass, ComFaultTarget, ComGuestWriteReceipt, ComHResult,
+    ComInterfaceSpec, ComMethodSpec, ComObjectSpec, ComReturnValue, InstalledComObject,
+    RUNTIME_COM_BACKING_BYTES, RUNTIME_COM_ENDPOINT_SLOT_SIZE,
+    RUNTIME_COM_MAX_ENDPOINTS_PER_OBJECT, dispatch_com_call, install_com_object,
 };
 pub use dynamic_exports::{
     DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
@@ -105,9 +113,10 @@ pub use runtime::{
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy,
     ProcessAddressAllocationRequest, ProcessAddressMappingRequirements,
-    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RUNTIME_CRITICAL_SECTION_LIMIT,
-    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_MUTEX_LIMIT,
-    RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
+    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RUNTIME_COM_IUNKNOWN_IID,
+    RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RUNTIME_COM_MAX_METHODS_PER_INTERFACE,
+    RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT,
+    RUNTIME_MUTEX_LIMIT, RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
     RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
@@ -117,7 +126,10 @@ pub use runtime::{
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, RUNTIME_THREAD_OBJECT_NAMESPACE, RuntimeAddressRange,
     RuntimeBootstrap, RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCancellation,
-    RuntimeClockState, RuntimeCommandLine, RuntimeCreateMutexAResult, RuntimeCriticalSection,
+    RuntimeClockState, RuntimeCom, RuntimeComBacking, RuntimeComIid, RuntimeComInterfaceId,
+    RuntimeComInterfaceRecord, RuntimeComMethodImplementation, RuntimeComMethodRecord,
+    RuntimeComMethodTarget, RuntimeComObjectId, RuntimeComObjectRecord, RuntimeComReturnKind,
+    RuntimeCommandLine, RuntimeCreateMutexAResult, RuntimeCriticalSection,
     RuntimeCurrentDirectoryA, RuntimeCurrentThreadPseudoHandleResolution, RuntimeDllAttachFailure,
     RuntimeDllCallbackReason, RuntimeDllCallbackRequest, RuntimeDllLifecycleAction,
     RuntimeDllLifecycleCompletion, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,

@@ -234,6 +234,10 @@ WM_QUIT、paint、timer、dispatch callback、guest ABIは未実装なので`REQ
 | REQ-COM-01 | DirectSound／D3D9／DirectInput 8 と比較用 DirectDraw に必要な x86 COM method ABI、IUnknown、QueryInterface identity、reference count、HRESULT、vtable thunk を提供する | Must |
 | REQ-COM-02 | CoInitialize、apartment、class factory、BSTR／VARIANT 等は `REQ-COM-01` と分離し、corpus-driven な support band とする | Should |
 
+`P3-COM-01`／`AC-P3-08`の共通部分は
+[COM ABI／IUnknown foundation](com-iunknown-foundation.md)で固定する。これは具体的なDirectSound／D3D9／
+DirectInput／DirectDraw interface、device／resource semantics、または`REQ-COM-02`の実装完了を意味しない。
+
 ### 7.5 Window、message、input、locale
 
 | ID | 要件 | 優先度 |
