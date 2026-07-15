@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -43,13 +43,54 @@ const run = (command, args, options = {}) => {
   return `${result.stdout}${result.stderr}`.trim();
 };
 
-const runNativeFixture = (
+const runNativeFixtureOnce = (executable, { timeoutMs, windowsHide }) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(executable, [], {
+      cwd: root,
+      stdio: "ignore",
+      windowsHide,
+    });
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      callback(value);
+    };
+    const timer = setTimeout(() => {
+      const error = new Error(`${executable} timed out after ${timeoutMs} ms`);
+      error.code = "ETIMEDOUT";
+      finish(reject, error);
+      child.kill();
+    }, timeoutMs);
+    child.once("error", (error) => {
+      finish(reject, new Error(`${executable} could not start: ${error.message}`));
+    });
+    child.once("exit", (code, signal) => {
+      if (code === 0) {
+        finish(resolve);
+        return;
+      }
+      finish(
+        reject,
+        new Error(
+          signal === null
+            ? `${executable} failed with exit code ${code}`
+            : `${executable} terminated by signal ${signal}`,
+        ),
+      );
+    });
+  });
+
+const runNativeFixture = async (
   executable,
-  { timeoutMs = 10_000, timeoutRetries = 0, windowsHide = true } = {},
+  { timeoutMs = 30_000, timeoutRetries = 0, windowsHide = true } = {},
 ) => {
   for (let attempt = 1; attempt <= timeoutRetries + 1; attempt += 1) {
     try {
-      run(executable, [], { timeoutMs, windowsHide });
+      await runNativeFixtureOnce(executable, { timeoutMs, windowsHide });
       return attempt;
     } catch (error) {
       if (error?.code !== "ETIMEDOUT" || attempt > timeoutRetries) {
@@ -524,26 +565,27 @@ let bootstrapParamsNativeExitCode = null;
 let tlsGetValueNativeExitCode = null;
 let flsGetValueNativeExitCode = null;
 if (process.platform === "win32") {
-  runNativeFixture(exeFile);
+  await runNativeFixture(exeFile);
   nativeAbiExitCode = 0;
-  runNativeFixture(browserExeFile);
+  await runNativeFixture(browserExeFile);
   browserVerticalNativeExitCode = 0;
   // A freshly linked multi-DLL image can transiently remain in a zero-CPU host
-  // launch wait. This gate checks loader semantics, not launch latency, so retry
-  // one bounded timeout while still rejecting two consecutive hangs.
-  dllLifecycleNativeAttempts = runNativeFixture(lifecycleExe, {
+  // launch wait while Windows inspects it. This gate checks loader semantics,
+  // not launch latency, so retry one bounded timeout while still rejecting two
+  // consecutive hangs.
+  dllLifecycleNativeAttempts = await runNativeFixture(lifecycleExe, {
     timeoutRetries: 1,
   });
   dllLifecycleNativeExitCode = 0;
-  runNativeFixture(windowExe, { windowsHide: false });
+  await runNativeFixture(windowExe, { windowsHide: false });
   windowPixelNativeExitCode = 0;
-  runNativeFixture(bootstrapExe);
+  await runNativeFixture(bootstrapExe);
   bootstrapFsNativeExitCode = 0;
-  runNativeFixture(bootstrapParamsExe);
+  await runNativeFixture(bootstrapParamsExe);
   bootstrapParamsNativeExitCode = 0;
-  runNativeFixture(tlsGetValueExe);
+  await runNativeFixture(tlsGetValueExe);
   tlsGetValueNativeExitCode = 0;
-  runNativeFixture(flsGetValueExe);
+  await runNativeFixture(flsGetValueExe);
   flsGetValueNativeExitCode = 0;
 }
 
