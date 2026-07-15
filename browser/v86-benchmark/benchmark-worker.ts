@@ -3,6 +3,7 @@
 import {
   decodeReflection,
   encodeCpuWriteback,
+  type HostMemoryDelta,
   type MemoryReflection,
   type ReflectedPage,
   memoryPageSize,
@@ -12,7 +13,11 @@ import {
   type PreparedMetadata,
   RuntimeBridge,
 } from "../runtime-worker/runtime-bridge.js";
-import { V86Mirror, v86StopReason } from "../runtime-worker/v86-mirror.js";
+import {
+  V86Mirror,
+  V86PhysicalPoolExhausted,
+  v86StopReason,
+} from "../runtime-worker/v86-mirror.js";
 
 interface BenchmarkConfiguration {
   workloadDurationMilliseconds: number;
@@ -130,7 +135,7 @@ function reflection(pages: ReflectedPage[]): MemoryReflection {
 function prepared(entryPoint: number, pages: ReflectedPage[]): PreparedMetadata {
   return {
     kind: "prepared",
-    schemaVersion: 1,
+    schemaVersion: 2,
     entryPoint,
     generation: 1,
     stackTop: stackBase + memoryPageSize,
@@ -138,6 +143,7 @@ function prepared(entryPoint: number, pages: ReflectedPage[]): PreparedMetadata 
     callbackSentinel: controlBase + 0x10,
     entrySentinel: controlBase + 0x20,
     pageCount: pages.length,
+    maximumPhysicalPages: Math.max(16, pages.length),
     regions: pages.map((page_) => ({
       owner: page_.owner,
       kind: "runtime",
@@ -169,6 +175,148 @@ async function createMirror(
   ];
   mirror.install(reflection(pages), prepared(codeBase, pages));
   return mirror;
+}
+
+async function physicalPoolContract(): Promise<Record<string, unknown>> {
+  const mirror = await V86Mirror.instantiate(adapterUrl, {
+    maximumPhysicalPages: 600,
+    initialPhysicalPoolBytes: 64 * 1024,
+  });
+  const initialPages = [
+    page(codeBase, 1, { read: true, write: false, execute: true }, integerCode),
+    page(stackBase, 2, { read: true, write: true, execute: false }),
+  ];
+  mirror.install(reflection(initialPages), prepared(codeBase, initialPages));
+  const initial = mirror.memoryCapacity();
+  invariant(initial.physicalPoolBytes === 64 * 1024, "mirror initial pool size mismatch");
+
+  const expansionPageCount = 512;
+  const expansionRange = {
+    base: dataBase,
+    byteLength: expansionPageCount * memoryPageSize,
+  };
+  const effects = {
+    flushTlb: true,
+    invalidateInstructionFetch: true,
+    invalidateGeneratedCode: true,
+  };
+  const expansion: HostMemoryDelta = {
+    fromGeneration: 1n,
+    generation: 2n,
+    cacheEffects: effects,
+    mappingOperations: [
+      { operation: "reserve", owner: 3, kind: "anonymous", range: expansionRange },
+      {
+        operation: "commit",
+        owner: 3,
+        range: expansionRange,
+        protection: { read: true, write: true, execute: false },
+      },
+    ],
+    pages: Array.from({ length: expansionPageCount }, (_, index) =>
+      page(dataBase + index * memoryPageSize, 3, {
+        read: true,
+        write: true,
+        execute: false,
+      }),
+    ),
+  };
+  mirror.applyMemoryDelta(expansion);
+  const expanded = mirror.memoryCapacity();
+  invariant(expanded.growths === 1, "mirror did not grow exactly once for the large delta");
+  invariant(
+    expanded.physicalPoolBytes > 2 * 1024 * 1024 &&
+      expanded.physicalPoolBytes <= expanded.maximumPhysicalPoolBytes,
+    "mirror growth did not remain within its bounded pool",
+  );
+  invariant(
+    mirror.execute(32).reason === v86StopReason.budget,
+    "mirror growth did not preserve executable CPU state",
+  );
+
+  mirror.applyMemoryDelta({
+    fromGeneration: 2n,
+    generation: 3n,
+    cacheEffects: effects,
+    mappingOperations: [
+      {
+        operation: "decommit",
+        owner: 3,
+        range: { base: dataBase, byteLength: memoryPageSize },
+      },
+    ],
+    pages: [],
+  });
+  const released = mirror.memoryCapacity();
+  invariant(released.releasedPages > expanded.releasedPages, "decommit did not release a page");
+  mirror.applyMemoryDelta({
+    fromGeneration: 3n,
+    generation: 4n,
+    cacheEffects: effects,
+    mappingOperations: [
+      {
+        operation: "commit",
+        owner: 3,
+        range: { base: dataBase, byteLength: memoryPageSize },
+        protection: { read: true, write: true, execute: false },
+      },
+    ],
+    pages: [
+      page(dataBase, 3, { read: true, write: true, execute: false }, Uint8Array.of(0x5a)),
+    ],
+  });
+  const reused = mirror.memoryCapacity();
+  invariant(reused.reusedPages > released.reusedPages, "recommit did not reuse a free page");
+  invariant(mirror.readGuestU32(dataBase) === 0x5a, "reused mirror page lost host bytes");
+
+  const exhausted = await V86Mirror.instantiate(adapterUrl, {
+    maximumPhysicalPages: 4,
+    initialPhysicalPoolBytes: 64 * 1024,
+  });
+  const overLimitPages = [
+    page(codeBase, 1, { read: true, write: false, execute: true }, integerCode),
+    page(stackBase, 2, { read: true, write: true, execute: false }),
+    ...Array.from({ length: 3 }, (_, index) =>
+      page(dataBase + index * memoryPageSize, 3, {
+        read: true,
+        write: true,
+        execute: false,
+      }),
+    ),
+  ];
+  const beforeExhaustion = exhausted.memoryContractState();
+  let exhaustion: V86PhysicalPoolExhausted | null = null;
+  try {
+    exhausted.install(reflection(overLimitPages), prepared(codeBase, overLimitPages));
+  } catch (error) {
+    invariant(error instanceof V86PhysicalPoolExhausted, "pool exhaustion was not typed");
+    exhaustion = error;
+  }
+  invariant(exhaustion !== null, "over-limit reflection did not exhaust the mirror pool");
+  invariant(
+    exhaustion.code === "v86-physical-pool-exhausted" &&
+      exhaustion.requestedPhysicalPages === 5 &&
+      exhaustion.maximumPhysicalPages === 4,
+    "pool exhaustion identity is incomplete",
+  );
+  invariant(
+    exhausted.memoryContractState() === beforeExhaustion,
+    "rejected pool exhaustion mutated mirror mappings",
+  );
+
+  return {
+    initial,
+    expanded,
+    released,
+    reused,
+    exhaustion: {
+      code: exhaustion.code,
+      requestedPhysicalPages: exhaustion.requestedPhysicalPages,
+      maximumPhysicalPages: exhaustion.maximumPhysicalPages,
+      requiredPhysicalPoolBytes: exhaustion.requiredPhysicalPoolBytes,
+      maximumPhysicalPoolBytes: exhaustion.maximumPhysicalPoolBytes,
+    },
+  };
 }
 
 function median(values: number[]): number {
@@ -648,6 +796,7 @@ async function runSuite(configuration: BenchmarkConfiguration): Promise<Record<s
   const context = await contextCost();
   const slices = await sliceMatrix(Number(integer.instructionsPerSecond));
   worker.postMessage({ type: "progress", phase: "memory" });
+  const physicalPool = await physicalPoolContract();
   const reflection_ = await reflectionBandwidth();
   const mirrorWriteback = await mirrorWritebackBandwidth();
   const productionWriteback = await productionWritebackBandwidth();
@@ -662,6 +811,7 @@ async function runSuite(configuration: BenchmarkConfiguration): Promise<Record<s
     callbacks,
     context,
     slices,
+    physicalPool,
     reflection: reflection_,
     mirrorWriteback,
     productionWriteback,

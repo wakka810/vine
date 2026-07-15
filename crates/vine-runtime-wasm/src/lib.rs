@@ -9,36 +9,42 @@ use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall, ApiHandlerResult,
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
     CallbackPolicy, CallingConvention, CpuWritebackReceipt, DispatchOutcome, ExecutionSession,
-    GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
-    HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
-    MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
-    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
-    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
-    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, SchedulerThreadState, StackCleanup,
-    bind_pe32_imports, build_pe32_load_plan, dispatch_kernel32_api_with_policy,
-    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
-    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
+    ExportTarget, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange,
+    HostCompletion, HostRequest, ImportBinding, ImportTarget, InitialThreadStack,
+    Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
+    MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
+    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate,
+    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction,
+    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeHandle, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    SchedulerThreadState, StackCleanup, bind_pe32_imports, build_pe32_load_plan,
+    dispatch_kernel32_api_with_policy, install_controlled_initial_stack,
+    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
+    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
     kernel32_contract_for_endpoint, materialize_pe32_image,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const FIXTURE_SHA256: &str = "24c98ec43bc76dcd0c1ddbbbf68c2ea1d86207bc2ebea2aea536a4757bf4189f";
+const FIXTURE_SHA256: &str = "26a9a1d836c421ef7bf5e5b36ddd9dad83c5cbd4b4150acd85fc6f269bd7d68c";
 const FIXTURE_MODULE: &str = "vine_browser_fixture.dll";
 const LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
+const SECOND_THREAD_ID: u32 = 8193;
+const SECOND_THREAD_STACK_TOP: GuestAddress = GuestAddress(0x006f_f000);
+const SECOND_THREAD_MARKER: u32 = 0x5448_5244;
+const SECOND_THREAD_EXIT_CODE: u32 = 7;
 const CANCEL_EXIT_CODE: u32 = 0xc000_013a;
 const DEFERRED_ADD: &str = "browser-fixture-deferred-add-v1";
 const CALL_CALLBACK: &str = "browser-fixture-call-callback-v1";
 const COMMIT_OUTPUTS: &str = "browser-fixture-commit-outputs-v1";
 const MAPPING_FIXTURE_STAGE_COUNT: u32 = 7;
+const FIXTURE_MAX_PHYSICAL_PAGES: usize = 16;
 const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
 const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
-const BGI_MAX_PHYSICAL_PAGES: usize = 400;
+const BGI_MAX_PHYSICAL_PAGES: usize = 16 * 1024;
 const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
 thread_local! {
@@ -144,6 +150,22 @@ struct ActiveCallback {
     stack_pointer: GuestAddress,
 }
 
+struct PendingHostCall {
+    thread_id: RuntimeThreadId,
+    call: ApiDeferredCall,
+}
+
+struct ControlledGuestThread {
+    thread_id: RuntimeThreadId,
+    entry_point: GuestAddress,
+    initial_stack_pointer: GuestAddress,
+    fs_base: GuestAddress,
+    return_sentinel: GuestAddress,
+    marker_address: GuestAddress,
+    marker_value: u32,
+    expected_exit_code: u32,
+}
+
 #[derive(Default)]
 struct BrowserMappingFixture {
     next_stage: u32,
@@ -182,8 +204,9 @@ struct BrowserRuntime {
     callback_sentinel: GuestAddress,
     entry_sentinel: GuestAddress,
     stack: InitialThreadStack,
-    pending_host: Option<ApiDeferredCall>,
-    callbacks: Vec<ActiveCallback>,
+    pending_host: BTreeMap<u64, PendingHostCall>,
+    callbacks: BTreeMap<RuntimeThreadId, Vec<ActiveCallback>>,
+    controlled_guest_thread: Option<ControlledGuestThread>,
     mapping_fixture: BrowserMappingFixture,
     target: BrowserRuntimeTarget,
 }
@@ -199,12 +222,14 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let plan = build_pe32_load_plan(&snapshot, loader_limits).map_err(error_string)?;
         let mut memory = GuestMemory::new(MemoryLimits {
-            max_physical_pages: 16,
+            max_physical_pages: FIXTURE_MAX_PHYSICAL_PAGES,
             ..MemoryLimits::default()
         })
         .map_err(error_string)?;
         let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, LOAD_BASE)
             .map_err(error_string)?;
+        let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
+        let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
         let catalog = RuntimeExportCatalog::new(
             [
@@ -236,10 +261,35 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
             .map_err(error_string)?;
+        let second_stack = install_thread_stack_at(
+            &mut memory,
+            &sentinels.process_entry_return,
+            SECOND_THREAD_STACK_TOP,
+            GUEST_PAGE_SIZE,
+            GUEST_PAGE_SIZE,
+        )
+        .map_err(error_string)?;
         let (dispatcher, routes) = build_dispatcher(&binding)?;
         runtime
             .register_initial_thread_stack(&stack)
             .map_err(error_string)?;
+        let second_thread_id = RuntimeThreadId(SECOND_THREAD_ID);
+        runtime
+            .register_thread(second_thread_id, 0)
+            .map_err(error_string)?;
+        runtime
+            .register_thread_stack(second_thread_id, &second_stack)
+            .map_err(error_string)?;
+        let controlled_guest_thread = ControlledGuestThread {
+            thread_id: second_thread_id,
+            entry_point: second_thread_entry,
+            initial_stack_pointer: second_stack.initial_esp,
+            fs_base: GuestAddress(0),
+            return_sentinel: sentinels.process_entry_return.address,
+            marker_address: second_thread_marker,
+            marker_value: SECOND_THREAD_MARKER,
+            expected_exit_code: SECOND_THREAD_EXIT_CODE,
+        };
         let runtime_stack = runtime
             .thread_stack(runtime.current_thread_id())
             .map_err(error_string)?;
@@ -251,7 +301,7 @@ impl BrowserRuntime {
         let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
         let metadata = json!({
             "kind": "prepared",
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "workload": "controlled-fixture",
             "source": snapshot.identity(),
             "entryPoint": materialization.entry_point_address.0,
@@ -264,8 +314,19 @@ impl BrowserRuntime {
             "callbackSentinel": sentinels.callback_return.address.0,
             "entrySentinel": sentinels.process_entry_return.address.0,
             "pageCount": reflection.pages.len(),
+            "maximumPhysicalPages": FIXTURE_MAX_PHYSICAL_PAGES,
             "regions": memory.region_snapshots(),
             "endpoints": binding.thunks,
+            "additionalThreads": [{
+                "threadId": controlled_guest_thread.thread_id.0,
+                "entryPoint": controlled_guest_thread.entry_point.0,
+                "initialStackPointer": controlled_guest_thread.initial_stack_pointer.0,
+                "fsBase": controlled_guest_thread.fs_base.0,
+                "returnSentinel": controlled_guest_thread.return_sentinel.0,
+                "markerAddress": controlled_guest_thread.marker_address.0,
+                "expectedMarkerValue": controlled_guest_thread.marker_value,
+                "expectedExitCode": controlled_guest_thread.expected_exit_code,
+            }],
             "runtime": {
                 "processId": runtime.process_id().0,
                 "threadId": runtime.current_thread_id().0,
@@ -282,8 +343,9 @@ impl BrowserRuntime {
                 callback_sentinel: sentinels.callback_return.address,
                 entry_sentinel: sentinels.process_entry_return.address,
                 stack,
-                pending_host: None,
-                callbacks: Vec::new(),
+                pending_host: BTreeMap::new(),
+                callbacks: BTreeMap::new(),
+                controlled_guest_thread: Some(controlled_guest_thread),
                 mapping_fixture: BrowserMappingFixture::default(),
                 target: BrowserRuntimeTarget::ControlledFixture,
             },
@@ -386,7 +448,7 @@ impl BrowserRuntime {
         let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
         let metadata = json!({
             "kind": "prepared",
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "workload": "private-bgi",
             "source": snapshot.identity(),
             "entryPoint": materialization.entry_point_address.0,
@@ -400,6 +462,7 @@ impl BrowserRuntime {
             "callbackSentinel": sentinels.callback_return.address.0,
             "entrySentinel": sentinels.process_entry_return.address.0,
             "pageCount": reflection.pages.len(),
+            "maximumPhysicalPages": BGI_MAX_PHYSICAL_PAGES,
             "regions": memory.region_snapshots(),
             "endpoints": endpoints,
             "runtime": {
@@ -422,8 +485,9 @@ impl BrowserRuntime {
                 callback_sentinel: sentinels.callback_return.address,
                 entry_sentinel: sentinels.process_entry_return.address,
                 stack,
-                pending_host: None,
-                callbacks: Vec::new(),
+                pending_host: BTreeMap::new(),
+                callbacks: BTreeMap::new(),
+                controlled_guest_thread: None,
                 mapping_fixture: BrowserMappingFixture::default(),
                 target: BrowserRuntimeTarget::Bgi {
                     kernel32_policy: Box::new(kernel32_policy),
@@ -689,9 +753,6 @@ impl BrowserRuntime {
         stack_pointer: GuestAddress,
         return_address: GuestAddress,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
-        if self.pending_host.is_some() {
-            return Err("guest dispatch attempted while a host request is pending".to_owned());
-        }
         let (route_id, argument_bytes, endpoint) = self
             .routes
             .get(&endpoint_address)
@@ -803,7 +864,14 @@ impl BrowserRuntime {
                         "requestId": call.request.request_id.to_string(),
                     },
                 });
-                self.pending_host = Some(call);
+                let request_id = call.request.request_id;
+                if self.pending_host.contains_key(&request_id) {
+                    return Err(format!("host request ID {request_id} is already pending"));
+                }
+                let previous = self
+                    .pending_host
+                    .insert(request_id, PendingHostCall { thread_id, call });
+                debug_assert!(previous.is_none());
                 Ok((metadata, None))
             }
             DispatchOutcome::GuestCallback(call) => self.begin_callback(call),
@@ -911,7 +979,9 @@ impl BrowserRuntime {
         let delta = self.memory.pending_delta().map_err(error_string)?;
         let generation = delta.generation;
         let buffers = delta.encode_binary().map_err(error_string)?;
-        let depth = self.callbacks.len() + 1;
+        let thread_id = self.runtime.current_thread_id();
+        let callbacks = self.callbacks.entry(thread_id).or_default();
+        let depth = callbacks.len() + 1;
         let metadata = json!({
             "kind": "guest-callback",
             "frameId": runtime_frame.id.0,
@@ -921,7 +991,7 @@ impl BrowserRuntime {
             "returnSentinel": call.request.return_sentinel.0,
             "generation": generation,
         });
-        self.callbacks.push(ActiveCallback {
+        callbacks.push(ActiveCallback {
             call,
             frame_id: runtime_frame.id,
             stack_pointer,
@@ -930,27 +1000,37 @@ impl BrowserRuntime {
     }
 
     fn complete_host(&mut self, request_id: u64, result: u32) -> Result<Value, String> {
-        let call = self
+        let pending = self
             .pending_host
-            .take()
+            .remove(&request_id)
             .ok_or_else(|| "host completion has no pending API call".to_owned())?;
-        if call.request.request_id != request_id {
-            self.pending_host = Some(call);
-            return Err("host completion request ID mismatch".to_owned());
+        if pending.call.request.request_id != request_id {
+            self.pending_host.insert(request_id, pending);
+            return Err("host completion request identity is corrupt".to_owned());
         }
-        let runtime_completion = self
-            .runtime
-            .complete_host_request(request_id)
-            .map_err(error_string)?;
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        let runtime_completion = match self.runtime.complete_host_request(request_id) {
+            Ok(completion) => completion,
+            Err(error) => {
+                self.pending_host.insert(request_id, pending);
+                return Err(error_string(error));
+            }
+        };
         match self.runtime.pop_scheduler_event() {
             Some(RuntimeSchedulerEvent::HostCompleted(completion))
                 if completion == runtime_completion => {}
             _ => return Err("host completion scheduler event mismatch".to_owned()),
         }
+        if self.runtime.current_thread_id() != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
         let dispatcher = &self.dispatcher;
         let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
         let completion = match dispatcher.complete_deferred(
-            call,
+            pending.call,
             HostCompletion {
                 request_id,
                 result: ApiImmediate::new(ApiReturnValue::U32(result)),
@@ -961,30 +1041,51 @@ impl BrowserRuntime {
             DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
             _ => Err("deferred API completion produced another suspended outcome".to_owned()),
         }?;
-        let thread_id = self.runtime.current_thread_id();
-        let scheduler = self.runtime.scheduler_state().map_err(error_string)?;
-        if !matches!(
-            scheduler,
-            SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
-        ) {
+        let scheduler = self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?;
+        if !scheduler.is_executable() {
             return Err("Rust scheduler did not resume the completed host request".to_owned());
+        }
+        if previous_thread_id != owner_thread_id
+            && self
+                .runtime
+                .thread_state(previous_thread_id)
+                .is_ok_and(|thread| {
+                    thread.lifecycle == vine_core::RuntimeThreadLifecycleState::Running
+                })
+        {
+            self.runtime
+                .select_thread(previous_thread_id)
+                .map_err(error_string)?;
         }
         Ok(json!({
             "kind": "host-complete",
-            "threadId": thread_id.0,
+            "threadId": owner_thread_id.0,
             "scheduler": scheduler,
             "completion": completion,
         }))
     }
 
     fn complete_callback(&mut self, sentinel: GuestAddress, result: u32) -> Result<Value, String> {
-        let active = self
-            .callbacks
-            .pop()
-            .ok_or_else(|| "callback return has no active frame".to_owned())?;
-        if sentinel != active.call.request.return_sentinel {
-            self.callbacks.push(active);
-            return Err("callback return sentinel mismatch".to_owned());
+        let thread_id = self.runtime.current_thread_id();
+        let (active, remaining_depth) = {
+            let callbacks = self
+                .callbacks
+                .get_mut(&thread_id)
+                .ok_or_else(|| "callback return has no active thread frame".to_owned())?;
+            let active = callbacks
+                .pop()
+                .ok_or_else(|| "callback return has no active frame".to_owned())?;
+            if sentinel != active.call.request.return_sentinel {
+                callbacks.push(active);
+                return Err("callback return sentinel mismatch".to_owned());
+            }
+            (active, callbacks.len())
+        };
+        if remaining_depth == 0 {
+            self.callbacks.remove(&thread_id);
         }
         self.runtime
             .pop_callback_frame(active.frame_id)
@@ -1000,7 +1101,7 @@ impl BrowserRuntime {
                 "kind": "callback-complete",
                 "frameId": active.frame_id.0,
                 "callbackStackPointer": active.stack_pointer.0,
-                "remainingDepth": self.callbacks.len(),
+                "remainingDepth": remaining_depth,
                 "completion": completion,
             })),
             DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
@@ -1008,9 +1109,107 @@ impl BrowserRuntime {
         }
     }
 
+    fn schedule_next_thread(&mut self) -> Result<Value, String> {
+        let previous_thread_id = self.runtime.current_thread_id();
+        let Some(selection) = self
+            .runtime
+            .select_next_executable_thread()
+            .map_err(error_string)?
+        else {
+            return Ok(json!({
+                "kind": "scheduler-idle",
+                "previousThreadId": previous_thread_id.0,
+            }));
+        };
+        Ok(json!({
+            "kind": "thread-scheduled",
+            "previousThreadId": selection.previous_thread_id.0,
+            "threadId": selection.thread_id.0,
+            "scheduler": selection.state,
+        }))
+    }
+
+    fn finish_thread(&mut self, exit_code: u32) -> Result<Value, String> {
+        let controlled = self.controlled_guest_thread.as_ref().ok_or_else(|| {
+            "additional guest thread exit is unavailable for this workload".to_owned()
+        })?;
+        let thread_id = self.runtime.current_thread_id();
+        if thread_id != controlled.thread_id {
+            return Err("guest thread exit belongs to an unexpected runtime thread".to_owned());
+        }
+        if exit_code != controlled.expected_exit_code {
+            return Err(format!(
+                "controlled guest thread returned {exit_code}, expected {}",
+                controlled.expected_exit_code
+            ));
+        }
+        let marker_bytes = self
+            .memory
+            .read(controlled.marker_address, 4)
+            .map_err(error_string)?;
+        let marker_value = u32::from_le_bytes(
+            marker_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "controlled thread marker length mismatch".to_owned())?,
+        );
+        if marker_value != controlled.marker_value {
+            return Err(format!(
+                "controlled guest thread marker is {marker_value:#010x}, expected {:#010x}",
+                controlled.marker_value
+            ));
+        }
+        let cancellation = self
+            .runtime
+            .request_current_thread_exit(exit_code)
+            .map_err(error_string)?;
+        if cancellation.host_requests_cancelled != 0
+            || cancellation.callback_frames_cancelled != 0
+            || cancellation.wait_registrations_cancelled != 0
+            || cancellation.messages_discarded != 0
+            || cancellation.scheduler_events_discarded != 0
+        {
+            return Err("controlled guest thread exit discarded pending work".to_owned());
+        }
+        self.runtime
+            .complete_current_thread_exit()
+            .map_err(error_string)?;
+        let scheduler = self
+            .runtime
+            .scheduler_state_for_thread(thread_id)
+            .map_err(error_string)?;
+        Ok(json!({
+            "kind": "thread-exit",
+            "threadId": thread_id.0,
+            "exitCode": exit_code,
+            "markerAddress": controlled.marker_address.0,
+            "markerValue": marker_value,
+            "scheduler": {
+                "state": "terminated",
+                "exitCode": match scheduler {
+                    SchedulerThreadState::Terminated { exit_code } => exit_code,
+                    _ => return Err("controlled guest thread did not reach terminated scheduler state".to_owned()),
+                },
+            },
+        }))
+    }
+
     fn cancel(&mut self, exit_code: u32) -> Result<Value, String> {
-        self.pending_host = None;
+        self.pending_host.clear();
         self.callbacks.clear();
+        if matches!(&self.target, BrowserRuntimeTarget::ControlledFixture)
+            && self.runtime.current_thread_id() != RuntimeThreadId(THREAD_ID)
+            && self
+                .runtime
+                .thread_state(RuntimeThreadId(THREAD_ID))
+                .is_ok_and(|thread| {
+                    thread.lifecycle == vine_core::RuntimeThreadLifecycleState::Running
+                })
+        {
+            self.runtime
+                .select_thread(RuntimeThreadId(THREAD_ID))
+                .map_err(error_string)?;
+        }
         let cancellation = if matches!(&self.target, BrowserRuntimeTarget::Bgi { .. }) {
             if self.runtime.dll_lifecycle_phase() == RuntimeDllLifecyclePhase::ProcessAttached {
                 match self
@@ -1049,14 +1248,34 @@ impl BrowserRuntime {
             "cancellation": cancellation,
             "processLifecycle": self.runtime.process().lifecycle(),
             "dllLifecycle": self.runtime.dll_lifecycle_phase(),
-            "pendingHostCalls": usize::from(self.pending_host.is_some()),
-            "pendingCallbacks": self.callbacks.len(),
+            "pendingHostCalls": self.pending_host.len(),
+            "pendingCallbacks": self.pending_callback_count(),
         }))
     }
 
     fn finish(&mut self, exit_code: u32) -> Result<Value, String> {
-        if self.pending_host.is_some() || !self.callbacks.is_empty() {
+        if !self.pending_host.is_empty() || self.pending_callback_count() != 0 {
             return Err("process exit has suspended host or callback work".to_owned());
+        }
+        if let Some(controlled) = &self.controlled_guest_thread {
+            if self.runtime.current_thread_id() == controlled.thread_id {
+                return Err(
+                    "controlled process exit cannot originate from the additional thread"
+                        .to_owned(),
+                );
+            }
+            if self
+                .runtime
+                .scheduler_state_for_thread(controlled.thread_id)
+                .map_err(error_string)?
+                != (SchedulerThreadState::Terminated {
+                    exit_code: controlled.expected_exit_code,
+                })
+            {
+                return Err(
+                    "controlled process exit preceded additional thread completion".to_owned(),
+                );
+            }
         }
         let termination = self
             .runtime
@@ -1077,6 +1296,10 @@ impl BrowserRuntime {
             "pendingHostCalls": 0,
             "pendingCallbacks": 0,
         }))
+    }
+
+    fn pending_callback_count(&self) -> usize {
+        self.callbacks.values().map(Vec::len).sum()
     }
 }
 
@@ -1369,6 +1592,30 @@ fn runtime_capability_cluster(endpoint: &ApiEndpointIdentity) -> String {
         }
         _ => format!("{}-api-contract", module.trim_end_matches(".dll")),
     }
+}
+
+fn direct_fixture_export_address(
+    loader: &vine_core::LoaderIngressReport,
+    name: &str,
+) -> Result<GuestAddress, String> {
+    let exports = loader
+        .load_plan
+        .exports
+        .as_ref()
+        .ok_or_else(|| "browser fixture has no export directory".to_owned())?;
+    let symbol = exports
+        .symbols
+        .iter()
+        .find(|symbol| symbol.names.iter().any(|candidate| candidate == name))
+        .ok_or_else(|| format!("browser fixture export {name} is missing"))?;
+    let ExportTarget::Address { rva } = &symbol.target else {
+        return Err(format!("browser fixture export {name} is forwarded"));
+    };
+    LOAD_BASE
+        .0
+        .checked_add(rva.0)
+        .map(GuestAddress)
+        .ok_or_else(|| format!("browser fixture export {name} address overflowed"))
 }
 
 fn build_dispatcher(
@@ -1689,6 +1936,22 @@ pub extern "C" fn vine_bridge_complete_host(
     run_bridge(|bridge| {
         let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
         let metadata = bridge.runtime_mut()?.complete_host(request_id, result)?;
+        bridge.set_output(metadata, Vec::new(), Vec::new())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_schedule_next_thread() -> u32 {
+    run_bridge(|bridge| {
+        let metadata = bridge.runtime_mut()?.schedule_next_thread()?;
+        bridge.set_output(metadata, Vec::new(), Vec::new())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_finish_thread(exit_code: u32) -> u32 {
+    run_bridge(|bridge| {
+        let metadata = bridge.runtime_mut()?.finish_thread(exit_code)?;
         bridge.set_output(metadata, Vec::new(), Vec::new())
     })
 }

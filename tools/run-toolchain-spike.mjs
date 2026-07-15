@@ -598,6 +598,7 @@ const dllInspection = run("llvm-readobj", ["--coff-exports", dllFile]);
 const browserExeInspection = run("llvm-readobj", [
   "--file-headers",
   "--coff-imports",
+  "--coff-exports",
   browserExeFile,
 ]);
 const browserDllInspection = run("llvm-readobj", [
@@ -680,6 +681,8 @@ for (const expected of [
   "Symbol: fixture_call_callback",
   "Symbol: fixture_commit_outputs",
   "Symbol: fixture_deferred_add",
+  "Name: fixture_thread_entry",
+  "Name: fixture_thread_marker",
 ]) {
   if (!browserExeInspection.includes(expected)) {
     throw new Error(`browser vertical PE32 inspection is missing: ${expected}`);

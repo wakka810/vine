@@ -45,6 +45,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         ),
         include_str!("../../../fixtures/runtime-policies/kernel32-set-current-directory-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-create-mutex-a-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-bounded-heap-v2.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -188,4 +189,17 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert!(mutex_policy.allow_named);
     assert!(!mutex_policy.allow_unnamed);
     assert_eq!(mutex_policy.maximum_name_bytes, 32_768);
+
+    let bounded_heap: Kernel32CompatibilityPolicy = serde_json::from_str(policies[27]).unwrap();
+    let heap_allocator = bounded_heap
+        .heap_allocator()
+        .expect("bounded heap allocator policy");
+    assert_eq!(heap_allocator.allowed_flags, [0, 8]);
+    assert_eq!(heap_allocator.maximum_allocation_bytes, 16 * 1024 * 1024);
+    assert!(bounded_heap.allows_heap_allocation(0, 37));
+    assert!(bounded_heap.allows_heap_allocation(8, 777));
+    assert!(bounded_heap.allows_heap_allocation(8, 16 * 1024 * 1024));
+    assert!(!bounded_heap.allows_heap_allocation(0, 0));
+    assert!(!bounded_heap.allows_heap_allocation(0, 16 * 1024 * 1024 + 1));
+    assert!(!bounded_heap.allows_heap_allocation(1, 37));
 }

@@ -10,6 +10,12 @@ __declspec(dllimport) int __cdecl fixture_commit_outputs(unsigned int rgba,
 volatile int fixture_sum;
 volatile int fixture_nested_result;
 volatile int fixture_commit_result;
+__declspec(dllexport) volatile unsigned int fixture_thread_marker;
+
+__declspec(dllexport) unsigned int __cdecl fixture_thread_entry(void) {
+  fixture_thread_marker = 0x54485244u;
+  return 7u;
+}
 
 static int __cdecl inner_callback(int value) {
   return value + 1;

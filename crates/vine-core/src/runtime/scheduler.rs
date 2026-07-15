@@ -32,6 +32,12 @@ pub enum SchedulerThreadState {
     },
 }
 
+impl SchedulerThreadState {
+    pub const fn is_executable(self) -> bool {
+        matches!(self, Self::Runnable | Self::InCallback { .. })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeHostRequest {
@@ -47,6 +53,14 @@ pub struct RuntimeHostCompletion {
     pub request_id: u64,
     pub thread_id: RuntimeThreadId,
     pub service: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeThreadExecutionSelection {
+    pub previous_thread_id: RuntimeThreadId,
+    pub thread_id: RuntimeThreadId,
+    pub state: SchedulerThreadState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -92,6 +106,16 @@ pub(super) struct RuntimeSchedulerLanePlan {
 pub(super) struct RuntimeSchedulerSelectionPlan {
     previous: RuntimeThreadId,
     next: RuntimeThreadId,
+}
+
+impl RuntimeSchedulerSelectionPlan {
+    pub(super) const fn previous(self) -> RuntimeThreadId {
+        self.previous
+    }
+
+    pub(super) const fn next(self) -> RuntimeThreadId {
+        self.next
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,6 +282,29 @@ impl RuntimeScheduler {
         })
     }
 
+    pub(super) fn plan_next_executable_selection(
+        &self,
+    ) -> Result<Option<RuntimeSchedulerSelectionPlan>, RuntimeStateError> {
+        let thread_ids = self.threads.keys().copied().collect::<Vec<_>>();
+        let current_index = thread_ids
+            .iter()
+            .position(|thread_id| *thread_id == self.current_thread_id)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-scheduler",
+                    "current-thread-scheduler-state-missing",
+                    "current runtime thread has no scheduler lane",
+                )
+            })?;
+        for offset in 1..=thread_ids.len() {
+            let thread_id = thread_ids[(current_index + offset) % thread_ids.len()];
+            if self.state(thread_id)?.is_executable() {
+                return self.plan_selection(thread_id).map(Some);
+            }
+        }
+        Ok(None)
+    }
+
     pub(super) fn commit_selection(&mut self, plan: RuntimeSchedulerSelectionPlan) {
         debug_assert_eq!(self.current_thread_id, plan.previous);
         self.current_thread_id = plan.next;
@@ -348,21 +395,14 @@ impl RuntimeScheduler {
                     format!("host request ID {request_id} is not pending"),
                 )
             })?;
-        if self.current_state()? != (SchedulerThreadState::WaitingHost { request_id }) {
+        if self.state(request.thread_id)? != (SchedulerThreadState::WaitingHost { request_id }) {
             return Err(RuntimeStateError::conflict(
                 "runtime-host-request",
                 "host-completion-thread-state-mismatch",
-                "host completion does not match the current thread wait state",
+                "host completion does not match its owner thread wait state",
             ));
         }
-        if request.thread_id != self.current_thread_id {
-            return Err(RuntimeStateError::conflict(
-                "runtime-host-request",
-                "host-completion-thread-mismatch",
-                "host completion belongs to a different guest thread",
-            ));
-        }
-        let scheduler = self.plan_current_transition(request.resume_state)?;
+        let scheduler = self.plan_transition(request.thread_id, request.resume_state)?;
         let completion = RuntimeHostCompletion {
             request_id,
             thread_id: request.thread_id,
@@ -511,6 +551,46 @@ mod tests {
         assert_eq!(scheduler.current_thread_id(), INITIAL);
         scheduler.commit_selection(selection);
         assert_eq!(scheduler.current_thread_id(), SECOND);
+    }
+
+    #[test]
+    fn next_executable_selection_wraps_and_skips_waiting_lanes() {
+        let mut scheduler = RuntimeScheduler::new(INITIAL);
+        let initial_running = scheduler
+            .plan_current_transition(SchedulerThreadState::Runnable)
+            .unwrap();
+        scheduler.commit_lane(initial_running);
+        let second_running = scheduler
+            .plan_registration(SECOND, SchedulerThreadState::Runnable)
+            .unwrap();
+        scheduler.commit_lane(second_running);
+
+        let request = scheduler
+            .plan_host_request("initial.pending".to_owned())
+            .unwrap();
+        let request = scheduler.commit_host_request(request);
+        let selection = scheduler
+            .plan_next_executable_selection()
+            .unwrap()
+            .expect("second thread is executable");
+        assert_eq!(selection.previous(), INITIAL);
+        assert_eq!(selection.next(), SECOND);
+        scheduler.commit_selection(selection);
+
+        let completion = scheduler
+            .plan_host_completion(request.request_id)
+            .expect("completion is owned by the non-current initial thread");
+        scheduler.commit_host_completion(completion);
+        assert_eq!(scheduler.current_thread_id(), SECOND);
+        assert_eq!(scheduler.state(INITIAL), Ok(SchedulerThreadState::Runnable));
+        assert_eq!(
+            scheduler
+                .plan_next_executable_selection()
+                .unwrap()
+                .expect("round robin wraps to initial")
+                .next(),
+            INITIAL
+        );
     }
 
     #[test]

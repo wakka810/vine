@@ -25,8 +25,9 @@ pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
     Kernel32CreateMutexAPolicy, Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy,
-    Kernel32HeapAllocationPolicy, Kernel32InitializeCriticalSectionPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
+    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
     Kernel32WideCharToMultiBytePolicy,
 };

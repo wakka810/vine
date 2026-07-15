@@ -120,8 +120,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-get-current-thread" ||
-    genericRuntimeCapability === "kernel32-create-mutex-a"
+    genericRuntimeCapability === "kernel32-get-current-thread"
+      ? "kernel32-bounded-heap-v2.json"
+      : genericRuntimeCapability === "kernel32-create-mutex-a"
       ? "kernel32-create-mutex-a-v1.json"
       : genericRuntimeCapability === "kernel32-set-current-directory-a"
       ? "kernel32-set-current-directory-a-v1.json"
@@ -193,7 +194,7 @@ const runtimePolicy =
     : JSON.parse(fs.readFileSync(runtimePolicyPath, "utf8"));
 if (runtimePolicy !== null) {
   assert.equal(runtimePolicy.schema, "vine.kernel32-compatibility-policy");
-  assert.equal(runtimePolicy.schemaVersion, 1);
+  assert([1, 2].includes(runtimePolicy.schemaVersion));
   assert.equal(typeof runtimePolicy.id, "string");
 }
 const checkpointManifest = loadRuntimeCheckpointManifest(manifestPath);

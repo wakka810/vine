@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const policyFiles = [
+const legacyPolicyFiles = [
   "fixtures/runtime-policies/kernel32-controlled-v1.json",
   "fixtures/runtime-policies/kernel32-heap-two-v1.json",
   "fixtures/runtime-policies/kernel32-standard-output-v1.json",
@@ -33,22 +33,33 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-set-current-directory-a-v1.json",
   "fixtures/runtime-policies/kernel32-create-mutex-a-v1.json",
 ];
+const policyFiles = [
+  ...legacyPolicyFiles,
+  "fixtures/runtime-policies/kernel32-bounded-heap-v2.json",
+];
 
 for (const relative of policyFiles) {
   const policy = JSON.parse(fs.readFileSync(path.join(root, relative), "utf8"));
   assert.equal(policy.schema, "vine.kernel32-compatibility-policy");
-  assert.equal(policy.schemaVersion, 1);
+  assert([1, 2].includes(policy.schemaVersion));
   assert.match(policy.id, /^[a-z0-9-]{1,128}$/u);
   assert(policy.standardHandleSelectors.length > 0);
   assert.equal(
     new Set(policy.standardHandleSelectors).size,
     policy.standardHandleSelectors.length,
   );
-  assert(policy.heapAllocations.length > 0);
-  const heapVariants = policy.heapAllocations.flatMap(({ flags, byteLengths }) =>
-    byteLengths.map((byteLength) => `${flags}:${byteLength}`),
-  );
-  assert.equal(new Set(heapVariants).size, heapVariants.length);
+  if (policy.schemaVersion === 1) {
+    assert.equal(policy.heapAllocator, undefined);
+    assert(policy.heapAllocations.length > 0);
+    const heapVariants = policy.heapAllocations.flatMap(({ flags, byteLengths }) =>
+      byteLengths.map((byteLength) => `${flags}:${byteLength}`),
+    );
+    assert.equal(new Set(heapVariants).size, heapVariants.length);
+  } else {
+    assert.equal(policy.heapAllocations, undefined);
+    assert.deepEqual(policy.heapAllocator.allowedFlags, [0, 8]);
+    assert.equal(policy.heapAllocator.maximumAllocationBytes, 16 * 1024 * 1024);
+  }
   const heapFreeFlags = policy.heapFreeFlags ?? [];
   assert.equal(new Set(heapFreeFlags).size, heapFreeFlags.length);
   assert(heapFreeFlags.every((flags) => flags === 0));
@@ -116,6 +127,11 @@ assert.equal(
 assert.equal(
   activePolicy.setCurrentDirectoryA.maximumPathBytes,
   summary.setCurrentDirectoryMaximumPathBytes,
+);
+assert.deepEqual(activePolicy.heapAllocator.allowedFlags, summary.heapAllocator.allowedFlags);
+assert.equal(
+  activePolicy.heapAllocator.maximumAllocationBytes,
+  summary.heapAllocator.maximumAllocationBytes,
 );
 
 const implementation = fs.readFileSync(

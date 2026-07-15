@@ -4,6 +4,8 @@ export type ExecutionState =
   | "memory-fault"
   | "budget-yield"
   | "api-trap"
+  | "thread-switch"
+  | "thread-exit"
   | "waiting-host"
   | "host-completion"
   | "guest-callback"
@@ -28,12 +30,14 @@ export interface ExecutionTransitionContext {
 
 const allowedTransitions: Readonly<Record<ExecutionState, ReadonlySet<ExecutionState>>> = {
   ready: new Set(["running", "stopping"]),
-  running: new Set(["budget-yield", "api-trap", "memory-fault", "stopping"]),
+  running: new Set(["budget-yield", "api-trap", "memory-fault", "thread-exit", "stopping"]),
   "memory-fault": new Set(["ready", "guest-callback", "stopping"]),
   "budget-yield": new Set(["ready", "guest-callback", "stopping"]),
-  "api-trap": new Set(["ready", "waiting-host", "guest-callback", "stopping"]),
+  "api-trap": new Set(["ready", "thread-switch", "waiting-host", "guest-callback", "stopping"]),
+  "thread-switch": new Set(["ready", "guest-callback", "stopping"]),
+  "thread-exit": new Set(["thread-switch", "waiting-host", "stopping"]),
   "waiting-host": new Set(["host-completion", "stopping"]),
-  "host-completion": new Set(["ready", "guest-callback", "stopping"]),
+  "host-completion": new Set(["thread-switch", "waiting-host", "ready", "guest-callback", "stopping"]),
   "guest-callback": new Set([
     "budget-yield",
     "api-trap",

@@ -63,7 +63,7 @@ use super::registries::LOGICAL_ENCODED_POINTER_NAMESPACE;
 use super::registries::{RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeRegistries};
 use super::scheduler::{
     RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler, RuntimeSchedulerEvent,
-    SchedulerThreadState,
+    RuntimeThreadExecutionSelection, SchedulerThreadState,
 };
 use super::scheduler::{RuntimeHostRequestCancellationPlan, RuntimeSchedulerLanePlan};
 use super::synchronization::RuntimeSynchronization;
@@ -697,12 +697,30 @@ impl RuntimeKernel {
         &mut self,
         stack: &InitialThreadStack,
     ) -> Result<&RuntimeThreadStack, RuntimeStateError> {
-        let thread_id = self.current_thread_id();
-        if self.current_thread()?.stack.is_some() {
+        self.register_thread_stack(self.current_thread_id(), stack)
+    }
+
+    pub fn register_thread_stack(
+        &mut self,
+        thread_id: RuntimeThreadId,
+        stack: &InitialThreadStack,
+    ) -> Result<&RuntimeThreadStack, RuntimeStateError> {
+        let thread = self.thread_state(thread_id)?;
+        if !matches!(
+            thread.lifecycle,
+            RuntimeThreadLifecycleState::Initialized | RuntimeThreadLifecycleState::Running
+        ) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-stack",
+                "thread-stack-lifecycle-state-invalid",
+                "runtime thread stack registration requires an initialized or running thread",
+            ));
+        }
+        if thread.stack.is_some() {
             return Err(RuntimeStateError::conflict(
                 "runtime-thread-stack",
                 "thread-stack-already-registered",
-                "runtime initial thread stack may be registered only once",
+                "runtime thread stack may be registered only once",
             ));
         }
         if matches!(
@@ -727,7 +745,7 @@ impl RuntimeKernel {
                 RuntimeStateError::runtime_defect(
                     "runtime-thread-stack",
                     "thread-stack-usable-size-underflow",
-                    "initial thread stack guard exceeds its reserved range",
+                    "thread stack guard exceeds its reserved range",
                 )
             })?;
         let reserved_range =
@@ -735,7 +753,7 @@ impl RuntimeKernel {
         let mut allocator = self.address_space_allocator.clone();
         let allocation = allocator.reserve(ProcessAddressAllocationRequest {
             purpose: ProcessAddressAllocationPurpose::ThreadStack,
-            owner: format!("runtime-thread-{}-initial-stack", thread_id.0),
+            owner: format!("runtime-thread-{}-stack", thread_id.0),
             preferred_address: Some(reserved_range.base),
             search_range: reserved_range,
             reserve_size: usable_byte_length,
@@ -1263,6 +1281,49 @@ impl RuntimeKernel {
         let scheduler_plan = self.scheduler.plan_selection(thread_id)?;
         self.scheduler.commit_selection(scheduler_plan);
         Ok(())
+    }
+
+    pub fn select_next_executable_thread(
+        &mut self,
+    ) -> Result<Option<RuntimeThreadExecutionSelection>, RuntimeStateError> {
+        if !self.process.is_running() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-registry",
+                "thread-selection-process-state-invalid",
+                "thread selection requires a running process",
+            ));
+        }
+        let Some(plan) = self.scheduler.plan_next_executable_selection()? else {
+            return Ok(None);
+        };
+        let thread_id = plan.next();
+        let state = self.scheduler_state_for_thread(thread_id)?;
+        if !state.is_executable()
+            || self.thread_state(thread_id)?.lifecycle != RuntimeThreadLifecycleState::Running
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-registry",
+                "executable-thread-state-mismatch",
+                "scheduler selected a thread without matching executable runtime state",
+            ));
+        }
+        let thread_key = RuntimeObjectKey::Thread {
+            thread_id: thread_id.0,
+        };
+        if !self.objects.contains_identity(&thread_key) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-registry",
+                "thread-registry-object-missing",
+                "selected executable thread has no runtime object identity",
+            ));
+        }
+        let selection = RuntimeThreadExecutionSelection {
+            previous_thread_id: plan.previous(),
+            thread_id,
+            state,
+        };
+        self.scheduler.commit_selection(plan);
+        Ok(Some(selection))
     }
 
     pub fn wait_current_thread_on(

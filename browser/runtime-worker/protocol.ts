@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 4 as const;
+export const protocolVersion = 5 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "private-bgi";
@@ -106,6 +106,20 @@ export interface SessionReport {
   budgetYields: number;
   hostRequests: number;
   rustSchedulerTransitions: number;
+  registeredThreadIds: number[];
+  executedThreadIds: number[];
+  contextSwitches: number;
+  hostWaitExecutions: Array<{
+    requestId: string;
+    waitingThreadId: number;
+    executedThreadId: number;
+  }>;
+  threadExits: Array<{
+    threadId: number;
+    exitCode: number;
+    markerAddress: number;
+    markerValue: number;
+  }>;
   executionState: ExecutionState;
   executionTransitionCount: number;
   lastExecutionTransition: ExecutionTransition | null;

@@ -21,7 +21,7 @@ import {
 } from "./memory-transport.js";
 import {
   ExecutionMemoryAccessFault,
-  instantiateExecutionEngine,
+  prepareExecutionEngine,
   type ExecutionCpuContext,
   type ExecutionEngine,
   type ExecutionStop,
@@ -29,7 +29,6 @@ import {
 import {
   ExecutionStateMachine,
   type HostCompletionPolicy,
-  type HostDelivery,
   PendingHostRequestTable,
 } from "./execution-state.js";
 import {
@@ -59,6 +58,31 @@ interface HostRequestMetadata {
     state: "waiting-host";
     requestId: string;
   };
+}
+
+type ExecutableSchedulerMetadata =
+  | { state: "runnable" }
+  | { state: "in-callback"; depth: number };
+
+interface ThreadScheduledMetadata {
+  kind: "thread-scheduled";
+  previousThreadId: number;
+  threadId: number;
+  scheduler: ExecutableSchedulerMetadata;
+}
+
+interface SchedulerIdleMetadata {
+  kind: "scheduler-idle";
+  previousThreadId: number;
+}
+
+interface ThreadExitMetadata {
+  kind: "thread-exit";
+  threadId: number;
+  exitCode: number;
+  markerAddress: number;
+  markerValue: number;
+  scheduler: { state: "terminated"; exitCode: number };
 }
 
 interface GuestCallbackMetadata {
@@ -102,7 +126,7 @@ interface ApiFaultMetadata {
 interface HostCompletionMetadata {
   kind: "host-complete";
   threadId: number;
-  scheduler: { state: "runnable" } | { state: "in-callback"; depth: number };
+  scheduler: ExecutableSchedulerMetadata;
   completion: ApiCompletion;
 }
 
@@ -221,8 +245,13 @@ class BrowserRuntimeSession {
   #generation = 0n;
   #terminal = false;
   #runtimePrepared = false;
+  #initialThreadId = 0;
   #currentThreadId = 0;
-  #apiResumeState: "ready" | "guest-callback" | null = null;
+  #liveThreadId: number | null = null;
+  readonly #threadContexts = new Map<number, ExecutionCpuContext>();
+  readonly #threadResumeStates = new Map<number, "ready" | "guest-callback">();
+  readonly #threadExecutionStates = new Map<number, "ready" | "guest-callback">();
+  readonly #runnableResolvers: Array<() => void> = [];
   readonly #execution = new ExecutionStateMachine();
   readonly #pendingHostRequests = new PendingHostRequestTable();
   #watchdogContext: SessionReport["watchdogContext"] = null;
@@ -234,6 +263,11 @@ class BrowserRuntimeSession {
     budgetYields: 0,
     hostRequests: 0,
     rustSchedulerTransitions: 0,
+    registeredThreadIds: [] as number[],
+    executedThreadIds: [] as number[],
+    contextSwitches: 0,
+    hostWaitExecutions: [] as SessionReport["hostWaitExecutions"],
+    threadExits: [] as SessionReport["threadExits"],
     callbackEntries: 0,
     maximumCallbackDepth: 0,
     writebackBatches: 0,
@@ -279,9 +313,9 @@ class BrowserRuntimeSession {
           : "./browser-vertical.exe",
         import.meta.url,
       );
-      const [bridge, engine, executableResponse] = await Promise.all([
+      const [bridge, engineFactory, executableResponse] = await Promise.all([
         RuntimeBridge.instantiate(coreUrl),
-        instantiateExecutionEngine(new URL(".", import.meta.url)),
+        prepareExecutionEngine(new URL(".", import.meta.url)),
         fetch(executableUrl),
       ]);
       invariant(
@@ -292,7 +326,6 @@ class BrowserRuntimeSession {
         return;
       }
       this.#bridge = bridge;
-      this.#engine = engine;
       const executable = new Uint8Array(await executableResponse.arrayBuffer());
       const preparedOutput =
         workload === "private-bgi"
@@ -306,6 +339,11 @@ class BrowserRuntimeSession {
               ),
             )
           : bridge.prepare(executable);
+      invariant(preparedOutput.metadata.schemaVersion === 2, "prepared metadata schema mismatch");
+      const engine = engineFactory({
+        maximumPhysicalPages: preparedOutput.metadata.maximumPhysicalPages,
+      });
+      this.#engine = engine;
       this.#runtimePrepared = true;
       this.#prepared = preparedOutput.metadata;
       invariant(
@@ -318,7 +356,8 @@ class BrowserRuntimeSession {
           preparedOutput.metadata.runtime.threadId > 0,
         "prepared runtime thread ID is invalid",
       );
-      this.#currentThreadId = preparedOutput.metadata.runtime.threadId;
+      this.#initialThreadId = preparedOutput.metadata.runtime.threadId;
+      this.#currentThreadId = this.#initialThreadId;
       const initialCurrentDirectory = preparedOutput.metadata.runtime.currentDirectoryA;
       invariant(
         initialCurrentDirectory.sourceAuthority.length > 0 &&
@@ -382,6 +421,33 @@ class BrowserRuntimeSession {
         "Rust reflection page count metadata mismatch",
       );
       engine.initialize(reflection, preparedOutput.metadata);
+      this.#liveThreadId = this.#initialThreadId;
+      this.#threadContexts.set(this.#initialThreadId, engine.saveCpuContext());
+      this.#threadExecutionStates.set(this.#initialThreadId, "ready");
+      this.#report.registeredThreadIds.push(this.#initialThreadId);
+      for (const thread of preparedOutput.metadata.additionalThreads ?? []) {
+        invariant(
+          Number.isInteger(thread.threadId) &&
+            thread.threadId > 0 &&
+            thread.threadId <= 0xffff_ffff &&
+            !this.#threadContexts.has(thread.threadId),
+          "prepared additional thread identity is invalid or duplicate",
+        );
+        invariant(
+          thread.returnSentinel === preparedOutput.metadata.entrySentinel,
+          "additional thread return sentinel is outside the prepared runtime contract",
+        );
+        this.#threadContexts.set(
+          thread.threadId,
+          engine.createCpuContext({
+            entryPoint: thread.entryPoint,
+            initialStackPointer: thread.initialStackPointer,
+            fsBase: thread.fsBase,
+          }),
+        );
+        this.#threadExecutionStates.set(thread.threadId, "ready");
+        this.#report.registeredThreadIds.push(thread.threadId);
+      }
       bridge.acknowledge(reflection.generation);
       this.#generation = reflection.generation;
       this.#report.initialGeneration = Number(reflection.generation);
@@ -409,24 +475,41 @@ class BrowserRuntimeSession {
       throw new Error("host completion arrived after the runtime session stopped");
     }
     try {
-      invariant(
-        this.#execution.state() === "waiting-host",
-        "host completion arrived outside the waiting-host state",
-      );
       const pending = this.#pendingHostRequests.complete(
         message.requestId,
         message.threadId,
         message.result,
       );
-      this.#execution.transition("host-completion", {
-        cause: "browser-host-completion",
-        threadId: pending.threadId,
-        requestId: pending.requestId,
-      });
+      const completion = this.#requireBridge().completeHost<HostCompletionMetadata>(
+        BigInt(pending.requestId),
+        message.result,
+      ).metadata;
+      invariant(completion.kind === "host-complete", "invalid host completion metadata");
+      invariant(completion.threadId === pending.threadId, "Rust resumed a different guest thread");
+      const resumeState =
+        completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+      const expectedResumeState =
+        pending.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
+      invariant(
+        resumeState === expectedResumeState,
+        "Rust host completion disagrees with the recorded completion policy",
+      );
+      this.#applyCpuResumeToThread(completion.threadId, completion.completion);
+      this.#threadExecutionStates.set(completion.threadId, resumeState);
+      this.#report.rustSchedulerTransitions += 1;
       pending.resolve({
         result: message.result >>> 0,
         completionPolicy: pending.completionPolicy,
       });
+      if (this.#execution.state() === "waiting-host") {
+        this.#execution.transition("host-completion", {
+          cause: "browser-host-completion",
+          threadId: pending.threadId,
+          requestId: pending.requestId,
+        });
+        this.#signalRunnable();
+      }
+      this.#status("running", `${pending.service} completed`);
     } catch (error) {
       this.#fail(error instanceof Error ? error : new Error(String(error)));
       return;
@@ -443,6 +526,13 @@ class BrowserRuntimeSession {
     const endpointAddresses = new Set(prepared.endpoints.map(({ address }) => address));
     while (!this.#terminal) {
       this.#checkWatchdog();
+      invariant(
+        this.#liveThreadId === this.#currentThreadId,
+        "guest execution started without a restored current thread context",
+      );
+      if (!this.#report.executedThreadIds.includes(this.#currentThreadId)) {
+        this.#report.executedThreadIds.push(this.#currentThreadId);
+      }
       if (this.#execution.state() === "ready") {
         this.#execution.transition("running", {
           cause: "execute-slice",
@@ -522,7 +612,10 @@ class BrowserRuntimeSession {
       );
       const address = slice.context.instructionPointer;
       if (endpointAddresses.has(address)) {
-        this.#apiResumeState = sliceState === "running" ? "ready" : "guest-callback";
+        this.#threadResumeStates.set(
+          this.#currentThreadId,
+          sliceState === "running" ? "ready" : "guest-callback",
+        );
         this.#execution.transition("api-trap", {
           cause: "owned-api-trap",
           threadId: this.#currentThreadId,
@@ -536,8 +629,12 @@ class BrowserRuntimeSession {
         });
         this.#completeCallback(slice.context.eax);
       } else if (address === prepared.entrySentinel) {
-        invariant(sliceState === "running", "process entry returned from a callback");
-        this.#completeProcess(slice.context.eax);
+        invariant(sliceState === "running", "thread entry returned from a callback");
+        if (this.#currentThreadId === this.#initialThreadId) {
+          this.#completeProcess(slice.context.eax);
+        } else {
+          await this.#completeThread(slice.context.eax);
+        }
       } else {
         throw new Error(`guest reached unowned #UD at 0x${address.toString(16)}`);
       }
@@ -557,40 +654,8 @@ class BrowserRuntimeSession {
         invariant(output.control.byteLength === 0, "host request unexpectedly returned a delta");
         this.#report.hostRequests += 1;
         this.#status("waiting-host", metadata.service);
-        const delivery = await this.#waitForHost(metadata);
-        if (this.#terminal) {
-          throw new SessionStopped("session ended while waiting for the host");
-        }
-        const completion = this.#requireBridge().completeHost<HostCompletionMetadata>(
-          BigInt(metadata.requestId),
-          delivery.result,
-        ).metadata;
-        invariant(completion.kind === "host-complete", "invalid host completion metadata");
-        invariant(
-          completion.threadId === metadata.threadId,
-          "Rust resumed a different guest thread",
-        );
-        invariant(
-          completion.scheduler.state === "runnable" ||
-            completion.scheduler.state === "in-callback",
-          "Rust did not authorize guest resume after host completion",
-        );
-        const resumeState =
-          completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
-        const expectedResumeState =
-          delivery.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
-        invariant(
-          resumeState === expectedResumeState,
-          "Rust host completion disagrees with the recorded completion policy",
-        );
-        this.#report.rustSchedulerTransitions += 1;
-        engine.applyCpuResume(completion.completion);
-        this.#execution.transition(resumeState, {
-          cause: "rust-host-resume",
-          threadId: completion.threadId,
-          requestId: metadata.requestId,
-        });
-        this.#status("running", `${metadata.service} completed`);
+        this.#postHost(metadata);
+        await this.#scheduleAfterBlock(metadata.threadId, metadata.requestId);
         break;
       }
       case "guest-callback": {
@@ -602,6 +667,7 @@ class BrowserRuntimeSession {
           metadata.depth,
         );
         engine.enterGuestCallback(metadata.target, metadata.stackPointer);
+        this.#threadExecutionStates.set(this.#currentThreadId, "guest-callback");
         this.#execution.transition("guest-callback", {
           cause: "guest-callback-enter",
           threadId: this.#currentThreadId,
@@ -616,6 +682,7 @@ class BrowserRuntimeSession {
           this.#recordBgiCompletion(metadata);
         }
         engine.applyCpuResume(metadata.completion);
+        this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
         this.#execution.transition(resumeState, {
           cause: "synchronous-api-complete",
           threadId: this.#currentThreadId,
@@ -882,11 +949,50 @@ class BrowserRuntimeSession {
     ).metadata;
     invariant(metadata.kind === "callback-complete", "invalid callback completion metadata");
     this.#requireEngine().applyCpuResume(metadata.completion);
-    this.#execution.transition(metadata.remainingDepth > 0 ? "guest-callback" : "ready", {
+    const resumeState = metadata.remainingDepth > 0 ? "guest-callback" : "ready";
+    this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
+    this.#execution.transition(resumeState, {
       cause: metadata.remainingDepth > 0 ? "nested-callback-resume" : "callback-stack-empty",
       threadId: this.#currentThreadId,
     });
     this.#status("running", `Callback returned; depth ${metadata.remainingDepth}`);
+  }
+
+  async #completeThread(exitCode: number): Promise<void> {
+    const threadId = this.#currentThreadId;
+    const preparedThread = this.#requirePrepared().additionalThreads?.find(
+      (thread) => thread.threadId === threadId,
+    );
+    invariant(preparedThread !== undefined, "guest thread exit has no prepared bootstrap record");
+    this.#execution.transition("thread-exit", {
+      cause: "guest-thread-entry-return",
+      threadId,
+    });
+    const metadata = this.#requireBridge().finishThread<ThreadExitMetadata>(exitCode).metadata;
+    invariant(metadata.kind === "thread-exit", "invalid guest thread exit metadata");
+    invariant(metadata.threadId === threadId, "Rust exited a different guest thread");
+    invariant(
+      metadata.exitCode === preparedThread.expectedExitCode &&
+        metadata.scheduler.state === "terminated" &&
+        metadata.scheduler.exitCode === metadata.exitCode,
+      "guest thread exit code or scheduler state mismatch",
+    );
+    invariant(
+      metadata.markerAddress === preparedThread.markerAddress &&
+        metadata.markerValue === preparedThread.expectedMarkerValue,
+      "guest thread marker was not reconciled before exit",
+    );
+    this.#report.threadExits.push({
+      threadId,
+      exitCode: metadata.exitCode,
+      markerAddress: metadata.markerAddress,
+      markerValue: metadata.markerValue,
+    });
+    this.#threadContexts.delete(threadId);
+    this.#threadResumeStates.delete(threadId);
+    this.#threadExecutionStates.delete(threadId);
+    this.#liveThreadId = null;
+    await this.#scheduleAfterBlock(threadId, null);
   }
 
   #completeProcess(exitCode: number): void {
@@ -906,6 +1012,7 @@ class BrowserRuntimeSession {
   #runMappingContract(): void {
     const bridge = this.#requireBridge();
     const engine = this.#requireEngine();
+    const capacityBefore = engine.memoryCapacity();
     for (let stageIndex = 0; stageIndex < 7; stageIndex += 1) {
       const output = bridge.advanceMappingFixture<MappingFixtureMetadata>(stageIndex);
       const metadata = output.metadata;
@@ -949,6 +1056,24 @@ class BrowserRuntimeSession {
 
       const effectsBefore = engine.cacheEffectCounts();
       this.#applyAuthoritativeDelta(delta);
+      const capacityAfter = engine.memoryCapacity();
+      invariant(
+        capacityAfter.physicalPoolBytes <= capacityAfter.maximumPhysicalPoolBytes &&
+          capacityAfter.mappedGuestPages <= capacityAfter.maximumPhysicalPages,
+        "execution mirror exceeded its bounded physical capacity",
+      );
+      if (stageIndex === 4) {
+        invariant(
+          capacityAfter.releasedPages > capacityBefore.releasedPages,
+          "mirror decommit did not release physical storage",
+        );
+      }
+      if (stageIndex === 5) {
+        invariant(
+          capacityAfter.reusedPages > capacityBefore.reusedPages,
+          "mirror recommit did not reuse released physical storage",
+        );
+      }
       const effectsAfter = engine.cacheEffectCounts();
       this.#report.mappingDeltas += 1;
       this.#report.mappingDirtyPages += delta.pages.length;
@@ -1074,7 +1199,7 @@ class BrowserRuntimeSession {
     this.#report.mirrorRebuilds += 1;
   }
 
-  #waitForHost(metadata: HostRequestMetadata): Promise<HostDelivery> {
+  #postHost(metadata: HostRequestMetadata): void {
     invariant(this.#execution.state() === "api-trap", "host request escaped API trap state");
     invariant(
       /^(0|[1-9][0-9]*)$/.test(metadata.requestId) &&
@@ -1087,6 +1212,7 @@ class BrowserRuntimeSession {
         metadata.threadId <= 0xffff_ffff,
       "Rust host request thread ID is invalid",
     );
+    invariant(metadata.threadId === this.#currentThreadId, "host request belongs to another thread");
     invariant(
       metadata.scheduler.state === "waiting-host" &&
         metadata.scheduler.requestId === metadata.requestId,
@@ -1112,36 +1238,147 @@ class BrowserRuntimeSession {
       service: metadata.service,
       arguments: metadata.arguments,
     };
-    const apiResumeState = this.#takeApiResumeState();
+    const apiResumeState = this.#takeApiResumeState(metadata.threadId);
     const completionPolicy: HostCompletionPolicy =
       apiResumeState === "guest-callback" ? "resume-callback" : "resume-ready";
-    return new Promise((resolve, reject) => {
-      this.#pendingHostRequests.register({
-        requestId: metadata.requestId,
-        threadId: metadata.threadId,
-        service: metadata.service,
-        completionPolicy,
-        cancelState: "active",
-        resolve,
-        reject,
-      });
-      this.#execution.transition("waiting-host", {
-        cause: "rust-host-request",
-        threadId: metadata.threadId,
-        requestId: metadata.requestId,
-      });
-      if (this.#configuration.mode === "watchdog" && this.#watchdogArmedAt === null) {
-        this.#armWatchdog();
+    this.#pendingHostRequests.register({
+      requestId: metadata.requestId,
+      threadId: metadata.threadId,
+      service: metadata.service,
+      completionPolicy,
+      cancelState: "active",
+      resolve: () => {},
+      reject: () => {},
+    });
+    if (this.#configuration.mode === "watchdog" && this.#watchdogArmedAt === null) {
+      this.#armWatchdog();
+    }
+    post(request);
+  }
+
+  #takeApiResumeState(threadId = this.#currentThreadId): "ready" | "guest-callback" {
+    const resumeState = this.#threadResumeStates.get(threadId);
+    invariant(resumeState !== undefined, "API trap omitted its thread resume state");
+    this.#threadResumeStates.delete(threadId);
+    return resumeState;
+  }
+
+  async #scheduleAfterBlock(blockedThreadId: number, requestId: string | null): Promise<void> {
+    this.#saveLiveThreadContext();
+    while (!this.#terminal) {
+      const metadata = this.#requireBridge().scheduleNextThread<
+        ThreadScheduledMetadata | SchedulerIdleMetadata
+      >().metadata;
+      if (metadata.kind === "thread-scheduled") {
+        invariant(
+          metadata.scheduler.state === "runnable" ||
+            metadata.scheduler.state === "in-callback",
+          "Rust scheduled a non-executable guest thread",
+        );
+        this.#execution.transition("thread-switch", {
+          cause: "rust-scheduler-selection",
+          threadId: metadata.threadId,
+          requestId,
+        });
+        this.#activateThread(metadata.threadId, metadata.scheduler);
+        if (requestId !== null && metadata.threadId !== blockedThreadId) {
+          this.#report.hostWaitExecutions.push({
+            requestId,
+            waitingThreadId: blockedThreadId,
+            executedThreadId: metadata.threadId,
+          });
+        }
+        const executionState =
+          metadata.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+        this.#execution.transition(executionState, {
+          cause: "thread-context-restored",
+          threadId: metadata.threadId,
+          requestId,
+        });
+        return;
       }
-      post(request);
+      invariant(metadata.kind === "scheduler-idle", "Rust returned an unknown scheduler outcome");
+      invariant(
+        this.#pendingHostRequests.size() > 0,
+        "scheduler became idle without a pending host request",
+      );
+      this.#liveThreadId = null;
+      const pending = this.#pendingHostRequests.first();
+      invariant(pending !== null, "pending host request disappeared before scheduler idle");
+      if (this.#execution.state() !== "waiting-host") {
+        this.#execution.transition("waiting-host", {
+          cause: "scheduler-no-executable-thread",
+          threadId: pending.threadId,
+          requestId: pending.requestId,
+        });
+      }
+      await this.#waitForRunnable();
+      if (this.#terminal) {
+        throw new SessionStopped("session ended while the scheduler was idle");
+      }
+      invariant(
+        this.#execution.state() === "host-completion",
+        "scheduler wake did not originate from a host completion",
+      );
+    }
+  }
+
+  #saveLiveThreadContext(): void {
+    if (this.#liveThreadId === null) {
+      return;
+    }
+    invariant(
+      this.#threadContexts.has(this.#liveThreadId),
+      "live guest thread has no CPU context record",
+    );
+    this.#threadContexts.set(this.#liveThreadId, this.#requireEngine().saveCpuContext());
+  }
+
+  #activateThread(threadId: number, scheduler: ExecutableSchedulerMetadata): void {
+    const context = this.#threadContexts.get(threadId);
+    invariant(context !== undefined, `scheduled guest thread ${threadId} has no CPU context`);
+    const executionState = scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    invariant(
+      this.#threadExecutionStates.get(threadId) === executionState,
+      `Rust scheduler state for thread ${threadId} disagrees with its suspended execution state`,
+    );
+    const previousThreadId = this.#currentThreadId;
+    this.#requireEngine().restoreCpuContext(context);
+    this.#currentThreadId = threadId;
+    this.#liveThreadId = threadId;
+    if (previousThreadId !== threadId) {
+      this.#report.contextSwitches += 1;
+    }
+  }
+
+  #applyCpuResumeToThread(threadId: number, completion: ApiCompletion): void {
+    const target = this.#threadContexts.get(threadId);
+    invariant(target !== undefined, `host completion thread ${threadId} has no CPU context`);
+    const engine = this.#requireEngine();
+    const liveThreadId = this.#liveThreadId;
+    if (liveThreadId !== null) {
+      this.#threadContexts.set(liveThreadId, engine.saveCpuContext());
+    }
+    engine.restoreCpuContext(target);
+    engine.applyCpuResume(completion);
+    this.#threadContexts.set(threadId, engine.saveCpuContext());
+    if (liveThreadId !== null) {
+      const live = this.#threadContexts.get(liveThreadId);
+      invariant(live !== undefined, "live guest thread context disappeared during host completion");
+      engine.restoreCpuContext(live);
+    }
+  }
+
+  #waitForRunnable(): Promise<void> {
+    return new Promise((resolve) => {
+      this.#runnableResolvers.push(resolve);
     });
   }
 
-  #takeApiResumeState(): "ready" | "guest-callback" {
-    const resumeState = this.#apiResumeState;
-    invariant(resumeState !== null, "API trap omitted its resume state");
-    this.#apiResumeState = null;
-    return resumeState;
+  #signalRunnable(): void {
+    const resolve = this.#runnableResolvers.shift();
+    invariant(resolve !== undefined, "host completion has no scheduler-idle waiter");
+    resolve();
   }
 
   #checkWatchdog(): void {
@@ -1174,14 +1411,15 @@ class BrowserRuntimeSession {
     }
     const execution = this.#execution.snapshot();
     const pending = this.#pendingHostRequests.first();
+    const stoppedThreadId = this.#liveThreadId ?? pending?.threadId ?? this.#currentThreadId;
     this.#watchdogContext = {
-      threadId: this.#currentThreadId,
+      threadId: stoppedThreadId,
       requestId: pending?.requestId ?? null,
       lastTransition: execution.lastTransition,
     };
     this.#terminate(
       "watchdog",
-      `Watchdog ${reason} stopped thread ${this.#currentThreadId} after ` +
+      `Watchdog ${reason} stopped thread ${stoppedThreadId} after ` +
         `${this.#report.instructions} instructions; state=${execution.state}; ` +
         `request=${pending?.requestId ?? "none"}; last=` +
         `${execution.lastTransition?.from ?? "none"}->${execution.lastTransition?.to ?? "none"}`,
@@ -1266,6 +1504,9 @@ class BrowserRuntimeSession {
     });
     const execution = this.#execution.snapshot();
     this.#terminal = true;
+    for (const resolve of this.#runnableResolvers.splice(0)) {
+      resolve();
+    }
     const message: SessionFinishedMessage = {
       type: "session-finished",
       protocolVersion,
@@ -1338,6 +1579,11 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             budgetYields: 0,
             hostRequests: 0,
             rustSchedulerTransitions: 0,
+            registeredThreadIds: [],
+            executedThreadIds: [],
+            contextSwitches: 0,
+            hostWaitExecutions: [],
+            threadExits: [],
             executionState: "stopped",
             executionTransitionCount: 0,
             lastExecutionTransition: null,

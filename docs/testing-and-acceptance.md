@@ -327,14 +327,16 @@ failure時のstate／memory／LastError不変を固定する。private BGI profi
 guest heap allocationの代用ではない。詳細は
 [bgi-fiber-local-storage-allocation.md](bgi-fiber-local-storage-allocation.md)を正とする。
 
-Reached private-heap allocationの代表Rust contractはthree-argument stdcall、logical heap
-handle、versioned `HEAP_ZERO_MEMORY`／size gate、guest pointers `0x20000000`／
+Historical reached private-heap allocationの代表Rust contractはthree-argument stdcall、logical heap
+handle、schema-v1 `HEAP_ZERO_MEMORY`／exact-size gate、guest pointers `0x20000000`／
 `0x20000218`、zeroed first／second blocks、reserve／commitとdirty-only deltas、LastError
 preserveを固定する。Frozen v1は`0x800`をstate／memory mutation前にrejectし、extended
 contractだけがfirst blockを保持してsecond blockを作る。Base private BGI profileは
 19 contracts／39 calls、generation `87`まで進み、instruction 644のdynamic
-`FlsSetValue(0,0x20000000)`で停止する。これはbroad heap flags／sizes、failure return、
-free／destroy／realloc、FLS value semanticsの代用ではない。詳細は
+`FlsSetValue(0,0x20000000)`で停止する。Active schema-v2 regressionは同じhandlerで
+flags `0`／`HEAP_ZERO_MEMORY`とnonzero `1..=16 MiB`を許可し、非列挙size
+`0xBC`のsuccess、上限超過／未対応flagのmutation-free rejectionを固定する。
+Zero-size、failure return、other flags、destroy／realloc、FLS value semanticsの代用ではない。詳細は
 [bgi-private-heap-allocation.md](bgi-private-heap-allocation.md)を正とする。
 
 Reached FLS valueの代表Rust contractはtwo-argument stdcall、allocated logical index、
@@ -558,17 +560,20 @@ API count だけを coverage としない。status ごとに implementation vari
 
 ### 5.6 VFS と registry tests
 
+- same-origin localhost serverが登録済みsource rootとtitle-local profileだけを公開し、raw host path／wrong title／wrong snapshotを拒否する
 - drive、absolute／relative、`.`／`..`、separator、case、trailing dot／space の policy
 - case collision、enumeration、wildcard、rename、replace
 - read-only source と writable overlay の通常 file shadowing、および executable／DLL shadowing の拒否
 - sharing mode、delete-on-close、locking、mapped view の採用範囲
 - CP932／Unicode filename、invalid sequence、long path の採用範囲
-- quota full、permission revoke、browser kill、commit interruption
+- SQLite base generation、duplicate commit、quota full、permission revoke、browser／Worker／server kill、commit interruption
 - registry key case、value type、enumeration、delete、default value
 - runtime schema upgrade／downgrade refusal、backup／restore
 - import 後／delay-load 前の host source replacement と、managed module snapshot の restart 後 hash
 
-crash consistency test は commit の各 injection point で process／Worker kill を模擬し、再起動後に旧状態または新状態のどちらか一方が完全に読めることを確認する。
+最初のvertical sliceは、fingerprint済みtitleが実際に読むasset一つのOpen／Read／Seek／Closeと、一つのsave fileのCreate／Write／Seek／Closeだけを通す。Browser context、Runtime Worker、localhost serverを停止／再起動し、asset hash不変、save bytes／state hash一致、pending request zeroを確認する。API breadth、複数save slot、general mapped fileをこの結果からclaimしない。
+
+Crash consistency test は SQLite transactionのstage前、stage後、commit中、publish後でprocess／Worker／server killを模擬し、再起動後に旧generationまたは新generationのどちらか一方が完全に読めることを確認する。
 
 ### 5.7 Window、message、input tests
 
@@ -582,18 +587,16 @@ fixed `GetMessageA`はcandidateをzero metadataのMSGへmaterialize／dequeueし
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
-後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、2 deferred host completions、depth-2 callback、automatic writeback、Canvas／Web Audio／IndexedDB、pending cancel、watchdog、entry sentinelを通す。protocol version 4はclosed execution-state graphを維持し、production loopをgeneric `ExecutionEngine`へ接続する。state contractはillegal transitionのmutation前拒否、wrong-thread／duplicate／cancelled-late completion、nested sync APIとcallback-resuming async policy、全terminal pathの`stopped`／pending request record zero、watchdogのthread／request／last-transition contextを検査する。engine contractはactual WasmでCPU context、structured stop、5 mapping operation、owner-tagged changed batch、3 cache effect、pinned revision／ABI／artifact mismatchを検査し、Runtime Worker sourceにPTE／private offset／v86 reasonがないことを固定する。46 instructions／10 slices／3 yields、30分／11,326 sessionsのevidenceは[browser-runtime-worker.md](browser-runtime-worker.md)を正とする。これは`AC-P1-04`、`AC-P1-05`、`AC-P1-07`、`AC-P1-10`へのpartial evidenceであり、general wait／wake、host timeout、versioned performance threshold、title workloadを代用しない。
+後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、pending cancel、watchdog、thread／process return sentinelを通す。protocol version 5は`thread-switch`／`thread-exit`を含むclosed execution-state graphとper-thread opaque CPU contextを持ち、initial threadのhost wait中にsecond guest threadがmarker write／exitし、その後initial contextへ復帰することを要求する。State contractはillegal transitionのmutation前拒否、wrong-thread／duplicate／cancelled-late completion、nested sync APIとcallback-resuming async policy、全terminal pathの`stopped`／pending request record zero、watchdogのthread／request／last-transition contextを検査する。Engine contractはactual WasmでCPU contextのmutation-free生成／保存／復元、structured stop、mapping operation、owner-tagged changed batch、cache effect、pinned revision／ABI／artifact mismatchを検査し、Runtime Worker sourceにPTE／private offset／v86 reasonがないことを固定する。Current measurementは[current-checkpoint.json](current-checkpoint.json)だけを正とする。これは`AC-P1-04`、`AC-P1-05`、`AC-P1-07`、`AC-P1-10`へのpartial evidenceであり、general Win32 thread creation、wait-any／wait-all、timeout／fairness、full-play title behaviorを代用しない。
 
-private BGI Worker contractはcurrent generic profileをChrome内Rust/Wasm authorityで実行する。Nodeは
+private BGI Worker contractはactive generic profileをChrome内Rust/Wasm authorityで実行する。Nodeは
 oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatcher／memory stateを所有しない。
-94 ordered completions、5,894 instructions、final memory content digest、next structured faultを比較し、
-8-instruction cancelと4-instruction watchdogでprocess exit／module detach／pending work zeroを要求する。
-詳細は[bgi-browser-worker.md](bgi-browser-worker.md)を正とする。単発heap値はsemantic
-report identityに留め、別のversion 1 BGI workload gateが同じWorkerで完全sessionを3分反復する。
-1,507 session／failure 0を確認し、session p95、slice p99、heartbeat、main／Worker heap最大値と
-回帰slope、Worker backing storage、Rust／execution-engine linear memory、Wasm crossings/sessionをversioned
-thresholdで判定する。必要sampleが取得不能ならfailし、全thresholdのobserved valueと判定理由を
-reportへ保存する。詳細は[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
+Ordered completion、final memory content、next structured faultを比較し、cancel／watchdogでprocess exit、
+module detach、pending work zeroを要求する。別のversioned workload gateは同じWorkerでsessionを反復し、
+latency／slice／heartbeat distribution、main／Worker heap、backing storage、Rust／execution-engine linear
+memory、Wasm crossingをthreshold判定する。必要sampleが取得不能ならfailし、current resultはmanifestだけへ
+保存する。Methodologyとnon-claimsは[bgi-browser-worker.md](bgi-browser-worker.md)および
+[bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch
@@ -647,15 +650,16 @@ Clean browser profile から次を自動化する。
 
 ```text
 feature preflight
- -> local fixture import
+ -> same-origin localhost server start
+ -> local fixture / actual asset import
  -> source hash verification
  -> launch
  -> canvas first frame
  -> input replay
  -> audio activation / output counters
  -> save
- -> runtime stop and browser context close
- -> reopen
+ -> runtime stop, browser context close, and server restart
+ -> reopen from committed generation
  -> load
  -> final state / screen / file hash verification
  -> diagnostic export
@@ -816,12 +820,13 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P3-02`: User message queue の post／send／peek／get／dispatch、timer、callback の deterministic fixture が通る
 - `AC-P3-03`: Windows path、case-insensitive lookup、overlay、sharing の採用範囲を differential test で満たす
 - `AC-P3-04`: Windows-932／Unicode の filename、API string、registry value round-trip が通る
-- `AC-P3-05`: save と virtual registry を commit、browser context close、reopen、load して同じ state hash を得る
-- `AC-P3-06`: commit 中 kill、quota full、permission revoke 後も旧／新いずれかの整合した save を読める
+- `AC-P3-05`: save と virtual registry をlocalhost SQLiteへcommitし、browser／Worker／serverを停止、再起動、loadして同じ state hash を得る
+- `AC-P3-06`: SQLite commit中のbrowser／Worker／server kill、quota full、permission revoke後も旧／新いずれかの整合したsave generationを読める
+- `AC-P3-07`: 実title asset一つをread-only snapshotからOpen／Read／Seek／Closeし、同じsessionでsave一つをCreate／Write／Close、再起動、Open／Readでき、source hashとauthority境界が不変である
 - `AC-P3-08`: IUnknown ABI、vtable thunk、HRESULT、interface identity、reference count の共通 foundation が fixture を通る
 - `AC-P3-09`: renderer／surface の ADR-007 と DirectSound／AudioWorklet／clock の ADR-008 が Accepted
 - `AC-P3-10`: managed module snapshot を restart 後も同じ hash で参照でき、外部 source replacement、overlay、quota failure で executable／DLL が shadow されない
-- `AC-P3-11`: write／flush／close／browser commit の durability point と hard-stop rollback を kill injection で検証し、最後に commit 済みの state を保持する
+- `AC-P3-11`: write／flush／close／SQLite commit の durability point と hard-stop rollback を kill injection で検証し、最後に commit 済みの state を保持する
 - `AC-P3-12`: 同じサクラノ詩 fingerprint の thread／message／file／registry checkpoint を実行し、最初の mismatch と scope decision を evidence に残す
 
 ### AC-P4: Interactive GDI slice complete

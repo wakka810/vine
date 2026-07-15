@@ -1,0 +1,61 @@
+# ADR-006 Local VFS and persistence backend
+
+## 1. Status
+
+- Status: Accepted
+- Decision date: 2026-07-16
+- Scope: 最初のasset／save vertical sliceに使うstorage topologyとauthority境界
+- Decision: same-origin localhost Vine serverを最初のbackendとし、immutable sourceはread-only、save／registryはtitle-local SQLite transactionへ保存する
+- Not implemented: Windows file API、path／share semantics、実asset read、save／restart／load、migration／backup
+
+このADRは最初のbackendを決めるものであり、VFSまたはpersistenceの完成を意味しない。OPFS／IndexedDBやremote serviceは初期baselineに含めず、実測された必要性が出た場合に同じbackend contractへ追加する。
+
+## 2. Context
+
+Windows file APIはguestから見ると同期的だが、browser storageとnetwork requestは非同期である。Windows path、handle、cursor、sharing、LastError、overlay resolutionと、host上のdurable bytesを同じ層へ置くと、RustとTypeScript／serverに二つのWindows state authorityが生じる。
+
+最初からbrowser内の永続化だけを採用すると、Windows semantics、OPFS／IndexedDB lifecycle、quota／eviction、restart recoveryを同時に解く必要がある。個人利用のactive targetでは、UIとAPIをlocalhostの同一originから提供し、source fileへread-onlyで到達できるlocal companion serverの方が短いvertical sliceとfailure injectionを作りやすい。
+
+## 3. Accepted boundary
+
+| State | Authority | Adapter／mirror |
+|---|---|---|
+| Windows path、mount resolution、file／directory identity、handle、cursor、access／share mode、LastError | Rust VFS subsystem | なし |
+| Immutable source snapshot ID、file ID、hash、read bytes | Local Vine server | Rust logical source object |
+| Committed save／registry bytes、generation、schema、content hash | Local Vine serverのtitle-local SQLite | Rust logical transaction／file state |
+| Async request、cancel、timeout、completion delivery | Runtime Worker | Rust scheduler-owned host request |
+
+Runtime Workerとserverはguest pointer、Win32 handle、生のhost absolute pathをauthorityとして保持しない。RustはWindows pathを正規化してmount内のstable object IDへ解決し、server requestにはtitle fingerprint、snapshot／profile ID、object／path key、range、transaction generationだけを渡す。
+
+Local serverはVine UI、immutable source API、save APIを同じloopback originから提供する。任意directoryをHTTP越しに公開せず、利用者が明示的に登録したread-only source rootと、Vine管理のwritable profile rootだけへアクセスする。Remote upload、multi-user同期、cloud accountは初期scope外とする。
+
+## 4. Source and save model
+
+Source executable、DLL、assetはfingerprint済みsnapshotとしてread-onlyに扱う。Large assetは必要rangeをlazy readできるが、module mappingと再起動に使うidentity／hashは安定させる。Writable overlayがsource executable／DLLをshadowしてはならない。
+
+Saveとvirtual registryはsourceと別namespace、別quota、title fingerprint別SQLite databaseへ置く。最初のtransaction contractは次とする。
+
+1. Open時にcommitted generationを取得し、Write／Seek／Truncateはそのgenerationに対するstaged write-setへ適用する。
+2. Flushまたは成功したCloseをdurability boundaryとし、SQLite transactionでbytes、metadata、generation、content hashを一括commitする。
+3. Base generationがstaleなcommit、重複request、wrong title／profile、quota超過はcommit前に拒否する。
+4. Cancel、watchdog、server／Worker killでは未commit write-setを破棄し、最後のcommitted generationを残す。停止を理由に自動commitしない。
+5. Guestへ返すWrite／Flush／Closeの厳密なWindows-visible成功時点はnative caller evidenceで固定する。Write-through等の未到達variantは推測で一般化しない。
+
+SQLiteは最初のtransactional storeであり、Windows file semanticsのauthorityではない。Large writable fileやmulti-file atomic groupが実corpusで必要になった場合は、content-addressed object＋SQLite metadata等を同じcommit contractの下で比較する。
+
+## 5. First vertical slice
+
+最初のgateはAPI数ではなく、次の一経路で閉じる。
+
+1. Fingerprint済みtitleが実際に読むassetを一つ選び、Rust VFSのOpen／Read／Seek／Closeからlocalhost source APIまで通す。
+2. Source bytesと実行前後のEXE／DLL／asset hashが一致することを確認する。
+3. 一つのsave fileをCreate／Write／Seek／Closeし、durable generationとhashを記録する。
+4. Runtime Worker、browser context、local serverを停止して再起動し、Open／Read／load後のbytesとstate hashを比較する。
+5. Commit前、transaction中、publish後へkillを注入し、再起動後に旧generationまたは新generationの完全な一方だけが見えることを確認する。
+6. Wrong path／title／generation、quota full、duplicate completionをmutation前に拒否する。
+
+## 6. Consequences and reconsideration
+
+初期実装はbrowser storage固有問題をVFS semanticsから分離でき、server restartとSQLite transactionへ決定的にfailureを注入できる。一方、Vine local serverが起動していない状態でのoffline browser-only実行はclaimしない。
+
+OPFS／IndexedDB backend、remote save同期、複数device、multi-user conflictは、local vertical sliceが通り、active targetから具体的な要求が観測された時だけ再検討する。Backendを追加してもRust VFS authority、source／overlay分離、generation付きdurable commitを変更しない。

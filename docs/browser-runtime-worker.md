@@ -69,15 +69,20 @@ the same backing. Mapping operations and dirty pages are preflighted against a
 cloned engine registry before any mapping or byte mutation. Protect invalidation
 is applied through generic data-TLB, instruction-fetch, and generated-code
 effects.
+
+The private BGI path loads the active Kernel32 schema-v2 policy selected by the
+checkpoint manifest. `HeapAlloc` accepts implemented flags `0`／
+`HEAP_ZERO_MEMORY` for every nonzero size through the 16 MiB per-heap ceiling;
+observed allocation sizes are evidence, not Worker or Rust dispatch branches.
 Decommit and release both produce a code-bearing unmapped-access stop on a stale
 probe. A current full reflection rebuild preserves the CPU context and proves
 the receipt-loss recovery path without changing Rust acknowledgement state.
 
 ## Execution engine contract
 
-Protocol version 4 binds the production loop to `ExecutionEngine`, not to v86
+Protocol version 5 binds the production loop to `ExecutionEngine`, not to v86
 exports or numeric stop reasons. The interface owns budgeted execution,
-structured stops, versioned opaque CPU-context save／restore, guest mapping
+structured stops, versioned opaque CPU-context creation／save／restore, guest mapping
 operations, owner-tagged changed-page batches, CPU resume／callback entry, and
 data-TLB／instruction-fetch／generated-code effects. `runtime-worker.ts` contains
 no PTE address, v86 private offset, `full_clear_tlb`, or v86 reason constant.
@@ -97,23 +102,35 @@ that selected identity, rather than the whole allowlist, in the build manifest.
 Worker startup checks artifact bytes／SHA-256 before compilation and exported
 context version／size before guest initialization.
 
+Rust prepared metadata also supplies the semantic committed-page limit. The
+v86 mirror starts with a 64 KiB physical pool and grows geometrically only after
+a complete reflection／host-delta preflight. Growth reinstantiates the cached
+adapter module and preserves CPU context、mappings、bytes、protection、PTE Dirty
+state; Rust remains byte authority. The BGI limit is 16,384 guest pages
+（64 MiB）and the corresponding page-directory／all-page-table／VGA-hole-inclusive
+mirror ceiling is 71,442,432 bytes. Decommit／release zero and free data pages,
+empty page tables are reclaimed, and recommit reuses zeroed pages. Capacity
+failure is the mutation-free typed code `v86-physical-pool-exhausted`.
+
 The verified adapter module is cached once per Worker; each runtime session
 still creates a fresh Wasm instance, CPU context, mapping registry, and guest
 memory. This placement removed repeated 1.88 MiB fetch／hash／compile backing
 storage without sharing guest state. `npm run check:execution-engine-contract:prepared`
 uses the actual Wasm to fix CPU context, structured yield／trap, all five mapping
 operations, changed-page owner/address, cache effects, and revision／ABI／hash
-mismatch rejection.
+mismatch rejection. The same contract expands a live mirror beyond 2 MiB,
+resumes its CPU context, verifies release／reuse, and rejects over-limit mappings
+without changing the mirror.
 
 ## Execution state contract
 
-Protocol version 3 introduced, and version 4 preserves, the active scheduler
-lane through an explicit state
-machine: `ready`, `running`, `budget-yield`, `api-trap`, `waiting-host`,
-`host-completion`, `guest-callback`, `callback-return`, `stopping`, and
-`stopped`. Prepared Rust metadata supplies the owning process and thread IDs.
-TypeScript combines that lane identity with Worker lifecycle state; it does not
-replace the Rust scheduler authority.
+Protocol version 5 represents execution through an explicit state machine:
+`ready`, `running`, `budget-yield`, `memory-fault`, `api-trap`, `thread-switch`,
+`thread-exit`, `waiting-host`, `host-completion`, `guest-callback`,
+`callback-return`, `stopping`, and `stopped`. Prepared Rust metadata supplies
+the owning process and registered thread bootstraps. TypeScript combines the
+selected lane with Worker lifecycle state; it does not replace Rust scheduler
+authority.
 
 Every transition is checked against a closed adjacency table before state,
 sequence, or last-transition metadata is changed. API traps remember whether a
@@ -123,13 +140,21 @@ cancel state, and `resume-ready`／`resume-callback` policy. Completion must mat
 both identities. Wrong-thread, duplicate, cancelled-late, unknown, and reused
 request completions are rejected without completing another record.
 
+The Worker stores one opaque CPU context per live thread. A blocking host
+request saves its owner context, asks Rust for the next executable lane, and
+restores only the selected context. Host completion targets the request owner
+even while another lane is selected; register resume is applied to that saved
+context before Rust can schedule it again. The controlled fixture proves this
+with a second guest EIP／ESP that writes a marker and exits while the initial
+thread remains in `WaitingHost`.
+
 Cancellation retires every active delivery record before final reporting.
 Success, cancellation, structured stop, watchdog, and fault all pass through
 `stopping -> stopped`; terminal reports require zero pending request records.
 Only a watchdog report may contain diagnostic context, which records the cause
 thread, current request when one exists, and the last transition observed
-before termination. The current Worker executes one CPU lane, but request
-ownership is no longer represented by a global single pending slot.
+before termination. Pending host calls and callback stacks are keyed by owner
+thread; neither is represented by a global single slot.
 
 ## Fixture contract
 
@@ -148,111 +173,44 @@ The reproducible PE32/i386 fixture imports three symbols from
 The fixture returns through the exact Rust-owned process-entry sentinel with
 exit code `0`. The native Windows self-oracle also exits `0`.
 
+The executable also exports a controlled second-thread entry and marker. Rust
+registers a distinct thread stack and scheduler lane, while the Worker creates
+an independent opaque CPU context. When the initial thread begins the first
+deferred request, Rust selects the second lane. That guest code writes its
+marker, returns through the thread sentinel with its own exit code, and is
+retired before the initial host completion restores the first context.
+
 Host operations never expose a Promise to the guest stack. `RuntimeState`
 enters `WaitingHost`, records a request ID and resume state, and returns to the
-Worker. Protocol version 4 transports the lossless decimal request ID, owning
+Worker. Protocol version 5 transports the lossless decimal request ID, owning
 thread ID, bounded copied scalar payload, and matching Rust `waiting-host`
-authorization. TypeScript retains only a browser-delivery Promise. A typed
+authorization. TypeScript retains a bounded delivery record, not guest stack
+state. A typed
 completion restores the Rust scheduler state and completes the saved generic
 dispatcher frame before CPU registers are resumed. The fixture retains no guest
 pointer across the asynchronous boundary.
 
 ## Browser result
 
-The clean-profile Chrome check recorded:
+The clean-profile Chrome gate requires all of the following semantic evidence:
 
-| Evidence | Result |
-|---|---:|
-| Guest instructions | 46 |
-| CPU slices / periodic budget yields | 10 / 3 |
-| Deferred host requests | 2 |
-| Rust-authorized wait / resume transitions | 2 |
-| Worker transitions, success / cancel / watchdog | 31 / 5 / 5 |
-| Final Worker state / pending request records | `stopped` / 0 |
-| Guest callback entries / maximum depth | 2 / 2 |
-| Automatic writeback batches / pages | 7 / 9 |
-| Mapping deltas / dirty pages | 7 / 3 |
-| Reserve / commit / protect / decommit / release | 1 / 2 / 2 / 1 / 1 |
-| Atomic rejection / stale-access stops / rebuilds | 1 / 2 / 1 |
-| Mapping TLB / fetch / generated-code effects | 6 / 6 / 6 |
-| Final Rust memory generation | 30 |
-| Canvas readback at `(1,1)` | `[255,0,0,255]` |
-| Audio pulse | 880 Hz |
-| IndexedDB readback | `0x5a` |
-| Guest exit code | 0 |
+- both registered guest threads execute with distinct CPU contexts;
+- the second thread runs and exits while the initial thread owns a pending host request;
+- the initial context resumes and completes both deferred browser services and nested callbacks;
+- changed guest pages and mapping operations reconcile into Rust authority;
+- Canvas, Web Audio, and IndexedDB outputs read back correctly;
+- success, cancellation, watchdog, and fault paths finish in `stopped` with no pending delivery,
+  callback, or Rust host work.
 
-The successful run's main-thread heartbeat continued while the guest executed
-in the Worker. Desktop `1280x800` and mobile `390x844` screenshots were captured
-after the same result, and both retained non-overlapping controls, surface, and
-telemetry. Generated screenshots remain under `.work/`.
+The private BGI gate uses the same Worker and Rust/Wasm authority. Node generates only a semantic
+oracle; Chrome must match ordered completions, caller-visible results, final guest bytes, and the
+same structured stop. A separate repeated-session benchmark evaluates the versioned latency,
+heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.
 
-The cancellation probe stops while the first deferred host request is pending.
-It reaches one host request after four guest instructions, then Rust cancellation
-retires the request and leaves pending host calls and callbacks at zero. A
-The wall-clock watchdog expires after four instructions while the first host
-request is pending and also leaves both counts at zero. Neither path fabricates
-a guest return. It
-identifies thread `8192`, request `1`, and the last
-`api-trap -> waiting-host` transition before retiring that request. Non-watchdog
-reports contain no watchdog context.
-Mapping application contains no event-loop yield: cancellation can occur before
-or after one preflighted batch, never between its mapping and dirty-page commits.
-
-## Private BGI result
-
-`npm run check:runtime:bgi-browser` now executes the current 285-call generic BGI
-session in this same Runtime Worker. Rust/Wasm owns PE load, process/module/heap
-state, Kernel32 dispatch, and guest bytes; Node supplies only an independently
-generated semantic oracle. Chrome applies the same four initial-stack growth
-deltas, completes the CP_ACP／flags-zero NUL-terminated conversion and process-owned
-current-directory update, creates the same initially-owned named mutex, resolves
-the same `GetCurrentThread` pseudo-handle, and reaches the same
-`SetThreadAffinityMask(0xFFFFFFFE,1)` stop after 25,261 instructions, with equal
-ordered API results, mutex／thread-object metadata, and final memory content SHA-256.
-The bounded Worker loop uses 3,247 slices, 2,957 periodic yields, and 9,742
-checked transitions while the main-thread heartbeat remains active.
-
-The Chrome memory generation ends at 2,208 rather than the Node oracle's 396
-because Chrome reconciles dirty pages at every 8-instruction budget boundary.
-This difference is synchronization identity, not guest-visible state. Separate
-cancel and watchdog probes stop after 8 and 4 instructions and confirm Rust
-process exit, module detach, and zero pending host/callback work. Detailed
-evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
-
-The separate 180-second BGI workload gate repeats this complete session in the
-same Worker and records latency distributions, heartbeat, main／Worker heap,
-backing-storage slope, linear-memory sizes, and 2,852 bridge operations per
-session. The commit-bound run completed 306 sessions with zero failures and
-passed all 17 thresholds; details are in
+Current measurements, artifact identities, exact stop data, and report hashes are recorded only
+in [current-checkpoint.json](current-checkpoint.json). Detailed private-run non-claims remain in
+[bgi-browser-worker.md](bgi-browser-worker.md), and benchmark methodology remains in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md).
-
-## 30-minute stress
-
-`npm run check:runtime:browser-worker:stress` repeated the complete successful
-lifecycle in one Chrome page and Worker for 1,800,074 ms. Each repetition creates
-a new Rust runtime and v86 mirror, executes both asynchronous services and the
-nested callback, verifies all three browser outputs, and exits cleanly.
-
-| Evidence | Result |
-|---|---:|
-| Successful sessions | 11,326 |
-| Failed sessions | 0 |
-| One-minute memory samples | 31 |
-| First / last `usedJSHeapSize` | 960,969 / 994,282 bytes |
-| Linear heap slope | 136.21 bytes/minute |
-| Worst main-thread heartbeat gap | 16.28 ms |
-| Report bytes | 7,039 |
-| Exact-run report SHA-256 | `13a7b579bb13841aa073de4dcf5ed7db0743485810e12b3159272205fbb43bb3` |
-
-The slope uses linear regression across all samples, not only the first and
-last values. Timing, heap samples, and the full report hash describe this exact
-run and are not deterministic semantic gates. The automated gate separately
-asserts instruction, callback, output, and cleanup semantics.
-
-This is a repeated controlled-session lifecycle soak. It is not a 30-minute
-single-process title or gameplay soak, and it does not establish background-tab
-or audio-deadline behavior. Those measurements belong to the next v86
-go/no-go benchmark.
 
 ## Reproduction
 
@@ -271,7 +229,7 @@ stress command adds the 30-minute repeated lifecycle run.
 
 ## Remaining gates
 
-- full-play Worker physical backing and memory ceiling beyond the three-minute workload gate
+- full-play peak committed pages and memory-pressure ceiling beyond the bounded 64 MiB guest limit
 - general process, thread, DLL, heap, wait, message, and object lifecycle
 - long-idle heap-capacity plateau and full-play growth slope
 - the next unsupported BGI capability and title output path

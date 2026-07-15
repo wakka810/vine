@@ -32,7 +32,9 @@
 | process、thread、handle、module、heap、wait、message、TLS／FLS | Rust runtime kernel | なし |
 | guest scheduler state、wait registration、host request identity | Rust runtime kernel | Worker event loop |
 | CPU context | per-thread runtime-owned context record | execution engine state buffer |
-| Canvas、WebGL／WebGPU、Audio、OPFS／IndexedDB resource | TypeScript browser backend | Rust logical resource identity |
+| Windows path、mount、file／directory、handle、cursor、share state | Rust VFS subsystem | storage object identity |
+| Immutable source bytes、committed save／registry generation | Local Vine server | Rust logical source／transaction state |
+| Canvas、WebGL／WebGPU、Audio resource | TypeScript browser backend | Rust logical resource identity |
 | DOM input、permission、user activation、browser lifecycle | TypeScript | Rust scheduler event |
 | Win32 argument／pointer validationと同期semantics | Rust | なし |
 | async Web API開始、取消、completion transport | TypeScript | Rust host request record |
@@ -50,9 +52,10 @@ scheduler transitionはRustだけが決定する。Rustは`waiting-host`とreque
 TypeScriptはbrowser eventをdeliveryする。completion後の`runnable`または`in-callback`復帰もRustが
 検証してからCPU contextへ適用する。Worker event loopは独自にguest threadをwakeしない。
 
-Worker protocol version 3で導入しversion 4で維持するstate machineは、そのRust scheduler laneを`ready`、`running`、`budget-yield`、
-`api-trap`、`waiting-host`、`host-completion`、`guest-callback`、`callback-return`、
-`stopping`、`stopped`の閉じたtransition graphで駆動する。illegal transitionはstate mutation前に
+Worker protocol version 5のstate machineは、Rust scheduler laneを`ready`、`running`、
+`budget-yield`、`memory-fault`、`api-trap`、`thread-switch`、`thread-exit`、`waiting-host`、
+`host-completion`、`guest-callback`、`callback-return`、`stopping`、`stopped`の閉じたtransition
+graphで駆動する。illegal transitionはstate mutation前に
 拒否する。host deliveryはglobal optionではなくrequest ID／thread ID／cancel state／completion
 policyを持つtableへ置き、wrong-thread、duplicate、cancel後のlate completionを区別して拒否する。
 terminal reportは必ず`stopped`かつpending record zeroとし、watchdogだけが原因thread、active
@@ -63,16 +66,18 @@ nondeterministic value、artifact hashへ分類する。schedulerの独立event�
 request-before-completion等のrelationは必須とする。whole-report hashはartifact identityであり、
 historical production ABIにしない。詳細は[evidence-classification.md](evidence-classification.md)を正とする。
 
-protocol version 4のproduction CPU境界はgeneric `ExecutionEngine`とする。上位が扱うのはcaller
-budget、structured yield／trap／fault／halt、versioned opaque CPU context、guest mapping operation、
+protocol version 5のproduction CPU境界はgeneric `ExecutionEngine`とする。上位が扱うのはcaller
+budget、structured yield／trap／fault／halt、versioned opaque CPU contextの生成／保存／復元、guest mapping operation、
 owner／address付きchanged-page batch、data-TLB／instruction-fetch／generated-code effectだけである。
 現在のsource-v86 implementationはnon-PAE PTE、Dirty bit scan、private offset、native stop reason、
 `full_clear_tlb()`をadapter内に閉じる。profileはsource revision、Wasm SHA-256、CPU-context ABIを
 pinし、build時とWorker guest startup前の両方で不一致を拒否する。
 
-現在のcontrolled Browser sessionはsingle CPU laneだけを実行し、scheduler切替用の永続CPU context
-recordをまだ持たない。live contextはexecution mirrorのstate bufferにだけ存在する。複数threadのCPU
-resumeを導入する前に、per-thread Rust recordへのsave／restoreを追加し、このauthority表を満たす。
+Runtime Workerはthread IDごとのopaque CPU contextを保持し、switch前にlive contextを保存してRustが
+選択したexecutable laneだけを復元する。Host completionはrequest ownerのsuspended contextへ適用し、
+Rust schedulerがそのthreadをexecutableに戻すまで実行しない。Controlled Browser sessionはinitial
+threadのhost wait中にsecond guest threadを実行／exitし、その後initial contextへ復帰する。CPU layoutは
+adapter内に閉じ、TypeScriptはWindows thread stateの第二authorityを持たない。
 
 ## 3. 論理構成
 
@@ -107,7 +112,7 @@ User-selected title directory / package
 +-------------------------+-------------------+-------------------+--------------------------+
                           |                   |                   |
                           v                   v                   v
-                  Canvas/WebGL/WebGPU   AudioWorklet/Web Audio   OPFS/IndexedDB
+                  Canvas/WebGL/WebGPU   AudioWorklet/Web Audio   Local Vine server
 ```
 
 この図は責務の境界を示す。実装が単一 Wasm module、複数 package、TypeScript、Rust、C/C++ のどれになるかは ADR で決める。
@@ -144,7 +149,7 @@ guest CALL / JMP import thunk
 
 API implementation は `Promise` を guest へ見せない。deferred operation の途中でも、別 guest thread、message、cancel、timeout をRust schedulerが扱い、TypeScriptはbrowser completionをeventとして返す。
 
-現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEB／process-parameters／command-lineを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてmeasured command-line observationとentry completionまで実行した。single processはexplicit lifecycleとcontrolled two-thread registryを持ち、logical laneごとのLastError／TLS／callback／scheduler state、thread exit、all-lane termination、one-object wait／wake、bounded raw message FIFOを固定する。Typed logical private heapはlazy 16 MiB guest arena、8-byte allocation、free／reuse、exit-request teardownとreached `HeapAlloc`／`HeapFree`／`HeapSize` variantsへ接続済みである。second threadのCPU context／stack／TEB、general ABI schema、stack overflow、wait-any／wait-all／timeout、User32 filter／dispatch、broad heap API、general process parametersは未実装である。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)、[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
+現在のcontrolled sliceはfixed service／callback／entry return、Rust-owned stack、typed one-page TEB／PEB／process-parameters／command-lineを通す。native FS contractとzero-base faultを保持し、CPU stateのFS baseをTEBへ向けてmeasured command-line observationとentry completionまで実行した。single processはexplicit lifecycleとcontrolled two-thread registryを持ち、logical laneごとのLastError／TLS／callback／scheduler state、thread exit、all-lane termination、one-object wait／wake、bounded raw message FIFOを固定する。Typed logical private heapはlazy 16 MiB guest arena、8-byte allocation、free／reuse、exit-request teardownへ接続済みであり、active `HeapAlloc` policyはflags `0`／`HEAP_ZERO_MEMORY`とnonzero `1..=16 MiB`を受理する。`HeapFree`／`HeapSize`は到達済みflag subsetを維持する。second threadのCPU context／stack／TEB、general ABI schema、stack overflow、wait-any／wait-all／timeout、User32 filter／dispatch、zero-size／other flags／realloc等のheap API、general process parametersは未実装である。詳細は[v86-bootstrap-params-ingress.md](v86-bootstrap-params-ingress.md)、[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
 ### 4.3 Host から guest callback
 
@@ -170,7 +175,8 @@ controlled callback／entry return ingressでは、sentinel kindをcontrol addre
 | Main thread | shell UI、DOM input、user activation、canvas presentation、permission prompt | guest 命令 loop、長い parse、同期 wait |
 | Runtime Worker | Rust kernel／CPU adapterの駆動、browser request delivery、watchdog、trace | DOM直接操作、guest-visible Windows stateの所有 |
 | AudioWorklet | deadline に沿った PCM consume、sample clock、underrun counter | guest API、file parse、重い allocation |
-| Optional storage worker | backend が要求する同期 access handle、transaction／snapshot | guest pointer の直接参照 |
+| Local Vine server | same-origin UI／API配信、immutable source read、SQLite save transaction | Windows path／handle semantics、guest pointer参照、任意directory公開 |
+| Optional storage worker | 将来のOPFS／IndexedDB adapterが要求するtransaction／snapshot | guest-visible file stateの所有、guest pointer参照 |
 
 OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は browser matrix と cross-origin isolation のコストを測って決める。これらがない環境では、copy queue または support Tier の引き下げを選べるようにする。
 
@@ -300,7 +306,11 @@ UNMAPPED -> RESERVED -> COMMITTED
 
 host の実行権限とは無関係に、guest `EXECUTE` を論理検査する。write-to-code が発生した場合は decode/cache を無効化し、policy によって継続または診断停止する。
 
-current ingressはRust `GuestMemory`をbyte authority、`ExecutionEngine` memoryをexecution mirrorとし、page R／W／Xとowner sealをfetch前に検査する。初回reflection、host側mapping／dirty delta、CPU側writebackはbinary control metadataとcontiguous 4 KiB payloadを分離する。bounded slice後はengineがowner／address付きchanged-page batchを返し、Rustへatomic reconcileしてgenerationを一度だけ進める。現在のv86 adapterは内部で全writable PTE Dirty bitをscanするが、Rust protocolとWorker loopはその発見方式を要求しない。host-originated通常data writeのlive roundtrip、連続2 sliceのstack／heap／surface／RWX writeback、generation／owner付きBGI reconciliationが成立した。Browser Workerはreserve／commit／protect／decommit／releaseとdirty pagesをclone registryで全件preflightしてからone batchで適用し、private heapのlazy mappingとlater dirty-only updateを同じsessionで処理する。protectはgeneric TLB／instruction-fetch／generated-code effectへ接続し、decommit／release後のstale accessはstructured stopになる。pending host delta中のexecution、generation conflict、partial batchはfail-closedであり、cancellationは同期batchの途中へ割り込まない。receiptが曖昧な場合はCPU contextを保持してRust current reflectionからmirrorを再構築する。general stack lifecycle、broad heap policy／API、decode-aware execute gate、snapshot generation、adapter-local O(writable-pages) scanのperformanceは未接続／未判定である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
+current ingressはRust `GuestMemory`をbyte authority、`ExecutionEngine` memoryをexecution mirrorとし、page R／W／Xとowner sealをfetch前に検査する。初回reflection、host側mapping／dirty delta、CPU側writebackはbinary control metadataとcontiguous 4 KiB payloadを分離する。bounded slice後はengineがowner／address付きchanged-page batchを返し、Rustへatomic reconcileしてgenerationを一度だけ進める。現在のv86 adapterは内部で全writable PTE Dirty bitをscanするが、Rust protocolとWorker loopはその発見方式を要求しない。host-originated通常data writeのlive roundtrip、連続2 sliceのstack／heap／surface／RWX writeback、generation／owner付きBGI reconciliationが成立した。Browser Workerはreserve／commit／protect／decommit／releaseとdirty pagesをclone registryで全件preflightしてからone batchで適用し、private heapのlazy mappingとlater dirty-only updateを同じsessionで処理する。protectはgeneric TLB／instruction-fetch／generated-code effectへ接続し、decommit／release後のstale accessはstructured stopになる。pending host delta中のexecution、generation conflict、partial batchはfail-closedであり、cancellationは同期batchの途中へ割り込まない。receiptが曖昧な場合はCPU contextを保持してRust current reflectionからmirrorを再構築する。
+
+Execution mirrorのcapacityはRust prepared metadataをauthorityとする。v86 poolは64 KiBからpreflight済み需要へ幾何成長し、BGI profileは16,384 committed guest pages／64 MiBを上限とする。全page-table overheadとVGA MMIO holeを含むmirror ceilingは71,442,432 bytesである。成長時はfresh adapterへversioned CPU context、mapping bytes、protection、dirty stateを移し、physical identityをsemantic stateへ昇格させない。Decommit／releaseはzeroed free-listと空page-table回収へ接続し、上限超過は`v86-physical-pool-exhausted`としてmutation前に停止する。
+
+general stack lifecycle、zero-size／other flags／reallocation等のheap API、decode-aware execute gate、snapshot generation、adapter-local O(writable-pages) scanのperformanceは未接続／未判定である。詳細は[adr-003-guest-memory.md](adr-003-guest-memory.md)、[memory-writeback.md](memory-writeback.md)、[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
 Process-wide `ProcessAddressSpaceAllocator`はv1 import／callback／dynamic-export control arenas、private
 heap bandと32 child slotsをallocation recordsとして登録する。Heap backingはrecord IDへ帰属する。
@@ -312,7 +322,7 @@ environment reservation、memory transaction、process metadataは一つのatomi
 
 ### 6.3 Heap と mapped file
 
-初期heap foundationはruntime-owned allocatorとしてguest memory内へblockを配置する。Version 1は32 x 16 MiB fixed band、8-byte first-fit、monotonic allocation ID、deterministic initialization／free poison、heap／process teardownを実装する。これはguest HeapAlloc semanticsやtitle workload capacityの完了ではない。VFS mapped file、image section、anonymous allocationは同じregion abstractionで表現するが、flush、copy-on-write、sharingのsemanticsは別metadataとする。詳細は[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
+初期heap foundationはruntime-owned allocatorとしてguest memory内へblockを配置する。Version 1は32 x 16 MiB fixed band、8-byte first-fit、monotonic allocation ID、deterministic initialization／free poison、heap／process teardownを実装する。Win32 schema-v2 policyはimplemented flagsと16 MiB以下のnonzero rangeだけをこのallocatorへ渡し、historical schema-v1 exact-size policyをactive authorityにしない。Zero-size、other flags、failure-return／exception、reallocとtitle workload capacityは未完了である。VFS mapped file、image section、anonymous allocationは同じregion abstractionで表現するが、flush、copy-on-write、sharingのsemanticsは別metadataとする。詳細は[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
 ## 7. x86 execution engine
 
@@ -366,7 +376,7 @@ Loader は file parse、image mapping、module lifecycle、symbol resolution を
 <!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 version 1 loader ingressは、owned source bytesをmap-timeに再hashし、PE32 section／import／`HIGHLOW` relocationのchecked planを作る。memory ingressは`SizeOfImage`を1 sparse regionへreserveし、planned pagesをfinal R／W／X metadataでcommitする。materialization layerは同じplanからsource copy、explicit zero-fill／readback、wrapping `HIGHLOW`、original IAT verification、mapped-range digestを行う。import-binding layerは全importをmemory mutationなしで検査し、`[0x7F000000,0x7F010000)`の16-byte owned `UD2` slotsをplan orderで割り当てる。明示catalogのendpointとoptional identity-preserving unsupported trapsを区別し、complete planだけをtransaction内でcommitしてruntime／image ownersをsealする。BGIはdeclared-only policyで329 unresolved identitiesとmemory不変を保持し、explicit seventeenth-call policyでは14 declared／316 unsupported dispositionsで全330 importsをbindする。base 388-page reflectionにseparate `[0x7F020000,0x7F030000)` dynamic-export arenaのone RX pageを加え、entryからfirst seventeen runtime-owned APIsをreturnする。typed logical private-heap／loaded-KERNEL32／TLS-index／initial-thread-value／encoded-pointer metadata、four ordered FLS endpoint identities／guest storesを保持する。
 
-separate runtime-kernel profileはbinding-scoped dynamic endpoint dispatch、strict pointer inverse、bounded TLS／FLS／LastError state、reached private-heap allocation／free／size、checked LONG updates、logical standard handles、controlled process environment／Windows-932 and NLS views、bootstrap-owned image path／current directory、explicit processor-feature presence、process-owned filter／critical sections／named mutexを含む46 contracts／284 callsを通した。Win32 ABI／validation／state effectはsingle semantic handler IDを使い、bounded selector／file type／heap／process-view／code-page／processor-feature／default critical-section／current-directory／named-mutex subsetだけをversioned compatibility policyから受け取る。`RuntimeProcessDirectories`はcurrent-directory bytesとgenerationをprivateに所有し、`RuntimeSynchronization`はmutex name／owner／recursionをprivateに所有する。`SetCurrentDirectoryA`と`CreateMutexA`はguest pointerを保持せずowned identityをcopyし、aggregate plan／lifecycle preflight／commitを通す。BGI caller RVA、observed arguments、call order、next stopはevidence profileに残り、implementation branchを選ばない。process-owned module graphはcanonical identity、main／guest／runtime class、dependency／reference ownership、dependency-first attach／reverse detach metadataを持つ。Logical private heapとinitial-thread stackはprocess allocation identityへ接続し、reserve／commit／dirty deltaをv86 mirrorと同じRust authorityで処理する。Current stopはexisting selected-thread identityをWin32 pseudo-handleへ接続する`GetCurrentThread`境界である。
+separate runtime-kernel profileはbinding-scoped dynamic endpoint dispatch、strict pointer inverse、bounded TLS／FLS／LastError state、private-heap allocation／free／size、checked LONG updates、logical standard handles、controlled process environment／Windows-932 and NLS views、bootstrap-owned image path／current directory、explicit processor-feature presence、process-owned filter／critical sections／named mutexを含むgeneric contractsを通す。Win32 ABI／validation／state effectはsingle semantic handler IDを使い、bounded selector／file type／heap／process-view／code-page／processor-feature／default critical-section／current-directory／named-mutex subsetだけをversioned compatibility policyから受け取る。HeapAllocのactive policyはimplemented flagsとnonzero最大sizeを持つrangeであり、観測size一覧をsemantic gateにしない。`RuntimeProcessDirectories`はcurrent-directory bytesとgenerationをprivateに所有し、`RuntimeSynchronization`はmutex name／owner／recursionをprivateに所有する。`SetCurrentDirectoryA`と`CreateMutexA`はguest pointerを保持せずowned identityをcopyし、aggregate plan／lifecycle preflight／commitを通す。BGI caller RVA、observed arguments、call order、next stopはevidence profileに残り、implementation branchを選ばない。process-owned module graphはcanonical identity、main／guest／runtime class、dependency／reference ownership、dependency-first attach／reverse detach metadataを持つ。Logical private heapとinitial-thread stackはprocess allocation identityへ接続し、reserve／commit／dirty deltaをv86 mirrorと同じRust authorityで処理する。Current stop等の変動値は`current-checkpoint.json`を正とする。
 
 system-DLL image、broad export／forwarder resolution、guest DLL callback、TLS／FLS free・callback teardown、host environment import／mutation、broad file／heap／NLS semantics、general processor-feature discovery、SEH dispatch／filter invocation／vectored handlers、general FLS lifecycle、other interlocked operations／cross-Worker atomicity、critical-section contention／delete／arbitrary raw initialization、initial stack growth／overflow、general pointer-cookie semanticsはnot attemptedである。policy boundaryは[win32-compatibility-policy.md](win32-compatibility-policy.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、module metadataは[runtime-module-graph.md](runtime-module-graph.md)、heap backingは[runtime-heap-backing.md](runtime-heap-backing.md)、runtime continuationは[bgi-initialize-critical-section.md](bgi-initialize-critical-section.md)、frozen entry／API executionは[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
 <!-- END FROZEN HISTORICAL EVIDENCE -->
@@ -466,14 +476,18 @@ Path normalization は Windows semantics と mount resolution を同じ関数で
 - source と save を別 namespace／quota にする
 - immutable module snapshot と large asset の lazy source handle を別 object／lifetime にする
 - write は journal または copy-then-commit で crash consistency を持たせる
-- guest API へ write 成功を返す時点、flush／close、browser transaction commit の durability を定義する
+- guest API へ write 成功を返す時点、flush／close、storage transaction commit の durability を定義する
 - watchdog／quota／runtime defect による hard stop では未commit transaction を rollback し、停止を理由に自動commit しない
 - schema version と runtime version を保存する
 - migration 前 snapshot、失敗時 rollback、明示 export を提供する
-- browser eviction、quota、private mode、permission revocation を起動前に診断する
+- backend quota、permission loss、database／schema incompatibilityを起動前に診断する
 - title fingerprint ごとに storage を隔離する
 
-Backend は OPFS、IndexedDB、memory adapter の共通 contract の背後に置く。同期 access が可能でも scheduler を無制限に block しない。
+初期backendはsame-origin localhost Vine serverとし、immutable source filesystemはread-only、save／registryはtitle fingerprint別SQLite transactionを使う。Rust VFSがWindows path、mount、handle、cursor、access／share、LastErrorのauthorityであり、serverはsource snapshot bytesとcommitted generationのdurabilityだけを所有する。Workerはscheduler-owned host requestを運び、別のfile stateを作らない。
+
+Storage requestにはtitle fingerprint、snapshot／profile ID、mount内object／path key、range、base generationを渡し、生のguest pointer、Win32 handle、任意host absolute pathを渡さない。UIとAPIをloopbackの同一originから配信し、利用者が登録したsource rootとVine管理profile root以外を公開しない。Flushまたは成功したCloseを最初のdurability boundaryとし、cancel／watchdog／server killでは未commit write-setをrollbackする。詳細は[ADR-006](adr-006-vfs-local-server.md)を正とする。
+
+OPFS、IndexedDB、memory adapterは同じstorage contractの将来backendとする。Remote upload／cloud同期はactive scope外であり、同期accessが可能でもschedulerを無制限にblockしない。
 
 ### 11.3 Registry
 
@@ -642,7 +656,7 @@ runtime は互換性 failure が browser tab 全体の停止や再現不能な s
 | ADR-003 | sparse guest memory、page size、protection、snapshot | Phase 0 |
 | ADR-004 | Runtime Worker、guest scheduling、async suspension | Phase 0 |
 | ADR-005 | API metadata、thunk、callback、marshaller の生成方式 | Phase 1 前半 |
-| ADR-006 | VFS backend、immutable module snapshot、source／overlay、durability／hard-stop rollback | Phase 0 |
+| ADR-006 | [Local VFS backend、immutable source、SQLite overlay、durability／hard-stop rollback](adr-006-vfs-local-server.md) | Accepted initial backend |
 | ADR-007 | renderer、GDI／DirectDraw surface、D3D9 resource／presentation boundary | Phase 3 まで |
 | ADR-008 | DirectSound mixer、AudioWorklet、clock ownership | Phase 3 まで |
 | ADR-009 | browser support Tier、SAB、COOP / COEP | Phase 1 終了時 |

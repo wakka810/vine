@@ -28,6 +28,12 @@ export interface ExecutionBootstrap {
   regions: MemoryRegionSnapshot[];
 }
 
+export interface ExecutionThreadBootstrap {
+  entryPoint: number;
+  initialStackPointer: number;
+  fsBase?: number;
+}
+
 export type ExecutionStop =
   | { kind: "budget-yield" }
   | { kind: "trap"; trap: "invalid-opcode"; errorCode: number }
@@ -74,14 +80,35 @@ export interface ExecutionCacheEffectCounts {
   generatedCodeInvalidations: number;
 }
 
+export interface ExecutionEngineOptions {
+  maximumPhysicalPages: number;
+}
+
+export interface ExecutionEngineMemoryCapacity {
+  initialPhysicalPoolBytes: number;
+  physicalPoolBytes: number;
+  maximumPhysicalPoolBytes: number;
+  maximumPhysicalPages: number;
+  mappedGuestPages: number;
+  pageTablePages: number;
+  freePhysicalPages: number;
+  growths: number;
+  releasedPages: number;
+  reusedPages: number;
+}
+
+export type ExecutionEngineFactory = (options: ExecutionEngineOptions) => ExecutionEngine;
+
 export interface ExecutionEngine {
   identity(): ExecutionEngineIdentity;
   initialize(reflection: MemoryReflection, bootstrap: ExecutionBootstrap): void;
   rebuildMemory(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void;
   memoryContractState(): string;
   cacheEffectCounts(): Readonly<ExecutionCacheEffectCounts>;
+  memoryCapacity(): Readonly<ExecutionEngineMemoryCapacity>;
   linearMemoryBytes(): number;
   executeBudget(instructionBudget: number): ExecutionSlice;
+  createCpuContext(bootstrap: ExecutionThreadBootstrap): ExecutionCpuContext;
   saveCpuContext(): ExecutionCpuContext;
   restoreCpuContext(context: ExecutionCpuContext): void;
   applyCpuResume(resume: CpuResume): void;

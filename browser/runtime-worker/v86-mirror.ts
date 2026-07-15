@@ -7,8 +7,11 @@ import {
   type ExecutionCpuContext,
   type ExecutionEngine,
   type ExecutionEngineIdentity,
+  type ExecutionEngineMemoryCapacity,
+  type ExecutionEngineOptions,
   type ExecutionSlice,
   type ExecutionStop,
+  type ExecutionThreadBootstrap,
 } from "./execution-engine-contract.js";
 import {
   type CacheEffects,
@@ -23,7 +26,9 @@ import {
   memoryPageSize,
 } from "./memory-transport.js";
 
-const physicalPoolBytes = 2 * 1024 * 1024;
+const defaultMaximumPhysicalPages = 16 * 1024;
+const initialPhysicalPoolBytes = 64 * 1024;
+const hardMaximumPhysicalPoolBytes = 128 * 1024 * 1024;
 const excludedPhysicalRanges = [{ start: 0x000a_0000, end: 0x000c_0000 }] as const;
 const pageFlags = { present: 1, writable: 2, user: 4, dirty: 0x40 } as const;
 const adapterPrivateOffset = { instructionCounter: 664, memorySize: 812 } as const;
@@ -102,6 +107,54 @@ interface PreparedV86Adapter {
   identity: ExecutionEngineIdentity;
 }
 
+export interface V86MirrorOptions {
+  maximumPhysicalPages?: ExecutionEngineOptions["maximumPhysicalPages"];
+  initialPhysicalPoolBytes?: number;
+}
+
+export type V86MirrorFactory = (options?: V86MirrorOptions) => V86Mirror;
+
+interface PhysicalCapacityRequirement {
+  guestPages: number;
+  pageTables: number;
+  bytes: number;
+}
+
+interface MirrorPageSnapshot {
+  address: number;
+  addressAllocationId?: number;
+  owner: number;
+  protection: MemoryProtection;
+  bytes: Uint8Array;
+  dirty: boolean;
+}
+
+export class V86PhysicalPoolExhausted extends Error {
+  readonly code = "v86-physical-pool-exhausted";
+  readonly requestedPhysicalPages: number;
+  readonly maximumPhysicalPages: number;
+  readonly requiredPhysicalPoolBytes: number;
+  readonly maximumPhysicalPoolBytes: number;
+
+  constructor(
+    requestedPhysicalPages: number,
+    maximumPhysicalPages: number,
+    requiredPhysicalPoolBytes: number,
+    maximumPhysicalPoolBytes: number,
+  ) {
+    super(
+      `v86-physical-pool-exhausted: ${requestedPhysicalPages} guest pages require ` +
+        `${requiredPhysicalPoolBytes} mirror bytes; limits are ${maximumPhysicalPages} pages ` +
+        `and ${maximumPhysicalPoolBytes} bytes`,
+    );
+    this.name = "V86PhysicalPoolExhausted";
+    this.requestedPhysicalPages = requestedPhysicalPages;
+    this.maximumPhysicalPages = maximumPhysicalPages;
+    this.requiredPhysicalPoolBytes = requiredPhysicalPoolBytes;
+    this.maximumPhysicalPoolBytes = maximumPhysicalPoolBytes;
+  }
+}
+
 export interface CpuState {
   words: Uint32Array;
   eax: number;
@@ -121,6 +174,48 @@ function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function requirePageCount(value: number, label: string): number {
+  invariant(Number.isSafeInteger(value) && value > 0, `${label} must be a positive integer`);
+  return value;
+}
+
+function alignPoolBytes(value: number): number {
+  invariant(Number.isSafeInteger(value) && value > 0, "physical pool byte size is invalid");
+  return Math.ceil(value / memoryPageSize) * memoryPageSize;
+}
+
+function physicalPoolBytesForAllocations(allocationCount: number): number {
+  invariant(
+    Number.isSafeInteger(allocationCount) && allocationCount > 0,
+    "physical allocation count is invalid",
+  );
+  let remaining = allocationCount;
+  let cursor = memoryPageSize;
+  for (const excluded of excludedPhysicalRanges) {
+    invariant(
+      excluded.start % memoryPageSize === 0 &&
+        excluded.end % memoryPageSize === 0 &&
+        excluded.start >= cursor &&
+        excluded.end > excluded.start,
+      "excluded physical range is invalid",
+    );
+    const pagesBefore = (excluded.start - cursor) / memoryPageSize;
+    if (remaining <= pagesBefore) {
+      return cursor + remaining * memoryPageSize;
+    }
+    remaining -= pagesBefore;
+    cursor = excluded.end;
+  }
+  return cursor + remaining * memoryPageSize;
+}
+
+function maximumPhysicalPoolBytes(maximumPhysicalPages: number): number {
+  const maximumPageTables = Math.min(maximumPhysicalPages, 1024);
+  return physicalPoolBytesForAllocations(
+    1 + maximumPageTables + maximumPhysicalPages,
+  );
 }
 
 interface V86ArtifactProfile {
@@ -280,48 +375,61 @@ function pageAddresses(range: MemoryRange): number[] {
 
 export class V86Mirror implements ExecutionEngine {
   static readonly #preparedUrls = new Map<string, Promise<PreparedV86Adapter>>();
-  readonly #wasm: V86Exports;
+  readonly #module: WebAssembly.Module;
+  #wasm!: V86Exports;
   readonly #identity: ExecutionEngineIdentity;
   readonly #mappings = new Map<number, MirrorMapping>();
   readonly #reservations = new Map<number, MirrorReservation>();
-  readonly #physicalMemory: Uint8Array;
-  readonly #physicalView: DataView;
-  readonly #privateState: DataView;
-  #pageDirectory: number;
+  #physicalMemory!: Uint8Array;
+  #physicalView!: DataView;
+  #privateState!: DataView;
+  readonly #maximumPhysicalPages: number;
+  readonly #initialPhysicalPoolBytes: number;
+  readonly #maximumPhysicalPoolBytes: number;
+  #physicalPoolBytes: number;
+  #pageDirectory = 0;
   #nextPhysicalPage = memoryPageSize;
   readonly #freePhysicalPages: number[] = [];
   readonly #pageTables = new Map<number, number>();
+  #physicalPoolGrowths = 0;
+  #releasedPages = 0;
+  #reusedPages = 0;
+  #threadContextTemplate: Uint32Array | null = null;
   readonly #cacheEffectCounts = {
     tlbFlushes: 0,
     instructionFetchInvalidations: 0,
     generatedCodeInvalidations: 0,
   };
 
-  private constructor(wasm: V86Exports, identity: ExecutionEngineIdentity) {
-    this.#wasm = wasm;
+  private constructor(
+    module: WebAssembly.Module,
+    identity: ExecutionEngineIdentity,
+    options: V86MirrorOptions = {},
+  ) {
+    this.#module = module;
     this.#identity = structuredClone(identity);
-    wasm.rust_init();
+    this.#maximumPhysicalPages = requirePageCount(
+      options.maximumPhysicalPages ?? defaultMaximumPhysicalPages,
+      "maximum physical page count",
+    );
+    this.#maximumPhysicalPoolBytes = maximumPhysicalPoolBytes(this.#maximumPhysicalPages);
     invariant(
-      wasm.vine_cpu_state_version() === identity.cpuContextAbi.version &&
-        wasm.vine_cpu_state_size() === identity.cpuContextAbi.bytes,
-      "execution engine CPU context ABI mismatch",
+      this.#maximumPhysicalPoolBytes <= hardMaximumPhysicalPoolBytes,
+      `configured physical page limit requires ${this.#maximumPhysicalPoolBytes} bytes, ` +
+        `above the hard ${hardMaximumPhysicalPoolBytes}-byte mirror limit`,
     );
-    let privateState = new DataView(wasm.memory.buffer);
-    privateState.setUint32(adapterPrivateOffset.memorySize, physicalPoolBytes, true);
-    const physicalBase = wasm.allocate_memory(physicalPoolBytes);
-    privateState = new DataView(wasm.memory.buffer);
-    this.#privateState = privateState;
-    this.#physicalMemory = new Uint8Array(wasm.memory.buffer, physicalBase, physicalPoolBytes);
-    this.#physicalView = new DataView(
-      this.#physicalMemory.buffer,
-      this.#physicalMemory.byteOffset,
-      this.#physicalMemory.byteLength,
+    const requestedInitialBytes = alignPoolBytes(
+      options.initialPhysicalPoolBytes ?? initialPhysicalPoolBytes,
     );
-    wasm.zero_memory(0, physicalPoolBytes);
-    this.#pageDirectory = this.#allocatePage();
+    this.#initialPhysicalPoolBytes = Math.min(
+      Math.max(requestedInitialBytes, physicalPoolBytesForAllocations(1)),
+      this.#maximumPhysicalPoolBytes,
+    );
+    this.#physicalPoolBytes = this.#initialPhysicalPoolBytes;
+    this.#installFreshAdapter(this.#physicalPoolBytes);
   }
 
-  static async instantiate(url: URL): Promise<V86Mirror> {
+  static async prepare(url: URL): Promise<V86MirrorFactory> {
     const key = url.href;
     let prepared = V86Mirror.#preparedUrls.get(key);
     if (prepared === undefined) {
@@ -334,14 +442,23 @@ export class V86Mirror implements ExecutionEngine {
       })();
       V86Mirror.#preparedUrls.set(key, prepared);
     }
-    return V86Mirror.#instantiatePrepared(await prepared);
+    const resolved = await prepared;
+    return (options = {}) => V86Mirror.#instantiatePrepared(resolved, options);
+  }
+
+  static async instantiate(url: URL, options: V86MirrorOptions = {}): Promise<V86Mirror> {
+    return (await V86Mirror.prepare(url))(options);
   }
 
   static async instantiateBytes(
     bytes: Uint8Array,
     identity?: ExecutionEngineIdentity,
+    options: V86MirrorOptions = {},
   ): Promise<V86Mirror> {
-    return V86Mirror.#instantiatePrepared(await V86Mirror.#prepareBytes(bytes, identity));
+    return V86Mirror.#instantiatePrepared(
+      await V86Mirror.#prepareBytes(bytes, identity),
+      options,
+    );
   }
 
   static async #prepareBytes(
@@ -366,8 +483,14 @@ export class V86Mirror implements ExecutionEngine {
     return { module, identity };
   }
 
-  static async #instantiatePrepared(prepared: PreparedV86Adapter): Promise<V86Mirror> {
-    const { module, identity } = prepared;
+  static #instantiatePrepared(
+    prepared: PreparedV86Adapter,
+    options: V86MirrorOptions,
+  ): V86Mirror {
+    return new V86Mirror(prepared.module, prepared.identity, options);
+  }
+
+  static #instantiateAdapter(module: WebAssembly.Module): V86Exports {
     const imports = WebAssembly.Module.imports(module);
     const environment: Record<string, WebAssembly.ImportValue> = {
       __indirect_function_table: new WebAssembly.Table({
@@ -396,12 +519,117 @@ export class V86Mirror implements ExecutionEngine {
         throw new Error(`v86 reached unsupported host import ${imported.name}`);
       };
     }
-    const instance = await WebAssembly.instantiate(module, { env: environment });
-    return new V86Mirror(instance.exports as V86Exports, identity);
+    return new WebAssembly.Instance(module, { env: environment }).exports as V86Exports;
   }
 
   identity(): ExecutionEngineIdentity {
     return structuredClone(this.#identity);
+  }
+
+  #installFreshAdapter(poolBytes: number): void {
+    const wasm = V86Mirror.#instantiateAdapter(this.#module);
+    wasm.rust_init();
+    invariant(
+      wasm.vine_cpu_state_version() === this.#identity.cpuContextAbi.version &&
+        wasm.vine_cpu_state_size() === this.#identity.cpuContextAbi.bytes,
+      "execution engine CPU context ABI mismatch",
+    );
+    let privateState = new DataView(wasm.memory.buffer);
+    privateState.setUint32(adapterPrivateOffset.memorySize, poolBytes, true);
+    const physicalBase = wasm.allocate_memory(poolBytes);
+    privateState = new DataView(wasm.memory.buffer);
+    this.#wasm = wasm;
+    this.#privateState = privateState;
+    this.#physicalMemory = new Uint8Array(wasm.memory.buffer, physicalBase, poolBytes);
+    this.#physicalView = new DataView(
+      this.#physicalMemory.buffer,
+      this.#physicalMemory.byteOffset,
+      this.#physicalMemory.byteLength,
+    );
+    this.#physicalPoolBytes = poolBytes;
+    this.#nextPhysicalPage = memoryPageSize;
+    this.#freePhysicalPages.length = 0;
+    this.#pageTables.clear();
+    wasm.zero_memory(0, poolBytes);
+    this.#pageDirectory = this.#allocatePage();
+  }
+
+  #capacityRequirement(guestPages: number, pageTables: number): PhysicalCapacityRequirement {
+    const bytes = physicalPoolBytesForAllocations(1 + pageTables + guestPages);
+    if (
+      guestPages > this.#maximumPhysicalPages ||
+      bytes > this.#maximumPhysicalPoolBytes
+    ) {
+      throw new V86PhysicalPoolExhausted(
+        guestPages,
+        this.#maximumPhysicalPages,
+        bytes,
+        this.#maximumPhysicalPoolBytes,
+      );
+    }
+    return { guestPages, pageTables, bytes };
+  }
+
+  #ensurePhysicalCapacity(requirement: PhysicalCapacityRequirement): void {
+    if (requirement.bytes <= this.#physicalPoolBytes) {
+      return;
+    }
+    let nextBytes = this.#physicalPoolBytes;
+    while (nextBytes < requirement.bytes && nextBytes < this.#maximumPhysicalPoolBytes) {
+      nextBytes = Math.min(nextBytes * 2, this.#maximumPhysicalPoolBytes);
+    }
+    if (nextBytes < requirement.bytes) {
+      throw new V86PhysicalPoolExhausted(
+        requirement.guestPages,
+        this.#maximumPhysicalPages,
+        requirement.bytes,
+        this.#maximumPhysicalPoolBytes,
+      );
+    }
+    this.#reinstantiateAdapter(nextBytes);
+  }
+
+  #reinstantiateAdapter(poolBytes: number): void {
+    const cpuState = this.#mappings.size === 0 ? null : this.saveState().words;
+    const pages: MirrorPageSnapshot[] = [...this.#mappings.values()].map((mapping) => ({
+      address: mapping.address,
+      ...(mapping.addressAllocationId === undefined
+        ? {}
+        : { addressAllocationId: mapping.addressAllocationId }),
+      owner: mapping.owner,
+      protection: { ...mapping.protection },
+      bytes: Uint8Array.from(
+        this.#physicalMemory.subarray(
+          mapping.physicalBase,
+          mapping.physicalBase + memoryPageSize,
+        ),
+      ),
+      dirty: Boolean(this.#physicalView.getUint32(mapping.pteAddress, true) & pageFlags.dirty),
+    }));
+    this.#mappings.clear();
+    this.#installFreshAdapter(poolBytes);
+    for (const page of pages.sort((left, right) => left.address - right.address)) {
+      this.#mapPage(
+        page.address,
+        page.owner,
+        page.protection,
+        page.addressAllocationId,
+      );
+      const mapping = this.#mappings.get(page.address)!;
+      this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+      if (page.dirty) {
+        const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
+        this.#physicalView.setUint32(mapping.pteAddress, pte | pageFlags.dirty, true);
+      }
+    }
+    if (cpuState !== null) {
+      cpuState[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
+      this.#restoreState(cpuState);
+    }
+    if (this.#threadContextTemplate !== null) {
+      this.#threadContextTemplate[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
+    }
+    this.#physicalPoolGrowths += 1;
   }
 
   initialize(reflection: MemoryReflection, prepared: ExecutionBootstrap): void {
@@ -410,6 +638,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#installReservations(prepared.regions);
     this.applyCacheEffects(reflection.cacheEffects);
     this.#initializeCpu(prepared);
+    this.#threadContextTemplate = this.saveState().words;
   }
 
   install(reflection: MemoryReflection, prepared: ExecutionBootstrap): void {
@@ -430,6 +659,9 @@ export class V86Mirror implements ExecutionEngine {
     this.applyCacheEffects(reflection.cacheEffects);
     state[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
     this.#restoreState(state);
+    if (this.#threadContextTemplate !== null) {
+      this.#threadContextTemplate[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
+    }
   }
 
   rebuild(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void {
@@ -457,6 +689,21 @@ export class V86Mirror implements ExecutionEngine {
     generatedCodeInvalidations: number;
   }> {
     return { ...this.#cacheEffectCounts };
+  }
+
+  memoryCapacity(): Readonly<ExecutionEngineMemoryCapacity> {
+    return {
+      initialPhysicalPoolBytes: this.#initialPhysicalPoolBytes,
+      physicalPoolBytes: this.#physicalPoolBytes,
+      maximumPhysicalPoolBytes: this.#maximumPhysicalPoolBytes,
+      maximumPhysicalPages: this.#maximumPhysicalPages,
+      mappedGuestPages: this.#mappings.size,
+      pageTablePages: this.#pageTables.size,
+      freePhysicalPages: this.#freePhysicalPages.length,
+      growths: this.#physicalPoolGrowths,
+      releasedPages: this.#releasedPages,
+      reusedPages: this.#reusedPages,
+    };
   }
 
   linearMemoryBytes(): number {
@@ -506,6 +753,48 @@ export class V86Mirror implements ExecutionEngine {
 
   saveCpuContext(): ExecutionCpuContext {
     return this.#executionContext(this.saveState());
+  }
+
+  createCpuContext(bootstrap: ExecutionThreadBootstrap): ExecutionCpuContext {
+    invariant(this.#threadContextTemplate !== null, "execution engine is not initialized");
+    invariant(
+      Number.isInteger(bootstrap.entryPoint) &&
+        bootstrap.entryPoint >= 0 &&
+        bootstrap.entryPoint <= 0xffff_ffff,
+      "thread entry point is outside the u32 guest address space",
+    );
+    invariant(
+      Number.isInteger(bootstrap.initialStackPointer) &&
+        bootstrap.initialStackPointer >= 0 &&
+        bootstrap.initialStackPointer <= 0xffff_ffff,
+      "thread stack pointer is outside the u32 guest address space",
+    );
+    const fsBase = bootstrap.fsBase ?? 0;
+    invariant(
+      Number.isInteger(fsBase) && fsBase >= 0 && fsBase <= 0xffff_ffff,
+      "thread FS base is outside the u32 guest address space",
+    );
+    this.#assertExecutableFetchWindow(bootstrap.entryPoint);
+    const stackMapping = this.#mappingFor(bootstrap.initialStackPointer);
+    invariant(
+      stackMapping.protection.read && stackMapping.protection.write,
+      "thread stack pointer is not in readable writable guest memory",
+    );
+    const words = Uint32Array.from(this.#threadContextTemplate);
+    words.fill(0, 4, 12);
+    words[stateWord.esp] = bootstrap.initialStackPointer >>> 0;
+    words[stateWord.instructionPointer] = bootstrap.entryPoint >>> 0;
+    words[stateWord.previousInstructionPointer] = bootstrap.entryPoint >>> 0;
+    words[stateWord.flags] = 2;
+    words[stateWord.inHalt] = 0;
+    words[stateWord.segmentOffsetBase + 4] = fsBase >>> 0;
+    return this.#executionContext({
+      words,
+      eax: words[stateWord.eax] ?? 0,
+      esp: words[stateWord.esp] ?? 0,
+      instructionPointer: words[stateWord.instructionPointer] ?? 0,
+      previousInstructionPointer: words[stateWord.previousInstructionPointer] ?? 0,
+    });
   }
 
   restoreCpuContext(context: ExecutionCpuContext): void {
@@ -602,7 +891,8 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   applyMemoryDelta(delta: HostMemoryDelta): void {
-    this.#preflightHostDelta(delta);
+    const capacity = this.#preflightHostDelta(delta);
+    this.#ensurePhysicalCapacity(capacity);
     for (const operation of delta.mappingOperations) {
       this.#applyMappingOperation(operation);
     }
@@ -617,7 +907,7 @@ export class V86Mirror implements ExecutionEngine {
     this.applyMemoryDelta(delta);
   }
 
-  #preflightHostDelta(delta: HostMemoryDelta): void {
+  #preflightHostDelta(delta: HostMemoryDelta): PhysicalCapacityRequirement {
     const mappings = new Map<number, PlannedMapping>(
       [...this.#mappings].map(([address, mapping]) => [
         address,
@@ -643,7 +933,8 @@ export class V86Mirror implements ExecutionEngine {
         },
       ]),
     );
-    const directoryIndices = new Set(this.#pageTables.keys());
+    let directoryIndices = new Set(this.#pageTables.keys());
+    let capacity = this.#capacityRequirement(mappings.size, directoryIndices.size);
 
     for (const operation of delta.mappingOperations) {
       switch (operation.operation) {
@@ -722,6 +1013,7 @@ export class V86Mirror implements ExecutionEngine {
             );
             mappings.delete(address);
           }
+          directoryIndices = new Set([...mappings.keys()].map((address) => address >>> 22));
           break;
         case "release": {
           const overlapping = [...reservations.values()].filter((reservation) =>
@@ -753,13 +1045,14 @@ export class V86Mirror implements ExecutionEngine {
             matched = true;
           }
           invariant(matched, "release operation targets an unknown mirror range");
+          directoryIndices = new Set([...mappings.keys()].map((address) => address >>> 22));
           break;
         }
       }
-      invariant(
-        mappings.size + directoryIndices.size + 1 <= physicalPoolBytes / memoryPageSize,
-        "host delta exceeds the v86 physical mirror pool",
-      );
+      const nextCapacity = this.#capacityRequirement(mappings.size, directoryIndices.size);
+      if (nextCapacity.bytes > capacity.bytes) {
+        capacity = nextCapacity;
+      }
     }
 
     const dirtyAddresses = new Set<number>();
@@ -776,6 +1069,7 @@ export class V86Mirror implements ExecutionEngine {
         "host delta protection does not match the mirror",
       );
     }
+    return capacity;
   }
 
   #applyMappingOperation(operation: MappingOperation): void {
@@ -837,17 +1131,21 @@ export class V86Mirror implements ExecutionEngine {
 
   #installReflectedPages(reflection: MemoryReflection): void {
     const directoryIndices = new Set(this.#pageTables.keys());
-    for (const page of reflection.pages) {
-      directoryIndices.add(page.address >>> 22);
-    }
-    invariant(
-      reflection.pages.length + directoryIndices.size + 1 <=
-        physicalPoolBytes / memoryPageSize,
-      "reflection exceeds the v86 physical mirror pool",
-    );
+    const addresses = new Set<number>();
     for (const page of reflection.pages) {
       invariant((page.address & (memoryPageSize - 1)) === 0, "unaligned reflected page");
       invariant(page.bytes.byteLength === memoryPageSize, "invalid reflected page length");
+      invariant(!addresses.has(page.address), "reflection repeats a guest page");
+      addresses.add(page.address);
+      directoryIndices.add(page.address >>> 22);
+    }
+    this.#ensurePhysicalCapacity(
+      this.#capacityRequirement(
+        this.#mappings.size + reflection.pages.length,
+        directoryIndices.size,
+      ),
+    );
+    for (const page of reflection.pages) {
       this.#mapPage(page.address, page.owner, page.protection);
       const mapping = this.#mappings.get(page.address)!;
       this.#physicalMemory.set(page.bytes, mapping.physicalBase);
@@ -937,6 +1235,14 @@ export class V86Mirror implements ExecutionEngine {
     this.#physicalView.setUint32(mapping.pteAddress, 0, true);
     this.#mappings.delete(address);
     this.#releasePage(mapping.physicalBase);
+    const directoryIndex = address >>> 22;
+    if (![...this.#mappings.keys()].some((candidate) => candidate >>> 22 === directoryIndex)) {
+      const table = this.#pageTables.get(directoryIndex);
+      invariant(table !== undefined, "empty mirror directory has no page table");
+      this.#physicalView.setUint32(this.#pageDirectory + directoryIndex * 4, 0, true);
+      this.#pageTables.delete(directoryIndex);
+      this.#releasePage(table);
+    }
   }
 
   #initializeCpu(prepared: ExecutionBootstrap): void {
@@ -1047,6 +1353,7 @@ export class V86Mirror implements ExecutionEngine {
   #allocatePage(): number {
     const reused = this.#freePhysicalPages.pop();
     if (reused !== undefined) {
+      this.#reusedPages += 1;
       this.#physicalMemory.fill(0, reused, reused + memoryPageSize);
       return reused;
     }
@@ -1055,10 +1362,14 @@ export class V86Mirror implements ExecutionEngine {
         this.#nextPhysicalPage = excluded.end;
       }
     }
-    invariant(
-      this.#nextPhysicalPage + memoryPageSize <= physicalPoolBytes,
-      "v86 physical mirror pool exhausted",
-    );
+    if (this.#nextPhysicalPage + memoryPageSize > this.#physicalPoolBytes) {
+      throw new V86PhysicalPoolExhausted(
+        this.#mappings.size + 1,
+        this.#maximumPhysicalPages,
+        this.#nextPhysicalPage + memoryPageSize,
+        this.#maximumPhysicalPoolBytes,
+      );
+    }
     const address = this.#nextPhysicalPage;
     this.#nextPhysicalPage += memoryPageSize;
     this.#physicalMemory.fill(0, address, address + memoryPageSize);
@@ -1068,5 +1379,6 @@ export class V86Mirror implements ExecutionEngine {
   #releasePage(address: number): void {
     this.#physicalMemory.fill(0, address, address + memoryPageSize);
     this.#freePhysicalPages.push(address);
+    this.#releasedPages += 1;
   }
 }

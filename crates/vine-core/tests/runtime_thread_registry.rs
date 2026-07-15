@@ -11,6 +11,44 @@ const INITIAL_THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
 const SECOND_THREAD_ID: RuntimeThreadId = RuntimeThreadId(4097);
 
 #[test]
+fn executable_selection_runs_another_thread_while_host_completion_remains_thread_owned() {
+    let mut runtime = running_runtime();
+    runtime
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register second executable thread");
+    let request = runtime
+        .begin_host_request("initial-thread.pending")
+        .expect("suspend initial thread on host work");
+
+    let selection = runtime
+        .select_next_executable_thread()
+        .expect("plan executable selection")
+        .expect("second thread is executable");
+    assert_eq!(selection.previous_thread_id, INITIAL_THREAD_ID);
+    assert_eq!(selection.thread_id, SECOND_THREAD_ID);
+    assert_eq!(selection.state, SchedulerThreadState::Runnable);
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+
+    let completion = runtime
+        .complete_host_request(request.request_id)
+        .expect("complete non-current initial-thread request");
+    assert_eq!(completion.thread_id, INITIAL_THREAD_ID);
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    let wrapped = runtime
+        .select_next_executable_thread()
+        .expect("wrap executable selection")
+        .expect("initial thread is executable again");
+    assert_eq!(wrapped.thread_id, INITIAL_THREAD_ID);
+    assert_eq!(runtime.current_thread_id(), INITIAL_THREAD_ID);
+}
+
+#[test]
 fn thread_registry_isolates_thread_state_and_terminates_all_lanes_deterministically() {
     let mut runtime = running_runtime();
     let process_handle = runtime.process_handle().expect("process handle");

@@ -405,6 +405,20 @@ function validateEvidence(mode: SessionMode, evidence: RuntimeEvidence): Error |
   if (report.rustSchedulerTransitions !== report.hostRequests) {
     return new Error("browser delivery bypassed a Rust scheduler transition");
   }
+  if (
+    report.registeredThreadIds.join(",") !== "8192,8193" ||
+    report.executedThreadIds.join(",") !== "8192,8193" ||
+    report.contextSwitches < 2 ||
+    report.hostWaitExecutions.length !== 1 ||
+    report.hostWaitExecutions[0]?.waitingThreadId !== 8192 ||
+    report.hostWaitExecutions[0]?.executedThreadId !== 8193 ||
+    report.threadExits.length !== 1 ||
+    report.threadExits[0]?.threadId !== 8193 ||
+    report.threadExits[0]?.exitCode !== 7 ||
+    report.threadExits[0]?.markerValue !== 0x5448_5244
+  ) {
+    return new Error("guest multi-thread context switch evidence is incomplete");
+  }
   if (report.callbackEntries !== 2 || report.maximumCallbackDepth !== 2) {
     return new Error("guest did not complete the nested callback sequence");
   }

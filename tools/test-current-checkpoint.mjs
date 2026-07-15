@@ -55,11 +55,28 @@ assert.ok(
   ),
 );
 
+const missingGuestThreadExecution = structuredClone(manifest);
+missingGuestThreadExecution.browserCheckpoint.browserRuntimeEvidence.executedThreadIds = [8192];
+assert.ok(
+  validateCurrentCheckpoint(missingGuestThreadExecution).some((error) =>
+    error.includes("multi-thread execution evidence"),
+  ),
+);
+
 const missingBrowserRelease = structuredClone(manifest);
 missingBrowserRelease.browserCheckpoint.browserRuntimeEvidence.mappingOperations.release = 0;
 assert.ok(
   validateCurrentCheckpoint(missingBrowserRelease).some((error) =>
     error.includes("mapping-operation evidence"),
+  ),
+);
+
+const fixedExecutionMirrorPool = structuredClone(manifest);
+fixedExecutionMirrorPool.memoryAuthorityEvidence.executionMirrorCapacity.growthPolicy =
+  "fixed-two-mebibytes";
+assert.ok(
+  validateCurrentCheckpoint(fixedExecutionMirrorPool).some((error) =>
+    error.includes("execution mirror capacity contract"),
   ),
 );
 
@@ -381,6 +398,26 @@ disabledActiveCodePageSelector.activeRuntimeCheckpoint.kernel32CompatibilityPoli
   false;
 assert.ok(
   validateCurrentCheckpoint(disabledActiveCodePageSelector).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const exactActiveHeapSizes = structuredClone(manifest);
+exactActiveHeapSizes.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.heapAllocator = {
+  allowedFlags: [0, 8],
+  byteLengths: [1, 4, 16, 128],
+};
+assert.ok(
+  validateCurrentCheckpoint(exactActiveHeapSizes).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const unboundedActiveHeap = structuredClone(manifest);
+unboundedActiveHeap.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.heapAllocator.maximumAllocationBytes =
+  0xffffffff;
+assert.ok(
+  validateCurrentCheckpoint(unboundedActiveHeap).some((error) =>
     error.includes("Kernel32 compatibility policy boundary"),
   ),
 );

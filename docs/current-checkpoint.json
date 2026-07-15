@@ -101,6 +101,22 @@
     "beginJournaledFrameBytes": 0,
     "oneChangedPagePeakBytes": 4096,
     "twoChangedPagesPeakBytes": 8192
+  },
+  "executionMirrorCapacity": {
+    "schema": "vine.v86-physical-pool.v1",
+    "authority": "rust-prepared-metadata",
+    "maximumPhysicalPages": 16384,
+    "maximumGuestBytes": 67108864,
+    "initialPhysicalPoolBytes": 65536,
+    "maximumPhysicalPoolBytes": 71442432,
+    "maximumPageTablePages": 1024,
+    "excludedPhysicalRangeBytes": 131072,
+    "growthPolicy": "geometric-adapter-reinstantiation-before-mutation",
+    "releasePolicy": "zero-free-list-reuse-and-empty-page-table-reclamation",
+    "exhaustionCode": "v86-physical-pool-exhausted",
+    "exhaustionPolicy": "typed-preflight-before-mutation",
+    "contractExpansionPages": 512,
+    "contractExpandedPoolBytes": 4194304
   }
   },
   "browserCheckpoint": {
@@ -108,62 +124,71 @@
   "workload": "private-bgi-generic-session",
   "bgiSession": "semantic-equivalence-passed",
   "bgiBenchmark": "threshold-passed",
-  "browserRuntimeProtocol": "vine.browser-runtime-worker.v4",
+  "browserRuntimeProtocol": "vine.browser-runtime-worker.v5",
   "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
   "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
       "imports": 0,
-      "bytes": 2138810,
-      "sha256": "52bc8aae82bac784ef9ede3a0036fbbba84c03679518fb5fcaa1036a7df8c537"
+      "bytes": 2208209,
+      "sha256": "8929d4a0c7023086bdd5947a93fde91cc8ebdb264735c5ffdf4e3b98162dec43"
   },
   "browserRuntimeFixture": {
     "bytes": 2560,
-    "sha256": "24c98ec43bc76dcd0c1ddbbbf68c2ea1d86207bc2ebea2aea536a4757bf4189f",
+    "sha256": "26a9a1d836c421ef7bf5e5b36ddd9dad83c5cbd4b4150acd85fc6f269bd7d68c",
     "nativeExitCode": 0
   },
   "browserRuntimeEvidence": {
     "chromeVersion": "150.0.7871.115",
-    "guestInstructions": 46,
-    "cpuSlices": 10,
+    "guestInstructions": 50,
+    "cpuSlices": 11,
     "budgetYields": 3,
     "hostRequests": 2,
     "rustSchedulerTransitions": 2,
-    "executionEngineLinearMemoryBytes": 11796480,
+    "registeredThreadIds": [8192, 8193],
+    "executedThreadIds": [8192, 8193],
+    "contextSwitches": 2,
+    "hostWaitExecutions": [
+      {"requestId": "1", "waitingThreadId": 8192, "executedThreadId": 8193}
+    ],
+    "threadExits": [
+      {"threadId": 8193, "exitCode": 7, "markerAddress": 268447744, "markerValue": 1414025796}
+    ],
+    "executionEngineLinearMemoryBytes": 9764864,
     "executionStateMachine": {
       "success": {
         "finalState": "stopped",
-        "transitionCount": 31,
+        "transitionCount": 37,
         "lastTransitionTo": "stopped",
         "pendingHostRequestRecords": 0,
         "watchdogContext": null
       },
       "cancellation": {
         "finalState": "stopped",
-        "transitionCount": 5,
+        "transitionCount": 9,
         "lastTransitionTo": "stopped",
         "pendingHostRequestRecords": 0,
         "watchdogContext": null
       },
       "watchdog": {
         "finalState": "stopped",
-        "transitionCount": 5,
+        "transitionCount": 9,
         "lastTransitionTo": "stopped",
         "pendingHostRequestRecords": 0,
         "watchdogContext": {
           "threadId": 8192,
           "requestId": "1",
           "lastTransition": {
-            "from": "api-trap",
+            "from": "thread-exit",
             "to": "waiting-host",
-            "cause": "rust-host-request"
+            "cause": "scheduler-no-executable-thread"
           }
         }
       }
     },
     "callbackEntries": 2,
     "maximumCallbackDepth": 2,
-    "writebackBatches": 7,
-    "writebackPages": 9,
+    "writebackBatches": 8,
+    "writebackPages": 10,
     "mappingDeltas": 7,
     "mappingOperations": {
       "reserve": 1,
@@ -181,7 +206,7 @@
       "generatedCodeInvalidations": 6
     },
     "mirrorRebuilds": 1,
-    "finalGeneration": 30,
+    "finalGeneration": 34,
     "pixelRgba": [255, 0, 0, 255],
     "toneHz": 880,
     "persistentByte": 90,
@@ -189,7 +214,7 @@
     "cancelPendingHostRequests": 1,
     "cancelPendingHostCallsAfterCleanup": 0,
     "cancelPendingCallbacksAfterCleanup": 0,
-    "watchdogInstructions": 4,
+    "watchdogInstructions": 8,
     "watchdogPendingHostCallsAfterCleanup": 0,
     "watchdogPendingCallbacksAfterCleanup": 0
   },
@@ -265,22 +290,22 @@
     "setCurrentDirectoryGeneration": 1,
     "wasmBridgeCalls": 2852,
     "executionEngineLinearMemoryBytes": 11796480,
-      "maximumSliceMilliseconds": 2.7800000309944153,
-      "elapsedMilliseconds": 586.0649999976158,
-      "heartbeatSamples": 106,
-      "maximumHeartbeatGapMilliseconds": 28.009999990463257,
-      "usedJsHeapBytesBefore": 628738,
-      "usedJsHeapBytesAfter": 899918,
+      "maximumSliceMilliseconds": 1.675000011920929,
+      "elapsedMilliseconds": 347.4950000047684,
+      "heartbeatSamples": 71,
+      "maximumHeartbeatGapMilliseconds": 17.344999969005585,
+      "usedJsHeapBytesBefore": 628360,
+      "usedJsHeapBytesAfter": 899110,
     "cancelInstructions": 8,
     "watchdogInstructions": 4,
     "pendingHostCallsAfterCleanup": 0,
     "pendingCallbacksAfterCleanup": 0,
     "processLifecycleAfterCleanup": "exited",
     "dllLifecycleAfterCleanup": "process-detached",
-    "nodeOracleReportBytes": 1254345,
-    "nodeOracleReportSha256": "50d7ae673691a3036f328284f1e276404d8b7bec07256d16f793236f4bfbe1eb",
-      "browserReportBytes": 282255,
-      "browserReportSha256": "5ae9a13a397f2c2f2a78833bfe16fb22cebf60d8c444941d3d23c3dbca203d56"
+    "nodeOracleReportBytes": 1254162,
+    "nodeOracleReportSha256": "557a1a585ce4ad69f308f1ba08b8244cfae6e150af56a61499d0dd28099b6003",
+      "browserReportBytes": 282834,
+      "browserReportSha256": "838833c9f1f68cb6626bf1d380a78fcf9bd52b206b630337968631bb10397166"
   },
   "bgiBenchmarkEvidence": {
     "schema": "vine.browser-bgi-benchmark-report",
@@ -293,35 +318,35 @@
     "thresholdEvaluationCount": 17,
     "chromeVersion": "150.0.7871.115",
     "durationMilliseconds": 180000,
-      "completedSessions": 300,
+      "completedSessions": 681,
       "failedSessions": 0,
       "mainHeapSamples": 38,
       "workerHeapSamples": 36,
-      "sessionP95Milliseconds": 680.4200000166893,
-      "sliceP99Milliseconds": 3.8549999594688416,
-      "heartbeatP99Milliseconds": 6.375,
-      "maximumHeartbeatGapMilliseconds": 32.4200000166893,
-      "mainHeapMaximumBytes": 6155218,
-      "mainHeapSlopeBytesPerMinute": -99282.80802085967,
-      "workerHeapMaximumBytes": 26830048,
-      "workerHeapSlopeBytesPerMinute": 994961.8210659113,
-      "workerHeapCapacityMaximumBytes": 57409536,
-      "workerBackingStorageMaximumBytes": 29920774,
-      "workerBackingStorageSlopeBytesPerMinute": 278242.9146871766,
+      "sessionP95Milliseconds": 266.4249999523163,
+      "sliceP99Milliseconds": 1.0399999618530273,
+      "heartbeatP99Milliseconds": 6.080000042915344,
+      "maximumHeartbeatGapMilliseconds": 18.87000000476837,
+      "mainHeapMaximumBytes": 11875931,
+      "mainHeapSlopeBytesPerMinute": -872643.0141869934,
+      "workerHeapMaximumBytes": 28437516,
+      "workerHeapSlopeBytesPerMinute": 2173946.6170676327,
+      "workerHeapCapacityMaximumBytes": 58458112,
+      "workerBackingStorageMaximumBytes": 31995939,
+      "workerBackingStorageSlopeBytesPerMinute": 690676.6422963111,
     "runtimeCoreLinearMemoryBytes": 9961472,
     "executionEngineLinearMemoryBytes": 11796480,
       "wasmBridgeCallsPerSession": 2852,
     "thresholdFailures": 0,
     "thresholdFailureIds": [],
-      "runtimeCoreWasmSha256": "52bc8aae82bac784ef9ede3a0036fbbba84c03679518fb5fcaa1036a7df8c537",
-      "runtimeWorkerBytes": 99685,
-      "runtimeWorkerSha256": "99b494f3f05f70387d79fc33776abaea519ae1526cc4a34d9cf9b1f3c19ea6d2",
+      "runtimeCoreWasmSha256": "8929d4a0c7023086bdd5947a93fde91cc8ebdb264735c5ffdf4e3b98162dec43",
+      "runtimeWorkerBytes": 119526,
+      "runtimeWorkerSha256": "238e7c134dfb1ac7f5ae24b03f09270c50782947d7c596b6776636353f4a3489",
     "benchmarkMainBytes": 8965,
-    "benchmarkMainSha256": "f882c1b309bb467bb347c4899f80540915ef8c30169b20e77493ff5077b4913e",
+    "benchmarkMainSha256": "160d56e8f5ec898003cb75a886e957c248a04e4f5cf1c98a806f727c913fbdb5",
     "v86AdapterWasmBytes": 1882836,
     "v86AdapterWasmSha256": "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
-      "reportBytes": 1042533,
-      "reportSha256": "3b9b6ff5d3a58d60b65d845d8cd02cbfc56aaad085b17bf5c44ead4c384ae6b0"
+      "reportBytes": 1206759,
+      "reportSha256": "dd90d4c8b749b7490de3b9911ba8b51716b1f3deab9af91d7992ea82e7a5203e"
   },
   "browserStressEvidence": {
     "durationMilliseconds": 1800073.5,
@@ -866,9 +891,14 @@
     "controlledFinalMemoryGeneration": 13,
     "controlledFinalAcknowledgedGeneration": 13,
     "guestHeapAllocDispatch": true,
-    "guestHeapAllocSupportedVariant": "heap-zero-memory-0x214",
+    "guestHeapAllocSizePolicy": "inclusive-nonzero-range",
+    "guestHeapAllocAllowedFlags": [0, 8],
+    "guestHeapAllocMinimumBytes": 1,
+    "guestHeapAllocMaximumBytes": 16777216,
+    "guestHeapAllocZeroSize": false,
+    "guestHeapAllocOtherFlags": false,
     "guestHeapAllocReturnAddress": "0x20000000",
-    "broadHeapAllocatorPolicy": false
+    "guestHeapAllocFailureReturnSemantics": false
   },
   "processAddressSpaceAllocator": {
     "schema": "vine.process-address-space-allocator.v1",
@@ -907,9 +937,9 @@
   },
   "kernel32CompatibilityPolicy": {
     "schema": "vine.kernel32-compatibility-policy",
-    "schemaVersion": 1,
-    "id": "kernel32-create-mutex-a-v1",
-    "source": "fixtures/runtime-policies/kernel32-create-mutex-a-v1.json",
+    "schemaVersion": 2,
+    "id": "kernel32-bounded-heap-v2",
+    "source": "fixtures/runtime-policies/kernel32-bounded-heap-v2.json",
     "handlerDispatch": "single-semantic-implementation-id-with-policy",
     "evidenceSelectsImplementationBranch": false,
     "semanticTestsRequireEvidenceProfile": false,
@@ -931,8 +961,13 @@
     "createMutexAllowNamed": true,
     "createMutexAllowUnnamed": false,
     "createMutexMaximumNameBytes": 32768,
-    "flagsEightHeapAllocationByteLengths": [4, 128, 532, 2048],
-    "flagsZeroHeapAllocationByteLengths": [1, 16, 544],
+    "heapAllocator": {
+      "allowedFlags": [0, 8],
+      "minimumAllocationBytes": 1,
+      "maximumAllocationBytes": 16777216,
+      "sizePolicy": "inclusive-nonzero-range"
+    },
+    "historicalExactHeapPolicySchemaVersion": 1,
     "heapFreeFlags": [0],
     "heapSizeFlags": [0, 1],
     "initializeCriticalSectionSpinCountField": 33556432,

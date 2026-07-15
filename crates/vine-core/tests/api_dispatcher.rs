@@ -1814,6 +1814,11 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
         (FRAME_BASE + 0xa0, vec![0x1000_0606, 0x6801_0001, 0x8, 4]),
         (FRAME_BASE + 0xc0, vec![0x1000_0607, 0x6801_0001, 0x8, 128]),
         (FRAME_BASE + 0xe0, vec![0x1000_0608, 0x6801_0001, 0x8, 0xbc]),
+        (
+            FRAME_BASE + 0x100,
+            vec![0x1000_0609, 0x6801_0001, 0, 0x0100_0001],
+        ),
+        (FRAME_BASE + 0x120, vec![0x1000_060a, 0x6801_0001, 1, 0xbc]),
     ];
     for (address, words) in &frames {
         write_frame(&mut memory, owner, GuestAddress(*address), words);
@@ -2242,12 +2247,15 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
         vec![0; 128]
     );
 
-    let public_fixture_policy = compatibility_policy(
-        "public-additional-size-test",
-        vec![RUNTIME_STANDARD_INPUT_SELECTOR],
-        vec![(RUNTIME_STANDARD_INPUT_SELECTOR, 2)],
-        vec![(0x8, vec![0x214, 0x800, 0xbc])],
-    );
+    let bounded_heap_policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-bounded-heap-v2.json"
+    ))
+    .expect("bounded heap policy JSON");
+    bounded_heap_policy
+        .validate()
+        .expect("valid bounded heap policy");
+    assert!(bounded_heap_policy.allows_heap_allocation(0, 37));
+    assert!(bounded_heap_policy.allows_heap_allocation(0x8, 0xbc));
     let third = dispatch_owned_with_policy(
         &dispatcher,
         &mut memory,
@@ -2255,7 +2263,7 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
         &endpoint,
         frames[7].0,
         frames[7].1[0],
-        &public_fixture_policy,
+        &bounded_heap_policy,
     );
     assert_eq!(third.eax, RegisterUpdate::Set(0x2000_0cd8));
     assert_eq!(
@@ -2267,6 +2275,38 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
             .len(),
         8
     );
+    let bounded_delta = memory.pending_delta().expect("bounded allocation delta");
+    memory
+        .acknowledge_delta(bounded_delta.generation)
+        .expect("acknowledge bounded allocation delta");
+
+    for rejected_frame in [&frames[8], &frames[9]] {
+        let runtime_before_rejection = runtime.clone();
+        let memory_before_rejection = memory.stats();
+        let rejected = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(&endpoint, rejected_frame.0, rejected_frame.1[0]),
+                &mut session,
+                |contract, frame, session| {
+                    dispatch_kernel32_api_with_policy(
+                        &bounded_heap_policy,
+                        contract,
+                        frame,
+                        session,
+                    )
+                },
+            )
+        };
+        assert!(matches!(
+            rejected,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == ApiFaultClass::Unsupported
+                    && fault.code == "heap-alloc-variant-unsupported"
+        ));
+        assert_eq!(runtime, runtime_before_rejection);
+        assert_eq!(memory.stats(), memory_before_rejection);
+    }
 }
 
 #[test]

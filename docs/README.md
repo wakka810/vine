@@ -146,6 +146,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [windows-native-evidence.md](windows-native-evidence.md) | Windows で何が実測済みか | W0 version、BGI trace v1／v2、selected IDirect3D9 root、W1／W2／W3、W7 loader／memory／entry／stack／FS ingress |
 | [requirements.md](requirements.md) | 何を、どこまで作るか | 目的、スコープ、機能要件、非機能要件、personal target 定義 |
 | [target-architecture.md](target-architecture.md) | どの境界で作るか | コンポーネント、実行モデル、同期・非同期境界、runtime robustness |
+| [adr-006-vfs-local-server.md](adr-006-vfs-local-server.md) | 最初のVFS／save backendをどこに置くか | localhost same-origin server、immutable source、SQLite generation commit、restart vertical slice |
 | [risks-and-open-questions.md](risks-and-open-questions.md) | 何が未確定で、何が失敗要因か | 意思決定待ち、リスク台帳、停止条件、ADR 候補 |
 | [testing-and-acceptance.md](testing-and-acceptance.md) | 何をもって動作したと判定するか | テスト階層、fixture、品質指標、リリース判定 |
 | [checks-and-ci.md](checks-and-ci.md) | canonical gateをどう実行するか | fast／fixture E2E／benchmark／adapter／private corpus、Linux GitHub Actions、fuzz |

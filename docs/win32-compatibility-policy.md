@@ -5,8 +5,8 @@
 - Status: implemented controlled policy boundary
 - Date: 2026-07-14
 - Semantic authority: Rust `vine-core::win32`
-- Policy schema: `vine.kernel32-compatibility-policy` version `1`
-- Active policy: `fixtures/runtime-policies/kernel32-create-mutex-a-v1.json`
+- Policy schema: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）
+- Active policy: `fixtures/runtime-policies/kernel32-bounded-heap-v2.json`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -20,7 +20,7 @@ Win32 semantics
                          |
                          v
 Compatibility policy
-  versioned selectors, file types, HeapAlloc/HeapFree/HeapSize variants, process-view/code-page/current-directory/mutex enablement
+  versioned selectors, file types, bounded HeapAlloc allocator／HeapFree／HeapSize variants, process-view/code-page/current-directory/mutex enablement
   measured InitializeCriticalSection raw spin-state field
   explicit processor-feature presence
   bounded validation and mutation-free unsupported result
@@ -47,17 +47,22 @@ runtime execution. It contains only target-independent bounded data:
   Windows-932 input scan;
 - opt-in named `CreateMutexA` with null security attributes and a bounded
   Windows-932 name scan;
-- enabled `HeapAlloc` flag and byte-length pairs, `HeapFree` flags, and `HeapSize` flags;
+- enabled `HeapAlloc` flags and maximum nonzero allocation size, `HeapFree` flags, and `HeapSize` flags;
 - an opt-in x86 `InitializeCriticalSection` raw spin-state field for the measured
   Windows compatibility profile;
 - explicit processor-feature index and presence mappings.
 
-Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Selectors,
-file types, heap flags, zero size, and the private-heap capacity are rejected if
-the semantic implementation cannot support them. Invalid policy data stops the
-probe before guest execution.
+Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Active
+schema v2 accepts `HeapAlloc` only when the flag is `0` or `HEAP_ZERO_MEMORY`
+and the requested size is in the inclusive range `1..=16 MiB`. Per-heap backing
+capacity、GuestMemory quota、live-allocation count remain independent runtime
+limits and can reject a policy-allowed request atomically. Zero size and other
+flags remain unsupported. Invalid policy data stops the probe before guest
+execution.
 
-The current files form twenty-seven monotonic controlled policies:
+Twenty-seven schema-v1 files remain immutable historical reproduction policies
+with exact flag／size pairs. The active schema-v2 policy removes those sizes
+from runtime selection:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -88,6 +93,7 @@ The current files form twenty-seven monotonic controlled policies:
 | `kernel32-multi-byte-to-wide-char-cp-acp-v1` | stdin, stdout, stderr | preceding options + `CP_ACP` selector／flags `0,1`／65,536-byte decode bound | preceding allocation/free/size variants |
 | `kernel32-set-current-directory-a-v1` | stdin, stdout, stderr | preceding options + registered process-image directory only／32 KiB input bound | preceding allocation/free/size variants |
 | `kernel32-create-mutex-a-v1` | stdin, stdout, stderr | preceding options + named mutexes／32 KiB input bound; unnamed disabled | preceding allocation/free/size variants |
+| `kernel32-bounded-heap-v2` | stdin, stdout, stderr | same current process／NLS／mutex options | flags `0`／`HEAP_ZERO_MEMORY`, nonzero sizes through 16 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -95,10 +101,12 @@ runtime or memory mutation.
 
 ## Semantic tests
 
-`api_dispatcher` uses the same `kernel32.heap-alloc.v2` contract with multiple
-in-memory policies. One public fixture enables `0xBC` without loading or editing
-the BGI evidence profile, proving that another valid input does not create a new
-handler branch. `GetStdHandle` similarly uses one
+`api_dispatcher` uses the same `kernel32.heap-alloc.v2` contract with historical
+exact policies and the active bounded allocator. A non-listed `0xBC` allocation
+succeeds through the range policy without loading or editing BGI evidence;
+`0x01000001` and an unsupported flag fail before runtime／memory mutation. This
+proves that valid sizes do not create handler or policy-entry branches.
+`GetStdHandle` similarly uses one
 `kernel32.get-std-handle.v2` contract for the baseline, stdout, and stderr policies.
 `GetFileType` uses one `kernel32.get-file-type.v2` handler for stdin, stdout,
 and stderr classifications; the policy does not select an implementation branch.
@@ -116,14 +124,11 @@ policy fixes `CP_ACP` to Windows-932 and a source bound; it contains no BGI
 caller, observed source length, output bytes, host locale, or next-stop data.
 The public fixture exercises a different valid UTF-16 input without editing the
 evidence profile, while unsupported code pages／flags stop before mutation.
-The one-byte heap policy uses the existing `kernel32.heap-alloc.v2` handler and
-adds only `(flags=0, byteLength=1)`. Allocation initialization, alignment,
-capacity, identity, and mutation rollback remain semantic implementation
-behavior; native caller／pointer／consumer relations remain evidence data.
-The 544-byte policy extends the same flags-zero entry with only the reached
-`544` length. The semantic handler retains deterministic-uninitialized fill,
-alignment, allocation identity, capacity, and transactional rollback; native
-buffer fingerprints and the BGI copy consumer remain evidence data.
+The historical one-byte and 544-byte v1 policies retain their exact checkpoint
+behavior. They are accepted only for old reproduction commands and are not the
+active allocator authority. Allocation initialization, alignment, capacity,
+identity, and mutation rollback remain semantic implementation behavior;
+native caller／pointer／consumer relations remain evidence data.
 `GetLastError` uses one policy-independent semantic handler. It returns the
 selected Rust runtime thread's full 32-bit LastError and preserves that state;
 there is no reached value, caller, or allowlist entry in compatibility policy.
@@ -301,7 +306,9 @@ stop remain evidence fields only.
 
 ## Non-claims
 
-This boundary does not implement broad `HeapAlloc`, general handle-table sizing,
+This boundary does not implement zero-byte `HeapAlloc`, `HEAP_NO_SERIALIZE`／
+`HEAP_GENERATE_EXCEPTIONS`, allocation-failure return／exception semantics,
+`HeapReAlloc`／`HeapDestroy`, general handle-table sizing,
 broad file classification, file I/O, non-ASCII command-line conversion, host
 environment import, environment mutation／ANSI environment strings, arbitrary
 code-page selection or mutation／other conversion flags／explicit default-character pointers,

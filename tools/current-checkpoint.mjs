@@ -178,7 +178,49 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
 
-  requireRecord(root.memoryAuthorityEvidence, "memoryAuthorityEvidence", errors);
+  const memoryAuthority = requireRecord(
+    root.memoryAuthorityEvidence,
+    "memoryAuthorityEvidence",
+    errors,
+  );
+  const mirrorCapacity = requireRecord(
+    memoryAuthority.executionMirrorCapacity,
+    "memoryAuthorityEvidence.executionMirrorCapacity",
+    errors,
+  );
+  for (const field of [
+    "maximumPhysicalPages",
+    "maximumGuestBytes",
+    "initialPhysicalPoolBytes",
+    "maximumPhysicalPoolBytes",
+    "maximumPageTablePages",
+    "excludedPhysicalRangeBytes",
+    "contractExpansionPages",
+    "contractExpandedPoolBytes",
+  ]) {
+    requireInteger(
+      mirrorCapacity[field],
+      `memoryAuthorityEvidence.executionMirrorCapacity.${field}`,
+      errors,
+      1,
+    );
+  }
+  if (
+    mirrorCapacity.schema !== "vine.v86-physical-pool.v1" ||
+    mirrorCapacity.authority !== "rust-prepared-metadata" ||
+    mirrorCapacity.maximumPhysicalPages * 4096 !== mirrorCapacity.maximumGuestBytes ||
+    mirrorCapacity.initialPhysicalPoolBytes >= mirrorCapacity.contractExpandedPoolBytes ||
+    mirrorCapacity.contractExpandedPoolBytes > mirrorCapacity.maximumPhysicalPoolBytes ||
+    mirrorCapacity.maximumPageTablePages !== 1024 ||
+    mirrorCapacity.growthPolicy !==
+      "geometric-adapter-reinstantiation-before-mutation" ||
+    mirrorCapacity.releasePolicy !==
+      "zero-free-list-reuse-and-empty-page-table-reclamation" ||
+    mirrorCapacity.exhaustionCode !== "v86-physical-pool-exhausted" ||
+    mirrorCapacity.exhaustionPolicy !== "typed-preflight-before-mutation"
+  ) {
+    errors.push("execution mirror capacity contract is inconsistent");
+  }
 
   const browser = requireRecord(root.browserCheckpoint, "browserCheckpoint", errors);
   if (browser.status !== "passed") {
@@ -190,8 +232,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v4") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v4");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v5") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v5");
   }
   if (
     browser.executionEngineProfile !==
@@ -212,6 +254,22 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (browserEvidence.rustSchedulerTransitions !== browserEvidence.hostRequests) {
     errors.push("browser scheduler transitions must authorize every completed host request");
+  }
+  if (
+    JSON.stringify(browserEvidence.registeredThreadIds) !== JSON.stringify([8192, 8193]) ||
+    JSON.stringify(browserEvidence.executedThreadIds) !== JSON.stringify([8192, 8193]) ||
+    browserEvidence.contextSwitches < 2 ||
+    !Array.isArray(browserEvidence.hostWaitExecutions) ||
+    browserEvidence.hostWaitExecutions.length !== 1 ||
+    browserEvidence.hostWaitExecutions[0]?.waitingThreadId !== 8192 ||
+    browserEvidence.hostWaitExecutions[0]?.executedThreadId !== 8193 ||
+    !Array.isArray(browserEvidence.threadExits) ||
+    browserEvidence.threadExits.length !== 1 ||
+    browserEvidence.threadExits[0]?.threadId !== 8193 ||
+    browserEvidence.threadExits[0]?.exitCode !== 7 ||
+    browserEvidence.threadExits[0]?.markerValue !== 0x5448_5244
+  ) {
+    errors.push("browser multi-thread execution evidence is incomplete");
   }
   requireInteger(
     browserEvidence.executionEngineLinearMemoryBytes,
@@ -937,9 +995,16 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source",
     errors,
   );
+  const heapAllocator = requireRecord(
+    kernel32Policy.heapAllocator,
+    "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.heapAllocator",
+    errors,
+  );
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
-    kernel32Policy.schemaVersion !== 1 ||
+    kernel32Policy.schemaVersion !== 2 ||
+    kernel32Policy.id !== "kernel32-bounded-heap-v2" ||
+    kernel32Policy.source !== "fixtures/runtime-policies/kernel32-bounded-heap-v2.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -952,6 +1017,12 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.createMutexAllowNamed !== true ||
     kernel32Policy.createMutexAllowUnnamed !== false ||
     kernel32Policy.createMutexMaximumNameBytes !== 32768 ||
+    !Array.isArray(heapAllocator.allowedFlags) ||
+    heapAllocator.allowedFlags.join(",") !== "0,8" ||
+    heapAllocator.minimumAllocationBytes !== 1 ||
+    heapAllocator.maximumAllocationBytes !== 16 * 1024 * 1024 ||
+    heapAllocator.sizePolicy !== "inclusive-nonzero-range" ||
+    kernel32Policy.historicalExactHeapPolicySchemaVersion !== 1 ||
     kernel32Policy.unsupportedBeforeMutation !== true
   ) {
     errors.push("active Kernel32 compatibility policy boundary is invalid");

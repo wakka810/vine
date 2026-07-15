@@ -77,7 +77,7 @@ pub use registries::{
 };
 pub use scheduler::{
     RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler, RuntimeSchedulerEvent,
-    SchedulerThreadState,
+    RuntimeThreadExecutionSelection, SchedulerThreadState,
 };
 pub use synchronization::{
     RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_MUTEX_LIMIT, RuntimeCreateMutexAResult,

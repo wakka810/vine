@@ -24,7 +24,7 @@ export interface ApiCompletion {
 
 export interface PreparedMetadata {
   kind: "prepared";
-  schemaVersion: 1;
+  schemaVersion: 2;
   workload?: "controlled-fixture" | "private-bgi";
   entryPoint: number;
   fsBase?: number;
@@ -57,6 +57,7 @@ export interface PreparedMetadata {
   callbackSentinel: number;
   entrySentinel: number;
   pageCount: number;
+  maximumPhysicalPages: number;
   regions: MemoryRegionSnapshot[];
   runtime: {
     processId: number;
@@ -69,6 +70,16 @@ export interface PreparedMetadata {
     address: number;
     module?: string;
     symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+  }>;
+  additionalThreads?: Array<{
+    threadId: number;
+    entryPoint: number;
+    initialStackPointer: number;
+    fsBase: number;
+    returnSentinel: number;
+    markerAddress: number;
+    expectedMarkerValue: number;
+    expectedExitCode: number;
   }>;
 }
 
@@ -97,6 +108,8 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_grow_initial_thread_stack(faultAddress: number, errorCode: number): number;
   vine_bridge_dispatch(endpoint: number, stackPointer: number, returnAddress: number): number;
   vine_bridge_complete_host(low: number, high: number, result: number): number;
+  vine_bridge_schedule_next_thread(): number;
+  vine_bridge_finish_thread(exitCode: number): number;
   vine_bridge_complete_callback(sentinel: number, result: number): number;
   vine_bridge_cancel(): number;
   vine_bridge_finish(exitCode: number): number;
@@ -189,6 +202,14 @@ export class RuntimeBridge {
   completeHost<T = Record<string, unknown>>(requestId: bigint, result: number): BridgeOutput<T> {
     const [low, high] = splitU64(requestId);
     return this.#invoke(() => this.#exports.vine_bridge_complete_host(low, high, result));
+  }
+
+  scheduleNextThread<T = Record<string, unknown>>(): BridgeOutput<T> {
+    return this.#invoke(() => this.#exports.vine_bridge_schedule_next_thread());
+  }
+
+  finishThread<T = Record<string, unknown>>(exitCode: number): BridgeOutput<T> {
+    return this.#invoke(() => this.#exports.vine_bridge_finish_thread(exitCode));
   }
 
   completeCallback<T = Record<string, unknown>>(sentinel: number, result: number): BridgeOutput<T> {

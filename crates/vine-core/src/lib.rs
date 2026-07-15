@@ -32,6 +32,7 @@ pub use api::{
 pub use bootstrap::{
     CONTROLLED_INITIAL_STACK_BASE, CONTROLLED_INITIAL_STACK_SIZE, CONTROLLED_INITIAL_STACK_TOP,
     InitialThreadStack, install_controlled_initial_stack, install_initial_thread_stack,
+    install_thread_stack_at,
 };
 pub use callbacks::{
     CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE, CALLBACK_RETURN_SLOT_SIZE,
@@ -146,12 +147,12 @@ pub use runtime::{
     RuntimeProcessView, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
     RuntimeSetCurrentDirectoryAPlan, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,
     RuntimeStateError, RuntimeStateErrorClass, RuntimeSystemExportEndpoint,
-    RuntimeSystemExportTable, RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMessage,
-    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTlsValue,
-    RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,
-    RuntimeWaitRegistrationId, RuntimeWaitState, SchedulerThreadState, TLS_OUT_OF_INDEXES,
-    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
-    validate_process_address_mapping_allocation,
+    RuntimeSystemExportTable, RuntimeThreadExecutionSelection, RuntimeThreadId,
+    RuntimeThreadLifecycleState, RuntimeThreadMessage, RuntimeThreadStack,
+    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTlsValue, RuntimeWaitCompletion,
+    RuntimeWaitDisposition, RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
+    SchedulerThreadState, TLS_OUT_OF_INDEXES, X86_CRITICAL_SECTION_BYTE_LENGTH,
+    X86_STARTUP_INFO_W_BYTE_LENGTH, validate_process_address_mapping_allocation,
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use win32::{
@@ -173,8 +174,9 @@ pub use win32::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
     Kernel32CreateMutexAPolicy, Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy,
-    Kernel32HeapAllocationPolicy, Kernel32InitializeCriticalSectionPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
+    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
     Kernel32WideCharToMultiBytePolicy, LC_MAP_STRING_W_IMPLEMENTATION,
     LEAVE_CRITICAL_SECTION_IMPLEMENTATION, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,

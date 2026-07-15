@@ -7,8 +7,8 @@
 - Decision date: 2026-07-12
 - Scope: `P0-ARCH-03` partial evidence for 4 GiB guest VA、page protection、page ownership
 - Decision: Rust-owned `GuestMemory` is byte authority; v86 paging is a bounded execution mirror
-- Implemented ingress: sparse region／page API、bounded zeroed frames、logical execute gate、generation-tagged `MemoryDelta`、binary reflection／delta／writeback、PTE Dirty discovery、atomic multi-page reconciliation、changed-state rollback transaction
-- Not decided: guard、snapshot、production physical backing、Worker memory ceiling
+- Implemented ingress: sparse region／page API、bounded zeroed frames、logical execute gate、generation-tagged `MemoryDelta`、binary reflection／delta／writeback、PTE Dirty discovery、atomic multi-page reconciliation、changed-state rollback transaction、authority-sized growing v86 physical pool
+- Not decided: guard、snapshot、full-play peak memory／pressure ceiling
 
 このADRはbyte authorityとCPU mirror間の同期方針を確定する。fixed high-address fixtureで2候補を比較し、production Rust ingress、host-originated delta、automatic CPU writebackを同じgeneration contractへ接続した。guard、snapshot、general process mapping、Chrome Worker、performance gateは未完了であり、`P0-ARCH-03`全体や`AC-P1`の完了を意味しない。
 
@@ -81,7 +81,7 @@ runnerは同じpage mapをsource-built v86 adapterとchecked sparse referenceへ
 | Highest mapped page | `0xF1005000` |
 | Identity mapping | No |
 
-high image、high stack、cross-page probeをlow physical pagesへmapし、entryはEIP `0xF1001000`から9命令でreturn trap `0xF1001070`へ到達した。EAX `0`、writable result `0x11223345`である。これは4 GiBをWasm linear memoryとして確保せずhigh VAを実行できることを示すが、2 MiB pool自体はまだcontiguousなfixture allocationである。
+high image、high stack、cross-page probeをlow physical pagesへmapし、entryはEIP `0xF1001000`から9命令でreturn trap `0xF1001070`へ到達した。EAX `0`、writable result `0x11223345`である。これは4 GiBをWasm linear memoryとして確保せずhigh VAを実行できることを示す。表の2 MiBはこのhistorical fixtureの観測値であり、現在のBrowser Worker capacity policyではない。
 
 ### 5.2 Fault And Invalidation
 
@@ -132,6 +132,10 @@ high-memory contractは6 image pagesと1 anonymous probe pageをexact quota内�
 
 BGI continuationは同じboundaryを388 semantic pages／generation `24`へ拡張し、4,904,602-byte offerを8 MiB protocol上限内で転送した。v86はphysical `[0x000A0000,0x000C0000)`をVGA MMIOとして扱うため、naive contiguous placementは`mmap_read32(0x000A883F)`へ入った。adapter allocatorはこの32-page holeを明示的に除外し、directory 1 page、tables 4 pages、reflected 388 pagesの393 allocationsを2 MiB内へ置いた。値をfabricateするMMIO handlerは使っていない。この配置でBGI entryは19命令後にowned thunk ID `104`へ到達した。詳細は[v86-bgi-first-trap.md](v86-bgi-first-trap.md)を正とする。
 
+Production Browser Workerは固定2 MiB poolを廃止した。Rust/Wasmのprepared metadataがsemantic committed-page limitを一方向に提示し、v86 mirrorは64 KiBから必要量へ幾何成長する。BGI profileのlimitは16,384 pages／64 MiBであり、全1,024 page tables、directory、zero page、128 KiB VGA MMIO holeを含むmirror上限は71,442,432 bytesである。成長はhost delta／reflectionの全件preflight後、mapping mutation前に行い、fresh adapter instanceへCPU context、mapped bytes、protection、dirty stateを移す。Rust `GuestMemory`は引き続きbyte authorityであり、physical addressやadapter instanceはsemantic identityにならない。
+
+Decommit／releaseはdata pageをzero化してfree-listへ返し、directory最後のmappingを外した時は空page tableも回収する。Recommitはfree pageをzero化して再利用する。上限超過は`v86-physical-pool-exhausted`としてmapping mutation前にtyped rejectionし、既存mapping／CPU stateを保持する。ExecutionEngine contractは512-page live expansionで4 MiBへ成長後もCPUを再開し、decommit／reuse／range releaseと5-pages-against-4 limitのmutation-free exhaustionを固定する。
+
 `npm run check:runtime:memory-delta`は初回snapshotのack後にnon-executable RW pageへ8 bytesを書き、generation `11`の1-page／4 KiB deltaをlive v86 mappingへ適用する。cache effectsはすべてfalseで、guest x86はEDX:EAX `0x8877665544332211`を読む。mapping／write-to-code／partial ackとtransaction failpointのRust contractを含む詳細は[memory-delta-and-transactions.md](memory-delta-and-transactions.md)を正とする。
 
 `npm run check:runtime:memory-writeback`は9 production pagesをbinary reflectionし、8 writable PTEをAPI固有page listなしでscanする。first sliceはstack 2、heap 2、surface 2、RWX target 1の計7 dirty pagesを検出し、49 changed bytesをgeneration `18 -> 19`としてatomic reconcileする。Rustからscratch pageへのbinary deltaをgeneration `19 -> 20`で適用した後、second sliceは別のstack／heap／surface／RWX 4 pagesだけを検出し、13 changed bytesをgeneration `20 -> 21`へ進める。各scanはDirty bit clear後にTLBをflushし、untouched scratch pageはfirst sliceでclean、Rustはreceipt後dirty 0／pending invalidationなしとなる。詳細は[memory-writeback.md](memory-writeback.md)を正とする。
@@ -142,7 +146,7 @@ BGI first-call continuationは、outputとlive call frameが同じstack pageに�
 
 - process-wide stack／heap／module mappingとexecute gate、fault classificationのgeneralization
 - region／page／CPU generationを揃えるsnapshot contract
-- guard、mapped file、copy-on-write、sharing、memory pressure、Worker ceiling
+- guard、mapped file、copy-on-write、sharing、full-play memory pressure／peak ceiling
 - writable-page scan／full TLB clearのtitle-workload performanceと必要なincremental dirty index
 
 host TypeScriptはguest pointerやhot accessを所有せず、loader／Win32 facadeからsemantic map requestを渡す。page tableのraw bytes、physical page number、v86 private offsetをWindows API層へ公開しない。

@@ -22,7 +22,7 @@ const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
 const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
-const runtimeProtocol = "vine.browser-runtime-worker.v4";
+const runtimeProtocol = "vine.browser-runtime-worker.v5";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -372,7 +372,13 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
     await waitForRuntime(client);
     await clickRun(client);
     const snapshot = await waitForCheckpoint(client);
-    assert.equal(snapshot.checkStatus, "passed", snapshot.error ?? `${mode} failed`);
+    assert.equal(
+      snapshot.checkStatus,
+      "passed",
+      snapshot.error === null
+        ? `${mode} failed`
+        : `${snapshot.error}\n${snapshot.report ?? "no session report"}`,
+    );
     const evidence = JSON.parse(snapshot.report);
     assert.equal(evidence.report.pendingHostCalls, 0);
     assert.equal(evidence.report.pendingCallbacks, 0);
@@ -404,6 +410,20 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
       assert.equal(evidence.report.exitCode, 0);
       assert.equal(evidence.report.hostRequests, 2);
       assert.equal(evidence.report.rustSchedulerTransitions, 2);
+      assert.deepEqual(evidence.report.registeredThreadIds, [8192, 8193]);
+      assert.deepEqual(evidence.report.executedThreadIds, [8192, 8193]);
+      assert.equal(evidence.report.contextSwitches, 2);
+      assert.deepEqual(evidence.report.hostWaitExecutions, [
+        { requestId: "1", waitingThreadId: 8192, executedThreadId: 8193 },
+      ]);
+      assert.deepEqual(evidence.report.threadExits, [
+        {
+          threadId: 8193,
+          exitCode: 7,
+          markerAddress: 0x1000_3000,
+          markerValue: 0x5448_5244,
+        },
+      ]);
       assert.equal(evidence.report.callbackEntries, 2);
       assert.equal(evidence.report.maximumCallbackDepth, 2);
       assert(evidence.report.budgetYields > 0, "success path did not yield periodically");
@@ -1219,7 +1239,7 @@ if (serveOnly) {
         assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the browser session");
         const report = {
           schema: "vine.browser-bgi-runtime-worker",
-          schemaVersion: 3,
+          schemaVersion: 4,
           runtimeProtocol,
           measuredAt: new Date().toISOString(),
           chromeVersion: version,
@@ -1262,7 +1282,7 @@ if (serveOnly) {
       }
       const report = {
         schema: "vine.browser-runtime-worker",
-        schemaVersion: 4,
+        schemaVersion: 5,
         runtimeProtocol,
         measuredAt: new Date().toISOString(),
         chromeVersion: version,

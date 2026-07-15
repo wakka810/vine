@@ -47,6 +47,22 @@ pub fn install_initial_thread_stack(
     reserve_size: u64,
     commit_size: u64,
 ) -> Result<InitialThreadStack, GuestMemoryError> {
+    install_thread_stack_at(
+        memory,
+        entry_return,
+        CONTROLLED_INITIAL_STACK_TOP,
+        reserve_size,
+        commit_size,
+    )
+}
+
+pub fn install_thread_stack_at(
+    memory: &mut GuestMemory,
+    entry_return: &ProcessEntryReturnSentinel,
+    stack_top: GuestAddress,
+    reserve_size: u64,
+    commit_size: u64,
+) -> Result<InitialThreadStack, GuestMemoryError> {
     if !entry_return.owner_sealed {
         return Err(GuestMemoryError::runtime_defect(
             "process-bootstrap",
@@ -54,7 +70,9 @@ pub fn install_initial_thread_stack(
             "initial stack requires a sealed process-entry return sentinel",
         ));
     }
-    if reserve_size == 0
+    if stack_top.0 == 0
+        || !stack_top.0.is_multiple_of(GUEST_PAGE_SIZE as u32)
+        || reserve_size == 0
         || commit_size == 0
         || commit_size > reserve_size
         || !reserve_size.is_multiple_of(GUEST_PAGE_SIZE)
@@ -63,7 +81,7 @@ pub fn install_initial_thread_stack(
         return Err(GuestMemoryError::invalid_request(
             "process-bootstrap",
             "initial-stack-layout-invalid",
-            "initial stack reserve and commit sizes must be nonzero page multiples with commit no larger than reserve",
+            "thread stack top, reserve, and commit must be page aligned and nonzero with commit no larger than reserve",
         ));
     }
     let reserve_size_u32 = u32::try_from(reserve_size).map_err(|_| {
@@ -80,30 +98,21 @@ pub fn install_initial_thread_stack(
             "initial stack commit size does not fit the x86 address space",
         )
     })?;
-    let stack_base = GuestAddress(
-        CONTROLLED_INITIAL_STACK_TOP
-            .0
-            .checked_sub(reserve_size_u32)
-            .ok_or_else(|| {
-                GuestMemoryError::invalid_request(
-                    "process-bootstrap",
-                    "initial-stack-reserve-underflow",
-                    "initial stack reserve extends below the x86 address-space origin",
-                )
-            })?,
-    );
-    let committed_base = GuestAddress(
-        CONTROLLED_INITIAL_STACK_TOP
-            .0
-            .checked_sub(commit_size_u32)
-            .ok_or_else(|| {
-                GuestMemoryError::invalid_request(
-                    "process-bootstrap",
-                    "initial-stack-commit-underflow",
-                    "initial stack commit extends below the x86 address-space origin",
-                )
-            })?,
-    );
+    let stack_base = GuestAddress(stack_top.0.checked_sub(reserve_size_u32).ok_or_else(|| {
+        GuestMemoryError::invalid_request(
+            "process-bootstrap",
+            "initial-stack-reserve-underflow",
+            "initial stack reserve extends below the x86 address-space origin",
+        )
+    })?);
+    let committed_base =
+        GuestAddress(stack_top.0.checked_sub(commit_size_u32).ok_or_else(|| {
+            GuestMemoryError::invalid_request(
+                "process-bootstrap",
+                "initial-stack-commit-underflow",
+                "initial stack commit extends below the x86 address-space origin",
+            )
+        })?);
     let committed_pages = usize::try_from(commit_size / GUEST_PAGE_SIZE).map_err(|_| {
         GuestMemoryError::invalid_request(
             "process-bootstrap",
@@ -113,18 +122,17 @@ pub fn install_initial_thread_stack(
     })?;
     memory.preflight_growth(1, 1, committed_pages, "process-bootstrap")?;
     memory.preflight_fixed_reservation(stack_base, reserve_size, "process-bootstrap")?;
-    let initial_esp = GuestAddress(CONTROLLED_INITIAL_STACK_TOP.0.checked_sub(4).ok_or_else(
-        || {
-            GuestMemoryError::runtime_defect(
-                "process-bootstrap",
-                "initial-stack-pointer-underflow",
-                "controlled initial stack cannot hold its entry return address",
-            )
-        },
-    )?);
+    let initial_esp = GuestAddress(stack_top.0.checked_sub(4).ok_or_else(|| {
+        GuestMemoryError::runtime_defect(
+            "process-bootstrap",
+            "initial-stack-pointer-underflow",
+            "controlled initial stack cannot hold its entry return address",
+        )
+    })?);
 
     let plan = InitialThreadStackPlan {
         stack_base,
+        stack_top,
         reserve_size,
         committed_base,
         commit_size,
@@ -140,6 +148,7 @@ pub fn install_initial_thread_stack(
 #[derive(Debug, Clone, Copy)]
 struct InitialThreadStackPlan {
     stack_base: GuestAddress,
+    stack_top: GuestAddress,
     reserve_size: u64,
     committed_base: GuestAddress,
     commit_size: u64,
@@ -206,7 +215,7 @@ fn install_initial_thread_stack_transaction(
         committed_range,
         guard_page,
         committed_pages: plan.committed_pages,
-        stack_top: CONTROLLED_INITIAL_STACK_TOP,
+        stack_top: plan.stack_top,
         initial_esp: plan.initial_esp,
         entry_return_sentinel_id: entry_return.id,
         entry_return_address: entry_return.address,

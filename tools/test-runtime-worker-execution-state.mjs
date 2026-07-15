@@ -112,6 +112,43 @@ assert.throws(
 );
 assert.equal(host.state(), "ready");
 
+const multiThread = new ExecutionStateMachine();
+multiThread.transition("running", { cause: "initial-slice", threadId: 8192 });
+multiThread.transition("api-trap", { cause: "initial-host-api", threadId: 8192 });
+multiThread.transition("thread-switch", {
+  cause: "initial-wait-second-runnable",
+  threadId: 8193,
+  requestId: "4",
+});
+multiThread.transition("ready", {
+  cause: "second-context-restored",
+  threadId: 8193,
+  requestId: "4",
+});
+multiThread.transition("running", { cause: "second-slice", threadId: 8193 });
+multiThread.transition("thread-exit", { cause: "second-return", threadId: 8193 });
+multiThread.transition("waiting-host", {
+  cause: "no-runnable-thread",
+  threadId: 8192,
+  requestId: "4",
+});
+multiThread.transition("host-completion", {
+  cause: "initial-host-complete",
+  threadId: 8192,
+  requestId: "4",
+});
+multiThread.transition("thread-switch", {
+  cause: "initial-runnable",
+  threadId: 8192,
+  requestId: "4",
+});
+multiThread.transition("ready", {
+  cause: "initial-context-restored",
+  threadId: 8192,
+  requestId: "4",
+});
+assert.equal(multiThread.state(), "ready");
+
 const callback = new ExecutionStateMachine();
 callback.transition("running", { cause: "slice", threadId: 8192 });
 callback.transition("api-trap", { cause: "callback-api", threadId: 8192 });

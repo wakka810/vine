@@ -155,6 +155,23 @@ assert.equal(initialContext.byteLength, profile.cpuContextAbi.bytes);
 assert.equal(initialContext.opaqueWords.byteLength, profile.cpuContextAbi.bytes);
 assert.equal(initialContext.instructionPointer, codeAddress);
 
+const secondContext = engine.createCpuContext({
+  entryPoint: codeAddress + 10,
+  initialStackPointer: dataAddress + pageSize - 32,
+  fsBase: 0x1234_0000,
+});
+assert.deepEqual(
+  engine.saveCpuContext(),
+  initialContext,
+  "creating a thread context mutated the live CPU context",
+);
+assert.equal(secondContext.eax, 0);
+assert.equal(secondContext.esp, dataAddress + pageSize - 32);
+assert.equal(secondContext.instructionPointer, codeAddress + 10);
+engine.restoreCpuContext(secondContext);
+assert.equal(engine.saveCpuContext().instructionPointer, codeAddress + 10);
+engine.restoreCpuContext(initialContext);
+
 const budget = engine.executeBudget(1);
 assert.deepEqual(budget.stop, { kind: "budget-yield" });
 assert.equal(budget.instructions, 1);
@@ -281,6 +298,262 @@ assert.throws(
     error instanceof ExecutionMemoryAccessFault &&
     error.code === "execution-address-unmapped",
 );
+
+const growthEngine = await instantiateExecutionEngineBytes(adapterBytes, undefined, {
+  maximumPhysicalPages: 600,
+});
+growthEngine.initialize(
+  {
+    generation: 1n,
+    cacheEffects: {
+      flushTlb: false,
+      invalidateInstructionFetch: false,
+      invalidateGeneratedCode: false,
+    },
+    pages: [
+      {
+        address: codeAddress,
+        owner: 1,
+        protection: protection.code,
+        ownerSealed: true,
+        dirty: true,
+        bytes: code,
+      },
+      {
+        address: dataAddress,
+        owner: 1,
+        protection: protection.data,
+        ownerSealed: true,
+        dirty: true,
+        bytes: new Uint8Array(pageSize),
+      },
+    ],
+  },
+  {
+    entryPoint: codeAddress,
+    initialStackPointer: dataAddress + pageSize - 16,
+    fsBase: 0,
+    regions: [
+      {
+        owner: 1,
+        kind: "runtime",
+        range: { start: codeAddress, byteLength: pageSize * 2 },
+      },
+    ],
+  },
+);
+const capacityBeforeGrowth = growthEngine.memoryCapacity();
+assert.equal(capacityBeforeGrowth.physicalPoolBytes, 64 * 1024);
+const expansionPageCount = 512;
+const expansionBase = 0x2000_0000;
+const expansionRange = { base: expansionBase, byteLength: expansionPageCount * pageSize };
+const expandedPages = Array.from({ length: expansionPageCount }, (_, index) => ({
+  address: expansionBase + index * pageSize,
+  owner: 3,
+  protection: protection.data,
+  ownerSealed: true,
+  dirty: true,
+  bytes: new Uint8Array(pageSize),
+}));
+growthEngine.applyMemoryDelta({
+  fromGeneration: 1n,
+  generation: 2n,
+  cacheEffects: {
+    flushTlb: true,
+    invalidateInstructionFetch: true,
+    invalidateGeneratedCode: true,
+  },
+  mappingOperations: [
+    { operation: "reserve", owner: 3, kind: "anonymous", range: expansionRange },
+    {
+      operation: "commit",
+      owner: 3,
+      protection: protection.data,
+      range: expansionRange,
+    },
+  ],
+  pages: expandedPages,
+});
+const capacityAfterGrowth = growthEngine.memoryCapacity();
+assert.equal(capacityAfterGrowth.growths, 1);
+assert(capacityAfterGrowth.physicalPoolBytes > 2 * 1024 * 1024);
+assert(capacityAfterGrowth.physicalPoolBytes <= capacityAfterGrowth.maximumPhysicalPoolBytes);
+assert.deepEqual(growthEngine.executeBudget(1).stop, { kind: "budget-yield" });
+
+growthEngine.applyMemoryDelta({
+  fromGeneration: 2n,
+  generation: 3n,
+  cacheEffects: {
+    flushTlb: true,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  },
+  mappingOperations: [
+    {
+      operation: "decommit",
+      owner: 3,
+      range: { base: expansionBase, byteLength: pageSize },
+    },
+  ],
+  pages: [],
+});
+const capacityAfterRelease = growthEngine.memoryCapacity();
+assert(capacityAfterRelease.releasedPages > capacityAfterGrowth.releasedPages);
+const reusedBytes = new Uint8Array(pageSize);
+reusedBytes[0] = 0x5a;
+growthEngine.applyMemoryDelta({
+  fromGeneration: 3n,
+  generation: 4n,
+  cacheEffects: {
+    flushTlb: true,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  },
+  mappingOperations: [
+    {
+      operation: "commit",
+      owner: 3,
+      protection: protection.data,
+      range: { base: expansionBase, byteLength: pageSize },
+    },
+  ],
+  pages: [
+    {
+      address: expansionBase,
+      owner: 3,
+      protection: protection.data,
+      ownerSealed: true,
+      dirty: true,
+      bytes: reusedBytes,
+    },
+  ],
+});
+const capacityAfterReuse = growthEngine.memoryCapacity();
+assert(capacityAfterReuse.reusedPages > capacityAfterRelease.reusedPages);
+assert.equal(growthEngine.readGuestU32(expansionBase), 0x5a);
+
+growthEngine.applyMemoryDelta({
+  fromGeneration: 4n,
+  generation: 5n,
+  cacheEffects: {
+    flushTlb: true,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  },
+  mappingOperations: [{ operation: "release", owner: 3, range: expansionRange }],
+  pages: [],
+});
+const capacityAfterRangeRelease = growthEngine.memoryCapacity();
+assert(capacityAfterRangeRelease.pageTablePages < capacityAfterReuse.pageTablePages);
+assert(capacityAfterRangeRelease.freePhysicalPages > capacityAfterReuse.freePhysicalPages);
+
+const exhaustedEngine = await instantiateExecutionEngineBytes(adapterBytes, undefined, {
+  maximumPhysicalPages: 4,
+});
+const overLimitPages = Array.from({ length: 5 }, (_, index) => ({
+  address: codeAddress + index * pageSize,
+  owner: 1,
+  protection: index === 0 ? protection.code : protection.data,
+  ownerSealed: true,
+  dirty: true,
+  bytes: index === 0 ? code : new Uint8Array(pageSize),
+}));
+const beforeExhaustion = exhaustedEngine.memoryContractState();
+assert.throws(
+  () =>
+    exhaustedEngine.initialize(
+      {
+        generation: 1n,
+        cacheEffects: {
+          flushTlb: false,
+          invalidateInstructionFetch: false,
+          invalidateGeneratedCode: false,
+        },
+        pages: overLimitPages,
+      },
+      {
+        entryPoint: codeAddress,
+        initialStackPointer: dataAddress + pageSize - 16,
+        regions: [
+          {
+            owner: 1,
+            kind: "runtime",
+            range: { start: codeAddress, byteLength: pageSize * 5 },
+          },
+        ],
+      },
+    ),
+  (error) =>
+    error?.code === "v86-physical-pool-exhausted" &&
+    error.requestedPhysicalPages === 5 &&
+    error.maximumPhysicalPages === 4,
+);
+assert.equal(exhaustedEngine.memoryContractState(), beforeExhaustion);
+
+exhaustedEngine.initialize(
+  {
+    generation: 1n,
+    cacheEffects: {
+      flushTlb: false,
+      invalidateInstructionFetch: false,
+      invalidateGeneratedCode: false,
+    },
+    pages: overLimitPages.slice(0, 2),
+  },
+  {
+    entryPoint: codeAddress,
+    initialStackPointer: dataAddress + pageSize - 16,
+    regions: [
+      {
+        owner: 1,
+        kind: "runtime",
+        range: { start: codeAddress, byteLength: pageSize * 2 },
+      },
+    ],
+  },
+);
+const deltaExhaustionRange = { base: expansionBase, byteLength: pageSize * 3 };
+const beforeDeltaExhaustion = exhaustedEngine.memoryContractState();
+const capacityBeforeDeltaExhaustion = exhaustedEngine.memoryCapacity();
+const contextBeforeDeltaExhaustion = exhaustedEngine.saveCpuContext();
+assert.throws(
+  () =>
+    exhaustedEngine.applyMemoryDelta({
+      fromGeneration: 1n,
+      generation: 2n,
+      cacheEffects: {
+        flushTlb: true,
+        invalidateInstructionFetch: false,
+        invalidateGeneratedCode: false,
+      },
+      mappingOperations: [
+        {
+          operation: "reserve",
+          owner: 3,
+          kind: "anonymous",
+          range: deltaExhaustionRange,
+        },
+        {
+          operation: "commit",
+          owner: 3,
+          protection: protection.data,
+          range: deltaExhaustionRange,
+        },
+      ],
+      pages: overLimitPages.slice(2).map((page, index) => ({
+        ...page,
+        address: expansionBase + index * pageSize,
+        owner: 3,
+      })),
+    }),
+  (error) =>
+    error?.code === "v86-physical-pool-exhausted" &&
+    error.requestedPhysicalPages === 5 &&
+    error.maximumPhysicalPages === 4,
+);
+assert.equal(exhaustedEngine.memoryContractState(), beforeDeltaExhaustion);
+assert.deepEqual(exhaustedEngine.memoryCapacity(), capacityBeforeDeltaExhaustion);
+assert.deepEqual(exhaustedEngine.saveCpuContext(), contextBeforeDeltaExhaustion);
 
 const wrongRevision = structuredClone(identity);
 wrongRevision.sourceRevision = "0".repeat(40);

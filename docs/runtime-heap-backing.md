@@ -24,7 +24,9 @@ Later [bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md) connect
 the reached exact flags-zero `HeapFree` to this same transaction. Guest
 [`bgi-private-heap-size-128.md`](bgi-private-heap-size-128.md) then proves a
 larger zeroed dirty-only allocation without importing native address reuse.
-`HeapDestroy`／`HeapReAlloc` and broad allocator／free policy remain unimplemented.
+Active schema-v2 policy now exposes this allocator for nonzero requests through
+16 MiB with flags `0` or `HEAP_ZERO_MEMORY`. `HeapDestroy`／`HeapReAlloc`, other
+allocation flags, zero-size and general failure-return semantics remain unimplemented.
 
 ## Runtime subsystem ownership
 
@@ -88,8 +90,9 @@ Initialization policy:
 | freed block poison | `0xDD` |
 
 `0xA5`／`0xDD`はVineのdeterministic diagnostic policyであり、native Windowsが同じbytesを返すという
-主張ではない。Reached `HEAP_ZERO_MEMORY` handlerは`Zeroed`へmapする。Flagなしを含む
-他variantとzero-byte allocation semanticsはbroad allocator policyまでexplicit unsupportedである。
+主張ではない。`HEAP_ZERO_MEMORY`は`Zeroed`、flags `0`は
+`DeterministicUninitialized`へmapする。Active policyは両flagのnonzero
+`1..=16 MiB`を許可し、他flagとzero-byte allocation semanticsはexplicit unsupportedである。
 
 Freeはexact live baseを要求する。同じfree-block baseのsecond freeは
 `heap-allocation-double-free`、interior／foreign／unknown pointerは
@@ -155,9 +158,11 @@ regression evidence, not a replacement baseline.
 
 ## Non-claims and next dependency
 
-The reached guest policy currently covers seven measured nonzero allocation
-flag-size pairs and one exact flags-zero free. It does not implement other
-allocation/free variants, failure return, zero-size behavior, realloc,
+The active guest policy covers flags `0`／`HEAP_ZERO_MEMORY` and every nonzero
+allocation size through the controlled 16 MiB per-heap ceiling. Historical
+schema-v1 exact pairs remain readable only for checkpoint reproduction. The
+runtime does not implement other allocation/free flags, failure return／exception
+semantics, zero-size behavior, realloc,
 size／validate／compact／walk, heap lock, LFH,
 serialization, concurrent allocation, corruption termination, guard pages, per-block decommit, or a
 full-title capacity profile. It is partial evidence for `REQ-MEM-01`／`REQ-API-02` and `P3-WIN-01`,

@@ -9,7 +9,9 @@ use crate::runtime::{
 };
 
 pub const KERNEL32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.kernel32-compatibility-policy";
-pub const KERNEL32_COMPATIBILITY_POLICY_VERSION: u32 = 1;
+pub const KERNEL32_COMPATIBILITY_POLICY_VERSION: u32 = 2;
+
+const KERNEL32_COMPATIBILITY_POLICY_LEGACY_VERSION: u32 = 1;
 
 const HEAP_ZERO_MEMORY: u32 = 0x0000_0008;
 const HEAP_NO_SERIALIZE: u32 = 0x0000_0001;
@@ -49,6 +51,9 @@ pub struct Kernel32CompatibilityPolicy {
     pub active_code_page_info: Option<Kernel32CodePageInfoPolicy>,
     #[serde(default)]
     pub processor_features: Vec<Kernel32ProcessorFeaturePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heap_allocator: Option<Kernel32HeapAllocatorPolicy>,
+    #[serde(default)]
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
     #[serde(default)]
     pub heap_free_flags: Vec<u32>,
@@ -70,6 +75,13 @@ pub struct Kernel32StandardHandleFileType {
 pub struct Kernel32HeapAllocationPolicy {
     pub flags: u32,
     pub byte_lengths: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32HeapAllocatorPolicy {
+    pub allowed_flags: Vec<u32>,
+    pub maximum_allocation_bytes: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,7 +176,7 @@ impl Kernel32CompatibilityPolicy {
     pub fn controlled_v1() -> Self {
         Self {
             schema: KERNEL32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
-            schema_version: KERNEL32_COMPATIBILITY_POLICY_VERSION,
+            schema_version: KERNEL32_COMPATIBILITY_POLICY_LEGACY_VERSION,
             id: "kernel32-controlled-v1".to_owned(),
             standard_handle_selectors: vec![RUNTIME_STANDARD_INPUT_SELECTOR],
             standard_handle_file_types: vec![Kernel32StandardHandleFileType {
@@ -183,6 +195,7 @@ impl Kernel32CompatibilityPolicy {
             get_module_file_name_a: None,
             active_code_page_info: None,
             processor_features: Vec::new(),
+            heap_allocator: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
                 byte_lengths: vec![0x214],
@@ -195,7 +208,11 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn validate(&self) -> Result<(), Kernel32CompatibilityPolicyError> {
         if self.schema != KERNEL32_COMPATIBILITY_POLICY_SCHEMA
-            || self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+            || !matches!(
+                self.schema_version,
+                KERNEL32_COMPATIBILITY_POLICY_LEGACY_VERSION
+                    | KERNEL32_COMPATIBILITY_POLICY_VERSION
+            )
         {
             return Err(policy_error(
                 "kernel32-policy-schema-unsupported",
@@ -217,7 +234,6 @@ impl Kernel32CompatibilityPolicy {
             || self.standard_handle_file_types.len() > MAX_POLICY_ENTRIES
             || self.set_handle_counts.len() > MAX_POLICY_ENTRIES
             || self.processor_features.len() > MAX_POLICY_ENTRIES
-            || self.heap_allocations.is_empty()
             || self.heap_allocations.len() > MAX_POLICY_ENTRIES
             || self.heap_free_flags.len() > MAX_POLICY_ENTRIES
             || self.heap_size_flags.len() > MAX_POLICY_ENTRIES
@@ -225,6 +241,16 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-entry-count-invalid",
                 "Kernel32 compatibility policy entry counts are outside their bounded limits",
+            ));
+        }
+        if (self.schema_version == KERNEL32_COMPATIBILITY_POLICY_LEGACY_VERSION
+            && (self.heap_allocator.is_some() || self.heap_allocations.is_empty()))
+            || (self.schema_version == KERNEL32_COMPATIBILITY_POLICY_VERSION
+                && (self.heap_allocator.is_none() || !self.heap_allocations.is_empty()))
+        {
+            return Err(policy_error(
+                "kernel32-policy-heap-schema-invalid",
+                "version 1 policies require exact legacy heap variants; version 2 policies require one bounded heap allocator",
             ));
         }
 
@@ -371,26 +397,48 @@ impl Kernel32CompatibilityPolicy {
             ));
         }
 
-        let mut heap_variants = BTreeSet::new();
-        for allocation in &self.heap_allocations {
-            if !matches!(allocation.flags, 0 | HEAP_ZERO_MEMORY)
-                || allocation.byte_lengths.is_empty()
-                || allocation.byte_lengths.len() > MAX_POLICY_ENTRIES
+        if let Some(allocator) = self.heap_allocator.as_ref() {
+            let allowed_flags = allocator
+                .allowed_flags
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            if allocator.allowed_flags.is_empty()
+                || allocator.allowed_flags.len() > MAX_POLICY_ENTRIES
+                || allowed_flags.len() != allocator.allowed_flags.len()
+                || allowed_flags
+                    .iter()
+                    .any(|flags| !matches!(*flags, 0 | HEAP_ZERO_MEMORY))
+                || !(1..=RUNTIME_PRIVATE_HEAP_ARENA_STRIDE)
+                    .contains(&allocator.maximum_allocation_bytes)
             {
                 return Err(policy_error(
-                    "kernel32-policy-heap-variant-invalid",
-                    "heap allocation policy must use implemented flags and bounded sizes",
+                    "kernel32-policy-heap-allocator-invalid",
+                    "heap allocator policy requires unique implemented flags and a nonzero per-heap-bounded maximum allocation size",
                 ));
             }
-            for &byte_length in &allocation.byte_lengths {
-                if byte_length == 0
-                    || byte_length > RUNTIME_PRIVATE_HEAP_ARENA_STRIDE
-                    || !heap_variants.insert((allocation.flags, byte_length))
+        } else {
+            let mut heap_variants = BTreeSet::new();
+            for allocation in &self.heap_allocations {
+                if !matches!(allocation.flags, 0 | HEAP_ZERO_MEMORY)
+                    || allocation.byte_lengths.is_empty()
+                    || allocation.byte_lengths.len() > MAX_POLICY_ENTRIES
                 {
                     return Err(policy_error(
                         "kernel32-policy-heap-variant-invalid",
-                        "heap allocation variants must be unique nonzero in-range flag/size pairs",
+                        "heap allocation policy must use implemented flags and bounded sizes",
                     ));
+                }
+                for &byte_length in &allocation.byte_lengths {
+                    if byte_length == 0
+                        || byte_length > RUNTIME_PRIVATE_HEAP_ARENA_STRIDE
+                        || !heap_variants.insert((allocation.flags, byte_length))
+                    {
+                        return Err(policy_error(
+                            "kernel32-policy-heap-variant-invalid",
+                            "heap allocation variants must be unique nonzero in-range flag/size pairs",
+                        ));
+                    }
                 }
             }
         }
@@ -501,9 +549,22 @@ impl Kernel32CompatibilityPolicy {
     }
 
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
-        self.heap_allocations.iter().any(|allocation| {
-            allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
-        })
+        self.heap_allocator.as_ref().map_or_else(
+            || {
+                self.heap_allocations.iter().any(|allocation| {
+                    allocation.flags == flags && allocation.byte_lengths.contains(&byte_length)
+                })
+            },
+            |allocator| {
+                byte_length != 0
+                    && byte_length <= allocator.maximum_allocation_bytes
+                    && allocator.allowed_flags.contains(&flags)
+            },
+        )
+    }
+
+    pub fn heap_allocator(&self) -> Option<&Kernel32HeapAllocatorPolicy> {
+        self.heap_allocator.as_ref()
     }
 
     pub fn allows_heap_free(&self, flags: u32) -> bool {
@@ -628,6 +689,50 @@ mod tests {
         assert!(policy.get_module_file_name_a().is_none());
         assert!(policy.active_code_page_info().is_none());
         assert_eq!(policy.processor_feature_presence(10), None);
+
+        let mut bounded_heap = policy.clone();
+        bounded_heap.schema_version = KERNEL32_COMPATIBILITY_POLICY_VERSION;
+        bounded_heap.heap_allocations.clear();
+        bounded_heap.heap_allocator = Some(Kernel32HeapAllocatorPolicy {
+            allowed_flags: vec![0, HEAP_ZERO_MEMORY],
+            maximum_allocation_bytes: RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
+        });
+        bounded_heap.validate().unwrap();
+        assert!(bounded_heap.allows_heap_allocation(0, 37));
+        assert!(
+            bounded_heap
+                .allows_heap_allocation(HEAP_ZERO_MEMORY, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE)
+        );
+        assert!(!bounded_heap.allows_heap_allocation(0, 0));
+        assert!(!bounded_heap.allows_heap_allocation(0, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 1));
+        assert!(!bounded_heap.allows_heap_allocation(HEAP_NO_SERIALIZE, 37));
+
+        let mut mixed_heap_schema = bounded_heap.clone();
+        mixed_heap_schema.heap_allocations = policy.heap_allocations.clone();
+        assert_eq!(
+            mixed_heap_schema.validate().unwrap_err().code,
+            "kernel32-policy-heap-schema-invalid"
+        );
+        let mut duplicate_heap_flags = bounded_heap.clone();
+        duplicate_heap_flags
+            .heap_allocator
+            .as_mut()
+            .unwrap()
+            .allowed_flags = vec![0, 0];
+        assert_eq!(
+            duplicate_heap_flags.validate().unwrap_err().code,
+            "kernel32-policy-heap-allocator-invalid"
+        );
+        let mut oversized_heap_allocation = bounded_heap;
+        oversized_heap_allocation
+            .heap_allocator
+            .as_mut()
+            .unwrap()
+            .maximum_allocation_bytes = RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 1;
+        assert_eq!(
+            oversized_heap_allocation.validate().unwrap_err().code,
+            "kernel32-policy-heap-allocator-invalid"
+        );
 
         let mut invalid_environment_layer = policy.clone();
         invalid_environment_layer.wide_environment_strings = true;

@@ -19,18 +19,18 @@
 
 Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則として変更せず、ブラウザ内の互換ランタイムで再ホストする。
 
-対象は Windows userspace の実行契約であり、ゲームエンジン、シナリオ VM、個別アセット形式ではない。Windows API と DirectX API の必要部分を、ブラウザの graphics、audio、storage、input API に直接接続する。
+対象は Windows userspace の実行契約であり、ゲームエンジン、シナリオ VM、個別アセット形式ではない。Windows API と DirectX API の必要部分を、ブラウザのgraphics／audio／input APIとVine local storage serviceへ接続する。
 
 ## 3. 成功状態
 
-最終成功状態は、今回 fingerprint を記録したサクラノ詩 `BGI.exe` について、次の利用シナリオを Chrome だけで完了し、全編を native Windows 実行と同様に不自由なくプレイできることである。
+最終成功状態は、今回 fingerprint を記録したサクラノ詩 `BGI.exe` について、Vine local serverを伴うChrome UIで次の利用シナリオを完了し、全編を native Windows 実行と同様に不自由なくプレイできることである。
 
 1. 利用者がローカルのゲームディレクトリまたはパッケージを選択する。
 2. Vine が対象を検査し、実行形式、既知の未対応機能、静的には判定できない依存、必要容量を表示する。preflight 通過を互換性保証とは表示しない。
 3. import した `.exe` / `.dll` の immutable snapshot から、タイトルの entry point を起動する。
 4. ウィンドウ描画、文字表示、キーボード／マウス入力、BGM／効果音を利用できる。
-5. セーブデータと必要な registry 状態をブラウザ storage に永続化する。
-6. ブラウザ再起動後に同じタイトルを再開し、保存したデータをロードできる。
+5. セーブデータと必要な registry 状態をsourceと分離したtitle-local storageへ永続化する。
+6. ブラウザとVine local serverの再起動後に同じタイトルを再開し、保存したデータをロードできる。
 7. 序盤だけでなく全シナリオ、選択肢、演出、ending まで進行でき、途中で未対応機能により停止しない。
 8. 失敗時に、診断 bundle と未対応 API 一覧を取得できる。
 
@@ -71,7 +71,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | Windows API | サクラノ詩が必要とする `ntdll` 相当の内部境界、Kernel32、User32、GDI32、GDI+、COM、および限定した補助 DLL |
 | graphics | GDI、GDI+ image subset、bounded D3D9。DirectDraw は比較 branch。backend は成立性検証で WebGL2 / WebGPU を中心に決定 |
 | audio | DirectSound から Web Audio API への接続。WinMM／MCI は primary scenario で到達する command subset |
-| storage | in-memory VFS と永続 backend。OPFS / IndexedDB 等の採用は ADR で決定 |
+| storage | Rust-owned VFSとsame-origin localhost Vine server。初期save／registry storeはtitle-local SQLite、OPFS／IndexedDBは将来の交換backend |
 | input | User32 keyboard／mouse／focus と、サクラノ詩が呼ぶ DirectInput 8 subset。IME と gamepad は優先度を別途決定 |
 | locale | 日本語 VN に必要な Unicode / Windows-932、時刻、基本 locale、font mapping |
 | browser | current stable Chrome を最初の target とし、evidence に実 version を記録。最低 version は成立性検証後に固定 |
@@ -110,6 +110,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | CON-03 | DOM、audio、storage には thread、user activation、permission、quota の制約がある |
 | CON-04 | guest の 32 bit 仮想アドレス空間を host Wasm memory へ単純に 1:1 対応できるとは仮定しない |
 | CON-07 | 初期性能の成立性が証明されるまで、DBT/JIT や SharedArrayBuffer を必須構成と断定しない |
+| CON-08 | 初期storageはsame-origin localhost Vine serverを必要とする。remote upload、cloud account、browser-only persistenceはactive baselineとしない |
 
 ## 7. 機能要件
 
@@ -142,7 +143,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | REQ-MEM-03 | executable、writable 等の guest protection を論理的に追跡し、self-modifying code を検出できる | Should |
 
 <!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
-現在のproduction guest-memory ingressは、sparse 4 GiB range、owner-scoped reserve／commit／protect／decommit／release、bounded physical quota、cross-page preflight、logical execute seal、initial full reflectionとincremental `MemoryDelta`を実装する。Rust `GuestMemory`をbyte authority、v86 pagingをexecution mirrorとし、reflection／host delta／CPU writebackはfixed-width binary controlとcontiguous page payloadを使う。bounded slice後は全writable PTEのDirty bitからAPI固有listなしでstack／heap／surface／RWX multi-page writeを検出し、owner／generationをbatch全体でpreflightしてone transaction／one generationへatomic reconcileする。通常RW／NX host writeはdirty pageだけをlive v86へ適用でき、write-to-codeはinstruction-fetch／generated-code effectsを要求する。transactionは全memory snapshotではなくchanged-state／frame before-image journalを使い、4 MiB baselineでも開始時frame copy 0 bytes、1／2 changed pageで4／8 KiBに限定する。controlled sealed pagesはactual acknowledgement後にv86 entryからfirst thunkまで実行し、BGIのbase 388-page stateはfirst nine API returns、separate dynamic endpointを含む389-page modeはseventeenth returnまで進んだ。Typed logical private heapは32 x 16 MiB controlled band、8-byte allocation identity、deterministic initialization、free／reuse、heap／process teardownへ同じmemory transactionで接続した。Reached `HeapAlloc(0x68010001,8,0x214)`／`HeapAlloc(0x68010001,8,0x800)`はzeroed blocks `0x20000000`／`0x20000218`を作り、first reserve／commit generation `82 -> 85`とsecond dirty-only generation `106 -> 107`をlive v86へ適用する。Reached `HeapAlloc(0x68010001,0,1)`はallocation ID `3`／block `0x20000A18`／reserved 8-byte deterministic-uninitialized dirty deltaを作り、following conversionがrequested byteへNULを書く。Reached `HeapAlloc(0x68010001,0,0x220)`はallocation ID `4`／block `0x20000A20`／reserved 544-byte deterministic-uninitialized dirty deltaを作り、following guest consumerがrequested 544 bytesを全上書きして先頭DWORDをclearする。Reached `HeapAlloc(0x68010001,0,16)`はallocation ID `5`／block `0x20000C40`／requested・reserved 16-byte deterministic-uninitialized dirty-only deltaを作り、following path consumerのstack／heap writebackを同じauthorityへreconcileする。Generation／owner付きstack／image／unsealed heap CPU reconciliation、logical module／TLS index／thread value／encoded-pointer tokens、bounded FLS slot／selected-thread initialization／value、selected-thread `GetLastError`／`SetLastError`／`TlsGetValue`／`FlsGetValue` state、policy-backed `GetACP` read／18-byte `GetCPInfo` output、bounded UTF-16／ASCII reads、executable source validation、five checked wrapping LONG updates、process-owned logical stdin／stdout／stderr、stdin `FILE_TYPE_CHAR`／stdout／stderr `FILE_TYPE_PIPE` classifications、mutation-free `SetHandleCount(32)`も成立したが、stackはfixed 1 pageであり、broad heap flags／sizes／failure／free／realloc、title heap capacity、general handle-table sizing、broad file type／file I/O、TLS free／teardown、FLS free／callback teardown／fiber switching、other interlocked operations／cross-Worker atomicity、general pointer encoding、system-DLL image、guard、snapshotは未実装なので、`REQ-MEM-01`～`REQ-MEM-03`はいずれもpartialである。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[memory-writeback.md](memory-writeback.md)、[runtime-heap-backing.md](runtime-heap-backing.md)、[bgi-private-heap-size-16.md](bgi-private-heap-size-16.md)を正とする。
+現在のproduction guest-memory ingressは、sparse 4 GiB range、owner-scoped reserve／commit／protect／decommit／release、bounded physical quota、cross-page preflight、logical execute seal、initial full reflectionとincremental `MemoryDelta`を実装する。Rust `GuestMemory`をbyte authority、v86 pagingをexecution mirrorとし、reflection／host delta／CPU writebackはfixed-width binary controlとcontiguous page payloadを使う。bounded slice後は全writable PTEのDirty bitからAPI固有listなしでstack／heap／surface／RWX multi-page writeを検出し、owner／generationをbatch全体でpreflightしてone transaction／one generationへatomic reconcileする。通常RW／NX host writeはdirty pageだけをlive v86へ適用でき、write-to-codeはinstruction-fetch／generated-code effectsを要求する。transactionは全memory snapshotではなくchanged-state／frame before-image journalを使い、4 MiB baselineでも開始時frame copy 0 bytes、1／2 changed pageで4／8 KiBに限定する。controlled sealed pagesはactual acknowledgement後にv86 entryからfirst thunkまで実行し、BGIのbase 388-page stateはfirst nine API returns、separate dynamic endpointを含む389-page modeはseventeenth returnまで進んだ。Typed logical private heapは32 x 16 MiB controlled band、8-byte allocation identity、deterministic initialization、free／reuse、heap／process teardownへ同じmemory transactionで接続した。Reached `HeapAlloc(0x68010001,8,0x214)`／`HeapAlloc(0x68010001,8,0x800)`はzeroed blocks `0x20000000`／`0x20000218`を作り、first reserve／commit generation `82 -> 85`とsecond dirty-only generation `106 -> 107`をlive v86へ適用する。Reached `HeapAlloc(0x68010001,0,1)`はallocation ID `3`／block `0x20000A18`／reserved 8-byte deterministic-uninitialized dirty deltaを作り、following conversionがrequested byteへNULを書く。Reached `HeapAlloc(0x68010001,0,0x220)`はallocation ID `4`／block `0x20000A20`／reserved 544-byte deterministic-uninitialized dirty deltaを作り、following guest consumerがrequested 544 bytesを全上書きして先頭DWORDをclearする。Reached `HeapAlloc(0x68010001,0,16)`はallocation ID `5`／block `0x20000C40`／requested・reserved 16-byte deterministic-uninitialized dirty-only deltaを作り、following path consumerのstack／heap writebackを同じauthorityへreconcileする。Active schema-v2 policyは観測size一覧ではなくflags `0`／`HEAP_ZERO_MEMORY`とinclusive nonzero range `1..=16 MiB`を選択し、allocator本体のheap capacity／physical quota／allocation-count limitを別にpreflightする。Generation／owner付きstack／image／unsealed heap CPU reconciliation、logical module／TLS index／thread value／encoded-pointer tokens、bounded FLS slot／selected-thread initialization／value、selected-thread `GetLastError`／`SetLastError`／`TlsGetValue`／`FlsGetValue` state、policy-backed `GetACP` read／18-byte `GetCPInfo` output、bounded UTF-16／ASCII reads、executable source validation、five checked wrapping LONG updates、process-owned logical stdin／stdout／stderr、stdin `FILE_TYPE_CHAR`／stdout／stderr `FILE_TYPE_PIPE` classifications、mutation-free `SetHandleCount(32)`も成立したが、stackはfixed 1 pageであり、other heap flags／zero-size／failure-return／realloc、title heap capacity、general handle-table sizing、broad file type／file I/O、TLS free／teardown、FLS free／callback teardown／fiber switching、other interlocked operations／cross-Worker atomicity、general pointer encoding、system-DLL image、guard、snapshotは未実装なので、`REQ-MEM-01`～`REQ-MEM-03`はいずれもpartialである。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[memory-writeback.md](memory-writeback.md)、[runtime-heap-backing.md](runtime-heap-backing.md)、[bgi-private-heap-size-16.md](bgi-private-heap-size-16.md)を正とする。
 
 Reached `GetModuleFileNameA(NULL,0x100FF520,260)`はRust bootstrap-owned
 `C:\Vine\BGI.exe\0`を16-byte checked outputとしてimage data pageへ書き、host
@@ -262,7 +263,9 @@ DirectInput／DirectDraw interface、device／resource semantics、または`REQ
 | REQ-FS-02 | read-only source と writable overlay を統合して guest に見せ、source file を変更しない | Must |
 | REQ-FS-03 | create、read、write、seek、truncate、enumeration、metadata の corpus 必要範囲を提供する | Must |
 | REQ-FS-04 | sharing、locking、delete-on-close、memory-mapped file の必要範囲を測定し、実装状態を明示する | Must |
-| REQ-FS-05 | save data を crash-consistent に永続化し、write 成功、flush／close、browser transaction commit の durability point を定義して export、backup、delete できる | Must |
+| REQ-FS-05 | save data を crash-consistent に永続化し、write 成功、flush／close、storage transaction commit の durability point を定義して export、backup、delete できる | Must |
+| REQ-FS-06 | 初期backendはsame-origin localhost Vine serverとし、immutable sourceはread-only、save／registryはtitle fingerprint別SQLite transactionへ保存する | Must |
+| REQ-FS-07 | storage境界はtitle／snapshot／profile／object identityだけを受け、生のguest pointer、Win32 handle、任意host absolute pathを受け入れない | Must |
 | REQ-REG-01 | HKCU を中心とした virtual registry の key、value、type、enumeration を提供する | Must |
 | REQ-REG-02 | machine-wide、COM registration 等の hive は必要な read-only default または title-local overlay として隔離する | Should |
 | REQ-REG-03 | registry 状態を title 単位で versioning して永続化、export、reset できる | Must |
