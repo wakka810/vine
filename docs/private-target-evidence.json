@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 4,
   "status": "passed",
-  "recordedAt": "2026-07-15T08:53:14.051Z",
+  "recordedAt": "2026-07-15T09:10:18.591Z",
   "repository": {
-    "implementationCommit": "0da7f0106e9043811889832d558ff8324db2e0f1",
-    "implementationTree": "57e59c5c70e8fb78e098e26f6f9eb4c1552fbcf9",
-    "headCommit": "0da7f0106e9043811889832d558ff8324db2e0f1",
+    "implementationCommit": "15d931e185256ff0ac8e320f7ce206fd9a439b3e",
+    "implementationTree": "a9216168d344a01081cb99c8aadac26ea20bb8ca",
+    "headCommit": "15d931e185256ff0ac8e320f7ce206fd9a439b3e",
     "dirty": true,
     "dirtyPaths": [
       "AGENTS.md",
@@ -177,13 +177,13 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 282262,
-      "sha256": "bffc64c022d58186e8b4d954e90f85f6e3df6888a1edd4b528a9ad0d9b00d698"
+      "bytes": 282267,
+      "sha256": "5ecc67e029118abb5c20be304579ef809dd23c5b66ed6acb40db50cb4afceeae"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
       "bytes": 6959,
-      "sha256": "64d7059962fb18150de23e71bf2751cb72db49aa03ed6656076b5ce02cdcd57d"
+      "sha256": "c806a44449bc6fb8e23352cb7d402abf08f5c6da65ec4f09cc8aef2c92763893"
     },
     "v86AdapterReport": {
       "path": ".work/v86-adapter-spike/report.json",
@@ -193,7 +193,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3200,
-      "sha256": "0b44f7bd6d6c689860122f8583ae7d323526efcc3b501a2697563c15b20f1e7d"
+      "sha256": "72ca01c95de0d0104a1620b098af2d4a6e73820a5d33bef457b209cbede08a1b"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -230,5 +230,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "3b9b6ff5d3a58d60b65d845d8cd02cbfc56aaad085b17bf5c44ead4c384ae6b0"
   },
-  "payloadSha256": "bfe9cfb74b0d5794ecc878b79d1da5eba6c2facb6a86ca38c199bec23871b784"
+  "payloadSha256": "dd7b1a6cff9b312da81f670d7eee3facdf59a3951c7956266e8872e7dd0027f5"
 }
