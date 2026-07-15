@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
 use crate::dynamic_exports::{DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE};
 use crate::imports::{IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE};
-use crate::memory::{GUEST_PAGE_SIZE, GuestAddress};
+use crate::memory::{GUEST_PAGE_SIZE, GuestAddress, GuestMemoryError};
 
 use super::{
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
@@ -159,11 +159,29 @@ pub struct ProcessAddressAllocationRequest {
     pub executable: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessAddressMappingRequirements {
+    pub purpose: ProcessAddressAllocationPurpose,
+    pub owner: String,
+    pub range: RuntimeAddressRange,
+    pub classification: ProcessAddressAllocationClassification,
+    pub lifetime: ProcessAddressAllocationLifetime,
+    pub release_policy: ProcessAddressAllocationReleasePolicy,
+    pub executable: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessAddressSpaceAllocator {
     allocations: BTreeMap<ProcessAddressAllocationId, ProcessAddressAllocationRecord>,
     next_id: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProcessAddressReservationPlan {
+    previous: ProcessAddressSpaceAllocator,
+    next: ProcessAddressSpaceAllocator,
+    pub(crate) allocation: ProcessAddressAllocationRecord,
 }
 
 impl ProcessAddressSpaceAllocator {
@@ -261,6 +279,45 @@ impl ProcessAddressSpaceAllocator {
         request: ProcessAddressAllocationRequest,
     ) -> Result<ProcessAddressAllocationRecord, RuntimeStateError> {
         self.reserve_internal(None, request, false)
+    }
+
+    pub(crate) fn plan_reservation(
+        &self,
+        request: ProcessAddressAllocationRequest,
+    ) -> Result<ProcessAddressReservationPlan, RuntimeStateError> {
+        let mut next = self.clone();
+        let allocation = next.reserve(request)?;
+        Ok(ProcessAddressReservationPlan {
+            previous: self.clone(),
+            next,
+            allocation,
+        })
+    }
+
+    pub(crate) fn preflight_reservation_commit(
+        &self,
+        plan: &ProcessAddressReservationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self != &plan.previous {
+            return Err(RuntimeStateError::conflict(
+                "runtime-address-space",
+                "address-allocation-reservation-plan-stale",
+                "process address allocations changed after reservation planning",
+            ));
+        }
+        if plan.next.allocation(plan.allocation.id).is_err() {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-address-space",
+                "address-allocation-reservation-plan-invalid",
+                "planned process address allocation is missing from the next allocator state",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_reservation(&mut self, plan: ProcessAddressReservationPlan) {
+        debug_assert_eq!(self, &plan.previous);
+        *self = plan.next;
     }
 
     pub fn reserve_within(
@@ -503,6 +560,92 @@ impl ProcessAddressSpaceAllocator {
                 candidate_start >= allocation_end || allocation_start >= candidate_end
             })
     }
+}
+
+pub fn validate_process_address_mapping_allocation(
+    allocation: &ProcessAddressAllocationRecord,
+    requirements: &ProcessAddressMappingRequirements,
+) -> Result<(), RuntimeStateError> {
+    if allocation.id.0 == 0 {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-address-space",
+            "address-allocation-mapping-id-zero",
+            "a mapping allocation record requires a nonzero identity",
+        ));
+    }
+    if allocation.purpose != requirements.purpose {
+        return Err(RuntimeStateError::conflict(
+            "runtime-address-space",
+            "address-allocation-mapping-purpose-mismatch",
+            "the mapping plan received an allocation record for a different purpose",
+        ));
+    }
+    if allocation.owner != requirements.owner {
+        return Err(RuntimeStateError::conflict(
+            "runtime-address-space",
+            "address-allocation-mapping-owner-mismatch",
+            "the mapping plan owner does not match the allocation record owner",
+        ));
+    }
+    if allocation.range != requirements.range {
+        return Err(RuntimeStateError::conflict(
+            "runtime-address-space",
+            "address-allocation-mapping-range-mismatch",
+            "the mapping plan range does not exactly match its allocation record",
+        ));
+    }
+    if allocation.classification != requirements.classification {
+        return Err(RuntimeStateError::conflict(
+            "runtime-address-space",
+            "address-allocation-mapping-classification-mismatch",
+            "the mapping plan classification does not match the allocation record",
+        ));
+    }
+    if allocation.lifetime != requirements.lifetime {
+        return Err(RuntimeStateError::conflict(
+            "runtime-address-space",
+            "address-allocation-mapping-lifetime-mismatch",
+            "the mapping plan lifetime does not match the allocation record",
+        ));
+    }
+    if allocation.release_policy != requirements.release_policy {
+        return Err(RuntimeStateError::conflict(
+            "runtime-address-space",
+            "address-allocation-mapping-release-policy-mismatch",
+            "the mapping plan release policy does not match the allocation record",
+        ));
+    }
+    if allocation.executable != requirements.executable {
+        return Err(RuntimeStateError::conflict(
+            "runtime-address-space",
+            "address-allocation-mapping-executable-policy-mismatch",
+            "the mapping plan executable policy does not match the allocation record",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_process_address_mapping_allocation_for_memory(
+    allocation: &ProcessAddressAllocationRecord,
+    requirements: &ProcessAddressMappingRequirements,
+) -> Result<(), GuestMemoryError> {
+    validate_process_address_mapping_allocation(allocation, requirements).map_err(|error| {
+        match error.class {
+            super::RuntimeStateErrorClass::InvalidInput
+            | super::RuntimeStateErrorClass::NotFound => {
+                GuestMemoryError::invalid_request(error.stage, error.code, error.message)
+            }
+            super::RuntimeStateErrorClass::Conflict => {
+                GuestMemoryError::conflict(error.stage, error.code, error.message)
+            }
+            super::RuntimeStateErrorClass::ResourceLimit => {
+                GuestMemoryError::resource_limit(error.stage, error.code, error.message)
+            }
+            super::RuntimeStateErrorClass::RuntimeDefect => {
+                GuestMemoryError::runtime_defect(error.stage, error.code, error.message)
+            }
+        }
+    })
 }
 
 fn fixed_request(

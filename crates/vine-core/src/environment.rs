@@ -5,6 +5,13 @@ use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestRange, MemoryInvalidation,
     MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
 };
+use crate::runtime::{
+    ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    ProcessAddressAllocationReleasePolicy, ProcessAddressAllocationRequest,
+    ProcessAddressMappingRequirements, RuntimeAddressRange, RuntimeState, RuntimeStateError,
+    validate_process_address_mapping_allocation_for_memory,
+};
 
 pub const CONTROLLED_TEB_BASE: GuestAddress = GuestAddress(0x7ffd_e000);
 pub const CONTROLLED_PEB_BASE: GuestAddress = GuestAddress(0x7ffd_f000);
@@ -71,6 +78,7 @@ pub struct InitialProcessParameters {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitialProcessEnvironment {
+    pub address_allocation_id: crate::runtime::ProcessAddressAllocationId,
     pub teb_owner: MemoryOwnerId,
     pub peb_owner: MemoryOwnerId,
     pub teb_region_kind: MemoryRegionKind,
@@ -167,43 +175,72 @@ enum EnvironmentMutationStage {
 
 pub fn install_controlled_process_environment(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_internal(memory, None, false, false)
+    install_controlled_process_environment_internal(memory, allocation, None, false, false)
 }
 
 pub fn install_controlled_process_environment_with_parameters(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_with_command_line(memory, CONTROLLED_COMMAND_LINE)
+    install_controlled_process_environment_with_command_line(
+        memory,
+        allocation,
+        CONTROLLED_COMMAND_LINE,
+    )
 }
 
 pub fn install_controlled_process_environment_with_command_line(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
     command_line: &str,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_internal(memory, Some(command_line), false, false)
+    install_controlled_process_environment_internal(
+        memory,
+        allocation,
+        Some(command_line),
+        false,
+        false,
+    )
 }
 
 pub fn install_controlled_process_environment_with_command_line_and_ansi(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
     command_line: &str,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_internal(memory, Some(command_line), true, false)
+    install_controlled_process_environment_internal(
+        memory,
+        allocation,
+        Some(command_line),
+        true,
+        false,
+    )
 }
 
 pub fn install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
     command_line: &str,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
-    install_controlled_process_environment_internal(memory, Some(command_line), true, true)
+    install_controlled_process_environment_internal(
+        memory,
+        allocation,
+        Some(command_line),
+        true,
+        true,
+    )
 }
 
 fn install_controlled_process_environment_internal(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
     command_line: Option<&str>,
     include_ansi: bool,
     include_environment_strings: bool,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError> {
+    validate_process_environment_mapping_allocation(allocation, command_line.is_some())?;
     let command_line = preflight_process_environment(
         memory,
         command_line,
@@ -214,6 +251,7 @@ fn install_controlled_process_environment_internal(
     let mut checkpoint = |_| Ok(());
     let environment = install_controlled_process_environment_transaction(
         &mut transaction,
+        allocation,
         command_line.as_ref(),
         &mut checkpoint,
     )?;
@@ -221,8 +259,44 @@ fn install_controlled_process_environment_internal(
     Ok(environment)
 }
 
+pub(crate) fn install_controlled_process_environment_for_runtime(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
+    command_line: Option<&str>,
+    include_ansi: bool,
+    include_environment_strings: bool,
+) -> Result<InitialProcessEnvironment, RuntimeStateError> {
+    let command_line = preflight_process_environment(
+        memory,
+        command_line,
+        include_ansi,
+        include_environment_strings,
+    )
+    .map_err(RuntimeStateError::from_memory)?;
+    let reservation = runtime.plan_initial_process_environment_reservation(
+        controlled_process_environment_allocation_request(command_line.is_some()),
+    )?;
+    let allocation = reservation.allocation.clone();
+    validate_process_environment_mapping_allocation(&allocation, command_line.is_some())
+        .map_err(RuntimeStateError::from_memory)?;
+
+    let mut transaction = memory.begin_transaction();
+    let mut checkpoint = |_| Ok(());
+    let environment = install_controlled_process_environment_transaction(
+        &mut transaction,
+        &allocation,
+        command_line.as_ref(),
+        &mut checkpoint,
+    )
+    .map_err(RuntimeStateError::from_memory)?;
+    runtime.commit_initial_process_environment_reservation(reservation, &environment)?;
+    transaction.commit_transaction();
+    Ok(environment)
+}
+
 fn install_controlled_process_environment_transaction<F>(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
     command_line: Option<&ValidatedCommandLine>,
     checkpoint: &mut F,
 ) -> Result<InitialProcessEnvironment, GuestMemoryError>
@@ -231,12 +305,14 @@ where
 {
     let (teb_owner, teb_range) = reserve_environment_page(
         memory,
+        allocation.id.0,
         MemoryRegionKind::ThreadEnvironmentBlock,
         CONTROLLED_TEB_BASE,
     )?;
     checkpoint(EnvironmentMutationStage::TebReserved)?;
     let (peb_owner, peb_range) = reserve_environment_page(
         memory,
+        allocation.id.0,
         MemoryRegionKind::ProcessEnvironmentBlock,
         CONTROLLED_PEB_BASE,
     )?;
@@ -246,11 +322,13 @@ where
         .then(|| {
             let (process_parameters_owner, process_parameters_range) = reserve_environment_page(
                 memory,
+                allocation.id.0,
                 MemoryRegionKind::ProcessParameters,
                 CONTROLLED_PROCESS_PARAMETERS_BASE,
             )?;
             let (command_line_owner, command_line_range) = reserve_environment_page(
                 memory,
+                allocation.id.0,
                 MemoryRegionKind::CommandLine,
                 CONTROLLED_COMMAND_LINE_BASE,
             )?;
@@ -387,6 +465,7 @@ where
         .transpose()?;
 
     Ok(InitialProcessEnvironment {
+        address_allocation_id: allocation.id,
         teb_owner,
         peb_owner,
         teb_region_kind: MemoryRegionKind::ThreadEnvironmentBlock,
@@ -811,17 +890,77 @@ fn align_up_usize(value: usize, alignment: usize) -> Option<usize> {
 
 fn reserve_environment_page(
     memory: &mut GuestMemory,
+    address_allocation_id: u64,
     kind: MemoryRegionKind,
     address: GuestAddress,
 ) -> Result<(MemoryOwnerId, GuestRange), GuestMemoryError> {
     let owner = memory.create_owner(MemoryOwnerKind::Anonymous)?;
-    match memory.reserve_fixed(owner, kind, address, CONTROLLED_ENVIRONMENT_PAGE_SIZE) {
+    match memory.reserve_fixed_for_address_allocation(
+        address_allocation_id,
+        owner,
+        kind,
+        address,
+        CONTROLLED_ENVIRONMENT_PAGE_SIZE,
+    ) {
         Ok(range) => Ok((owner, range)),
         Err(error) => {
             memory.destroy_owner(owner)?;
             Err(error)
         }
     }
+}
+
+pub fn controlled_process_environment_allocation_request(
+    includes_process_parameters: bool,
+) -> ProcessAddressAllocationRequest {
+    let range = process_environment_address_range(includes_process_parameters);
+    ProcessAddressAllocationRequest {
+        purpose: ProcessAddressAllocationPurpose::ProcessEnvironment,
+        owner: "runtime-initial-process-environment".to_owned(),
+        preferred_address: Some(range.base),
+        search_range: range,
+        reserve_size: range.byte_length,
+        alignment: GUEST_PAGE_SIZE as u32,
+        guard_pages: 0,
+        classification: ProcessAddressAllocationClassification::ProcessEnvironment,
+        lifetime: ProcessAddressAllocationLifetime::Process,
+        release_policy: ProcessAddressAllocationReleasePolicy::Permanent,
+        executable: false,
+    }
+}
+
+fn process_environment_address_range(includes_process_parameters: bool) -> RuntimeAddressRange {
+    RuntimeAddressRange {
+        base: if includes_process_parameters {
+            CONTROLLED_PROCESS_PARAMETERS_BASE
+        } else {
+            CONTROLLED_TEB_BASE
+        },
+        byte_length: if includes_process_parameters {
+            4 * GUEST_PAGE_SIZE
+        } else {
+            2 * GUEST_PAGE_SIZE
+        },
+    }
+}
+
+fn validate_process_environment_mapping_allocation(
+    allocation: &ProcessAddressAllocationRecord,
+    includes_process_parameters: bool,
+) -> Result<(), GuestMemoryError> {
+    let request = controlled_process_environment_allocation_request(includes_process_parameters);
+    validate_process_address_mapping_allocation_for_memory(
+        allocation,
+        &ProcessAddressMappingRequirements {
+            purpose: request.purpose,
+            owner: request.owner,
+            range: request.search_range,
+            classification: request.classification,
+            lifetime: request.lifetime,
+            release_policy: request.release_policy,
+            executable: request.executable,
+        },
+    )
 }
 
 fn zero_environment_page(
@@ -912,6 +1051,7 @@ fn hex_digest(digest: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::memory::{GuestMemoryErrorClass, MemoryLimits};
+    use crate::runtime::{ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout};
 
     #[test]
     fn rolls_back_every_process_environment_mutation_checkpoint() {
@@ -955,6 +1095,7 @@ mod tests {
                 preflight_process_environment(&memory, Some("failpoint.exe"), true, true)
                     .expect("preflight")
                     .expect("validated command line");
+            let allocation = environment_allocation(true);
             {
                 let mut transaction = memory.begin_transaction();
                 let mut checkpoint = |stage| {
@@ -970,6 +1111,7 @@ mod tests {
                 };
                 let error = install_controlled_process_environment_transaction(
                     &mut transaction,
+                    &allocation,
                     Some(&command_line),
                     &mut checkpoint,
                 )
@@ -980,9 +1122,21 @@ mod tests {
             assert_eq!(memory.stats(), before, "rollback after {fail_at:?}");
             install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
                 &mut memory,
+                &allocation,
                 "failpoint.exe",
             )
             .unwrap_or_else(|error| panic!("retry after {fail_at:?} failed: {error}"));
         }
+    }
+
+    fn environment_allocation(includes_process_parameters: bool) -> ProcessAddressAllocationRecord {
+        let mut allocator =
+            ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1())
+                .expect("address allocator");
+        allocator
+            .reserve(controlled_process_environment_allocation_request(
+                includes_process_parameters,
+            ))
+            .expect("environment allocation")
     }
 }

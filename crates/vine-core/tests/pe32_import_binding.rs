@@ -4,9 +4,11 @@ use std::path::PathBuf;
 use vine_core::{
     GuestAddress, GuestMemory, GuestMemoryErrorClass, IMPORT_THUNK_ARENA_BASE,
     ImportPlanDisposition, ImportTarget, ImportThunkDisposition, MemoryAccess, MemoryFaultReason,
-    MemoryLimits, MemoryOwnerKind, MemoryRegionKind, ModuleSnapshot, Pe32Limits, RuntimeExport,
-    RuntimeExportCatalog, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, commit_pe32_import_binding, materialize_pe32_image, plan_pe32_imports,
+    MemoryLimits, MemoryOwnerKind, MemoryRegionKind, ModuleSnapshot, Pe32Limits,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
+    ProcessAddressSpaceLayout, RuntimeExport, RuntimeExportCatalog, bind_pe32_imports,
+    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, commit_pe32_import_binding,
+    materialize_pe32_image, plan_pe32_imports,
 };
 
 const FIXTURE_SHA256: &str = "60f882a22d7d44e0ebe734f284dc8676e29035207ff004ed0cdf6e97c629b9c7";
@@ -44,7 +46,7 @@ fn binds_owned_thunks_and_seals_the_controlled_image() {
     ])
     .expect("controlled runtime exports");
 
-    let binding = bind_pe32_imports(&mut memory, &loader, &image, &catalog)
+    let binding = bind_pe32_imports(&mut memory, &import_allocation(), &loader, &image, &catalog)
         .expect("controlled import binding");
     assert_eq!(catalog.len(), 2);
     assert_eq!(binding.total_imports, 2);
@@ -160,7 +162,7 @@ fn binds_owned_thunks_and_seals_the_controlled_image() {
     assert!(!json_text.contains("disposition"));
     assert!(!json_text.contains("unsupportedTrapImports"));
 
-    let rebinding = bind_pe32_imports(&mut memory, &loader, &image, &catalog)
+    let rebinding = bind_pe32_imports(&mut memory, &import_allocation(), &loader, &image, &catalog)
         .expect_err("successful binding is not repeatable");
     assert_eq!(rebinding.code, "imports-already-bound");
 }
@@ -197,8 +199,14 @@ fn binds_missing_import_to_an_identity_preserving_trap() {
     )])
     .expect("one declared runtime export");
 
-    let binding = bind_pe32_imports_with_unsupported_traps(&mut memory, &loader, &image, &catalog)
-        .expect("explicit unsupported trap binding");
+    let binding = bind_pe32_imports_with_unsupported_traps(
+        &mut memory,
+        &import_allocation(),
+        &loader,
+        &image,
+        &catalog,
+    )
+    .expect("explicit unsupported trap binding");
     assert_eq!(binding.total_imports, 2);
     assert_eq!(binding.bound_imports, 2);
     assert_eq!(binding.unsupported_trap_imports, 1);
@@ -275,7 +283,7 @@ fn unresolved_imports_leave_memory_unchanged_and_can_be_replanned_on_the_same_im
     let first_original = read_initialization_u32(&memory, image.layout.owner, first_iat);
     let second_original = read_initialization_u32(&memory, image.layout.owner, second_iat);
 
-    let plan = plan_pe32_imports(&memory, &loader, &image, &only_second)
+    let plan = plan_pe32_imports(&memory, &import_allocation(), &loader, &image, &only_second)
         .expect("read-only incomplete plan");
     assert!(!plan.complete);
     assert_eq!(plan.imports.len(), 2);
@@ -292,8 +300,14 @@ fn unresolved_imports_leave_memory_unchanged_and_can_be_replanned_on_the_same_im
     );
     assert_eq!(memory.stats(), stats_before);
 
-    let incomplete = bind_pe32_imports(&mut memory, &loader, &image, &only_second)
-        .expect("all unresolved imports are a structured stop");
+    let incomplete = bind_pe32_imports(
+        &mut memory,
+        &import_allocation(),
+        &loader,
+        &image,
+        &only_second,
+    )
+    .expect("all unresolved imports are a structured stop");
     assert!(!incomplete.complete);
     assert_eq!(incomplete.bound_imports, 0);
     assert_eq!(incomplete.remaining_imports, 2);
@@ -310,8 +324,14 @@ fn unresolved_imports_leave_memory_unchanged_and_can_be_replanned_on_the_same_im
     );
 
     let no_exports = RuntimeExportCatalog::new(Vec::new()).expect("empty catalog");
-    let all_unresolved = bind_pe32_imports(&mut memory, &loader, &image, &no_exports)
-        .expect("multiple unresolved imports");
+    let all_unresolved = bind_pe32_imports(
+        &mut memory,
+        &import_allocation(),
+        &loader,
+        &image,
+        &no_exports,
+    )
+    .expect("multiple unresolved imports");
     assert_eq!(all_unresolved.unresolved_imports.len(), 2);
     assert_eq!(memory.stats(), stats_before);
 
@@ -320,8 +340,14 @@ fn unresolved_imports_leave_memory_unchanged_and_can_be_replanned_on_the_same_im
         "fixture_add",
     )])
     .expect("first-only catalog");
-    let unresolved_last = bind_pe32_imports(&mut memory, &loader, &image, &only_first)
-        .expect("last unresolved import");
+    let unresolved_last = bind_pe32_imports(
+        &mut memory,
+        &import_allocation(),
+        &loader,
+        &image,
+        &only_first,
+    )
+    .expect("last unresolved import");
     assert_eq!(unresolved_last.unresolved_imports.len(), 1);
     assert!(matches!(
         &unresolved_last.unresolved_imports[0].target,
@@ -334,8 +360,14 @@ fn unresolved_imports_leave_memory_unchanged_and_can_be_replanned_on_the_same_im
         RuntimeExport::named("vine_fixture.dll", "fixture_call_callback"),
     ])
     .expect("complete catalog");
-    let rebound = bind_pe32_imports(&mut memory, &loader, &image, &complete_catalog)
-        .expect("retry after catalog extension");
+    let rebound = bind_pe32_imports(
+        &mut memory,
+        &import_allocation(),
+        &loader,
+        &image,
+        &complete_catalog,
+    )
+    .expect("retry after catalog extension");
     assert!(rebound.complete);
     assert_eq!(rebound.bound_imports, 2);
     assert_eq!(snapshot.identity(), loader.source);
@@ -354,7 +386,8 @@ fn rejects_iat_changes_between_plan_and_commit_without_additional_mutation() {
         RuntimeExport::named("vine_fixture.dll", "fixture_call_callback"),
     ])
     .expect("complete catalog");
-    let plan = plan_pe32_imports(&memory, &loader, &image, &catalog).expect("binding plan");
+    let plan = plan_pe32_imports(&memory, &import_allocation(), &loader, &image, &catalog)
+        .expect("binding plan");
     let first = &plan.imports[0];
     memory
         .write_initialization(
@@ -417,7 +450,7 @@ fn reports_all_unresolved_imports_across_modules_without_mutation() {
     }
     let catalog = RuntimeExportCatalog::new(exports).expect("partial multi-module catalog");
     let before = memory.stats();
-    let binding = bind_pe32_imports(&mut memory, &loader, &image, &catalog)
+    let binding = bind_pe32_imports(&mut memory, &import_allocation(), &loader, &image, &catalog)
         .expect("multi-module unresolved report");
     assert!(!binding.complete);
     assert_eq!(binding.bound_imports, 0);
@@ -449,6 +482,7 @@ fn preflights_thunk_capacity_physical_quota_and_fixed_arena_conflicts() {
     let before = memory.stats();
     let capacity = plan_pe32_imports(
         &memory,
+        &import_allocation(),
         &oversized_loader,
         &image,
         &RuntimeExportCatalog::new(Vec::new()).expect("empty catalog"),
@@ -469,8 +503,14 @@ fn preflights_thunk_capacity_physical_quota_and_fixed_arena_conflicts() {
     ])
     .expect("complete catalog");
     let before = memory.stats();
-    let quota = plan_pe32_imports(&memory, &loader, &image, &complete_catalog)
-        .expect_err("thunk physical quota");
+    let quota = plan_pe32_imports(
+        &memory,
+        &import_allocation(),
+        &loader,
+        &image,
+        &complete_catalog,
+    )
+    .expect_err("thunk physical quota");
     assert_eq!(quota.code, "physical-page-quota-exceeded");
     assert_eq!(memory.stats(), before);
 
@@ -502,8 +542,14 @@ fn preflights_thunk_capacity_physical_quota_and_fixed_arena_conflicts() {
     let image = materialize_pe32_image(&mut memory, &snapshot, &loader, GuestAddress(LOAD_BASE))
         .expect("materialize around collision");
     let before = memory.stats();
-    let conflict = plan_pe32_imports(&memory, &loader, &image, &complete_catalog)
-        .expect_err("fixed arena conflict");
+    let conflict = plan_pe32_imports(
+        &memory,
+        &import_allocation(),
+        &loader,
+        &image,
+        &complete_catalog,
+    )
+    .expect_err("fixed arena conflict");
     assert_eq!(conflict.code, "memory-region-overlap");
     assert_eq!(memory.stats(), before);
 }
@@ -535,6 +581,14 @@ fn materialized_fixture(
     let image = materialize_pe32_image(&mut memory, &snapshot, &loader, GuestAddress(LOAD_BASE))
         .expect("materialized fixture");
     (snapshot, loader, memory, image)
+}
+
+fn import_allocation() -> ProcessAddressAllocationRecord {
+    ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1())
+        .expect("address allocator")
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::ImportThunks)
+        .expect("import allocation")
+        .clone()
 }
 
 fn read_initialization_u32(

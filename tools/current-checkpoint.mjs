@@ -856,7 +856,13 @@ export function validateCurrentCheckpoint(manifest) {
     addressSpace.authority !== "rust-runtime-kernel" ||
     addressSpace.totalAllocationCount !==
       addressSpace.rootAllocationCount + addressSpace.heapSlotAllocationCount ||
-    addressSpace.heapBackingUsesAllocationId !== true
+    addressSpace.heapBackingUsesAllocationId !== true ||
+    addressSpace.controlMappingCommitUsesAllocationId !== true ||
+    addressSpace.mappingDeltaBinaryVersion !== 2 ||
+    addressSpace.mappingDeltaAllocationIdWidthBits !== 64 ||
+    addressSpace.browserMirrorValidatesAllocationId !== true ||
+    addressSpace.processEnvironmentReservationCommit !==
+      "memory-runtime-atomic-plan"
   ) {
     errors.push("active process address-space allocator boundary is invalid");
   }

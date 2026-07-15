@@ -211,25 +211,35 @@ impl From<MemoryInvalidation> for CacheEffects {
 #[serde(tag = "operation", rename_all = "kebab-case")]
 pub enum MappingOperation {
     Reserve {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         kind: MemoryRegionKind,
         range: GuestRange,
     },
     Commit {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         range: GuestRange,
         protection: PageProtection,
     },
     Protect {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         range: GuestRange,
         protection: PageProtection,
     },
     Decommit {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         range: GuestRange,
     },
     Release {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         range: GuestRange,
     },
@@ -258,10 +268,10 @@ pub struct MemoryDelta {
     pub content_sha256: String,
 }
 
-pub const MEMORY_DELTA_BINARY_VERSION: u32 = 1;
+pub const MEMORY_DELTA_BINARY_VERSION: u32 = 2;
 const MEMORY_DELTA_CONTROL_MAGIC: &[u8; 8] = b"VINEDL01";
 const MEMORY_DELTA_CONTROL_HEADER_BYTES: usize = 56;
-const MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES: usize = 32;
+const MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES: usize = 40;
 const MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,23 +363,58 @@ impl MemoryDelta {
         control.extend_from_slice(&0u32.to_le_bytes());
 
         for operation in &self.mapping_operations {
-            let (operation_code, owner, kind, range, protection) = match operation {
-                MappingOperation::Reserve { owner, kind, range } => {
-                    (1u32, *owner, Some(*kind), *range, None)
-                }
-                MappingOperation::Commit {
-                    owner,
-                    range,
-                    protection,
-                } => (2, *owner, None, *range, Some(*protection)),
-                MappingOperation::Protect {
-                    owner,
-                    range,
-                    protection,
-                } => (3, *owner, None, *range, Some(*protection)),
-                MappingOperation::Decommit { owner, range } => (4, *owner, None, *range, None),
-                MappingOperation::Release { owner, range } => (5, *owner, None, *range, None),
-            };
+            let (operation_code, address_allocation_id, owner, kind, range, protection) =
+                match operation {
+                    MappingOperation::Reserve {
+                        address_allocation_id,
+                        owner,
+                        kind,
+                        range,
+                    } => (
+                        1u32,
+                        *address_allocation_id,
+                        *owner,
+                        Some(*kind),
+                        *range,
+                        None,
+                    ),
+                    MappingOperation::Commit {
+                        address_allocation_id,
+                        owner,
+                        range,
+                        protection,
+                    } => (
+                        2,
+                        *address_allocation_id,
+                        *owner,
+                        None,
+                        *range,
+                        Some(*protection),
+                    ),
+                    MappingOperation::Protect {
+                        address_allocation_id,
+                        owner,
+                        range,
+                        protection,
+                    } => (
+                        3,
+                        *address_allocation_id,
+                        *owner,
+                        None,
+                        *range,
+                        Some(*protection),
+                    ),
+                    MappingOperation::Decommit {
+                        address_allocation_id,
+                        owner,
+                        range,
+                    } => (4, *address_allocation_id, *owner, None, *range, None),
+                    MappingOperation::Release {
+                        address_allocation_id,
+                        owner,
+                        range,
+                    } => (5, *address_allocation_id, *owner, None, *range, None),
+                };
             let protection_flags = protection.map_or(0, page_protection_flags);
             control.extend_from_slice(&operation_code.to_le_bytes());
             control.extend_from_slice(&owner.0.to_le_bytes());
@@ -377,6 +422,7 @@ impl MemoryDelta {
             control.extend_from_slice(&protection_flags.to_le_bytes());
             control.extend_from_slice(&range.start().0.to_le_bytes());
             control.extend_from_slice(&range.byte_length().to_le_bytes());
+            control.extend_from_slice(&address_allocation_id.unwrap_or(0).to_le_bytes());
             control.extend_from_slice(&0u32.to_le_bytes());
         }
 
@@ -716,6 +762,8 @@ pub struct MemoryReflectionPage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryRegionSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address_allocation_id: Option<u64>,
     pub owner: MemoryOwnerId,
     pub kind: MemoryRegionKind,
     pub range: GuestRange,
@@ -950,6 +998,7 @@ struct OwnerState {
 
 #[derive(Debug, Clone)]
 struct MemoryRegion {
+    address_allocation_id: Option<u64>,
     range: GuestRange,
     owner: MemoryOwnerId,
     kind: MemoryRegionKind,
@@ -1758,6 +1807,35 @@ impl GuestMemory {
         start: GuestAddress,
         byte_length: u64,
     ) -> Result<GuestRange, GuestMemoryError> {
+        self.reserve_fixed_internal(None, owner, kind, start, byte_length)
+    }
+
+    pub fn reserve_fixed_for_address_allocation(
+        &mut self,
+        address_allocation_id: u64,
+        owner: MemoryOwnerId,
+        kind: MemoryRegionKind,
+        start: GuestAddress,
+        byte_length: u64,
+    ) -> Result<GuestRange, GuestMemoryError> {
+        if address_allocation_id == 0 {
+            return Err(GuestMemoryError::invalid_request(
+                "region-table",
+                "address-allocation-id-zero",
+                "an allocation-backed memory region requires a nonzero address allocation ID",
+            ));
+        }
+        self.reserve_fixed_internal(Some(address_allocation_id), owner, kind, start, byte_length)
+    }
+
+    fn reserve_fixed_internal(
+        &mut self,
+        address_allocation_id: Option<u64>,
+        owner: MemoryOwnerId,
+        kind: MemoryRegionKind,
+        start: GuestAddress,
+        byte_length: u64,
+    ) -> Result<GuestRange, GuestMemoryError> {
         self.require_owner(owner)?;
         if self.regions.len() >= self.limits.max_regions {
             return Err(GuestMemoryError::resource_limit(
@@ -1784,10 +1862,22 @@ impl GuestMemory {
         }
         self.ensure_generation_available()?;
         self.journal_region_before(start.0);
-        self.regions
-            .insert(start.0, MemoryRegion { range, owner, kind });
+        self.regions.insert(
+            start.0,
+            MemoryRegion {
+                address_allocation_id,
+                range,
+                owner,
+                kind,
+            },
+        );
         self.record_change(
-            vec![MappingOperation::Reserve { owner, kind, range }],
+            vec![MappingOperation::Reserve {
+                address_allocation_id,
+                owner,
+                kind,
+                range,
+            }],
             CacheEffects::default(),
         )?;
         Ok(range)
@@ -1828,7 +1918,7 @@ impl GuestMemory {
     ) -> Result<MemoryInvalidation, GuestMemoryError> {
         self.require_owner(owner)?;
         require_page_aligned(range, "commit-range-not-page-aligned")?;
-        self.require_region_contains(owner, range)?;
+        let address_allocation_id = self.require_region_contains(owner, range)?;
         let pages = virtual_pages(range)?;
         if pages.clone().any(|page| self.pages.contains_key(&page)) {
             return Err(GuestMemoryError::conflict(
@@ -1876,6 +1966,7 @@ impl GuestMemory {
         }
         self.record_change(
             vec![MappingOperation::Commit {
+                address_allocation_id,
                 owner,
                 range,
                 protection,
@@ -1896,7 +1987,7 @@ impl GuestMemory {
     ) -> Result<MemoryInvalidation, GuestMemoryError> {
         self.require_owner(owner)?;
         require_page_aligned(range, "protect-range-not-page-aligned")?;
-        self.require_region_contains(owner, range)?;
+        let address_allocation_id = self.require_region_contains(owner, range)?;
         let pages: Vec<u32> = virtual_pages(range)?.collect();
         self.require_committed_owner(owner, &pages)?;
         self.ensure_generation_available()?;
@@ -1913,6 +2004,7 @@ impl GuestMemory {
         }
         self.record_change(
             vec![MappingOperation::Protect {
+                address_allocation_id,
                 owner,
                 range,
                 protection,
@@ -1932,7 +2024,7 @@ impl GuestMemory {
     ) -> Result<MemoryInvalidation, GuestMemoryError> {
         self.require_owner(owner)?;
         require_page_aligned(range, "decommit-range-not-page-aligned")?;
-        self.require_region_contains(owner, range)?;
+        let address_allocation_id = self.require_region_contains(owner, range)?;
         let pages: Vec<u32> = virtual_pages(range)?.collect();
         self.require_committed_owner(owner, &pages)?;
         self.ensure_generation_available()?;
@@ -1948,7 +2040,11 @@ impl GuestMemory {
             self.release_frame(page.frame)?;
         }
         self.record_change(
-            vec![MappingOperation::Decommit { owner, range }],
+            vec![MappingOperation::Decommit {
+                address_allocation_id,
+                owner,
+                range,
+            }],
             CacheEffects {
                 flush_tlb: true,
                 invalidate_instruction_fetch: true,
@@ -1978,6 +2074,7 @@ impl GuestMemory {
             ));
         }
         let range = region.range;
+        let address_allocation_id = region.address_allocation_id;
         let pages: Vec<u32> = virtual_pages(range)?
             .filter(|page| self.pages.contains_key(page))
             .collect();
@@ -1997,7 +2094,11 @@ impl GuestMemory {
         self.journal_region_before(start.0);
         self.regions.remove(&start.0);
         self.record_change(
-            vec![MappingOperation::Release { owner, range }],
+            vec![MappingOperation::Release {
+                address_allocation_id,
+                owner,
+                range,
+            }],
             CacheEffects {
                 flush_tlb: !pages.is_empty(),
                 invalidate_instruction_fetch: !pages.is_empty(),
@@ -2146,6 +2247,7 @@ impl GuestMemory {
                 },
             );
             mapping_operations.push(MappingOperation::Commit {
+                address_allocation_id: None,
                 owner,
                 range: GuestRange::new(
                     GuestAddress(
@@ -2857,6 +2959,7 @@ impl GuestMemory {
         self.regions
             .values()
             .map(|region| MemoryRegionSnapshot {
+                address_allocation_id: region.address_allocation_id,
                 owner: region.owner,
                 kind: region.kind,
                 range: region.range,
@@ -2953,19 +3056,20 @@ impl GuestMemory {
         &self,
         owner: MemoryOwnerId,
         range: GuestRange,
-    ) -> Result<(), GuestMemoryError> {
+    ) -> Result<Option<u64>, GuestMemoryError> {
         let found = self
             .regions
             .values()
             .find(|region| region.owner == owner && contains_range(region.range, range));
-        if found.is_none() {
-            return Err(GuestMemoryError::invalid_request(
-                "region-table",
-                "range-not-reserved-by-owner",
-                "guest range is not fully contained in a region reserved by this owner",
-            ));
-        }
-        Ok(())
+        found
+            .map(|region| region.address_allocation_id)
+            .ok_or_else(|| {
+                GuestMemoryError::invalid_request(
+                    "region-table",
+                    "range-not-reserved-by-owner",
+                    "guest range is not fully contained in a region reserved by this owner",
+                )
+            })
     }
 
     fn require_committed_owner(
@@ -3314,35 +3418,55 @@ fn hash_delta_content(
     let mut hasher = Sha256::new();
     for operation in mapping_operations {
         match operation {
-            MappingOperation::Reserve { owner, kind, range } => {
+            MappingOperation::Reserve {
+                address_allocation_id,
+                owner,
+                kind,
+                range,
+            } => {
                 hasher.update([0]);
+                hash_address_allocation_id(&mut hasher, *address_allocation_id);
                 hash_mapping_fields(&mut hasher, *owner, *range);
                 hasher.update([*kind as u8]);
             }
             MappingOperation::Commit {
+                address_allocation_id,
                 owner,
                 range,
                 protection,
             } => {
                 hasher.update([1]);
+                hash_address_allocation_id(&mut hasher, *address_allocation_id);
                 hash_mapping_fields(&mut hasher, *owner, *range);
                 hash_protection(&mut hasher, *protection);
             }
             MappingOperation::Protect {
+                address_allocation_id,
                 owner,
                 range,
                 protection,
             } => {
                 hasher.update([2]);
+                hash_address_allocation_id(&mut hasher, *address_allocation_id);
                 hash_mapping_fields(&mut hasher, *owner, *range);
                 hash_protection(&mut hasher, *protection);
             }
-            MappingOperation::Decommit { owner, range } => {
+            MappingOperation::Decommit {
+                address_allocation_id,
+                owner,
+                range,
+            } => {
                 hasher.update([3]);
+                hash_address_allocation_id(&mut hasher, *address_allocation_id);
                 hash_mapping_fields(&mut hasher, *owner, *range);
             }
-            MappingOperation::Release { owner, range } => {
+            MappingOperation::Release {
+                address_allocation_id,
+                owner,
+                range,
+            } => {
                 hasher.update([4]);
+                hash_address_allocation_id(&mut hasher, *address_allocation_id);
                 hash_mapping_fields(&mut hasher, *owner, *range);
             }
         }
@@ -3355,6 +3479,13 @@ fn hash_delta_content(
         hasher.update(&page.bytes);
     }
     hex_digest(&hasher.finalize())
+}
+
+fn hash_address_allocation_id(hasher: &mut Sha256, address_allocation_id: Option<u64>) {
+    if let Some(address_allocation_id) = address_allocation_id {
+        hasher.update(b"address-allocation-id");
+        hasher.update(address_allocation_id.to_le_bytes());
+    }
 }
 
 fn hash_mapping_fields(hasher: &mut Sha256, owner: MemoryOwnerId, range: GuestRange) {

@@ -32,8 +32,6 @@ use vine_core::{
     SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
     SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
     TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
-    install_controlled_process_environment_with_command_line_and_ansi,
-    install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     kernel32_contract_for_endpoint,
 };
 
@@ -3599,11 +3597,10 @@ fn get_command_line_a_returns_stable_process_owned_ascii_view_without_mutation()
     let contract = kernel32_contract_for_endpoint(endpoint.clone())
         .expect("Kernel32 contract lookup")
         .expect("implemented GetCommandLineA endpoint");
-    let environment = install_controlled_process_environment_with_command_line_and_ansi(
-        &mut memory,
-        "fixture.exe",
-    )
-    .expect("process environment");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let environment = ExecutionSession::new(&mut memory, &mut runtime)
+        .install_controlled_process_environment_with_command_line_and_ansi("fixture.exe")
+        .expect("process environment");
     let parameters = environment
         .process_parameters
         .as_ref()
@@ -3615,23 +3612,19 @@ fn get_command_line_a_returns_stable_process_owned_ascii_view_without_mutation()
         .acknowledge_delta(reflection.invalidation.generation)
         .expect("acknowledge initial reflection");
     let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
-    let mut runtime = controlled_runtime(controlled_startup_info());
     let registered = runtime
-        .register_initial_process_environment(&environment)
-        .expect("register process environment")
+        .process_command_line()
+        .expect("registered process command line")
         .clone();
-    assert_eq!(
-        registered.command_line.ansi_buffer_address,
-        ansi.buffer_address
-    );
+    assert_eq!(registered.ansi_buffer_address, ansi.buffer_address);
     assert_ne!(
-        registered.command_line.ansi_buffer_address,
-        registered.command_line.wide_buffer_address
+        registered.ansi_buffer_address,
+        registered.wide_buffer_address
     );
     assert_eq!(
         runtime
             .process_address_space_allocator()
-            .allocation(registered.address_allocation_id)
+            .allocation(environment.address_allocation_id)
             .expect("process environment allocation")
             .purpose,
         vine_core::ProcessAddressAllocationPurpose::ProcessEnvironment
@@ -3916,9 +3909,9 @@ fn get_module_file_name_a_uses_process_path_and_bounds_every_output_before_mutat
 #[test]
 fn get_and_free_environment_strings_w_manage_one_process_owned_copy() {
     let (mut memory, owner) = initialized_memory_with_environment_capacity();
-    let environment =
-        install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
-            &mut memory,
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let environment = ExecutionSession::new(&mut memory, &mut runtime)
+        .install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
             "fixture.exe",
         )
         .expect("process environment");
@@ -4011,10 +4004,6 @@ fn get_and_free_environment_strings_w_manage_one_process_owned_copy() {
     );
     let dispatcher = ApiDispatcher::new([get_endpoint.clone(), free_endpoint.clone()], contracts)
         .expect("dispatcher");
-    let mut runtime = controlled_runtime(controlled_startup_info());
-    runtime
-        .register_initial_process_environment(&environment)
-        .expect("register process environment");
     let memory_before = memory.stats();
 
     let acquired = dispatch_owned(

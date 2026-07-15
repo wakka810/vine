@@ -32,8 +32,24 @@ process environmentを37番目のpermanent root recordとして追加する。
 | initial process environment | process environment | 1 when enabled | existing contiguous 4-page materialization、permanent |
 
 `RuntimeHeapBacking`はhandle slotからbaseを再計算せず、対応するheap-slot recordのIDとrangeを保存する。
-GuestMemoryのreserve／commit／decommit／releaseはこのidentityへ帰属できる。現在のheap mappingはrecord
-IDへ接続済みである。
+GuestMemory regionはoptional 64-bit allocation IDを保持し、allocation-backed regionの
+reserve／commit／protect／decommit／releaseはすべて同じIDを`MappingOperation`へ載せる。Heap mappingと
+runtime control mappingはこの経路へ接続済みである。
+
+## Record-driven mapping
+
+import thunk、callback return、dynamic export installerは対応するlive fixed recordを受け取る。
+process environmentはallocation reservationとmemory mutationを先にplanし、GuestMemory transaction内で
+4 pageを同じIDへ帰属させてからallocatorとprocess metadataをtargeted commitする。memory側またはruntime側の
+preflightが失敗した場合、どちらも変更しない。
+
+mapping前にpurpose、string owner、range containment、classification、lifetime、release policy、executable
+policyを検証する。owner、range、lifetimeを改変したrecordはowner作成やgeneration更新より前にstructured
+errorで拒否する。
+
+`VINEDL01` version 2は40-byte mapping descriptorへ64-bit allocation IDを追加した。0はallocator導入前の
+unbound mapping、nonzeroはallocation-backed mappingを表す。Browser mirrorはmemory ownerだけでなくallocation
+IDもreserve／commit／protect／decommit／releaseの全batch preflightで照合し、部分適用しない。
 
 ## Search reservation
 
@@ -46,17 +62,17 @@ testはresult addressを固定せず、alignment、guard metadata、non-overlap�
 invalid requestとexhaustionはregistryを変更しない。explicit allocationだけをreleaseでき、live childを
 持つparentとpermanent v1 recordはreleaseできない。
 
-このcheckpointは既存control arenaをregistryへ登録し、heap backingとactive initial process environmentを
-allocation identityへ接続する。
-import／callback／dynamic-export installerのGuestMemory transaction APIはまだallocation recordを引数に
-取らない。imageとinitial stackの実mapping登録、environment mapping operationのallocation ID接続は、
-各subsystemを次に変更するcheckpointで行う。
+このcheckpointは既存control arena、heap backing、active initial process environmentをallocation identityへ
+接続する。Guest imageとinitial stackのallocator record自体は存在するが、legacy materializerが作る最初の
+GuestMemory reserveをrecord-driven APIへ移すことはこのcontrol-mapping checkpointの範囲外である。
 
 ## Regression
 
 ```powershell
 cargo test -p vine-core runtime::address_space::tests --locked
+cargo test -p vine-core --test address_allocation_mapping --locked
 cargo test -p vine-core --test runtime_heap_backing --locked
+npm run check:execution-engine-contract:prepared
 ```
 
 Allocator testsはv1 registration、DLL／two stacks／COM search、alignment、overlap、32-bit overflow、

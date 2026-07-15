@@ -77,6 +77,7 @@ interface V86Exports extends WebAssembly.Exports {
 
 interface MirrorMapping {
   address: number;
+  addressAllocationId?: number;
   owner: number;
   protection: MemoryProtection;
   physicalBase: number;
@@ -84,12 +85,14 @@ interface MirrorMapping {
 }
 
 interface MirrorReservation {
+  addressAllocationId?: number;
   owner: number;
   kind: MemoryRegionKind;
   range: MemoryRange;
 }
 
 interface PlannedMapping {
+  addressAllocationId?: number;
   owner: number;
   protection: MemoryProtection;
 }
@@ -618,13 +621,22 @@ export class V86Mirror implements ExecutionEngine {
     const mappings = new Map<number, PlannedMapping>(
       [...this.#mappings].map(([address, mapping]) => [
         address,
-        { owner: mapping.owner, protection: { ...mapping.protection } },
+        {
+          ...(mapping.addressAllocationId === undefined
+            ? {}
+            : { addressAllocationId: mapping.addressAllocationId }),
+          owner: mapping.owner,
+          protection: { ...mapping.protection },
+        },
       ]),
     );
     const reservations = new Map<number, MirrorReservation>(
       [...this.#reservations].map(([address, reservation]) => [
         address,
         {
+          ...(reservation.addressAllocationId === undefined
+            ? {}
+            : { addressAllocationId: reservation.addressAllocationId }),
           owner: reservation.owner,
           kind: reservation.kind,
           range: { ...reservation.range },
@@ -651,6 +663,9 @@ export class V86Mirror implements ExecutionEngine {
             "reserve operation overlaps a committed mirror page",
           );
           reservations.set(operation.range.base, {
+            ...(operation.addressAllocationId === undefined
+              ? {}
+              : { addressAllocationId: operation.addressAllocationId }),
             owner: operation.owner,
             kind: operation.kind,
             range: { ...operation.range },
@@ -666,6 +681,7 @@ export class V86Mirror implements ExecutionEngine {
               overlapping.some(
                 (reservation) =>
                   reservation.owner === operation.owner &&
+                  reservation.addressAllocationId === operation.addressAllocationId &&
                   rangeContains(reservation.range, operation.range),
               ),
             "commit operation is outside its mirror reservation",
@@ -673,6 +689,9 @@ export class V86Mirror implements ExecutionEngine {
           for (const address of pageAddresses(operation.range)) {
             invariant(!mappings.has(address), "commit operation targets a committed mirror page");
             mappings.set(address, {
+              ...(operation.addressAllocationId === undefined
+                ? {}
+                : { addressAllocationId: operation.addressAllocationId }),
               owner: operation.owner,
               protection: { ...operation.protection },
             });
@@ -685,6 +704,10 @@ export class V86Mirror implements ExecutionEngine {
             const mapping = mappings.get(address);
             invariant(mapping !== undefined, "protect operation targets an unmapped mirror page");
             invariant(mapping.owner === operation.owner, "protect operation owner mismatch");
+            invariant(
+              mapping.addressAllocationId === operation.addressAllocationId,
+              "protect operation address allocation mismatch",
+            );
             mapping.protection = { ...operation.protection };
           }
           break;
@@ -693,6 +716,10 @@ export class V86Mirror implements ExecutionEngine {
             const mapping = mappings.get(address);
             invariant(mapping !== undefined, "decommit operation targets an unmapped mirror page");
             invariant(mapping.owner === operation.owner, "decommit operation owner mismatch");
+            invariant(
+              mapping.addressAllocationId === operation.addressAllocationId,
+              "decommit operation address allocation mismatch",
+            );
             mappings.delete(address);
           }
           break;
@@ -704,6 +731,7 @@ export class V86Mirror implements ExecutionEngine {
           if (reservation !== undefined) {
             invariant(
               reservation.owner === operation.owner &&
+                reservation.addressAllocationId === operation.addressAllocationId &&
                 reservation.range.byteLength === operation.range.byteLength,
               "release operation does not match its mirror reservation",
             );
@@ -717,6 +745,10 @@ export class V86Mirror implements ExecutionEngine {
               continue;
             }
             invariant(mapping.owner === operation.owner, "release operation owner mismatch");
+            invariant(
+              mapping.addressAllocationId === operation.addressAllocationId,
+              "release operation address allocation mismatch",
+            );
             mappings.delete(address);
             matched = true;
           }
@@ -750,6 +782,9 @@ export class V86Mirror implements ExecutionEngine {
     switch (operation.operation) {
       case "reserve":
         this.#reservations.set(operation.range.base, {
+          ...(operation.addressAllocationId === undefined
+            ? {}
+            : { addressAllocationId: operation.addressAllocationId }),
           owner: operation.owner,
           kind: operation.kind,
           range: { ...operation.range },
@@ -757,7 +792,12 @@ export class V86Mirror implements ExecutionEngine {
         break;
       case "commit":
         for (const address of pageAddresses(operation.range)) {
-          this.#mapPage(address, operation.owner, operation.protection);
+          this.#mapPage(
+            address,
+            operation.owner,
+            operation.protection,
+            operation.addressAllocationId,
+          );
         }
         break;
       case "protect":
@@ -831,6 +871,9 @@ export class V86Mirror implements ExecutionEngine {
         "reflected regions overlap",
       );
       this.#reservations.set(range.base, {
+        ...(region.addressAllocationId === undefined
+          ? {}
+          : { addressAllocationId: region.addressAllocationId }),
         owner: region.owner,
         kind: region.kind,
         range,
@@ -838,17 +881,21 @@ export class V86Mirror implements ExecutionEngine {
     }
     for (const mapping of this.#mappings.values()) {
       const page = { base: mapping.address, byteLength: memoryPageSize };
-      invariant(
-        [...this.#reservations.values()].some(
+      const reservation = [...this.#reservations.values()].find(
           (reservation) =>
             reservation.owner === mapping.owner && rangeContains(reservation.range, page),
-        ),
-        "reflected page is outside its owner region",
       );
+      invariant(reservation !== undefined, "reflected page is outside its owner region");
+      mapping.addressAllocationId = reservation.addressAllocationId;
     }
   }
 
-  #mapPage(address: number, owner: number, protection: MemoryProtection): void {
+  #mapPage(
+    address: number,
+    owner: number,
+    protection: MemoryProtection,
+    addressAllocationId?: number,
+  ): void {
     const table = this.#ensurePageTable(address);
     const pteAddress = table + ((address >>> 12) & 0x3ff) * 4;
     const physicalBase = this.#allocatePage();
@@ -862,6 +909,7 @@ export class V86Mirror implements ExecutionEngine {
     );
     this.#mappings.set(address, {
       address,
+      ...(addressAllocationId === undefined ? {} : { addressAllocationId }),
       owner,
       protection: { ...protection },
       physicalBase,

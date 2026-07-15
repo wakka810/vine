@@ -1,5 +1,7 @@
 use vine_core::{
-    GuestMemory, GuestMemoryErrorClass, MemoryLimits,
+    GuestMemory, GuestMemoryErrorClass, MemoryLimits, ProcessAddressAllocationRecord,
+    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout,
+    controlled_process_environment_allocation_request,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
 };
@@ -7,10 +9,12 @@ use vine_core::{
 #[test]
 fn rejects_invalid_command_lines_before_mutation_and_allows_retry() {
     let mut memory = test_memory();
+    let allocation = environment_allocation();
     let before = memory.stats();
 
     let embedded_nul = install_controlled_process_environment_with_command_line(
         &mut memory,
+        &allocation,
         "bootstrap\0params.exe",
     )
     .expect_err("embedded NUL");
@@ -19,9 +23,12 @@ fn rejects_invalid_command_lines_before_mutation_and_allows_retry() {
     assert_eq!(memory.stats(), before);
 
     let multi_page = "x".repeat(3_000);
-    let multi_page_error =
-        install_controlled_process_environment_with_command_line(&mut memory, &multi_page)
-            .expect_err("one-page command line contract");
+    let multi_page_error = install_controlled_process_environment_with_command_line(
+        &mut memory,
+        &allocation,
+        &multi_page,
+    )
+    .expect_err("one-page command line contract");
     assert_eq!(
         multi_page_error.class,
         GuestMemoryErrorClass::InvalidRequest
@@ -33,9 +40,12 @@ fn rejects_invalid_command_lines_before_mutation_and_allows_retry() {
     assert_eq!(memory.stats(), before);
 
     let too_long = "x".repeat(32_768);
-    let length_error =
-        install_controlled_process_environment_with_command_line(&mut memory, &too_long)
-            .expect_err("UNICODE_STRING Length limit");
+    let length_error = install_controlled_process_environment_with_command_line(
+        &mut memory,
+        &allocation,
+        &too_long,
+    )
+    .expect_err("UNICODE_STRING Length limit");
     assert_eq!(length_error.class, GuestMemoryErrorClass::InvalidRequest);
     assert_eq!(
         length_error.code,
@@ -44,9 +54,12 @@ fn rejects_invalid_command_lines_before_mutation_and_allows_retry() {
     assert_eq!(memory.stats(), before);
 
     let maximum_too_long = "x".repeat(32_767);
-    let maximum_error =
-        install_controlled_process_environment_with_command_line(&mut memory, &maximum_too_long)
-            .expect_err("UNICODE_STRING MaximumLength limit");
+    let maximum_error = install_controlled_process_environment_with_command_line(
+        &mut memory,
+        &allocation,
+        &maximum_too_long,
+    )
+    .expect_err("UNICODE_STRING MaximumLength limit");
     assert_eq!(maximum_error.class, GuestMemoryErrorClass::InvalidRequest);
     assert_eq!(
         maximum_error.code,
@@ -56,6 +69,7 @@ fn rejects_invalid_command_lines_before_mutation_and_allows_retry() {
 
     let non_ascii = install_controlled_process_environment_with_command_line_and_ansi(
         &mut memory,
+        &allocation,
         "非ascii.exe",
     )
     .expect_err("non-ASCII ANSI view");
@@ -66,6 +80,7 @@ fn rejects_invalid_command_lines_before_mutation_and_allows_retry() {
     let combined_view_too_long = "x".repeat(1_360);
     let combined_view_error = install_controlled_process_environment_with_command_line_and_ansi(
         &mut memory,
+        &allocation,
         &combined_view_too_long,
     )
     .expect_err("combined UTF-16 and ANSI page capacity");
@@ -79,10 +94,22 @@ fn rejects_invalid_command_lines_before_mutation_and_allows_retry() {
     );
     assert_eq!(memory.stats(), before);
 
-    let environment =
-        install_controlled_process_environment_with_command_line_and_ansi(&mut memory, "retry.exe")
-            .expect("retry on the same GuestMemory");
+    let environment = install_controlled_process_environment_with_command_line_and_ansi(
+        &mut memory,
+        &allocation,
+        "retry.exe",
+    )
+    .expect("retry on the same GuestMemory");
     assert!(environment.owners_sealed);
+    assert_eq!(environment.address_allocation_id, allocation.id);
+    assert_eq!(
+        memory
+            .region_snapshots()
+            .iter()
+            .filter(|region| region.address_allocation_id == Some(allocation.id.0))
+            .count(),
+        4
+    );
     let parameters = environment.process_parameters.expect("process parameters");
     assert_eq!(parameters.command_line, "retry.exe");
     assert_eq!(
@@ -103,10 +130,14 @@ fn preflights_process_environment_capacity_without_partial_owners_or_pages() {
         max_access_bytes: 0x1000,
     })
     .expect("memory");
+    let allocation = environment_allocation();
     let before = memory.stats();
-    let error =
-        install_controlled_process_environment_with_command_line(&mut memory, "capacity.exe")
-            .expect_err("four-page environment exceeds quota");
+    let error = install_controlled_process_environment_with_command_line(
+        &mut memory,
+        &allocation,
+        "capacity.exe",
+    )
+    .expect_err("four-page environment exceeds quota");
     assert_eq!(error.class, GuestMemoryErrorClass::ResourceLimit);
     assert_eq!(error.code, "physical-page-quota-exceeded");
     assert_eq!(memory.stats(), before);
@@ -120,4 +151,12 @@ fn test_memory() -> GuestMemory {
         max_access_bytes: 0x1000,
     })
     .expect("memory")
+}
+
+fn environment_allocation() -> ProcessAddressAllocationRecord {
+    let mut allocator = ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1())
+        .expect("address allocator");
+    allocator
+        .reserve(controlled_process_environment_allocation_request(true))
+        .expect("environment allocation")
 }

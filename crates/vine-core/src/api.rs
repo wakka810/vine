@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
+use crate::environment::InitialProcessEnvironment;
 use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId, RuntimeExportCatalog};
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
@@ -636,6 +637,57 @@ impl<'a> ExecutionSession<'a> {
             loader,
             materialization,
             runtime_catalog,
+        )
+    }
+
+    pub fn install_controlled_process_environment(
+        &mut self,
+    ) -> Result<InitialProcessEnvironment, RuntimeStateError> {
+        crate::environment::install_controlled_process_environment_for_runtime(
+            self.memory,
+            self.runtime,
+            None,
+            false,
+            false,
+        )
+    }
+
+    pub fn install_controlled_process_environment_with_command_line(
+        &mut self,
+        command_line: &str,
+    ) -> Result<InitialProcessEnvironment, RuntimeStateError> {
+        crate::environment::install_controlled_process_environment_for_runtime(
+            self.memory,
+            self.runtime,
+            Some(command_line),
+            false,
+            false,
+        )
+    }
+
+    pub fn install_controlled_process_environment_with_command_line_and_ansi(
+        &mut self,
+        command_line: &str,
+    ) -> Result<InitialProcessEnvironment, RuntimeStateError> {
+        crate::environment::install_controlled_process_environment_for_runtime(
+            self.memory,
+            self.runtime,
+            Some(command_line),
+            true,
+            false,
+        )
+    }
+
+    pub fn install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
+        &mut self,
+        command_line: &str,
+    ) -> Result<InitialProcessEnvironment, RuntimeStateError> {
+        crate::environment::install_controlled_process_environment_for_runtime(
+            self.memory,
+            self.runtime,
+            Some(command_line),
+            true,
+            true,
         )
     }
 

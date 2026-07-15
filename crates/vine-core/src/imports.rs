@@ -13,6 +13,12 @@ use crate::pe32::{
     ImportSymbolPlan, ImportTarget, LoaderError, LoaderErrorClass, LoaderIngressReport, Rva,
     UnsupportedPoint,
 };
+use crate::runtime::{
+    ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    ProcessAddressAllocationReleasePolicy, ProcessAddressMappingRequirements, RuntimeAddressRange,
+    validate_process_address_mapping_allocation_for_memory,
+};
 use crate::snapshot::ModuleIdentity;
 
 pub const IMPORT_THUNK_ARENA_BASE: GuestAddress = GuestAddress(0x7f00_0000);
@@ -158,6 +164,8 @@ pub struct PlannedImport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportBindingPlan {
+    #[serde(skip_serializing)]
+    pub address_allocation: ProcessAddressAllocationRecord,
     pub source: ModuleIdentity,
     pub image_owner: MemoryOwnerId,
     pub image_load_base: GuestAddress,
@@ -244,32 +252,42 @@ impl ImportBinding {
 
 pub fn bind_pe32_imports(
     memory: &mut GuestMemory,
+    address_allocation: &ProcessAddressAllocationRecord,
     loader: &LoaderIngressReport,
     image: &ImageMaterialization,
     catalog: &RuntimeExportCatalog,
 ) -> Result<ImportBinding, LoaderError> {
-    let plan = plan_pe32_imports(memory, loader, image, catalog)?;
+    let plan = plan_pe32_imports(memory, address_allocation, loader, image, catalog)?;
     bind_or_report_unresolved(memory, loader, image, plan)
 }
 
 pub fn bind_pe32_imports_with_unsupported_traps(
     memory: &mut GuestMemory,
+    address_allocation: &ProcessAddressAllocationRecord,
     loader: &LoaderIngressReport,
     image: &ImageMaterialization,
     catalog: &RuntimeExportCatalog,
 ) -> Result<ImportBinding, LoaderError> {
-    let plan = plan_pe32_imports_with_unsupported_traps(memory, loader, image, catalog)?;
+    let plan = plan_pe32_imports_with_unsupported_traps(
+        memory,
+        address_allocation,
+        loader,
+        image,
+        catalog,
+    )?;
     commit_pe32_import_binding(memory, loader, image, &plan)
 }
 
 pub fn plan_pe32_imports(
     memory: &GuestMemory,
+    address_allocation: &ProcessAddressAllocationRecord,
     loader: &LoaderIngressReport,
     image: &ImageMaterialization,
     catalog: &RuntimeExportCatalog,
 ) -> Result<ImportBindingPlan, LoaderError> {
     plan_pe32_imports_internal(
         memory,
+        address_allocation,
         loader,
         image,
         catalog,
@@ -279,12 +297,14 @@ pub fn plan_pe32_imports(
 
 pub fn plan_pe32_imports_with_unsupported_traps(
     memory: &GuestMemory,
+    address_allocation: &ProcessAddressAllocationRecord,
     loader: &LoaderIngressReport,
     image: &ImageMaterialization,
     catalog: &RuntimeExportCatalog,
 ) -> Result<ImportBindingPlan, LoaderError> {
     plan_pe32_imports_internal(
         memory,
+        address_allocation,
         loader,
         image,
         catalog,
@@ -294,11 +314,13 @@ pub fn plan_pe32_imports_with_unsupported_traps(
 
 fn plan_pe32_imports_internal(
     memory: &GuestMemory,
+    address_allocation: &ProcessAddressAllocationRecord,
     loader: &LoaderIngressReport,
     image: &ImageMaterialization,
     catalog: &RuntimeExportCatalog,
     policy: ImportBindingPolicy,
 ) -> Result<ImportBindingPlan, LoaderError> {
+    validate_import_mapping_allocation(address_allocation)?;
     validate_binding_input(memory, loader, image)?;
     let total_imports = loader
         .load_plan
@@ -402,6 +424,7 @@ fn plan_pe32_imports_internal(
     }
 
     Ok(ImportBindingPlan {
+        address_allocation: address_allocation.clone(),
         source: loader.source.clone(),
         image_owner: image.layout.owner,
         image_load_base: image.load_base,
@@ -476,6 +499,7 @@ fn commit_pe32_import_binding_with_checkpoint<F>(
 where
     F: FnMut(ImportCommitStage) -> Result<(), LoaderError>,
 {
+    validate_import_mapping_allocation(&plan.address_allocation)?;
     validate_binding_input(memory, loader, image)?;
     if !plan.complete || !plan.unresolved_imports.is_empty() {
         return Err(LoaderError::invalid_input(
@@ -538,7 +562,8 @@ where
             .map_err(memory_error)?;
         checkpoint(ImportCommitStage::ArenaOwnerCreated)?;
         let arena_range = transaction
-            .reserve_fixed(
+            .reserve_fixed_for_address_allocation(
+                plan.address_allocation.id.0,
                 arena_owner,
                 MemoryRegionKind::Runtime,
                 IMPORT_THUNK_ARENA_BASE,
@@ -967,6 +992,27 @@ fn memory_error(error: GuestMemoryError) -> LoaderError {
     }
 }
 
+fn validate_import_mapping_allocation(
+    allocation: &ProcessAddressAllocationRecord,
+) -> Result<(), LoaderError> {
+    validate_process_address_mapping_allocation_for_memory(
+        allocation,
+        &ProcessAddressMappingRequirements {
+            purpose: ProcessAddressAllocationPurpose::ImportThunks,
+            owner: "runtime-import-thunks".to_owned(),
+            range: RuntimeAddressRange {
+                base: IMPORT_THUNK_ARENA_BASE,
+                byte_length: IMPORT_THUNK_ARENA_SIZE,
+            },
+            classification: ProcessAddressAllocationClassification::RuntimeControl,
+            lifetime: ProcessAddressAllocationLifetime::Process,
+            release_policy: ProcessAddressAllocationReleasePolicy::Permanent,
+            executable: true,
+        },
+    )
+    .map_err(memory_error)
+}
+
 fn import_binding_accounting_overflow() -> LoaderError {
     LoaderError::resource_limit(
         "import-binding",
@@ -992,7 +1038,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        MemoryLimits, ModuleSnapshot, Pe32Limits, build_pe32_load_plan, materialize_pe32_image,
+        MemoryLimits, ModuleSnapshot, Pe32Limits, ProcessAddressSpaceAllocator,
+        ProcessAddressSpaceLayout, build_pe32_load_plan, materialize_pe32_image,
     };
 
     const LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
@@ -1040,7 +1087,14 @@ mod tests {
                 RuntimeExport::named("vine_fixture.dll", "fixture_call_callback"),
             ])
             .expect("catalog");
-            let plan = plan_pe32_imports(&memory, &loader, &image, &catalog).expect("plan");
+            let allocator =
+                ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1())
+                    .expect("address allocator");
+            let allocation = allocator
+                .allocation_for_purpose(&ProcessAddressAllocationPurpose::ImportThunks)
+                .expect("import allocation");
+            let plan =
+                plan_pe32_imports(&memory, allocation, &loader, &image, &catalog).expect("plan");
             let before = memory.stats();
             let original_iat = plan
                 .imports

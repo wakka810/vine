@@ -104,6 +104,7 @@ fn initial_thread_stack_reserves_registers_and_grows_one_guard_page_atomically()
     assert_eq!(
         delta.mapping_operations[0],
         MappingOperation::Commit {
+            address_allocation_id: None,
             owner: stack.memory_owner,
             range: growth.committed_page,
             protection: vine_core::PageProtection {
@@ -162,7 +163,13 @@ fn initial_thread_stack_reserves_registers_and_grows_one_guard_page_atomically()
 
 fn prepared_runtime_stack(reserve_size: u64, commit_size: u64) -> (GuestMemory, RuntimeState) {
     let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
-    let sentinels = install_runtime_return_sentinels(&mut memory).unwrap();
+    let mut runtime = RuntimeState::new(runtime_bootstrap()).unwrap();
+    let callback_allocation = runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::CallbackReturns)
+        .unwrap()
+        .clone();
+    let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation).unwrap();
     let stack = install_initial_thread_stack(
         &mut memory,
         &sentinels.process_entry_return,
@@ -170,7 +177,6 @@ fn prepared_runtime_stack(reserve_size: u64, commit_size: u64) -> (GuestMemory, 
         commit_size,
     )
     .unwrap();
-    let mut runtime = RuntimeState::new(runtime_bootstrap()).unwrap();
     runtime.register_initial_thread_stack(&stack).unwrap();
     runtime.start_initial_thread().unwrap();
     let reflection = memory.pending_reflection().unwrap();

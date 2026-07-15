@@ -1508,9 +1508,9 @@ const writebackFormat = {
 };
 const deltaFormat = {
   magic: "VINEDL01",
-  version: 1,
+  version: 2,
   headerBytes: 56,
-  mappingDescriptorBytes: 32,
+  mappingDescriptorBytes: 40,
   pageDescriptorBytes: 16,
 };
 const genericRuntimeExpected = {
@@ -5121,8 +5121,14 @@ function decodeRuntimeHostDelta(control, payload) {
   const mappingOperations = [];
   for (let index = 0; index < mappingCount; index += 1) {
     const offset = deltaFormat.headerBytes + index * deltaFormat.mappingDescriptorBytes;
+    const addressAllocationId = safeNumber(
+      view.getBigUint64(offset + 28, true),
+      "mapping address allocation ID",
+    );
+    assert.equal(view.getUint32(offset + 36, true), 0);
     mappingOperations.push({
       operation: view.getUint32(offset, true),
+      ...(addressAllocationId === 0 ? {} : { addressAllocationId }),
       owner: view.getUint32(offset + 4, true),
       regionKind: view.getUint32(offset + 8, true),
       protectionFlags: view.getUint32(offset + 12, true),

@@ -21,8 +21,9 @@ pub use address_space::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationId,
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy,
-    ProcessAddressAllocationRequest, ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout,
-    RuntimeAddressRange,
+    ProcessAddressAllocationRequest, ProcessAddressMappingRequirements,
+    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RuntimeAddressRange,
+    validate_process_address_mapping_allocation,
 };
 pub use heaps::{
     LOGICAL_PRIVATE_HEAP_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
@@ -88,6 +89,7 @@ pub use waits::{
 
 pub type RuntimeState = RuntimeKernel;
 
+pub(crate) use address_space::validate_process_address_mapping_allocation_for_memory;
 pub(crate) use heaps::{
     RuntimeHeapAllocationPlan, RuntimeHeapBackingPlan, RuntimeHeapDestructionPlan,
 };

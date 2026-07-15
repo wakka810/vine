@@ -5,6 +5,12 @@ use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestRange, MemoryInvalidation,
     MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
 };
+use crate::runtime::{
+    ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    ProcessAddressAllocationReleasePolicy, ProcessAddressMappingRequirements, RuntimeAddressRange,
+    validate_process_address_mapping_allocation_for_memory,
+};
 
 pub const CALLBACK_RETURN_ARENA_BASE: GuestAddress = GuestAddress(0x7f01_0000);
 pub const CALLBACK_RETURN_ARENA_SIZE: u64 = 0x1_0000;
@@ -55,16 +61,20 @@ pub struct RuntimeReturnSentinels {
 
 pub fn install_callback_return_sentinel(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
 ) -> Result<CallbackReturnSentinel, GuestMemoryError> {
-    let (callback_return, process_entry_return) = install_return_sentinels(memory, false)?;
+    let (callback_return, process_entry_return) =
+        install_return_sentinels(memory, allocation, false)?;
     debug_assert!(process_entry_return.is_none());
     Ok(callback_return)
 }
 
 pub fn install_runtime_return_sentinels(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
 ) -> Result<RuntimeReturnSentinels, GuestMemoryError> {
-    let (callback_return, process_entry_return) = install_return_sentinels(memory, true)?;
+    let (callback_return, process_entry_return) =
+        install_return_sentinels(memory, allocation, true)?;
     let process_entry_return = process_entry_return.ok_or_else(|| {
         GuestMemoryError::runtime_defect(
             "process-entry-return",
@@ -80,8 +90,24 @@ pub fn install_runtime_return_sentinels(
 
 fn install_return_sentinels(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
     include_process_entry_return: bool,
 ) -> Result<(CallbackReturnSentinel, Option<ProcessEntryReturnSentinel>), GuestMemoryError> {
+    validate_process_address_mapping_allocation_for_memory(
+        allocation,
+        &ProcessAddressMappingRequirements {
+            purpose: ProcessAddressAllocationPurpose::CallbackReturns,
+            owner: "runtime-callback-returns".to_owned(),
+            range: RuntimeAddressRange {
+                base: CALLBACK_RETURN_ARENA_BASE,
+                byte_length: CALLBACK_RETURN_ARENA_SIZE,
+            },
+            classification: ProcessAddressAllocationClassification::RuntimeControl,
+            lifetime: ProcessAddressAllocationLifetime::Process,
+            release_policy: ProcessAddressAllocationReleasePolicy::Permanent,
+            executable: true,
+        },
+    )?;
     memory.preflight_growth(1, 1, 1, "callback-return")?;
     memory.preflight_fixed_reservation(
         CALLBACK_RETURN_ARENA_BASE,
@@ -100,18 +126,23 @@ fn install_return_sentinels(
         ));
     }
     let mut transaction = memory.begin_transaction();
-    let sentinels =
-        install_return_sentinels_transaction(&mut transaction, include_process_entry_return)?;
+    let sentinels = install_return_sentinels_transaction(
+        &mut transaction,
+        allocation,
+        include_process_entry_return,
+    )?;
     transaction.commit_transaction();
     Ok(sentinels)
 }
 
 fn install_return_sentinels_transaction(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
     include_process_entry_return: bool,
 ) -> Result<(CallbackReturnSentinel, Option<ProcessEntryReturnSentinel>), GuestMemoryError> {
     let owner = memory.create_owner(MemoryOwnerKind::Runtime)?;
-    let arena_range = match memory.reserve_fixed(
+    let arena_range = match memory.reserve_fixed_for_address_allocation(
+        allocation.id.0,
         owner,
         MemoryRegionKind::Runtime,
         CALLBACK_RETURN_ARENA_BASE,
@@ -223,4 +254,55 @@ fn hex_digest(digest: &[u8]) -> String {
         value.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::MemoryLimits;
+    use crate::runtime::{ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout};
+
+    #[test]
+    fn mapping_record_mismatches_are_rejected_before_memory_mutation() {
+        let allocator = ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1())
+            .expect("allocator");
+        let allocation = allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::CallbackReturns)
+            .expect("callback allocation")
+            .clone();
+
+        for (mismatched, expected_code) in [
+            (
+                {
+                    let mut value = allocation.clone();
+                    value.owner = "wrong-owner".to_owned();
+                    value
+                },
+                "address-allocation-mapping-owner-mismatch",
+            ),
+            (
+                {
+                    let mut value = allocation.clone();
+                    value.range.byte_length = GUEST_PAGE_SIZE;
+                    value
+                },
+                "address-allocation-mapping-range-mismatch",
+            ),
+            (
+                {
+                    let mut value = allocation.clone();
+                    value.lifetime = ProcessAddressAllocationLifetime::Thread;
+                    value
+                },
+                "address-allocation-mapping-lifetime-mismatch",
+            ),
+        ] {
+            let mut memory = GuestMemory::new(MemoryLimits::default()).expect("memory");
+            let before = memory.stats();
+            let error = install_runtime_return_sentinels(&mut memory, &mismatched)
+                .expect_err("mismatched allocation must fail");
+            assert_eq!(error.code, expected_code);
+            assert_eq!(memory.stats(), before);
+        }
+    }
 }

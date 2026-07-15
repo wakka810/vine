@@ -74,7 +74,7 @@ fn prepare_allocation_memory(
 ) -> Result<MemoryOwnerId, RuntimeStateError> {
     match plan.backing {
         RuntimeHeapBackingPlan::New {
-            address_allocation_id: _,
+            address_allocation_id,
             range,
             initial_committed_bytes,
         } => {
@@ -89,7 +89,8 @@ fn prepare_allocation_memory(
                 .create_owner(MemoryOwnerKind::Anonymous)
                 .map_err(RuntimeStateError::from_memory)?;
             memory
-                .reserve_fixed(
+                .reserve_fixed_for_address_allocation(
+                    address_allocation_id.0,
                     owner,
                     MemoryRegionKind::Heap,
                     range.start(),

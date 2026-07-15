@@ -17,6 +17,11 @@ Rust owns committed guest bytes, page ownership, protection, and generation. v86
 
 Initial `VINERF01`, host `VINEDL01`, and CPU `VINEWB01` transports separate fixed-width control descriptors from contiguous page bytes. The session uses bounded `VINEFR01` frames. JSON is produced only after execution as an evidence artifact; no execution-path page is serialized as a JSON numeric array.
 
+`VINEDL01` version 2 uses a 40-byte mapping descriptor. Its 64-bit address-allocation ID is zero
+for legacy unbound regions and nonzero for allocator-backed regions. Rust derives the identity from
+the reserved region for every later mapping mutation; the Browser mirror rejects owner or allocation
+identity mismatches before applying any operation or page.
+
 Executable writable pages participate in the same discovery. The receipt counts them explicitly. v86 owns cache handling for the guest write that already occurred; later Rust-originated writes to executable pages continue to request instruction-fetch and generated-code invalidation through `MemoryDelta`.
 
 ## Reproduction
@@ -40,7 +45,9 @@ Rust then writes four bytes to scratch and sends one binary host delta, advancin
 | Report bytes | 4,578 |
 | Report SHA-256 | `5eab2884b70f8b1a48d98dff8021b29a1690296c03dcae0183b5c9fdc10368b8` |
 
-Rust semantic tests additionally fix binary reflection and delta descriptors, all five mapping-operation encodings, multi-owner atomic reconciliation, stale generation, wrong-owner, and truncated-payload rejection.
+Rust semantic tests additionally fix binary reflection and version 2 delta descriptors, all five
+allocation-identified mapping-operation encodings, multi-owner atomic reconciliation, stale
+generation, wrong-owner, and truncated-payload rejection.
 
 ## Failure Policy And Limits
 

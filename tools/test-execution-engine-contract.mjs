@@ -188,12 +188,14 @@ engine.applyMemoryDelta({
   mappingOperations: [
     {
       operation: "reserve",
+      addressAllocationId: 41,
       owner: 2,
       kind: "heap",
       range: { base: mappedAddress, byteLength: pageSize },
     },
     {
       operation: "commit",
+      addressAllocationId: 41,
       owner: 2,
       protection: protection.data,
       range: { base: mappedAddress, byteLength: pageSize },
@@ -217,6 +219,31 @@ assert.deepEqual(engine.cacheEffectCounts(), {
   generatedCodeInvalidations: 1,
 });
 
+assert.throws(
+  () =>
+    engine.applyMemoryDelta({
+      fromGeneration: 2n,
+      generation: 3n,
+      cacheEffects: {
+        flushTlb: false,
+        invalidateInstructionFetch: false,
+        invalidateGeneratedCode: false,
+      },
+      mappingOperations: [
+        {
+          operation: "protect",
+          addressAllocationId: 42,
+          owner: 2,
+          protection: { read: true, write: false, execute: false },
+          range: { base: mappedAddress, byteLength: pageSize },
+        },
+      ],
+      pages: [],
+    }),
+  /address allocation mismatch/u,
+);
+assert.equal(engine.readGuestU32(mappedAddress), 0xa5a5_5a5a);
+
 engine.applyMemoryDelta({
   fromGeneration: 2n,
   generation: 3n,
@@ -228,17 +255,20 @@ engine.applyMemoryDelta({
   mappingOperations: [
     {
       operation: "protect",
+      addressAllocationId: 41,
       owner: 2,
       protection: { read: true, write: false, execute: false },
       range: { base: mappedAddress, byteLength: pageSize },
     },
     {
       operation: "decommit",
+      addressAllocationId: 41,
       owner: 2,
       range: { base: mappedAddress, byteLength: pageSize },
     },
     {
       operation: "release",
+      addressAllocationId: 41,
       owner: 2,
       range: { base: mappedAddress, byteLength: pageSize },
     },

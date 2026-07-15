@@ -25,6 +25,7 @@ export interface MemoryRange {
 }
 
 export interface MemoryRegionSnapshot {
+  addressAllocationId?: number;
   owner: number;
   kind: MemoryRegionKind;
   range: {
@@ -34,11 +35,29 @@ export interface MemoryRegionSnapshot {
 }
 
 export type MappingOperation =
-  | { operation: "reserve"; owner: number; kind: MemoryRegionKind; range: MemoryRange }
-  | { operation: "commit"; owner: number; range: MemoryRange; protection: MemoryProtection }
-  | { operation: "protect"; owner: number; range: MemoryRange; protection: MemoryProtection }
-  | { operation: "decommit"; owner: number; range: MemoryRange }
-  | { operation: "release"; owner: number; range: MemoryRange };
+  | {
+      operation: "reserve";
+      addressAllocationId?: number;
+      owner: number;
+      kind: MemoryRegionKind;
+      range: MemoryRange;
+    }
+  | {
+      operation: "commit";
+      addressAllocationId?: number;
+      owner: number;
+      range: MemoryRange;
+      protection: MemoryProtection;
+    }
+  | {
+      operation: "protect";
+      addressAllocationId?: number;
+      owner: number;
+      range: MemoryRange;
+      protection: MemoryProtection;
+    }
+  | { operation: "decommit"; addressAllocationId?: number; owner: number; range: MemoryRange }
+  | { operation: "release"; addressAllocationId?: number; owner: number; range: MemoryRange };
 
 export interface ReflectedPage {
   address: number;
@@ -185,11 +204,12 @@ export function decodeReflection(control: Uint8Array, payload: Uint8Array): Memo
 
 export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostMemoryDelta {
   const headerBytes = 56;
-  const mappingDescriptorBytes = 32;
   const pageDescriptorBytes = 16;
   expectMagic(control, "VINEDL01");
   const controlView = view(control);
-  invariant(controlView.getUint32(8, true) === 1, "unsupported host delta version");
+  const version = controlView.getUint32(8, true);
+  invariant(version === 1 || version === 2, "unsupported host delta version");
+  const mappingDescriptorBytes = version === 1 ? 32 : 40;
   invariant(controlView.getUint32(12, true) === pageSize, "unexpected host delta page size");
   const fromGeneration = controlView.getBigUint64(16, true);
   const generation = controlView.getBigUint64(24, true);
@@ -217,17 +237,36 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
     const kind = controlView.getUint32(offset + 8, true);
     const protectionFlags = controlView.getUint32(offset + 12, true);
     const range = mappingRange(controlView, offset);
+    const encodedAddressAllocationId =
+      version === 1 ? 0n : controlView.getBigUint64(offset + 28, true);
+    invariant(
+      encodedAddressAllocationId <= BigInt(Number.MAX_SAFE_INTEGER),
+      "mapping address allocation ID exceeds exact browser accounting",
+    );
+    const addressAllocationId = Number(encodedAddressAllocationId);
+    const allocationIdentity =
+      addressAllocationId === 0 ? {} : { addressAllocationId };
     invariant(owner !== 0, "mapping operation owner is zero");
-    invariant(controlView.getUint32(offset + 28, true) === 0, "mapping descriptor reserved field is nonzero");
+    invariant(
+      controlView.getUint32(offset + (version === 1 ? 28 : 36), true) === 0,
+      "mapping descriptor reserved field is nonzero",
+    );
     switch (operation) {
       case 1:
         invariant(protectionFlags === 0, "reserve operation contains protection flags");
-        mappingOperations.push({ operation: "reserve", owner, kind: regionKind(kind), range });
+        mappingOperations.push({
+          operation: "reserve",
+          ...allocationIdentity,
+          owner,
+          kind: regionKind(kind),
+          range,
+        });
         break;
       case 2:
         invariant(kind === 0, "commit operation contains a region kind");
         mappingOperations.push({
           operation: "commit",
+          ...allocationIdentity,
           owner,
           range,
           protection: protection(protectionFlags),
@@ -237,6 +276,7 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
         invariant(kind === 0, "protect operation contains a region kind");
         mappingOperations.push({
           operation: "protect",
+          ...allocationIdentity,
           owner,
           range,
           protection: protection(protectionFlags),
@@ -244,11 +284,11 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
         break;
       case 4:
         invariant(kind === 0 && protectionFlags === 0, "decommit operation contains extra policy");
-        mappingOperations.push({ operation: "decommit", owner, range });
+        mappingOperations.push({ operation: "decommit", ...allocationIdentity, owner, range });
         break;
       case 5:
         invariant(kind === 0 && protectionFlags === 0, "release operation contains extra policy");
-        mappingOperations.push({ operation: "release", owner, range });
+        mappingOperations.push({ operation: "release", ...allocationIdentity, owner, range });
         break;
       default:
         throw new Error(`unknown mapping operation ${operation}`);

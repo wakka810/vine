@@ -24,8 +24,8 @@ use crate::snapshot::ModuleIdentity;
 use super::address_space::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationReleasePolicy,
-    ProcessAddressAllocationRequest, ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout,
-    RuntimeAddressRange,
+    ProcessAddressAllocationRequest, ProcessAddressReservationPlan, ProcessAddressSpaceAllocator,
+    ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
@@ -422,22 +422,44 @@ impl RuntimeKernel {
         &self.address_space_allocator
     }
 
-    pub fn register_initial_process_environment(
+    pub(crate) fn plan_initial_process_environment_reservation(
+        &self,
+        request: ProcessAddressAllocationRequest,
+    ) -> Result<ProcessAddressReservationPlan, RuntimeStateError> {
+        if request.purpose != ProcessAddressAllocationPurpose::ProcessEnvironment {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-environment",
+                "process-environment-allocation-purpose-invalid",
+                "initial process environment requires a process-environment allocation request",
+            ));
+        }
+        self.address_space_allocator.plan_reservation(request)
+    }
+
+    pub(crate) fn commit_initial_process_environment_reservation(
         &mut self,
+        reservation: ProcessAddressReservationPlan,
         environment: &InitialProcessEnvironment,
     ) -> Result<&RuntimeProcessEnvironment, RuntimeStateError> {
-        let plan = self
+        self.address_space_allocator
+            .preflight_reservation_commit(&reservation)?;
+        if reservation.allocation.id != environment.address_allocation_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-environment",
+                "process-environment-address-allocation-id-mismatch",
+                "materialized process environment belongs to a different planned allocation",
+            ));
+        }
+        let process_plan = self
             .process
             .preflight_environment_registration(environment)?;
-        let mut allocator = self.address_space_allocator.clone();
-        let allocation = allocator
-            .reserve(RuntimeProcessState::environment_allocation_request(&plan).clone())?;
         self.process
-            .preflight_environment_commit(&plan, &allocation)?;
-        self.address_space_allocator = allocator;
+            .preflight_environment_commit(&process_plan, &reservation.allocation)?;
+        let allocation = reservation.allocation.clone();
+        self.address_space_allocator.commit_reservation(reservation);
         Ok(self
             .process
-            .commit_environment_registration(plan, allocation))
+            .commit_environment_registration(process_plan, allocation))
     }
 
     pub fn process_command_line(&self) -> Result<&RuntimeCommandLine, RuntimeStateError> {

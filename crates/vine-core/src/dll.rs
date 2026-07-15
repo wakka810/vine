@@ -15,9 +15,12 @@ use crate::module_graph::RuntimeModuleClass;
 use crate::module_images::{RuntimeModuleImageError, RuntimeModuleImageErrorClass};
 use crate::pe32::{ExportLookup, ImageKind, ImportTarget, LoaderIngressReport};
 use crate::runtime::{
+    ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    ProcessAddressAllocationReleasePolicy, ProcessAddressMappingRequirements, RuntimeAddressRange,
     RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
     RuntimeModuleDependencyEdge, RuntimeState, RuntimeStateError, RuntimeSystemExportEndpoint,
-    RuntimeSystemExportTable,
+    RuntimeSystemExportTable, validate_process_address_mapping_allocation,
 };
 
 const IMPORT_THUNK_CAPACITY: usize =
@@ -142,14 +145,31 @@ pub(crate) fn bind_guest_module_imports(
     }
     let install_runtime_export_table =
         needs_runtime_export_table && runtime.runtime_system_exports().is_none();
+    let import_address_allocation = install_runtime_export_table
+        .then(|| {
+            runtime
+                .process_address_space_allocator()
+                .allocation_for_purpose(&ProcessAddressAllocationPurpose::ImportThunks)
+                .cloned()
+        })
+        .transpose()?;
     if install_runtime_export_table {
-        preflight_runtime_export_table(memory, runtime_catalog)?;
+        preflight_runtime_export_table(
+            memory,
+            import_address_allocation
+                .as_ref()
+                .expect("runtime export table allocation was planned"),
+            runtime_catalog,
+        )?;
     }
 
     let mut transaction = memory.begin_transaction();
     let runtime_system_exports = if install_runtime_export_table {
         Some(install_runtime_export_table_in_memory(
             &mut transaction,
+            import_address_allocation
+                .as_ref()
+                .expect("runtime export table allocation was planned"),
             runtime_catalog,
         )?)
     } else {
@@ -305,8 +325,10 @@ fn runtime_export_endpoint(
 
 fn preflight_runtime_export_table(
     memory: &GuestMemory,
+    address_allocation: &ProcessAddressAllocationRecord,
     catalog: &RuntimeExportCatalog,
 ) -> Result<(), RuntimeStateError> {
+    validate_runtime_export_mapping_allocation(address_allocation)?;
     let committed_bytes = runtime_export_committed_bytes(catalog)?;
     let committed_pages = committed_bytes / GUEST_PAGE_SIZE as usize;
     memory
@@ -324,15 +346,18 @@ fn preflight_runtime_export_table(
 
 fn install_runtime_export_table_in_memory(
     memory: &mut GuestMemory,
+    address_allocation: &ProcessAddressAllocationRecord,
     catalog: &RuntimeExportCatalog,
 ) -> Result<RuntimeSystemExportTable, RuntimeStateError> {
+    validate_runtime_export_mapping_allocation(address_allocation)?;
     let committed_bytes = runtime_export_committed_bytes(catalog)?;
     let committed_pages = committed_bytes / GUEST_PAGE_SIZE as usize;
     let owner = memory
         .create_owner(MemoryOwnerKind::Runtime)
         .map_err(RuntimeStateError::from_memory)?;
     let range = memory
-        .reserve_fixed(
+        .reserve_fixed_for_address_allocation(
+            address_allocation.id.0,
             owner,
             MemoryRegionKind::Runtime,
             IMPORT_THUNK_ARENA_BASE,
@@ -388,6 +413,26 @@ fn install_runtime_export_table_in_memory(
         },
         endpoints,
     })
+}
+
+fn validate_runtime_export_mapping_allocation(
+    allocation: &ProcessAddressAllocationRecord,
+) -> Result<(), RuntimeStateError> {
+    validate_process_address_mapping_allocation(
+        allocation,
+        &ProcessAddressMappingRequirements {
+            purpose: ProcessAddressAllocationPurpose::ImportThunks,
+            owner: "runtime-import-thunks".to_owned(),
+            range: RuntimeAddressRange {
+                base: IMPORT_THUNK_ARENA_BASE,
+                byte_length: IMPORT_THUNK_ARENA_SIZE,
+            },
+            classification: ProcessAddressAllocationClassification::RuntimeControl,
+            lifetime: ProcessAddressAllocationLifetime::Process,
+            release_policy: ProcessAddressAllocationReleasePolicy::Permanent,
+            executable: true,
+        },
+    )
 }
 
 fn runtime_export_committed_bytes(

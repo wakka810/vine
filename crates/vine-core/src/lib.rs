@@ -50,7 +50,8 @@ pub use environment::{
     InitialProcessEnvironment, InitialProcessParameters, InitialWideEnvironmentStrings,
     PEB_PROCESS_PARAMETERS_POINTER_OFFSET, PROCESS_PARAMETERS_COMMAND_LINE_OFFSET,
     PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET, TEB_PEB_POINTER_OFFSET, TEB_SELF_POINTER_OFFSET,
-    UNICODE_STRING_BUFFER_OFFSET, install_controlled_process_environment,
+    UNICODE_STRING_BUFFER_OFFSET, controlled_process_environment_allocation_request,
+    install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -103,9 +104,10 @@ pub use runtime::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationId,
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy,
-    ProcessAddressAllocationRequest, ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout,
-    RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT,
-    RUNTIME_MUTEX_LIMIT, RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
+    ProcessAddressAllocationRequest, ProcessAddressMappingRequirements,
+    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RUNTIME_CRITICAL_SECTION_LIMIT,
+    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_MUTEX_LIMIT,
+    RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
     RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
@@ -137,6 +139,7 @@ pub use runtime::{
     RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,
     RuntimeWaitRegistrationId, RuntimeWaitState, SchedulerThreadState, TLS_OUT_OF_INDEXES,
     X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    validate_process_address_mapping_allocation,
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use win32::{

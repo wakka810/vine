@@ -291,7 +291,9 @@ current ingressはRust `GuestMemory`をbyte authority、`ExecutionEngine` memory
 Process-wide `ProcessAddressSpaceAllocator`はv1 import／callback／dynamic-export control arenas、private
 heap bandと32 child slotsをallocation recordsとして登録する。Heap backingはrecord IDへ帰属する。
 同じregistryはfixed result addressなしでDLL image、追加stack、COM endpointをaligned search予約できる。
-既存control installerとinitial environmentのmapping commitをrecord-drivenにする移行は未完了である。
+Control installerとinitial environmentはrecord-driven mappingへ移行し、64-bit allocation IDをRust
+mapping operationからBrowser mirrorまで保持する。owner／range／lifetime不一致はmutation前に拒否し、
+environment reservation、memory transaction、process metadataは一つのatomic planでcommitする。
 詳細は[process-address-space-allocator.md](process-address-space-allocator.md)を正とする。
 
 ### 6.3 Heap と mapped file

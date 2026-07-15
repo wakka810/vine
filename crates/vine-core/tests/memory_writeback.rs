@@ -200,22 +200,33 @@ fn encodes_binary_mapping_operations_without_json_page_payloads() {
         page_size: GUEST_PAGE_SIZE,
         mapping_operations: vec![
             MappingOperation::Reserve {
+                address_allocation_id: None,
                 owner,
                 kind: MemoryRegionKind::Surface,
                 range,
             },
             MappingOperation::Commit {
+                address_allocation_id: None,
                 owner,
                 range,
                 protection: rw,
             },
             MappingOperation::Protect {
+                address_allocation_id: None,
                 owner,
                 range,
                 protection: rx,
             },
-            MappingOperation::Decommit { owner, range },
-            MappingOperation::Release { owner, range },
+            MappingOperation::Decommit {
+                address_allocation_id: None,
+                owner,
+                range,
+            },
+            MappingOperation::Release {
+                address_allocation_id: None,
+                owner,
+                range,
+            },
         ],
         dirty_pages: Vec::new(),
         cache_effects: CacheEffects {
@@ -230,16 +241,16 @@ fn encodes_binary_mapping_operations_without_json_page_payloads() {
     let buffers = delta.encode_binary().expect("binary mapping delta");
     assert!(buffers.page_bytes.is_empty());
     assert_eq!(&buffers.control[..8], b"VINEDL01");
-    assert_eq!(binary_u32(&buffers.control, 8), 1);
+    assert_eq!(binary_u32(&buffers.control, 8), 2);
     assert_eq!(binary_u32(&buffers.control, 12), GUEST_PAGE_SIZE as u32);
     assert_eq!(binary_u64(&buffers.control, 16), 7);
     assert_eq!(binary_u64(&buffers.control, 24), 12);
     assert_eq!(binary_u32(&buffers.control, 32), 5);
-    assert_eq!(binary_u32(&buffers.control, 36), 32);
+    assert_eq!(binary_u32(&buffers.control, 36), 40);
     assert_eq!(binary_u32(&buffers.control, 40), 0);
     assert_eq!(binary_u32(&buffers.control, 44), 16);
     assert_eq!(binary_u32(&buffers.control, 48), 0b011);
-    assert_eq!(buffers.control.len(), 56 + 5 * 32);
+    assert_eq!(buffers.control.len(), 56 + 5 * 40);
 
     let expected = [
         (1, 10, 0),
@@ -249,7 +260,7 @@ fn encodes_binary_mapping_operations_without_json_page_payloads() {
         (5, 0, 0),
     ];
     for (index, (operation, kind, protection)) in expected.into_iter().enumerate() {
-        let offset = 56 + index * 32;
+        let offset = 56 + index * 40;
         assert_eq!(binary_u32(&buffers.control, offset), operation);
         assert_eq!(binary_u32(&buffers.control, offset + 4), owner.0);
         assert_eq!(binary_u32(&buffers.control, offset + 8), kind);
@@ -259,7 +270,8 @@ fn encodes_binary_mapping_operations_without_json_page_payloads() {
             binary_u64(&buffers.control, offset + 20),
             2 * GUEST_PAGE_SIZE
         );
-        assert_eq!(binary_u32(&buffers.control, offset + 28), 0);
+        assert_eq!(binary_u64(&buffers.control, offset + 28), 0);
+        assert_eq!(binary_u32(&buffers.control, offset + 36), 0);
     }
 }
 

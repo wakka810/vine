@@ -6,14 +6,11 @@ use crate::environment::{
     CONTROLLED_ANSI_COMMAND_LINE_ENCODING, CONTROLLED_WIDE_ENVIRONMENT_ENCODING,
     InitialProcessEnvironment,
 };
-use crate::memory::{GUEST_PAGE_SIZE, GuestAddress};
+use crate::memory::GuestAddress;
 
 use super::{
-    ProcessAddressAllocationClassification, ProcessAddressAllocationId,
-    ProcessAddressAllocationLifetime, ProcessAddressAllocationRecord,
-    ProcessAddressAllocationReleasePolicy, ProcessAddressAllocationRequest,
-    ProcessAddressSpaceLayout, RuntimeAddressRange, RuntimeCancellation, RuntimeStateError,
-    RuntimeThreadId,
+    ProcessAddressAllocationId, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
+    RuntimeAddressRange, RuntimeCancellation, RuntimeStateError, RuntimeThreadId,
 };
 
 pub const LOGICAL_STANDARD_HANDLE_NAMESPACE: &str = "vine.logical-standard-handle.v1";
@@ -197,7 +194,6 @@ pub(super) struct RuntimeProcessMutationPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeProcessEnvironmentPlan {
     previous_lifecycle: RuntimeProcessLifecycleState,
-    allocation_request: ProcessAddressAllocationRequest,
     range: RuntimeAddressRange,
     command_line: RuntimeCommandLine,
     environment_strings: Option<RuntimeEnvironmentStrings>,
@@ -762,19 +758,6 @@ impl RuntimeProcessState {
         let range = RuntimeAddressRange::new(base, byte_length)?;
         Ok(RuntimeProcessEnvironmentPlan {
             previous_lifecycle: self.lifecycle,
-            allocation_request: ProcessAddressAllocationRequest {
-                purpose: super::ProcessAddressAllocationPurpose::ProcessEnvironment,
-                owner: "runtime-initial-process-environment".to_owned(),
-                preferred_address: Some(base),
-                search_range: range,
-                reserve_size: byte_length,
-                alignment: GUEST_PAGE_SIZE as u32,
-                guard_pages: 0,
-                classification: ProcessAddressAllocationClassification::ProcessEnvironment,
-                lifetime: ProcessAddressAllocationLifetime::Process,
-                release_policy: ProcessAddressAllocationReleasePolicy::Permanent,
-                executable: false,
-            },
             range,
             command_line: RuntimeCommandLine {
                 source_authority: "rtl-user-process-parameters-command-line".to_owned(),
@@ -786,12 +769,6 @@ impl RuntimeProcessState {
             },
             environment_strings,
         })
-    }
-
-    pub(super) fn environment_allocation_request(
-        plan: &RuntimeProcessEnvironmentPlan,
-    ) -> &ProcessAddressAllocationRequest {
-        &plan.allocation_request
     }
 
     pub(super) fn preflight_environment_commit(

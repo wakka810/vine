@@ -13,15 +13,14 @@ use vine_core::{
     HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
     MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
-    ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
-    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHandle,
-    RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId,
-    RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, SchedulerThreadState,
-    StackCleanup, bind_pe32_imports, build_pe32_load_plan, dispatch_kernel32_api_with_policy,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
+    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
+    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, SchedulerThreadState, StackCleanup,
+    bind_pe32_imports, build_pe32_load_plan, dispatch_kernel32_api_with_policy,
     install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
-    install_controlled_process_environment_with_command_line_and_ansi,
-    install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
     kernel32_contract_for_endpoint, materialize_pe32_image,
 };
@@ -206,6 +205,7 @@ impl BrowserRuntime {
         .map_err(error_string)?;
         let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, LOAD_BASE)
             .map_err(error_string)?;
+        let mut runtime = controlled_runtime_state()?;
         let catalog = RuntimeExportCatalog::new(
             [
                 "fixture_deferred_add",
@@ -217,16 +217,26 @@ impl BrowserRuntime {
             .collect(),
         )
         .map_err(error_string)?;
-        let binding = bind_pe32_imports(&mut memory, &plan, &materialization, &catalog)
-            .map_err(error_string)?;
+        let import_allocation =
+            control_mapping_allocation(&runtime, ProcessAddressAllocationPurpose::ImportThunks)?;
+        let binding = bind_pe32_imports(
+            &mut memory,
+            &import_allocation,
+            &plan,
+            &materialization,
+            &catalog,
+        )
+        .map_err(error_string)?;
         if !binding.complete || !binding.image_owner_sealed {
             return Err("browser fixture import binding did not complete".to_owned());
         }
-        let sentinels = install_runtime_return_sentinels(&mut memory).map_err(error_string)?;
+        let callback_allocation =
+            control_mapping_allocation(&runtime, ProcessAddressAllocationPurpose::CallbackReturns)?;
+        let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation)
+            .map_err(error_string)?;
         let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
             .map_err(error_string)?;
         let (dispatcher, routes) = build_dispatcher(&binding)?;
-        let mut runtime = controlled_runtime_state()?;
         runtime
             .register_initial_thread_stack(&stack)
             .map_err(error_string)?;
@@ -303,7 +313,12 @@ impl BrowserRuntime {
         let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
         let mut process =
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
-        let sentinels = install_runtime_return_sentinels(&mut memory).map_err(error_string)?;
+        let callback_allocation = control_mapping_allocation(
+            &process.runtime,
+            ProcessAddressAllocationPurpose::CallbackReturns,
+        )?;
+        let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation)
+            .map_err(error_string)?;
         let stack = install_initial_thread_stack(
             &mut memory,
             &sentinels.process_entry_return,
@@ -316,27 +331,34 @@ impl BrowserRuntime {
             .register_initial_thread_stack(&stack)
             .map_err(error_string)?;
         let environment = if kernel32_policy.allows_wide_environment_strings() {
-            install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
-                &mut memory,
-                "BGI.exe",
-            )
+            ExecutionSession::new(&mut memory, &mut process.runtime)
+                .install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
+                    "BGI.exe",
+                )
+                .map_err(error_string)
         } else if kernel32_policy.allows_ansi_command_line() {
-            install_controlled_process_environment_with_command_line_and_ansi(
+            ExecutionSession::new(&mut memory, &mut process.runtime)
+                .install_controlled_process_environment_with_command_line_and_ansi("BGI.exe")
+                .map_err(error_string)
+        } else {
+            let mut allocator = process.runtime.process_address_space_allocator().clone();
+            let allocation = allocator
+                .reserve(vine_core::controlled_process_environment_allocation_request(true))
+                .map_err(error_string)?;
+            install_controlled_process_environment_with_command_line(
                 &mut memory,
+                &allocation,
                 "BGI.exe",
             )
-        } else {
-            install_controlled_process_environment_with_command_line(&mut memory, "BGI.exe")
-        }
-        .map_err(error_string)?;
-        if kernel32_policy.allows_ansi_command_line() {
-            process
-                .runtime
-                .register_initial_process_environment(&environment)
-                .map_err(error_string)?;
-        }
+            .map_err(error_string)
+        }?;
+        let dynamic_allocation = control_mapping_allocation(
+            &process.runtime,
+            ProcessAddressAllocationPurpose::DynamicExports,
+        )?;
         let dynamic_thunks = install_dynamic_export_thunks(
             &mut memory,
+            &dynamic_allocation,
             &[
                 ("kernel32.dll", "FlsAlloc"),
                 ("kernel32.dll", "FlsGetValue"),
@@ -1471,6 +1493,17 @@ fn controlled_runtime_state() -> Result<RuntimeState, String> {
     .map_err(error_string)?;
     runtime.start_initial_thread().map_err(error_string)?;
     Ok(runtime)
+}
+
+fn control_mapping_allocation(
+    runtime: &RuntimeState,
+    purpose: ProcessAddressAllocationPurpose,
+) -> Result<ProcessAddressAllocationRecord, String> {
+    runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&purpose)
+        .cloned()
+        .map_err(error_string)
 }
 
 fn completion_metadata(kind: &str, completion: &ApiImmediateCompletion) -> Value {

@@ -20,6 +20,7 @@ use vine_core::{
     InitialThreadStack, Kernel32CompatibilityPolicy, LoaderError, LoaderErrorClass,
     LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
     MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
     ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
     RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,
     RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
@@ -1657,15 +1658,29 @@ fn run() -> Result<(), LoaderError> {
             GuestAddress(load_base),
         )?;
         let catalog = RuntimeExportCatalog::new(arguments.runtime_exports.clone())?;
+        let address_allocator =
+            ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1())
+                .map_err(runtime_state_error)?;
+        let import_allocation = fixed_mapping_allocation(
+            &address_allocator,
+            ProcessAddressAllocationPurpose::ImportThunks,
+        )?;
         let binding = if arguments.trap_unsupported_imports {
             bind_pe32_imports_with_unsupported_traps(
                 &mut memory,
+                &import_allocation,
                 &loader_report,
                 &materialization,
                 &catalog,
             )?
         } else {
-            bind_pe32_imports(&mut memory, &loader_report, &materialization, &catalog)?
+            bind_pe32_imports(
+                &mut memory,
+                &import_allocation,
+                &loader_report,
+                &materialization,
+                &catalog,
+            )?
         };
         let report = ImportBindingIngressReport {
             schema: "vine.pe32-import-binding",
@@ -1814,6 +1829,21 @@ fn run_v86_reflection_session(
         ..MemoryLimits::default()
     };
     let mut memory = GuestMemory::new(memory_limits).map_err(memory_error)?;
+    let control_address_allocator =
+        ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1())
+            .map_err(runtime_state_error)?;
+    let import_allocation = fixed_mapping_allocation(
+        &control_address_allocator,
+        ProcessAddressAllocationPurpose::ImportThunks,
+    )?;
+    let callback_allocation = fixed_mapping_allocation(
+        &control_address_allocator,
+        ProcessAddressAllocationPurpose::CallbackReturns,
+    )?;
+    let dynamic_export_allocation = fixed_mapping_allocation(
+        &control_address_allocator,
+        ProcessAddressAllocationPurpose::DynamicExports,
+    )?;
     let materialization = materialize_pe32_image(
         &mut memory,
         snapshot,
@@ -1844,6 +1874,7 @@ fn run_v86_reflection_session(
     } else if trap_unsupported_imports {
         bind_pe32_imports_with_unsupported_traps(
             &mut memory,
+            &import_allocation,
             loader_report,
             &materialization,
             &declared_catalog,
@@ -1851,6 +1882,7 @@ fn run_v86_reflection_session(
     } else {
         bind_pe32_imports(
             &mut memory,
+            &import_allocation,
             loader_report,
             &materialization,
             &declared_catalog,
@@ -1873,7 +1905,8 @@ fn run_v86_reflection_session(
     }
     let (callback_return_sentinel, process_entry_return_sentinel) =
         if arguments.install_process_entry_return_sentinel {
-            let sentinels = install_runtime_return_sentinels(&mut memory).map_err(memory_error)?;
+            let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation)
+                .map_err(memory_error)?;
             (
                 Some(sentinels.callback_return),
                 Some(sentinels.process_entry_return),
@@ -1882,7 +1915,10 @@ fn run_v86_reflection_session(
             (
                 arguments
                     .install_callback_return_sentinel
-                    .then(|| install_callback_return_sentinel(&mut memory).map_err(memory_error))
+                    .then(|| {
+                        install_callback_return_sentinel(&mut memory, &callback_allocation)
+                            .map_err(memory_error)
+                    })
                     .transpose()?,
                 None,
             )
@@ -1909,76 +1945,6 @@ fn run_v86_reflection_session(
     } else {
         None
     };
-    let initial_process_environment = if arguments.install_controlled_process_parameters {
-        Some(if wide_environment_strings_enabled {
-            install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
-                &mut memory,
-                arguments
-                    .controlled_command_line
-                    .as_deref()
-                    .unwrap_or(CONTROLLED_COMMAND_LINE),
-            )
-            .map_err(memory_error)?
-        } else if ansi_command_line_enabled {
-            install_controlled_process_environment_with_command_line_and_ansi(
-                &mut memory,
-                arguments
-                    .controlled_command_line
-                    .as_deref()
-                    .unwrap_or(CONTROLLED_COMMAND_LINE),
-            )
-            .map_err(memory_error)?
-        } else if let Some(command_line) = arguments.controlled_command_line.as_deref() {
-            install_controlled_process_environment_with_command_line(&mut memory, command_line)
-                .map_err(memory_error)?
-        } else {
-            install_controlled_process_environment_with_parameters(&mut memory)
-                .map_err(memory_error)?
-        })
-    } else {
-        arguments
-            .install_controlled_process_environment
-            .then(|| install_controlled_process_environment(&mut memory).map_err(memory_error))
-            .transpose()?
-    };
-    let dynamic_export_thunks = if generic_runtime_reentry || get_proc_address_occurrences >= 4 {
-        install_dynamic_export_thunks(
-            &mut memory,
-            &[
-                ("kernel32.dll", "FlsAlloc"),
-                ("kernel32.dll", "FlsGetValue"),
-                ("kernel32.dll", "FlsSetValue"),
-                ("kernel32.dll", "FlsFree"),
-            ],
-        )
-        .map_err(memory_error)?
-    } else if get_proc_address_occurrences >= 3 {
-        install_dynamic_export_thunks(
-            &mut memory,
-            &[
-                ("kernel32.dll", "FlsAlloc"),
-                ("kernel32.dll", "FlsGetValue"),
-                ("kernel32.dll", "FlsSetValue"),
-            ],
-        )
-        .map_err(memory_error)?
-    } else if get_proc_address_occurrences >= 2 {
-        install_dynamic_export_thunks(
-            &mut memory,
-            &[
-                ("kernel32.dll", "FlsAlloc"),
-                ("kernel32.dll", "FlsGetValue"),
-            ],
-        )
-        .map_err(memory_error)?
-    } else if get_proc_address_occurrences >= 1 {
-        vec![
-            install_dynamic_export_thunk(&mut memory, "kernel32.dll", "FlsAlloc")
-                .map_err(memory_error)?,
-        ]
-    } else {
-        Vec::new()
-    };
     if let Some(runtime) = generic_runtime.as_mut() {
         runtime
             .runtime
@@ -1990,20 +1956,125 @@ fn run_v86_reflection_session(
                 )
             })?)
             .map_err(runtime_state_error)?;
-        if ansi_command_line_enabled {
-            runtime
-                .runtime
-                .register_initial_process_environment(
-                    initial_process_environment.as_ref().ok_or_else(|| {
-                        LoaderError::runtime_defect(
-                            "runtime-reentry",
-                            "initial-process-environment-missing",
-                            "ANSI command-line capability requires an initial process environment",
-                        )
-                    })?,
+    }
+    let initial_process_environment = if arguments.install_controlled_process_parameters {
+        let command_line = arguments
+            .controlled_command_line
+            .as_deref()
+            .unwrap_or(CONTROLLED_COMMAND_LINE);
+        Some(
+            if let Some(runtime) = generic_runtime
+                .as_mut()
+                .filter(|_| wide_environment_strings_enabled)
+            {
+                ExecutionSession::new(&mut memory, &mut runtime.runtime)
+                    .install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
+                        command_line,
+                    )
+                    .map_err(runtime_state_error)?
+            } else if let Some(runtime) = generic_runtime
+                .as_mut()
+                .filter(|_| ansi_command_line_enabled)
+            {
+                ExecutionSession::new(&mut memory, &mut runtime.runtime)
+                    .install_controlled_process_environment_with_command_line_and_ansi(command_line)
+                    .map_err(runtime_state_error)?
+            } else {
+                let mut allocator = generic_runtime
+                    .as_ref()
+                    .map(|runtime| runtime.runtime.process_address_space_allocator().clone())
+                    .unwrap_or_else(|| control_address_allocator.clone());
+                let allocation = allocator
+                    .reserve(vine_core::controlled_process_environment_allocation_request(true))
+                    .map_err(runtime_state_error)?;
+                if wide_environment_strings_enabled {
+                    install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
+                    &mut memory,
+                    &allocation,
+                    command_line,
                 )
+                .map_err(memory_error)?
+                } else if ansi_command_line_enabled {
+                    install_controlled_process_environment_with_command_line_and_ansi(
+                        &mut memory,
+                        &allocation,
+                        command_line,
+                    )
+                    .map_err(memory_error)?
+                } else if arguments.controlled_command_line.is_some() {
+                    install_controlled_process_environment_with_command_line(
+                        &mut memory,
+                        &allocation,
+                        command_line,
+                    )
+                    .map_err(memory_error)?
+                } else {
+                    install_controlled_process_environment_with_parameters(&mut memory, &allocation)
+                        .map_err(memory_error)?
+                }
+            },
+        )
+    } else {
+        if arguments.install_controlled_process_environment {
+            let mut allocator = control_address_allocator.clone();
+            let allocation = allocator
+                .reserve(vine_core::controlled_process_environment_allocation_request(false))
                 .map_err(runtime_state_error)?;
+            Some(
+                install_controlled_process_environment(&mut memory, &allocation)
+                    .map_err(memory_error)?,
+            )
+        } else {
+            None
         }
+    };
+    let dynamic_export_thunks = if generic_runtime_reentry || get_proc_address_occurrences >= 4 {
+        install_dynamic_export_thunks(
+            &mut memory,
+            &dynamic_export_allocation,
+            &[
+                ("kernel32.dll", "FlsAlloc"),
+                ("kernel32.dll", "FlsGetValue"),
+                ("kernel32.dll", "FlsSetValue"),
+                ("kernel32.dll", "FlsFree"),
+            ],
+        )
+        .map_err(memory_error)?
+    } else if get_proc_address_occurrences >= 3 {
+        install_dynamic_export_thunks(
+            &mut memory,
+            &dynamic_export_allocation,
+            &[
+                ("kernel32.dll", "FlsAlloc"),
+                ("kernel32.dll", "FlsGetValue"),
+                ("kernel32.dll", "FlsSetValue"),
+            ],
+        )
+        .map_err(memory_error)?
+    } else if get_proc_address_occurrences >= 2 {
+        install_dynamic_export_thunks(
+            &mut memory,
+            &dynamic_export_allocation,
+            &[
+                ("kernel32.dll", "FlsAlloc"),
+                ("kernel32.dll", "FlsGetValue"),
+            ],
+        )
+        .map_err(memory_error)?
+    } else if get_proc_address_occurrences >= 1 {
+        vec![
+            install_dynamic_export_thunk(
+                &mut memory,
+                &dynamic_export_allocation,
+                "kernel32.dll",
+                "FlsAlloc",
+            )
+            .map_err(memory_error)?,
+        ]
+    } else {
+        Vec::new()
+    };
+    if let Some(runtime) = generic_runtime.as_mut() {
         let callback_return = callback_return_sentinel.as_ref().ok_or_else(|| {
             LoaderError::runtime_defect(
                 "runtime-reentry",
@@ -8099,6 +8170,16 @@ fn api_fault(fault: ApiFault) -> LoaderError {
             LoaderError::runtime_defect(fault.stage, fault.code, fault.message)
         }
     }
+}
+
+fn fixed_mapping_allocation(
+    allocator: &ProcessAddressSpaceAllocator,
+    purpose: ProcessAddressAllocationPurpose,
+) -> Result<ProcessAddressAllocationRecord, LoaderError> {
+    allocator
+        .allocation_for_purpose(&purpose)
+        .cloned()
+        .map_err(runtime_state_error)
 }
 
 fn runtime_state_error(error: RuntimeStateError) -> LoaderError {

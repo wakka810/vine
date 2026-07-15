@@ -5,6 +5,12 @@ use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestRange, MemoryInvalidation,
     MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
 };
+use crate::runtime::{
+    ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    ProcessAddressAllocationReleasePolicy, ProcessAddressMappingRequirements, RuntimeAddressRange,
+    validate_process_address_mapping_allocation_for_memory,
+};
 
 pub const DYNAMIC_EXPORT_ARENA_BASE: GuestAddress = GuestAddress(0x7f02_0000);
 pub const DYNAMIC_EXPORT_ARENA_SIZE: u64 = 0x1_0000;
@@ -35,10 +41,11 @@ pub struct DynamicExportThunk {
 
 pub fn install_dynamic_export_thunk(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
     module: &str,
     name: &str,
 ) -> Result<DynamicExportThunk, GuestMemoryError> {
-    let mut thunks = install_dynamic_export_thunks(memory, &[(module, name)])?;
+    let mut thunks = install_dynamic_export_thunks(memory, allocation, &[(module, name)])?;
     thunks.pop().ok_or_else(|| {
         GuestMemoryError::runtime_defect(
             "dynamic-export",
@@ -50,8 +57,24 @@ pub fn install_dynamic_export_thunk(
 
 pub fn install_dynamic_export_thunks(
     memory: &mut GuestMemory,
+    allocation: &ProcessAddressAllocationRecord,
     identities: &[(&str, &str)],
 ) -> Result<Vec<DynamicExportThunk>, GuestMemoryError> {
+    validate_process_address_mapping_allocation_for_memory(
+        allocation,
+        &ProcessAddressMappingRequirements {
+            purpose: ProcessAddressAllocationPurpose::DynamicExports,
+            owner: "runtime-dynamic-exports".to_owned(),
+            range: RuntimeAddressRange {
+                base: DYNAMIC_EXPORT_ARENA_BASE,
+                byte_length: DYNAMIC_EXPORT_ARENA_SIZE,
+            },
+            classification: ProcessAddressAllocationClassification::RuntimeControl,
+            lifetime: ProcessAddressAllocationLifetime::Process,
+            release_policy: ProcessAddressAllocationReleasePolicy::Permanent,
+            executable: true,
+        },
+    )?;
     validate_identities(identities)?;
     memory.preflight_growth(1, 1, 1, "dynamic-export")?;
     memory.preflight_fixed_reservation(
@@ -62,7 +85,8 @@ pub fn install_dynamic_export_thunks(
 
     let mut transaction = memory.begin_transaction();
     let owner = transaction.create_owner(MemoryOwnerKind::Runtime)?;
-    let arena_range = transaction.reserve_fixed(
+    let arena_range = transaction.reserve_fixed_for_address_allocation(
+        allocation.id.0,
         owner,
         MemoryRegionKind::Runtime,
         DYNAMIC_EXPORT_ARENA_BASE,

@@ -308,6 +308,7 @@ fn apply_delta(mirror: &mut BTreeMap<u32, ModelPage>, delta: &MemoryDelta) {
                 owner,
                 range,
                 protection,
+                ..
             } => {
                 for address in page_addresses(*range) {
                     mirror.insert(

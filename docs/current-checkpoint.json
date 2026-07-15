@@ -856,7 +856,11 @@
     ],
     "searchReservationFixtures": ["guest-image", "thread-stack", "com-endpoint"],
     "heapBackingUsesAllocationId": true,
-    "controlMappingCommitUsesAllocationId": false,
+    "controlMappingCommitUsesAllocationId": true,
+    "mappingDeltaBinaryVersion": 2,
+    "mappingDeltaAllocationIdWidthBits": 64,
+    "browserMirrorValidatesAllocationId": true,
+    "processEnvironmentReservationCommit": "memory-runtime-atomic-plan",
       "initialEnvironmentRegistered": true,
       "initialThreadStackRegistered": true
   },
