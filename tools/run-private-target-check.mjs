@@ -287,7 +287,7 @@ function assertReportSemantics({
 
   assert.equal(browserReport.runtimeProtocol, checkpoint.browserCheckpoint.browserRuntimeProtocol);
   assert.equal(browserReport.schema, "vine.browser-bgi-runtime-worker");
-  assert.equal(browserReport.schemaVersion, 3);
+  assert.equal(browserReport.schemaVersion, 4);
   assert.equal(browserReport.success.report.outcome, "structured-stop");
   assert.equal(
     browserReport.success.report.supportedCalls.length,
