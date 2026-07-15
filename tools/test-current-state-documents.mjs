@@ -30,17 +30,17 @@ function errorsFor(file, body) {
 
 const currentCheckpoint = {
   activeRuntimeCheckpoint: {
-    genericDispatcherApiCount: 47,
-    genericDispatcherCallOccurrenceCount: 285,
+    genericDispatcherApiCount: 48,
+    genericDispatcherCallOccurrenceCount: 1290,
     canonicalReproductionCommand: "npm run check:runtime:bgi-browser",
     latestEvidence: {
-      finalMemoryGeneration: 396,
+      finalMemoryGeneration: 1401,
       reportSha256:
-        "50d7ae673691a3036f328284f1e276404d8b7bec07256d16f793236f4bfbe1eb",
+        "ffaf389e5ed377d07aefe71ad8ad3380209fcb603fa70b27b99c9ddf8f6ff2db",
     },
   },
   nextStructuredStop: {
-    api: "KERNEL32.dll!SetThreadAffinityMask",
+    api: "KERNEL32.dll!GetSystemInfo",
   },
 };
 
@@ -79,15 +79,15 @@ assert(
 );
 
 for (const [body, id] of [
-  ["Captured 47 API contracts.", "exact-current-contract-count"],
-  ["Captured Node/Chrome 285-call equivalence.", "exact-current-call-count"],
-  ["The captured generation `396` was stable.", "exact-current-generation"],
+  ["Captured 48 API contracts.", "exact-current-contract-count"],
+  ["Captured Node/Chrome 1290-call equivalence.", "exact-current-call-count"],
+  ["The captured generation `1401` was stable.", "exact-current-generation"],
   [
-    "Artifact 50d7ae673691a3036f328284f1e276404d8b7bec07256d16f793236f4bfbe1eb.",
+    "Artifact ffaf389e5ed377d07aefe71ad8ad3380209fcb603fa70b27b99c9ddf8f6ff2db.",
     "exact-current-report-identity",
   ],
   ["Run `npm run check:runtime:bgi-browser`.", "exact-current-canonical-command"],
-  ["The consumer calls SetThreadAffinityMask.", "exact-current-next-stop"],
+  ["The consumer calls GetSystemInfo.", "exact-current-next-stop"],
 ]) {
   const documents = baselineDocuments();
   documents.set(

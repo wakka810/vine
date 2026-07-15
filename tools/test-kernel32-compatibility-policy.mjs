@@ -80,6 +80,22 @@ for (const relative of policyFiles) {
   assert(processorFeatures.every(({ index, present }) =>
     Number.isInteger(index) && index >= 0 && index <= 0xffffffff &&
       typeof present === "boolean"));
+  const threadAffinity = policy.threadAffinity ?? null;
+  if (threadAffinity !== null) {
+    assert(
+      Number.isInteger(threadAffinity.processMask) &&
+        threadAffinity.processMask > 0 &&
+        threadAffinity.processMask <= 0xffffffff,
+    );
+  }
+  const tickCount = policy.tickCount ?? null;
+  if (tickCount !== null) {
+    assert(
+      Number.isInteger(tickCount.incrementPerRead) &&
+        tickCount.incrementPerRead >= 1 &&
+        tickCount.incrementPerRead <= 1000,
+    );
+  }
   const multibyte = policy.multiByteToWideChar ?? null;
   if (multibyte?.allowActiveCodePageSelector !== undefined) {
     assert.equal(typeof multibyte.allowActiveCodePageSelector, "boolean");
@@ -133,6 +149,8 @@ assert.equal(
   activePolicy.heapAllocator.maximumAllocationBytes,
   summary.heapAllocator.maximumAllocationBytes,
 );
+assert.equal(activePolicy.threadAffinity.processMask, summary.threadAffinityProcessMask);
+assert.equal(activePolicy.tickCount.incrementPerRead, summary.tickCountIncrementPerRead);
 
 const implementation = fs.readFileSync(
   path.join(root, "crates", "vine-core", "src", "win32.rs"),

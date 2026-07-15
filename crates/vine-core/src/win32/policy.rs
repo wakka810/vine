@@ -52,6 +52,10 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default)]
     pub processor_features: Vec<Kernel32ProcessorFeaturePolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_affinity: Option<Kernel32ThreadAffinityPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tick_count: Option<Kernel32TickCountPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heap_allocator: Option<Kernel32HeapAllocatorPolicy>,
     #[serde(default)]
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
@@ -158,6 +162,18 @@ pub struct Kernel32ProcessorFeaturePolicy {
     pub present: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32ThreadAffinityPolicy {
+    pub process_mask: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32TickCountPolicy {
+    pub increment_per_read: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Kernel32CompatibilityPolicyError {
     pub code: &'static str,
@@ -195,6 +211,8 @@ impl Kernel32CompatibilityPolicy {
             get_module_file_name_a: None,
             active_code_page_info: None,
             processor_features: Vec::new(),
+            thread_affinity: None,
+            tick_count: None,
             heap_allocator: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
@@ -396,6 +414,24 @@ impl Kernel32CompatibilityPolicy {
                 "processor-feature indices must be unique explicitly configured values",
             ));
         }
+        if self
+            .thread_affinity
+            .is_some_and(|affinity| affinity.process_mask == 0)
+        {
+            return Err(policy_error(
+                "kernel32-policy-thread-affinity-invalid",
+                "thread-affinity policy requires a nonzero virtual process mask",
+            ));
+        }
+        if self
+            .tick_count
+            .is_some_and(|clock| clock.increment_per_read == 0 || clock.increment_per_read > 1_000)
+        {
+            return Err(policy_error(
+                "kernel32-policy-tick-count-invalid",
+                "tick-count policy requires a deterministic increment from 1 through 1000 milliseconds per read",
+            ));
+        }
 
         if let Some(allocator) = self.heap_allocator.as_ref() {
             let allowed_flags = allocator
@@ -548,6 +584,14 @@ impl Kernel32CompatibilityPolicy {
             .map(|feature| feature.present)
     }
 
+    pub fn thread_affinity_process_mask(&self) -> Option<u32> {
+        self.thread_affinity.map(|affinity| affinity.process_mask)
+    }
+
+    pub fn tick_count_increment_per_read(&self) -> Option<u32> {
+        self.tick_count.map(|clock| clock.increment_per_read)
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocator.as_ref().map_or_else(
             || {
@@ -689,6 +733,32 @@ mod tests {
         assert!(policy.get_module_file_name_a().is_none());
         assert!(policy.active_code_page_info().is_none());
         assert_eq!(policy.processor_feature_presence(10), None);
+        assert_eq!(policy.thread_affinity_process_mask(), None);
+        assert_eq!(policy.tick_count_increment_per_read(), None);
+
+        let mut affinity = policy.clone();
+        affinity.thread_affinity = Some(Kernel32ThreadAffinityPolicy { process_mask: 1 });
+        affinity.validate().unwrap();
+        assert_eq!(affinity.thread_affinity_process_mask(), Some(1));
+        affinity.thread_affinity = Some(Kernel32ThreadAffinityPolicy { process_mask: 0 });
+        assert_eq!(
+            affinity.validate().unwrap_err().code,
+            "kernel32-policy-thread-affinity-invalid"
+        );
+
+        let mut tick_count = policy.clone();
+        tick_count.tick_count = Some(Kernel32TickCountPolicy {
+            increment_per_read: 1,
+        });
+        tick_count.validate().unwrap();
+        assert_eq!(tick_count.tick_count_increment_per_read(), Some(1));
+        tick_count.tick_count = Some(Kernel32TickCountPolicy {
+            increment_per_read: 0,
+        });
+        assert_eq!(
+            tick_count.validate().unwrap_err().code,
+            "kernel32-policy-tick-count-invalid"
+        );
 
         let mut bounded_heap = policy.clone();
         bounded_heap.schema_version = KERNEL32_COMPATIBILITY_POLICY_VERSION;

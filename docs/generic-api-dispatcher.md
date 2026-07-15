@@ -934,6 +934,29 @@ Full evidence is in [bgi-create-mutex-a.md](bgi-create-mutex-a.md).
 
 <!-- END FROZEN HISTORICAL EVIDENCE -->
 
+## Logical affinity and process-clock contract
+
+`kernel32.set-thread-affinity-mask.v1` uses the same catalog／dispatcher path as
+the other Kernel32 APIs. It accepts two DWORD arguments and returns the previous
+logical mask. The semantic handler resolves the current-thread pseudo-handle,
+then asks the private thread subsystem to plan and commit a nonzero subset of
+the policy-owned virtual process mask. Success preserves LastError and writes no
+guest memory; null handle and invalid mask return their Win32 failures, while
+unreached handle variants stop before mutation.
+
+The reached consumer exposed an existing clock invariant: `GetTickCount` must
+progress while the guest polls it. The same `kernel32.get-tick-count.v1`
+implementation now asks `RuntimeProcessState` for a policy-driven sample plan.
+The active policy advances after each read; policies without that selector keep
+the historical fixed sample. Returned and next DWORD values are committed by
+the process owner with stale-plan rejection and wrapping arithmetic. Handler
+selection remains independent of callsite, occurrence, and evidence identity.
+
+Detailed native, Node, Chrome, and performance evidence is in
+[bgi-set-thread-affinity-mask.md](bgi-set-thread-affinity-mask.md). Changing host
+affinity, importing host topology, arbitrary thread-handle access, and a general
+timer／wait clock remain outside this contract.
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -985,6 +1008,9 @@ Full evidence is in [bgi-create-mutex-a.md](bgi-create-mutex-a.md).
   recursive immediate wait／release, distinct-handle lifetime, and teardown are
   Rust-owned; security attributes, unnamed objects, abandonment, cross-thread
   blocking／wake, and guest wait／release／close API coverage remain absent.
+  Current-thread logical affinity and deterministic tick progression are
+  Rust-owned, but host affinity／topology, arbitrary thread handles, process
+  affinity APIs, and general sleep／timer／wait-deadline semantics remain absent.
   Active structured-stop identity is intentionally not repeated in this document.
 
 ## Frozen next-checkpoint notes

@@ -94,6 +94,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-set-current-directory-a",
         "kernel32-create-mutex-a",
         "kernel32-get-current-thread",
+        "kernel32-set-thread-affinity-mask",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -120,7 +121,8 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-get-current-thread"
+    genericRuntimeCapability === "kernel32-get-current-thread" ||
+    genericRuntimeCapability === "kernel32-set-thread-affinity-mask"
       ? "kernel32-bounded-heap-v2.json"
       : genericRuntimeCapability === "kernel32-create-mutex-a"
       ? "kernel32-create-mutex-a-v1.json"
@@ -217,7 +219,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const getCurrentThreadEnabled = genericRuntimeCapability === "kernel32-get-current-thread";
+const setThreadAffinityMaskEnabled =
+  genericRuntimeCapability === "kernel32-set-thread-affinity-mask";
+const getCurrentThreadEnabled =
+  setThreadAffinityMaskEnabled || genericRuntimeCapability === "kernel32-get-current-thread";
 const createMutexAEnabled =
   getCurrentThreadEnabled || genericRuntimeCapability === "kernel32-create-mutex-a";
 const setCurrentDirectoryAEnabled =
@@ -339,7 +344,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getCurrentThreadEnabled
+      ? setThreadAffinityMaskEnabled
+        ? "v86-bgi-set-thread-affinity-mask"
+        : getCurrentThreadEnabled
         ? "v86-bgi-get-current-thread"
         : createMutexAEnabled
         ? "v86-bgi-create-mutex-a"
@@ -3619,6 +3626,78 @@ const getCurrentThreadExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const setThreadAffinityMaskExpected = {
+  ...getCurrentThreadExpected,
+  supportedCalls: 1290,
+  writebackBatches: 1295,
+  dirtyPages: 2453,
+  changedBytes: 7724,
+  hostDeltaBatches: 77,
+  finalGeneration: 1401,
+  implementedApiContracts: 48,
+  calls: [
+    {
+      sequence: 286,
+      occurrence: 1,
+      instructionCount: 25261,
+      arguments: [0xffff_fffe, 1],
+      result: 1,
+      returnAddress: 0x1006999a,
+      stackCleanupBytes: 12,
+      lastError: 0,
+    },
+    {
+      sequence: 1290,
+      occurrence: 2,
+      instructionCount: 45407,
+      arguments: [0xffff_fffe, 1],
+      result: 1,
+      returnAddress: 0x100699f0,
+      stackCleanupBytes: 12,
+      lastError: 0,
+    },
+  ],
+  threadAffinity: {
+    threadId: controlledThread.threadId,
+    processMask: 1,
+    affinityMask: 1,
+  },
+  tickCount: {
+    totalCalls: 1004,
+    calibrationFirst: {
+      sequence: 287,
+      occurrence: 2,
+      instructionCount: 25267,
+      result: 3_600_001,
+      next: 3_600_002,
+    },
+    calibrationLast: {
+      sequence: 1289,
+      occurrence: 1004,
+      instructionCount: 45331,
+      result: 3_601_003,
+      next: 3_601_004,
+    },
+    returnAddress: 0x10091ec7,
+    stackCleanupBytes: 4,
+    incrementPerRead: 1,
+  },
+  memoryContentSha256: "ca8193a48aa4293f31a9cd95bf516ff777e50256e3d1c53c440ae02b0d6b4bb5",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 120,
+    endpointAddress: 0x7f000770,
+    module: "kernel32.dll",
+    symbol: "GetSystemInfo",
+    iatAddress: 0x100d1288,
+    arguments: [0x006ffed8],
+    returnAddress: 0x10069f0a,
+    instructionCount: 45420,
+    faultClass: "unsupported",
+    faultStage: "api-dispatch",
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -4081,6 +4160,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setThreadAffinityMaskEnabled) {
+        validateSetThreadAffinityMaskResult(genericResult);
       } else if (getCurrentThreadEnabled) {
         validateGetCurrentThreadResult(genericResult);
       } else if (createMutexAEnabled) {
@@ -4168,7 +4249,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : getCurrentThreadEnabled
+          : setThreadAffinityMaskEnabled
+            ? "bgi SetThreadAffinityMask"
+            : getCurrentThreadEnabled
             ? "bgi GetCurrentThread"
             : createMutexAEnabled
             ? "bgi CreateMutexA"
@@ -4730,6 +4813,12 @@ async function runGenericRuntimeReentry({
         ? {}
         : { currentDirectory: completionFrame.currentDirectory }),
       ...(completionFrame.mutex === undefined ? {} : { mutex: completionFrame.mutex }),
+      ...(completionFrame.threadAffinity === undefined
+        ? {}
+        : { threadAffinity: completionFrame.threadAffinity }),
+      ...(completionFrame.tickCount === undefined
+        ? {}
+        : { tickCount: completionFrame.tickCount }),
     };
 
     const manifestCheckpoint =
@@ -4768,8 +4857,12 @@ async function runGenericRuntimeReentry({
     }
     continuation = next;
   }
+  const lastCall = supportedCalls.at(-1) ?? null;
   throw new Error(
-    `generic runtime re-entry exceeded its bounded ${callLimit}-call limit`,
+    `generic runtime re-entry exceeded its bounded ${callLimit}-call limit; ` +
+      `last call ${lastCall?.module ?? "<none>"}!${lastCall?.symbol ?? "<none>"} ` +
+      `occurrence ${lastCall?.occurrence ?? 0} at instruction ` +
+      `${lastCall?.trapInstructionCount ?? continuation.instructionCount}`,
   );
 }
 
@@ -4795,7 +4888,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : getCurrentThreadEnabled
+        : setThreadAffinityMaskEnabled
+          ? 35
+          : getCurrentThreadEnabled
           ? 34
           : createMutexAEnabled
           ? 33
@@ -8358,6 +8453,111 @@ function validateCreateMutexAResult(result) {
   );
 }
 
+function validateSetThreadAffinityMaskResult(result) {
+  const expected = setThreadAffinityMaskExpected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  const affinityCalls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "SetThreadAffinityMask",
+  );
+  assert.equal(affinityCalls.length, expected.calls.length);
+  for (const [index, expectedCall] of expected.calls.entries()) {
+    const call = affinityCalls[index];
+    assert.equal(call.sequence, expectedCall.sequence);
+    assert.equal(call.occurrence, expectedCall.occurrence);
+    assert.equal(call.trapInstructionCount, expectedCall.instructionCount);
+    assert.deepEqual(call.arguments, expectedCall.arguments);
+    assert.deepEqual(call.result, { action: "set", value: expectedCall.result });
+    assert.equal(call.implementationId, "kernel32.set-thread-affinity-mask.v1");
+    assert.equal(call.returnAddress, expectedCall.returnAddress);
+    assert.equal(
+      call.stackPointerAfter,
+      call.stackPointerBefore + expectedCall.stackCleanupBytes,
+    );
+    assert.equal(call.lastError, expectedCall.lastError);
+    assert.deepEqual(call.guestWrites, []);
+    assert.deepEqual(call.threadAffinity, expected.threadAffinity);
+  }
+
+  const tickCalls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetTickCount",
+  );
+  assert.equal(tickCalls.length, expected.tickCount.totalCalls);
+  for (const [index, call] of tickCalls.entries()) {
+    assert.equal(call.occurrence, index + 1);
+    assert.deepEqual(call.arguments, []);
+    assert.equal(call.implementationId, "kernel32.get-tick-count.v1");
+    assert.deepEqual(call.guestWrites, []);
+    assert.equal(call.tickCount.returnedTickCount, call.result.value);
+    assert.equal(call.tickCount.nextTickCount, (call.result.value + 1) >>> 0);
+    assert.equal(
+      call.tickCount.incrementPerRead,
+      expected.tickCount.incrementPerRead,
+    );
+  }
+  for (const [label, expectedCall] of [
+    ["calibration first", expected.tickCount.calibrationFirst],
+    ["calibration last", expected.tickCount.calibrationLast],
+  ]) {
+    const call = result.supportedCalls.find(
+      ({ sequence }) => sequence === expectedCall.sequence,
+    );
+    assert(call, `${label} GetTickCount call is missing`);
+    assert.equal(call.symbol, "GetTickCount");
+    assert.equal(call.occurrence, expectedCall.occurrence);
+    assert.equal(call.trapInstructionCount, expectedCall.instructionCount);
+    assert.deepEqual(call.result, { action: "set", value: expectedCall.result });
+    assert.equal(call.tickCount.nextTickCount, expectedCall.next);
+    assert.equal(call.returnAddress, expected.tickCount.returnAddress);
+    assert.equal(
+      call.stackPointerAfter,
+      call.stackPointerBefore + expected.tickCount.stackCleanupBytes,
+    );
+  }
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  const endpoint = result.fault.endpoint.endpoint;
+  assert.equal(endpoint.id, unsupported.endpointId);
+  assert.equal(endpoint.address, unsupported.endpointAddress);
+  assert.equal(endpoint.module, unsupported.module);
+  assert.deepEqual(endpoint.symbol, { kind: "name", name: unsupported.symbol });
+  assert.equal(endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.class, unsupported.faultClass);
+  assert.equal(result.fault.fault.stage, unsupported.faultStage);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
+  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validateGetCurrentThreadResult(result) {
   const expected = getCurrentThreadExpected;
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
@@ -9113,7 +9313,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : getCurrentThreadEnabled
+        : setThreadAffinityMaskEnabled
+          ? "vine.v86-bgi-set-thread-affinity-mask"
+          : getCurrentThreadEnabled
           ? "vine.v86-bgi-get-current-thread"
           : createMutexAEnabled
           ? "vine.v86-bgi-create-mutex-a"

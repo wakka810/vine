@@ -62,6 +62,12 @@
       "present": true
     }
   ],
+  "threadAffinity": {
+    "processMask": 1
+  },
+  "tickCount": {
+    "incrementPerRead": 1
+  },
   "heapAllocator": {
     "allowedFlags": [0, 8],
     "maximumAllocationBytes": 16777216

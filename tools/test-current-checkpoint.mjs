@@ -422,6 +422,33 @@ assert.ok(
   ),
 );
 
+const hostShapedAffinityPolicy = structuredClone(manifest);
+hostShapedAffinityPolicy.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.threadAffinityProcessMask =
+  0xffff;
+assert.ok(
+  validateCurrentCheckpoint(hostShapedAffinityPolicy).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const fixedActiveTickPolicy = structuredClone(manifest);
+fixedActiveTickPolicy.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.tickCountIncrementPerRead =
+  0;
+assert.ok(
+  validateCurrentCheckpoint(fixedActiveTickPolicy).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const staleThreadRegistryShape = structuredClone(manifest);
+staleThreadRegistryShape.activeRuntimeCheckpoint.runtimeThreadRegistry.schema =
+  "vine.runtime-thread-registry.v3";
+assert.ok(
+  validateCurrentCheckpoint(staleThreadRegistryShape).some((error) =>
+    error.includes("thread subsystem boundary"),
+  ),
+);
+
 const detachedHeapAddress = structuredClone(manifest);
 detachedHeapAddress.activeRuntimeCheckpoint.processAddressSpaceAllocator.heapBackingUsesAllocationId =
   false;

@@ -5,7 +5,7 @@
 reviewのruntime responsibility splitとして、single controlled processのversion 1 thread
 registryを`runtime/thread.rs`のprivate `RuntimeThreads`へ移した。Initial threadとは別の
 logical threadを登録する既存contractを保ち、
-thread identity、typed object／handle、LastError／TLS／FLS／callback state、scheduler lane、exitを
+thread identity、typed object／handle、LastError／TLS／FLS／callback state、logical affinity、scheduler lane、exitを
 同じRust authorityへ置き、wait queueとper-thread CPU bootstrapの前提を作る。
 
 このcheckpointはguest `CreateThread`を追加せず、second-thread CPU context／stack／TEB／FS、
@@ -19,7 +19,7 @@ start routine、parameter、suspend countを作らない。Existing initial-thre
 FLS slot map、TLS／FLS／callback-frame ID allocatorを所有する。Collectionは
 `runtime/thread.rs`の外へ公開せず、aggregateはimmutable state viewと
 `RuntimeThreadMutationPlan`だけを受け取る。Registration、initial start、LastError、TLS／FLS、
-callback push／pop、stack registration／growth、exit request／completionはすべてprevious／next
+callback push／pop、stack registration／growth、logical affinity、exit request／completionはすべてprevious／next
 recordを持つmutation-free planを返し、scheduler、object、message、wait、GuestMemoryのpreflightが
 成功した後にcommitする。
 
@@ -28,6 +28,11 @@ host-request table／request ID、wait registration、message queueはそれぞ�
 mapを参照またはmutateしない。Serialized `RuntimeState.threads` shapeはtransparent newtypeで維持する。
 Existing `process.allocatedTlsIndices`／`process.flsSlots`とroot `nextTlsIndex`／`nextFlsIndex`／
 `nextCallbackFrameId`はborrowed compatibility viewであり、aggregate-owned stateではない。
+Manifest boundary version `vine.runtime-thread-registry.v4` adds optional
+serialized `affinityMask` to a thread record. An unset mask is omitted, so
+historical reports retain their previous shape; active records materialize the
+field only after an affinity commit. There is no persistent snapshot migration
+or duplicate compatibility field.
 
 ## Registration and selection
 
@@ -60,7 +65,8 @@ the pseudo value and handle-table cardinality. The contract is documented in
 
 ## Thread-local ownership
 
-LastError、logical TLS／FLS value、callback frame stack、initial-thread stack metadataは
+LastError、logical TLS／FLS value、callback frame stack、initial-thread stack metadata、
+optional logical affinity maskは
 TIDごとに分離する。Scheduler stateとpending host requestもTIDへ帰属し、private
 `RuntimeScheduler`が同じplan／commit境界で所有する。
 Controlled contractsは同じTLS indexへinitial thread `0x1111`、second
@@ -75,6 +81,14 @@ Process-owned clock、startup info、module graph、heapはprocess-wideである
 identityはprivate `RuntimeRegistries`、TLS／FLS slot identityとcallback-frame IDはprivate `RuntimeThreads`が
 所有する。Initial-thread reserve／commit／guard
 metadataはthread recordへ接続済みだが、CPU register／FPU state、second-thread stack、TEBは未実装である。
+
+An unset affinity mask resolves to the compatibility policy's virtual process
+mask. `plan_affinity_mask` validates a running thread and a nonzero requested
+subset, returns the previous effective mask, and prepares only that thread's
+next record. The affinity-specific commit rejects stale／duplicate plans before
+delegating to the ordinary targeted thread-record replacement. Selecting
+another logical thread exposes its independent effective mask; no native handle,
+host CPU mask, or browser scheduler state enters the subsystem.
 
 ## Exit and deterministic process termination
 
@@ -109,7 +123,7 @@ cargo test -p vine-core --test runtime_lifecycle --locked
 cargo test -p vine-core --test runtime_initial_thread_stack --locked
 ```
 
-Subsystem unit tests fix mutation-free planning、per-thread value isolation、callback／exit ordering、
+Subsystem unit tests fix mutation-free planning、per-thread value／affinity isolation、callback／exit ordering、
 TLS／FLS／callback allocator co-commit、collision／limit／overflow rollback、duplicate／zero identity rejection.
 Scheduler tests add thread-scoped host start／completion／cancellation plans. Aggregate tests fix
 object／scheduler／message／wait atomicity、initial-stack GuestMemory coordination and the existing process／root
@@ -122,7 +136,8 @@ next structured stopはこのhistorical foundation文書へ複製せず
 This checkpoint does not implement guest thread creation APIs, per-thread CPU／x87／XMM context,
 stack／guard／TEB allocation, start routine execution, suspend／resume, priority, natural last-thread
 process exit, concurrent guest execution, TLS／FLS cleanup callbacks, DLL thread attach／detach,
-waiter registration, timeout, wait-any／wait-all, APC, or message wake. It is partial evidence for
+waiter registration, timeout, wait-any／wait-all, APC, message wake, host affinity control,
+arbitrary thread-handle affinity, or host topology discovery. It is partial evidence for
 `P1-SCH-01`／`P3-WIN-02`, not their completion.
 
 The controlled wait-queue dependency is implemented in
@@ -133,5 +148,6 @@ and resumes deterministically after signal. The controlled message queue is impl
 [runtime-wait-queue.md](runtime-wait-queue.md). Runtime responsibility checkpoint S13 completes the
 remaining process／kernel ownership audit. Per-thread CPU bootstrap remains separate before
 guest-created threads can execute. `GetCurrentThread` now consumes only the logical selector; it does
-not claim CPU switching or host-thread identity. The current next capability is recorded only in the
+not claim CPU switching or host-thread identity. The reached `SetThreadAffinityMask` adds only a
+policy-bounded logical mask to that selected record. The current next capability is recorded only in the
 current checkpoint manifest.

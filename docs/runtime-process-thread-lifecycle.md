@@ -75,6 +75,20 @@ This bounded process-image-directory subset is not a VFS. General `.`／`..`,
 drive-relative resolution, directory existence, file identity, and mount/backend
 effects remain deferred until reached.
 
+## Process-owned clock sampling
+
+`RuntimeProcessState` also owns `RuntimeClockState`. A progressing
+`GetTickCount` read is a process mutation: `plan_tick_count_sample` requires the
+process to be running and records previous, returned, and next DWORD values;
+`commit_tick_count_sample` rejects a stale plan before replacing only the tick
+field. Addition wraps at `0xFFFFFFFF` as the Win32 DWORD clock does.
+
+The increment is supplied by validated compatibility policy. It is not derived
+from browser wall time, Worker scheduling, CPU slice count, or host uptime.
+Policies without an increment preserve their historical fixed-sample behavior.
+TypeScript observes the serialized process clock for equivalence only and never
+advances guest time.
+
 ## Exit request and completion
 
 Thread/process exitは二段階である。
@@ -133,6 +147,7 @@ The test fixes:
 - completion to thread/scheduler/process terminal state and exact exit code `7`
 - thread-only request／completion with thread signal and process nonsignal
 - current-directory bootstrap validation and lifecycle-preflighted plan commit
+- process-clock mutation-free sampling, stale-plan rejection, and DWORD wrap
 
 Current Node／Chrome semantic result、artifact identity、benchmark、next structured stopは
 [current checkpoint manifest](current-checkpoint.json)だけを正とし、このfoundation文書へ
@@ -147,6 +162,10 @@ termination across multiple lanes, suspend／resume, priorities, TLS／FLS clean
 thread/process detach, waiter registration, timeout, wait-any／wait-all, APC, or message wake. It is
 partial evidence for `P1-SCH-01`／`P3-WIN-02`, not their completion.
 
+The deterministic tick-read increment does not implement `Sleep`, timer queues,
+wait deadlines, performance-counter frequency, real-time pacing, or audio-clock
+synchronization.
+
 The controlled multi-thread registry dependency is now implemented in
 [runtime-thread-registry.md](runtime-thread-registry.md): one additional logical thread preserves
 per-thread state and typed object lifetime, and all lanes terminate deterministically. The controlled
@@ -156,4 +175,5 @@ Per-thread message ownership and empty-queue wake are implemented in
 required exit-request cleanup boundary are implemented in
 [runtime-heap-backing.md](runtime-heap-backing.md). Heap／module ownership and the final process／kernel
 aggregate audit are complete in responsibility checkpoint S13. The saved `GetCurrentThread` stop is
-the next capability checkpoint after S13 evidence is committed.
+historical responsibility evidence; active capability state and the next
+structured stop are recorded only in the current checkpoint manifest.

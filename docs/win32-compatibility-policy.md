@@ -23,6 +23,7 @@ Compatibility policy
   versioned selectors, file types, bounded HeapAlloc allocator／HeapFree／HeapSize variants, process-view/code-page/current-directory/mutex enablement
   measured InitializeCriticalSection raw spin-state field
   explicit processor-feature presence
+  virtual process affinity mask and deterministic tick-count read progression
   bounded validation and mutation-free unsupported result
                          |
                          v
@@ -50,7 +51,9 @@ runtime execution. It contains only target-independent bounded data:
 - enabled `HeapAlloc` flags and maximum nonzero allocation size, `HeapFree` flags, and `HeapSize` flags;
 - an opt-in x86 `InitializeCriticalSection` raw spin-state field for the measured
   Windows compatibility profile;
-- explicit processor-feature index and presence mappings.
+- explicit processor-feature index and presence mappings;
+- an optional nonzero virtual process affinity mask;
+- an optional bounded deterministic `GetTickCount` increment per read.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Active
 schema v2 accepts `HeapAlloc` only when the flag is `0` or `HEAP_ZERO_MEMORY`
@@ -93,7 +96,7 @@ from runtime selection:
 | `kernel32-multi-byte-to-wide-char-cp-acp-v1` | stdin, stdout, stderr | preceding options + `CP_ACP` selector／flags `0,1`／65,536-byte decode bound | preceding allocation/free/size variants |
 | `kernel32-set-current-directory-a-v1` | stdin, stdout, stderr | preceding options + registered process-image directory only／32 KiB input bound | preceding allocation/free/size variants |
 | `kernel32-create-mutex-a-v1` | stdin, stdout, stderr | preceding options + named mutexes／32 KiB input bound; unnamed disabled | preceding allocation/free/size variants |
-| `kernel32-bounded-heap-v2` | stdin, stdout, stderr | same current process／NLS／mutex options | flags `0`／`HEAP_ZERO_MEMORY`, nonzero sizes through 16 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
+| `kernel32-bounded-heap-v2` | stdin, stdout, stderr | same current process／NLS／mutex options + virtual process affinity mask `1` + `GetTickCount` increment `1` | flags `0`／`HEAP_ZERO_MEMORY`, nonzero sizes through 16 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -291,6 +294,20 @@ policy-disabled／security-attribute／unnamed／unterminated mutation-free reje
 runtime wait／release, last-close recreation, and process teardown without
 loading BGI evidence.
 
+`SetThreadAffinityMask` uses one two-argument semantic handler. Policy supplies
+only a nonzero virtual process mask; it contains no native process／system mask,
+host CPU count, thread handle, caller, or occurrence. The handler accepts the
+reached current-thread pseudo-handle, returns the previous logical mask, and
+preserves LastError. Public tests use a wider synthetic mask to verify
+per-thread selection and restore, plus zero／outside-mask and handle failures.
+
+`GetTickCount` retains one zero-argument semantic handler. When the optional
+policy increment is present, the process owner returns the current DWORD and
+advances its stored sample by the bounded increment through plan／commit.
+Historical policies omit the option and reproduce the fixed sample. Neither
+path reads host uptime or wall time; the policy does not encode the BGI loop
+count, duration, caller, or stop identity.
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -318,6 +335,9 @@ file-name lookup／host process-path import, broad locale
 classification, other interlocked APIs／cross-Worker atomicity, or a general Windows console.
 The processor-feature mapping is bounded to explicit policy entries; it is not
 general CPU discovery or browser-host feature reflection.
+The affinity mask is virtual compatibility data and does not control host
+scheduling or expose host topology. Deterministic per-read tick progression is
+not a general timer, wait-deadline, sleep, or real-time clock implementation.
 The policy-independent top-level filter record does not implement SEH dispatch,
 filter invocation, exception records／contexts, vectored handlers, or host
 exception bridging.

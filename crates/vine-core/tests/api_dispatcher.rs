@@ -15,8 +15,8 @@ use vine_core::{
     Kernel32HeapAllocationPolicy, Kernel32InitializeCriticalSectionPolicy,
     Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
-    Kernel32WideCharToMultiBytePolicy, LC_MAP_STRING_W_IMPLEMENTATION,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
+    Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
+    LC_MAP_STRING_W_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
@@ -30,9 +30,9 @@ use vine_core::{
     RuntimeHeapInitialization, RuntimeModule, RuntimeObjectKind, RuntimeProcessId,
     RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva,
     SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
-    SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
-    TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
-    kernel32_contract_for_endpoint,
+    SET_THREAD_AFFINITY_MASK_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
+    SchedulerThreadState, StackCleanup, TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -908,6 +908,213 @@ fn get_current_thread_returns_a_stable_pseudo_handle_for_the_selected_typed_thre
     assert_eq!(second.last_error, 122);
     assert_eq!(runtime, second_before);
     assert_eq!(runtime.objects().handles().len(), second_handle_count);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
+fn set_thread_affinity_mask_tracks_the_virtual_current_thread_and_fails_atomically() {
+    let (mut memory, owner) = initialized_memory();
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let logical_thread_handle = runtime
+        .current_thread_handle()
+        .expect("initial logical thread handle")
+        .0;
+    let frames = [
+        (
+            STACK_BASE,
+            vec![0x1000_0590, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, 0b001],
+        ),
+        (
+            STACK_BASE + 0x20,
+            vec![0x1000_0591, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, 0b010],
+        ),
+        (
+            STACK_BASE + 0x40,
+            vec![0x1000_0592, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, 0b011],
+        ),
+        (
+            STACK_BASE + 0x60,
+            vec![0x1000_0593, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, 0],
+        ),
+        (STACK_BASE + 0x80, vec![0x1000_0594, 0, 0b001]),
+        (
+            STACK_BASE + 0xa0,
+            vec![0x1000_0595, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, 0b100],
+        ),
+        (
+            STACK_BASE + 0xc0,
+            vec![0x1000_0596, logical_thread_handle, 0b001],
+        ),
+        (
+            STACK_BASE + 0xe0,
+            vec![0x1000_0597, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, 0b001],
+        ),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x5b);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize SetThreadAffinityMask IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SetThreadAffinityMask".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented SetThreadAffinityMask endpoint");
+    assert_eq!(
+        contract.implementation_id,
+        SET_THREAD_AFFINITY_MASK_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.arguments.len(), 2);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "kernel32-thread-affinity-test-v1".to_owned();
+    policy.thread_affinity = Some(Kernel32ThreadAffinityPolicy {
+        process_mask: 0b011,
+    });
+    policy.validate().expect("thread affinity policy");
+    let memory_before = memory.stats();
+    let handle_count = runtime.objects().handles().len();
+
+    let first = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(first.eax, RegisterUpdate::Set(0b011));
+    assert_eq!(first.stack_pointer, GuestAddress(frames[0].0 + 12));
+    assert_eq!(first.last_error, INITIAL_LAST_ERROR);
+    assert!(first.guest_writes.is_empty());
+    assert_eq!(runtime.current_thread_affinity_mask(0b011), Ok(0b001));
+
+    runtime.set_current_last_error(0x5678).unwrap();
+    let second = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+        &policy,
+    );
+    assert_eq!(second.eax, RegisterUpdate::Set(0b001));
+    assert_eq!(second.last_error, 0x5678);
+    assert_eq!(runtime.current_thread_affinity_mask(0b011), Ok(0b010));
+
+    let restore = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+        &policy,
+    );
+    assert_eq!(restore.eax, RegisterUpdate::Set(0b010));
+    assert_eq!(restore.last_error, 0x5678);
+    assert_eq!(runtime.current_thread_affinity_mask(0b011), Ok(0b011));
+
+    let zero = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[3].0,
+        frames[3].1[0],
+        &policy,
+    );
+    assert_eq!(zero.eax, RegisterUpdate::Set(0));
+    assert_eq!(zero.last_error, 87);
+    assert_eq!(runtime.current_thread_affinity_mask(0b011), Ok(0b011));
+
+    runtime.set_current_last_error(0).unwrap();
+    let null_handle = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[4].0,
+        frames[4].1[0],
+        &policy,
+    );
+    assert_eq!(null_handle.eax, RegisterUpdate::Set(0));
+    assert_eq!(null_handle.last_error, 6);
+    assert_eq!(runtime.current_thread_affinity_mask(0b011), Ok(0b011));
+
+    let outside = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[5].0,
+        frames[5].1[0],
+        &policy,
+    );
+    assert_eq!(outside.eax, RegisterUpdate::Set(0));
+    assert_eq!(outside.last_error, 87);
+    assert_eq!(runtime.current_thread_affinity_mask(0b011), Ok(0b011));
+
+    for (frame, selected_policy, expected_code) in [
+        (
+            &frames[6],
+            &policy,
+            "set-thread-affinity-mask-handle-unsupported",
+        ),
+        (
+            &frames[7],
+            &Kernel32CompatibilityPolicy::controlled_v1(),
+            "set-thread-affinity-mask-policy-disabled",
+        ),
+    ] {
+        let runtime_before_fault = runtime.clone();
+        let memory_before_fault = memory.stats();
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        let outcome = dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frame.0, frame.1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(selected_policy, contract, frame, session)
+            },
+        );
+        let DispatchOutcome::Fault(fault) = outcome else {
+            panic!("expected affinity fault, got {outcome:?}");
+        };
+        assert_eq!(fault.class, ApiFaultClass::Unsupported);
+        assert_eq!(fault.code, expected_code);
+        assert_eq!(runtime, runtime_before_fault);
+        assert_eq!(memory.stats(), memory_before_fault);
+    }
+    assert_eq!(runtime.objects().handles().len(), handle_count);
     assert_eq!(memory.stats(), memory_before);
 }
 
@@ -6471,6 +6678,35 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
         0,
     );
     assert_eq!(tick.eax, RegisterUpdate::Set(3_600_000));
+    assert_eq!(runtime.clock().tick_count, 3_600_000);
+    let mut advancing_clock = Kernel32CompatibilityPolicy::controlled_v1();
+    advancing_clock.id = "kernel32-advancing-tick-count-test-v1".to_owned();
+    advancing_clock.tick_count = Some(Kernel32TickCountPolicy {
+        increment_per_read: 1,
+    });
+    advancing_clock.validate().unwrap();
+    let first_advancing_tick = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[2],
+        frames[2].0,
+        frames[2].1[0],
+        &advancing_clock,
+    );
+    assert_eq!(first_advancing_tick.eax, RegisterUpdate::Set(3_600_000));
+    assert_eq!(runtime.clock().tick_count, 3_600_001);
+    let second_advancing_tick = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[2],
+        frames[2].0,
+        frames[2].1[0],
+        &advancing_clock,
+    );
+    assert_eq!(second_advancing_tick.eax, RegisterUpdate::Set(3_600_001));
+    assert_eq!(runtime.clock().tick_count, 3_600_002);
 
     let heap_policy = dispatch(
         &dispatcher,

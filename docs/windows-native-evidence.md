@@ -2304,3 +2304,47 @@ Chrome Runtime Workerも284 ordered calls、same mutex metadata／stop／memory�
 cancel／watchdog後pending work 0を通す。3分gateは435 sessions／failure 0、session P95
 476.945 ms、slice P99 2.110 ms、heartbeat P99 16.325 ms／maximum 28.480 msを含む全17
 thresholdを通した。詳細は[bgi-create-mutex-a.md](bgi-create-mutex-a.md)を正とする。
+
+## 86. BGI logical thread affinity and tick calibration
+
+Focused `set-thread-affinity-mask` capturesは147,512 bytes／435 lines／SHA-256
+`f55699275c2e3f7edcf8b7d414d7fe1e8bbabb8e701b04fa45acf097b4de0d5a`と
+141,205 bytes／416 lines／SHA-256
+`c3807adb646982fe1dccf82c80fd385d1402bd745d094a36c6dc9998e135e563`
+である。185／176 API pairsはbalancedで、diagnosticsはzeroである。
+
+Measured native process／system maskは`0x0000FFFF`である。BGIはcurrent-thread
+pseudo-handleへmask `1`を設定しprevious `0x0000FFFF`を保存する。Return RVA
+`0x6999A`から`GetTickCount` calibrationへ入り、約1,000 ms後にsaved maskを
+restoreしてRVA `0x699F0`へreturnする。Successはprevious maskを返しLastErrorを
+保存する。Independent oracleはzero maskをERROR_INVALID_PARAMETER 87、null handleを
+ERROR_INVALID_HANDLE 6として固定する。Native mask／handle／CPU topologyはruntimeへ
+importしない。
+
+Calibration aggregate r8／r9は133,327 bytes／383 lines／SHA-256
+`d485f0aa38f178ab12de96604f373a97e7d5ae8811a138a858dc84019d45898b`と
+149,701 bytes／436 lines／SHA-256
+`90e6649bd8405d58724c3ca7b6e8b0e4c3f18a9b00b03b62ecdd27830f22f077`
+である。154,477／149,406 tick reads、各64 value changes、regression 0、elapsed
+1,016 msを記録し、consumerがfixed sampleでは進まないことを示す。
+
+Rust `RuntimeThreads`はpolicy-owned process maskに対するper-thread logical maskを
+mutation-free plan／stale-rejecting commitで所有する。Active maskは`1`なのでBGIの
+set／restoreはいずれも`SetThreadAffinityMask(0xFFFFFFFE,1) -> 1`となる。
+`RuntimeProcessState`はactive policyのreadごと`+1 ms`でtick DWORDをsample／commitし、
+historical policyはfixed sampleを保持する。Host time／affinityは参照しない。
+
+Nodeは48 contracts／1,290 calls、1,295 writebacks／2,453 dirty pages、77 host deltas、
+generation `1,401`を通す。Calls 286／1,290がaffinity、calls 287..1,289が1,003-read
+calibrationである。Instruction `45420`でID `120`／
+`GetSystemInfo(0x006FFED8)`を`endpoint-contract-missing`として停止する。Memory SHA-256は
+`ca8193a48aa4293f31a9cd95bf516ff777e50256e3d1c53c440ae02b0d6b4bb5`、
+5,260,396-byte reportのSHA-256は
+`ffaf389e5ed377d07aefe71ad8ad3380209fcb603fa70b27b99c9ddf8f6ff2db`である。
+
+Chrome Runtime Workerもsame ordered calls／affinity／tick values／stop／memoryを再現し、
+6,269 slices、4,974 yields、5,872 Wasm crossings、final generation `3,223`、
+cancel／watchdog後pending work 0を通す。3分gateは421 sessions／failure 0、session P95
+430.865 ms、slice P99 2.190 ms、heartbeat P99 6.055 ms／maximum 25.555 msを含む全17
+thresholdを通した。詳細は
+[bgi-set-thread-affinity-mask.md](bgi-set-thread-affinity-mask.md)を正とする。

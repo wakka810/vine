@@ -191,6 +191,14 @@ pub(super) struct RuntimeProcessMutationPlan {
     next_unhandled_exception_filter: Option<GuestAddress>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeTickCountSamplePlan {
+    previous_lifecycle: RuntimeProcessLifecycleState,
+    previous_tick_count: u32,
+    returned_tick_count: u32,
+    next_tick_count: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeProcessEnvironmentPlan {
     previous_lifecycle: RuntimeProcessLifecycleState,
@@ -328,6 +336,49 @@ impl RuntimeProcessState {
 
     pub fn clock(&self) -> &RuntimeClockState {
         &self.clock
+    }
+
+    pub(super) fn plan_tick_count_sample(
+        &self,
+        increment_per_read: u32,
+    ) -> Result<RuntimeTickCountSamplePlan, RuntimeStateError> {
+        if !self.is_running() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-clock",
+                "tick-count-process-state-invalid",
+                "tick-count sampling requires a running process",
+            ));
+        }
+        if increment_per_read == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-clock",
+                "tick-count-increment-zero",
+                "advancing tick-count sampling requires a nonzero increment",
+            ));
+        }
+        Ok(RuntimeTickCountSamplePlan {
+            previous_lifecycle: self.lifecycle,
+            previous_tick_count: self.clock.tick_count,
+            returned_tick_count: self.clock.tick_count,
+            next_tick_count: self.clock.tick_count.wrapping_add(increment_per_read),
+        })
+    }
+
+    pub(super) fn commit_tick_count_sample(
+        &mut self,
+        plan: RuntimeTickCountSamplePlan,
+    ) -> Result<u32, RuntimeStateError> {
+        if self.lifecycle != plan.previous_lifecycle
+            || self.clock.tick_count != plan.previous_tick_count
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-clock",
+                "tick-count-sample-plan-stale",
+                "process lifecycle or tick count changed after sampling preflight",
+            ));
+        }
+        self.clock.tick_count = plan.next_tick_count;
+        Ok(plan.returned_tick_count)
     }
 
     pub fn startup_info(&self) -> &RuntimeStartupInfo {
@@ -1217,6 +1268,51 @@ mod tests {
             image,
             directories,
         )
+    }
+
+    #[test]
+    fn tick_count_sampling_plans_progress_wrap_and_reject_stale_commit() {
+        let mut process = process_state();
+        let start = process.plan_start().unwrap();
+        process.preflight_mutation_commit(&start).unwrap();
+        process.commit_mutation(start);
+
+        let before = process.clone();
+        let first = process.plan_tick_count_sample(1).unwrap();
+        assert_eq!(process, before, "clock sampling plan must be mutation-free");
+        assert_eq!(process.commit_tick_count_sample(first), Ok(2));
+        assert_eq!(process.clock().tick_count, 3);
+
+        let stale = process.plan_tick_count_sample(1).unwrap();
+        let committed = process.plan_tick_count_sample(2).unwrap();
+        assert_eq!(process.commit_tick_count_sample(committed), Ok(3));
+        assert_eq!(process.clock().tick_count, 5);
+        assert_eq!(
+            process.commit_tick_count_sample(stale).unwrap_err().code,
+            "tick-count-sample-plan-stale"
+        );
+        assert_eq!(process.clock().tick_count, 5);
+
+        process.clock.tick_count = u32::MAX;
+        let wrapping = process.plan_tick_count_sample(1).unwrap();
+        assert_eq!(process.commit_tick_count_sample(wrapping), Ok(u32::MAX));
+        assert_eq!(process.clock().tick_count, 0);
+
+        let stale_lifecycle = process.plan_tick_count_sample(1).unwrap();
+        let exit = process
+            .plan_exit_request(RuntimeThreadId(0x2000), 7)
+            .unwrap();
+        process.preflight_mutation_commit(&exit).unwrap();
+        process.commit_mutation(exit);
+        let before_stale_lifecycle = process.clone();
+        assert_eq!(
+            process
+                .commit_tick_count_sample(stale_lifecycle)
+                .unwrap_err()
+                .code,
+            "tick-count-sample-plan-stale"
+        );
+        assert_eq!(process, before_stale_lifecycle);
     }
 
     #[test]

@@ -105,6 +105,13 @@ let heapSizeOracleLastError = null;
 let heapSizeConsumersRecorded = 0;
 const observedMainModuleHeapAllocations = new Map();
 let getCurrentThreadOracleScheduled = false;
+let setThreadAffinityMaskOracleScheduled = false;
+let setThreadAffinityMaskOracleSentinel = null;
+let setThreadAffinityMaskOracleResult = null;
+let setThreadAffinityMaskOracleLastError = null;
+let setThreadAffinityMaskConsumersRecorded = 0;
+let setThreadAffinityMaskPrimaryCalls = 0;
+let setThreadAffinityCalibration = null;
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -902,6 +909,43 @@ function snapshotProcessorFeatureCall(
             frameCallerContinuations: snapshotX86FrameCallerContinuations(
               context,
               4,
+              12,
+            ),
+          }
+        : null,
+    },
+  };
+}
+
+function snapshotSetThreadAffinityMaskCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  threadHandle,
+  affinityMask,
+) {
+  const recordsConsumer =
+    setThreadAffinityMaskConsumersRecorded < 2 &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    setThreadAffinityMaskConsumersRecorded += 1;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    setThreadAffinityMask: {
+      threadHandle: threadHandle.toString(),
+      affinityMask: affinityMask.toUInt32(),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              32,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              context,
+              8,
               12,
             ),
           }
@@ -1836,6 +1880,9 @@ if (selectedObservations.has("processor-feature")) {
 if (selectedObservations.has("unhandled-exception-filter")) {
   hooks["kernel32.dll"].push(["SetUnhandledExceptionFilter", [null]]);
 }
+if (selectedObservations.has("set-thread-affinity-mask")) {
+  hooks["kernel32.dll"].push(["SetThreadAffinityMask", [null, null]]);
+}
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
   [1, "AddRef", 0],
@@ -1899,6 +1946,69 @@ function attachGetCurrentThreadCallSites(module) {
       callInstruction: snapshotInstructions(address, 1),
       immediateConsumer: snapshotInstructionsFollowingDirectJump(address.add(6), 16),
     })),
+  });
+}
+
+function attachThreadAffinityTickCountObserver(module) {
+  const address = findExport(module, "GetTickCount");
+  if (address === null) {
+    throw new Error("GetTickCount export is unavailable");
+  }
+  const key = `thread-affinity-tick-count:${address}`;
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+  Interceptor.attach(address, {
+    onEnter() {
+      const caller = describeCaller(this.returnAddress);
+      this.traceThreadAffinityTick =
+        setThreadAffinityCalibration?.active === true &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "bgi.exe";
+      this.traceThreadAffinityTickCaller = caller;
+      this.traceThreadAffinityTickReturnAddress = this.returnAddress;
+    },
+    onLeave(result) {
+      if (!this.traceThreadAffinityTick) {
+        return;
+      }
+      const calibration = setThreadAffinityCalibration;
+      if (calibration === null || !calibration.active) {
+        return;
+      }
+      const value = result.toUInt32();
+      const sample = {
+        index: calibration.tickCountCalls + 1,
+        value,
+        lastError: Number(this.lastError) >>> 0,
+      };
+      if (calibration.tickCountCalls === 0) {
+        sample.caller = this.traceThreadAffinityTickCaller;
+        sample.immediateConsumer = snapshotInstructionsFollowingDirectJump(
+          this.traceThreadAffinityTickReturnAddress,
+          16,
+        );
+        calibration.firstValue = value;
+      } else {
+        const delta = (value - calibration.lastValue) >>> 0;
+        if (delta !== 0) {
+          calibration.valueChanges += 1;
+        }
+        if (delta > 0x7fff_ffff) {
+          calibration.regressions += 1;
+        }
+      }
+      calibration.tickCountCalls += 1;
+      calibration.lastValue = value;
+      if (calibration.firstSamples.length < 8) {
+        calibration.firstSamples.push(sample);
+      }
+      calibration.lastSamples.push(sample);
+      if (calibration.lastSamples.length > 8) {
+        calibration.lastSamples.shift();
+      }
+    },
   });
 }
 
@@ -2019,6 +2129,13 @@ function attachHook(module, name, decoders) {
         name === "IsProcessorFeaturePresent" &&
         caller.module !== null &&
         (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+      const focusedSetThreadAffinityMaskObservation =
+        selectedObservations.has("set-thread-affinity-mask") &&
+        name === "SetThreadAffinityMask" &&
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            setThreadAffinityMaskOracleSentinel !== null));
       const focusedUnhandledExceptionFilterObservation =
         selectedObservations.has("unhandled-exception-filter") &&
         name === "SetUnhandledExceptionFilter" &&
@@ -2125,6 +2242,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("processor-feature") &&
         name === "IsProcessorFeaturePresent" &&
         !focusedProcessorFeatureObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("set-thread-affinity-mask") &&
+        name === "SetThreadAffinityMask" &&
+        !focusedSetThreadAffinityMaskObservation
       ) {
         this.traceFrame = null;
         return;
@@ -2333,6 +2458,15 @@ function attachHook(module, name, decoders) {
       if (this.traceProcessorFeatureOracle) {
         this.lastError = processorFeatureOracleSentinel;
       }
+      this.traceSetThreadAffinityMaskOracle =
+        setThreadAffinityMaskOracleSentinel !== null &&
+        selectedObservations.has("set-thread-affinity-mask") &&
+        name === "SetThreadAffinityMask" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceSetThreadAffinityMaskOracle) {
+        this.lastError = setThreadAffinityMaskOracleSentinel;
+      }
       this.traceUnhandledExceptionFilterOracle =
         unhandledExceptionFilterOracleSentinel !== null &&
         selectedObservations.has("unhandled-exception-filter") &&
@@ -2354,6 +2488,12 @@ function attachHook(module, name, decoders) {
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
+      this.traceThreadAffinityPrimaryCall =
+        focusedSetThreadAffinityMaskObservation && isMainModuleCaller
+          ? ++setThreadAffinityMaskPrimaryCalls
+          : null;
+      this.traceThreadAffinityRequestedMask =
+        this.traceThreadAffinityPrimaryCall === null ? null : args[1].toUInt32();
       this.traceHeapAllocation =
         focusedHeapObservation && name === "HeapAlloc"
           ? {
@@ -2586,6 +2726,15 @@ function attachHook(module, name, decoders) {
               this.lastError,
               this.context,
               args[0],
+            )
+        : focusedSetThreadAffinityMaskObservation
+          ? snapshotSetThreadAffinityMaskCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              args[0],
+              args[1],
             )
         : focusedUnhandledExceptionFilterObservation
           ? snapshotUnhandledExceptionFilterCall(
@@ -2846,6 +2995,50 @@ function attachHook(module, name, decoders) {
       if (this.traceProcessorFeatureOracle) {
         processorFeatureOracleResult = result.toUInt32();
         processorFeatureOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceSetThreadAffinityMaskOracle) {
+        setThreadAffinityMaskOracleResult = result.toUInt32();
+        setThreadAffinityMaskOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceThreadAffinityPrimaryCall === 1 && result.toUInt32() !== 0) {
+        setThreadAffinityCalibration = {
+          active: true,
+          startedAtMs: Date.now(),
+          initialRequestedMask: this.traceThreadAffinityRequestedMask,
+          initialPreviousMask: result.toUInt32(),
+          tickCountCalls: 0,
+          valueChanges: 0,
+          regressions: 0,
+          firstValue: null,
+          lastValue: null,
+          firstSamples: [],
+          lastSamples: [],
+        };
+      } else if (this.traceThreadAffinityPrimaryCall === 2) {
+        const calibration = setThreadAffinityCalibration;
+        if (calibration !== null) {
+          calibration.active = false;
+          emit("set-thread-affinity-mask-calibration", {
+            profile: "bgi-get-tick-count-affinity-calibration-v1",
+            initialRequestedMask: calibration.initialRequestedMask,
+            initialPreviousMask: calibration.initialPreviousMask,
+            restoreRequestedMask: this.traceThreadAffinityRequestedMask,
+            restorePreviousMask: result.toUInt32(),
+            tickCountCalls: calibration.tickCountCalls,
+            valueChanges: calibration.valueChanges,
+            regressions: calibration.regressions,
+            firstValue: calibration.firstValue,
+            lastValue: calibration.lastValue,
+            elapsedModulo32:
+              calibration.firstValue === null || calibration.lastValue === null
+                ? null
+                : (calibration.lastValue - calibration.firstValue) >>> 0,
+            observedDurationMs: Math.max(0, Date.now() - calibration.startedAtMs),
+            firstSamples: calibration.firstSamples,
+            lastSamples: calibration.lastSamples,
+          });
+          setThreadAffinityCalibration = null;
+        }
       }
       if (this.traceUnhandledExceptionFilterOracle) {
         unhandledExceptionFilterOracleResult = result.toString();
@@ -5271,6 +5464,176 @@ function scheduleGetCurrentThreadOracle(module) {
   });
 }
 
+function scheduleSetThreadAffinityMaskOracle(module) {
+  if (setThreadAffinityMaskOracleScheduled) {
+    return;
+  }
+  setThreadAffinityMaskOracleScheduled = true;
+  setImmediate(() => {
+    let originalMask = null;
+    let currentMask = null;
+    let currentThread = null;
+    let setAffinity = null;
+    const calls = [];
+    try {
+      const address = (name) => {
+        const found = findExport(module, name);
+        if (found === null) {
+          throw new Error(`${name} export is unavailable`);
+        }
+        return found;
+      };
+      const getCurrentThread = new NativeFunction(
+        address("GetCurrentThread"),
+        "pointer",
+        [],
+        "stdcall",
+      );
+      const getCurrentProcess = new NativeFunction(
+        address("GetCurrentProcess"),
+        "pointer",
+        [],
+        "stdcall",
+      );
+      const getProcessAffinityMask = new SystemFunction(
+        address("GetProcessAffinityMask"),
+        "uint32",
+        ["pointer", "pointer", "pointer"],
+        "stdcall",
+      );
+      setAffinity = new SystemFunction(
+        address("SetThreadAffinityMask"),
+        "uint32",
+        ["pointer", "uint32"],
+        "stdcall",
+      );
+      currentThread = getCurrentThread();
+      const processMaskStorage = Memory.alloc(4);
+      const systemMaskStorage = Memory.alloc(4);
+      processMaskStorage.writeU32(0);
+      systemMaskStorage.writeU32(0);
+      const affinityQuery = getProcessAffinityMask(
+        getCurrentProcess(),
+        processMaskStorage,
+        systemMaskStorage,
+      );
+      if ((Number(affinityQuery.value) >>> 0) === 0) {
+        throw new Error(
+          `GetProcessAffinityMask failed with ${Number(affinityQuery.lastError) >>> 0}`,
+        );
+      }
+      const processMask = processMaskStorage.readU32();
+      const systemMask = systemMaskStorage.readU32();
+      const selectedMask = (processMask & -processMask) >>> 0;
+      if (selectedMask === 0) {
+        throw new Error("process affinity mask has no usable x86 processor bit");
+      }
+
+      const invoke = (label, threadHandle, requestedMask, sentinel) => {
+        setThreadAffinityMaskOracleSentinel = sentinel;
+        setThreadAffinityMaskOracleResult = null;
+        setThreadAffinityMaskOracleLastError = null;
+        try {
+          const outcome = setAffinity(threadHandle, requestedMask);
+          const result = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            setThreadAffinityMaskOracleResult === null ||
+            setThreadAffinityMaskOracleLastError === null
+          ) {
+            throw new Error(
+              "set-thread-affinity-mask oracle did not pass through the hook",
+            );
+          }
+          const call = {
+            label,
+            threadHandle: threadHandle.toString(),
+            requestedMask,
+            sentinel,
+            result,
+            hookResult: setThreadAffinityMaskOracleResult,
+            hookLastErrorAfter: setThreadAffinityMaskOracleLastError,
+            systemLastError,
+            hookResultMatches: setThreadAffinityMaskOracleResult === result,
+          };
+          calls.push(call);
+          return call;
+        } finally {
+          setThreadAffinityMaskOracleSentinel = null;
+          setThreadAffinityMaskOracleResult = null;
+          setThreadAffinityMaskOracleLastError = null;
+        }
+      };
+
+      const firstSet = invoke("set-selected", currentThread, selectedMask, 0x12345678);
+      if (firstSet.result === 0) {
+        throw new Error(
+          `valid affinity set failed with ${firstSet.systemLastError}`,
+        );
+      }
+      originalMask = firstSet.result;
+      currentMask = selectedMask;
+      const restore = invoke("restore-original", currentThread, originalMask, 87);
+      if (restore.result !== selectedMask) {
+        throw new Error(
+          `affinity restore returned ${restore.result} instead of ${selectedMask}`,
+        );
+      }
+      currentMask = originalMask;
+      const zeroMask = invoke("reject-zero-mask", currentThread, 0, 122);
+      const invalidHandle = invoke("reject-null-handle", ptr(0), selectedMask, 0);
+
+      emit("set-thread-affinity-mask-oracle", {
+        profile: "x86-current-thread-logical-affinity-v1",
+        currentThread: currentThread.toString(),
+        processMask,
+        systemMask,
+        selectedMask,
+        originalMask,
+        calls,
+        successReturnsPreviousMask:
+          firstSet.result === originalMask && restore.result === selectedMask,
+        successPreservesLastError:
+          firstSet.hookLastErrorAfter === firstSet.sentinel &&
+          firstSet.systemLastError === firstSet.sentinel &&
+          restore.hookLastErrorAfter === restore.sentinel &&
+          restore.systemLastError === restore.sentinel,
+        zeroMaskRejected:
+          zeroMask.result === 0 &&
+          zeroMask.hookLastErrorAfter === 87 &&
+          zeroMask.systemLastError === 87,
+        nullHandleRejected:
+          invalidHandle.result === 0 &&
+          invalidHandle.hookLastErrorAfter === 6 &&
+          invalidHandle.systemLastError === 6,
+        restored: currentMask === originalMask,
+      });
+    } catch (error) {
+      emit("set-thread-affinity-mask-oracle-error", { error: error.message });
+    } finally {
+      if (
+        setAffinity !== null &&
+        currentThread !== null &&
+        originalMask !== null &&
+        currentMask !== originalMask
+      ) {
+        try {
+          setThreadAffinityMaskOracleSentinel = 0;
+          setAffinity(currentThread, originalMask);
+        } catch (cleanupError) {
+          emit("set-thread-affinity-mask-oracle-cleanup-error", {
+            error: cleanupError.message,
+          });
+        } finally {
+          setThreadAffinityMaskOracleSentinel = null;
+          setThreadAffinityMaskOracleResult = null;
+          setThreadAffinityMaskOracleLastError = null;
+        }
+      }
+    }
+  });
+}
+
 function scheduleTlsLifecycleOracle(module) {
   if (tlsLifecycleOracleScheduled) {
     return;
@@ -5757,6 +6120,19 @@ Process.attachModuleObserver({
         emit("get-current-thread-callsite-error", { error: error.message });
       }
       scheduleGetCurrentThreadOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("set-thread-affinity-mask")
+    ) {
+      try {
+        attachThreadAffinityTickCountObserver(module);
+      } catch (error) {
+        emit("set-thread-affinity-mask-calibration-error", {
+          error: error.message,
+        });
+      }
+      scheduleSetThreadAffinityMaskOracle(module);
     }
   },
 });

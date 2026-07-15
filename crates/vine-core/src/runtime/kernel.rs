@@ -1149,6 +1149,11 @@ impl RuntimeKernel {
         self.process.clock()
     }
 
+    pub fn sample_tick_count(&mut self, increment_per_read: u32) -> Result<u32, RuntimeStateError> {
+        let plan = self.process.plan_tick_count_sample(increment_per_read)?;
+        self.process.commit_tick_count_sample(plan)
+    }
+
     pub fn startup_info(&self) -> &RuntimeStartupInfo {
         self.process.startup_info()
     }
@@ -1163,6 +1168,28 @@ impl RuntimeKernel {
             .plan_last_error(self.current_thread_id(), value)?;
         self.threads.commit(plan);
         Ok(())
+    }
+
+    pub fn current_thread_affinity_mask(
+        &self,
+        process_mask: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        self.threads
+            .effective_affinity_mask(self.current_thread_id(), process_mask)
+    }
+
+    pub fn set_current_thread_affinity_mask(
+        &mut self,
+        process_mask: u32,
+        requested_mask: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        let (plan, previous_mask) = self.threads.plan_affinity_mask(
+            self.current_thread_id(),
+            process_mask,
+            requested_mask,
+        )?;
+        self.threads.commit_affinity_mask(plan)?;
+        Ok(previous_mask)
     }
 
     pub fn scheduler_state(&self) -> Result<SchedulerThreadState, RuntimeStateError> {

@@ -798,7 +798,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    threads.schema !== "vine.runtime-thread-registry.v3" ||
+    threads.schema !== "vine.runtime-thread-registry.v4" ||
     threads.stateOwner !== "runtime/thread.rs::RuntimeThreads" ||
     threads.mutableCollectionVisibility !== "private" ||
     threads.serializedRuntimeField !== "threads" ||
@@ -814,7 +814,7 @@ export function validateCurrentCheckpoint(manifest) {
       "tls-index-registry,fls-slot-registry,tls-index-allocator,fls-index-allocator,callback-frame-id-allocator" ||
     threads.crossSubsystemMutation !==
       "thread-resource-plan-aggregate-lifecycle-scheduler-preflight-infallible-commit" ||
-    threads.subsystemTests < 5 ||
+    threads.subsystemTests < 6 ||
     threads.crossSubsystemAtomicTests < 4 ||
     threads.directRecordMutationFromAggregate !== false ||
     threads.directResourceMutationFromAggregate !== false ||
@@ -823,7 +823,7 @@ export function validateCurrentCheckpoint(manifest) {
     threads.stackMetadataPlanCommit !== true ||
     !Array.isArray(threads.perThreadState) ||
     threads.perThreadState.join(",") !==
-      "last-error,tls-values,fls-values,callback-frames,stack-metadata" ||
+      "last-error,tls-values,fls-values,callback-frames,stack-metadata,logical-affinity-mask" ||
     threads.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime thread subsystem boundary is invalid");
@@ -1017,6 +1017,8 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.createMutexAllowNamed !== true ||
     kernel32Policy.createMutexAllowUnnamed !== false ||
     kernel32Policy.createMutexMaximumNameBytes !== 32768 ||
+    kernel32Policy.threadAffinityProcessMask !== 1 ||
+    kernel32Policy.tickCountIncrementPerRead !== 1 ||
     !Array.isArray(heapAllocator.allowedFlags) ||
     heapAllocator.allowedFlags.join(",") !== "0,8" ||
     heapAllocator.minimumAllocationBytes !== 1 ||

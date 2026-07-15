@@ -46,6 +46,7 @@ SUPPORTED_OBSERVATIONS = (
     "processor-feature",
     "unhandled-exception-filter",
     "get-current-thread",
+    "set-thread-affinity-mask",
 )
 
 

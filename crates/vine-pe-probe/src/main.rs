@@ -131,6 +131,7 @@ enum GenericRuntimeCapability {
     SetCurrentDirectoryA,
     CreateMutexA,
     GetCurrentThread,
+    SetThreadAffinityMask,
 }
 
 struct GenericRuntimeProcess {
@@ -258,6 +259,10 @@ struct GenericRuntimeCompletion {
     current_directory: Option<GenericRuntimeCurrentDirectory>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mutex: Option<GenericRuntimeMutex>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thread_affinity: Option<GenericRuntimeThreadAffinity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tick_count: Option<GenericRuntimeTickCount>,
     memory: MemoryStats,
 }
 
@@ -275,6 +280,22 @@ struct GenericRuntimeMutex {
     object: RuntimeMutex,
     object_record: RuntimeObjectRecord,
     already_exists: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeThreadAffinity {
+    thread_id: u32,
+    process_mask: u32,
+    affinity_mask: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeTickCount {
+    returned_tick_count: u32,
+    next_tick_count: u32,
+    increment_per_read: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -2643,6 +2664,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetCurrentDirectoryA
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
+                | GenericRuntimeCapability::SetThreadAffinityMask
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2660,6 +2682,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetCurrentDirectoryA
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
+                | GenericRuntimeCapability::SetThreadAffinityMask
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2695,7 +2718,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::InitializeCriticalSection
             | GenericRuntimeCapability::SetCurrentDirectoryA
             | GenericRuntimeCapability::CreateMutexA
-            | GenericRuntimeCapability::GetCurrentThread,
+            | GenericRuntimeCapability::GetCurrentThread
+            | GenericRuntimeCapability::SetThreadAffinityMask,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3165,6 +3189,49 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let thread_affinity = if completion.implementation_id
+                            == "kernel32.set-thread-affinity-mask.v1"
+                        {
+                            let process_mask = kernel32_policy
+                                .thread_affinity_process_mask()
+                                .ok_or_else(|| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "thread-affinity-policy-missing-after-dispatch",
+                                        "completed SetThreadAffinityMask has no virtual process mask",
+                                    )
+                                })?;
+                            Some(GenericRuntimeThreadAffinity {
+                                thread_id: session.runtime().current_thread_id().0,
+                                process_mask,
+                                affinity_mask: session
+                                    .runtime()
+                                    .current_thread_affinity_mask(process_mask)
+                                    .map_err(runtime_state_error)?,
+                            })
+                        } else {
+                            None
+                        };
+                        let tick_count =
+                            if completion.implementation_id == "kernel32.get-tick-count.v1" {
+                                kernel32_policy
+                                    .tick_count_increment_per_read()
+                                    .map(|increment_per_read| {
+                                        let returned_tick_count = set_eax_result(
+                                            &completion,
+                                            "tick-count-return-register-invalid",
+                                            "GetTickCount dispatcher did not set EAX",
+                                        )?;
+                                        Ok(GenericRuntimeTickCount {
+                                            returned_tick_count,
+                                            next_tick_count: session.runtime().clock().tick_count,
+                                            increment_per_read,
+                                        })
+                                    })
+                                    .transpose()?
+                            } else {
+                                None
+                            };
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -3181,6 +3248,8 @@ fn run_v86_generic_runtime_session(
                                 file_type,
                                 current_directory,
                                 mutex,
+                                thread_affinity,
+                                tick_count,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3289,6 +3358,8 @@ fn run_v86_generic_runtime_session(
                                 file_type: None,
                                 current_directory: None,
                                 mutex: None,
+                                thread_affinity: None,
+                                tick_count: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3343,6 +3414,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetCurrentDirectoryA
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
+                | GenericRuntimeCapability::SetThreadAffinityMask
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3362,6 +3434,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetCurrentDirectoryA
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
+                | GenericRuntimeCapability::SetThreadAffinityMask
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3370,14 +3443,28 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::SetCurrentDirectoryA
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
+                | GenericRuntimeCapability::SetThreadAffinityMask
         )
     );
     let create_mutex_a_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::CreateMutexA | GenericRuntimeCapability::GetCurrentThread)
+        Some(
+            GenericRuntimeCapability::CreateMutexA
+                | GenericRuntimeCapability::GetCurrentThread
+                | GenericRuntimeCapability::SetThreadAffinityMask
+        )
     );
-    let get_current_thread_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::GetCurrentThread));
+    let get_current_thread_enabled = matches!(
+        enabled,
+        Some(
+            GenericRuntimeCapability::GetCurrentThread
+                | GenericRuntimeCapability::SetThreadAffinityMask
+        )
+    );
+    let set_thread_affinity_mask_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::SetThreadAffinityMask)
+    );
     let initialize_critical_section_enabled = set_current_directory_a_enabled
         || matches!(
             enabled,
@@ -3483,7 +3570,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::InitializeCriticalSection
             | GenericRuntimeCapability::SetCurrentDirectoryA
             | GenericRuntimeCapability::CreateMutexA
-            | GenericRuntimeCapability::GetCurrentThread,
+            | GenericRuntimeCapability::GetCurrentThread
+            | GenericRuntimeCapability::SetThreadAffinityMask,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3637,6 +3725,7 @@ fn runtime_capability_enables_endpoint(
         "SetCurrentDirectoryA" => set_current_directory_a_enabled,
         "CreateMutexA" => create_mutex_a_enabled,
         "GetCurrentThread" => get_current_thread_enabled,
+        "SetThreadAffinityMask" => set_thread_affinity_mask_enabled,
         _ => true,
     }
 }
@@ -3688,7 +3777,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::InitializeCriticalSection
             | GenericRuntimeCapability::SetCurrentDirectoryA
             | GenericRuntimeCapability::CreateMutexA
-            | GenericRuntimeCapability::GetCurrentThread,
+            | GenericRuntimeCapability::GetCurrentThread
+            | GenericRuntimeCapability::SetThreadAffinityMask,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9113,6 +9203,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "kernel32-create-mutex-a" => GenericRuntimeCapability::CreateMutexA,
                 "kernel32-get-current-thread" => GenericRuntimeCapability::GetCurrentThread,
+                "kernel32-set-thread-affinity-mask" => {
+                    GenericRuntimeCapability::SetThreadAffinityMask
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -85,6 +85,8 @@ pub struct RuntimeThreadState {
     pub id: RuntimeThreadId,
     pub lifecycle: RuntimeThreadLifecycleState,
     pub last_error: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affinity_mask: Option<u32>,
     pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
     pub fls_storage_initialized: bool,
     pub fls_values: BTreeMap<u32, u32>,
@@ -144,6 +146,11 @@ pub(super) struct RuntimeThreadMutationPlan {
     next: RuntimeThreadState,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeThreadAffinityPlan {
+    mutation: RuntimeThreadMutationPlan,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeTlsIndexAllocationPlan {
     previous_next_index: u32,
@@ -200,6 +207,7 @@ impl RuntimeThreads {
             id: initial_thread_id,
             lifecycle: RuntimeThreadLifecycleState::Initialized,
             last_error: initial_last_error,
+            affinity_mask: None,
             tls_values: BTreeMap::new(),
             fls_storage_initialized: false,
             fls_values: BTreeMap::new(),
@@ -442,6 +450,7 @@ impl RuntimeThreads {
                 id: thread_id,
                 lifecycle: RuntimeThreadLifecycleState::Running,
                 last_error: initial_last_error,
+                affinity_mask: None,
                 tls_values: BTreeMap::new(),
                 fls_storage_initialized: false,
                 fls_values: BTreeMap::new(),
@@ -547,6 +556,79 @@ impl RuntimeThreads {
             previous: Some(previous),
             next,
         })
+    }
+
+    pub(super) fn effective_affinity_mask(
+        &self,
+        thread_id: RuntimeThreadId,
+        process_mask: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        if process_mask == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-thread-affinity",
+                "thread-affinity-process-mask-zero",
+                "runtime thread affinity requires a nonzero virtual process mask",
+            ));
+        }
+        let thread = self.current_state(thread_id)?;
+        let affinity_mask = thread.affinity_mask.unwrap_or(process_mask);
+        if affinity_mask == 0 || affinity_mask & !process_mask != 0 {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-affinity",
+                "thread-affinity-state-outside-process-mask",
+                "runtime thread affinity state is outside the virtual process mask",
+            ));
+        }
+        Ok(affinity_mask)
+    }
+
+    pub(super) fn plan_affinity_mask(
+        &self,
+        thread_id: RuntimeThreadId,
+        process_mask: u32,
+        requested_mask: u32,
+    ) -> Result<(RuntimeThreadAffinityPlan, u32), RuntimeStateError> {
+        let previous = self.current_state(thread_id)?.clone();
+        if previous.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-affinity",
+                "thread-affinity-lifecycle-state-invalid",
+                "thread affinity can change only for a running runtime thread",
+            ));
+        }
+        let previous_mask = self.effective_affinity_mask(thread_id, process_mask)?;
+        if requested_mask == 0 || requested_mask & !process_mask != 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-thread-affinity",
+                "thread-affinity-mask-outside-process-mask",
+                "requested runtime thread affinity must be a nonzero subset of the virtual process mask",
+            ));
+        }
+        let mut next = previous.clone();
+        next.affinity_mask = Some(requested_mask);
+        Ok((
+            RuntimeThreadAffinityPlan {
+                mutation: RuntimeThreadMutationPlan {
+                    previous: Some(previous),
+                    next,
+                },
+            },
+            previous_mask,
+        ))
+    }
+
+    pub(super) fn commit_affinity_mask(
+        &mut self,
+        plan: RuntimeThreadAffinityPlan,
+    ) -> Result<&RuntimeThreadState, RuntimeStateError> {
+        if self.states.get(&plan.mutation.next.id) != plan.mutation.previous.as_ref() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-affinity",
+                "thread-affinity-plan-stale",
+                "runtime thread changed after affinity preflight",
+            ));
+        }
+        Ok(self.commit(plan.mutation))
     }
 
     pub(super) fn plan_initialize_fls_storage(
@@ -850,6 +932,54 @@ mod tests {
                 .raw_value(),
             0x2222
         );
+    }
+
+    #[test]
+    fn affinity_plans_use_the_virtual_process_default_and_commit_per_thread() {
+        let mut threads = RuntimeThreads::new(INITIAL, 11);
+        let start = threads.plan_start(INITIAL).unwrap();
+        threads.commit(start);
+        let registration = threads.plan_registration(SECOND, 33).unwrap();
+        threads.commit(registration);
+
+        assert_eq!(threads.effective_affinity_mask(INITIAL, 0b111), Ok(0b111));
+        assert_eq!(threads.effective_affinity_mask(SECOND, 0b111), Ok(0b111));
+        let before = threads.clone();
+        let (plan, previous) = threads.plan_affinity_mask(INITIAL, 0b111, 0b001).unwrap();
+        assert_eq!(previous, 0b111);
+        assert_eq!(threads, before, "affinity planning must not mutate state");
+        threads.commit_affinity_mask(plan).unwrap();
+        assert_eq!(threads.effective_affinity_mask(INITIAL, 0b111), Ok(0b001));
+        assert_eq!(threads.effective_affinity_mask(SECOND, 0b111), Ok(0b111));
+
+        let before_invalid = threads.clone();
+        assert_eq!(
+            threads
+                .plan_affinity_mask(INITIAL, 0b111, 0)
+                .unwrap_err()
+                .code,
+            "thread-affinity-mask-outside-process-mask"
+        );
+        assert_eq!(
+            threads
+                .plan_affinity_mask(INITIAL, 0b111, 0b1000)
+                .unwrap_err()
+                .code,
+            "thread-affinity-mask-outside-process-mask"
+        );
+        assert_eq!(threads, before_invalid);
+
+        let (restore, previous) = threads.plan_affinity_mask(INITIAL, 0b111, 0b111).unwrap();
+        assert_eq!(previous, 0b001);
+        let stale = threads.plan_affinity_mask(INITIAL, 0b111, 0b010).unwrap().0;
+        threads.commit_affinity_mask(restore).unwrap();
+        assert_eq!(threads.effective_affinity_mask(INITIAL, 0b111), Ok(0b111));
+        let before_stale = threads.clone();
+        assert_eq!(
+            threads.commit_affinity_mask(stale).unwrap_err().code,
+            "thread-affinity-plan-stale"
+        );
+        assert_eq!(threads, before_stale);
     }
 
     #[test]

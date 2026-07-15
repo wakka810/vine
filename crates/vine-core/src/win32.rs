@@ -14,9 +14,9 @@ use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
-    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeCriticalSection,
-    RuntimeHeapInitialization, RuntimeMutexNameA, X86_CRITICAL_SECTION_BYTE_LENGTH,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
+    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeCriticalSection, RuntimeHeapInitialization,
+    RuntimeMutexNameA, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -29,7 +29,7 @@ pub use policy::{
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
     Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
-    Kernel32WideCharToMultiBytePolicy,
+    Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -37,6 +37,7 @@ pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
 pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_CURRENT_THREAD_IMPLEMENTATION: &str = "kernel32.get-current-thread.v1";
+pub const SET_THREAD_AFFINITY_MASK_IMPLEMENTATION: &str = "kernel32.set-thread-affinity-mask.v1";
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
 pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
 pub const GET_ACP_IMPLEMENTATION: &str = "kernel32.get-acp.v1";
@@ -93,6 +94,7 @@ const MAX_EXPORT_NAME_BYTES: usize = 64;
 const CP_ACP: u32 = 0;
 const WINDOWS_932_CODE_PAGE: u32 = 932;
 const ERROR_SUCCESS: u32 = 0;
+const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const ERROR_INVALID_NAME: u32 = 123;
@@ -131,6 +133,9 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_CURRENT_THREAD_IMPLEMENTATION => handle_get_current_thread(contract, session),
+        SET_THREAD_AFFINITY_MASK_IMPLEMENTATION => {
+            handle_set_thread_affinity_mask(policy, contract, frame, session)
+        }
         GET_LAST_ERROR_IMPLEMENTATION => handle_get_last_error(contract, session),
         SET_LAST_ERROR_IMPLEMENTATION => handle_set_last_error(contract, frame),
         GET_ACP_IMPLEMENTATION => handle_get_acp(policy),
@@ -141,7 +146,7 @@ pub fn dispatch_kernel32_api_with_policy(
         SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION => {
             handle_set_unhandled_exception_filter(contract, frame, session)
         }
-        GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(session),
+        GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(policy, contract, session),
         GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
         GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
         SET_HANDLE_COUNT_IMPLEMENTATION => handle_set_handle_count(policy, contract, frame),
@@ -234,6 +239,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetCurrentThread" => get_current_thread_contract(endpoint)?,
+        "SetThreadAffinityMask" => set_thread_affinity_mask_contract(endpoint)?,
         "GetLastError" => get_last_error_contract(endpoint)?,
         "SetLastError" => set_last_error_contract(endpoint)?,
         "GetACP" => get_acp_contract(endpoint)?,
@@ -322,6 +328,49 @@ fn handle_get_current_thread(
         .resolve_current_thread_pseudo_handle()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(resolution.value)))
+}
+
+fn handle_set_thread_affinity_mask(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let thread_handle = required_argument(contract, frame, 0, "thread handle")?;
+    let requested_mask = required_argument(contract, frame, 1, "thread affinity mask")?;
+    let process_mask = policy.thread_affinity_process_mask().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-thread-affinity",
+            "set-thread-affinity-mask-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable thread affinity",
+                policy.id
+            ),
+        )
+    })?;
+    if thread_handle == 0 {
+        return Ok(ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    if thread_handle != RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE {
+        return Err(ApiFault::unsupported(
+            "win32-thread-affinity",
+            "set-thread-affinity-mask-handle-unsupported",
+            "SetThreadAffinityMask currently accepts only the current-thread pseudo-handle",
+        ));
+    }
+    if requested_mask == 0 || requested_mask & !process_mask != 0 {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INVALID_PARAMETER)
+        );
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let previous_mask = session
+        .runtime_mut()
+        .set_current_thread_affinity_mask(process_mask, requested_mask)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(previous_mask)).with_last_error(preserved_last_error))
 }
 
 fn handle_get_last_error(
@@ -437,10 +486,19 @@ fn handle_set_unhandled_exception_filter(
     )))
 }
 
-fn handle_get_tick_count(session: &ExecutionSession<'_>) -> Result<ApiImmediate, ApiFault> {
-    Ok(ApiImmediate::new(ApiReturnValue::U32(
-        session.runtime().clock().tick_count,
-    )))
+fn handle_get_tick_count(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let tick_count = match policy.tick_count_increment_per_read() {
+        Some(increment) => session
+            .runtime_mut()
+            .sample_tick_count(increment)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
+        None => session.runtime().clock().tick_count,
+    };
+    Ok(ApiImmediate::new(ApiReturnValue::U32(tick_count)))
 }
 
 fn handle_get_std_handle(
@@ -2579,6 +2637,23 @@ pub fn get_current_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiC
         ApiReturnSchema::U32,
         GET_CURRENT_THREAD_IMPLEMENTATION,
     )
+}
+
+pub fn set_thread_affinity_mask_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "SetThreadAffinityMask",
+        vec![
+            u32_argument("threadHandle"),
+            u32_argument("threadAffinityMask"),
+        ],
+        ApiReturnSchema::U32,
+        SET_THREAD_AFFINITY_MASK_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn get_last_error_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
