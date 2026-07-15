@@ -48,7 +48,6 @@ the result. Runtime inputs cannot be admitted this way:
 
 ```powershell
 npm run check:private-target -- `
-  --allow-dirty review.md `
   --allow-dirty AGENTS.md
 ```
 
