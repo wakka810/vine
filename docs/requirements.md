@@ -1,12 +1,19 @@
 # 要件定義
 
+<!-- BEGIN CURRENT CHECKPOINT REFERENCE -->
+> 変動するcurrent status（API contract数、call数、memory generation、next stop、
+> report identity、canonical command）は
+> [`current-checkpoint.json`](current-checkpoint.json)だけを正本とする。
+> 最新値はルートREADMEのgenerated Current Statusを参照する。
+<!-- END CURRENT CHECKPOINT REFERENCE -->
+
 ## 1. 文書情報
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
 - 対象: PE32 / i386 のサクラノ詩 full-play runtime
 - 開発形態: 1 人、完全個人用
-- 前提: production compatibility runtime は未完成。static corpus inventory、LLVM／PE32／Wasm toolchain、v86 bounded adapter／CPU state spike、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack bootstrap、native TEB／PEB／process-parameters oracle、Rust-owned minimum command-line ingressは完了済みである。general process integration／parameters、DLL／export graph、general service dispatchは未実装である
+- 前提: production compatibility runtimeは未完成である。実装済み範囲と次の停止点は上のmanifest参照を正本とする
 
 ## 2. 目的
 
@@ -134,6 +141,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | REQ-MEM-02 | guest pointer を検査してから host 側で参照し、範囲外、overflow、use-after-free 相当を隔離する | Must |
 | REQ-MEM-03 | executable、writable 等の guest protection を論理的に追跡し、self-modifying code を検出できる | Should |
 
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 現在のproduction guest-memory ingressは、sparse 4 GiB range、owner-scoped reserve／commit／protect／decommit／release、bounded physical quota、cross-page preflight、logical execute seal、initial full reflectionとincremental `MemoryDelta`を実装する。Rust `GuestMemory`をbyte authority、v86 pagingをexecution mirrorとし、reflection／host delta／CPU writebackはfixed-width binary controlとcontiguous page payloadを使う。bounded slice後は全writable PTEのDirty bitからAPI固有listなしでstack／heap／surface／RWX multi-page writeを検出し、owner／generationをbatch全体でpreflightしてone transaction／one generationへatomic reconcileする。通常RW／NX host writeはdirty pageだけをlive v86へ適用でき、write-to-codeはinstruction-fetch／generated-code effectsを要求する。transactionは全memory snapshotではなくchanged-state／frame before-image journalを使い、4 MiB baselineでも開始時frame copy 0 bytes、1／2 changed pageで4／8 KiBに限定する。controlled sealed pagesはactual acknowledgement後にv86 entryからfirst thunkまで実行し、BGIのbase 388-page stateはfirst nine API returns、separate dynamic endpointを含む389-page modeはseventeenth returnまで進んだ。Typed logical private heapは32 x 16 MiB controlled band、8-byte allocation identity、deterministic initialization、free／reuse、heap／process teardownへ同じmemory transactionで接続した。Reached `HeapAlloc(0x68010001,8,0x214)`／`HeapAlloc(0x68010001,8,0x800)`はzeroed blocks `0x20000000`／`0x20000218`を作り、first reserve／commit generation `82 -> 85`とsecond dirty-only generation `106 -> 107`をlive v86へ適用する。Reached `HeapAlloc(0x68010001,0,1)`はallocation ID `3`／block `0x20000A18`／reserved 8-byte deterministic-uninitialized dirty deltaを作り、following conversionがrequested byteへNULを書く。Reached `HeapAlloc(0x68010001,0,0x220)`はallocation ID `4`／block `0x20000A20`／reserved 544-byte deterministic-uninitialized dirty deltaを作り、following guest consumerがrequested 544 bytesを全上書きして先頭DWORDをclearする。Reached `HeapAlloc(0x68010001,0,16)`はallocation ID `5`／block `0x20000C40`／requested・reserved 16-byte deterministic-uninitialized dirty-only deltaを作り、following path consumerのstack／heap writebackを同じauthorityへreconcileする。Generation／owner付きstack／image／unsealed heap CPU reconciliation、logical module／TLS index／thread value／encoded-pointer tokens、bounded FLS slot／selected-thread initialization／value、selected-thread `GetLastError`／`SetLastError`／`TlsGetValue`／`FlsGetValue` state、policy-backed `GetACP` read／18-byte `GetCPInfo` output、bounded UTF-16／ASCII reads、executable source validation、five checked wrapping LONG updates、process-owned logical stdin／stdout／stderr、stdin `FILE_TYPE_CHAR`／stdout／stderr `FILE_TYPE_PIPE` classifications、mutation-free `SetHandleCount(32)`も成立したが、stackはfixed 1 pageであり、broad heap flags／sizes／failure／free／realloc、title heap capacity、general handle-table sizing、broad file type／file I/O、TLS free／teardown、FLS free／callback teardown／fiber switching、other interlocked operations／cross-Worker atomicity、general pointer encoding、system-DLL image、guard、snapshotは未実装なので、`REQ-MEM-01`～`REQ-MEM-03`はいずれもpartialである。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)、[memory-delta-and-transactions.md](memory-delta-and-transactions.md)、[memory-writeback.md](memory-writeback.md)、[runtime-heap-backing.md](runtime-heap-backing.md)、[bgi-private-heap-size-16.md](bgi-private-heap-size-16.md)を正とする。
 
 Reached `GetModuleFileNameA(NULL,0x100FF520,260)`はRust bootstrap-owned
@@ -176,6 +184,8 @@ exit completionで退役する。詳細は
 separate runtime-kernel profileはdynamic endpoint dispatch、strict pointer inverse、bounded process-owned FLS index `0`／selected-thread initialization／value、reached private-heap allocation／free／size query、checked wrapping LONG increment／decrement、logical stdin／stdout／stderr、reached file types、controlled process environment／Windows-932 conversion、selected-thread LastError／TLS／FLS reads、bootstrap-owned process-image path、explicit processor-feature presence、process-owned unhandled-exception filter replacement、policy-backed one-argument critical-section initialization、PE header由来initial-thread stack reserve／commit／guard growth、policy-owned `CP_ACP` NUL終端変換、process-owned current-directory identity、named mutex identity／initial owner／handle lifetimeを含む46 contracts／284 callsを通した。現在のstopはinstruction 25,256の`GetCurrentThread()` contract missingである。
 
 one logical KERNEL32 identity、four ordered callable endpoints、logical TLS／FLS／encoded-pointer state、eight guest heap blocks、one exact reached heap free／size query、logical standard handles and classifications、controlled command-line／environment／Windows-932 views、checked NLS／LONG operations、one process-owned nullable unhandled-exception filter、one policy-backed default critical-section initializer、one process-owned named mutex、Rust-owned initial stack growthはあるが、general DLL／export／forwarder resolution、TLS／FLS free／teardown、host environment import／mutation、broad file I/O／heap semantics、negative-length／general NLS variants、explicit-module path lookup、general processor-feature discovery、critical-section contention／delete／arbitrary raw state、mutex security／unnamed／abandonment／cross-thread blocking、additional-thread stack lifecycle／stack overflow、general pointer-cookie semantics、SEH dispatch／filter invocation／vectored handlersは未実装であり、`REQ-PE-02`／`REQ-PE-03`／`REQ-PE-06`はいずれもpartialである。詳細は[pe-materialization.md](pe-materialization.md)、[pe-import-binding.md](pe-import-binding.md)、[pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md)、[bgi-create-mutex-a.md](bgi-create-mutex-a.md)、[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
+
+<!-- END FROZEN HISTORICAL EVIDENCE -->
 
 ### 7.3 Process bootstrap、x86 execution、ABI
 

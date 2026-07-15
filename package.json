@@ -14,7 +14,7 @@
     "check:private-target-contract": "node tools/test-private-target-evidence.mjs",
     "check:private-target-evidence": "node tools/check-private-target-evidence.mjs",
     "docs:generate": "node tools/generate-readme-status.mjs",
-    "check:docs": "node tools/generate-readme-status.mjs --check && node tools/test-current-checkpoint.mjs && node tools/check-docs.mjs",
+    "check:docs": "node tools/generate-readme-status.mjs --check && node tools/test-current-checkpoint.mjs && node tools/test-current-state-documents.mjs && node tools/check-docs.mjs",
     "check:evidence-classification": "node tools/test-evidence-classification.mjs",
     "check:checkpoint-manifest": "node tools/test-runtime-checkpoint-manifest.mjs",
     "check:bgi-command-contract": "node tools/test-bgi-checkpoint-command.mjs",

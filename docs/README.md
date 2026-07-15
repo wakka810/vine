@@ -1,5 +1,12 @@
 # Vine documentation
 
+<!-- BEGIN CURRENT CHECKPOINT REFERENCE -->
+> 変動するcurrent status（API contract数、call数、memory generation、next stop、
+> report identity、canonical command）は
+> [`current-checkpoint.json`](current-checkpoint.json)だけを正本とする。
+> 最新値はルートREADMEのgenerated Current Statusを参照する。
+<!-- END CURRENT CHECKPOINT REFERENCE -->
+
 ## 文書ステータス
 
 - ステータス: Proposed
@@ -154,7 +161,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-multi-byte-to-wide-char-cp-acp.md](bgi-multi-byte-to-wide-char-cp-acp.md) | CP_ACP NUL終端変換をどこまで返せるか | native query／conversion、policy selector、Node／Chrome 279-call equivalence、next stop |
 | [bgi-set-current-directory-a.md](bgi-set-current-directory-a.md) | process current directoryをどこまで返せるか | native path／oracle、private process identity、Node／Chrome 280-call equivalence、CreateMutexA stop |
 | [bgi-create-mutex-a.md](bgi-create-mutex-a.md) | named mutex creationをどこまで返せるか | native new／existing oracle、private synchronization and typed-handle lifetime、Node／Chrome 284-call equivalence、GetCurrentThread stop |
-| [bgi-get-current-thread.md](bgi-get-current-thread.md) | current-thread pseudo-handleをどう解決するか | native `0xFFFFFFFE`／LastError oracle、selected-thread typed-object relation、Node／Chrome 285-call equivalence、SetThreadAffinityMask stop |
+| [bgi-get-current-thread.md](bgi-get-current-thread.md) | current-thread pseudo-handleをどう解決するか | native pseudo-handle／LastError oracle、selected-thread typed-object relation、captured Node／Chrome equivalence |
 | [runtime-heap-backing.md](runtime-heap-backing.md) | private heap bytes／lifetimeをどこが所有するか | bounded guest arena、allocation ID／alignment／initialization、free／reuse、heap／process teardown |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 

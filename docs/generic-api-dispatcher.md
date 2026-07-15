@@ -1,12 +1,16 @@
 # Generic API dispatcher and RuntimeState foundation
 
+<!-- BEGIN CURRENT CHECKPOINT REFERENCE -->
+> 変動するcurrent status（API contract数、call数、memory generation、next stop、
+> report identity、canonical command）は
+> [`current-checkpoint.json`](current-checkpoint.json)だけを正本とする。
+> 最新値はルートREADMEのgenerated Current Statusを参照する。
+<!-- END CURRENT CHECKPOINT REFERENCE -->
+
 ## Status
 
-- Status: review Step 2／3, Step 4／10, critical-section including one-argument initialization, named CreateMutexA, pointer-decoding, FLS-allocation, private-heap allocation/free/size, FLS-value, InterlockedIncrement／Decrement, second private-heap allocation, standard-handle/file-type, SetHandleCount, GetCommandLineA, GetModuleFileNameA, SetCurrentDirectoryA, wide-environment copy-lifetime, Windows-932 wide/multibyte conversion, one-byte, 16-byte, and 544-byte uninitialized private heaps, four-byte environment-pointer table, 128-byte zeroed private heap, GetLastError, TlsGetValue, FlsGetValue, SetLastError, GetACP, GetCPInfo, GetStringTypeW, LCMapStringW, IsProcessorFeaturePresent, SetUnhandledExceptionFilter, and HeapSize capabilities implemented
-- Date: 2026-07-14
-- Runtime evidence base: `bgi-seventeenth-win32-call`
-- Runtime-kernel checkpoint: `bgi-create-mutex-a`
-- Scope: frozen 17-call equivalence plus 284 calls through one persistent generic runtime session
+本書はdispatcher境界とRust runtime authorityを記述する。現行profile、contract一覧、
+call数、next stopは上のmanifest参照を正本とし、ここへ複製しない。
 
 ## Dispatcher boundary
 
@@ -32,7 +36,9 @@ owned import or dynamic endpoint
 
 An owned endpoint without a contract returns `endpoint-contract-missing` with exact endpoint identity. Contract-invalid output writes are rejected before memory mutation. `GetProcAddress` models its second argument as `NameOrOrdinal`: name pointers are checked and bounded, while ordinals reach an explicit `get-proc-address-ordinal-unsupported` fault rather than an accidental memory fault.
 
-## Migrated contracts
+## Frozen contract-inventory snapshot
+
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 
 | API | Occurrences | RuntimeState behavior |
 |---|---:|---|
@@ -91,6 +97,8 @@ The source-v86 Node oracle harness still performs callsite provenance checks and
 adapter-specific dirty-page synchronization around the common semantic path.
 The production Browser Worker receives only generic changed-page batches from
 `ExecutionEngine`.
+
+<!-- END FROZEN HISTORICAL EVIDENCE -->
 
 ## Checkpoint manifest and runner
 
@@ -181,7 +189,9 @@ indexes、pointer policy and token allocator. Endpoint registration and pointer 
 followed by targeted commits; root pointer-policy／source／counter report fields are borrowed compatibility views.
 The neighboring `registries.hostRequests` report field remains scheduler-owned and is not registry state.
 
-## Verification
+## Frozen checkpoint verification
+
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 
 Representative semantic contracts:
 
@@ -922,6 +932,8 @@ deltas, and Node generation `395`. At instruction 25,256 it stops on missing
 `338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add`.
 Full evidence is in [bgi-create-mutex-a.md](bgi-create-mutex-a.md).
 
+<!-- END FROZEN HISTORICAL EVIDENCE -->
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -972,11 +984,12 @@ Full evidence is in [bgi-create-mutex-a.md](bgi-create-mutex-a.md).
   resolution and VFS effects remain absent. Named mutex identity, initial owner,
   recursive immediate wait／release, distinct-handle lifetime, and teardown are
   Rust-owned; security attributes, unnamed objects, abandonment, cross-thread
-  blocking／wake, and guest wait／release／close API coverage remain absent. The first structured
-  stop is now `GetCurrentThread`; bespoke numbered checkpoint expansion stays
-  paused.
+  blocking／wake, and guest wait／release／close API coverage remain absent.
+  Active structured-stop identity is intentionally not repeated in this document.
 
-## Next checkpoint
+## Frozen next-checkpoint notes
+
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 
 The next proof is the reached zero-argument `GetCurrentThread()` call. It must
 measure native pseudo-handle identity and the immediate consumer relation, then
@@ -1011,3 +1024,6 @@ GetLastError report is 312,644 bytes, the TlsGetValue report is 316,360 bytes,
     bytes, and the initial-stack-growth report is 1,179,850 bytes. The current
     CP_ACP report is 1,225,836 bytes, and the current-directory report is
     1,230,591 bytes. The current CreateMutexA report is 1,250,520 bytes.
+<!-- END FROZEN HISTORICAL EVIDENCE -->
+
+The active next stop and reproduction command come only from the manifest reference above.

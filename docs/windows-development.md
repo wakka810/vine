@@ -1,6 +1,15 @@
 # Windows development
 
-## 1. Current checkpoint
+<!-- BEGIN CURRENT CHECKPOINT REFERENCE -->
+> 変動するcurrent status（API contract数、call数、memory generation、next stop、
+> report identity、canonical command）は
+> [`current-checkpoint.json`](current-checkpoint.json)だけを正本とする。
+> 最新値はルートREADMEのgenerated Current Statusを参照する。
+<!-- END CURRENT CHECKPOINT REFERENCE -->
+
+## 1. Frozen checkpoint history
+
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 
 準備段階で次を固定済みである。
 
@@ -76,6 +85,8 @@
 - valid low-alignment PEのstructured unsupported stopと、cross-page NX instructionのconservative execute gate
 
 general process／thread integration、DLL／export lifecycle、Win32 API、graphics／audio は未実装である。controlled imageはminimum TEB／PEB、native-oracled command-line bytes、controlled startup-info／heap-policy／private-heap／loaded-module、four dynamic-export variants、logical TLS／FLS and pointer state、reached heap allocation／free／size、selected-thread LastError、checked LONG operations、standard handles／file types、controlled environment／Windows-932 conversion、process image path／current directory、processor-feature policy、process-owned exception filter／critical sections／named mutex、initial-thread stack growthまで進んだ。Frozen numbered evidenceは17 API returnで固定し、separate runtime-kernel profileは46 contracts／284 callsをreturnしてinstruction 25,256の`GetCurrentThread()` stopへ到達した。Current-directoryはprocess-image directoryだけをVFSなしでtransactionally更新し、named mutexはprivate synchronization stateとtyped object／handle lifetimeをtransactionally接続するが、other paths／relative resolution／filesystem namespace、mutex security／unnamed／abandonment／cross-thread blocking／guest wait-release-close、other code pages／general NLS variants、explicit-module path lookup、general processor-feature discovery、SEH dispatch／filter invocation、TLS／FLS free・callback teardown、host environment import／mutation／ANSI block、general handle-table sizing、broad file I/O／heap semantics、critical-section contention／delete、general FLS lifecycle、other interlocked operations／cross-Worker atomicity、additional-thread stack lifecycle／stack overflowは未実装である。詳細は [windows-native-evidence.md](windows-native-evidence.md)、[bgi-create-mutex-a.md](bgi-create-mutex-a.md)、[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md) を正とする。
+
+<!-- END FROZEN HISTORICAL EVIDENCE -->
 
 ## 2. Windows toolchain
 
@@ -207,6 +218,8 @@ node tools/summarize-windows-trace.mjs `
 - startup／title resource bandのruntime-reachable module／API一覧がある
 - 次の未対応 vertical slice が W2～W3 の具体的な一項に落ちている
 
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first seventeen Kernel32 returns、automatic binary multi-page writeback、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser gate、generation付きtyped object／handle、process-owned module graph／current directory、controlled lifecycle／two-thread registry／one-object wait／raw message queue／private-heap backing／named synchronization foundationsまで固定した。benchmarkは全17 thresholdを満たして継続`go`である。BGIのexact `EncodePointer(0x7F020000)` continuationは保持して凍結し、separate generic runtimeはPE initial-stack growth、CP_ACP NUL終端変換、SetCurrentDirectoryA、CreateMutexAを含む284 callsをreturnした。次はinstruction 25,256の`GetCurrentThread`についてpseudo-handleとRust-owned selected-thread identityを固定する。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
+<!-- END FROZEN HISTORICAL EVIDENCE -->
 
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

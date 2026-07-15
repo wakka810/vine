@@ -8,16 +8,19 @@ import {
   renderReadmeStatus,
   replaceReadmeStatus,
 } from "./current-checkpoint.mjs";
+import { validateCurrentStateDocuments } from "./current-state-documents.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const docsDirectory = path.join(root, "docs");
 const tick = String.fromCharCode(96);
 const errors = [];
+let currentCheckpoint;
 
 try {
   const checkpoint = loadCurrentCheckpoint(
     path.join(docsDirectory, "current-checkpoint.json"),
   );
+  currentCheckpoint = checkpoint;
   const historicalManifest = path.resolve(
     root,
     checkpoint.historicalBaseline.checkpointManifest,
@@ -50,6 +53,16 @@ const files = fs
   .filter((file) => file.endsWith(".md"))
   .sort()
   .map((file) => path.join(docsDirectory, file));
+
+const currentStateDocuments = new Map(
+  files.map((file) => [
+    path.relative(root, file).split(path.sep).join("/"),
+    fs.readFileSync(file, "utf8"),
+  ]),
+);
+errors.push(
+  ...validateCurrentStateDocuments(currentStateDocuments, currentCheckpoint),
+);
 
 for (const file of files) {
   const content = fs.readFileSync(file, "utf8");

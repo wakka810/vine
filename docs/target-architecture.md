@@ -1,10 +1,17 @@
 # 目標アーキテクチャ
 
+<!-- BEGIN CURRENT CHECKPOINT REFERENCE -->
+> 変動するcurrent status（API contract数、call数、memory generation、next stop、
+> report identity、canonical command）は
+> [`current-checkpoint.json`](current-checkpoint.json)だけを正本とする。
+> 最新値はルートREADMEのgenerated Current Statusを参照する。
+<!-- END CURRENT CHECKPOINT REFERENCE -->
+
 ## 1. 文書情報
 
 - ステータス: Proposed
 - 目的: 交換可能な技術と壊してはいけない境界を分離する
-- 注意: 大半のコンポーネントは設計案である。Rust workspaceにはPE32 load／sparse memory／controlled entry return／PE header由来initial stack reserve／commit／guard growthとminimum typed TEB／PEB／process-parameters bootstrap、binary bidirectional memory synchronization、controlled process lifecycle／two-thread logical registry／wait／message／private-heap backing、reached heap／TLS／FLS／LastError／NLS／standard-handle／interlocked／exception-filter contracts、process-owned critical sections／current-directory／named mutex identityがある。Current BGI generic sessionの46 contracts／284 callsと4回のstack growth、policy-owned CP_ACP conversion／SetCurrentDirectoryA／CreateMutexA、instruction 25,256の`GetCurrentThread` stopをChrome Runtime WorkerでNode oracleとsemantic一致させ、cancel／watchdog cleanupまで通した。additional-thread stack／overflow、per-thread CPU bootstrap／general multi-thread、broader wait／message／mutex blocking semantics、general NLS／heap／FLS／critical-section／SEH behavior、title rendering／audio／VFS／COM、full-play Win32 runtimeは存在しない
+- 注意: 大半のコンポーネントは設計案である。実装済み範囲、non-claims、次の停止点は上のmanifest参照を正本とする
 
 ## 2. アーキテクチャ原則
 
@@ -349,11 +356,13 @@ Interpreter、threaded interpreter、IR interpreter、DBT、generated Wasm modul
 
 Loader は file parse、image mapping、module lifecycle、symbol resolution を分離する。
 
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 version 1 loader ingressは、owned source bytesをmap-timeに再hashし、PE32 section／import／`HIGHLOW` relocationのchecked planを作る。memory ingressは`SizeOfImage`を1 sparse regionへreserveし、planned pagesをfinal R／W／X metadataでcommitする。materialization layerは同じplanからsource copy、explicit zero-fill／readback、wrapping `HIGHLOW`、original IAT verification、mapped-range digestを行う。import-binding layerは全importをmemory mutationなしで検査し、`[0x7F000000,0x7F010000)`の16-byte owned `UD2` slotsをplan orderで割り当てる。明示catalogのendpointとoptional identity-preserving unsupported trapsを区別し、complete planだけをtransaction内でcommitしてruntime／image ownersをsealする。BGIはdeclared-only policyで329 unresolved identitiesとmemory不変を保持し、explicit seventeenth-call policyでは14 declared／316 unsupported dispositionsで全330 importsをbindする。base 388-page reflectionにseparate `[0x7F020000,0x7F030000)` dynamic-export arenaのone RX pageを加え、entryからfirst seventeen runtime-owned APIsをreturnする。typed logical private-heap／loaded-KERNEL32／TLS-index／initial-thread-value／encoded-pointer metadata、four ordered FLS endpoint identities／guest storesを保持する。
 
 separate runtime-kernel profileはbinding-scoped dynamic endpoint dispatch、strict pointer inverse、bounded TLS／FLS／LastError state、reached private-heap allocation／free／size、checked LONG updates、logical standard handles、controlled process environment／Windows-932 and NLS views、bootstrap-owned image path／current directory、explicit processor-feature presence、process-owned filter／critical sections／named mutexを含む46 contracts／284 callsを通した。Win32 ABI／validation／state effectはsingle semantic handler IDを使い、bounded selector／file type／heap／process-view／code-page／processor-feature／default critical-section／current-directory／named-mutex subsetだけをversioned compatibility policyから受け取る。`RuntimeProcessDirectories`はcurrent-directory bytesとgenerationをprivateに所有し、`RuntimeSynchronization`はmutex name／owner／recursionをprivateに所有する。`SetCurrentDirectoryA`と`CreateMutexA`はguest pointerを保持せずowned identityをcopyし、aggregate plan／lifecycle preflight／commitを通す。BGI caller RVA、observed arguments、call order、next stopはevidence profileに残り、implementation branchを選ばない。process-owned module graphはcanonical identity、main／guest／runtime class、dependency／reference ownership、dependency-first attach／reverse detach metadataを持つ。Logical private heapとinitial-thread stackはprocess allocation identityへ接続し、reserve／commit／dirty deltaをv86 mirrorと同じRust authorityで処理する。Current stopはexisting selected-thread identityをWin32 pseudo-handleへ接続する`GetCurrentThread`境界である。
 
 system-DLL image、broad export／forwarder resolution、guest DLL callback、TLS／FLS free・callback teardown、host environment import／mutation、broad file／heap／NLS semantics、general processor-feature discovery、SEH dispatch／filter invocation／vectored handlers、general FLS lifecycle、other interlocked operations／cross-Worker atomicity、critical-section contention／delete／arbitrary raw initialization、initial stack growth／overflow、general pointer-cookie semanticsはnot attemptedである。policy boundaryは[win32-compatibility-policy.md](win32-compatibility-policy.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、module metadataは[runtime-module-graph.md](runtime-module-graph.md)、heap backingは[runtime-heap-backing.md](runtime-heap-backing.md)、runtime continuationは[bgi-initialize-critical-section.md](bgi-initialize-critical-section.md)、frozen entry／API executionは[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
+<!-- END FROZEN HISTORICAL EVIDENCE -->
 
 ### 8.1 Parse layer
 

@@ -1,12 +1,19 @@
 # テスト戦略と受け入れ条件
 
+<!-- BEGIN CURRENT CHECKPOINT REFERENCE -->
+> 変動するcurrent status（API contract数、call数、memory generation、next stop、
+> report identity、canonical command）は
+> [`current-checkpoint.json`](current-checkpoint.json)だけを正本とする。
+> 最新値はルートREADMEのgenerated Current Statusを参照する。
+<!-- END CURRENT CHECKPOINT REFERENCE -->
+
 ## 1. 文書情報
 
 - ステータス: Proposed
 - 基準日: 2026-07-10
-- 現状: static corpus inventory、documentation check、PE32 fixture、Windows native oracle、LLVM／Wasm smoke、v86 bounded execution／CPU state、W1／W2／W3、high-address memory、Rust PE32 load／memory／entry return／stack／minimum TEB・PEB／process-parameters bootstrap、MemoryDelta／automatic binary CPU writeback／transaction／atomic import、BGI firstからseventeenth Win32 call return、controlled Chrome Runtime Worker vertical test、67-call BGI Chrome Worker semantic equivalence／3分workload threshold、version 1 v86 browser benchmark／go threshold、generation付きtyped runtime object／handle、process-owned module graph、controlled process／initial-thread lifecycle contracts、Windows trace v1／v2 contracts、Linux public CIは存在する。full-play steady-memoryと次capability以降のbrowser pathは未選定
+- 現状: 実装済み範囲、active checkpoint、next stopは上のmanifest参照を正本とする
 
-この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。現在の canonical command は `npm run check` であり、`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
+この文書は、各実装を「動いたように見える」状態から、再現可能な互換性証拠へ進めるための基準を定義する。Repository-wide regressionは`npm run check`で`check:fast`とpublic source-adapter経路の`check:fixture-e2e`を順に実行する。Active checkpointの再現commandはmanifest参照を正本とし、広いadapter checkは`check:adapter`、private BGIは`check:private-corpus`へ分離する。
 
 ## 2. 品質原則
 
@@ -108,6 +115,8 @@ incremental memory contractは初回full reflection後に通常RW／NX pageへ8 
 Property test では allocation/free sequence、path segment、PE section layout、surface rectangle、audio chunk size 等を生成し、不変条件を検査する。
 
 ### 5.3 PE loader tests
+
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 
 正常系 fixture は少なくとも次を分離して持つ。
 
@@ -482,6 +491,8 @@ mismatch、semantic mismatchはhard failureとし、明示許可した無関係p
 Performanceは別のversioned observationであり、semantic passへ混ぜない。詳細は
 [private-target-gate.md](private-target-gate.md)を正とする。
 
+<!-- END FROZEN HISTORICAL EVIDENCE -->
+
 ### 5.4 CPU と ABI tests
 
 CPU test vector は instruction encoding、initial register／flags／memory、expected result／fault を持つ。
@@ -768,7 +779,9 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P1-09`: API metadata、thunk、callback、marshaller の生成方式を定めた ADR-005 が Accepted
 - `AC-P1-10`: controlled T1 image が guest instruction -> API trap -> host service -> guest callback -> yield を通り、test 用 pixel command、audio pulse、persistent byte write の expected evidence を返す
 
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 現在のproduction memory／entry／return／PE header由来initial stack reserve／commit／guard growth／minimum TEB・PEB／process-parameters／bidirectional binary memory sync／controlled private-heap backing／BGI firstからseventeenth-call ingress、controlled Chrome Worker、version 1 browser performance gateは`AC-P1-01`～`AC-P1-08`、`AC-P1-10`へのpartial evidenceである。frozen controlled CPUはprimary titleの17 API return、separate runtime-kernel profileは46 contracts／284 callsまで進み、Node／Chromeは4回のstack growth、CP_ACP NUL終端変換、process current-directory generation、named mutex metadata、instruction 25,256の`GetCurrentThread` stopでsemantic一致した。Public fixtureはbrowser callback serviceとpixel／audio／persistence、synthetic CPU／ABI／memory thresholdを通したが、additional-thread stack／overflow、adopted ISA suite、general process／thread／blocking-wait lifecycle、broader PEB・TEB、host timeout、broad guest heap APIとtitle capacity／system-DLL image／snapshot、SEH dispatch／filter invocation、full title browser workloadを欠くため各criterionと`AC-P1`全体は未完了である。
+<!-- END FROZEN HISTORICAL EVIDENCE -->
 
 ### AC-P2: Headless PE runtime complete
 
@@ -784,7 +797,9 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-10`: loader が immutable module object の hash を map 時に検証し、simulated backing source を import 後／delay-load 前に差し替えても実行 bytes が変化しない
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから17 frozen API returnとfour dynamic endpoint identitiesを保持し、separate generic dispatcherはreached heap／TLS／FLS／LastError／NLS／standard-handle／interlocked／filter／critical-section／current-directory／named-mutex operationsを46 contracts／284 callsまで処理する。One-argument `InitializeCriticalSection`はmeasured raw stateをversioned policyから受け、process-owned stateへchecked writeし、initial stackはPE reserve／commitとmovable guardをRust authorityで持つ。CP_ACP NUL終端変換はpolicy-owned Windows-932へ解決する。`SetCurrentDirectoryA`はprivate `RuntimeProcessDirectories`のnormalized identity／generationをplan／lifecycle preflight／commitする。`CreateMutexA`はprivate `RuntimeSynchronization`のname／owner／recursionとgeneric object／handle lifetimeをtwo-subsystem transactionで接続し、BrowserはRust-owned metadataを観測するだけである。Synchronization subsystem unit／aggregate testsとGuestMemory dispatcher testはplan-before-commit、caller-copy lifetime、distinct-handle shared identity、recursive wait／release、last close／process teardown、contention rejection、serialized field compatibilityを固定する。ただしadditional-thread stack／overflow、broad heap／critical-section／mutex blocking・abandonment・guest consumer APIs、SEH dispatch／filter invocation、general relative-path／VFS state、explicit-module path lookup、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+<!-- END FROZEN HISTORICAL EVIDENCE -->
 
 ### AC-P3: Win32 substrate and persistence complete
 
