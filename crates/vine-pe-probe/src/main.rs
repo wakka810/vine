@@ -132,6 +132,7 @@ enum GenericRuntimeCapability {
     CreateMutexA,
     GetCurrentThread,
     SetThreadAffinityMask,
+    GetSystemInfo,
 }
 
 struct GenericRuntimeProcess {
@@ -2665,6 +2666,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
+                | GenericRuntimeCapability::GetSystemInfo
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2683,6 +2685,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
+                | GenericRuntimeCapability::GetSystemInfo
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2719,7 +2722,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SetCurrentDirectoryA
             | GenericRuntimeCapability::CreateMutexA
             | GenericRuntimeCapability::GetCurrentThread
-            | GenericRuntimeCapability::SetThreadAffinityMask,
+            | GenericRuntimeCapability::SetThreadAffinityMask
+            | GenericRuntimeCapability::GetSystemInfo,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3415,6 +3419,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
+                | GenericRuntimeCapability::GetSystemInfo
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3435,6 +3440,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
+                | GenericRuntimeCapability::GetSystemInfo
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3444,6 +3450,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
+                | GenericRuntimeCapability::GetSystemInfo
         )
     );
     let create_mutex_a_enabled = matches!(
@@ -3452,6 +3459,7 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::CreateMutexA
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
+                | GenericRuntimeCapability::GetSystemInfo
         )
     );
     let get_current_thread_enabled = matches!(
@@ -3459,12 +3467,17 @@ fn runtime_capability_enables_endpoint(
         Some(
             GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
+                | GenericRuntimeCapability::GetSystemInfo
         )
     );
     let set_thread_affinity_mask_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::SetThreadAffinityMask)
+        Some(
+            GenericRuntimeCapability::SetThreadAffinityMask
+                | GenericRuntimeCapability::GetSystemInfo
+        )
     );
+    let get_system_info_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetSystemInfo));
     let initialize_critical_section_enabled = set_current_directory_a_enabled
         || matches!(
             enabled,
@@ -3571,7 +3584,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::SetCurrentDirectoryA
             | GenericRuntimeCapability::CreateMutexA
             | GenericRuntimeCapability::GetCurrentThread
-            | GenericRuntimeCapability::SetThreadAffinityMask,
+            | GenericRuntimeCapability::SetThreadAffinityMask
+            | GenericRuntimeCapability::GetSystemInfo,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3726,6 +3740,7 @@ fn runtime_capability_enables_endpoint(
         "CreateMutexA" => create_mutex_a_enabled,
         "GetCurrentThread" => get_current_thread_enabled,
         "SetThreadAffinityMask" => set_thread_affinity_mask_enabled,
+        "GetSystemInfo" => get_system_info_enabled,
         _ => true,
     }
 }
@@ -3778,7 +3793,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::SetCurrentDirectoryA
             | GenericRuntimeCapability::CreateMutexA
             | GenericRuntimeCapability::GetCurrentThread
-            | GenericRuntimeCapability::SetThreadAffinityMask,
+            | GenericRuntimeCapability::SetThreadAffinityMask
+            | GenericRuntimeCapability::GetSystemInfo,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9206,6 +9222,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-set-thread-affinity-mask" => {
                     GenericRuntimeCapability::SetThreadAffinityMask
                 }
+                "kernel32-get-system-info" => GenericRuntimeCapability::GetSystemInfo,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

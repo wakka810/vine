@@ -95,6 +95,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-create-mutex-a",
         "kernel32-get-current-thread",
         "kernel32-set-thread-affinity-mask",
+        "kernel32-get-system-info",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -121,7 +122,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-get-current-thread" ||
+    genericRuntimeCapability === "kernel32-get-system-info"
+      ? "kernel32-get-system-info-v1.json"
+      : genericRuntimeCapability === "kernel32-get-current-thread" ||
     genericRuntimeCapability === "kernel32-set-thread-affinity-mask"
       ? "kernel32-bounded-heap-v2.json"
       : genericRuntimeCapability === "kernel32-create-mutex-a"
@@ -219,8 +222,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getSystemInfoEnabled = genericRuntimeCapability === "kernel32-get-system-info";
 const setThreadAffinityMaskEnabled =
-  genericRuntimeCapability === "kernel32-set-thread-affinity-mask";
+  getSystemInfoEnabled || genericRuntimeCapability === "kernel32-set-thread-affinity-mask";
 const getCurrentThreadEnabled =
   setThreadAffinityMaskEnabled || genericRuntimeCapability === "kernel32-get-current-thread";
 const createMutexAEnabled =
@@ -344,7 +348,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? setThreadAffinityMaskEnabled
+      ? getSystemInfoEnabled
+        ? "v86-bgi-get-system-info"
+        : setThreadAffinityMaskEnabled
         ? "v86-bgi-set-thread-affinity-mask"
         : getCurrentThreadEnabled
         ? "v86-bgi-get-current-thread"
@@ -3698,6 +3704,60 @@ const setThreadAffinityMaskExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const getSystemInfoExpected = {
+  ...setThreadAffinityMaskExpected,
+  supportedCalls: 1291,
+  writebackBatches: 1296,
+  dirtyPages: 2455,
+  changedBytes: 7808,
+  hostDeltaBatches: 78,
+  finalGeneration: 1403,
+  implementedApiContracts: 49,
+  call: {
+    sequence: 1291,
+    occurrence: 1,
+    instructionCount: 45420,
+    arguments: [0x006ffed8],
+    returnAddress: 0x10069f0a,
+    stackCleanupBytes: 8,
+    lastError: 0,
+    outputBytes: [
+      0x00, 0x00, 0x00, 0x00,
+      0x00, 0x10, 0x00, 0x00,
+      0x00, 0x00, 0x01, 0x00,
+      0xff, 0xff, 0xfe, 0x7f,
+      0x01, 0x00, 0x00, 0x00,
+      0x01, 0x00, 0x00, 0x00,
+      0x4a, 0x02, 0x00, 0x00,
+      0x00, 0x00, 0x01, 0x00,
+      0x06, 0x00,
+      0x00, 0x00,
+    ],
+    delta: {
+      sequence: 1291,
+      fromGeneration: 1401,
+      generation: 1402,
+      pageAddress: 0x006ff000,
+      owner: 4,
+      payloadSha256: "17edf8b735d23805592033c604371e1cf6a00f3ed5b152c0e0ec25bdd1562999",
+    },
+  },
+  memoryContentSha256: "651b3336011adb55b98e8bb13329e4bb368993a73d59ab878c65294636df92f5",
+  firstUnsupported: {
+    capabilityCluster: "user32-api-contract",
+    endpointId: 189,
+    endpointAddress: 0x7f000bc0,
+    module: "user32.dll",
+    symbol: "EnumDisplayMonitors",
+    iatAddress: 0x100d13cc,
+    arguments: [0, 0, 0x1006a700, 0],
+    returnAddress: 0x1006a781,
+    instructionCount: 45614,
+    faultClass: "unsupported",
+    faultStage: "api-dispatch",
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -4160,6 +4220,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getSystemInfoEnabled) {
+        validateGetSystemInfoResult(genericResult);
       } else if (setThreadAffinityMaskEnabled) {
         validateSetThreadAffinityMaskResult(genericResult);
       } else if (getCurrentThreadEnabled) {
@@ -4249,6 +4311,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : getSystemInfoEnabled
+            ? "bgi GetSystemInfo"
           : setThreadAffinityMaskEnabled
             ? "bgi SetThreadAffinityMask"
             : getCurrentThreadEnabled
@@ -4888,6 +4952,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : getSystemInfoEnabled
+          ? 36
         : setThreadAffinityMaskEnabled
           ? 35
           : getCurrentThreadEnabled
@@ -8453,6 +8519,98 @@ function validateCreateMutexAResult(result) {
   );
 }
 
+function validateGetSystemInfoResult(result) {
+  const expected = getSystemInfoExpected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetSystemInfo");
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.equal(call.sequence, expected.call.sequence);
+  assert.equal(call.occurrence, expected.call.occurrence);
+  assert.equal(call.trapInstructionCount, expected.call.instructionCount);
+  assert.deepEqual(call.arguments, expected.call.arguments);
+  assert.deepEqual(call.result, { action: "preserve" });
+  assert.equal(call.implementationId, "kernel32.get-system-info.v1");
+  assert.equal(call.returnAddress, expected.call.returnAddress);
+  assert.equal(
+    call.stackPointerAfter,
+    call.stackPointerBefore + expected.call.stackCleanupBytes,
+  );
+  assert.equal(call.lastError, expected.call.lastError);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, expected.call.arguments[0]);
+  assert.deepEqual(call.guestWrites[0].bytes, expected.call.outputBytes);
+  assert.deepEqual(call.guestWrites[0].result, {
+    bytesWritten: expected.call.outputBytes.length,
+    dirtyPages: 1,
+    invalidation: {
+      generation: expected.call.delta.generation,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    },
+  });
+
+  const outputDelta = result.hostDeltas.find(
+    ({ sequence }) => sequence === expected.call.delta.sequence,
+  );
+  assert(outputDelta, "GetSystemInfo output delta is missing");
+  assert.equal(outputDelta.fromGeneration, expected.call.delta.fromGeneration);
+  assert.equal(outputDelta.generation, expected.call.delta.generation);
+  assert.equal(outputDelta.mappingOperations, 0);
+  assert.deepEqual(outputDelta.dirtyPages, [
+    {
+      address: expected.call.delta.pageAddress,
+      owner: expected.call.delta.owner,
+    },
+  ]);
+  assert.equal(outputDelta.payloadBytes, page.size);
+  assert.equal(outputDelta.payloadSha256, expected.call.delta.payloadSha256);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  const endpoint = result.fault.endpoint.endpoint;
+  assert.equal(endpoint.id, unsupported.endpointId);
+  assert.equal(endpoint.address, unsupported.endpointAddress);
+  assert.equal(endpoint.module, unsupported.module);
+  assert.deepEqual(endpoint.symbol, { kind: "name", name: unsupported.symbol });
+  assert.equal(endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.class, unsupported.faultClass);
+  assert.equal(result.fault.fault.stage, unsupported.faultStage);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
+  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validateSetThreadAffinityMaskResult(result) {
   const expected = setThreadAffinityMaskExpected;
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
@@ -9313,6 +9471,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : getSystemInfoEnabled
+          ? "vine.v86-bgi-get-system-info"
         : setThreadAffinityMaskEnabled
           ? "vine.v86-bgi-set-thread-affinity-mask"
           : getCurrentThreadEnabled

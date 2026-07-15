@@ -431,6 +431,24 @@ assert.ok(
   ),
 );
 
+const hostShapedSystemInfoPolicy = structuredClone(manifest);
+hostShapedSystemInfoPolicy.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.systemInfo.processorLevel =
+  25;
+assert.ok(
+  validateCurrentCheckpoint(hostShapedSystemInfoPolicy).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const duplicatedSystemInfoMask = structuredClone(manifest);
+duplicatedSystemInfoMask.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.systemInfoActiveProcessorMaskSource =
+  "system-info-policy-field";
+assert.ok(
+  validateCurrentCheckpoint(duplicatedSystemInfoMask).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
 const fixedActiveTickPolicy = structuredClone(manifest);
 fixedActiveTickPolicy.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.tickCountIncrementPerRead =
   0;

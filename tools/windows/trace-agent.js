@@ -112,6 +112,10 @@ let setThreadAffinityMaskOracleLastError = null;
 let setThreadAffinityMaskConsumersRecorded = 0;
 let setThreadAffinityMaskPrimaryCalls = 0;
 let setThreadAffinityCalibration = null;
+let getSystemInfoOracleScheduled = false;
+let getSystemInfoOracleSentinel = null;
+let getSystemInfoOracleLastError = null;
+let getSystemInfoConsumerRecorded = false;
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -637,6 +641,53 @@ function snapshotMeasuredCpInfo(pointer) {
   }
 }
 
+function snapshotSystemInfo(pointer) {
+  const measuredBytes = 36;
+  const raw = snapshotBoundedRawBytes(pointer, measuredBytes);
+  if (raw.error !== undefined) {
+    return {
+      profile: "x86-system-info-layout-v1",
+      measuredBytes,
+      raw,
+    };
+  }
+  if (Process.pointerSize !== 4) {
+    return {
+      profile: "x86-system-info-layout-v1",
+      measuredBytes,
+      raw,
+      error: `x86 SYSTEM_INFO observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  try {
+    return {
+      profile: "x86-system-info-layout-v1",
+      measuredBytes,
+      raw,
+      fields: {
+        processorArchitecture: pointer.readU16(),
+        reserved: pointer.add(2).readU16(),
+        pageSize: pointer.add(4).readU32(),
+        minimumApplicationAddress: pointer.add(8).readU32(),
+        maximumApplicationAddress: pointer.add(12).readU32(),
+        activeProcessorMask: pointer.add(16).readU32(),
+        numberOfProcessors: pointer.add(20).readU32(),
+        processorType: pointer.add(24).readU32(),
+        allocationGranularity: pointer.add(28).readU32(),
+        processorLevel: pointer.add(32).readU16(),
+        processorRevision: pointer.add(34).readU16(),
+      },
+    };
+  } catch (error) {
+    return {
+      profile: "x86-system-info-layout-v1",
+      measuredBytes,
+      raw,
+      error: error.message,
+    };
+  }
+}
+
 function snapshotOptionalBool(pointer) {
   if (pointer.isNull()) {
     return { pointer: pointer.toString(), isNull: true };
@@ -875,6 +926,41 @@ function snapshotGetCpInfoCall(
               context,
               4,
               12,
+            ),
+          }
+        : null,
+    },
+  };
+}
+
+function snapshotGetSystemInfoCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  output,
+) {
+  const recordsConsumer =
+    !getSystemInfoConsumerRecorded &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    getSystemInfoConsumerRecorded = true;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    getSystemInfo: {
+      outputBefore: snapshotSystemInfo(output),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              64,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              context,
+              6,
+              16,
             ),
           }
         : null,
@@ -1883,6 +1969,9 @@ if (selectedObservations.has("unhandled-exception-filter")) {
 if (selectedObservations.has("set-thread-affinity-mask")) {
   hooks["kernel32.dll"].push(["SetThreadAffinityMask", [null, null]]);
 }
+if (selectedObservations.has("get-system-info")) {
+  hooks["kernel32.dll"].push(["GetSystemInfo", [null]]);
+}
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
   [1, "AddRef", 0],
@@ -2136,6 +2225,13 @@ function attachHook(module, name, decoders) {
         (isMainModuleCaller ||
           (caller.module.toLowerCase() === "frida-agent.dll" &&
             setThreadAffinityMaskOracleSentinel !== null));
+      const focusedGetSystemInfoObservation =
+        selectedObservations.has("get-system-info") &&
+        name === "GetSystemInfo" &&
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            getSystemInfoOracleSentinel !== null));
       const focusedUnhandledExceptionFilterObservation =
         selectedObservations.has("unhandled-exception-filter") &&
         name === "SetUnhandledExceptionFilter" &&
@@ -2250,6 +2346,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("set-thread-affinity-mask") &&
         name === "SetThreadAffinityMask" &&
         !focusedSetThreadAffinityMaskObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("get-system-info") &&
+        name === "GetSystemInfo" &&
+        !focusedGetSystemInfoObservation
       ) {
         this.traceFrame = null;
         return;
@@ -2467,6 +2571,15 @@ function attachHook(module, name, decoders) {
       if (this.traceSetThreadAffinityMaskOracle) {
         this.lastError = setThreadAffinityMaskOracleSentinel;
       }
+      this.traceGetSystemInfoOracle =
+        getSystemInfoOracleSentinel !== null &&
+        selectedObservations.has("get-system-info") &&
+        name === "GetSystemInfo" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceGetSystemInfoOracle) {
+        this.lastError = getSystemInfoOracleSentinel;
+      }
       this.traceUnhandledExceptionFilterOracle =
         unhandledExceptionFilterOracleSentinel !== null &&
         selectedObservations.has("unhandled-exception-filter") &&
@@ -2668,6 +2781,8 @@ function attachHook(module, name, decoders) {
         focusedGetCpInfoObservation
           ? { codePage: args[0], output: args[1] }
           : null;
+      this.traceGetSystemInfo =
+        focusedGetSystemInfoObservation ? { output: args[0] } : null;
       const observation =
         this.traceHeapAllocation !== null
           ? {
@@ -2718,6 +2833,14 @@ function attachHook(module, name, decoders) {
               this.context,
               this.traceGetCpInfo.codePage,
               this.traceGetCpInfo.output,
+            )
+        : this.traceGetSystemInfo !== null
+          ? snapshotGetSystemInfoCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceGetSystemInfo.output,
             )
         : focusedProcessorFeatureObservation
           ? snapshotProcessorFeatureCall(
@@ -3000,6 +3123,9 @@ function attachHook(module, name, decoders) {
         setThreadAffinityMaskOracleResult = result.toUInt32();
         setThreadAffinityMaskOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceGetSystemInfoOracle) {
+        getSystemInfoOracleLastError = Number(lastError) >>> 0;
+      }
       if (this.traceThreadAffinityPrimaryCall === 1 && result.toUInt32() !== 0) {
         setThreadAffinityCalibration = {
           active: true,
@@ -3255,6 +3381,13 @@ function attachHook(module, name, decoders) {
                 measuredOutput: snapshotMeasuredCpInfo(
                   this.traceGetCpInfo.output,
                 ),
+              },
+            }),
+        ...(this.traceGetSystemInfo === null
+          ? {}
+          : {
+              getSystemInfo: {
+                outputAfter: snapshotSystemInfo(this.traceGetSystemInfo.output),
               },
             }),
       };
@@ -5043,6 +5176,81 @@ function scheduleGetCpInfoOracle(module) {
   });
 }
 
+function scheduleGetSystemInfoOracle(module) {
+  if (getSystemInfoOracleScheduled) {
+    return;
+  }
+  getSystemInfoOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetSystemInfo");
+      if (address === null) {
+        throw new Error("GetSystemInfo export is unavailable");
+      }
+      const getSystemInfo = new SystemFunction(
+        address,
+        "void",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        const storage = Memory.alloc(64);
+        storage.writeByteArray(Array(64).fill(0xa5));
+        const output = storage.add(16);
+        const storageBefore = snapshotBoundedRawBytes(storage, 64);
+        getSystemInfoOracleSentinel = sentinel;
+        getSystemInfoOracleLastError = null;
+        try {
+          const outcome = getSystemInfo(output);
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (getSystemInfoOracleLastError === null) {
+            throw new Error("GetSystemInfo oracle did not pass through the hook");
+          }
+          const storageAfter = snapshotBoundedRawBytes(storage, 64);
+          const bytes = storageAfter.bytes ?? [];
+          return {
+            sentinel,
+            hookLastErrorAfter: getSystemInfoOracleLastError,
+            systemLastError,
+            storageOffset: 16,
+            storageBefore,
+            storageAfter,
+            measuredOutput: snapshotSystemInfo(output),
+            prefixGuardUnchanged:
+              bytes.length === 64 && bytes.slice(0, 16).every((value) => value === 0xa5),
+            suffixGuardUnchanged:
+              bytes.length === 64 && bytes.slice(52).every((value) => value === 0xa5),
+            hookPreservesLastError: getSystemInfoOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          getSystemInfoOracleSentinel = null;
+          getSystemInfoOracleLastError = null;
+        }
+      };
+      const calls = [0, 87, 0x12345678].map(invoke);
+      emit("get-system-info-oracle", {
+        profile: "x86-system-info-output-v1",
+        calls,
+        allOutputsStable: calls.every(
+          (call) =>
+            JSON.stringify(call.measuredOutput.fields) ===
+            JSON.stringify(calls[0].measuredOutput.fields),
+        ),
+        allGuardsUnchanged: calls.every(
+          (call) => call.prefixGuardUnchanged && call.suffixGuardUnchanged,
+        ),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("get-system-info-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleProcessorFeatureOracle(module) {
   if (processorFeatureOracleScheduled) {
     return;
@@ -6079,6 +6287,12 @@ Process.attachModuleObserver({
       selectedObservations.has("get-cp-info")
     ) {
       scheduleGetCpInfoOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("get-system-info")
+    ) {
+      scheduleGetSystemInfoOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

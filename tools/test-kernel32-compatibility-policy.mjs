@@ -36,6 +36,7 @@ const legacyPolicyFiles = [
 const policyFiles = [
   ...legacyPolicyFiles,
   "fixtures/runtime-policies/kernel32-bounded-heap-v2.json",
+  "fixtures/runtime-policies/kernel32-get-system-info-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -87,6 +88,21 @@ for (const relative of policyFiles) {
         threadAffinity.processMask > 0 &&
         threadAffinity.processMask <= 0xffffffff,
     );
+  }
+  const systemInfo = policy.systemInfo ?? null;
+  if (systemInfo !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert(threadAffinity !== null);
+    assert.deepEqual(systemInfo, {
+      processorArchitecture: 0,
+      pageSize: 4096,
+      minimumApplicationAddress: 0x00010000,
+      maximumApplicationAddress: 0x7ffeffff,
+      processorType: 586,
+      allocationGranularity: 65536,
+      processorLevel: 6,
+      processorRevision: 0,
+    });
   }
   const tickCount = policy.tickCount ?? null;
   if (tickCount !== null) {
@@ -151,6 +167,7 @@ assert.equal(
 );
 assert.equal(activePolicy.threadAffinity.processMask, summary.threadAffinityProcessMask);
 assert.equal(activePolicy.tickCount.incrementPerRead, summary.tickCountIncrementPerRead);
+assert.deepEqual(activePolicy.systemInfo ?? null, summary.systemInfo ?? null);
 
 const implementation = fs.readFileSync(
   path.join(root, "crates", "vine-core", "src", "win32.rs"),

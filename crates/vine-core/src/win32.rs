@@ -28,7 +28,7 @@ pub use policy::{
     Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
     Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
-    Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
+    Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
     Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
 };
 
@@ -38,6 +38,7 @@ pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-pr
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_CURRENT_THREAD_IMPLEMENTATION: &str = "kernel32.get-current-thread.v1";
 pub const SET_THREAD_AFFINITY_MASK_IMPLEMENTATION: &str = "kernel32.set-thread-affinity-mask.v1";
+pub const GET_SYSTEM_INFO_IMPLEMENTATION: &str = "kernel32.get-system-info.v1";
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
 pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
 pub const GET_ACP_IMPLEMENTATION: &str = "kernel32.get-acp.v1";
@@ -136,6 +137,7 @@ pub fn dispatch_kernel32_api_with_policy(
         SET_THREAD_AFFINITY_MASK_IMPLEMENTATION => {
             handle_set_thread_affinity_mask(policy, contract, frame, session)
         }
+        GET_SYSTEM_INFO_IMPLEMENTATION => handle_get_system_info(policy, contract, frame),
         GET_LAST_ERROR_IMPLEMENTATION => handle_get_last_error(contract, session),
         SET_LAST_ERROR_IMPLEMENTATION => handle_set_last_error(contract, frame),
         GET_ACP_IMPLEMENTATION => handle_get_acp(policy),
@@ -240,6 +242,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetCurrentThread" => get_current_thread_contract(endpoint)?,
         "SetThreadAffinityMask" => set_thread_affinity_mask_contract(endpoint)?,
+        "GetSystemInfo" => get_system_info_contract(endpoint)?,
         "GetLastError" => get_last_error_contract(endpoint)?,
         "SetLastError" => set_last_error_contract(endpoint)?,
         "GetACP" => get_acp_contract(endpoint)?,
@@ -371,6 +374,51 @@ fn handle_set_thread_affinity_mask(
         .set_current_thread_affinity_mask(process_mask, requested_mask)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(previous_mask)).with_last_error(preserved_last_error))
+}
+
+fn handle_get_system_info(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = required_argument(contract, frame, 0, "SYSTEM_INFO output")?;
+    let info = policy.system_info().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-system-info",
+            "get-system-info-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable x86 system information",
+                policy.id
+            ),
+        )
+    })?;
+    let active_processor_mask = policy.thread_affinity_process_mask().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "win32-system-info",
+            "get-system-info-affinity-policy-missing",
+            "validated x86 system information has no virtual process affinity mask",
+        )
+    })?;
+    Ok(ApiImmediate::new(ApiReturnValue::Void).with_guest_write(
+        GuestAddress(output),
+        x86_system_info_bytes(&info, active_processor_mask),
+    ))
+}
+
+fn x86_system_info_bytes(info: &Kernel32SystemInfoPolicy, active_processor_mask: u32) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(36);
+    bytes.extend_from_slice(&info.processor_architecture.to_le_bytes());
+    bytes.extend_from_slice(&0_u16.to_le_bytes());
+    bytes.extend_from_slice(&info.page_size.to_le_bytes());
+    bytes.extend_from_slice(&info.minimum_application_address.to_le_bytes());
+    bytes.extend_from_slice(&info.maximum_application_address.to_le_bytes());
+    bytes.extend_from_slice(&active_processor_mask.to_le_bytes());
+    bytes.extend_from_slice(&active_processor_mask.count_ones().to_le_bytes());
+    bytes.extend_from_slice(&info.processor_type.to_le_bytes());
+    bytes.extend_from_slice(&info.allocation_granularity.to_le_bytes());
+    bytes.extend_from_slice(&info.processor_level.to_le_bytes());
+    bytes.extend_from_slice(&info.processor_revision.to_le_bytes());
+    bytes
 }
 
 fn handle_get_last_error(
@@ -2654,6 +2702,16 @@ pub fn set_thread_affinity_mask_contract(
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)
+}
+
+pub fn get_system_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetSystemInfo",
+        vec![out_struct("systemInfo", "SYSTEM_INFO", 36)],
+        ApiReturnSchema::Void,
+        GET_SYSTEM_INFO_IMPLEMENTATION,
+    )
 }
 
 pub fn get_last_error_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {

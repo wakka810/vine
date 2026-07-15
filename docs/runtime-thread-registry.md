@@ -151,3 +151,8 @@ guest-created threads can execute. `GetCurrentThread` now consumes only the logi
 not claim CPU switching or host-thread identity. The reached `SetThreadAffinityMask` adds only a
 policy-bounded logical mask to that selected record. The current next capability is recorded only in the
 current checkpoint manifest.
+
+The x86 `GetSystemInfo` contract reuses that policy-owned process mask for
+`dwActiveProcessorMask` and derives `dwNumberOfProcessors` by popcount. It does
+not add topology state to `RuntimeThreads`, query host CPUs, or duplicate the
+mask in the system-information policy.

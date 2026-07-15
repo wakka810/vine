@@ -54,6 +54,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_affinity: Option<Kernel32ThreadAffinityPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_info: Option<Kernel32SystemInfoPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tick_count: Option<Kernel32TickCountPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heap_allocator: Option<Kernel32HeapAllocatorPolicy>,
@@ -170,6 +172,19 @@ pub struct Kernel32ThreadAffinityPolicy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32SystemInfoPolicy {
+    pub processor_architecture: u16,
+    pub page_size: u32,
+    pub minimum_application_address: u32,
+    pub maximum_application_address: u32,
+    pub processor_type: u32,
+    pub allocation_granularity: u32,
+    pub processor_level: u16,
+    pub processor_revision: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32TickCountPolicy {
     pub increment_per_read: u32,
 }
@@ -212,6 +227,7 @@ impl Kernel32CompatibilityPolicy {
             active_code_page_info: None,
             processor_features: Vec::new(),
             thread_affinity: None,
+            system_info: None,
             tick_count: None,
             heap_allocator: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
@@ -423,6 +439,22 @@ impl Kernel32CompatibilityPolicy {
                 "thread-affinity policy requires a nonzero virtual process mask",
             ));
         }
+        if let Some(info) = self.system_info
+            && (self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || self.thread_affinity.is_none()
+                || info.processor_architecture != 0
+                || info.page_size != 4_096
+                || info.minimum_application_address != 0x0001_0000
+                || info.maximum_application_address != 0x7ffe_ffff
+                || info.processor_type != 586
+                || info.allocation_granularity != 65_536
+                || info.processor_level == 0)
+        {
+            return Err(policy_error(
+                "kernel32-policy-system-info-invalid",
+                "x86 system information requires schema v2, thread affinity, and the bounded PE32 virtual address profile",
+            ));
+        }
         if self
             .tick_count
             .is_some_and(|clock| clock.increment_per_read == 0 || clock.increment_per_read > 1_000)
@@ -588,6 +620,10 @@ impl Kernel32CompatibilityPolicy {
         self.thread_affinity.map(|affinity| affinity.process_mask)
     }
 
+    pub fn system_info(&self) -> Option<Kernel32SystemInfoPolicy> {
+        self.system_info
+    }
+
     pub fn tick_count_increment_per_read(&self) -> Option<u32> {
         self.tick_count.map(|clock| clock.increment_per_read)
     }
@@ -734,12 +770,37 @@ mod tests {
         assert!(policy.active_code_page_info().is_none());
         assert_eq!(policy.processor_feature_presence(10), None);
         assert_eq!(policy.thread_affinity_process_mask(), None);
+        assert_eq!(policy.system_info(), None);
         assert_eq!(policy.tick_count_increment_per_read(), None);
 
         let mut affinity = policy.clone();
         affinity.thread_affinity = Some(Kernel32ThreadAffinityPolicy { process_mask: 1 });
         affinity.validate().unwrap();
         assert_eq!(affinity.thread_affinity_process_mask(), Some(1));
+        affinity.schema_version = KERNEL32_COMPATIBILITY_POLICY_VERSION;
+        affinity.heap_allocations.clear();
+        affinity.heap_allocator = Some(Kernel32HeapAllocatorPolicy {
+            allowed_flags: vec![0, HEAP_ZERO_MEMORY],
+            maximum_allocation_bytes: RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
+        });
+        affinity.system_info = Some(Kernel32SystemInfoPolicy {
+            processor_architecture: 0,
+            page_size: 4_096,
+            minimum_application_address: 0x0001_0000,
+            maximum_application_address: 0x7ffe_ffff,
+            processor_type: 586,
+            allocation_granularity: 65_536,
+            processor_level: 6,
+            processor_revision: 0,
+        });
+        affinity.validate().unwrap();
+        assert_eq!(affinity.system_info().unwrap().processor_level, 6);
+        affinity.system_info.as_mut().unwrap().page_size = 8_192;
+        assert_eq!(
+            affinity.validate().unwrap_err().code,
+            "kernel32-policy-system-info-invalid"
+        );
+        affinity.system_info = None;
         affinity.thread_affinity = Some(Kernel32ThreadAffinityPolicy { process_mask: 0 });
         assert_eq!(
             affinity.validate().unwrap_err().code,

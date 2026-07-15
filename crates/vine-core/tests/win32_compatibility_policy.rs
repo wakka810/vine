@@ -46,6 +46,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-set-current-directory-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-create-mutex-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-bounded-heap-v2.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-get-system-info-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -202,4 +203,19 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert!(!bounded_heap.allows_heap_allocation(0, 0));
     assert!(!bounded_heap.allows_heap_allocation(0, 16 * 1024 * 1024 + 1));
     assert!(!bounded_heap.allows_heap_allocation(1, 37));
+    assert!(bounded_heap.system_info().is_none());
+
+    let system_info: Kernel32CompatibilityPolicy = serde_json::from_str(policies[28]).unwrap();
+    let profile = system_info
+        .system_info()
+        .expect("x86 system-information policy");
+    assert_eq!(system_info.thread_affinity_process_mask(), Some(1));
+    assert_eq!(profile.processor_architecture, 0);
+    assert_eq!(profile.page_size, 4_096);
+    assert_eq!(profile.minimum_application_address, 0x0001_0000);
+    assert_eq!(profile.maximum_application_address, 0x7ffe_ffff);
+    assert_eq!(profile.processor_type, 586);
+    assert_eq!(profile.allocation_granularity, 65_536);
+    assert_eq!(profile.processor_level, 6);
+    assert_eq!(profile.processor_revision, 0);
 }

@@ -1000,11 +1000,16 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.heapAllocator",
     errors,
   );
+  const systemInfo = requireRecord(
+    kernel32Policy.systemInfo,
+    "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.systemInfo",
+    errors,
+  );
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-bounded-heap-v2" ||
-    kernel32Policy.source !== "fixtures/runtime-policies/kernel32-bounded-heap-v2.json" ||
+    kernel32Policy.id !== "kernel32-get-system-info-v1" ||
+    kernel32Policy.source !== "fixtures/runtime-policies/kernel32-get-system-info-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -1018,6 +1023,18 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.createMutexAllowUnnamed !== false ||
     kernel32Policy.createMutexMaximumNameBytes !== 32768 ||
     kernel32Policy.threadAffinityProcessMask !== 1 ||
+    systemInfo.processorArchitecture !== 0 ||
+    systemInfo.pageSize !== 4096 ||
+    systemInfo.minimumApplicationAddress !== 0x00010000 ||
+    systemInfo.maximumApplicationAddress !== 0x7ffeffff ||
+    systemInfo.processorType !== 586 ||
+    systemInfo.allocationGranularity !== 65536 ||
+    systemInfo.processorLevel !== 6 ||
+    systemInfo.processorRevision !== 0 ||
+    kernel32Policy.systemInfoActiveProcessorMaskSource !==
+      "thread-affinity-process-mask" ||
+    kernel32Policy.systemInfoProcessorCountSource !==
+      "active-processor-mask-popcount" ||
     kernel32Policy.tickCountIncrementPerRead !== 1 ||
     !Array.isArray(heapAllocator.allowedFlags) ||
     heapAllocator.allowedFlags.join(",") !== "0,8" ||

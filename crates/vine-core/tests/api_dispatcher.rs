@@ -7,14 +7,15 @@ use vine_core::{
     CallbackPolicy, CallingConvention, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome,
     ExecutionSession, FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION,
     GET_CP_INFO_IMPLEMENTATION, GET_CURRENT_THREAD_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION,
-    GET_STRING_TYPE_W_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
-    GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion, HostRequest,
-    INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
-    Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32GetStringTypeWPolicy,
-    Kernel32HeapAllocationPolicy, Kernel32InitializeCriticalSectionPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
-    Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType,
+    GET_STRING_TYPE_W_IMPLEMENTATION, GET_SYSTEM_INFO_IMPLEMENTATION, GUEST_PAGE_SIZE,
+    GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION,
+    HostCompletion, HostRequest, INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION,
+    IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk, ImportThunkDisposition,
+    ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
+    Kernel32CreateMutexAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
+    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
     Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
     LC_MAP_STRING_W_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
@@ -1228,6 +1229,224 @@ fn set_last_error_writes_only_the_selected_thread_without_guest_memory_mutation(
         .select_thread(second_thread)
         .expect("restore second LastError lane");
     assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+}
+
+#[test]
+fn get_system_info_writes_a_coherent_virtual_profile_and_fails_before_mutation() {
+    const SYSTEM_INFO_OUTPUT: u32 = OUTPUT_BASE + 0x300;
+    const CROSS_PAGE_OUTPUT: u32 = MEMORY_BASE.0 + 0x2ff0;
+    const EXPECTED_SYSTEM_INFO: [u8; 36] = [
+        0x00, 0x00, 0x00, 0x00, // architecture and reserved
+        0x00, 0x10, 0x00, 0x00, // page size
+        0x00, 0x00, 0x01, 0x00, // minimum application address
+        0xff, 0xff, 0xfe, 0x7f, // maximum application address
+        0x0b, 0x00, 0x00, 0x00, // active processor mask
+        0x03, 0x00, 0x00, 0x00, // processor count derived from the mask
+        0x4a, 0x02, 0x00, 0x00, // processor type
+        0x00, 0x00, 0x01, 0x00, // allocation granularity
+        0x05, 0x00, // processor level
+        0x34, 0x12, // processor revision
+    ];
+
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_0589, SYSTEM_INFO_OUTPUT]),
+        (STACK_BASE + 0x20, vec![0x1000_058a, SYSTEM_INFO_OUTPUT]),
+        (STACK_BASE + 0x40, vec![0x1000_058b, 0]),
+        (STACK_BASE + 0x60, vec![0x1000_058c, CROSS_PAGE_OUTPUT]),
+        (STACK_BASE + 0x80, vec![0x1000_058d, SYSTEM_INFO_OUTPUT]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    memory
+        .write_initialization(owner, GuestAddress(SYSTEM_INFO_OUTPUT), &[0xa5; 48])
+        .expect("initialize SYSTEM_INFO output and guard");
+    memory
+        .write_initialization(owner, GuestAddress(CROSS_PAGE_OUTPUT), &[0xa5; 16])
+        .expect("initialize mapped prefix of cross-page output");
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x5c);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetSystemInfo IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetSystemInfo".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetSystemInfo endpoint");
+    assert_eq!(contract.implementation_id, GET_SYSTEM_INFO_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Void);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert!(matches!(
+        contract.abi.arguments[0].value,
+        ApiValueSchema::Pointer { ref constraint }
+            if constraint.byte_length == EXPECTED_SYSTEM_INFO.len() as u32
+                && constraint.alignment == 4
+    ));
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-get-system-info-v1.json"
+    ))
+    .expect("parse system-information policy fixture");
+    policy.id = "public-get-system-info-test-v1".to_owned();
+    policy.thread_affinity = Some(Kernel32ThreadAffinityPolicy {
+        process_mask: 0b1011,
+    });
+    policy.system_info = Some(Kernel32SystemInfoPolicy {
+        processor_level: 5,
+        processor_revision: 0x1234,
+        ..policy
+            .system_info
+            .expect("fixture system-information profile")
+    });
+    policy
+        .validate()
+        .expect("valid synthetic system-information policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(87).unwrap();
+    let runtime_before = runtime.clone();
+
+    let completion = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(completion.eax, RegisterUpdate::Preserve);
+    assert_eq!(completion.stack_pointer, GuestAddress(frames[0].0 + 8));
+    assert_eq!(completion.last_error, 87);
+    assert_eq!(completion.guest_writes.len(), 1);
+    assert_eq!(
+        completion.guest_writes[0].write.address.0,
+        SYSTEM_INFO_OUTPUT
+    );
+    assert_eq!(completion.guest_writes[0].write.bytes, EXPECTED_SYSTEM_INFO);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(SYSTEM_INFO_OUTPUT), EXPECTED_SYSTEM_INFO.len())
+            .expect("SYSTEM_INFO bytes"),
+        EXPECTED_SYSTEM_INFO
+    );
+    assert_eq!(
+        memory
+            .read(
+                GuestAddress(SYSTEM_INFO_OUTPUT + EXPECTED_SYSTEM_INFO.len() as u32),
+                48 - EXPECTED_SYSTEM_INFO.len(),
+            )
+            .expect("SYSTEM_INFO trailing guard"),
+        [0xa5; 12]
+    );
+    assert_eq!(runtime, runtime_before);
+
+    let output_before_rejections = memory
+        .read(GuestAddress(SYSTEM_INFO_OUTPUT), 48)
+        .expect("output before rejected calls")
+        .to_vec();
+    let cross_page_prefix_before = memory
+        .read(GuestAddress(CROSS_PAGE_OUTPUT), 16)
+        .expect("cross-page prefix before rejected call")
+        .to_vec();
+    let memory_before_rejections = memory.stats();
+    for (frame, selected_policy, expected_code) in [
+        (
+            &frames[1],
+            &Kernel32CompatibilityPolicy::controlled_v1(),
+            "get-system-info-policy-disabled",
+        ),
+        (&frames[2], &policy, "null-pointer-forbidden"),
+        (&frames[3], &policy, "guest-page-fault"),
+    ] {
+        let rejected = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(&endpoint, frame.0, frame.1[0]),
+                &mut session,
+                |contract, frame, session| {
+                    dispatch_kernel32_api_with_policy(selected_policy, contract, frame, session)
+                },
+            )
+        };
+        assert!(matches!(
+            rejected,
+            DispatchOutcome::Fault(ref fault)
+                if fault.code == expected_code
+                    && matches!(fault.class, ApiFaultClass::Unsupported | ApiFaultClass::InvalidCall)
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before_rejections);
+        assert_eq!(
+            memory.read(GuestAddress(SYSTEM_INFO_OUTPUT), 48).unwrap(),
+            output_before_rejections
+        );
+        assert_eq!(
+            memory.read(GuestAddress(CROSS_PAGE_OUTPUT), 16).unwrap(),
+            cross_page_prefix_before
+        );
+    }
+
+    memory
+        .protect(
+            owner,
+            GuestRange::new(GuestAddress(OUTPUT_BASE), GUEST_PAGE_SIZE)
+                .expect("SYSTEM_INFO output page range"),
+            PageProtection {
+                read: true,
+                write: false,
+                execute: false,
+            },
+        )
+        .expect("make SYSTEM_INFO output page read-only");
+    acknowledge_pending_delta(&mut memory);
+    let memory_before_read_only = memory.stats();
+    let read_only = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[4].0, frames[4].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        read_only,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall && fault.code == "guest-page-fault"
+    ));
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before_read_only);
+    assert_eq!(
+        memory.read(GuestAddress(SYSTEM_INFO_OUTPUT), 48).unwrap(),
+        output_before_rejections
+    );
 }
 
 #[test]

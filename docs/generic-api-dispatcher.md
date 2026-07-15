@@ -957,6 +957,21 @@ Detailed native, Node, Chrome, and performance evidence is in
 affinity, importing host topology, arbitrary thread-handle access, and a general
 timer／wait clock remain outside this contract.
 
+## x86 system-information contract
+
+`kernel32.get-system-info.v1` is a one-output-pointer VOID stdcall contract.
+The generic dispatcher preflights the full 36-byte `SYSTEM_INFO` span, preserves
+EAX and LastError, and commits one guest write only after the policy-backed
+handler has produced the complete structure. NULL, read-only, unmapped, and
+cross-page-invalid targets fail without a prefix write.
+
+The schema-v2 policy owns the bounded PE32 address and processor fields. The
+existing virtual process affinity mask is the only active-mask authority and
+the processor count is its popcount; neither value is copied into a second
+policy field. No semantic branch reads the browser or native host topology.
+Detailed native consumer, Node, Chrome, and benchmark evidence is in
+[bgi-get-system-info.md](bgi-get-system-info.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -1011,6 +1026,9 @@ timer／wait clock remain outside this contract.
   Current-thread logical affinity and deterministic tick progression are
   Rust-owned, but host affinity／topology, arbitrary thread handles, process
   affinity APIs, and general sleep／timer／wait-deadline semantics remain absent.
+  The x86 virtual `SYSTEM_INFO` profile is policy-owned and fixed to the bounded
+  PE32 address model; x64, processor groups, NUMA, dynamic host topology, and
+  broader system-information APIs remain absent.
   Active structured-stop identity is intentionally not repeated in this document.
 
 ## Frozen next-checkpoint notes

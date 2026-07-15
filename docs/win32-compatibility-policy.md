@@ -64,8 +64,9 @@ flags remain unsupported. Invalid policy data stops the probe before guest
 execution.
 
 Twenty-seven schema-v1 files remain immutable historical reproduction policies
-with exact flag／size pairs. The active schema-v2 policy removes those sizes
-from runtime selection:
+with exact flag／size pairs. Schema v2 removes those sizes from runtime
+selection; the active profile extends the preceding bounded-heap checkpoint
+with x86 virtual system information:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -97,6 +98,7 @@ from runtime selection:
 | `kernel32-set-current-directory-a-v1` | stdin, stdout, stderr | preceding options + registered process-image directory only／32 KiB input bound | preceding allocation/free/size variants |
 | `kernel32-create-mutex-a-v1` | stdin, stdout, stderr | preceding options + named mutexes／32 KiB input bound; unnamed disabled | preceding allocation/free/size variants |
 | `kernel32-bounded-heap-v2` | stdin, stdout, stderr | same current process／NLS／mutex options + virtual process affinity mask `1` + `GetTickCount` increment `1` | flags `0`／`HEAP_ZERO_MEMORY`, nonzero sizes through 16 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
+| `kernel32-get-system-info-v1` | stdin, stdout, stderr | preceding schema-v2 options + bounded PE32 address／processor profile; active mask and count derive from affinity | same bounded allocation/free/size variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -308,6 +310,17 @@ Historical policies omit the option and reproduce the fixed sample. Neither
 path reads host uptime or wall time; the policy does not encode the BGI loop
 count, duration, caller, or stop identity.
 
+`GetSystemInfo` uses one VOID one-argument semantic handler and a checked
+36-byte x86 `SYSTEM_INFO` output. Policy supplies the bounded PE32 application
+address profile and processor fields. The reserved word is always zero;
+`dwActiveProcessorMask` is the existing thread-affinity process mask and
+`dwNumberOfProcessors` is its popcount, so topology is not duplicated across
+policy fields. Schema-v1 policies and the preceding schema-v2 policy omit the
+option and stop before mutation. The handler reads no host CPU or browser
+topology. Public tests use a synthetic multi-bit mask and distinct processor
+level／revision, then cover NULL, read-only, and cross-page output rejection
+without partial writes.
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -338,6 +351,9 @@ general CPU discovery or browser-host feature reflection.
 The affinity mask is virtual compatibility data and does not control host
 scheduling or expose host topology. Deterministic per-read tick progression is
 not a general timer, wait-deadline, sleep, or real-time clock implementation.
+The system-information profile is the bounded PE32 view required by the active
+runtime; it does not expose host CPU count, NUMA groups, x64 architecture,
+process-affinity APIs, or dynamic topology changes.
 The policy-independent top-level filter record does not implement SEH dispatch,
 filter invocation, exception records／contexts, vectored handlers, or host
 exception bridging.

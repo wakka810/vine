@@ -30,17 +30,17 @@ function errorsFor(file, body) {
 
 const currentCheckpoint = {
   activeRuntimeCheckpoint: {
-    genericDispatcherApiCount: 48,
-    genericDispatcherCallOccurrenceCount: 1290,
+    genericDispatcherApiCount: 49,
+    genericDispatcherCallOccurrenceCount: 1291,
     canonicalReproductionCommand: "npm run check:runtime:bgi-browser",
     latestEvidence: {
-      finalMemoryGeneration: 1401,
+      finalMemoryGeneration: 1403,
       reportSha256:
-        "ffaf389e5ed377d07aefe71ad8ad3380209fcb603fa70b27b99c9ddf8f6ff2db",
+        "ddcc44d2f9f21c11f6fe919a6c7a51fb018db01cc74e3b177f919811939c3c1c",
     },
   },
   nextStructuredStop: {
-    api: "KERNEL32.dll!GetSystemInfo",
+    api: "USER32.dll!EnumDisplayMonitors",
   },
 };
 
@@ -79,15 +79,15 @@ assert(
 );
 
 for (const [body, id] of [
-  ["Captured 48 API contracts.", "exact-current-contract-count"],
-  ["Captured Node/Chrome 1290-call equivalence.", "exact-current-call-count"],
-  ["The captured generation `1401` was stable.", "exact-current-generation"],
+  ["Captured 49 API contracts.", "exact-current-contract-count"],
+  ["Captured Node/Chrome 1291-call equivalence.", "exact-current-call-count"],
+  ["The captured generation `1403` was stable.", "exact-current-generation"],
   [
-    "Artifact ffaf389e5ed377d07aefe71ad8ad3380209fcb603fa70b27b99c9ddf8f6ff2db.",
+    "Artifact ddcc44d2f9f21c11f6fe919a6c7a51fb018db01cc74e3b177f919811939c3c1c.",
     "exact-current-report-identity",
   ],
   ["Run `npm run check:runtime:bgi-browser`.", "exact-current-canonical-command"],
-  ["The consumer calls GetSystemInfo.", "exact-current-next-stop"],
+  ["The consumer calls EnumDisplayMonitors.", "exact-current-next-stop"],
 ]) {
   const documents = baselineDocuments();
   documents.set(

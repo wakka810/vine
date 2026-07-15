@@ -2348,3 +2348,39 @@ cancel／watchdog後pending work 0を通す。3分gateは421 sessions／failure 
 430.865 ms、slice P99 2.190 ms、heartbeat P99 6.055 ms／maximum 25.555 msを含む全17
 thresholdを通した。詳細は
 [bgi-set-thread-affinity-mask.md](bgi-set-thread-affinity-mask.md)を正とする。
+
+## 87. BGI x86 virtual system information
+
+Focused `get-system-info` capturesは256,120 bytes／784 lines／SHA-256
+`a64745f92c00a1523133e9b9ae38b434073008c7fe3f7a0d01f32208af5ed2c8`と
+221,171 bytes／667 lines／SHA-256
+`95f2df7426f70a9d91e6d94b1b29bceb697de6730fdcc3178162046ea82fc022`
+である。357／299 API pairsはbalancedでdiagnosticsはzeroである。Independent oracleは
+x86 `SYSTEM_INFO`のexact 36-byte write、前後guard不変、3回のoutput安定、LastError
+sentinel `0`／`87`／`0x12345678`保存を固定する。
+
+Native hostはarchitecture 0、page size 4096、application range
+`0x00010000..0x7FFEFFFF`、active mask `0x0000FFFF`、processor count 16、type 586、
+granularity 65536、level 25、revision `0x7502`を返す。BGI return RVA `0x69F0A`は
+先頭DWORDだけをcopyしてEAXを1で上書きする。Host mask／count／level／revisionは
+capture identityでありruntimeへimportしない。
+
+Rustはschema-v2 policyのbounded PE32 profileを36 bytesへserializeする。Active maskは
+既存のvirtual process affinity mask `1`、countはそのpopcount `1`から導出し、authorityを
+重複させない。Public fixtureはsynthetic multi-bit maskとdistinct level／revisionを使い、
+NULL／read-only／cross-page-invalid outputがpartial writeなしで停止することを固定する。
+
+Nodeは49 contracts／1,291 calls、1,296 writebacks／2,455 dirty pages／7,808 changed
+bytes、78 host deltas、generation `1,403`を通す。Call 1,291は`0x006FFED8`へ36 bytesを
+writeする。Instruction `45614`でID `189`／
+`EnumDisplayMonitors(0,0,0x1006A700,0)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`651b3336011adb55b98e8bb13329e4bb368993a73d59ab878c65294636df92f5`、
+5,266,052-byte reportのSHA-256は
+`ddcc44d2f9f21c11f6fe919a6c7a51fb018db01cc74e3b177f919811939c3c1c`である。
+
+Chrome Runtime Workerもsame ordered calls／output／stop／memoryを再現し、6,294 slices、
+4,998 yields、5,894 Wasm crossings、final generation `3,241`、cancel／watchdog後pending
+work 0を通す。3分gateは415 sessions／failure 0、session P95 440.220 ms、slice P99
+1.935 ms、heartbeat P99 6.045 ms／maximum 18.535 msを含む全17 thresholdを通した。
+詳細は[bgi-get-system-info.md](bgi-get-system-info.md)を正とする。
