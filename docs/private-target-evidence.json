@@ -2,28 +2,26 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 4,
   "status": "passed",
-  "recordedAt": "2026-07-15T04:52:51.250Z",
+  "recordedAt": "2026-07-15T08:53:14.051Z",
   "repository": {
-    "implementationCommit": "05aa1eda4d028a1a9bc0ab696597d16a25b2aeb2",
-    "implementationTree": "509e829b722622175c6959368e6ec195b0a0c925",
-    "headCommit": "05aa1eda4d028a1a9bc0ab696597d16a25b2aeb2",
+    "implementationCommit": "0da7f0106e9043811889832d558ff8324db2e0f1",
+    "implementationTree": "57e59c5c70e8fb78e098e26f6f9eb4c1552fbcf9",
+    "headCommit": "0da7f0106e9043811889832d558ff8324db2e0f1",
     "dirty": true,
     "dirtyPaths": [
       "AGENTS.md",
-      "AGENTS.md.disabled",
-      "review.md"
+      "AGENTS.md.disabled"
     ],
     "allowedDirtyPaths": [
       "AGENTS.md",
-      "AGENTS.md.disabled",
-      "review.md"
+      "AGENTS.md.disabled"
     ],
     "executionInputsClean": true,
     "disallowedDirtyPaths": []
   },
   "command": {
     "canonical": "npm run check:private-target",
-    "invocation": "npm run check:private-target -- --allow-dirty \"AGENTS.md\" --allow-dirty \"AGENTS.md.disabled\" --allow-dirty \"review.md\"",
+    "invocation": "npm run check:private-target -- --allow-dirty \"AGENTS.md\" --allow-dirty \"AGENTS.md.disabled\"",
     "semanticGate": "required",
     "performanceGate": "separate-observation"
   },
@@ -175,17 +173,17 @@
     "nodeReport": {
       "path": ".work/v86-bgi-get-current-thread/report.json",
       "bytes": 1254345,
-      "sha256": "50d7ae673691a3036f328284f1e276404d8b7bec07256d16f793236f4bfbe1eb"
+      "sha256": "e8a2e570925a2efc57061663c3f52cf08933e0f13fb19f97960e7d19f0122db9"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 282266,
-      "sha256": "fd728251fe5cd16f27eb2792d663541d4b4617d70b6d8ee1db876046b4dbd7d2"
+      "bytes": 282262,
+      "sha256": "bffc64c022d58186e8b4d954e90f85f6e3df6888a1edd4b528a9ad0d9b00d698"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
       "bytes": 6959,
-      "sha256": "c806a44449bc6fb8e23352cb7d402abf08f5c6da65ec4f09cc8aef2c92763893"
+      "sha256": "64d7059962fb18150de23e71bf2751cb72db49aa03ed6656076b5ce02cdcd57d"
     },
     "v86AdapterReport": {
       "path": ".work/v86-adapter-spike/report.json",
@@ -195,12 +193,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3200,
-      "sha256": "43a36e8ae3560f2a64a25061aef09b6ca69bf08fff4ce447ea367a969e508532"
+      "sha256": "0b44f7bd6d6c689860122f8583ae7d323526efcc3b501a2697563c15b20f1e7d"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 2101772,
-      "sha256": "af6342777488afb538ab73c8b4e889f5d7c97237800c8f4210b69f9f112da656"
+      "bytes": 2138810,
+      "sha256": "52bc8aae82bac784ef9ede3a0036fbbba84c03679518fb5fcaa1036a7df8c537"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -227,10 +225,10 @@
     "decisionReason": "all-17-versioned-thresholds-passed",
     "thresholdEvaluationCount": 17,
     "durationMilliseconds": 180000,
-    "completedSessions": 306,
+    "completedSessions": 300,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "cf288c91072a115db539fafaffa0a21553df7518eb69a1eefaa0901423e9cf8f"
+    "reportSha256": "3b9b6ff5d3a58d60b65d845d8cd02cbfc56aaad085b17bf5c44ead4c384ae6b0"
   },
-  "payloadSha256": "77ef2b0a82795555d180170670f97aed9b9eb3615b20f2622e94377244427be9"
+  "payloadSha256": "bfe9cfb74b0d5794ecc878b79d1da5eba6c2facb6a86ca38c199bec23871b784"
 }
