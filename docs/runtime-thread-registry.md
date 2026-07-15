@@ -51,6 +51,13 @@ exit-requested、exited、terminating、terminated laneは選択できない。
 SelectionはCPU context switchではない。現在のthread-local Rust APIsがどのregistry recordを
 参照するかを選ぶだけである。
 
+Reached `GetCurrentThread` uses this same selector. The aggregate verifies the
+selected `RuntimeThreadState` and its `RuntimeObjectKey::Thread`, then returns
+Win32 pseudo value `0xFFFFFFFE` without opening a new typed handle. Selecting the
+controlled second thread changes the resolved `RuntimeObjectId` while preserving
+the pseudo value and handle-table cardinality. The contract is documented in
+[bgi-get-current-thread.md](bgi-get-current-thread.md).
+
 ## Thread-local ownership
 
 LastError、logical TLS／FLS value、callback frame stack、initial-thread stack metadataは
@@ -125,5 +132,6 @@ and resumes deterministically after signal. The controlled message queue is impl
 [runtime-heap-backing.md](runtime-heap-backing.md). Scheduler／wait ownership is now private as documented in
 [runtime-wait-queue.md](runtime-wait-queue.md). Runtime responsibility checkpoint S13 completes the
 remaining process／kernel ownership audit. Per-thread CPU bootstrap remains separate before
-guest-created threads can execute; the saved `GetCurrentThread` capability is next after the S13
-evidence gate.
+guest-created threads can execute. `GetCurrentThread` now consumes only the logical selector; it does
+not claim CPU switching or host-thread identity. The current next capability is recorded only in the
+current checkpoint manifest.

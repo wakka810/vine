@@ -6,9 +6,9 @@ use vine_core::{
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CREATE_MUTEX_A_IMPLEMENTATION,
     CallbackPolicy, CallingConvention, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome,
     ExecutionSession, FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION,
-    GET_CP_INFO_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION,
-    GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange,
-    HEAP_SIZE_IMPLEMENTATION, HostCompletion, HostRequest,
+    GET_CP_INFO_IMPLEMENTATION, GET_CURRENT_THREAD_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION,
+    GET_STRING_TYPE_W_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
+    GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion, HostRequest,
     INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
     ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
     Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32GetStringTypeWPolicy,
@@ -21,7 +21,7 @@ use vine_core::{
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
     PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET, PageProtection, ProcessAddressSpaceLayout,
-    RUNTIME_FLS_INDEX_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
+    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
     RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_STANDARD_ERROR_HANDLE,
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
@@ -763,6 +763,154 @@ fn get_last_error_reads_selected_thread_state_without_mutation() {
         .select_thread(RuntimeThreadId(THREAD_ID))
         .expect("restore initial LastError lane");
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+}
+
+#[test]
+fn get_current_thread_returns_a_stable_pseudo_handle_for_the_selected_typed_thread() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_0588]),
+        (STACK_BASE + 0x20, vec![0x1000_0589]),
+        (STACK_BASE + 0x40, vec![0x1000_058a]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x59);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetCurrentThread IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetCurrentThread".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetCurrentThread endpoint");
+    assert_eq!(
+        contract.implementation_id,
+        GET_CURRENT_THREAD_IMPLEMENTATION
+    );
+    assert!(contract.abi.arguments.is_empty());
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let memory_before = memory.stats();
+
+    let initial_thread_handle = runtime
+        .current_thread_handle()
+        .expect("initial thread handle");
+    let initial_object_id = runtime
+        .object_for_handle(initial_thread_handle, RuntimeObjectKind::Thread)
+        .expect("initial typed thread object")
+        .id;
+    let initial_resolution = runtime
+        .resolve_current_thread_pseudo_handle()
+        .expect("initial pseudo-handle resolution");
+    assert_eq!(
+        initial_resolution.value,
+        RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE
+    );
+    assert_eq!(
+        initial_resolution.selected_thread_id,
+        RuntimeThreadId(THREAD_ID)
+    );
+    assert_eq!(initial_resolution.object_id, initial_object_id);
+    let initial_handle_count = runtime.objects().handles().len();
+    let initial_before = runtime.clone();
+    let initial = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+    );
+    assert_eq!(
+        initial.eax,
+        RegisterUpdate::Set(RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE)
+    );
+    assert_eq!(initial.stack_pointer, GuestAddress(frames[0].0 + 4));
+    assert_eq!(initial.last_error, INITIAL_LAST_ERROR);
+    assert!(initial.guest_writes.is_empty());
+    assert_eq!(runtime, initial_before);
+    assert_eq!(runtime.objects().handles().len(), initial_handle_count);
+    assert_eq!(memory.stats(), memory_before);
+
+    runtime.set_current_last_error(87).unwrap();
+    let repeated_before = runtime.clone();
+    let repeated = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+    );
+    assert_eq!(
+        repeated.eax, initial.eax,
+        "same-thread pseudo value must be stable"
+    );
+    assert_eq!(repeated.last_error, 87);
+    assert_eq!(runtime, repeated_before);
+    assert_eq!(runtime.objects().handles().len(), initial_handle_count);
+    assert_eq!(memory.stats(), memory_before);
+
+    let second_thread = RuntimeThreadId(THREAD_ID + 1);
+    let second_handle = runtime
+        .register_thread(second_thread, 122)
+        .expect("register second thread lane");
+    runtime
+        .select_thread(second_thread)
+        .expect("select second thread lane");
+    let second_object_id = runtime
+        .object_for_handle(second_handle, RuntimeObjectKind::Thread)
+        .expect("second typed thread object")
+        .id;
+    let second_resolution = runtime
+        .resolve_current_thread_pseudo_handle()
+        .expect("second pseudo-handle resolution");
+    assert_eq!(second_resolution.value, initial_resolution.value);
+    assert_eq!(second_resolution.selected_thread_id, second_thread);
+    assert_eq!(second_resolution.object_id, second_object_id);
+    assert_ne!(second_resolution.object_id, initial_resolution.object_id);
+    let second_handle_count = runtime.objects().handles().len();
+    let second_before = runtime.clone();
+    let second = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+    );
+    assert_eq!(second.eax, initial.eax);
+    assert_eq!(second.last_error, 122);
+    assert_eq!(runtime, second_before);
+    assert_eq!(runtime.objects().handles().len(), second_handle_count);
+    assert_eq!(memory.stats(), memory_before);
 }
 
 #[test]

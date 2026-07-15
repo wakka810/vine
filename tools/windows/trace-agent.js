@@ -104,6 +104,7 @@ let heapSizeOracleResult = null;
 let heapSizeOracleLastError = null;
 let heapSizeConsumersRecorded = 0;
 const observedMainModuleHeapAllocations = new Map();
+let getCurrentThreadOracleScheduled = false;
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -1835,7 +1836,6 @@ if (selectedObservations.has("processor-feature")) {
 if (selectedObservations.has("unhandled-exception-filter")) {
   hooks["kernel32.dll"].push(["SetUnhandledExceptionFilter", [null]]);
 }
-
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
   [1, "AddRef", 0],
@@ -1864,6 +1864,42 @@ function findExport(module, name) {
     return Module.findExportByName(module.name, name);
   }
   return null;
+}
+
+function attachGetCurrentThreadCallSites(module) {
+  const target = findExport(module, "GetCurrentThread");
+  if (target === null) {
+    throw new Error("GetCurrentThread export is unavailable");
+  }
+  const mainModule = Process.mainModule;
+  const callSites = [];
+  for (const range of mainModule.enumerateRanges("r-x")) {
+    for (const match of Memory.scanSync(range.base, range.size, "ff 15")) {
+      try {
+        const slot = ptr(match.address.add(2).readU32());
+        const resolved = slot.readPointer();
+        if (resolved.equals(target)) {
+          callSites.push({ address: match.address, slot });
+        }
+      } catch (_) {
+        // Ignore unreadable false-positive instruction patterns.
+      }
+    }
+  }
+  if (callSites.length === 0) {
+    throw new Error("BGI GetCurrentThread IAT call site was not found");
+  }
+  emit("get-current-thread-callsite-observed", {
+    module: mainModule.name,
+    target: target.toString(),
+    callSites: callSites.map(({ address, slot }) => ({
+      callSite: describeCaller(address),
+      returnSite: describeCaller(address.add(6)),
+      iatAddress: slot.toString(),
+      callInstruction: snapshotInstructions(address, 1),
+      immediateConsumer: snapshotInstructionsFollowingDirectJump(address.add(6), 16),
+    })),
+  });
 }
 
 function attachIdirect3d9(object) {
@@ -5157,6 +5193,84 @@ function scheduleHeapSizeOracle(module) {
   });
 }
 
+function scheduleGetCurrentThreadOracle(module) {
+  if (getCurrentThreadOracleScheduled) {
+    return;
+  }
+  getCurrentThreadOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetCurrentThread");
+      if (address === null) {
+        throw new Error("GetCurrentThread export is unavailable");
+      }
+      const oracleCode = Memory.alloc(Process.pageSize);
+      const targetBytes = address.toUInt32().toString(16).padStart(8, "0");
+      const targetLittleEndian = [
+        Number.parseInt(targetBytes.slice(6, 8), 16),
+        Number.parseInt(targetBytes.slice(4, 6), 16),
+        Number.parseInt(targetBytes.slice(2, 4), 16),
+        Number.parseInt(targetBytes.slice(0, 2), 16),
+      ];
+      const machineCode = [
+        0x8b, 0x4c, 0x24, 0x04, // mov ecx, [esp + 4]
+        0x64, 0x89, 0x0d, 0x34, 0x00, 0x00, 0x00, // mov fs:[0x34], ecx
+        0xb8,
+        ...targetLittleEndian, // mov eax, GetCurrentThread
+        0xff, 0xd0, // call eax
+        0x8b, 0x54, 0x24, 0x08, // mov edx, [esp + 8]
+        0x89, 0x02, // mov [edx], eax
+        0x64, 0x8b, 0x0d, 0x34, 0x00, 0x00, 0x00, // mov ecx, fs:[0x34]
+        0x89, 0x4a, 0x04, // mov [edx + 4], ecx
+        0xc2, 0x08, 0x00, // ret 8
+      ];
+      Memory.patchCode(oracleCode, machineCode.length, (writable) => {
+        writable.writeByteArray(machineCode);
+      });
+      const invokeNativeOracle = new NativeFunction(
+        oracleCode,
+        "void",
+        ["uint32", "pointer"],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        const threadIdBefore = Process.getCurrentThreadId();
+        const output = Memory.alloc(8);
+        output.writeByteArray(Array(8).fill(0xa5));
+        invokeNativeOracle(sentinel, output);
+        const threadIdAfter = Process.getCurrentThreadId();
+        const result = output.readU32();
+        const nativeLastErrorAfter = output.add(4).readU32();
+        return {
+          sentinel,
+          threadIdBefore,
+          threadIdAfter,
+          result,
+          nativeLastErrorAfter,
+          sameThread: threadIdBefore === threadIdAfter,
+          nativePreservesLastError: nativeLastErrorAfter === sentinel,
+        };
+      };
+      const calls = [0, 87, 122, 0x12345678].map(invoke);
+      const pseudoHandle = calls[0].result;
+      emit("get-current-thread-oracle", {
+        profile: "x86-current-thread-pseudo-handle-v1",
+        threadId: Process.getCurrentThreadId(),
+        pseudoHandle,
+        calls,
+        allResultsStable: calls.every(
+          (call) => call.result === pseudoHandle && call.sameThread,
+        ),
+        allPreserveLastError: calls.every(
+          (call) => call.nativePreservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("get-current-thread-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleTlsLifecycleOracle(module) {
   if (tlsLifecycleOracleScheduled) {
     return;
@@ -5632,6 +5746,17 @@ Process.attachModuleObserver({
       selectedObservations.has("fls-lifecycle")
     ) {
       scheduleFlsLifecycleOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("get-current-thread")
+    ) {
+      try {
+        attachGetCurrentThreadCallSites(module);
+      } catch (error) {
+        emit("get-current-thread-callsite-error", { error: error.message });
+      }
+      scheduleGetCurrentThreadOracle(module);
     }
   },
 });

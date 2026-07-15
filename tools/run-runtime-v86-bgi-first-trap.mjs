@@ -93,6 +93,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-multi-byte-to-wide-char-cp-acp",
         "kernel32-set-current-directory-a",
         "kernel32-create-mutex-a",
+        "kernel32-get-current-thread",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -119,6 +120,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "kernel32-get-current-thread" ||
     genericRuntimeCapability === "kernel32-create-mutex-a"
       ? "kernel32-create-mutex-a-v1.json"
       : genericRuntimeCapability === "kernel32-set-current-directory-a"
@@ -214,7 +216,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const createMutexAEnabled = genericRuntimeCapability === "kernel32-create-mutex-a";
+const getCurrentThreadEnabled = genericRuntimeCapability === "kernel32-get-current-thread";
+const createMutexAEnabled =
+  getCurrentThreadEnabled || genericRuntimeCapability === "kernel32-create-mutex-a";
 const setCurrentDirectoryAEnabled =
   createMutexAEnabled || genericRuntimeCapability === "kernel32-set-current-directory-a";
 const multiByteToWideCharCpAcpEnabled =
@@ -334,7 +338,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? createMutexAEnabled
+      ? getCurrentThreadEnabled
+        ? "v86-bgi-get-current-thread"
+        : createMutexAEnabled
         ? "v86-bgi-create-mutex-a"
         : setCurrentDirectoryAEnabled
         ? "v86-bgi-set-current-directory-a"
@@ -3577,6 +3583,41 @@ const createMutexAExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const getCurrentThreadExpected = {
+  ...createMutexAExpected,
+  supportedCalls: 285,
+  writebackBatches: 290,
+  dirtyPages: 444,
+  changedBytes: 6645,
+  hostDeltaBatches: 77,
+  finalGeneration: 396,
+  implementedApiContracts: 47,
+  call: {
+    sequence: 285,
+    occurrence: 1,
+    instructionCount: 25256,
+    arguments: [],
+    result: 0xffff_fffe,
+    returnAddress: 0x1006998f,
+    stackCleanupBytes: 4,
+    lastError: 0,
+  },
+  memoryContentSha256: "08afd63f56cf8c18788d80f50a6e8037f005c35d53bd50c55ec3b88975eb698b",
+  firstUnsupported: {
+    capabilityCluster: "kernel32-api-contract",
+    endpointId: 41,
+    endpointAddress: 0x7f000280,
+    module: "kernel32.dll",
+    symbol: "SetThreadAffinityMask",
+    iatAddress: 0x100d114c,
+    arguments: [0xffff_fffe, 1],
+    returnAddress: 0x1006999a,
+    instructionCount: 25261,
+    faultClass: "unsupported",
+    faultStage: "api-dispatch",
+    faultCode: "endpoint-contract-missing",
+  },
+};
 const guest = {
   physicalPoolBytes: 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
@@ -4039,6 +4080,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getCurrentThreadEnabled) {
+        validateGetCurrentThreadResult(genericResult);
       } else if (createMutexAEnabled) {
         validateCreateMutexAResult(genericResult);
       } else if (setCurrentDirectoryAEnabled) {
@@ -4124,7 +4167,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : createMutexAEnabled
+          : getCurrentThreadEnabled
+            ? "bgi GetCurrentThread"
+            : createMutexAEnabled
             ? "bgi CreateMutexA"
             : setCurrentDirectoryAEnabled
             ? "bgi SetCurrentDirectoryA"
@@ -4749,7 +4794,9 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
-        : createMutexAEnabled
+        : getCurrentThreadEnabled
+          ? 34
+          : createMutexAEnabled
           ? 33
           : setCurrentDirectoryAEnabled
           ? 32
@@ -8304,6 +8351,71 @@ function validateCreateMutexAResult(result) {
   );
 }
 
+function validateGetCurrentThreadResult(result) {
+  const expected = getCurrentThreadExpected;
+  assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
+  assert.equal(result.supportedCalls.length, expected.supportedCalls);
+  assert.equal(result.writebacks.length, expected.writebackBatches);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    expected.dirtyPages,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    expected.changedBytes,
+  );
+  assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
+  assert.equal(result.finalGeneration, expected.finalGeneration);
+
+  const call = result.supportedCalls.find(
+    ({ sequence }) => sequence === expected.call.sequence,
+  );
+  assert(call, "GetCurrentThread call is missing");
+  assert.equal(call.symbol, "GetCurrentThread");
+  assert.equal(call.occurrence, expected.call.occurrence);
+  assert.equal(call.trapInstructionCount, expected.call.instructionCount);
+  assert.deepEqual(call.arguments, expected.call.arguments);
+  assert.deepEqual(call.result, { action: "set", value: expected.call.result });
+  assert.equal(call.implementationId, "kernel32.get-current-thread.v1");
+  assert.equal(call.returnAddress, expected.call.returnAddress);
+  assert.equal(
+    call.stackPointerAfter,
+    call.stackPointerBefore + expected.call.stackCleanupBytes,
+  );
+  assert.equal(call.lastError, expected.call.lastError);
+  assert.deepEqual(call.guestWrites, []);
+
+  const unsupported = expected.firstUnsupported;
+  assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  const endpoint = result.fault.endpoint.endpoint;
+  assert.equal(endpoint.id, unsupported.endpointId);
+  assert.equal(endpoint.address, unsupported.endpointAddress);
+  assert.equal(endpoint.module, unsupported.module);
+  assert.deepEqual(endpoint.symbol, { kind: "name", name: unsupported.symbol });
+  assert.equal(endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(result.fault.fault.class, unsupported.faultClass);
+  assert.equal(result.fault.fault.stage, unsupported.faultStage);
+  assert.equal(result.fault.fault.code, unsupported.faultCode);
+  assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
+  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
+  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    unsupported.arguments,
+  );
+}
+
 function validateSetCurrentDirectoryAResult(result) {
   const expected = setCurrentDirectoryAExpected;
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
@@ -8994,7 +9106,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : createMutexAEnabled
+        : getCurrentThreadEnabled
+          ? "vine.v86-bgi-get-current-thread"
+          : createMutexAEnabled
           ? "vine.v86-bgi-create-mutex-a"
           : setCurrentDirectoryAEnabled
           ? "vine.v86-bgi-set-current-directory-a"

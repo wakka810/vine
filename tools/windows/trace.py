@@ -45,6 +45,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-cp-info",
     "processor-feature",
     "unhandled-exception-filter",
+    "get-current-thread",
 )
 
 

@@ -56,6 +56,13 @@ double closeを`runtime-handle-stale`で拒否する。generation `255`をclose�
 type tagsとnumeric valuesはVine runtime ABI version 1であり、native Windows handle値との
 一致を主張しない。
 
+Reached `GetCurrentThread` is deliberately outside this encoded-handle layout.
+Its Win32 pseudo value is always `0xFFFFFFFE`; each call resolves the current
+scheduler selector to the registered typed thread object, then returns the
+pseudo value without inserting a handle entry. The pseudo value therefore has
+dynamic current-thread meaning but no slot, generation, close lifetime, or
+native handle identity. See [bgi-get-current-thread.md](bgi-get-current-thread.md).
+
 ## Object and handle separation
 
 Private `RuntimeObjectTable`はstable `RuntimeObjectId`／`RuntimeObjectKey`のobject recordと、
@@ -139,7 +146,7 @@ pending workを再確認する。
 
 ## Non-claims and next dependency
 
-This checkpoint does not implement access masks, duplicate-handle inheritance, pseudo handles,
+This checkpoint does not implement access masks, duplicate-handle inheritance, general pseudo-handle consumers,
 cross-process handle tables, general object destruction/refcount, thread creation, mutex blocking,
 wait-any／wait-all, or guest wait／close API coverage. Later checkpoints have added one-object wait
 registration, message queues, heap backing, exports／forwarders, DLL callbacks, and named-mutex
@@ -155,5 +162,6 @@ Per-thread message ownership is implemented in [runtime-message-queue.md](runtim
 Subsystem-owned heap retirement and guest-memory backing are implemented in
 [runtime-heap-backing.md](runtime-heap-backing.md). Runtime responsibility checkpoint S13 closes the
 aggregate audit: `RuntimeKernel` owns only private subsystem roots and transaction coordination, while
-`RuntimeState` remains a compatibility alias. The saved `GetCurrentThread` stop is the next capability
-checkpoint after S13 evidence is committed.
+`RuntimeState` remains a compatibility alias. The later `GetCurrentThread` checkpoint adds the narrow
+read-only pseudo-handle relation above; the current next stop remains solely in the current checkpoint
+manifest.

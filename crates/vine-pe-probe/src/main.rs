@@ -129,6 +129,7 @@ enum GenericRuntimeCapability {
     InitializeCriticalSection,
     SetCurrentDirectoryA,
     CreateMutexA,
+    GetCurrentThread,
 }
 
 struct GenericRuntimeProcess {
@@ -2570,6 +2571,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::InitializeCriticalSection
                 | GenericRuntimeCapability::SetCurrentDirectoryA
                 | GenericRuntimeCapability::CreateMutexA
+                | GenericRuntimeCapability::GetCurrentThread
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2586,6 +2588,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::InitializeCriticalSection
                 | GenericRuntimeCapability::SetCurrentDirectoryA
                 | GenericRuntimeCapability::CreateMutexA
+                | GenericRuntimeCapability::GetCurrentThread
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2620,7 +2623,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::HeapSize
             | GenericRuntimeCapability::InitializeCriticalSection
             | GenericRuntimeCapability::SetCurrentDirectoryA
-            | GenericRuntimeCapability::CreateMutexA,
+            | GenericRuntimeCapability::CreateMutexA
+            | GenericRuntimeCapability::GetCurrentThread,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3267,6 +3271,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::InitializeCriticalSection
                 | GenericRuntimeCapability::SetCurrentDirectoryA
                 | GenericRuntimeCapability::CreateMutexA
+                | GenericRuntimeCapability::GetCurrentThread
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3285,15 +3290,23 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::InitializeCriticalSection
                 | GenericRuntimeCapability::SetCurrentDirectoryA
                 | GenericRuntimeCapability::CreateMutexA
+                | GenericRuntimeCapability::GetCurrentThread
         )
     );
     let set_current_directory_a_enabled = matches!(
         enabled,
         Some(
-            GenericRuntimeCapability::SetCurrentDirectoryA | GenericRuntimeCapability::CreateMutexA
+            GenericRuntimeCapability::SetCurrentDirectoryA
+                | GenericRuntimeCapability::CreateMutexA
+                | GenericRuntimeCapability::GetCurrentThread
         )
     );
-    let create_mutex_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::CreateMutexA));
+    let create_mutex_a_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::CreateMutexA | GenericRuntimeCapability::GetCurrentThread)
+    );
+    let get_current_thread_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::GetCurrentThread));
     let initialize_critical_section_enabled = set_current_directory_a_enabled
         || matches!(
             enabled,
@@ -3398,7 +3411,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::HeapSize
             | GenericRuntimeCapability::InitializeCriticalSection
             | GenericRuntimeCapability::SetCurrentDirectoryA
-            | GenericRuntimeCapability::CreateMutexA,
+            | GenericRuntimeCapability::CreateMutexA
+            | GenericRuntimeCapability::GetCurrentThread,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3551,6 +3565,7 @@ fn runtime_capability_enables_endpoint(
         "InitializeCriticalSection" => initialize_critical_section_enabled,
         "SetCurrentDirectoryA" => set_current_directory_a_enabled,
         "CreateMutexA" => create_mutex_a_enabled,
+        "GetCurrentThread" => get_current_thread_enabled,
         _ => true,
     }
 }
@@ -3601,7 +3616,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::HeapSize
             | GenericRuntimeCapability::InitializeCriticalSection
             | GenericRuntimeCapability::SetCurrentDirectoryA
-            | GenericRuntimeCapability::CreateMutexA,
+            | GenericRuntimeCapability::CreateMutexA
+            | GenericRuntimeCapability::GetCurrentThread,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9015,6 +9031,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::SetCurrentDirectoryA
                 }
                 "kernel32-create-mutex-a" => GenericRuntimeCapability::CreateMutexA,
+                "kernel32-get-current-thread" => GenericRuntimeCapability::GetCurrentThread,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

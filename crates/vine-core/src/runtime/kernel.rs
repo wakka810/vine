@@ -125,6 +125,16 @@ struct RuntimeCallbackMutationPlan {
     exited: Option<RuntimeCallbackFrame>,
 }
 
+pub const RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE: u32 = 0xffff_fffe;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCurrentThreadPseudoHandleResolution {
+    pub value: u32,
+    pub selected_thread_id: RuntimeThreadId,
+    pub object_id: RuntimeObjectId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeKernel {
     process: RuntimeProcessState,
@@ -789,6 +799,30 @@ impl RuntimeKernel {
 
     pub fn current_thread_handle(&self) -> Result<RuntimeHandle, RuntimeStateError> {
         self.thread_handle(self.current_thread_id())
+    }
+
+    pub fn resolve_current_thread_pseudo_handle(
+        &self,
+    ) -> Result<RuntimeCurrentThreadPseudoHandleResolution, RuntimeStateError> {
+        let selected_thread_id = self.current_thread_id();
+        self.thread_state(selected_thread_id)?;
+        let object = self
+            .objects
+            .object_for_identity(&RuntimeObjectKey::Thread {
+                thread_id: selected_thread_id.0,
+            })?;
+        if object.kind != RuntimeObjectKind::Thread {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-pseudo-handle",
+                "current-thread-object-kind-mismatch",
+                "selected thread identity resolved to a non-thread runtime object",
+            ));
+        }
+        Ok(RuntimeCurrentThreadPseudoHandleResolution {
+            value: RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE,
+            selected_thread_id,
+            object_id: object.id,
+        })
     }
 
     pub fn thread_handle(

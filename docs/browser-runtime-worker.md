@@ -6,7 +6,7 @@
 - Date: 2026-07-13
 - Browser: Chrome `150.0.7871.115`
 - Protocol: `vine.browser-runtime-worker` version `4`
-- Runtime core: Rust/Wasm, zero imports, 1,862,642 bytes
+- Runtime core: Rust/Wasm, zero imports, 2,101,772 bytes
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
 - Evidence: `.work/browser-runtime/browser-report.json`
@@ -200,30 +200,29 @@ or after one preflighted batch, never between its mapping and dirty-page commits
 
 ## Private BGI result
 
-`npm run check:runtime:bgi-browser` now executes the current 284-call generic BGI
+`npm run check:runtime:bgi-browser` now executes the current 285-call generic BGI
 session in this same Runtime Worker. Rust/Wasm owns PE load, process/module/heap
 state, Kernel32 dispatch, and guest bytes; Node supplies only an independently
 generated semantic oracle. Chrome applies the same four initial-stack growth
 deltas, completes the CP_ACP／flags-zero NUL-terminated conversion and process-owned
-current-directory update, creates the same initially-owned named mutex, and reaches
-the same `GetCurrentThread` stop after 25,256 instructions, with equal ordered API
-results, mutex metadata, and final memory content SHA-256.
-The bounded Worker loop uses 3,246 slices, 2,957 periodic yields, and 9,739
+current-directory update, creates the same initially-owned named mutex, resolves
+the same `GetCurrentThread` pseudo-handle, and reaches the same
+`SetThreadAffinityMask(0xFFFFFFFE,1)` stop after 25,261 instructions, with equal
+ordered API results, mutex／thread-object metadata, and final memory content SHA-256.
+The bounded Worker loop uses 3,247 slices, 2,957 periodic yields, and 9,742
 checked transitions while the main-thread heartbeat remains active.
 
-The Chrome memory generation ends at 2,207 rather than the Node oracle's 395
+The Chrome memory generation ends at 2,208 rather than the Node oracle's 396
 because Chrome reconciles dirty pages at every 8-instruction budget boundary.
 This difference is synchronization identity, not guest-visible state. Separate
 cancel and watchdog probes stop after 8 and 4 instructions and confirm Rust
 process exit, module detach, and zero pending host/callback work. Detailed
 evidence and non-claims are in [bgi-browser-worker.md](bgi-browser-worker.md).
 
-The separate 180-second BGI workload gate repeats this complete session 624
-times in the same Worker. It records p95 session latency 324.640 ms, p99
-maximum slice 1.265 ms, heartbeat p99 6.075 ms, main heap slope
-194,159 bytes/min, Worker heap slope 2,628,180 bytes/min, backing-storage slope
-1,955,005 bytes/min, stable Rust/engine linear-memory sizes, and 2,850 bridge
-operations per session. All 17 versioned thresholds pass; details are in
+The separate 180-second BGI workload gate repeats this complete session in the
+same Worker and records latency distributions, heartbeat, main／Worker heap,
+backing-storage slope, linear-memory sizes, and 2,852 bridge operations per
+session. Its commit-bound measurement is refreshed separately; details are in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md).
 
 ## 30-minute stress

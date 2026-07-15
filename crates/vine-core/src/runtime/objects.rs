@@ -703,6 +703,26 @@ impl RuntimeObjectTable {
         self.identity_index.contains_key(key)
     }
 
+    pub(super) fn object_for_identity(
+        &self,
+        key: &RuntimeObjectKey,
+    ) -> Result<&RuntimeObjectRecord, RuntimeStateError> {
+        let id = self.identity_index.get(key).copied().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-object",
+                "runtime-object-identity-unknown",
+                "runtime object identity is not registered",
+            )
+        })?;
+        self.objects.get(&id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-object-index-dangling",
+                "runtime object identity index references a missing object",
+            )
+        })
+    }
+
     pub fn objects(&self) -> &BTreeMap<RuntimeObjectId, RuntimeObjectRecord> {
         &self.objects
     }
