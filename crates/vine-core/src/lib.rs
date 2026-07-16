@@ -161,10 +161,11 @@ pub use runtime::{
     RuntimeStateError, RuntimeStateErrorClass, RuntimeSwapMouseButtonResult,
     RuntimeSystemExportEndpoint, RuntimeSystemExportTable, RuntimeThreadExecutionSelection,
     RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMessage, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTlsValue, RuntimeWaitCompletion,
-    RuntimeWaitDisposition, RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
-    SchedulerThreadState, TLS_OUT_OF_INDEXES, X86_CRITICAL_SECTION_BYTE_LENGTH,
-    X86_STARTUP_INFO_W_BYTE_LENGTH, validate_process_address_mapping_allocation,
+    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerResolutionMutationResult,
+    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitCompletion, RuntimeWaitDisposition,
+    RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState, SchedulerThreadState,
+    TLS_OUT_OF_INDEXES, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    validate_process_address_mapping_allocation,
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use user32::{
@@ -224,8 +225,10 @@ pub use win32::{
     tls_get_value_contract, tls_set_value_contract, wide_char_to_multi_byte_contract,
 };
 pub use winmm::{
-    TIME_GET_DEV_CAPS_IMPLEMENTATION, TIMERR_NOERROR, TIMERR_STRUCT,
+    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
+    TIME_GET_DEV_CAPS_IMPLEMENTATION, TIMERR_NOCANDO, TIMERR_NOERROR,
     WINMM_COMPATIBILITY_POLICY_SCHEMA, WINMM_COMPATIBILITY_POLICY_VERSION,
-    WinmmCompatibilityPolicy, WinmmTimeCapabilitiesPolicy, X86_TIMECAPS_BYTE_LENGTH,
-    dispatch_winmm_api_with_policy, time_get_dev_caps_contract, winmm_contract_for_endpoint,
+    WinmmCompatibilityPolicy, WinmmTimeCapabilitiesPolicy, WinmmTimerResolutionPolicy,
+    X86_TIMECAPS_BYTE_LENGTH, dispatch_winmm_api_with_policy, time_begin_period_contract,
+    time_end_period_contract, time_get_dev_caps_contract, winmm_contract_for_endpoint,
 };

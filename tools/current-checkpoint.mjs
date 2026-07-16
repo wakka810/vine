@@ -618,7 +618,7 @@ export function validateCurrentCheckpoint(manifest) {
     kernelRoles.join(",") !==
       "private-subsystem-ownership,cross-subsystem-transaction-coordination,compatibility-serialization" ||
     kernelFields.join(",") !==
-      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,input,objects,com,heaps,module-records,synchronization,modules,registries" ||
+      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,input,timers,objects,com,heaps,module-records,synchronization,modules,registries" ||
     kernelBoundary.directMutableCollectionFields !== 0 ||
     kernelBoundary.directScalarAllocators !== 0 ||
     kernelBoundary.directSubsystemCollectionMutation !== false ||
@@ -627,7 +627,7 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/process.rs::RuntimeProcessState" ||
     kernelBoundary.processMutableCollectionVisibility !== "private" ||
     processIndependentOwners.join(",") !==
-      "displays,input,heaps,module-records,synchronization,com" ||
+      "displays,input,timers,heaps,module-records,synchronization,com" ||
     kernelBoundary.processSerializationView !==
       "runtime/kernel.rs::RuntimeProcessView" ||
     kernelBoundary.processSerializationViewAccess !== "immutable-borrow" ||
@@ -637,9 +637,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernelBoundary.mutexObjectPlanVisibility !== "opaque-to-kernel" ||
     kernelBoundary.mutexSubsystemRootCloneOrReplacementFromKernel !== false ||
     representativeSubsystemTests.join(",") !==
-      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
+      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -1132,7 +1132,7 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     winmmPolicy.schema !== "vine.winmm-compatibility-policy" ||
     winmmPolicy.schemaVersion !== 1 ||
-    winmmPolicy.id !== "winmm-timecaps-1-1000000-v1" ||
+    winmmPolicy.id !== "winmm-timecaps-1-1000000-period-1-v1" ||
     winmmPolicy.source !==
       "crates/vine-core/src/winmm.rs::WinmmCompatibilityPolicy::controlled_v1" ||
     winmmPolicy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
@@ -1144,9 +1144,19 @@ export function validateCurrentCheckpoint(manifest) {
     winmmPolicy.shortSizeMutation !== "none" ||
     winmmPolicy.acceptedSizeRange !== "eight-or-larger" ||
     winmmPolicy.successfulWriteBytes !== 8 ||
+    winmmPolicy.timerResolutionProfileId !== "timer-resolution-period-1-v1" ||
+    !Array.isArray(winmmPolicy.allowedPeriodsMilliseconds) ||
+    winmmPolicy.allowedPeriodsMilliseconds.join(",") !== "1" ||
+    winmmPolicy.timerResolutionStateOwner !== "runtime/timers.rs::RuntimeTimers" ||
+    winmmPolicy.timerResolutionMutation !== "owner-plan-stale-check-targeted-commit" ||
+    winmmPolicy.duplicateBeginRequiresMatchingEnds !== true ||
+    winmmPolicy.unmatchedEndResult !== 97 ||
+    winmmPolicy.processExitRetiresRequests !== true ||
     winmmPolicy.lastErrorPolicy !== "preserve" ||
     winmmPolicy.hostTimerCapabilitiesImported !== false ||
     winmmPolicy.browserTimerCapabilitiesImported !== false ||
+    winmmPolicy.hostTimerResolutionImported !== false ||
+    winmmPolicy.browserTimerResolutionImported !== false ||
     winmmPolicy.clockAdvancedByQuery !== false ||
     winmmPolicy.unsupportedBeforeMutation !== true
   ) {
@@ -1191,6 +1201,8 @@ export function validateCurrentCheckpoint(manifest) {
   for (const field of [
     "nativeTimeGetDevCapsPrimaryTraceSha256",
     "nativeTimeGetDevCapsConfirmationTraceSha256",
+    "nativeTimePeriodPrimaryTraceSha256",
+    "nativeTimePeriodConfirmationTraceSha256",
   ]) {
     requireSha256(
       latestEvidence[field],
@@ -1202,6 +1214,14 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.nativeTimeGetDevCapsTraceDiagnostics !== 0 ||
     latestEvidence.nativeTimeGetDevCapsOracleLastErrorsPreserved !== true ||
     latestEvidence.nativeTimeGetDevCapsOracleWritesBounded !== true ||
+    latestEvidence.nativeTimePeriodTraceDiagnostics !== 0 ||
+    latestEvidence.nativeTimePeriodOracleProfile !==
+      "x86-time-period-range-and-pairing-v1" ||
+    latestEvidence.nativeTimePeriodOracleCallCount !== 17 ||
+    latestEvidence.nativeTimePeriodOracleAllPreserveLastError !== true ||
+    latestEvidence.nativeTimePeriodUnmatchedEndResult !== 97 ||
+    latestEvidence.nativeTimePeriodZeroBeginResult !== 97 ||
+    latestEvidence.nativeTimePeriodDuplicatePairingExact !== true ||
     latestEvidence.nativeTimeBeginPeriodReached !== true ||
     latestEvidence.timeGetDevCapsImplemented !== true ||
     latestEvidence.timeGetDevCapsSequence !== 1334 ||
@@ -1217,10 +1237,26 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.timeGetDevCapsHostCapabilitiesImported !== false ||
     latestEvidence.timeGetDevCapsBrowserCapabilitiesImported !== false ||
     latestEvidence.timeGetDevCapsAdvancesClock !== false ||
-    latestEvidence.timeBeginPeriodImplemented !== false ||
-    latestEvidence.timeBeginPeriodArgument !== 1
+    latestEvidence.timeBeginPeriodImplemented !== true ||
+    latestEvidence.timeBeginPeriodSequence !== 1335 ||
+    latestEvidence.timeBeginPeriodInstructionCount !== 49737 ||
+    latestEvidence.timeBeginPeriodArgument !== 1 ||
+    latestEvidence.timeBeginPeriodResult !== 0 ||
+    latestEvidence.timeBeginPeriodLastError !== 0 ||
+    latestEvidence.timeBeginPeriodGuestWrites !== 0 ||
+    latestEvidence.timeBeginPeriodStateOwner !== "runtime/timers.rs::RuntimeTimers" ||
+    latestEvidence.timeBeginPeriodRequestCount !== 1 ||
+    latestEvidence.timeBeginPeriodTotalRequestCount !== 1 ||
+    latestEvidence.timeBeginPeriodEffectivePeriodMilliseconds !== 1 ||
+    latestEvidence.timeBeginPeriodTimerGeneration !== 1 ||
+    latestEvidence.timeBeginPeriodHostTimerResolutionImported !== false ||
+    latestEvidence.timeBeginPeriodBrowserTimerResolutionImported !== false ||
+    latestEvidence.timeBeginPeriodAdvancesClock !== false ||
+    latestEvidence.timeEndPeriodImplemented !== true ||
+    latestEvidence.timeEndPeriodReached !== false ||
+    latestEvidence.timerResolutionProcessExitTeardown !== true
   ) {
-    errors.push("latest WinMM timer-capabilities evidence is invalid");
+    errors.push("latest WinMM timer-resolution evidence is invalid");
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,
@@ -1240,7 +1276,18 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     active.canonicalReproductionCommand !== "npm run check:runtime:bgi-browser" ||
     bgiBrowserEvidence.supportedCalls !== active.genericDispatcherCallOccurrenceCount ||
-    bgiBrowserEvidence.guestInstructions !== root.nextStructuredStop?.instructionCount
+    bgiBrowserEvidence.guestInstructions !== root.nextStructuredStop?.instructionCount ||
+    bgiBrowserEvidence.nodeFinalGeneration !== latestEvidence.finalMemoryGeneration ||
+    bgiBrowserEvidence.memoryContentSha256 !== latestEvidence.memoryContentSha256 ||
+    bgiBrowserEvidence.nodeOracleReportBytes !== latestEvidence.reportBytes ||
+    bgiBrowserEvidence.nodeOracleReportSha256 !== latestEvidence.reportSha256 ||
+    bgiBrowserEvidence.nextCapabilityCluster !== root.nextStructuredStop?.capabilityCluster ||
+    bgiBrowserEvidence.nextEndpoint?.toLowerCase() !==
+      root.nextStructuredStop?.api?.toLowerCase() ||
+    bgiBrowserEvidence.nextFaultCode !== root.nextStructuredStop?.reason ||
+    bgiBrowserEvidence.nextEndpointAddress !== root.nextStructuredStop?.endpointAddress ||
+    bgiBrowserEvidence.nextArguments?.join(",") !==
+      root.nextStructuredStop?.arguments?.join(",")
   ) {
     errors.push("browser BGI evidence must match the active runtime checkpoint");
   }

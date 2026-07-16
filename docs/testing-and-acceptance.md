@@ -531,13 +531,24 @@ cancel／watchdog、unchanged 17-threshold browser benchmarkを要求する。�
 Reached `timeGetDevCaps`の代表contractはversion-1 `WinmmCompatibilityPolicy`を唯一の
 virtual timer-capability authorityとし、two-argument x86 stdcall、raw MMRESULT、LastError
 preserve、8-byte `TIMECAPS` fixed-width output、query時clock非進行を固定する。Dispatcher
-fixtureはsize 7の`TIMERR_STRUCT(97)`／無書込み、size 8／12のexact 8-byte write、policy
+fixtureはsize 7の`TIMERR_NOCANDO(97)`／無書込み、size 8／12のexact 8-byte write、policy
 disabled、NULL、truncated、read-only spanのfailure atomicityを検査する。Primary evidenceは
 guarded native size `0/4/7/8/12` oracle、BGI consumerがminimumを10と比較して
 `timeBeginPeriod(1)`へ進むこと、Node／Chrome memory equivalence、clean cancel／watchdog、
 unchanged 17-threshold browser benchmarkを要求する。詳細は
 [winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
 [bgi-time-get-dev-caps.md](bgi-time-get-dev-caps.md)を正とする。
+
+Reached `timeBeginPeriod`の代表contractは`runtime/timers.rs::RuntimeTimers`を唯一の
+timer-resolution request authorityとし、one-argument x86 stdcall、raw MMRESULT、LastError
+preserve、zero guest writeを固定する。Owner model testはduplicate begin／matching ends、effective
+minimum、stale plan、64-period capacity、generation、process teardownを検査する。Dispatcher fixtureは
+out-of-policy beginとunmatched endが`TIMERR_NOCANDO`でruntime／memoryを変えないこと、disabled
+policyがstructured faultになることを検査する。Primary evidenceは17-call native pairing oracle、
+reached period 1、Node／Chrome timer snapshot／memory equivalence、clean cancel／watchdog、unchanged
+17-threshold browser benchmarkを要求する。Browser timer、audio clock、scheduler granularityをrequest
+authorityへ昇格させない。詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
+[bgi-time-begin-period.md](bgi-time-begin-period.md)を正とする。
 
 Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
 implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、

@@ -37,7 +37,7 @@ the final `timeBeginPeriod` observation and is not authoritative evidence.
 
 The independent x86 oracle fills a guarded output with `0xA5` and calls
 `timeGetDevCaps` with byte lengths `0`, `4`, `7`, `8`, and `12`. Lengths below
-8 return `TIMERR_STRUCT` (`97`) without changing the output or either guard.
+8 return `TIMERR_NOCANDO` (`97`) without changing the output or either guard.
 Lengths 8 and 12 return `TIMERR_NOERROR` (`0`) and change exactly the first
 8 bytes to:
 

@@ -13,14 +13,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `bgi-time-get-dev-caps`: 1334 calls across 55 API contracts, memory generation 1452 |
+| Active runtime | `bgi-time-begin-period`: 1336 calls across 57 API contracts, memory generation 1455 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (358 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (367 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `WINMM.dll!timeBeginPeriod(0x00000001)` at instruction 49737: `endpoint-contract-missing` |
+| Next structured stop | `KERNEL32.dll!GetVersionExA(0x006ffe9c)` at instruction 49890: `endpoint-contract-missing` |
 
-The active semantic report is 5,442,014 bytes with SHA-256
-`0c2be229553d745cb8ed3c6f2be78ba9d7f9d63f127d5d2103dadcef38a513ab`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 5,450,899 bytes with SHA-256
+`832c6ce3b1ad84d5fd63053f58e9b6d8ec0ece89fd746cfbdd2e04b800d36efb`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
@@ -79,6 +79,8 @@ The active semantic report is 5,442,014 bytes with SHA-256
 - `KERNEL32.dll!GetDriveTypeA`
 - `USER32.dll!SwapMouseButton`
 - `WINMM.dll!timeGetDevCaps`
+- `WINMM.dll!timeBeginPeriod`
+- `WINMM.dll!timeEndPeriod`
 
 ### Reproduce Current Checkpoint
 

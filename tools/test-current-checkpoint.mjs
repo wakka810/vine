@@ -589,7 +589,34 @@ browserOwnedTimerCapabilityEvidence.activeRuntimeCheckpoint.latestEvidence.timeG
   true;
 assert.ok(
   validateCurrentCheckpoint(browserOwnedTimerCapabilityEvidence).some((error) =>
-    error.includes("WinMM timer-capabilities evidence"),
+    error.includes("WinMM timer-resolution evidence"),
+  ),
+);
+
+const hostOwnedTimerResolution = structuredClone(manifest);
+hostOwnedTimerResolution.activeRuntimeCheckpoint.winmmCompatibilityPolicy.hostTimerResolutionImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(hostOwnedTimerResolution).some((error) =>
+    error.includes("WinMM compatibility policy boundary"),
+  ),
+);
+
+const duplicateTimerResolutionAuthority = structuredClone(manifest);
+duplicateTimerResolutionAuthority.activeRuntimeCheckpoint.latestEvidence.timeBeginPeriodBrowserTimerResolutionImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(duplicateTimerResolutionAuthority).some((error) =>
+    error.includes("WinMM timer-resolution evidence"),
+  ),
+);
+
+const unmatchedTimerEndSilentlySucceeds = structuredClone(manifest);
+unmatchedTimerEndSilentlySucceeds.activeRuntimeCheckpoint.winmmCompatibilityPolicy.unmatchedEndResult =
+  0;
+assert.ok(
+  validateCurrentCheckpoint(unmatchedTimerEndSilentlySucceeds).some((error) =>
+    error.includes("WinMM compatibility policy boundary"),
   ),
 );
 

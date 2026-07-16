@@ -82,6 +82,10 @@ use super::thread::{
     RuntimeThreadLifecycleState, RuntimeThreadMutationPlan, RuntimeThreadStack,
     RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads, RuntimeTlsValue,
 };
+use super::timers::{
+    RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState,
+    RuntimeTimerResolutionTeardownPlan, RuntimeTimers,
+};
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -124,6 +128,7 @@ struct RuntimeWaitWakePlan {
 struct RuntimeProcessExitRequestPlan {
     process_plan: RuntimeProcessMutationPlan,
     thread_plans: Vec<RuntimeThreadExitRequestPlan>,
+    timer_resolution_teardown: Option<RuntimeTimerResolutionTeardownPlan>,
     cancellation: RuntimeProcessCancellation,
 }
 
@@ -166,6 +171,7 @@ pub struct RuntimeKernel {
     messages: RuntimeMessages,
     displays: RuntimeDisplays,
     input: RuntimeInput,
+    timers: RuntimeTimers,
     objects: RuntimeObjectTable,
     com: RuntimeCom,
     heaps: RuntimeHeaps,
@@ -196,6 +202,8 @@ struct RuntimeProcessStateSnapshot<'a> {
     synchronization: &'a RuntimeSynchronization,
     allocated_tls_indices: &'a BTreeSet<u32>,
     fls_slots: &'a BTreeMap<u32, RuntimeFlsSlot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timer_resolution: Option<RuntimeTimerResolutionState>,
 }
 
 #[derive(Clone, Copy)]
@@ -206,6 +214,7 @@ pub struct RuntimeProcessView<'a> {
     synchronization: &'a RuntimeSynchronization,
     allocated_tls_indices: &'a BTreeSet<u32>,
     fls_slots: &'a BTreeMap<u32, RuntimeFlsSlot>,
+    timers: &'a RuntimeTimers,
 }
 
 impl Deref for RuntimeProcessView<'_> {
@@ -228,6 +237,7 @@ impl Serialize for RuntimeProcessView<'_> {
             synchronization: self.synchronization,
             allocated_tls_indices: self.allocated_tls_indices,
             fls_slots: self.fls_slots,
+            timer_resolution: self.timers.state(),
         }
         .serialize(serializer)
     }
@@ -274,6 +284,7 @@ impl Serialize for RuntimeKernel {
                 synchronization: &self.synchronization,
                 allocated_tls_indices: self.threads.allocated_tls_indices(),
                 fls_slots: self.threads.fls_slots(),
+                timer_resolution: self.timers.state(),
             },
             address_space_allocator: &self.address_space_allocator,
             threads: &self.threads,
@@ -376,6 +387,7 @@ impl RuntimeKernel {
             messages: RuntimeMessages::new(bootstrap.initial_thread_id),
             displays: RuntimeDisplays::default(),
             input: RuntimeInput::default(),
+            timers: RuntimeTimers::default(),
             objects,
             com: RuntimeCom::default(),
             heaps: RuntimeHeaps::default(),
@@ -426,6 +438,47 @@ impl RuntimeKernel {
         self.input.commit_mouse_button_swap(plan)
     }
 
+    pub fn begin_timer_period(
+        &mut self,
+        period_milliseconds: u32,
+    ) -> Result<RuntimeTimerResolutionMutationResult, RuntimeStateError> {
+        self.require_timer_operation_state()?;
+        let plan = self.timers.plan_resolution_begin(period_milliseconds)?;
+        self.timers.commit_resolution_mutation(plan)
+    }
+
+    pub fn end_timer_period(
+        &mut self,
+        period_milliseconds: u32,
+    ) -> Result<Option<RuntimeTimerResolutionMutationResult>, RuntimeStateError> {
+        self.require_timer_operation_state()?;
+        let Some(plan) = self.timers.plan_resolution_end(period_milliseconds)? else {
+            return Ok(None);
+        };
+        self.timers.commit_resolution_mutation(plan).map(Some)
+    }
+
+    pub fn timer_resolution_state(&self) -> Option<RuntimeTimerResolutionState> {
+        self.timers.state()
+    }
+
+    fn require_timer_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-timers",
+                "timer-resolution-operation-state-invalid",
+                "timer resolution requests require a running process and active current thread",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn process(&self) -> RuntimeProcessView<'_> {
         RuntimeProcessView {
             process: &self.process,
@@ -434,6 +487,7 @@ impl RuntimeKernel {
             synchronization: &self.synchronization,
             allocated_tls_indices: self.threads.allocated_tls_indices(),
             fls_slots: self.threads.fls_slots(),
+            timers: &self.timers,
         }
     }
 
@@ -2708,8 +2762,14 @@ impl RuntimeKernel {
             ));
         }
         self.process.preflight_mutation_commit(&process_plan)?;
+        if let Some(timer_plan) = plan.timer_resolution_teardown.as_ref() {
+            self.timers.preflight_process_teardown(timer_plan)?;
+        }
         self.teardown_mutexes()?;
         let cancellation = plan.cancellation.clone();
+        if let Some(timer_plan) = plan.timer_resolution_teardown {
+            self.timers.commit_process_teardown(timer_plan)?;
+        }
         self.objects.commit_wait_state_updates(wait_updates);
         for ((thread_plan, terminal_thread_plan), terminal_scheduler_plan) in plan
             .thread_plans
@@ -3026,6 +3086,7 @@ impl RuntimeKernel {
         Ok(RuntimeProcessExitRequestPlan {
             process_plan,
             thread_plans,
+            timer_resolution_teardown: self.timers.plan_process_teardown()?,
             cancellation,
         })
     }
@@ -3035,6 +3096,12 @@ impl RuntimeKernel {
         plan: RuntimeProcessExitRequestPlan,
     ) -> Result<(), RuntimeStateError> {
         self.process.preflight_mutation_commit(&plan.process_plan)?;
+        if let Some(timer_plan) = plan.timer_resolution_teardown.as_ref() {
+            self.timers.preflight_process_teardown(timer_plan)?;
+        }
+        if let Some(timer_plan) = plan.timer_resolution_teardown {
+            self.timers.commit_process_teardown(timer_plan)?;
+        }
         self.process.commit_mutation(plan.process_plan);
         for thread_plan in plan.thread_plans {
             self.commit_thread_exit_request(thread_plan);

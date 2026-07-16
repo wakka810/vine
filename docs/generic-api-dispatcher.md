@@ -1038,12 +1038,22 @@ cases are documented in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
 
 The WinMM catalog first exposes `winmm.time-get-dev-caps.v1`. Its two-argument
 stdcall handler returns a policy-owned 8-byte x86 `TIMECAPS` through the common
-checked-write completion path. Short sizes return `TIMERR_STRUCT` without a
+checked-write completion path. Short sizes return `TIMERR_NOCANDO` without a
 write; successful sizes preserve LastError and never advance the runtime clock
 or call a browser service. The Worker stores no capability mirror. Policy,
 native guard oracle, and caller consumption are documented in
 [winmm-compatibility-policy.md](winmm-compatibility-policy.md) and
 [bgi-time-get-dev-caps.md](bgi-time-get-dev-caps.md).
+
+The same catalog exposes `winmm.time-begin-period.v1` and
+`winmm.time-end-period.v1` as one-argument stdcall `MMRESULT` contracts. The
+handlers preserve LastError and delegate counted request lifetime to the
+private `runtime/timers.rs::RuntimeTimers` owner. Policy rejection and
+unmatched end return `TIMERR_NOCANDO` without mutation; owner plans reject
+stale commits, and process exit retires outstanding requests. Completion may
+carry an immutable timer snapshot for diagnostics, but the Worker does not own
+or apply the request table. Details are in
+[bgi-time-begin-period.md](bgi-time-begin-period.md).
 
 ## Deliberate exclusions
 
@@ -1061,9 +1071,10 @@ native guard oracle, and caller consumption are documented in
   pages are absent. TLS and FLS reads are limited to process allocation and
   selected-thread state already owned by the runtime.
 - Host completion is connected to controlled Worker／browser services. Logical
-  mouse-button mapping and the virtual WinMM capability profile have Rust
-  owners; timer-resolution requests, DOM input delivery, general VFS, graphics,
-  audio, and storage adapters remain absent.
+  mouse-button mapping, the virtual WinMM capability profile, and logical
+  timer-resolution request lifetime have Rust owners. The request does not
+  reconfigure browser scheduling or audio; DOM input delivery, general VFS,
+  graphics, audio, and storage adapters remain absent.
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
   Rust byte authority, automatic v86 writeback, and binary transport are now
   fixed by ADR-003 and the memory-writeback checkpoint.

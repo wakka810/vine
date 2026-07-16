@@ -18,6 +18,7 @@ mod registries;
 mod scheduler;
 mod synchronization;
 mod thread;
+mod timers;
 mod waits;
 
 pub use address_space::{
@@ -99,6 +100,8 @@ pub use thread::{
     RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadStack, RuntimeThreadStackGrowth,
     RuntimeThreadState, RuntimeTlsValue, TLS_OUT_OF_INDEXES,
 };
+pub(crate) use timers::RUNTIME_TIMER_RESOLUTION_DISTINCT_PERIOD_LIMIT;
+pub use timers::{RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState};
 pub use waits::{
     RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,
     RuntimeWaitRegistrationId,

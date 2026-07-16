@@ -2539,7 +2539,7 @@ Focused `time-get-dev-caps` accepted capturesは284,947 bytes／773 lines／SHA-
 BGI `timeBeginPeriod` leave後250 msのhook quiescenceも確認した。Open `CreateFile`を残した
 short captureと、final period hook追加前のcaptureはauthoritative evidenceから除外した。
 
-Guarded x86 oracleはsize `0/4/7`でresult `TIMERR_STRUCT(97)`、output／guard不変、size
+Guarded x86 oracleはsize `0/4/7`でresult `TIMERR_NOCANDO(97)`、output／guard不変、size
 `8/12`でresult 0、先頭8 bytesだけ`01 00 00 00 40 42 0F 00`へ変化することを固定する。
 これはminimum 1 ms／maximum 1,000,000 msである。各callは独立LastError sentinelを保存し、
 unhooked system callと同じresult／bytesを返す。
@@ -2557,3 +2557,33 @@ pending work 0を通す。Memory SHA-256は
 358 sessions／failure 0で17 thresholdsを通した。Instruction `49737`でID `4`／
 `WINMM.dll!timeBeginPeriod(1)`へstructured stopする。詳細は
 [bgi-time-get-dev-caps.md](bgi-time-get-dev-caps.md)を正とする。
+
+## 94. BGI WinMM timer-resolution request
+
+Focused period-lifecycle accepted capturesは310,319 bytes／830 lines／SHA-256
+`25e7c69f714c70d1918db6fea0b033419afa2308f89076a81ecb039cb69ba210`と
+310,070 bytes／829 lines／SHA-256
+`85cd6dd52528f1268773ae3031d7d18e22b571cec8ec3dc0d2e99514cb7c84ce`
+である。両方379 API pairsはbalanced、agent sequenceはcontiguous、diagnosticsはzeroで、BGI
+period leave後250 msのquiescenceを通す。`onLeave` scope defectで14 agent messagesを出したr1は
+rejected evidenceである。
+
+17-call x86 oracleはunmatched `timeEndPeriod(1)`とzero begin／endを
+`TIMERR_NOCANDO(97)`、period 2／1,000,001／`UINT_MAX`のbegin／end pairを0とする。Duplicate
+begin(1)はmatching endを2回要求し、period 1だけactiveな間のmismatched end(2)とthird end(1)は
+97である。全callが独立LastError sentinelを保存し、hooked／unhooked resultは一致する。Nativeの
+broad nonzero acceptanceはactive policyへimportせず、reached period 1だけを許可する。
+
+BGI callはargument 1、return RVA `0x91E7E`、result／LastError 0である。Rust
+`RuntimeTimers`がcount／effective minimum／generationを所有し、begin／endはstale-check plan、
+unmatched endはmutation-free、process exitはoutstanding requestsを一括retireする。Browser scheduler、
+audio、host timer resolutionはguest-visible stateへimportしない。
+
+Nodeは57 contracts／1,336 calls、1,342 writebacks／2,536 dirty pages／9,099 changed bytes、84 host
+deltas、generation 1,455を通す。Chromeもsame timer snapshot／ordered calls／stop／memoryを再現し、
+6,841 slices、5,499 yields、6,397 Wasm crossings、final generation 3,603、terminal pending work 0を
+通す。Memory SHA-256は
+`b38b7030fc29769c220a4095891aa1f2bd2d71ea71584f5c3349097d7b084f6f`である。3分gateは367
+sessions／failure 0で17 thresholdsを通した。Instruction `49890`でID `117`／
+`KERNEL32.dll!GetVersionExA(0x006FFE9C)`へstructured stopする。詳細は
+[bgi-time-begin-period.md](bgi-time-begin-period.md)を正とする。

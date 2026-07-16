@@ -200,7 +200,7 @@ version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-re
 `RuntimeKernel`のdirect fieldはprocess state、address allocator、各private subsystem ownerだけであり、
 subsystem collectionやscalar allocatorを持たない。Process lifecycle／environment／directory／standard
 handle／policyは`runtime/process.rs::RuntimeProcessState`が所有する。既存diagnostic JSONは
-`RuntimeProcessView`がheap、module、synchronization、TLS／FLS ownerをimmutable borrowして従来の
+`RuntimeProcessView`がheap、module、synchronization、timer resolution、TLS／FLS ownerをimmutable borrowして従来の
 `process` shapeへflattenするが、このviewはmutation authorityではない。
 
 Mutable thread records、process-wide TLS index／FLS slot registries、TLS／FLS／callback-frame ID allocatorsは
@@ -267,6 +267,14 @@ preflightする。Object tableはopaque `RuntimeMutexObjectMutationPlan`を返�
 collectionをcloneまたは置換せず、両planの成功後にownerのtargeted commitだけを呼ぶ。詳細は
 [runtime-synchronization.md](runtime-synchronization.md)を正とする。
 
+Mutable WinMM timer-resolution request countsとgenerationはprivate
+`runtime/timers.rs::RuntimeTimers`だけが所有する。Effective periodとtotal countは同じmapからderiveし、
+compatibility serializationはimmutable snapshotを返す。Begin／endはexpected generationとtarget countを
+含むmutation-free planを使い、stale／duplicate commit、unmatched end、capacity／counter exhaustionを
+mutation前に拒否する。Process exitはprocess／thread planとtimer teardownを全てpreflightした後にrequest
+tableを一回でretireする。Browser scheduler／audio adapterはこのrequest tableを所有しない。詳細は
+[winmm-compatibility-policy.md](winmm-compatibility-policy.md)を正とする。
+
 ### 5.3 Clock ownership
 
 clock を browser の複数時刻源へ分散させない。
@@ -280,7 +288,7 @@ background tab、debugger pause、audio suspend 後に catch-up するか freeze
 
 WinMMのcapability queryとresolution requestもclock sourceそのものから分離する。
 WinMM capability queryのvirtual rangeはversioned Rust compatibility policyが所有し、queryは
-clockを進めずhost／browser granularityをimportしない。Future resolution begin／end APIsは
+clockを進めずhost／browser granularityをimportしない。Resolution begin／end APIsは
 dedicated Rust timer-resolution ownerがperiod、request count、matching end、process teardownを
 plan／commitし、browser task timerやAudioContextをguest-visible request stateの代用にしない。
 詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)を正とする。

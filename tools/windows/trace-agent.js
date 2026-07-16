@@ -105,8 +105,10 @@ let swapMouseButtonCompletionRecorded = false;
 const swapMouseButtonMainModuleCalls = [];
 let timeGetDevCapsOracleScheduled = false;
 let timeGetDevCapsOracleCall = null;
+let timePeriodOracleCall = null;
 let timeGetDevCapsOracleComplete = false;
 let timeGetDevCapsOracleEvidence = null;
+let timePeriodOracleEvidence = null;
 let timeGetDevCapsConsumerRecorded = false;
 let timeGetDevCapsCompletionRecorded = false;
 let timeGetDevCapsDrainCheckScheduled = false;
@@ -2416,7 +2418,10 @@ function attachHook(module, name, decoders) {
       const focusedTimePeriodObservation =
         selectedObservations.has("time-get-dev-caps") &&
         (name === "timeBeginPeriod" || name === "timeEndPeriod") &&
-        isMainModuleCaller;
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            timePeriodOracleCall !== null));
       const focusedUnhandledExceptionFilterObservation =
         selectedObservations.has("unhandled-exception-filter") &&
         name === "SetUnhandledExceptionFilter" &&
@@ -2833,6 +2838,15 @@ function attachHook(module, name, decoders) {
       if (this.traceTimeGetDevCapsOracle) {
         this.lastError = timeGetDevCapsOracleCall.sentinel;
       }
+      this.traceTimePeriodOracle =
+        timePeriodOracleCall !== null &&
+        selectedObservations.has("time-get-dev-caps") &&
+        name === timePeriodOracleCall.api &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceTimePeriodOracle) {
+        this.lastError = timePeriodOracleCall.sentinel;
+      }
       this.traceComInitializationOracle =
         comInitializationOracleCall !== null &&
         selectedObservations.has("com-initialization") &&
@@ -3202,19 +3216,23 @@ function attachHook(module, name, decoders) {
         ? {
             api: name,
             periodMilliseconds: args[0].toUInt32(),
-            immediateConsumer: {
-              apiContinuation: snapshotInstructionsFollowingDirectJump(
-                this.returnAddress,
-                24,
-              ),
-              frameCallerContinuations: snapshotX86FrameCallerContinuations(
-                this.context,
-                4,
-                12,
-              ),
-            },
+            immediateConsumer: isMainModuleCaller
+              ? {
+                  apiContinuation: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    24,
+                  ),
+                  frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                    this.context,
+                    4,
+                    12,
+                  ),
+                }
+              : null,
           }
         : null;
+      this.traceTimePeriodMainModuleCaller =
+        this.traceTimePeriod !== null && isMainModuleCaller;
       const tracesComInitialization =
         selectedObservations.has("com-initialization") &&
         (name === "CoInitialize" ||
@@ -3668,6 +3686,10 @@ function attachHook(module, name, decoders) {
         timeGetDevCapsOracleCall.hookLastErrorAfter =
           Number(lastError) >>> 0;
       }
+      if (this.traceTimePeriodOracle) {
+        timePeriodOracleCall.hookResult = result.toUInt32();
+        timePeriodOracleCall.hookLastErrorAfter = Number(lastError) >>> 0;
+      }
       if (this.traceComInitializationOracle) {
         comInitializationOracleCall.hookResult = result.toUInt32();
         comInitializationOracleCall.hookLastErrorAfter = Number(lastError) >>> 0;
@@ -4047,7 +4069,10 @@ function attachHook(module, name, decoders) {
         });
         setImmediate(maybeCompleteTimeGetDevCapsObservation);
       }
-      if (this.traceTimePeriod !== null) {
+      if (
+        this.traceTimePeriod !== null &&
+        this.traceTimePeriodMainModuleCaller
+      ) {
         timePeriodMainModuleCalls.push({
           callId: this.traceFrame.callId,
           api: this.traceTimePeriod.api,
@@ -6120,6 +6145,7 @@ function maybeCompleteTimeGetDevCapsObservation() {
     emit("time-get-dev-caps-complete", {
       profile: "x86-bgi-time-get-dev-caps-v1",
       oracleProfile: timeGetDevCapsOracleEvidence.profile,
+      periodOracleProfile: timePeriodOracleEvidence.profile,
       quiescenceMilliseconds: 250,
       mainModuleCalls: timeGetDevCapsMainModuleCalls.map((call) => ({
         ...call,
@@ -6243,11 +6269,116 @@ function scheduleTimeGetDevCapsOracle(module) {
       ].map(invoke);
       const successfulCalls = calls.filter((call) => call.size >= 8);
       const referenceFields = successfulCalls[0]?.outputAfter.fields ?? null;
+      if (referenceFields === null) {
+        throw new Error("timeGetDevCaps oracle did not produce timer capabilities");
+      }
+      const beginAddress = findExport(module, "timeBeginPeriod");
+      const endAddress = findExport(module, "timeEndPeriod");
+      if (beginAddress === null || endAddress === null) {
+        throw new Error("time period exports are unavailable");
+      }
+      const periodFunctions = {
+        timeBeginPeriod: new SystemFunction(
+          beginAddress,
+          "uint32",
+          ["uint32"],
+          "stdcall",
+        ),
+        timeEndPeriod: new SystemFunction(
+          endAddress,
+          "uint32",
+          ["uint32"],
+          "stdcall",
+        ),
+      };
+      const invokePeriod = ({ api, periodMilliseconds, sentinel }) => {
+        timePeriodOracleCall = {
+          api,
+          periodMilliseconds,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = periodFunctions[api](periodMilliseconds);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            timePeriodOracleCall.hookResult === null ||
+            timePeriodOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(`${api} oracle did not pass through the hook`);
+          }
+          return {
+            api,
+            periodMilliseconds,
+            sentinel,
+            hookResult: timePeriodOracleCall.hookResult,
+            systemResult,
+            hookLastErrorAfter: timePeriodOracleCall.hookLastErrorAfter,
+            systemLastError,
+            hookResultMatches: timePeriodOracleCall.hookResult === systemResult,
+            hookPreservesLastError:
+              timePeriodOracleCall.hookLastErrorAfter === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          timePeriodOracleCall = null;
+        }
+      };
+      const minimum = referenceFields.periodMinimumMilliseconds;
+      const maximum = referenceFields.periodMaximumMilliseconds;
+      const differentValid = minimum < maximum ? minimum + 1 : minimum;
+      const aboveMaximum = maximum === 0xffff_ffff ? maximum : maximum + 1;
+      const periodCalls = [
+        { api: "timeEndPeriod", periodMilliseconds: minimum, sentinel: 0x01020304 },
+        { api: "timeBeginPeriod", periodMilliseconds: 0, sentinel: 0x11121314 },
+        { api: "timeEndPeriod", periodMilliseconds: 0, sentinel: 0x21222324 },
+        {
+          api: "timeBeginPeriod",
+          periodMilliseconds: aboveMaximum,
+          sentinel: 0x31323334,
+        },
+        {
+          api: "timeEndPeriod",
+          periodMilliseconds: aboveMaximum,
+          sentinel: 0x41424344,
+        },
+        { api: "timeBeginPeriod", periodMilliseconds: differentValid, sentinel: 0x45464748 },
+        { api: "timeEndPeriod", periodMilliseconds: differentValid, sentinel: 0x494a4b4c },
+        { api: "timeBeginPeriod", periodMilliseconds: 0xffff_ffff, sentinel: 0x4d4e4f50 },
+        { api: "timeEndPeriod", periodMilliseconds: 0xffff_ffff, sentinel: 0x55565758 },
+        { api: "timeBeginPeriod", periodMilliseconds: minimum, sentinel: 0x51525354 },
+        { api: "timeBeginPeriod", periodMilliseconds: minimum, sentinel: 0x61626364 },
+        {
+          api: "timeEndPeriod",
+          periodMilliseconds: differentValid,
+          sentinel: 0x71727374,
+        },
+        { api: "timeEndPeriod", periodMilliseconds: minimum, sentinel: 0x81828384 },
+        { api: "timeEndPeriod", periodMilliseconds: minimum, sentinel: 0x91929394 },
+        { api: "timeEndPeriod", periodMilliseconds: minimum, sentinel: 0xa1a2a3a4 },
+        { api: "timeBeginPeriod", periodMilliseconds: maximum, sentinel: 0xb1b2b3b4 },
+        { api: "timeEndPeriod", periodMilliseconds: maximum, sentinel: 0xc1c2c3c4 },
+      ].map(invokePeriod);
+      timePeriodOracleEvidence = {
+        profile: "x86-time-period-range-and-pairing-v1",
+        periodMinimumMilliseconds: minimum,
+        periodMaximumMilliseconds: maximum,
+        differentValidPeriodMilliseconds: differentValid,
+        aboveMaximumPeriodMilliseconds: aboveMaximum,
+        calls: periodCalls,
+        allResultsMatchHooks: periodCalls.every((call) => call.hookResultMatches),
+        allPreserveLastError: periodCalls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      };
       timeGetDevCapsOracleEvidence = {
         profile: "x86-time-get-dev-caps-size-and-output-v1",
         calls,
         timeErrorNoError: 0,
-        timeErrorStruct: 97,
+        timeErrorNoCanDo: 97,
         shortSizesRejectedWithoutWrites: calls
           .filter((call) => call.size < 8)
           .every(
@@ -6275,6 +6406,7 @@ function scheduleTimeGetDevCapsOracle(module) {
           (call) =>
             call.hookPreservesLastError && call.systemPreservesLastError,
         ),
+        periodLifecycle: timePeriodOracleEvidence,
       };
       timeGetDevCapsOracleComplete = true;
       emit("time-get-dev-caps-oracle", timeGetDevCapsOracleEvidence);

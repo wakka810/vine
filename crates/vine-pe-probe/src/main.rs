@@ -29,7 +29,8 @@ use vine_core::{
     RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord,
     RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo,
     RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeTlsValue, SchedulerThreadState, UnsupportedPoint,
+    RuntimeThreadStackGrowth, RuntimeTimerResolutionState, RuntimeTlsValue, SchedulerThreadState,
+    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint,
     User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
     dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
@@ -144,6 +145,7 @@ enum GenericRuntimeCapability {
     GetDriveTypeA,
     SwapMouseButton,
     TimeGetDevCaps,
+    TimeBeginPeriod,
 }
 
 struct GenericRuntimeProcess {
@@ -321,6 +323,8 @@ struct GenericRuntimeCompletion {
     tick_count: Option<GenericRuntimeTickCount>,
     #[serde(skip_serializing_if = "Option::is_none")]
     com_apartment: Option<RuntimeComApartmentState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timer_resolution: Option<RuntimeTimerResolutionState>,
     memory: MemoryStats,
 }
 
@@ -2731,6 +2735,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod
         )
     ) {
         process
@@ -2746,7 +2751,11 @@ fn run_v86_generic_runtime_session(
     }
     if matches!(
         endpoint_capability,
-        Some(GenericRuntimeCapability::SwapMouseButton | GenericRuntimeCapability::TimeGetDevCaps)
+        Some(
+            GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod,
+        )
     ) {
         process
             .runtime
@@ -2791,6 +2800,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2816,6 +2826,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2859,7 +2870,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetSystemDefaultLangId
             | GenericRuntimeCapability::GetDriveTypeA
             | GenericRuntimeCapability::SwapMouseButton
-            | GenericRuntimeCapability::TimeGetDevCaps,
+            | GenericRuntimeCapability::TimeGetDevCaps
+            | GenericRuntimeCapability::TimeBeginPeriod,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3018,12 +3030,16 @@ fn run_v86_generic_runtime_session(
                         | GenericRuntimeCapability::GetDriveTypeA
                         | GenericRuntimeCapability::SwapMouseButton
                         | GenericRuntimeCapability::TimeGetDevCaps
+                        | GenericRuntimeCapability::TimeBeginPeriod
                 )
             )
             .then(|| user32_policy.id.clone()),
             winmm_compatibility_policy_id: matches!(
                 endpoint_capability,
-                Some(GenericRuntimeCapability::TimeGetDevCaps)
+                Some(
+                    GenericRuntimeCapability::TimeGetDevCaps
+                        | GenericRuntimeCapability::TimeBeginPeriod,
+                )
             )
             .then(|| winmm_policy.id.clone()),
             display_profile_id: process.runtime.display_profile_id().map(str::to_owned),
@@ -3160,6 +3176,7 @@ fn run_v86_generic_runtime_session(
                             thread_affinity: None,
                             tick_count: None,
                             com_apartment: None,
+                            timer_resolution: None,
                             memory: memory.stats(),
                         },
                     )?;
@@ -3510,6 +3527,12 @@ fn run_v86_generic_runtime_session(
                             } else {
                                 None
                             };
+                        let timer_resolution = matches!(
+                            completion.implementation_id.as_str(),
+                            TIME_BEGIN_PERIOD_IMPLEMENTATION | TIME_END_PERIOD_IMPLEMENTATION
+                        )
+                        .then(|| session.runtime().timer_resolution_state())
+                        .flatten();
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -3529,6 +3552,7 @@ fn run_v86_generic_runtime_session(
                                 thread_affinity,
                                 tick_count,
                                 com_apartment,
+                                timer_resolution,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3688,6 +3712,7 @@ fn run_v86_generic_runtime_session(
                                 thread_affinity: None,
                                 tick_count: None,
                                 com_apartment: None,
+                                timer_resolution: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3750,6 +3775,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3777,6 +3803,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3793,6 +3820,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod
         )
     );
     let create_mutex_a_enabled = matches!(
@@ -3808,6 +3836,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod
         )
     );
     let get_current_thread_enabled = matches!(
@@ -3822,6 +3851,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod
         )
     );
     let set_thread_affinity_mask_enabled = matches!(
@@ -3835,10 +3865,13 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
+                | GenericRuntimeCapability::TimeBeginPeriod
         )
     );
-    let time_get_dev_caps_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::TimeGetDevCaps));
+    let time_begin_period_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::TimeBeginPeriod));
+    let time_get_dev_caps_enabled = time_begin_period_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::TimeGetDevCaps));
     let swap_mouse_button_enabled = time_get_dev_caps_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::SwapMouseButton));
     let get_drive_type_a_enabled = swap_mouse_button_enabled
@@ -3967,7 +4000,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::GetSystemDefaultLangId
             | GenericRuntimeCapability::GetDriveTypeA
             | GenericRuntimeCapability::SwapMouseButton
-            | GenericRuntimeCapability::TimeGetDevCaps,
+            | GenericRuntimeCapability::TimeGetDevCaps
+            | GenericRuntimeCapability::TimeBeginPeriod,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -4129,6 +4163,7 @@ fn runtime_capability_enables_endpoint(
         "GetDriveTypeA" => get_drive_type_a_enabled,
         "SwapMouseButton" => swap_mouse_button_enabled,
         "timeGetDevCaps" => time_get_dev_caps_enabled,
+        "timeBeginPeriod" | "timeEndPeriod" => time_begin_period_enabled,
         _ => true,
     }
 }
@@ -4188,7 +4223,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::GetSystemDefaultLangId
             | GenericRuntimeCapability::GetDriveTypeA
             | GenericRuntimeCapability::SwapMouseButton
-            | GenericRuntimeCapability::TimeGetDevCaps,
+            | GenericRuntimeCapability::TimeGetDevCaps
+            | GenericRuntimeCapability::TimeBeginPeriod,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9625,6 +9661,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-get-drive-type-a" => GenericRuntimeCapability::GetDriveTypeA,
                 "user32-swap-mouse-button" => GenericRuntimeCapability::SwapMouseButton,
                 "winmm-time-get-dev-caps" => GenericRuntimeCapability::TimeGetDevCaps,
+                "winmm-time-begin-period" => GenericRuntimeCapability::TimeBeginPeriod,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
