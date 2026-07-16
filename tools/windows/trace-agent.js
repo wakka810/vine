@@ -82,6 +82,11 @@ let getAcpOracleSentinel = null;
 let getAcpOracleResult = null;
 let getAcpOracleLastError = null;
 let getAcpConsumerRecorded = false;
+let systemDefaultLangIdOracleScheduled = false;
+let systemDefaultLangIdOracleSentinel = null;
+let systemDefaultLangIdOracleResult = null;
+let systemDefaultLangIdOracleLastError = null;
+let systemDefaultLangIdConsumerRecorded = false;
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -2032,6 +2037,9 @@ if (selectedObservations.has("set-last-error")) {
 if (selectedObservations.has("get-acp")) {
   hooks["kernel32.dll"].push(["GetACP", []]);
 }
+if (selectedObservations.has("system-default-lang-id")) {
+  hooks["kernel32.dll"].push(["GetSystemDefaultLangID", []]);
+}
 if (selectedObservations.has("get-cp-info")) {
   hooks["kernel32.dll"].push(["GetCPInfo", [null, null]]);
 }
@@ -2643,6 +2651,15 @@ function attachHook(module, name, decoders) {
       if (this.traceGetAcpOracle) {
         this.lastError = getAcpOracleSentinel;
       }
+      this.traceSystemDefaultLangIdOracle =
+        systemDefaultLangIdOracleSentinel !== null &&
+        selectedObservations.has("system-default-lang-id") &&
+        name === "GetSystemDefaultLangID" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceSystemDefaultLangIdOracle) {
+        this.lastError = systemDefaultLangIdOracleSentinel;
+      }
       this.traceGetCpInfoOracle =
         getCpInfoOracleSentinel !== null &&
         selectedObservations.has("get-cp-info") &&
@@ -2900,6 +2917,33 @@ function attachHook(module, name, decoders) {
           : null;
       this.traceGetSystemInfo =
         focusedGetSystemInfoObservation ? { output: args[0] } : null;
+      const recordsSystemDefaultLangIdConsumer =
+        selectedObservations.has("system-default-lang-id") &&
+        name === "GetSystemDefaultLangID" &&
+        isMainModuleCaller &&
+        !systemDefaultLangIdConsumerRecorded;
+      if (recordsSystemDefaultLangIdConsumer) {
+        systemDefaultLangIdConsumerRecorded = true;
+      }
+      this.traceSystemDefaultLangId =
+        selectedObservations.has("system-default-lang-id") &&
+        name === "GetSystemDefaultLangID"
+          ? {
+              immediateConsumer: recordsSystemDefaultLangIdConsumer
+                ? {
+                    apiContinuation: snapshotInstructionsFollowingDirectJump(
+                      this.returnAddress,
+                      24,
+                    ),
+                    frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                      this.context,
+                      0,
+                      12,
+                    ),
+                  }
+                : null,
+            }
+          : null;
       const recordsEnumDisplayMonitorsConsumer =
         focusedEnumDisplayMonitorsObservation &&
         isMainModuleCaller &&
@@ -3015,6 +3059,11 @@ function attachHook(module, name, decoders) {
               this.lastError,
               this.context,
             )
+        : this.traceSystemDefaultLangId !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              systemDefaultLangId: this.traceSystemDefaultLangId,
+            }
         : this.traceGetCpInfo !== null
           ? snapshotGetCpInfoCall(
               caller,
@@ -3327,6 +3376,10 @@ function attachHook(module, name, decoders) {
         getAcpOracleResult = result.toUInt32();
         getAcpOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceSystemDefaultLangIdOracle) {
+        systemDefaultLangIdOracleResult = result.toUInt32();
+        systemDefaultLangIdOracleLastError = Number(lastError) >>> 0;
+      }
       if (this.traceGetCpInfoOracle) {
         getCpInfoOracleResult = result.toUInt32();
         getCpInfoOracleLastError = Number(lastError) >>> 0;
@@ -3612,6 +3665,15 @@ function attachHook(module, name, decoders) {
           : {
               getSystemInfo: {
                 outputAfter: snapshotSystemInfo(this.traceGetSystemInfo.output),
+              },
+            }),
+        ...(this.traceSystemDefaultLangId === null
+          ? {}
+          : {
+              systemDefaultLangId: {
+                ...this.traceSystemDefaultLangId,
+                langId: result.toUInt32() & 0xffff,
+                rawEax: result.toUInt32(),
               },
             }),
         ...(this.traceEnumDisplayMonitors === null
@@ -5361,6 +5423,80 @@ function scheduleGetAcpOracle(module) {
   });
 }
 
+function scheduleSystemDefaultLangIdOracle(module) {
+  if (systemDefaultLangIdOracleScheduled) {
+    return;
+  }
+  systemDefaultLangIdOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetSystemDefaultLangID");
+      if (address === null) {
+        throw new Error("GetSystemDefaultLangID export is unavailable");
+      }
+      const getSystemDefaultLangId = new SystemFunction(
+        address,
+        "uint16",
+        [],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        systemDefaultLangIdOracleSentinel = sentinel;
+        systemDefaultLangIdOracleResult = null;
+        systemDefaultLangIdOracleLastError = null;
+        try {
+          const outcome = getSystemDefaultLangId();
+          const result = Number(outcome.value) & 0xffff;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            systemDefaultLangIdOracleResult === null ||
+            systemDefaultLangIdOracleLastError === null
+          ) {
+            throw new Error(
+              "GetSystemDefaultLangID oracle did not pass through the hook",
+            );
+          }
+          return {
+            sentinel,
+            result,
+            hookRawEax: systemDefaultLangIdOracleResult,
+            hookLangId: systemDefaultLangIdOracleResult & 0xffff,
+            hookLastErrorAfter: systemDefaultLangIdOracleLastError,
+            systemLastError,
+            hookResultMatches:
+              (systemDefaultLangIdOracleResult & 0xffff) === result,
+            hookPreservesLastError:
+              systemDefaultLangIdOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          systemDefaultLangIdOracleSentinel = null;
+          systemDefaultLangIdOracleResult = null;
+          systemDefaultLangIdOracleLastError = null;
+        }
+      };
+      const calls = [0, 87, 122, 0x12345678].map(invoke);
+      const langId = calls[0].result;
+      emit("system-default-lang-id-oracle", {
+        profile: "x86-system-default-lang-id-read-v1",
+        langId,
+        calls,
+        rawEaxValues: calls.map((call) => call.hookRawEax),
+        upperEaxBitsContract: "unspecified",
+        allResultsStable: calls.every(
+          (call) => call.result === langId && call.hookResultMatches,
+        ),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("system-default-lang-id-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleGetCpInfoOracle(module) {
   if (getCpInfoOracleScheduled) {
     return;
@@ -6863,6 +6999,12 @@ Process.attachModuleObserver({
       selectedObservations.has("get-acp")
     ) {
       scheduleGetAcpOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("system-default-lang-id")
+    ) {
+      scheduleSystemDefaultLangIdOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

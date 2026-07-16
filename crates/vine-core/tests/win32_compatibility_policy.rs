@@ -47,6 +47,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-create-mutex-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-bounded-heap-v2.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-get-system-info-v1.json"),
+        include_str!(
+            "../../../fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json"
+        ),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -218,4 +221,26 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(profile.allocation_granularity, 65_536);
     assert_eq!(profile.processor_level, 6);
     assert_eq!(profile.processor_revision, 0);
+    assert_eq!(system_info.system_default_lang_id(), None);
+
+    let system_default_lang_id: Kernel32CompatibilityPolicy =
+        serde_json::from_str(policies[29]).unwrap();
+    assert_eq!(
+        system_default_lang_id.system_default_lang_id(),
+        Some(0x0411)
+    );
+
+    let mut unsupported_lang_id = system_default_lang_id.clone();
+    unsupported_lang_id.system_default_lang_id = Some(0x0409);
+    assert_eq!(
+        unsupported_lang_id.validate().unwrap_err().code,
+        "kernel32-policy-system-default-lang-id-invalid"
+    );
+
+    let mut missing_locale_layer = Kernel32CompatibilityPolicy::controlled_v1();
+    missing_locale_layer.system_default_lang_id = Some(0x0411);
+    assert_eq!(
+        missing_locale_layer.validate().unwrap_err().code,
+        "kernel32-policy-system-default-lang-id-invalid"
+    );
 }

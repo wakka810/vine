@@ -716,6 +716,15 @@ getAcpSelection.find(
 ).selectedObservations = ["get-acp"];
 assert.doesNotThrow(() => summarizeTrace(encode(getAcpSelection)));
 
+const systemDefaultLangIdSelection = structuredClone(events);
+systemDefaultLangIdSelection[0].arguments.observations = [
+  "system-default-lang-id",
+];
+systemDefaultLangIdSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["system-default-lang-id"];
+assert.doesNotThrow(() => summarizeTrace(encode(systemDefaultLangIdSelection)));
+
 const getCpInfoSelection = structuredClone(events);
 getCpInfoSelection[0].arguments.observations = ["get-cp-info"];
 getCpInfoSelection.find(

@@ -306,6 +306,13 @@ Node／Chrome primary gateはRust-owned apartment snapshot、same next stop、sa
 TypeScriptがapartment authorityを持たないことを検証する。Native oracleとnon-claimsは
 [bgi-co-initialize.md](bgi-co-initialize.md)を正とする。
 
+Reached system-default language contractは別fixtureでzero-argument x86 stdcall、typed U16
+zero-extension、policy-owned `0x0411`、LastError preserve、zero guest write／runtime mutationを
+固定する。Policy-disabled、unsupported LANGID、missing locale layerはcompletion前に失敗し、native
+EAX upper wordをsemantic valueとしてimportしない。Node／Chrome primary gateはsame AX consumer、
+same next stop、same memory digestを比較する。Native oracleとnon-claimsは
+[bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md)を正とする。
+
 controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
 one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact
 signal／runnable wake／one event、already-signaled immediate completion、process-exit cancellationを

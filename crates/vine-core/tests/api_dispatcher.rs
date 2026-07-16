@@ -7,14 +7,14 @@ use vine_core::{
     CallbackPolicy, CallingConvention, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome,
     ExecutionSession, FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION,
     GET_CP_INFO_IMPLEMENTATION, GET_CURRENT_THREAD_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION,
-    GET_STRING_TYPE_W_IMPLEMENTATION, GET_SYSTEM_INFO_IMPLEMENTATION, GUEST_PAGE_SIZE,
-    GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION,
-    HostCompletion, HostRequest, INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION,
-    IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk, ImportThunkDisposition,
-    ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
-    Kernel32CreateMutexAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
-    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    GET_STRING_TYPE_W_IMPLEMENTATION, GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION,
+    GET_SYSTEM_INFO_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
+    GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion, HostRequest,
+    INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
+    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
+    Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32GetStringTypeWPolicy,
+    Kernel32HeapAllocationPolicy, Kernel32InitializeCriticalSectionPolicy,
+    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
     Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
     LC_MAP_STRING_W_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
@@ -1539,6 +1539,102 @@ fn get_acp_reads_only_the_policy_owned_active_code_page() {
         DispatchOutcome::Fault(ref fault)
             if fault.class == ApiFaultClass::Unsupported
                 && fault.code == "get-acp-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
+fn get_system_default_lang_id_zero_extends_policy_owned_u16_without_mutation() {
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_058b]),
+        (STACK_BASE + 0x20, vec![0x1000_058c]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x60);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetSystemDefaultLangID IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetSystemDefaultLangID".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetSystemDefaultLangID endpoint");
+    assert_eq!(
+        contract.implementation_id,
+        GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION
+    );
+    assert!(contract.abi.arguments.is_empty());
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U16);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json"
+    ))
+    .expect("parse system-default LANGID policy fixture");
+    policy
+        .validate()
+        .expect("valid system-default LANGID policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(0x1234_5678).unwrap();
+    let runtime_before = runtime.clone();
+    let memory_before = memory.stats();
+
+    let completion = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(completion.eax, RegisterUpdate::Set(0x0000_0411));
+    assert_eq!(completion.stack_pointer, GuestAddress(frames[0].0 + 4));
+    assert_eq!(completion.last_error, 0x1234_5678);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+
+    let disabled = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[1].0, frames[1].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "get-system-default-lang-id-policy-disabled"
     ));
     assert_eq!(runtime, runtime_before);
     assert_eq!(memory.stats(), memory_before);

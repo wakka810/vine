@@ -49,6 +49,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub get_module_file_name_a: Option<Kernel32GetModuleFileNameAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_code_page_info: Option<Kernel32CodePageInfoPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_default_lang_id: Option<u16>,
     #[serde(default)]
     pub processor_features: Vec<Kernel32ProcessorFeaturePolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -225,6 +227,7 @@ impl Kernel32CompatibilityPolicy {
             lc_map_string_w: None,
             get_module_file_name_a: None,
             active_code_page_info: None,
+            system_default_lang_id: None,
             processor_features: Vec::new(),
             thread_affinity: None,
             system_info: None,
@@ -418,6 +421,15 @@ impl Kernel32CompatibilityPolicy {
                 "module file-name lookup requires the preceding locale layer, main-module-only selection, and a bounded nonzero capacity",
             ));
         }
+        if self
+            .system_default_lang_id
+            .is_some_and(|lang_id| lang_id != 0x0411 || self.lc_map_string_w.is_none())
+        {
+            return Err(policy_error(
+                "kernel32-policy-system-default-lang-id-invalid",
+                "system-default LANGID requires the bounded Japanese locale layer and LANGID 0x0411",
+            ));
+        }
 
         let processor_feature_indices = self
             .processor_features
@@ -583,6 +595,10 @@ impl Kernel32CompatibilityPolicy {
     pub fn active_code_page_info(&self) -> Option<(u32, &Kernel32CodePageInfoPolicy)> {
         self.active_code_page()
             .zip(self.active_code_page_info.as_ref())
+    }
+
+    pub fn system_default_lang_id(&self) -> Option<u16> {
+        self.system_default_lang_id
     }
 
     pub fn multi_byte_to_wide_char(&self) -> Option<&Kernel32MultiByteToWideCharPolicy> {
@@ -768,6 +784,7 @@ mod tests {
         assert!(policy.lc_map_string_w().is_none());
         assert!(policy.get_module_file_name_a().is_none());
         assert!(policy.active_code_page_info().is_none());
+        assert_eq!(policy.system_default_lang_id(), None);
         assert_eq!(policy.processor_feature_presence(10), None);
         assert_eq!(policy.thread_affinity_process_mask(), None);
         assert_eq!(policy.system_info(), None);

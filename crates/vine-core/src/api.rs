@@ -226,6 +226,7 @@ pub struct ApiArgumentSchema {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ApiReturnSchema {
     Void,
+    U16,
     U32,
     HResult,
     Bool32,
@@ -470,6 +471,7 @@ impl ApiCallFrame {
 #[serde(tag = "kind", content = "value", rename_all = "kebab-case")]
 pub enum ApiReturnValue {
     Void,
+    U16(u16),
     U32(u32),
     HResult(ComHResult),
     Bool32(bool),
@@ -1800,6 +1802,9 @@ fn validate_return_value(
 ) -> Result<RegisterUpdate, ApiFault> {
     let update = match (&contract.abi.return_value, value) {
         (ApiReturnSchema::Void, ApiReturnValue::Void) => RegisterUpdate::Preserve,
+        (ApiReturnSchema::U16, ApiReturnValue::U16(value)) => {
+            RegisterUpdate::Set(u32::from(*value))
+        }
         (ApiReturnSchema::U32, ApiReturnValue::U32(value)) => RegisterUpdate::Set(*value),
         (ApiReturnSchema::HResult, ApiReturnValue::HResult(value)) => {
             RegisterUpdate::Set(value.bits())

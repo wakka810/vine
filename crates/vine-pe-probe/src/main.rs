@@ -140,6 +140,7 @@ enum GenericRuntimeCapability {
     GetSystemInfo,
     EnumDisplayMonitors,
     CoInitialize,
+    GetSystemDefaultLangId,
 }
 
 struct GenericRuntimeProcess {
@@ -2712,7 +2713,9 @@ fn run_v86_generic_runtime_session(
     if matches!(
         endpoint_capability,
         Some(
-            GenericRuntimeCapability::EnumDisplayMonitors | GenericRuntimeCapability::CoInitialize
+            GenericRuntimeCapability::EnumDisplayMonitors
+                | GenericRuntimeCapability::CoInitialize
+                | GenericRuntimeCapability::GetSystemDefaultLangId
         )
     ) {
         process
@@ -2754,6 +2757,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
                 | GenericRuntimeCapability::CoInitialize
+                | GenericRuntimeCapability::GetSystemDefaultLangId
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2775,6 +2779,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
                 | GenericRuntimeCapability::CoInitialize
+                | GenericRuntimeCapability::GetSystemDefaultLangId
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2814,7 +2819,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SetThreadAffinityMask
             | GenericRuntimeCapability::GetSystemInfo
             | GenericRuntimeCapability::EnumDisplayMonitors
-            | GenericRuntimeCapability::CoInitialize,
+            | GenericRuntimeCapability::CoInitialize
+            | GenericRuntimeCapability::GetSystemDefaultLangId,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2969,6 +2975,7 @@ fn run_v86_generic_runtime_session(
                 Some(
                     GenericRuntimeCapability::EnumDisplayMonitors
                         | GenericRuntimeCapability::CoInitialize
+                        | GenericRuntimeCapability::GetSystemDefaultLangId
                 )
             )
             .then(|| user32_policy.id.clone()),
@@ -3689,6 +3696,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
                 | GenericRuntimeCapability::CoInitialize
+                | GenericRuntimeCapability::GetSystemDefaultLangId
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3712,6 +3720,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
                 | GenericRuntimeCapability::CoInitialize
+                | GenericRuntimeCapability::GetSystemDefaultLangId
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3724,6 +3733,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
                 | GenericRuntimeCapability::CoInitialize
+                | GenericRuntimeCapability::GetSystemDefaultLangId
         )
     );
     let create_mutex_a_enabled = matches!(
@@ -3735,6 +3745,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
                 | GenericRuntimeCapability::CoInitialize
+                | GenericRuntimeCapability::GetSystemDefaultLangId
         )
     );
     let get_current_thread_enabled = matches!(
@@ -3745,6 +3756,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
                 | GenericRuntimeCapability::CoInitialize
+                | GenericRuntimeCapability::GetSystemDefaultLangId
         )
     );
     let set_thread_affinity_mask_enabled = matches!(
@@ -3754,9 +3766,15 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
                 | GenericRuntimeCapability::CoInitialize
+                | GenericRuntimeCapability::GetSystemDefaultLangId
         )
     );
-    let co_initialize_enabled = matches!(enabled, Some(GenericRuntimeCapability::CoInitialize));
+    let get_system_default_lang_id_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::GetSystemDefaultLangId)
+    );
+    let co_initialize_enabled = get_system_default_lang_id_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::CoInitialize));
     let enum_display_monitors_enabled = co_initialize_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::EnumDisplayMonitors));
     let get_system_info_enabled = enum_display_monitors_enabled
@@ -3870,7 +3888,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::SetThreadAffinityMask
             | GenericRuntimeCapability::GetSystemInfo
             | GenericRuntimeCapability::EnumDisplayMonitors
-            | GenericRuntimeCapability::CoInitialize,
+            | GenericRuntimeCapability::CoInitialize
+            | GenericRuntimeCapability::GetSystemDefaultLangId,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -4028,6 +4047,7 @@ fn runtime_capability_enables_endpoint(
         "GetSystemInfo" => get_system_info_enabled,
         "EnumDisplayMonitors" => enum_display_monitors_enabled,
         "CoInitialize" => co_initialize_enabled,
+        "GetSystemDefaultLangID" => get_system_default_lang_id_enabled,
         _ => true,
     }
 }
@@ -4083,7 +4103,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::SetThreadAffinityMask
             | GenericRuntimeCapability::GetSystemInfo
             | GenericRuntimeCapability::EnumDisplayMonitors
-            | GenericRuntimeCapability::CoInitialize,
+            | GenericRuntimeCapability::CoInitialize
+            | GenericRuntimeCapability::GetSystemDefaultLangId,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9514,6 +9535,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-get-system-info" => GenericRuntimeCapability::GetSystemInfo,
                 "user32-enum-display-monitors" => GenericRuntimeCapability::EnumDisplayMonitors,
                 "ole32-co-initialize" => GenericRuntimeCapability::CoInitialize,
+                "kernel32-get-system-default-lang-id" => {
+                    GenericRuntimeCapability::GetSystemDefaultLangId
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

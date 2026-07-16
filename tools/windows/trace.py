@@ -42,6 +42,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-last-error",
     "set-last-error",
     "get-acp",
+    "system-default-lang-id",
     "get-cp-info",
     "processor-feature",
     "unhandled-exception-filter",

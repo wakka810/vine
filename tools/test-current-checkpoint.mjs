@@ -476,6 +476,15 @@ assert.ok(
   ),
 );
 
+const derivedSystemDefaultLangId = structuredClone(manifest);
+derivedSystemDefaultLangId.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.systemDefaultLangIdDerivedFromAllowedLocales =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(derivedSystemDefaultLangId).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
 const hostShapedDisplayPolicy = structuredClone(manifest);
 hostShapedDisplayPolicy.activeRuntimeCheckpoint.user32CompatibilityPolicy.browserDisplayTopologyImported =
   true;

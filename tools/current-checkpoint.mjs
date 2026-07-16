@@ -1020,8 +1020,9 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-get-system-info-v1" ||
-    kernel32Policy.source !== "fixtures/runtime-policies/kernel32-get-system-info-v1.json" ||
+    kernel32Policy.id !== "kernel32-get-system-default-lang-id-v1" ||
+    kernel32Policy.source !==
+      "fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -1047,6 +1048,10 @@ export function validateCurrentCheckpoint(manifest) {
       "thread-affinity-process-mask" ||
     kernel32Policy.systemInfoProcessorCountSource !==
       "active-processor-mask-popcount" ||
+    kernel32Policy.systemDefaultLangId !== 0x0411 ||
+    kernel32Policy.systemDefaultLangIdSource !== "explicit-policy-field" ||
+    kernel32Policy.systemDefaultLangIdDerivedFromAllowedLocales !== false ||
+    kernel32Policy.hostLocaleImported !== false ||
     kernel32Policy.tickCountIncrementPerRead !== 1 ||
     !Array.isArray(heapAllocator.allowedFlags) ||
     heapAllocator.allowedFlags.join(",") !== "0,8" ||

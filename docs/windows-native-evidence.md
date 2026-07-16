@@ -2450,3 +2450,33 @@ Memory SHA-256は
 `b7e5005417aa49c642ded6fdb078be8fe1750e9853cbbcf19e1996d9fd4fad4b`である。
 3分gateは198 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-co-initialize.md](bgi-co-initialize.md)を正とする。
+
+## 90. BGI system-default LANGID
+
+Focused `system-default-lang-id` capturesは81,022 bytes／266 lines／SHA-256
+`b7837df03fd27e34c5839116874d1b0858874c5179d3b92bfa94f99a570f0efa`と
+79,185 bytes／260 lines／SHA-256
+`01e67e62be63be76293fbf6d59e8d3173e88f4c1597e5571002cc817406f79e0`
+である。103／100 API pairsはbalanced、diagnosticsはzeroである。Unrelated
+`Direct3DCreate9`がopenだったr1／r3／r6と、WORD observer修正前のr2／r4はfinal evidenceから
+除外した。
+
+Four-call oracleはLastError `0`／`87`／`122`／`0x12345678`をすべて保存し、low WORD
+`0x0411`を返す。Native raw EAXはaccepted runsで`0x01390411`／`0x00CD0411`と異なるため、
+upper 16 bitsはunspecified artifact identityである。BGI return RVA `0x6A556`はAXを
+`0x03FF`でmaskしprimary language `0x11`と比較する。LastErrorは読まない。
+
+Rust policyはsystem-default LANGIDを`LCMapStringW.allowed_locales`と別fieldで所有し、Japanese
+locale layerとの整合だけをvalidationする。`kernel32.get-system-default-lang-id.v1`はtyped U16を
+EAXへzero-extendし、LastError保存、zero guest write／runtime mutationを固定する。Host localeと
+native upper EAX bitsはimportしない。
+
+Nodeは52 contracts／1,295 calls、1,301 writebacks／2,461 dirty pages／8,577 changed
+bytes、80 host deltas、generation `1,410`を通す。Chrome Runtime Workerもsame ordered
+calls／result／stop／memoryを再現し、6,324 slices、5,023 yields、5,923 Wasm crossings、
+final generation `3,263`、terminal pending work 0を通す。Instruction `45840`でID `19`／
+`KERNEL32.dll!GetDriveTypeA(0x006FFC4C)`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`05bf22ce52303ba9b0849352ecd4e00460449ac3bbf84fd03e30cac146d8dc0c`である。
+3分gateは205 sessions／failure 0で17 thresholdsを通した。詳細は
+[bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md)を正とする。

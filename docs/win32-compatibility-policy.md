@@ -41,7 +41,7 @@ runtime execution. It contains only target-independent bounded data:
 - enabled `SetHandleCount` values;
 - opt-in deterministic ANSI view of the process-parameter command line;
 - opt-in controlled UTF-16 environment authority and copy lifetime;
-- opt-in active ANSI code page, explicit opt-in for the `CP_ACP` selector, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, Windows-932 private-use byte mappings, bounded CTYPE1 information types, and bounded locale mapping variants;
+- opt-in active ANSI code page, explicit opt-in for the `CP_ACP` selector, bounded UTF-16/multibyte source limits, allowed multibyte flags, measured code-page information fields, Windows-932 private-use byte mappings, bounded CTYPE1 information types, bounded locale mapping variants, and an independently explicit system-default LANGID;
 - opt-in current-process image-path lookup with a bounded ANSI output capacity;
 - opt-in process-image-directory-only `SetCurrentDirectoryA` with a bounded
   Windows-932 input scan;
@@ -65,7 +65,7 @@ execution.
 Twenty-seven schema-v1 files remain immutable historical reproduction policies
 with exact flag／size pairs. Schema v2 removes those sizes from runtime
 selection; the active profile extends the preceding bounded-heap checkpoint
-with x86 virtual system information:
+with x86 virtual system information and an explicit system-default LANGID:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -98,6 +98,7 @@ with x86 virtual system information:
 | `kernel32-create-mutex-a-v1` | stdin, stdout, stderr | preceding options + named mutexes／32 KiB input bound; unnamed disabled | preceding allocation/free/size variants |
 | `kernel32-bounded-heap-v2` | stdin, stdout, stderr | same current process／NLS／mutex options + virtual process affinity mask `1` + `GetTickCount` increment `1` | flags `0`／`HEAP_ZERO_MEMORY`, nonzero sizes through 16 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 | `kernel32-get-system-info-v1` | stdin, stdout, stderr | preceding schema-v2 options + bounded PE32 address／processor profile; active mask and count derive from affinity | same bounded allocation/free/size variants |
+| `kernel32-get-system-default-lang-id-v1` | stdin, stdout, stderr | preceding schema-v2 options + explicit Japanese system-default LANGID `0x0411` | same bounded allocation/free/size variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -210,6 +211,14 @@ public fixture independently covers lower／upper query and output, Japanese and
 fullwidth units, insufficient capacity, invalid zero／NULL shapes, LastError,
 ABI cleanup, and mutation-free unsupported locale／flags／negative count／overlap／
 code-unit paths.
+`GetSystemDefaultLangID` reads a separate optional WORD field. Validation
+requires the bounded Japanese locale layer and value `0x0411`, but the default
+identity is not derived from `LCMapStringW.allowed_locales`. The zero-argument
+handler preserves LastError, writes no memory, imports no host locale, and
+fails before mutation when the field is disabled. Native upper EAX bits are
+unspecified; the typed U16 completion zero-extends the policy value. Detailed
+evidence is in
+[bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md).
 `InterlockedDecrement` is policy-independent. Its one-argument semantic handler
 requires a naturally aligned writable LONG, performs checked wrapping decrement,
 returns the new signed bits, and preserves LastError. The reached pointer,

@@ -166,6 +166,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-get-current-thread.md](bgi-get-current-thread.md) | current-thread pseudo-handleをどう解決するか | native pseudo-handle／LastError oracle、selected-thread typed-object relation、captured Node／Chrome equivalence |
 | [bgi-set-thread-affinity-mask.md](bgi-set-thread-affinity-mask.md) | logical affinityと進行するprocess clockをどう所有するか | native mask／calibration oracle、thread／process plan-commit、captured Node／Chrome／benchmark evidence |
 | [bgi-co-initialize.md](bgi-co-initialize.md) | reached COM apartment初期化をどこへ置くか | native HRESULT／balance oracle、per-thread counted apartment、Node／Chrome equivalence |
+| [bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md) | system-default LANGIDをどこが所有するか | native WORD／consumer oracle、policy-owned `0x0411`、typed U16 zero-extension、Node／Chrome equivalence |
 | [runtime-heap-backing.md](runtime-heap-backing.md) | private heap bytes／lifetimeをどこが所有するか | bounded guest arena、allocation ID／alignment／initialization、free／reuse、heap／process teardown |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 

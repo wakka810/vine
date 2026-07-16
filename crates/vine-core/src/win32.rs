@@ -42,6 +42,8 @@ pub const GET_SYSTEM_INFO_IMPLEMENTATION: &str = "kernel32.get-system-info.v1";
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
 pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
 pub const GET_ACP_IMPLEMENTATION: &str = "kernel32.get-acp.v1";
+pub const GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION: &str =
+    "kernel32.get-system-default-lang-id.v1";
 pub const GET_CP_INFO_IMPLEMENTATION: &str = "kernel32.get-cp-info.v1";
 pub const IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION: &str =
     "kernel32.is-processor-feature-present.v1";
@@ -141,6 +143,7 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_LAST_ERROR_IMPLEMENTATION => handle_get_last_error(contract, session),
         SET_LAST_ERROR_IMPLEMENTATION => handle_set_last_error(contract, frame),
         GET_ACP_IMPLEMENTATION => handle_get_acp(policy),
+        GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION => handle_get_system_default_lang_id(policy),
         GET_CP_INFO_IMPLEMENTATION => handle_get_cp_info(policy, contract, frame),
         IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION => {
             handle_is_processor_feature_present(policy, contract, frame)
@@ -246,6 +249,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetLastError" => get_last_error_contract(endpoint)?,
         "SetLastError" => set_last_error_contract(endpoint)?,
         "GetACP" => get_acp_contract(endpoint)?,
+        "GetSystemDefaultLangID" => get_system_default_lang_id_contract(endpoint)?,
         "GetCPInfo" => get_cp_info_contract(endpoint)?,
         "IsProcessorFeaturePresent" => is_processor_feature_present_contract(endpoint)?,
         "SetUnhandledExceptionFilter" => set_unhandled_exception_filter_contract(endpoint)?,
@@ -452,6 +456,22 @@ fn handle_get_acp(policy: &Kernel32CompatibilityPolicy) -> Result<ApiImmediate, 
         )
     })?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(active_code_page)))
+}
+
+fn handle_get_system_default_lang_id(
+    policy: &Kernel32CompatibilityPolicy,
+) -> Result<ApiImmediate, ApiFault> {
+    let lang_id = policy.system_default_lang_id().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-locale",
+            "get-system-default-lang-id-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable a system-default LANGID",
+                policy.id
+            ),
+        )
+    })?;
+    Ok(ApiImmediate::new(ApiReturnValue::U16(lang_id)))
 }
 
 fn handle_get_cp_info(
@@ -2743,6 +2763,18 @@ pub fn get_acp_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, Ap
         Vec::new(),
         ApiReturnSchema::U32,
         GET_ACP_IMPLEMENTATION,
+    )
+}
+
+pub fn get_system_default_lang_id_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetSystemDefaultLangID",
+        Vec::new(),
+        ApiReturnSchema::U16,
+        GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION,
     )
 }
 

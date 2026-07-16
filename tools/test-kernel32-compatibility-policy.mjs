@@ -37,6 +37,7 @@ const policyFiles = [
   ...legacyPolicyFiles,
   "fixtures/runtime-policies/kernel32-bounded-heap-v2.json",
   "fixtures/runtime-policies/kernel32-get-system-info-v1.json",
+  "fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -112,6 +113,11 @@ for (const relative of policyFiles) {
         tickCount.incrementPerRead <= 1000,
     );
   }
+  const systemDefaultLangId = policy.systemDefaultLangId ?? null;
+  if (systemDefaultLangId !== null) {
+    assert.equal(systemDefaultLangId, 0x0411);
+    assert(policy.lcMapStringW !== undefined);
+  }
   const multibyte = policy.multiByteToWideChar ?? null;
   if (multibyte?.allowActiveCodePageSelector !== undefined) {
     assert.equal(typeof multibyte.allowActiveCodePageSelector, "boolean");
@@ -168,6 +174,7 @@ assert.equal(
 assert.equal(activePolicy.threadAffinity.processMask, summary.threadAffinityProcessMask);
 assert.equal(activePolicy.tickCount.incrementPerRead, summary.tickCountIncrementPerRead);
 assert.deepEqual(activePolicy.systemInfo ?? null, summary.systemInfo ?? null);
+assert.equal(activePolicy.systemDefaultLangId, summary.systemDefaultLangId);
 
 const implementation = fs.readFileSync(
   path.join(root, "crates", "vine-core", "src", "win32.rs"),

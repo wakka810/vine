@@ -997,7 +997,14 @@ authority and bounded variants are documented in
 generalize arbitrary callback nesting, SEH, cross-thread callbacks, or all
 User32 callback APIs.
 
-## Typed HRESULT and Ole32 dispatch
+## Typed narrow returns, HRESULT, and Ole32 dispatch
+
+`ApiReturnSchema::U16` and `ApiReturnValue::U16` preserve a WORD-sized API
+result as a distinct ABI kind and zero-extend it into EAX at generic completion.
+This avoids treating unspecified native upper EAX bits as guest semantics.
+The first production use is `kernel32.get-system-default-lang-id.v1`; its
+native WORD evidence and policy boundary are documented in
+[bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md).
 
 `ApiReturnSchema::HResult` and `ApiReturnValue::HResult` preserve the signed
 COM result domain while committing its exact 32-bit representation to EAX.
