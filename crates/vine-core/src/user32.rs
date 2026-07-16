@@ -2,17 +2,19 @@ use serde::Serialize;
 
 use crate::api::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDirection,
-    ApiEndpointIdentity, ApiFault, ApiHandlerResult, ApiPointeeSchema, ApiPointerConstraint,
-    ApiReturnSchema, ApiSymbol, ApiValueSchema, ApiWriteRequirement, CallbackPolicy,
-    CallingConvention, ExecutionSession, GuestCallbackArgument, GuestCallbackCompletionPolicy,
-    GuestCallbackRequest, LastErrorPolicy, ReentrancyPolicy, StackCleanup,
+    ApiEndpointIdentity, ApiFault, ApiHandlerResult, ApiImmediate, ApiPointeeSchema,
+    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiSymbol, ApiValueSchema,
+    ApiWriteRequirement, CallbackPolicy, CallingConvention, ExecutionSession,
+    GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest, LastErrorPolicy,
+    ReentrancyPolicy, StackCleanup,
 };
 use crate::memory::{GuestAddress, MemoryAccess};
-use crate::runtime::{RuntimeDisplayProfile, RuntimeRect};
+use crate::runtime::{RuntimeDisplayProfile, RuntimeInputProfile, RuntimeRect};
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 1;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 2;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
+pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,14 +23,15 @@ pub struct User32CompatibilityPolicy {
     pub schema_version: u32,
     pub id: String,
     pub enum_display_monitors: Option<RuntimeDisplayProfile>,
+    pub swap_mouse_button: Option<RuntimeInputProfile>,
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v1() -> Self {
+    pub fn controlled_v2() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-1920x1080-v1".to_owned(),
+            id: "user32-single-monitor-normal-mouse-v2".to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
                 primary_monitor_rect: RuntimeRect {
@@ -37,6 +40,10 @@ impl User32CompatibilityPolicy {
                     right: 1920,
                     bottom: 1080,
                 },
+            }),
+            swap_mouse_button: Some(RuntimeInputProfile {
+                id: "normal-mouse-buttons-v1".to_owned(),
+                initial_mouse_buttons_swapped: false,
             }),
         }
     }
@@ -55,25 +62,36 @@ impl User32CompatibilityPolicy {
                 "User32 compatibility policy identity or schema is invalid",
             ));
         }
-        let Some(profile) = self.enum_display_monitors.as_ref() else {
-            return Ok(());
-        };
-        let rect = profile.primary_monitor_rect;
-        if profile.id.is_empty()
-            || profile.id.len() > 128
-            || !profile.id.is_ascii()
-            || profile.id.as_bytes().contains(&0)
-            || rect.left != 0
-            || rect.top != 0
-            || rect.right <= 0
-            || rect.bottom <= 0
-            || rect.right > 32_768
-            || rect.bottom > 32_768
+        if let Some(profile) = self.enum_display_monitors.as_ref() {
+            let rect = profile.primary_monitor_rect;
+            if profile.id.is_empty()
+                || profile.id.len() > 128
+                || !profile.id.is_ascii()
+                || profile.id.as_bytes().contains(&0)
+                || rect.left != 0
+                || rect.top != 0
+                || rect.right <= 0
+                || rect.bottom <= 0
+                || rect.right > 32_768
+                || rect.bottom > 32_768
+            {
+                return Err(ApiFault::runtime_defect(
+                    "user32-compatibility-policy",
+                    "user32-monitor-profile-invalid",
+                    "User32 single-monitor profile requires a bounded positive rectangle at the virtual origin",
+                ));
+            }
+        }
+        if let Some(profile) = self.swap_mouse_button.as_ref()
+            && (profile.id.is_empty()
+                || profile.id.len() > 128
+                || !profile.id.is_ascii()
+                || profile.id.as_bytes().contains(&0))
         {
             return Err(ApiFault::runtime_defect(
                 "user32-compatibility-policy",
-                "user32-monitor-profile-invalid",
-                "User32 single-monitor profile requires a bounded positive rectangle at the virtual origin",
+                "user32-input-profile-invalid",
+                "User32 logical input profile requires a bounded nonempty ASCII identity",
             ));
         }
         Ok(())
@@ -81,6 +99,10 @@ impl User32CompatibilityPolicy {
 
     pub fn display_profile(&self) -> Option<RuntimeDisplayProfile> {
         self.enum_display_monitors.clone()
+    }
+
+    pub fn input_profile(&self) -> Option<RuntimeInputProfile> {
+        self.swap_mouse_button.clone()
     }
 }
 
@@ -98,12 +120,60 @@ pub fn dispatch_user32_api_with_policy(
         ENUM_DISPLAY_MONITORS_IMPLEMENTATION => {
             handle_enum_display_monitors(policy, callback_return_sentinel, contract, frame, session)
         }
+        SWAP_MOUSE_BUTTON_IMPLEMENTATION => {
+            match handle_swap_mouse_button(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
         implementation_id => ApiHandlerResult::Fault(ApiFault::unsupported(
             "user32-api-dispatch",
             "implementation-id-unsupported",
             format!("User32 implementation {implementation_id} is not registered"),
         )),
     }
+}
+
+fn handle_swap_mouse_button(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let profile = policy.swap_mouse_button.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-input",
+            "swap-mouse-button-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical mouse button mapping",
+                policy.id
+            ),
+        )
+    })?;
+    let swapped = required_argument(contract, frame, 0, "mouse button swap flag")? != 0;
+    let mapping = session.runtime().mouse_button_mapping().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-input",
+            "logical-mouse-button-profile-missing",
+            "User32 policy is enabled but the Rust input subsystem has no mouse button profile",
+        )
+    })?;
+    if mapping.profile_id != profile.id
+        || mapping.initial_swapped != profile.initial_mouse_buttons_swapped
+    {
+        return Err(ApiFault::runtime_defect(
+            "user32-input",
+            "logical-mouse-button-profile-mismatch",
+            "Rust input authority does not match the selected User32 compatibility profile",
+        ));
+    }
+    let result = session
+        .runtime_mut()
+        .swap_mouse_buttons(swapped)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(
+        result.previous_swapped,
+    )))
 }
 
 fn handle_enum_display_monitors(
@@ -195,8 +265,26 @@ pub fn user32_contract_for_endpoint(
     };
     match name.as_str() {
         "EnumDisplayMonitors" => Ok(Some(enum_display_monitors_contract(endpoint)?)),
+        "SwapMouseButton" => Ok(Some(swap_mouse_button_contract(endpoint)?)),
         _ => Ok(None),
     }
+}
+
+pub fn swap_mouse_button_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![u32_argument("swap")],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SWAP_MOUSE_BUTTON_IMPLEMENTATION.to_owned(),
+    })
 }
 
 pub fn enum_display_monitors_contract(
@@ -285,7 +373,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v1();
+        let policy = User32CompatibilityPolicy::controlled_v2();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -301,6 +389,13 @@ mod tests {
         assert_eq!(
             invalid.validate().unwrap_err().code,
             "user32-monitor-profile-invalid"
+        );
+
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v2();
+        invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
+        assert_eq!(
+            invalid_input.validate().unwrap_err().code,
+            "user32-input-profile-invalid"
         );
     }
 }

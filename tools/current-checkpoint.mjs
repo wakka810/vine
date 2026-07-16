@@ -618,7 +618,7 @@ export function validateCurrentCheckpoint(manifest) {
     kernelRoles.join(",") !==
       "private-subsystem-ownership,cross-subsystem-transaction-coordination,compatibility-serialization" ||
     kernelFields.join(",") !==
-      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,objects,com,heaps,module-records,synchronization,modules,registries" ||
+      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,input,objects,com,heaps,module-records,synchronization,modules,registries" ||
     kernelBoundary.directMutableCollectionFields !== 0 ||
     kernelBoundary.directScalarAllocators !== 0 ||
     kernelBoundary.directSubsystemCollectionMutation !== false ||
@@ -627,7 +627,7 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/process.rs::RuntimeProcessState" ||
     kernelBoundary.processMutableCollectionVisibility !== "private" ||
     processIndependentOwners.join(",") !==
-      "displays,heaps,module-records,synchronization,com" ||
+      "displays,input,heaps,module-records,synchronization,com" ||
     kernelBoundary.processSerializationView !==
       "runtime/kernel.rs::RuntimeProcessView" ||
     kernelBoundary.processSerializationViewAccess !== "immutable-borrow" ||
@@ -637,9 +637,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernelBoundary.mutexObjectPlanVisibility !== "opaque-to-kernel" ||
     kernelBoundary.mutexSubsystemRootCloneOrReplacementFromKernel !== false ||
     representativeSubsystemTests.join(",") !==
-      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
+      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -1084,12 +1084,17 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.enumerationVariants",
     errors,
   );
+  const swapMouseButtonVariants = requireStringArray(
+    user32Policy.swapMouseButtonVariants,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.swapMouseButtonVariants",
+    errors,
+  );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 1 ||
-    user32Policy.id !== "user32-single-monitor-1920x1080-v1" ||
+    user32Policy.schemaVersion !== 2 ||
+    user32Policy.id !== "user32-single-monitor-normal-mouse-v2" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v1" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v2" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
@@ -1101,11 +1106,20 @@ export function validateCurrentCheckpoint(manifest) {
     primaryMonitorRect.right !== 1920 ||
     primaryMonitorRect.bottom !== 1080 ||
     enumerationVariants.join(",") !== "null-hdc-null-clip" ||
+    user32Policy.logicalInputAuthority !== "runtime/input.rs::RuntimeInput" ||
+    user32Policy.inputProfileId !== "normal-mouse-buttons-v1" ||
+    user32Policy.initialMouseButtonsSwapped !== false ||
+    swapMouseButtonVariants.join(",") !== "zero-normalize,nonzero-swap" ||
+    user32Policy.swapMouseButtonReturn !== "previous-mapping-state" ||
+    user32Policy.swapMouseButtonMutation !== "owner-plan-stale-check-targeted-commit" ||
+    user32Policy.idempotentSwapPreservesGeneration !== true ||
     user32Policy.callbackCompletion !== "zero-false-nonzero-true" ||
     user32Policy.lastErrorPolicy !== "preserve" ||
     user32Policy.configuration !== "configure-once-plan-commit" ||
     user32Policy.hostDisplayTopologyImported !== false ||
     user32Policy.browserDisplayTopologyImported !== false ||
+    user32Policy.hostMouseButtonMappingImported !== false ||
+    user32Policy.browserMouseButtonMappingImported !== false ||
     user32Policy.unsupportedBeforeMutation !== true
   ) {
     errors.push("active User32 compatibility policy boundary is invalid");
@@ -1134,6 +1148,17 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.vfsBackendImplemented !== false
   ) {
     errors.push("latest drive-type authority evidence is invalid");
+  }
+  if (
+    latestEvidence.swapMouseButtonImplemented !== true ||
+    latestEvidence.swapMouseButtonCallCount !== 2 ||
+    latestEvidence.swapMouseButtonStateOwner !== "runtime/input.rs::RuntimeInput" ||
+    latestEvidence.swapMouseButtonFinalSwapped !== false ||
+    latestEvidence.swapMouseButtonFinalGeneration !== 0 ||
+    latestEvidence.swapMouseButtonHostStateImported !== false ||
+    latestEvidence.swapMouseButtonBrowserStateImported !== false
+  ) {
+    errors.push("latest mouse-button mapping authority evidence is invalid");
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,

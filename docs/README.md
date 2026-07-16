@@ -64,6 +64,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [process-address-space-allocator.md](process-address-space-allocator.md) | process rangeをどこで予約するか | allocation identity、v1 control／heap registry、search reservation、release policy |
 | [com-iunknown-foundation.md](com-iunknown-foundation.md) | x86 COM identity／lifetimeをどこが所有するか | IUnknown ABI、vtable／UD2 thunk、HRESULT、shared refcount、Browser resource分離 |
 | [win32-compatibility-policy.md](win32-compatibility-policy.md) | Win32 semanticsと到達profileをどう分けるか | single handler ID、versioned bounded policy、evidence-only BGI identity |
+| [runtime-input-state.md](runtime-input-state.md) | guest-visible input stateをどこが所有するか | logical mouse-button mapping、configure-once、stale plan拒否、browser authority分離 |
 | [guest-memory-ingress.md](guest-memory-ingress.md) | production memory ingressが何を所有するか | sparse region／page API、fault／invalidation、fixture／BGI layout evidence |
 | [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | bidirectional dirty pages、binary transport、generation ack、rollback |
 | [memory-writeback.md](memory-writeback.md) | guest writeをどうRust authorityへ戻すか | PTE Dirty discovery、atomic multi-page reconciliation、two-slice evidence |
@@ -168,6 +169,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-co-initialize.md](bgi-co-initialize.md) | reached COM apartment初期化をどこへ置くか | native HRESULT／balance oracle、per-thread counted apartment、Node／Chrome equivalence |
 | [bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md) | system-default LANGIDをどこが所有するか | native WORD／consumer oracle、policy-owned `0x0411`、typed U16 zero-extension、Node／Chrome equivalence |
 | [bgi-get-drive-type-a.md](bgi-get-drive-type-a.md) | virtual drive typeをどこから導出するか | native A–Z／LastError oracle、process-directory-derived fixed drive、host topology非import、Node／Chrome equivalence |
+| [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md) | reached mouse mappingをどう変更・復元するか | Rust input authority、previous-state BOOL、two-call restore、next structured stop |
 | [runtime-heap-backing.md](runtime-heap-backing.md) | private heap bytes／lifetimeをどこが所有するか | bounded guest arena、allocation ID／alignment／initialization、free／reuse、heap／process teardown |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 

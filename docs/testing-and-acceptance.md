@@ -517,6 +517,17 @@ instruction 4523の`GetCPInfo(932,0x006FF9C0)`で停止する。Chrome Workerも
 memory digest、structured stopを再現する。詳細は
 [bgi-private-heap-size-544.md](bgi-private-heap-size-544.md)を正とする。
 
+Reached `SwapMouseButton`の代表contractは`runtime/input.rs::RuntimeInput`を唯一の
+mouse mapping authorityとし、version-2 User32 profileのconfigure-once、zero／nonzero BOOL
+decode、previous-state BOOL return、LastError preserve、zero guest write、idempotent
+generation、stale plan拒否を固定する。Dispatcher fixtureはinitial false／trueの両方で
+`SwapMouseButton(FALSE)`後にfirst resultをsecond argumentへ渡しinitial mappingへ戻ること、
+policy-disabled／missing／mismatched ownerがmemoryとinput stateを変えないことを検査する。
+Primary evidenceはfocused native 2-call consumer、Node／Chrome memory equivalence、clean
+cancel／watchdog、unchanged 17-threshold browser benchmarkを要求する。詳細は
+[runtime-input-state.md](runtime-input-state.md)と
+[bgi-swap-mouse-button.md](bgi-swap-mouse-button.md)を正とする。
+
 Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
 implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、
 Node／Chrome semantic outcome、Rust／LLVM／v86 identity、next structured stop、memory digest、

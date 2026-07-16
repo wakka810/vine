@@ -142,6 +142,7 @@ enum GenericRuntimeCapability {
     CoInitialize,
     GetSystemDefaultLangId,
     GetDriveTypeA,
+    SwapMouseButton,
 }
 
 struct GenericRuntimeProcess {
@@ -274,6 +275,8 @@ struct GenericRuntimeSessionReady {
     display_profile_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     primary_monitor: Option<RuntimeLogicalMonitor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mouse_button_mapping: Option<vine_core::RuntimeMouseButtonMapping>,
     initial_thread_stack: RuntimeThreadStack,
     initial_stack_address_allocation: vine_core::ProcessAddressAllocationRecord,
     memory: MemoryStats,
@@ -2709,7 +2712,7 @@ fn run_v86_generic_runtime_session(
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
     let endpoint_capability = enabled_capability;
-    let user32_policy = User32CompatibilityPolicy::controlled_v1();
+    let user32_policy = User32CompatibilityPolicy::controlled_v2();
     user32_policy.validate().map_err(api_fault)?;
     if matches!(
         endpoint_capability,
@@ -2718,6 +2721,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CoInitialize
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
+                | GenericRuntimeCapability::SwapMouseButton
         )
     ) {
         process
@@ -2727,6 +2731,21 @@ fn run_v86_generic_runtime_session(
                     "runtime-reentry",
                     "user32-display-profile-missing",
                     "active User32 compatibility policy has no logical display profile",
+                )
+            })?)
+            .map_err(runtime_state_error)?;
+    }
+    if matches!(
+        endpoint_capability,
+        Some(GenericRuntimeCapability::SwapMouseButton)
+    ) {
+        process
+            .runtime
+            .configure_input_profile(user32_policy.input_profile().ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "user32-input-profile-missing",
+                    "active User32 compatibility policy has no logical input profile",
                 )
             })?)
             .map_err(runtime_state_error)?;
@@ -2761,6 +2780,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CoInitialize
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
+                | GenericRuntimeCapability::SwapMouseButton
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2784,6 +2804,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CoInitialize
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
+                | GenericRuntimeCapability::SwapMouseButton
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2825,7 +2846,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::EnumDisplayMonitors
             | GenericRuntimeCapability::CoInitialize
             | GenericRuntimeCapability::GetSystemDefaultLangId
-            | GenericRuntimeCapability::GetDriveTypeA,
+            | GenericRuntimeCapability::GetDriveTypeA
+            | GenericRuntimeCapability::SwapMouseButton,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2982,11 +3004,13 @@ fn run_v86_generic_runtime_session(
                         | GenericRuntimeCapability::CoInitialize
                         | GenericRuntimeCapability::GetSystemDefaultLangId
                         | GenericRuntimeCapability::GetDriveTypeA
+                        | GenericRuntimeCapability::SwapMouseButton
                 )
             )
             .then(|| user32_policy.id.clone()),
             display_profile_id: process.runtime.display_profile_id().map(str::to_owned),
             primary_monitor: process.runtime.primary_monitor().cloned(),
+            mouse_button_mapping: process.runtime.mouse_button_mapping().cloned(),
             initial_thread_stack,
             initial_stack_address_allocation,
             memory: memory.stats(),
@@ -3704,6 +3728,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::CoInitialize
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
+                | GenericRuntimeCapability::SwapMouseButton
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3729,6 +3754,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::CoInitialize
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
+                | GenericRuntimeCapability::SwapMouseButton
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3743,6 +3769,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::CoInitialize
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
+                | GenericRuntimeCapability::SwapMouseButton
         )
     );
     let create_mutex_a_enabled = matches!(
@@ -3756,6 +3783,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::CoInitialize
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
+                | GenericRuntimeCapability::SwapMouseButton
         )
     );
     let get_current_thread_enabled = matches!(
@@ -3768,6 +3796,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::CoInitialize
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
+                | GenericRuntimeCapability::SwapMouseButton
         )
     );
     let set_thread_affinity_mask_enabled = matches!(
@@ -3779,9 +3808,13 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::CoInitialize
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
+                | GenericRuntimeCapability::SwapMouseButton
         )
     );
-    let get_drive_type_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetDriveTypeA));
+    let swap_mouse_button_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::SwapMouseButton));
+    let get_drive_type_a_enabled = swap_mouse_button_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::GetDriveTypeA));
     let get_system_default_lang_id_enabled = get_drive_type_a_enabled
         || matches!(
             enabled,
@@ -3904,7 +3937,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::EnumDisplayMonitors
             | GenericRuntimeCapability::CoInitialize
             | GenericRuntimeCapability::GetSystemDefaultLangId
-            | GenericRuntimeCapability::GetDriveTypeA,
+            | GenericRuntimeCapability::GetDriveTypeA
+            | GenericRuntimeCapability::SwapMouseButton,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -4064,6 +4098,7 @@ fn runtime_capability_enables_endpoint(
         "CoInitialize" => co_initialize_enabled,
         "GetSystemDefaultLangID" => get_system_default_lang_id_enabled,
         "GetDriveTypeA" => get_drive_type_a_enabled,
+        "SwapMouseButton" => swap_mouse_button_enabled,
         _ => true,
     }
 }
@@ -4121,7 +4156,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::EnumDisplayMonitors
             | GenericRuntimeCapability::CoInitialize
             | GenericRuntimeCapability::GetSystemDefaultLangId
-            | GenericRuntimeCapability::GetDriveTypeA,
+            | GenericRuntimeCapability::GetDriveTypeA
+            | GenericRuntimeCapability::SwapMouseButton,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9556,6 +9592,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::GetSystemDefaultLangId
                 }
                 "kernel32-get-drive-type-a" => GenericRuntimeCapability::GetDriveTypeA,
+                "user32-swap-mouse-button" => GenericRuntimeCapability::SwapMouseButton,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

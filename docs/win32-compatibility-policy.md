@@ -5,7 +5,7 @@
 - Status: implemented controlled policy boundary
 - Date: 2026-07-16
 - Semantic authority: Rust `vine-core::win32`／`vine-core::user32`
-- Policy schemas: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）、`vine.user32-compatibility-policy` version `1`
+- Policy schemas: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）、`vine.user32-compatibility-policy` version `2`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -105,14 +105,15 @@ Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
 runtime or memory mutation.
 
-## User32 logical-display policy
+## User32 logical display and input policy
 
 `User32CompatibilityPolicy` is a distinct versioned policy because logical
-display identity and geometry do not belong to Kernel32 process policy. Its
-controlled version enables one profile, `single-monitor-1920x1080-v1`, while
-`runtime/displays.rs::RuntimeDisplays` remains the authoritative owner of the
-configured monitor. The policy neither stores native HMONITOR values nor reads
-DOM／browser screen topology.
+display and input state do not belong to Kernel32 process policy. Version 2
+enables display profile `single-monitor-1920x1080-v1` and input profile
+`normal-mouse-buttons-v1`. `runtime/displays.rs::RuntimeDisplays` owns the
+configured monitor; `runtime/input.rs::RuntimeInput` separately owns initial／
+current mouse-button mapping and its generation. The policy stores neither
+native HMONITOR nor host／browser mouse settings and reads no DOM topology.
 
 The current `EnumDisplayMonitors` variant accepts only NULL HDC and NULL clip,
 invokes one executable stdcall callback with logical handle namespace
@@ -128,6 +129,17 @@ identity is committed before execution and retired only by the exact top frame.
 Node and Worker keep outer call-entry order while nested API traps execute.
 Detailed native, core, Node, Chrome, and performance evidence is in
 [bgi-enum-display-monitors.md](bgi-enum-display-monitors.md).
+
+The `SwapMouseButton` variant accepts the Win32 BOOL domain: zero selects normal
+primary／secondary mapping and nonzero selects swapped mapping. The handler
+returns the previous state, preserves LastError, performs no guest write, and
+commits through the input owner's plan／stale-check boundary. An idempotent call
+does not advance input generation. Policy-disabled, missing-profile, and
+mismatched-profile paths stop before mutation. The controlled initial state is
+false and is not derived from native `SM_SWAPBUTTON` or a browser preference.
+The policy schema is internal typed configuration rather than a persisted user
+format, so version 1 remains historical evidence and has no runtime migration.
+Detailed evidence is in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
 
 ## Semantic tests
 

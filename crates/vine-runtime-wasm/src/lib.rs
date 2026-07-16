@@ -378,7 +378,7 @@ impl BrowserRuntime {
         let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
         let mut process =
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v1();
+        let user32_policy = User32CompatibilityPolicy::controlled_v2();
         user32_policy.validate().map_err(api_fault_string)?;
         process
             .runtime
@@ -386,6 +386,14 @@ impl BrowserRuntime {
                 user32_policy
                     .display_profile()
                     .ok_or_else(|| "active User32 policy has no display profile".to_owned())?,
+            )
+            .map_err(error_string)?;
+        process
+            .runtime
+            .configure_input_profile(
+                user32_policy
+                    .input_profile()
+                    .ok_or_else(|| "active User32 policy has no input profile".to_owned())?,
             )
             .map_err(error_string)?;
         let callback_allocation = control_mapping_allocation(

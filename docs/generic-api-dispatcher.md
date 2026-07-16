@@ -1029,6 +1029,13 @@ Rust thread owner; the Worker forwards an immutable diagnostic snapshot only
 for that completion. Details and bounded non-claims are in
 [bgi-co-initialize.md](bgi-co-initialize.md).
 
+The User32 catalog also exposes `user32.swap-mouse-button.v1`. Its synchronous
+BOOL transition is dispatched through the common frame／completion path, while
+`runtime/input.rs::RuntimeInput` owns profile identity, previous／current mapping,
+and generation. Neither the dispatcher nor the Worker keeps a parallel input
+mapping. The reached two-call normalize／restore sequence and atomic negative
+cases are documented in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -1044,8 +1051,9 @@ for that completion. Details and bounded non-claims are in
   initialization policy, and arbitrary export
   pages are absent. TLS and FLS reads are limited to process allocation and
   selected-thread state already owned by the runtime.
-- Host completion is connected to controlled Worker／browser services; general
-  VFS, input, graphics, audio, and storage adapters remain absent.
+- Host completion is connected to controlled Worker／browser services. Logical
+  mouse-button mapping now has a Rust owner; DOM input delivery, general VFS,
+  graphics, audio, and storage adapters remain absent.
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
   Rust byte authority, automatic v86 writeback, and binary transport are now
   fixed by ADR-003 and the memory-writeback checkpoint.

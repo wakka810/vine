@@ -38,6 +38,9 @@ use super::heaps::{
     RuntimeHeapCreationPlan, RuntimeHeapDestructionPlan, RuntimeHeapFreePlan,
     RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeHeaps,
 };
+use super::input::{
+    RuntimeInput, RuntimeInputProfile, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult,
+};
 use super::messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessages};
 use super::messages::{RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage};
 use super::modules::{
@@ -162,6 +165,7 @@ pub struct RuntimeKernel {
     scheduler: RuntimeScheduler,
     messages: RuntimeMessages,
     displays: RuntimeDisplays,
+    input: RuntimeInput,
     objects: RuntimeObjectTable,
     com: RuntimeCom,
     heaps: RuntimeHeaps,
@@ -238,6 +242,7 @@ struct RuntimeStateSnapshot<'a> {
     scheduler: &'a RuntimeScheduler,
     messages: &'a RuntimeMessages,
     displays: &'a RuntimeDisplays,
+    input: &'a RuntimeInput,
     objects: &'a RuntimeObjectTable,
     #[serde(skip_serializing_if = "Option::is_none")]
     com: Option<&'a RuntimeCom>,
@@ -275,6 +280,7 @@ impl Serialize for RuntimeKernel {
             scheduler: &self.scheduler,
             messages: &self.messages,
             displays: &self.displays,
+            input: &self.input,
             objects: &self.objects,
             com: (!self.com.is_empty()).then_some(&self.com),
             modules: &self.modules,
@@ -369,6 +375,7 @@ impl RuntimeKernel {
             scheduler: RuntimeScheduler::new(bootstrap.initial_thread_id),
             messages: RuntimeMessages::new(bootstrap.initial_thread_id),
             displays: RuntimeDisplays::default(),
+            input: RuntimeInput::default(),
             objects,
             com: RuntimeCom::default(),
             heaps: RuntimeHeaps::default(),
@@ -397,6 +404,26 @@ impl RuntimeKernel {
 
     pub fn primary_monitor(&self) -> Option<&RuntimeLogicalMonitor> {
         self.displays.primary_monitor()
+    }
+
+    pub fn configure_input_profile(
+        &mut self,
+        profile: RuntimeInputProfile,
+    ) -> Result<(), RuntimeStateError> {
+        let plan = self.input.plan_configuration(profile)?;
+        self.input.commit_configuration(plan)
+    }
+
+    pub fn mouse_button_mapping(&self) -> Option<&RuntimeMouseButtonMapping> {
+        self.input.mouse_button_mapping()
+    }
+
+    pub fn swap_mouse_buttons(
+        &mut self,
+        swapped: bool,
+    ) -> Result<RuntimeSwapMouseButtonResult, RuntimeStateError> {
+        let plan = self.input.plan_mouse_button_swap(swapped)?;
+        self.input.commit_mouse_button_swap(plan)
     }
 
     pub fn process(&self) -> RuntimeProcessView<'_> {

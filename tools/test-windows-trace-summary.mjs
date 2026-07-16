@@ -732,6 +732,13 @@ driveTypeSelection.find(
 ).selectedObservations = ["drive-type"];
 assert.doesNotThrow(() => summarizeTrace(encode(driveTypeSelection)));
 
+const swapMouseButtonSelection = structuredClone(events);
+swapMouseButtonSelection[0].arguments.observations = ["swap-mouse-button"];
+swapMouseButtonSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["swap-mouse-button"];
+assert.doesNotThrow(() => summarizeTrace(encode(swapMouseButtonSelection)));
+
 const getCpInfoSelection = structuredClone(events);
 getCpInfoSelection[0].arguments.observations = ["get-cp-info"];
 getCpInfoSelection.find(

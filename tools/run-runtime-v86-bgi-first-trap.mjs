@@ -100,6 +100,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "ole32-co-initialize",
         "kernel32-get-system-default-lang-id",
         "kernel32-get-drive-type-a",
+        "user32-swap-mouse-button",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -126,6 +127,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "user32-swap-mouse-button" ||
     genericRuntimeCapability === "kernel32-get-drive-type-a"
       ? "kernel32-get-drive-type-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-system-default-lang-id"
@@ -232,7 +234,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const getDriveTypeAEnabled = genericRuntimeCapability === "kernel32-get-drive-type-a";
+const swapMouseButtonEnabled = genericRuntimeCapability === "user32-swap-mouse-button";
+const getDriveTypeAEnabled =
+  swapMouseButtonEnabled || genericRuntimeCapability === "kernel32-get-drive-type-a";
 const getSystemDefaultLangIdEnabled =
   getDriveTypeAEnabled || genericRuntimeCapability === "kernel32-get-system-default-lang-id";
 const coInitializeEnabled =
@@ -366,7 +370,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getDriveTypeAEnabled
+      ? swapMouseButtonEnabled
+        ? "v86-bgi-swap-mouse-button"
+      : getDriveTypeAEnabled
         ? "v86-bgi-get-drive-type-a"
         : getSystemDefaultLangIdEnabled
         ? "v86-bgi-get-system-default-lang-id"
@@ -4248,6 +4254,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (swapMouseButtonEnabled) {
+        validateSwapMouseButtonResult(genericResult);
       } else if (getDriveTypeAEnabled) {
         validateGetDriveTypeAResult(genericResult);
       } else if (getSystemDefaultLangIdEnabled) {
@@ -4347,6 +4355,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : swapMouseButtonEnabled
+            ? "bgi SwapMouseButton"
           : getDriveTypeAEnabled
             ? "bgi GetDriveTypeA"
           : getSystemDefaultLangIdEnabled
@@ -5175,6 +5185,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : swapMouseButtonEnabled
+          ? 41
         : getDriveTypeAEnabled
           ? 40
         : getSystemDefaultLangIdEnabled
@@ -5263,7 +5275,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-1920x1080-v1",
+      "user32-single-monitor-normal-mouse-v2",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -5272,10 +5284,21 @@ function validateGenericRuntimeReady(ready, offer) {
       primary: true,
       rect: { left: 0, top: 0, right: 1920, bottom: 1080 },
     });
+    if (swapMouseButtonEnabled) {
+      assert.deepEqual(ready.mouseButtonMapping, {
+        profileId: "normal-mouse-buttons-v1",
+        initialSwapped: false,
+        swapped: false,
+        generation: 0,
+      });
+    } else {
+      assert.equal(ready.mouseButtonMapping, undefined);
+    }
   } else {
     assert.equal(ready.user32CompatibilityPolicyId, undefined);
     assert.equal(ready.displayProfileId, undefined);
     assert.equal(ready.primaryMonitor, undefined);
+    assert.equal(ready.mouseButtonMapping, undefined);
   }
   assert.equal(ready.initialThreadStack.threadId, ready.currentThreadId);
   assert.equal(ready.initialThreadStack.memoryOwner, expected.stack.owner);
@@ -9103,6 +9126,87 @@ function validateGetDriveTypeAResult(result) {
   assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0]);
 }
 
+function validateSwapMouseButtonResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 1333);
+  assert.equal(result.writebacks.length, 1339);
+  assert.equal(
+    result.writebacks.reduce((total, writeback) => total + writeback.dirtyPages.length, 0),
+    2530,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    8967,
+  );
+  assert.equal(result.hostDeltas.length, 82);
+  assert.equal(result.finalGeneration, 1450);
+  const calls = result.supportedCalls.filter(
+    ({ module, symbol }) =>
+      module.toLowerCase() === "user32.dll" && symbol === "SwapMouseButton",
+  );
+  assert.equal(calls.length, 2);
+  for (const [index, call] of calls.entries()) {
+    assert.equal(call.sequence, 1322 + index);
+    assert.equal(call.occurrence, index + 1);
+    assert.equal(call.trapInstructionCount, index === 0 ? 46215 : 46219);
+    assert.deepEqual(call.arguments, [0]);
+    assert.deepEqual(call.result, { action: "set", value: 0 });
+    assert.equal(call.implementationId, "user32.swap-mouse-button.v1");
+    assert.equal(call.returnAddress, index === 0 ? 0x10088a3b : 0x10088a43);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+  }
+  const followups = result.supportedCalls.slice(1323).map(
+    ({ sequence, symbol, trapInstructionCount, returnAddress }) => ({
+      sequence,
+      symbol,
+      trapInstructionCount,
+      returnAddress,
+    }),
+  );
+  assert.deepEqual(followups, [
+    { sequence: 1324, symbol: "GetLastError", trapInstructionCount: 46301, returnAddress: 0x100a55dd },
+    { sequence: 1325, symbol: "TlsGetValue", trapInstructionCount: 46309, returnAddress: 0x100a54a0 },
+    { sequence: 1326, symbol: "FlsGetValue", trapInstructionCount: 46317, returnAddress: 0x100a55ec },
+    { sequence: 1327, symbol: "SetLastError", trapInstructionCount: 46323, returnAddress: 0x100a5647 },
+    { sequence: 1328, symbol: "GetLastError", trapInstructionCount: 46361, returnAddress: 0x100a55dd },
+    { sequence: 1329, symbol: "TlsGetValue", trapInstructionCount: 46369, returnAddress: 0x100a54a0 },
+    { sequence: 1330, symbol: "FlsGetValue", trapInstructionCount: 46377, returnAddress: 0x100a55ec },
+    { sequence: 1331, symbol: "SetLastError", trapInstructionCount: 46383, returnAddress: 0x100a5647 },
+    { sequence: 1332, symbol: "InitializeCriticalSection", trapInstructionCount: 49719, returnAddress: 0x1009105b },
+    { sequence: 1333, symbol: "InitializeCriticalSection", trapInstructionCount: 49725, returnAddress: 0x1006697b },
+  ]);
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "winmm-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 3);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f000020);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "winmm.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "timeGetDevCaps",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d14d0);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "f6030b2d43bbbc6fe43a2ede52b1ecc6e4962822e39235032f25ca560a58d0e4",
+  );
+  assert.equal(result.terminal.instructionCount, 49731);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 3);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f000020);
+  assert.equal(result.terminal.terminal.thunk.name, "timeGetDevCaps");
+  assert.equal(result.terminal.terminal.returnAddress, 0x10091e6d);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 3),
+    [0x1014c8e8, 8],
+  );
+}
+
 function validateGetSystemInfoResult(result) {
   const expected = getSystemInfoExpected;
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
@@ -10055,6 +10159,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : swapMouseButtonEnabled
+          ? "vine.v86-bgi-swap-mouse-button"
         : getDriveTypeAEnabled
           ? "vine.v86-bgi-get-drive-type-a"
         : getSystemDefaultLangIdEnabled

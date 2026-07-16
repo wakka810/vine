@@ -95,6 +95,14 @@ let driveTypeOracleLastError = null;
 let driveTypeConsumerRecorded = false;
 let driveTypeScanCompletionRecorded = false;
 let driveTypeMainModuleCallCount = 0;
+let swapMouseButtonStateScheduled = false;
+let swapMouseButtonInitialState = null;
+let swapMouseButtonGetSystemMetrics = null;
+let swapMouseButtonRestore = null;
+let swapMouseButtonRestoreActive = false;
+let swapMouseButtonConsumerRecorded = false;
+let swapMouseButtonCompletionRecorded = false;
+const swapMouseButtonMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -2072,6 +2080,9 @@ if (selectedObservations.has("enum-display-monitors")) {
     [null, null, null, null],
   ]);
 }
+if (selectedObservations.has("swap-mouse-button")) {
+  hooks["user32.dll"].push(["SwapMouseButton", [null]]);
+}
 if (selectedObservations.has("com-initialization")) {
   hooks["ole32.dll"].push(["CoUninitialize", []]);
 }
@@ -2342,6 +2353,13 @@ function attachHook(module, name, decoders) {
         (isMainModuleCaller ||
           (caller.module.toLowerCase() === "frida-agent.dll" &&
             enumDisplayMonitorsOracleSentinel !== null));
+      const focusedSwapMouseButtonObservation =
+        selectedObservations.has("swap-mouse-button") &&
+        name === "SwapMouseButton" &&
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            swapMouseButtonRestoreActive));
       const focusedUnhandledExceptionFilterObservation =
         selectedObservations.has("unhandled-exception-filter") &&
         name === "SetUnhandledExceptionFilter" &&
@@ -2472,6 +2490,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("enum-display-monitors") &&
         name === "EnumDisplayMonitors" &&
         !focusedEnumDisplayMonitorsObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("swap-mouse-button") &&
+        name === "SwapMouseButton" &&
+        !focusedSwapMouseButtonObservation
       ) {
         this.traceFrame = null;
         return;
@@ -3029,6 +3055,37 @@ function attachHook(module, name, decoders) {
       if (this.traceEnumDisplayMonitors !== null) {
         attachEnumDisplayMonitorCallback(args[2]);
       }
+      const recordsSwapMouseButtonConsumer =
+        focusedSwapMouseButtonObservation &&
+        isMainModuleCaller &&
+        !swapMouseButtonConsumerRecorded;
+      if (recordsSwapMouseButtonConsumer) {
+        swapMouseButtonConsumerRecorded = true;
+      }
+      this.traceSwapMouseButton = focusedSwapMouseButtonObservation
+        ? {
+            swap: args[0].toUInt32(),
+            stateBefore:
+              swapMouseButtonGetSystemMetrics === null
+                ? null
+                : swapMouseButtonGetSystemMetrics(23) !== 0,
+            immediateConsumer: recordsSwapMouseButtonConsumer
+              ? {
+                  apiContinuation: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    24,
+                  ),
+                  frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                    this.context,
+                    4,
+                    16,
+                  ),
+                }
+              : null,
+          }
+        : null;
+      this.traceSwapMouseButtonMainModuleCaller =
+        this.traceSwapMouseButton !== null && isMainModuleCaller;
       const tracesComInitialization =
         selectedObservations.has("com-initialization") &&
         (name === "CoInitialize" ||
@@ -3149,6 +3206,11 @@ function attachHook(module, name, decoders) {
                 immediateConsumer:
                   this.traceEnumDisplayMonitors.immediateConsumer,
               },
+            }
+        : this.traceSwapMouseButton !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              swapMouseButton: this.traceSwapMouseButton,
             }
         : this.traceComInitialization !== null
           ? {
@@ -3758,6 +3820,18 @@ function attachHook(module, name, decoders) {
                 callbacks: this.traceEnumDisplayMonitors.callbacks,
               },
             }),
+        ...(this.traceSwapMouseButton === null
+          ? {}
+          : {
+              swapMouseButton: {
+                ...this.traceSwapMouseButton,
+                result: result.toUInt32(),
+                stateAfter:
+                  swapMouseButtonGetSystemMetrics === null
+                    ? null
+                    : swapMouseButtonGetSystemMetrics(23) !== 0,
+              },
+            }),
         ...(this.traceComInitialization === null
           ? {}
           : {
@@ -3788,6 +3862,32 @@ function attachHook(module, name, decoders) {
         },
         lastError,
       );
+      if (
+        this.traceSwapMouseButton !== null &&
+        this.traceSwapMouseButtonMainModuleCaller &&
+        !swapMouseButtonCompletionRecorded
+      ) {
+        swapMouseButtonMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          argument: this.traceSwapMouseButton.swap,
+          stateBefore: this.traceSwapMouseButton.stateBefore,
+          result: result.toUInt32(),
+          lastError: Number(lastError) >>> 0,
+          stateAfter:
+            swapMouseButtonGetSystemMetrics === null
+              ? null
+              : swapMouseButtonGetSystemMetrics(23) !== 0,
+        });
+        if (swapMouseButtonMainModuleCalls.length === 2) {
+          swapMouseButtonCompletionRecorded = true;
+          const calls = swapMouseButtonMainModuleCalls.map((call) => ({
+            ...call,
+          }));
+          setImmediate(() => {
+            completeSwapMouseButtonObservation(calls);
+          });
+        }
+      }
       if (
         this.traceDriveType !== null &&
         this.traceDriveTypeMainModuleCaller
@@ -5704,6 +5804,89 @@ function scheduleDriveTypeOracle(module) {
   });
 }
 
+function scheduleSwapMouseButtonStateObserver(module) {
+  if (swapMouseButtonStateScheduled) {
+    return;
+  }
+  swapMouseButtonStateScheduled = true;
+  setImmediate(() => {
+    try {
+      const swapAddress = findExport(module, "SwapMouseButton");
+      const metricsAddress = findExport(module, "GetSystemMetrics");
+      if (swapAddress === null || metricsAddress === null) {
+        throw new Error("SwapMouseButton state-observer exports are unavailable");
+      }
+      swapMouseButtonGetSystemMetrics = new NativeFunction(
+        metricsAddress,
+        "int32",
+        ["int32"],
+        "stdcall",
+      );
+      swapMouseButtonRestore = new SystemFunction(
+        swapAddress,
+        "uint32",
+        ["uint32"],
+        "stdcall",
+      );
+      swapMouseButtonInitialState = swapMouseButtonGetSystemMetrics(23) !== 0;
+      emit("swap-mouse-button-initial-state", {
+        profile: "x86-process-observed-system-button-mapping-v1",
+        swapped: swapMouseButtonInitialState,
+      });
+    } catch (error) {
+      emit("swap-mouse-button-state-observer-error", { error: error.message });
+    }
+  });
+}
+
+function completeSwapMouseButtonObservation(calls) {
+  try {
+    if (
+      swapMouseButtonInitialState === null ||
+      swapMouseButtonGetSystemMetrics === null ||
+      swapMouseButtonRestore === null
+    ) {
+      throw new Error("SwapMouseButton initial state was not captured before the BGI call");
+    }
+    if (calls.length !== 2) {
+      throw new Error("SwapMouseButton completion requires the two BGI calls");
+    }
+    const stateAfter = calls[1].stateAfter;
+    let restoration = null;
+    if (stateAfter !== swapMouseButtonInitialState) {
+      swapMouseButtonRestoreActive = true;
+      try {
+        const outcome = swapMouseButtonRestore(
+          swapMouseButtonInitialState ? 1 : 0,
+        );
+        restoration = {
+          requestedState: swapMouseButtonInitialState,
+          result: Number(outcome.value) >>> 0,
+          lastError: Number(outcome.lastError) >>> 0,
+        };
+      } finally {
+        swapMouseButtonRestoreActive = false;
+      }
+    }
+    const finalState = swapMouseButtonGetSystemMetrics(23) !== 0;
+    emit("swap-mouse-button-complete", {
+      profile: "x86-bgi-normal-button-mapping-v1",
+      initialState: swapMouseButtonInitialState,
+      calls,
+      firstResultRestoredBySecondArgument:
+        calls[1].argument === calls[0].result,
+      restoration,
+      finalState,
+      restored: finalState === swapMouseButtonInitialState,
+    });
+    if (stopOnEvent === "swap-mouse-button-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  } catch (error) {
+    emit("swap-mouse-button-completion-error", { error: error.message, calls });
+  }
+}
+
 function scheduleGetCpInfoOracle(module) {
   if (getCpInfoOracleScheduled) {
     return;
@@ -7236,6 +7419,12 @@ Process.attachModuleObserver({
       selectedObservations.has("enum-display-monitors")
     ) {
       scheduleEnumDisplayMonitorsOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("swap-mouse-button")
+    ) {
+      scheduleSwapMouseButtonStateObserver(module);
     }
     if (
       module.name.toLowerCase() === "ole32.dll" &&

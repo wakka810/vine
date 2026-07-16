@@ -169,6 +169,7 @@ async function runBenchmark(): Promise<void> {
         writebackPages: report.writebackPages,
         finalGeneration: report.finalGeneration,
       });
+      releaseCompletedSessionPayload(report);
       nextSessionId += 1;
       await delay(20);
     }
@@ -199,6 +200,15 @@ async function runBenchmark(): Promise<void> {
     window.clearInterval(memorySampler);
     worker.terminate();
   }
+}
+
+function releaseCompletedSessionPayload(report: SessionReport): void {
+  report.supportedCalls.length = 0;
+  report.stackGrowths.length = 0;
+  report.registeredThreadIds.length = 0;
+  report.executedThreadIds.length = 0;
+  report.hostWaitExecutions.length = 0;
+  report.threadExits.length = 0;
 }
 
 function runSession(sessionId: number): Promise<SessionReport> {

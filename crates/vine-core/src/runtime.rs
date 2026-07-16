@@ -8,6 +8,7 @@ mod address_space;
 mod com;
 mod displays;
 mod heaps;
+mod input;
 mod kernel;
 mod messages;
 mod modules;
@@ -46,6 +47,7 @@ pub use heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationId, RuntimeHeapBacking,
     RuntimeHeapInitialization, RuntimeHeapTeardown,
 };
+pub use input::{RuntimeInputProfile, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult};
 pub use kernel::*;
 pub use messages::{
     RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage,

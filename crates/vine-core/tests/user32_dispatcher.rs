@@ -6,9 +6,9 @@ use vine_core::{
     MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
     RUNTIME_PRIMARY_MONITOR_HANDLE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
     RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeDisplayProfile,
-    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect, RuntimeStartupInfo, RuntimeState,
-    RuntimeThreadId, StackCleanup, User32CompatibilityPolicy, dispatch_user32_api_with_policy,
-    enum_display_monitors_contract,
+    RuntimeInputProfile, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, StackCleanup, User32CompatibilityPolicy,
+    dispatch_user32_api_with_policy, enum_display_monitors_contract, swap_mouse_button_contract,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -19,6 +19,10 @@ const CALLBACK_TARGET: GuestAddress = GuestAddress(0x2000_2100);
 const CALLBACK_SENTINEL: GuestAddress = GuestAddress(0x2000_2110);
 const ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0bc0);
 const RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_a781);
+const SWAP_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a50);
+const SWAP_FIRST_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a3b);
+const SWAP_SECOND_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a43);
+const SWAP_SECOND_STACK_POINTER: u32 = STACK_POINTER + 0x20;
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
 const INITIAL_LAST_ERROR: u32 = 0x1234_5678;
@@ -86,7 +90,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v1();
+        let policy = User32CompatibilityPolicy::controlled_v2();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -110,6 +114,101 @@ impl EnumFixture {
                 endpoint_address: self.endpoint.address,
                 stack_pointer: GuestAddress(self.stack_pointer),
                 return_address: RETURN_ADDRESS,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_user32_api_with_policy(
+                    &self.policy,
+                    CALLBACK_SENTINEL,
+                    contract,
+                    frame,
+                    session,
+                )
+            },
+        )
+    }
+}
+
+struct SwapFixture {
+    memory: GuestMemory,
+    runtime: RuntimeState,
+    dispatcher: ApiDispatcher,
+    endpoint: ApiEndpointIdentity,
+    policy: User32CompatibilityPolicy,
+}
+
+impl SwapFixture {
+    fn new(initial_swapped: bool) -> Self {
+        let (mut memory, owner) = initialized_memory();
+        let thunk = ImportThunk {
+            id: ImportThunkId(166),
+            address: SWAP_ENDPOINT_ADDRESS,
+            requester_owner: owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1370),
+            iat_address: IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "SwapMouseButton".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        };
+        memory
+            .write_initialization(owner, IAT_ADDRESS, &SWAP_ENDPOINT_ADDRESS.0.to_le_bytes())
+            .expect("initialize SwapMouseButton IAT");
+        write_words(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_POINTER),
+            &[SWAP_FIRST_RETURN_ADDRESS.0, 0],
+        );
+        write_words(
+            &mut memory,
+            owner,
+            GuestAddress(SWAP_SECOND_STACK_POINTER),
+            &[SWAP_SECOND_RETURN_ADDRESS.0, u32::from(initial_swapped)],
+        );
+        memory.seal_owner(owner).expect("seal User32 fixture owner");
+        let reflection = memory.pending_reflection().expect("initial reflection");
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .expect("acknowledge initial reflection");
+
+        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
+        let contract =
+            swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
+        let dispatcher =
+            ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
+        let mut policy = User32CompatibilityPolicy::controlled_v2();
+        policy
+            .swap_mouse_button
+            .as_mut()
+            .expect("input profile")
+            .initial_mouse_buttons_swapped = initial_swapped;
+        let mut runtime = controlled_runtime();
+        runtime
+            .configure_input_profile(policy.input_profile().expect("input profile"))
+            .expect("configure logical input");
+
+        Self {
+            memory,
+            runtime,
+            dispatcher,
+            endpoint,
+            policy,
+        }
+    }
+
+    fn dispatch(&mut self, stack_pointer: u32, return_address: GuestAddress) -> DispatchOutcome {
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        self.dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: self.endpoint.id,
+                endpoint_address: self.endpoint.address,
+                stack_pointer: GuestAddress(stack_pointer),
+                return_address,
             },
             &mut session,
             |contract, frame, session| {
@@ -151,6 +250,130 @@ fn enum_display_monitors_contract_is_bounded_stdcall_callback() {
     assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
     assert_eq!(contract.callback_policy, CallbackPolicy::Required);
+}
+
+#[test]
+fn swap_mouse_button_contract_is_immediate_bool_stdcall() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(166),
+        address: SWAP_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1370),
+        iat_address: IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SwapMouseButton".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = swap_mouse_button_contract(endpoint).expect("contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn swap_mouse_button_returns_previous_mapping_and_bgi_pair_restores_initial_state() {
+    for initial_swapped in [false, true] {
+        let mut fixture = SwapFixture::new(initial_swapped);
+        let memory_generation = fixture.memory.stats().generation;
+        let first = match fixture.dispatch(STACK_POINTER, SWAP_FIRST_RETURN_ADDRESS) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected first immediate completion, got {other:?}"),
+        };
+        assert_eq!(first.eax, RegisterUpdate::Set(u32::from(initial_swapped)));
+        assert_eq!(first.stack_pointer, GuestAddress(STACK_POINTER + 8));
+        assert_eq!(first.instruction_pointer, SWAP_FIRST_RETURN_ADDRESS);
+        assert_eq!(first.last_error, INITIAL_LAST_ERROR);
+        assert!(first.guest_writes.is_empty());
+        let after_first = fixture
+            .runtime
+            .mouse_button_mapping()
+            .expect("configured mapping");
+        assert!(!after_first.swapped);
+        assert_eq!(after_first.generation, u64::from(initial_swapped));
+
+        let second = match fixture.dispatch(SWAP_SECOND_STACK_POINTER, SWAP_SECOND_RETURN_ADDRESS) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected second immediate completion, got {other:?}"),
+        };
+        assert_eq!(second.eax, RegisterUpdate::Set(0));
+        assert_eq!(
+            second.stack_pointer,
+            GuestAddress(SWAP_SECOND_STACK_POINTER + 8)
+        );
+        assert_eq!(second.instruction_pointer, SWAP_SECOND_RETURN_ADDRESS);
+        assert_eq!(second.last_error, INITIAL_LAST_ERROR);
+        assert!(second.guest_writes.is_empty());
+        let final_mapping = fixture
+            .runtime
+            .mouse_button_mapping()
+            .expect("configured mapping");
+        assert_eq!(final_mapping.swapped, initial_swapped);
+        assert_eq!(
+            final_mapping.generation,
+            if initial_swapped { 2 } else { 0 }
+        );
+        assert_eq!(fixture.memory.stats().generation, memory_generation);
+    }
+}
+
+#[test]
+fn swap_mouse_button_policy_and_authority_failures_are_atomic() {
+    let mut disabled = SwapFixture::new(false);
+    disabled.policy.swap_mouse_button = None;
+    let mapping_before = disabled.runtime.mouse_button_mapping().cloned();
+    let memory_generation = disabled.memory.stats().generation;
+    let fault = match disabled.dispatch(STACK_POINTER, SWAP_FIRST_RETURN_ADDRESS) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled-policy fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "swap-mouse-button-policy-disabled");
+    assert_eq!(
+        disabled.runtime.mouse_button_mapping(),
+        mapping_before.as_ref()
+    );
+    assert_eq!(disabled.memory.stats().generation, memory_generation);
+
+    let mut missing = SwapFixture::new(false);
+    missing.runtime = controlled_runtime();
+    let fault = match missing.dispatch(STACK_POINTER, SWAP_FIRST_RETURN_ADDRESS) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected missing-authority fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(fault.code, "logical-mouse-button-profile-missing");
+    assert!(missing.runtime.mouse_button_mapping().is_none());
+
+    let mut mismatch = SwapFixture::new(false);
+    mismatch.runtime = controlled_runtime();
+    mismatch
+        .runtime
+        .configure_input_profile(RuntimeInputProfile {
+            id: "different-input-profile-v1".to_owned(),
+            initial_mouse_buttons_swapped: false,
+        })
+        .expect("configure mismatched input");
+    let mapping_before = mismatch.runtime.mouse_button_mapping().cloned();
+    let fault = match mismatch.dispatch(STACK_POINTER, SWAP_FIRST_RETURN_ADDRESS) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected profile-mismatch fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(fault.code, "logical-mouse-button-profile-mismatch");
+    assert_eq!(
+        mismatch.runtime.mouse_button_mapping(),
+        mapping_before.as_ref()
+    );
 }
 
 #[test]

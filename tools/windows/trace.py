@@ -44,6 +44,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-acp",
     "system-default-lang-id",
     "drive-type",
+    "swap-mouse-button",
     "get-cp-info",
     "processor-feature",
     "unhandled-exception-filter",

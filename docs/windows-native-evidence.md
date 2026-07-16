@@ -2506,3 +2506,25 @@ generation `3,316`、terminal pending work 0を通す。Instruction `46215`でID
 `070ccf6100b1a0537a43fa250942b23f9e293cad712d78b1d2a3c9d9a3ad0433`である。3分gateは193
 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-get-drive-type-a.md](bgi-get-drive-type-a.md)を正とする。
+
+## 92. BGI mouse-button mapping restore
+
+Focused `swap-mouse-button` capturesは31,879 bytes／72 lines／SHA-256
+`eca20bd9a661ffd1b04b9dad776711c38002f18ab130e65c166fd58d4033d459`と
+31,930 bytes／72 lines／SHA-256
+`1dea669569a73ddc7eb5a9cf49068114865bf206c905204cec6733071f630a34`
+である。両方9 API pairsはbalanced、agent sequenceはcontiguous、diagnosticsはzeroである。
+
+BGIはRVA `0x88A3B`へreturnする`SwapMouseButton(FALSE)`のEAXをprocess globalへ保存し、
+同じ値を直後のsecond callへ渡してRVA `0x88A43`へreturnする。Accepted hostはinitial／final
+ともunswappedでarguments／resultsは`[0,0]`、LastErrorも`[0,0]`だった。Observerは最初の
+native mappingをevidence metadataとして読み、2 calls完了後に同じstateへ戻ったことを確認してから
+captureを停止する。Host mapping値はruntimeへimportしない。
+
+Rust `RuntimeInput`はprofile、initial／current mapping、generationを所有し、User32 handlerは
+previous BOOLを返す。Nodeは54 contracts／1,333 calls、generation 1,450まで進み、Chromeもsame
+memory SHA-256
+`f6030b2d43bbbc6fe43a2ede52b1ecc6e4962822e39235032f25ca560a58d0e4`
+を再現する。Instruction `49731`でID `3`／
+`WINMM.dll!timeGetDevCaps(0x1014C8E8,8)`へstructured stopする。詳細は
+[bgi-swap-mouse-button.md](bgi-swap-mouse-button.md)を正とする。

@@ -539,6 +539,33 @@ assert.ok(
   ),
 );
 
+const browserOwnedMouseMapping = structuredClone(manifest);
+browserOwnedMouseMapping.activeRuntimeCheckpoint.user32CompatibilityPolicy.browserMouseButtonMappingImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedMouseMapping).some((error) =>
+    error.includes("User32 compatibility policy boundary"),
+  ),
+);
+
+const duplicateMouseMappingAuthority = structuredClone(manifest);
+duplicateMouseMappingAuthority.activeRuntimeCheckpoint.user32CompatibilityPolicy.logicalInputAuthority =
+  "browser/runtime-worker/runtime-worker.ts";
+assert.ok(
+  validateCurrentCheckpoint(duplicateMouseMappingAuthority).some((error) =>
+    error.includes("User32 compatibility policy boundary"),
+  ),
+);
+
+const hostOwnedMouseMappingEvidence = structuredClone(manifest);
+hostOwnedMouseMappingEvidence.activeRuntimeCheckpoint.latestEvidence.swapMouseButtonHostStateImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(hostOwnedMouseMappingEvidence).some((error) =>
+    error.includes("mouse-button mapping authority evidence"),
+  ),
+);
+
 const staleThreadRegistryShape = structuredClone(manifest);
 staleThreadRegistryShape.activeRuntimeCheckpoint.runtimeThreadRegistry.schema =
   "vine.runtime-thread-registry.v4";
