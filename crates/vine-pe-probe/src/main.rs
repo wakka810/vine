@@ -30,14 +30,14 @@ use vine_core::{
     RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo,
     RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack,
     RuntimeThreadStackGrowth, RuntimeTlsValue, SchedulerThreadState, UnsupportedPoint,
-    User32CompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
-    dispatch_ole32_api, dispatch_user32_api_with_policy, encode_pointer_contract,
-    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
-    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
-    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
-    install_callback_return_sentinel, install_controlled_initial_stack,
-    install_controlled_process_environment,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
+    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -45,7 +45,7 @@ use vine_core::{
     install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
     kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
     query_performance_counter_contract, tls_alloc_contract, tls_set_value_contract,
-    user32_contract_for_endpoint,
+    user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 #[derive(Debug)]
@@ -143,6 +143,7 @@ enum GenericRuntimeCapability {
     GetSystemDefaultLangId,
     GetDriveTypeA,
     SwapMouseButton,
+    TimeGetDevCaps,
 }
 
 struct GenericRuntimeProcess {
@@ -271,6 +272,8 @@ struct GenericRuntimeSessionReady {
     dynamic_export_endpoints: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     user32_compatibility_policy_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    winmm_compatibility_policy_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_profile_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2700,7 +2703,10 @@ fn generic_runtime_contract_for_endpoint(
     if let Some(contract) = user32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
-    ole32_contract_for_endpoint(endpoint).map_err(api_fault)
+    if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
+    winmm_contract_for_endpoint(endpoint).map_err(api_fault)
 }
 
 fn run_v86_generic_runtime_session(
@@ -2714,6 +2720,8 @@ fn run_v86_generic_runtime_session(
     let endpoint_capability = enabled_capability;
     let user32_policy = User32CompatibilityPolicy::controlled_v2();
     user32_policy.validate().map_err(api_fault)?;
+    let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
+    winmm_policy.validate().map_err(api_fault)?;
     if matches!(
         endpoint_capability,
         Some(
@@ -2722,6 +2730,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
         )
     ) {
         process
@@ -2737,7 +2746,7 @@ fn run_v86_generic_runtime_session(
     }
     if matches!(
         endpoint_capability,
-        Some(GenericRuntimeCapability::SwapMouseButton)
+        Some(GenericRuntimeCapability::SwapMouseButton | GenericRuntimeCapability::TimeGetDevCaps)
     ) {
         process
             .runtime
@@ -2781,6 +2790,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2805,6 +2815,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2847,7 +2858,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::CoInitialize
             | GenericRuntimeCapability::GetSystemDefaultLangId
             | GenericRuntimeCapability::GetDriveTypeA
-            | GenericRuntimeCapability::SwapMouseButton,
+            | GenericRuntimeCapability::SwapMouseButton
+            | GenericRuntimeCapability::TimeGetDevCaps,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3005,9 +3017,15 @@ fn run_v86_generic_runtime_session(
                         | GenericRuntimeCapability::GetSystemDefaultLangId
                         | GenericRuntimeCapability::GetDriveTypeA
                         | GenericRuntimeCapability::SwapMouseButton
+                        | GenericRuntimeCapability::TimeGetDevCaps
                 )
             )
             .then(|| user32_policy.id.clone()),
+            winmm_compatibility_policy_id: matches!(
+                endpoint_capability,
+                Some(GenericRuntimeCapability::TimeGetDevCaps)
+            )
+            .then(|| winmm_policy.id.clone()),
             display_profile_id: process.runtime.display_profile_id().map(str::to_owned),
             primary_monitor: process.runtime.primary_monitor().cloned(),
             mouse_button_mapping: process.runtime.mouse_button_mapping().cloned(),
@@ -3310,6 +3328,8 @@ fn run_v86_generic_runtime_session(
                             )
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
+                            dispatch_winmm_api_with_policy(&winmm_policy, contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 &kernel32_policy,
@@ -3729,6 +3749,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3755,6 +3776,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3770,6 +3792,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
         )
     );
     let create_mutex_a_enabled = matches!(
@@ -3784,6 +3807,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
         )
     );
     let get_current_thread_enabled = matches!(
@@ -3797,6 +3821,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
         )
     );
     let set_thread_affinity_mask_enabled = matches!(
@@ -3809,10 +3834,13 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemDefaultLangId
                 | GenericRuntimeCapability::GetDriveTypeA
                 | GenericRuntimeCapability::SwapMouseButton
+                | GenericRuntimeCapability::TimeGetDevCaps
         )
     );
-    let swap_mouse_button_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::SwapMouseButton));
+    let time_get_dev_caps_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::TimeGetDevCaps));
+    let swap_mouse_button_enabled = time_get_dev_caps_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::SwapMouseButton));
     let get_drive_type_a_enabled = swap_mouse_button_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::GetDriveTypeA));
     let get_system_default_lang_id_enabled = get_drive_type_a_enabled
@@ -3938,7 +3966,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::CoInitialize
             | GenericRuntimeCapability::GetSystemDefaultLangId
             | GenericRuntimeCapability::GetDriveTypeA
-            | GenericRuntimeCapability::SwapMouseButton,
+            | GenericRuntimeCapability::SwapMouseButton
+            | GenericRuntimeCapability::TimeGetDevCaps,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -4099,6 +4128,7 @@ fn runtime_capability_enables_endpoint(
         "GetSystemDefaultLangID" => get_system_default_lang_id_enabled,
         "GetDriveTypeA" => get_drive_type_a_enabled,
         "SwapMouseButton" => swap_mouse_button_enabled,
+        "timeGetDevCaps" => time_get_dev_caps_enabled,
         _ => true,
     }
 }
@@ -4157,7 +4187,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::CoInitialize
             | GenericRuntimeCapability::GetSystemDefaultLangId
             | GenericRuntimeCapability::GetDriveTypeA
-            | GenericRuntimeCapability::SwapMouseButton,
+            | GenericRuntimeCapability::SwapMouseButton
+            | GenericRuntimeCapability::TimeGetDevCaps,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9593,6 +9624,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "kernel32-get-drive-type-a" => GenericRuntimeCapability::GetDriveTypeA,
                 "user32-swap-mouse-button" => GenericRuntimeCapability::SwapMouseButton,
+                "winmm-time-get-dev-caps" => GenericRuntimeCapability::TimeGetDevCaps,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

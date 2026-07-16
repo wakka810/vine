@@ -103,6 +103,15 @@ let swapMouseButtonRestoreActive = false;
 let swapMouseButtonConsumerRecorded = false;
 let swapMouseButtonCompletionRecorded = false;
 const swapMouseButtonMainModuleCalls = [];
+let timeGetDevCapsOracleScheduled = false;
+let timeGetDevCapsOracleCall = null;
+let timeGetDevCapsOracleComplete = false;
+let timeGetDevCapsOracleEvidence = null;
+let timeGetDevCapsConsumerRecorded = false;
+let timeGetDevCapsCompletionRecorded = false;
+let timeGetDevCapsDrainCheckScheduled = false;
+const timeGetDevCapsMainModuleCalls = [];
+const timePeriodMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -713,6 +722,36 @@ function snapshotSystemInfo(pointer) {
   } catch (error) {
     return {
       profile: "x86-system-info-layout-v1",
+      measuredBytes,
+      raw,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotTimeCaps(pointer) {
+  const measuredBytes = 8;
+  const raw = snapshotBoundedRawBytes(pointer, measuredBytes);
+  if (raw.error !== undefined) {
+    return {
+      profile: "x86-timecaps-layout-v1",
+      measuredBytes,
+      raw,
+    };
+  }
+  try {
+    return {
+      profile: "x86-timecaps-layout-v1",
+      measuredBytes,
+      raw,
+      fields: {
+        periodMinimumMilliseconds: pointer.readU32(),
+        periodMaximumMilliseconds: pointer.add(4).readU32(),
+      },
+    };
+  } catch (error) {
+    return {
+      profile: "x86-timecaps-layout-v1",
       measuredBytes,
       raw,
       error: error.message,
@@ -2083,6 +2122,13 @@ if (selectedObservations.has("enum-display-monitors")) {
 if (selectedObservations.has("swap-mouse-button")) {
   hooks["user32.dll"].push(["SwapMouseButton", [null]]);
 }
+if (selectedObservations.has("time-get-dev-caps")) {
+  hooks["winmm.dll"].push(
+    ["timeGetDevCaps", [null, null]],
+    ["timeBeginPeriod", [null]],
+    ["timeEndPeriod", [null]],
+  );
+}
 if (selectedObservations.has("com-initialization")) {
   hooks["ole32.dll"].push(["CoUninitialize", []]);
 }
@@ -2360,6 +2406,17 @@ function attachHook(module, name, decoders) {
         (isMainModuleCaller ||
           (caller.module.toLowerCase() === "frida-agent.dll" &&
             swapMouseButtonRestoreActive));
+      const focusedTimeGetDevCapsObservation =
+        selectedObservations.has("time-get-dev-caps") &&
+        name === "timeGetDevCaps" &&
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            timeGetDevCapsOracleCall !== null));
+      const focusedTimePeriodObservation =
+        selectedObservations.has("time-get-dev-caps") &&
+        (name === "timeBeginPeriod" || name === "timeEndPeriod") &&
+        isMainModuleCaller;
       const focusedUnhandledExceptionFilterObservation =
         selectedObservations.has("unhandled-exception-filter") &&
         name === "SetUnhandledExceptionFilter" &&
@@ -2498,6 +2555,22 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("swap-mouse-button") &&
         name === "SwapMouseButton" &&
         !focusedSwapMouseButtonObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("time-get-dev-caps") &&
+        name === "timeGetDevCaps" &&
+        !focusedTimeGetDevCapsObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("time-get-dev-caps") &&
+        (name === "timeBeginPeriod" || name === "timeEndPeriod") &&
+        !focusedTimePeriodObservation
       ) {
         this.traceFrame = null;
         return;
@@ -2750,6 +2823,15 @@ function attachHook(module, name, decoders) {
         caller.module.toLowerCase() === "frida-agent.dll";
       if (this.traceEnumDisplayMonitorsOracle) {
         this.lastError = enumDisplayMonitorsOracleSentinel;
+      }
+      this.traceTimeGetDevCapsOracle =
+        timeGetDevCapsOracleCall !== null &&
+        selectedObservations.has("time-get-dev-caps") &&
+        name === "timeGetDevCaps" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceTimeGetDevCapsOracle) {
+        this.lastError = timeGetDevCapsOracleCall.sentinel;
       }
       this.traceComInitializationOracle =
         comInitializationOracleCall !== null &&
@@ -3086,6 +3168,53 @@ function attachHook(module, name, decoders) {
         : null;
       this.traceSwapMouseButtonMainModuleCaller =
         this.traceSwapMouseButton !== null && isMainModuleCaller;
+      const recordsTimeGetDevCapsConsumer =
+        focusedTimeGetDevCapsObservation &&
+        isMainModuleCaller &&
+        !timeGetDevCapsConsumerRecorded;
+      if (recordsTimeGetDevCapsConsumer) {
+        timeGetDevCapsConsumerRecorded = true;
+      }
+      this.traceTimeGetDevCaps = focusedTimeGetDevCapsObservation
+        ? {
+            output: args[0],
+            outputAddress: args[0].toString(),
+            size: args[1].toUInt32(),
+            outputBefore: snapshotTimeCaps(args[0]),
+            immediateConsumer: recordsTimeGetDevCapsConsumer
+              ? {
+                  apiContinuation: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    48,
+                  ),
+                  frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                    this.context,
+                    8,
+                    16,
+                  ),
+                }
+              : null,
+          }
+        : null;
+      this.traceTimeGetDevCapsMainModuleCaller =
+        this.traceTimeGetDevCaps !== null && isMainModuleCaller;
+      this.traceTimePeriod = focusedTimePeriodObservation
+        ? {
+            api: name,
+            periodMilliseconds: args[0].toUInt32(),
+            immediateConsumer: {
+              apiContinuation: snapshotInstructionsFollowingDirectJump(
+                this.returnAddress,
+                24,
+              ),
+              frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                this.context,
+                4,
+                12,
+              ),
+            },
+          }
+        : null;
       const tracesComInitialization =
         selectedObservations.has("com-initialization") &&
         (name === "CoInitialize" ||
@@ -3211,6 +3340,21 @@ function attachHook(module, name, decoders) {
           ? {
               lastErrorBefore: Number(this.lastError) >>> 0,
               swapMouseButton: this.traceSwapMouseButton,
+            }
+        : this.traceTimeGetDevCaps !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              timeGetDevCaps: {
+                outputAddress: this.traceTimeGetDevCaps.outputAddress,
+                size: this.traceTimeGetDevCaps.size,
+                outputBefore: this.traceTimeGetDevCaps.outputBefore,
+                immediateConsumer: this.traceTimeGetDevCaps.immediateConsumer,
+              },
+            }
+        : this.traceTimePeriod !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              timePeriod: this.traceTimePeriod,
             }
         : this.traceComInitialization !== null
           ? {
@@ -3518,6 +3662,11 @@ function attachHook(module, name, decoders) {
       if (this.traceEnumDisplayMonitorsOracle) {
         enumDisplayMonitorsOracleResult = result.toUInt32();
         enumDisplayMonitorsOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceTimeGetDevCapsOracle) {
+        timeGetDevCapsOracleCall.hookResult = result.toUInt32();
+        timeGetDevCapsOracleCall.hookLastErrorAfter =
+          Number(lastError) >>> 0;
       }
       if (this.traceComInitializationOracle) {
         comInitializationOracleCall.hookResult = result.toUInt32();
@@ -3832,6 +3981,24 @@ function attachHook(module, name, decoders) {
                     : swapMouseButtonGetSystemMetrics(23) !== 0,
               },
             }),
+        ...(this.traceTimeGetDevCaps === null
+          ? {}
+          : {
+              timeGetDevCaps: {
+                result: result.toUInt32(),
+                outputAddress: this.traceTimeGetDevCaps.outputAddress,
+                size: this.traceTimeGetDevCaps.size,
+                outputAfter: snapshotTimeCaps(this.traceTimeGetDevCaps.output),
+              },
+            }),
+        ...(this.traceTimePeriod === null
+          ? {}
+          : {
+              timePeriod: {
+                ...this.traceTimePeriod,
+                result: result.toUInt32(),
+              },
+            }),
         ...(this.traceComInitialization === null
           ? {}
           : {
@@ -3862,6 +4029,36 @@ function attachHook(module, name, decoders) {
         },
         lastError,
       );
+      if (
+        this.traceTimeGetDevCaps !== null &&
+        this.traceTimeGetDevCapsMainModuleCaller &&
+        timeGetDevCapsMainModuleCalls.length === 0
+      ) {
+        timeGetDevCapsMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          outputAddress: this.traceTimeGetDevCaps.outputAddress,
+          size: this.traceTimeGetDevCaps.size,
+          outputBefore: this.traceTimeGetDevCaps.outputBefore,
+          outputAfter: snapshotTimeCaps(this.traceTimeGetDevCaps.output),
+          result: result.toUInt32(),
+          lastError: Number(lastError) >>> 0,
+          immediateConsumer: this.traceTimeGetDevCaps.immediateConsumer,
+        });
+        setImmediate(maybeCompleteTimeGetDevCapsObservation);
+      }
+      if (this.traceTimePeriod !== null) {
+        timePeriodMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          api: this.traceTimePeriod.api,
+          returnAddress: this.returnAddress.toString(),
+          periodMilliseconds: this.traceTimePeriod.periodMilliseconds,
+          result: result.toUInt32(),
+          lastError: Number(lastError) >>> 0,
+          immediateConsumer: this.traceTimePeriod.immediateConsumer,
+        });
+        setImmediate(maybeCompleteTimeGetDevCapsObservation);
+      }
       if (
         this.traceSwapMouseButton !== null &&
         this.traceSwapMouseButtonMainModuleCaller &&
@@ -5887,6 +6084,207 @@ function completeSwapMouseButtonObservation(calls) {
   }
 }
 
+function maybeCompleteTimeGetDevCapsObservation() {
+  if (
+    timeGetDevCapsCompletionRecorded ||
+    !timeGetDevCapsOracleComplete ||
+    timeGetDevCapsMainModuleCalls.length === 0 ||
+    !timePeriodMainModuleCalls.some(
+      (call) => call.api === "timeBeginPeriod",
+    )
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteTimeGetDevCapsObservation, 10);
+    return;
+  }
+  if (timeGetDevCapsDrainCheckScheduled) {
+    return;
+  }
+  timeGetDevCapsDrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    timeGetDevCapsDrainCheckScheduled = false;
+    if (timeGetDevCapsCompletionRecorded) {
+      return;
+    }
+    if (
+      activeCallsByThread.size !== 0 ||
+      nextCallId !== expectedNextCallId
+    ) {
+      maybeCompleteTimeGetDevCapsObservation();
+      return;
+    }
+    timeGetDevCapsCompletionRecorded = true;
+    emit("time-get-dev-caps-complete", {
+      profile: "x86-bgi-time-get-dev-caps-v1",
+      oracleProfile: timeGetDevCapsOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: timeGetDevCapsMainModuleCalls.map((call) => ({
+        ...call,
+      })),
+      timePeriodCalls: timePeriodMainModuleCalls.map((call) => ({
+        ...call,
+      })),
+    });
+    if (stopOnEvent === "time-get-dev-caps-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function scheduleTimeGetDevCapsOracle(module) {
+  if (timeGetDevCapsOracleScheduled) {
+    return;
+  }
+  timeGetDevCapsOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "timeGetDevCaps");
+      if (address === null) {
+        throw new Error("timeGetDevCaps export is unavailable");
+      }
+      const timeGetDevCaps = new SystemFunction(
+        address,
+        "uint32",
+        ["pointer", "uint32"],
+        "stdcall",
+      );
+      const invoke = ({ size, sentinel }) => {
+        const guardBytes = 16;
+        const outputCapacity = 16;
+        const storageBytes = guardBytes + outputCapacity + guardBytes;
+        const storage = Memory.alloc(storageBytes);
+        storage.writeByteArray(Array(storageBytes).fill(0xa5));
+        const output = storage.add(guardBytes);
+        const storageBefore = snapshotBoundedRawBytes(storage, storageBytes);
+        timeGetDevCapsOracleCall = {
+          size,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = timeGetDevCaps(output, size);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            timeGetDevCapsOracleCall.hookResult === null ||
+            timeGetDevCapsOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("timeGetDevCaps oracle did not pass through the hook");
+          }
+          const storageAfter = snapshotBoundedRawBytes(storage, storageBytes);
+          const beforeBytes = storageBefore.bytes ?? [];
+          const afterBytes = storageAfter.bytes ?? [];
+          const changedStorageOffsets =
+            beforeBytes.length === storageBytes &&
+            afterBytes.length === storageBytes
+              ? beforeBytes.flatMap((value, index) =>
+                  value === afterBytes[index] ? [] : [index],
+                )
+              : [];
+          const changedOutputOffsets = changedStorageOffsets
+            .filter(
+              (offset) =>
+                offset >= guardBytes &&
+                offset < guardBytes + outputCapacity,
+            )
+            .map((offset) => offset - guardBytes);
+          return {
+            size,
+            sentinel,
+            hookResult: timeGetDevCapsOracleCall.hookResult,
+            systemResult,
+            hookLastErrorAfter:
+              timeGetDevCapsOracleCall.hookLastErrorAfter,
+            systemLastError,
+            storageOffset: guardBytes,
+            outputCapacity,
+            storageBefore,
+            storageAfter,
+            outputAfter: snapshotTimeCaps(output),
+            outputBytesAfter: snapshotBoundedRawBytes(output, outputCapacity),
+            changedOutputOffsets,
+            prefixGuardUnchanged:
+              afterBytes.length === storageBytes &&
+              afterBytes
+                .slice(0, guardBytes)
+                .every((value) => value === 0xa5),
+            suffixGuardUnchanged:
+              afterBytes.length === storageBytes &&
+              afterBytes
+                .slice(guardBytes + outputCapacity)
+                .every((value) => value === 0xa5),
+            bytesBeyondTimeCapsUnchanged:
+              afterBytes.length === storageBytes &&
+              afterBytes
+                .slice(guardBytes + 8, guardBytes + outputCapacity)
+                .every((value) => value === 0xa5),
+            hookResultMatches:
+              timeGetDevCapsOracleCall.hookResult === systemResult,
+            hookPreservesLastError:
+              timeGetDevCapsOracleCall.hookLastErrorAfter === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          timeGetDevCapsOracleCall = null;
+        }
+      };
+      const calls = [
+        { size: 0, sentinel: 0x10203040 },
+        { size: 4, sentinel: 0x11223344 },
+        { size: 7, sentinel: 0x55667788 },
+        { size: 8, sentinel: 0 },
+        { size: 8, sentinel: 87 },
+        { size: 8, sentinel: 0x12345678 },
+        { size: 12, sentinel: 0x76543210 },
+      ].map(invoke);
+      const successfulCalls = calls.filter((call) => call.size >= 8);
+      const referenceFields = successfulCalls[0]?.outputAfter.fields ?? null;
+      timeGetDevCapsOracleEvidence = {
+        profile: "x86-time-get-dev-caps-size-and-output-v1",
+        calls,
+        timeErrorNoError: 0,
+        timeErrorStruct: 97,
+        shortSizesRejectedWithoutWrites: calls
+          .filter((call) => call.size < 8)
+          .every(
+            (call) =>
+              call.systemResult === 97 &&
+              call.hookResultMatches &&
+              call.changedOutputOffsets.length === 0,
+          ),
+        supportedSizesSucceeded: successfulCalls.every(
+          (call) => call.systemResult === 0 && call.hookResultMatches,
+        ),
+        successfulOutputsStable: successfulCalls.every(
+          (call) =>
+            JSON.stringify(call.outputAfter.fields ?? null) ===
+            JSON.stringify(referenceFields),
+        ),
+        allWritesBoundedToTimeCaps: successfulCalls.every(
+          (call) =>
+            call.prefixGuardUnchanged &&
+            call.suffixGuardUnchanged &&
+            call.bytesBeyondTimeCapsUnchanged &&
+            call.changedOutputOffsets.every((offset) => offset < 8),
+        ),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      };
+      timeGetDevCapsOracleComplete = true;
+      emit("time-get-dev-caps-oracle", timeGetDevCapsOracleEvidence);
+      maybeCompleteTimeGetDevCapsObservation();
+    } catch (error) {
+      emit("time-get-dev-caps-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleGetCpInfoOracle(module) {
   if (getCpInfoOracleScheduled) {
     return;
@@ -7425,6 +7823,12 @@ Process.attachModuleObserver({
       selectedObservations.has("swap-mouse-button")
     ) {
       scheduleSwapMouseButtonStateObserver(module);
+    }
+    if (
+      module.name.toLowerCase() === "winmm.dll" &&
+      selectedObservations.has("time-get-dev-caps")
+    ) {
+      scheduleTimeGetDevCapsOracle(module);
     }
     if (
       module.name.toLowerCase() === "ole32.dll" &&

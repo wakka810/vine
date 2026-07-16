@@ -1021,8 +1021,8 @@ standard failed-HRESULT sign-bit semantics without an API-specific register
 path. ABI validation rejects a handler returning a mismatched kind before
 completion.
 
-The generic endpoint catalog now checks Kernel32, User32, then Ole32 semantic
-contract providers. `ole32.co-initialize.v1` is the first Ole32 contract and
+The generic endpoint catalog now checks Kernel32, User32, Ole32, then WinMM
+semantic contract providers. `ole32.co-initialize.v1` is the first Ole32 contract and
 uses the same decoded frame, LastError policy, completion, Worker transport,
 and structured-stop path as the existing APIs. Apartment state stays in the
 Rust thread owner; the Worker forwards an immutable diagnostic snapshot only
@@ -1035,6 +1035,15 @@ BOOL transition is dispatched through the common frame／completion path, while
 and generation. Neither the dispatcher nor the Worker keeps a parallel input
 mapping. The reached two-call normalize／restore sequence and atomic negative
 cases are documented in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
+
+The WinMM catalog first exposes `winmm.time-get-dev-caps.v1`. Its two-argument
+stdcall handler returns a policy-owned 8-byte x86 `TIMECAPS` through the common
+checked-write completion path. Short sizes return `TIMERR_STRUCT` without a
+write; successful sizes preserve LastError and never advance the runtime clock
+or call a browser service. The Worker stores no capability mirror. Policy,
+native guard oracle, and caller consumption are documented in
+[winmm-compatibility-policy.md](winmm-compatibility-policy.md) and
+[bgi-time-get-dev-caps.md](bgi-time-get-dev-caps.md).
 
 ## Deliberate exclusions
 
@@ -1052,8 +1061,9 @@ cases are documented in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
   pages are absent. TLS and FLS reads are limited to process allocation and
   selected-thread state already owned by the runtime.
 - Host completion is connected to controlled Worker／browser services. Logical
-  mouse-button mapping now has a Rust owner; DOM input delivery, general VFS,
-  graphics, audio, and storage adapters remain absent.
+  mouse-button mapping and the virtual WinMM capability profile have Rust
+  owners; timer-resolution requests, DOM input delivery, general VFS, graphics,
+  audio, and storage adapters remain absent.
 - `GuestMemoryTransaction` uses a changed-state／frame before-image journal;
   Rust byte authority, automatic v86 writeback, and binary transport are now
   fixed by ADR-003 and the memory-writeback checkpoint.

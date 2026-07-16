@@ -1124,6 +1124,34 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active User32 compatibility policy boundary is invalid");
   }
+  const winmmPolicy = requireRecord(
+    active.winmmCompatibilityPolicy,
+    "activeRuntimeCheckpoint.winmmCompatibilityPolicy",
+    errors,
+  );
+  if (
+    winmmPolicy.schema !== "vine.winmm-compatibility-policy" ||
+    winmmPolicy.schemaVersion !== 1 ||
+    winmmPolicy.id !== "winmm-timecaps-1-1000000-v1" ||
+    winmmPolicy.source !==
+      "crates/vine-core/src/winmm.rs::WinmmCompatibilityPolicy::controlled_v1" ||
+    winmmPolicy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
+    winmmPolicy.timeCapsProfileId !== "timecaps-1-1000000-v1" ||
+    winmmPolicy.periodMinimumMilliseconds !== 1 ||
+    winmmPolicy.periodMaximumMilliseconds !== 1_000_000 ||
+    winmmPolicy.x86TimeCapsBytes !== 8 ||
+    winmmPolicy.shortSizeResult !== 97 ||
+    winmmPolicy.shortSizeMutation !== "none" ||
+    winmmPolicy.acceptedSizeRange !== "eight-or-larger" ||
+    winmmPolicy.successfulWriteBytes !== 8 ||
+    winmmPolicy.lastErrorPolicy !== "preserve" ||
+    winmmPolicy.hostTimerCapabilitiesImported !== false ||
+    winmmPolicy.browserTimerCapabilitiesImported !== false ||
+    winmmPolicy.clockAdvancedByQuery !== false ||
+    winmmPolicy.unsupportedBeforeMutation !== true
+  ) {
+    errors.push("active WinMM compatibility policy boundary is invalid");
+  }
   const latestEvidence = requireRecord(
     active.latestEvidence,
     "activeRuntimeCheckpoint.latestEvidence",
@@ -1159,6 +1187,40 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.swapMouseButtonBrowserStateImported !== false
   ) {
     errors.push("latest mouse-button mapping authority evidence is invalid");
+  }
+  for (const field of [
+    "nativeTimeGetDevCapsPrimaryTraceSha256",
+    "nativeTimeGetDevCapsConfirmationTraceSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeTimeGetDevCapsTraceDiagnostics !== 0 ||
+    latestEvidence.nativeTimeGetDevCapsOracleLastErrorsPreserved !== true ||
+    latestEvidence.nativeTimeGetDevCapsOracleWritesBounded !== true ||
+    latestEvidence.nativeTimeBeginPeriodReached !== true ||
+    latestEvidence.timeGetDevCapsImplemented !== true ||
+    latestEvidence.timeGetDevCapsSequence !== 1334 ||
+    latestEvidence.timeGetDevCapsInstructionCount !== 49731 ||
+    latestEvidence.timeGetDevCapsResult !== 0 ||
+    latestEvidence.timeGetDevCapsLastError !== 0 ||
+    latestEvidence.timeGetDevCapsGuestWriteBytes !== 8 ||
+    latestEvidence.timeGetDevCapsOutputHex !== "0100000040420f00" ||
+    latestEvidence.timeGetDevCapsPeriodMinimumMilliseconds !== 1 ||
+    latestEvidence.timeGetDevCapsPeriodMaximumMilliseconds !== 1_000_000 ||
+    latestEvidence.timeGetDevCapsPolicyOwner !==
+      "WinmmCompatibilityPolicy.time_get_dev_caps" ||
+    latestEvidence.timeGetDevCapsHostCapabilitiesImported !== false ||
+    latestEvidence.timeGetDevCapsBrowserCapabilitiesImported !== false ||
+    latestEvidence.timeGetDevCapsAdvancesClock !== false ||
+    latestEvidence.timeBeginPeriodImplemented !== false ||
+    latestEvidence.timeBeginPeriodArgument !== 1
+  ) {
+    errors.push("latest WinMM timer-capabilities evidence is invalid");
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,

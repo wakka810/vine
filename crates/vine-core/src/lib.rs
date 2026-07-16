@@ -19,6 +19,7 @@ mod runtime;
 mod snapshot;
 mod user32;
 mod win32;
+mod winmm;
 
 pub use api::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDeferredCall,
@@ -221,4 +222,10 @@ pub use win32::{
     set_current_directory_a_contract, set_handle_count_contract, set_last_error_contract,
     set_thread_affinity_mask_contract, set_unhandled_exception_filter_contract, tls_alloc_contract,
     tls_get_value_contract, tls_set_value_contract, wide_char_to_multi_byte_contract,
+};
+pub use winmm::{
+    TIME_GET_DEV_CAPS_IMPLEMENTATION, TIMERR_NOERROR, TIMERR_STRUCT,
+    WINMM_COMPATIBILITY_POLICY_SCHEMA, WINMM_COMPATIBILITY_POLICY_VERSION,
+    WinmmCompatibilityPolicy, WinmmTimeCapabilitiesPolicy, X86_TIMECAPS_BYTE_LENGTH,
+    dispatch_winmm_api_with_policy, time_get_dev_caps_contract, winmm_contract_for_endpoint,
 };

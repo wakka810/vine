@@ -2528,3 +2528,32 @@ memory SHA-256
 を再現する。Instruction `49731`でID `3`／
 `WINMM.dll!timeGetDevCaps(0x1014C8E8,8)`へstructured stopする。詳細は
 [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md)を正とする。
+
+## 93. BGI WinMM timer capabilities
+
+Focused `time-get-dev-caps` accepted capturesは284,947 bytes／773 lines／SHA-256
+`4c14edc2f9609c48dd4a0589e2e608a23364abc4eaab5231a5942c9ba760c6c2`と
+284,903 bytes／775 lines／SHA-256
+`57282a7c58b83082554a3f2dbe2f87653ccd92dfdaf0b26ea70414971ff11c2b`
+である。351／352 API pairsはbalanced、agent sequenceはcontiguous、diagnosticsはzeroで、
+BGI `timeBeginPeriod` leave後250 msのhook quiescenceも確認した。Open `CreateFile`を残した
+short captureと、final period hook追加前のcaptureはauthoritative evidenceから除外した。
+
+Guarded x86 oracleはsize `0/4/7`でresult `TIMERR_STRUCT(97)`、output／guard不変、size
+`8/12`でresult 0、先頭8 bytesだけ`01 00 00 00 40 42 0F 00`へ変化することを固定する。
+これはminimum 1 ms／maximum 1,000,000 msである。各callは独立LastError sentinelを保存し、
+unhooked system callと同じresult／bytesを返す。
+
+BGI return RVA `0x91E6D`はMMRESULTを捨ててminimumを読み、10未満ならその値を
+`timeBeginPeriod`へ渡す。Observed argumentは1、return RVAは`0x91E7E`、result／LastErrorは
+0である。Rust `WinmmCompatibilityPolicy`はvirtual capability rangeを所有し、queryはclockを
+進めずhost／browser timer characteristicをimportしない。
+
+Nodeは55 contracts／1,334 calls、1,340 writebacks／2,531 dirty pages／8,971 changed bytes、
+83 host deltas、generation 1,452を通す。Chromeもsame ordered calls／output／stop／memoryを
+再現し、6,821 slices、5,481 yields、6,378 Wasm crossings、final generation 3,588、terminal
+pending work 0を通す。Memory SHA-256は
+`065650f1edeb4dccdc65d37b972956c38a098acd2e85c910a532853f6bd97966`である。3分gateは
+358 sessions／failure 0で17 thresholdsを通した。Instruction `49737`でID `4`／
+`WINMM.dll!timeBeginPeriod(1)`へstructured stopする。詳細は
+[bgi-time-get-dev-caps.md](bgi-time-get-dev-caps.md)を正とする。

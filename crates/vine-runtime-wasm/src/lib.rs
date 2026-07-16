@@ -20,12 +20,13 @@ use vine_core::{
     RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
     RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, SchedulerThreadState, StackCleanup,
-    User32CompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
     dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
-    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
-    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
-    ole32_contract_for_endpoint, user32_contract_for_endpoint,
+    dispatch_winmm_api_with_policy, install_controlled_initial_stack,
+    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
+    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
+    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
+    user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -183,6 +184,7 @@ enum BrowserRuntimeTarget {
     Bgi {
         kernel32_policy: Box<Kernel32CompatibilityPolicy>,
         user32_policy: Box<User32CompatibilityPolicy>,
+        winmm_policy: Box<WinmmCompatibilityPolicy>,
     },
 }
 
@@ -380,6 +382,8 @@ impl BrowserRuntime {
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v2();
         user32_policy.validate().map_err(api_fault_string)?;
+        let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
+        winmm_policy.validate().map_err(api_fault_string)?;
         process
             .runtime
             .configure_display_profile(
@@ -496,6 +500,7 @@ impl BrowserRuntime {
                 "attachOrder": process.attach_order,
                 "kernel32Policy": kernel32_policy.id,
                 "user32Policy": user32_policy.id,
+                "winmmPolicy": winmm_policy.id,
             },
         });
         Ok((
@@ -514,6 +519,7 @@ impl BrowserRuntime {
                 target: BrowserRuntimeTarget::Bgi {
                     kernel32_policy: Box::new(kernel32_policy),
                     user32_policy: Box::new(user32_policy),
+                    winmm_policy: Box::new(winmm_policy),
                 },
             },
             metadata,
@@ -800,6 +806,7 @@ impl BrowserRuntime {
                     BrowserRuntimeTarget::Bgi {
                         kernel32_policy,
                         user32_policy,
+                        winmm_policy,
                     } => {
                         if contract.endpoint.module.eq_ignore_ascii_case("user32.dll") {
                             dispatch_user32_api_with_policy(
@@ -811,6 +818,8 @@ impl BrowserRuntime {
                             )
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
+                            dispatch_winmm_api_with_policy(winmm_policy, contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 kernel32_policy,
@@ -1637,7 +1646,10 @@ fn bgi_contract_for_endpoint(
     if let Some(contract) = user32_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
-    ole32_contract_for_endpoint(endpoint)
+    if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
+    winmm_contract_for_endpoint(endpoint)
 }
 
 fn runtime_capability_cluster(endpoint: &ApiEndpointIdentity) -> String {

@@ -45,6 +45,7 @@ SUPPORTED_OBSERVATIONS = (
     "system-default-lang-id",
     "drive-type",
     "swap-mouse-button",
+    "time-get-dev-caps",
     "get-cp-info",
     "processor-feature",
     "unhandled-exception-filter",

@@ -566,6 +566,33 @@ assert.ok(
   ),
 );
 
+const hostOwnedTimerCapabilities = structuredClone(manifest);
+hostOwnedTimerCapabilities.activeRuntimeCheckpoint.winmmCompatibilityPolicy.hostTimerCapabilitiesImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(hostOwnedTimerCapabilities).some((error) =>
+    error.includes("WinMM compatibility policy boundary"),
+  ),
+);
+
+const invalidTimerCapabilityRange = structuredClone(manifest);
+invalidTimerCapabilityRange.activeRuntimeCheckpoint.winmmCompatibilityPolicy.periodMinimumMilliseconds =
+  0;
+assert.ok(
+  validateCurrentCheckpoint(invalidTimerCapabilityRange).some((error) =>
+    error.includes("WinMM compatibility policy boundary"),
+  ),
+);
+
+const browserOwnedTimerCapabilityEvidence = structuredClone(manifest);
+browserOwnedTimerCapabilityEvidence.activeRuntimeCheckpoint.latestEvidence.timeGetDevCapsBrowserCapabilitiesImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedTimerCapabilityEvidence).some((error) =>
+    error.includes("WinMM timer-capabilities evidence"),
+  ),
+);
+
 const staleThreadRegistryShape = structuredClone(manifest);
 staleThreadRegistryShape.activeRuntimeCheckpoint.runtimeThreadRegistry.schema =
   "vine.runtime-thread-registry.v4";

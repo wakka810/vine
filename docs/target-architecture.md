@@ -278,6 +278,13 @@ clock を browser の複数時刻源へ分散させない。
 
 background tab、debugger pause、audio suspend 後に catch-up するか freeze するかは title profile ではなく runtime policy として決め、trace に記録する。
 
+WinMMのcapability queryとresolution requestもclock sourceそのものから分離する。
+WinMM capability queryのvirtual rangeはversioned Rust compatibility policyが所有し、queryは
+clockを進めずhost／browser granularityをimportしない。Future resolution begin／end APIsは
+dedicated Rust timer-resolution ownerがperiod、request count、matching end、process teardownを
+plan／commitし、browser task timerやAudioContextをguest-visible request stateの代用にしない。
+詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)を正とする。
+
 ## 6. Guest address space と memory
 
 ### 6.1 要求される性質
