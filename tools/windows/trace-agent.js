@@ -7,6 +7,7 @@ const agentOptions = globalThis.__vineTraceOptions ?? {
 };
 const selectedVtables = new Set(agentOptions.vtables ?? []);
 const selectedObservations = new Set(agentOptions.observations ?? []);
+const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
 const attached = new Set();
@@ -87,6 +88,13 @@ let systemDefaultLangIdOracleSentinel = null;
 let systemDefaultLangIdOracleResult = null;
 let systemDefaultLangIdOracleLastError = null;
 let systemDefaultLangIdConsumerRecorded = false;
+let driveTypeOracleScheduled = false;
+let driveTypeOracleSentinel = null;
+let driveTypeOracleResult = null;
+let driveTypeOracleLastError = null;
+let driveTypeConsumerRecorded = false;
+let driveTypeScanCompletionRecorded = false;
+let driveTypeMainModuleCallCount = 0;
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -2040,6 +2048,9 @@ if (selectedObservations.has("get-acp")) {
 if (selectedObservations.has("system-default-lang-id")) {
   hooks["kernel32.dll"].push(["GetSystemDefaultLangID", []]);
 }
+if (selectedObservations.has("drive-type")) {
+  hooks["kernel32.dll"].push(["GetDriveTypeA", ["ansi"]]);
+}
 if (selectedObservations.has("get-cp-info")) {
   hooks["kernel32.dll"].push(["GetCPInfo", [null, null]]);
 }
@@ -2660,6 +2671,15 @@ function attachHook(module, name, decoders) {
       if (this.traceSystemDefaultLangIdOracle) {
         this.lastError = systemDefaultLangIdOracleSentinel;
       }
+      this.traceDriveTypeOracle =
+        driveTypeOracleSentinel !== null &&
+        selectedObservations.has("drive-type") &&
+        name === "GetDriveTypeA" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceDriveTypeOracle) {
+        this.lastError = driveTypeOracleSentinel;
+      }
       this.traceGetCpInfoOracle =
         getCpInfoOracleSentinel !== null &&
         selectedObservations.has("get-cp-info") &&
@@ -2944,6 +2964,35 @@ function attachHook(module, name, decoders) {
                 : null,
             }
           : null;
+      const recordsDriveTypeConsumer =
+        selectedObservations.has("drive-type") &&
+        name === "GetDriveTypeA" &&
+        isMainModuleCaller &&
+        !driveTypeConsumerRecorded;
+      if (recordsDriveTypeConsumer) {
+        driveTypeConsumerRecorded = true;
+      }
+      this.traceDriveType =
+        selectedObservations.has("drive-type") && name === "GetDriveTypeA"
+          ? {
+              rootPathBefore: snapshotNulTerminatedString(args[0], "ansi"),
+              immediateConsumer: recordsDriveTypeConsumer
+                ? {
+                    apiContinuation: snapshotInstructionsFollowingDirectJump(
+                      this.returnAddress,
+                      32,
+                    ),
+                    frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                      this.context,
+                      4,
+                      16,
+                    ),
+                  }
+                : null,
+            }
+          : null;
+      this.traceDriveTypeMainModuleCaller =
+        this.traceDriveType !== null && isMainModuleCaller;
       const recordsEnumDisplayMonitorsConsumer =
         focusedEnumDisplayMonitorsObservation &&
         isMainModuleCaller &&
@@ -3063,6 +3112,11 @@ function attachHook(module, name, decoders) {
           ? {
               lastErrorBefore: Number(this.lastError) >>> 0,
               systemDefaultLangId: this.traceSystemDefaultLangId,
+            }
+        : this.traceDriveType !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              driveType: this.traceDriveType,
             }
         : this.traceGetCpInfo !== null
           ? snapshotGetCpInfoCall(
@@ -3380,6 +3434,10 @@ function attachHook(module, name, decoders) {
         systemDefaultLangIdOracleResult = result.toUInt32();
         systemDefaultLangIdOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceDriveTypeOracle) {
+        driveTypeOracleResult = result.toUInt32();
+        driveTypeOracleLastError = Number(lastError) >>> 0;
+      }
       if (this.traceGetCpInfoOracle) {
         getCpInfoOracleResult = result.toUInt32();
         getCpInfoOracleLastError = Number(lastError) >>> 0;
@@ -3676,6 +3734,14 @@ function attachHook(module, name, decoders) {
                 rawEax: result.toUInt32(),
               },
             }),
+        ...(this.traceDriveType === null
+          ? {}
+          : {
+              driveType: {
+                ...this.traceDriveType,
+                result: result.toUInt32(),
+              },
+            }),
         ...(this.traceEnumDisplayMonitors === null
           ? {}
           : {
@@ -3722,6 +3788,29 @@ function attachHook(module, name, decoders) {
         },
         lastError,
       );
+      if (
+        this.traceDriveType !== null &&
+        this.traceDriveTypeMainModuleCaller
+      ) {
+        driveTypeMainModuleCallCount += 1;
+        if (
+          !driveTypeScanCompletionRecorded &&
+          driveTypeMainModuleCallCount === 26
+        ) {
+          driveTypeScanCompletionRecorded = true;
+          emit("drive-type-scan-complete", {
+            profile: "x86-drive-letter-scan-v1",
+            callId: this.traceFrame.callId,
+            callCount: driveTypeMainModuleCallCount,
+            rootPath: this.traceDriveType.rootPathBefore,
+            result: result.toUInt32(),
+            lastError: Number(lastError) >>> 0,
+          });
+          if (stopOnEvent === "drive-type-scan-complete") {
+            recv("vine-trace-stop", () => {}).wait();
+          }
+        }
+      }
       if (this.traceHeapAllocation !== null && !result.isNull()) {
         observedMainModuleHeapAllocations.set(result.toString().toLowerCase(), {
           callId: this.traceFrame.callId,
@@ -5497,6 +5586,124 @@ function scheduleSystemDefaultLangIdOracle(module) {
   });
 }
 
+function scheduleDriveTypeOracle(module) {
+  if (driveTypeOracleScheduled) {
+    return;
+  }
+  driveTypeOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const driveTypeAddress = findExport(module, "GetDriveTypeA");
+      const currentDirectoryAddress = findExport(module, "GetCurrentDirectoryA");
+      if (driveTypeAddress === null || currentDirectoryAddress === null) {
+        throw new Error("drive-type oracle exports are unavailable");
+      }
+      const getDriveType = new SystemFunction(
+        driveTypeAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const getCurrentDirectory = new SystemFunction(
+        currentDirectoryAddress,
+        "uint32",
+        ["uint32", "pointer"],
+        "stdcall",
+      );
+      const currentDirectoryBuffer = Memory.alloc(32768);
+      const currentDirectoryOutcome = getCurrentDirectory(
+        32768,
+        currentDirectoryBuffer,
+      );
+      const currentDirectoryLength =
+        Number(currentDirectoryOutcome.value) >>> 0;
+      if (currentDirectoryLength === 0 || currentDirectoryLength >= 32768) {
+        throw new Error("GetCurrentDirectoryA did not return a bounded path");
+      }
+      const currentDirectory = currentDirectoryBuffer.readAnsiString();
+      if (
+        currentDirectory.length < 3 ||
+        currentDirectory[1] !== ":" ||
+        currentDirectory[2] !== "\\"
+      ) {
+        throw new Error(
+          "drive-type oracle requires a drive-letter current directory",
+        );
+      }
+      const currentRoot = currentDirectory.slice(0, 2) + "\\";
+      const currentRootPointer = Memory.allocUtf8String(currentRoot);
+      const currentDirectoryPointer = currentDirectoryBuffer;
+      const relativePointer = Memory.allocUtf8String(".");
+      const invoke = ({ id, sentinel, rootPath, pointer }) => {
+        driveTypeOracleSentinel = sentinel;
+        driveTypeOracleResult = null;
+        driveTypeOracleLastError = null;
+        try {
+          const outcome = getDriveType(pointer);
+          const result = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            driveTypeOracleResult === null ||
+            driveTypeOracleLastError === null
+          ) {
+            throw new Error("GetDriveTypeA oracle did not pass through the hook");
+          }
+          return {
+            id,
+            sentinel,
+            rootPath,
+            result,
+            hookResult: driveTypeOracleResult,
+            hookLastErrorAfter: driveTypeOracleLastError,
+            systemLastError,
+            hookResultMatches: driveTypeOracleResult === result,
+            hookPreservesLastError: driveTypeOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          driveTypeOracleSentinel = null;
+          driveTypeOracleResult = null;
+          driveTypeOracleLastError = null;
+        }
+      };
+      const calls = [
+        invoke({
+          id: "current-root",
+          sentinel: 0,
+          rootPath: currentRoot,
+          pointer: currentRootPointer,
+        }),
+        invoke({
+          id: "null-current-drive",
+          sentinel: 87,
+          rootPath: null,
+          pointer: NULL,
+        }),
+        invoke({
+          id: "current-directory-not-root",
+          sentinel: 122,
+          rootPath: currentDirectory,
+          pointer: currentDirectoryPointer,
+        }),
+        invoke({
+          id: "relative-dot",
+          sentinel: 0x12345678,
+          rootPath: ".",
+          pointer: relativePointer,
+        }),
+      ];
+      emit("drive-type-oracle", {
+        profile: "x86-current-drive-type-read-v1",
+        currentDirectory,
+        currentRoot,
+        calls,
+      });
+    } catch (error) {
+      emit("drive-type-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleGetCpInfoOracle(module) {
   if (getCpInfoOracleScheduled) {
     return;
@@ -7005,6 +7212,12 @@ Process.attachModuleObserver({
       selectedObservations.has("system-default-lang-id")
     ) {
       scheduleSystemDefaultLangIdOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("drive-type")
+    ) {
+      scheduleDriveTypeOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

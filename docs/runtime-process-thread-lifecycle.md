@@ -75,6 +75,15 @@ This bounded process-image-directory subset is not a VFS. General `.`／`..`,
 drive-relative resolution, directory existence, file identity, and mount/backend
 effects remain deferred until reached.
 
+`GetDriveTypeA` reuses this owner without adding a drive collection. The
+process-image drive letter is derived from the validated image-directory
+identity; NULL derives the queried letter from current-directory identity.
+Exact drive roots matching that letter are the sole fixed drive, while other
+bounded roots and non-root strings report no root. The query is mutation-free,
+and neither host nor browser drive topology becomes a second authority. This
+classification still does not provide path resolution, mounts, file existence,
+or a VFS backend.
+
 ## Process-owned clock sampling
 
 `RuntimeProcessState` also owns `RuntimeClockState`. A progressing

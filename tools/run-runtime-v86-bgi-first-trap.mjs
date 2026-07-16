@@ -99,6 +99,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-enum-display-monitors",
         "ole32-co-initialize",
         "kernel32-get-system-default-lang-id",
+        "kernel32-get-drive-type-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -125,7 +126,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-get-system-default-lang-id"
+    genericRuntimeCapability === "kernel32-get-drive-type-a"
+      ? "kernel32-get-drive-type-a-v1.json"
+      : genericRuntimeCapability === "kernel32-get-system-default-lang-id"
       ? "kernel32-get-system-default-lang-id-v1.json"
       : genericRuntimeCapability === "ole32-co-initialize" ||
     genericRuntimeCapability === "kernel32-get-system-info" ||
@@ -229,8 +232,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getDriveTypeAEnabled = genericRuntimeCapability === "kernel32-get-drive-type-a";
 const getSystemDefaultLangIdEnabled =
-  genericRuntimeCapability === "kernel32-get-system-default-lang-id";
+  getDriveTypeAEnabled || genericRuntimeCapability === "kernel32-get-system-default-lang-id";
 const coInitializeEnabled =
   getSystemDefaultLangIdEnabled || genericRuntimeCapability === "ole32-co-initialize";
 const enumDisplayMonitorsEnabled =
@@ -362,7 +366,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getSystemDefaultLangIdEnabled
+      ? getDriveTypeAEnabled
+        ? "v86-bgi-get-drive-type-a"
+        : getSystemDefaultLangIdEnabled
         ? "v86-bgi-get-system-default-lang-id"
         : coInitializeEnabled
         ? "v86-bgi-co-initialize"
@@ -4242,6 +4248,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getDriveTypeAEnabled) {
+        validateGetDriveTypeAResult(genericResult);
       } else if (getSystemDefaultLangIdEnabled) {
         validateGetSystemDefaultLangIdResult(genericResult);
       } else if (coInitializeEnabled) {
@@ -4339,6 +4347,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : getDriveTypeAEnabled
+            ? "bgi GetDriveTypeA"
           : getSystemDefaultLangIdEnabled
             ? "bgi GetSystemDefaultLangID"
           : coInitializeEnabled
@@ -5165,6 +5175,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : getDriveTypeAEnabled
+          ? 40
         : getSystemDefaultLangIdEnabled
           ? 39
         : coInitializeEnabled
@@ -9029,6 +9041,68 @@ function validateGetSystemDefaultLangIdResult(result) {
   assert.equal(result.terminal.terminal.stackWords[1], 0x006ffc4c);
 }
 
+function validateGetDriveTypeAResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 1321);
+  assert.equal(result.writebacks.length, 1327);
+  assert.equal(
+    result.writebacks.reduce((total, writeback) => total + writeback.dirtyPages.length, 0),
+    2513,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    8669,
+  );
+  assert.equal(result.hostDeltas.length, 80);
+  assert.equal(result.finalGeneration, 1436);
+  const calls = result.supportedCalls.filter(
+    ({ module, symbol }) =>
+      module.toLowerCase() === "kernel32.dll" && symbol === "GetDriveTypeA",
+  );
+  assert.equal(calls.length, 26);
+  for (const [index, call] of calls.entries()) {
+    const occurrence = index + 1;
+    assert.equal(call.sequence, 1296 + index);
+    assert.equal(call.occurrence, occurrence);
+    assert.equal(call.trapInstructionCount, 45840 + 14 * index);
+    assert.deepEqual(call.arguments, [0x006ffc4c]);
+    assert.deepEqual(call.result, {
+      action: "set",
+      value: occurrence === 3 ? 3 : 1,
+    });
+    assert.equal(call.implementationId, "kernel32.get-drive-type-a.v1");
+    assert.equal(call.returnAddress, 0x100602b2);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+  }
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 166);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f000a50);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "SwapMouseButton",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d1370);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "070ccf6100b1a0537a43fa250942b23f9e293cad712d78b1d2a3c9d9a3ad0433",
+  );
+  assert.equal(result.terminal.instructionCount, 46215);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 166);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f000a50);
+  assert.equal(result.terminal.terminal.thunk.name, "SwapMouseButton");
+  assert.equal(result.terminal.terminal.returnAddress, 0x10088a3b);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0]);
+}
+
 function validateGetSystemInfoResult(result) {
   const expected = getSystemInfoExpected;
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
@@ -9981,6 +10055,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : getDriveTypeAEnabled
+          ? "vine.v86-bgi-get-drive-type-a"
         : getSystemDefaultLangIdEnabled
           ? "vine.v86-bgi-get-system-default-lang-id"
         : coInitializeEnabled

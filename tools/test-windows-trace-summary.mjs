@@ -725,6 +725,13 @@ systemDefaultLangIdSelection.find(
 ).selectedObservations = ["system-default-lang-id"];
 assert.doesNotThrow(() => summarizeTrace(encode(systemDefaultLangIdSelection)));
 
+const driveTypeSelection = structuredClone(events);
+driveTypeSelection[0].arguments.observations = ["drive-type"];
+driveTypeSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["drive-type"];
+assert.doesNotThrow(() => summarizeTrace(encode(driveTypeSelection)));
+
 const getCpInfoSelection = structuredClone(events);
 getCpInfoSelection[0].arguments.observations = ["get-cp-info"];
 getCpInfoSelection.find(

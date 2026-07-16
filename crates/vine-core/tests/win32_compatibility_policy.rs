@@ -50,6 +50,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!(
             "../../../fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json"
         ),
+        include_str!("../../../fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -228,6 +229,25 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(
         system_default_lang_id.system_default_lang_id(),
         Some(0x0411)
+    );
+    assert!(system_default_lang_id.get_drive_type_a().is_none());
+
+    let drive_type: Kernel32CompatibilityPolicy = serde_json::from_str(policies[30]).unwrap();
+    let drive_profile = drive_type
+        .get_drive_type_a()
+        .expect("process-image drive profile");
+    assert!(drive_profile.process_image_drive_only);
+    assert_eq!(drive_profile.maximum_path_bytes, 32_768);
+
+    let mut unsupported_drive_profile = drive_type.clone();
+    unsupported_drive_profile
+        .get_drive_type_a
+        .as_mut()
+        .unwrap()
+        .process_image_drive_only = false;
+    assert_eq!(
+        unsupported_drive_profile.validate().unwrap_err().code,
+        "kernel32-policy-get-drive-type-invalid"
     );
 
     let mut unsupported_lang_id = system_default_lang_id.clone();

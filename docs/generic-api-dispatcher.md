@@ -1006,6 +1006,14 @@ The first production use is `kernel32.get-system-default-lang-id.v1`; its
 native WORD evidence and policy boundary are documented in
 [bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md).
 
+`kernel32.get-drive-type-a.v1` is a policy-enabled U32 query over the existing
+Rust process-directory identity. The handler scans one bounded nullable ANSI
+argument, preserves LastError, and returns fixed only for the derived virtual
+process-image drive. It stores no drive table and imports no host or browser
+topology. The A–Z caller, NULL/non-root oracle, failure cases, and Node／Chrome
+equivalence are documented in
+[bgi-get-drive-type-a.md](bgi-get-drive-type-a.md).
+
 `ApiReturnSchema::HResult` and `ApiReturnValue::HResult` preserve the signed
 COM result domain while committing its exact 32-bit representation to EAX.
 They are distinct from raw U32 and BOOL normalization, so a caller can apply

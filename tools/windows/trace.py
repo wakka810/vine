@@ -43,6 +43,7 @@ SUPPORTED_OBSERVATIONS = (
     "set-last-error",
     "get-acp",
     "system-default-lang-id",
+    "drive-type",
     "get-cp-info",
     "processor-feature",
     "unhandled-exception-filter",
@@ -60,6 +61,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seconds", type=float, default=30.0)
     parser.add_argument("--kill-after", action="store_true")
+    parser.add_argument(
+        "--stop-on-event",
+        help="Stop capture after the agent emits an event with this kind.",
+    )
     parser.add_argument(
         "--force", action="store_true", help="Replace an existing output file."
     )
@@ -97,8 +102,10 @@ def main() -> int:
             f"trace output already exists (use --force to replace): {args.output}"
         )
     detached = threading.Event()
+    stop_requested = threading.Event()
     detached_reason: str | None = None
     detached_crash: str | None = None
+    observed_stop_event: str | None = None
     device = frida.get_local_device()
     with executable.open("rb") as target:
         target_sha256 = hashlib.file_digest(target, "sha256").hexdigest()
@@ -131,6 +138,7 @@ def main() -> int:
                 "arguments": {
                     "seconds": args.seconds,
                     "killAfter": args.kill_after,
+                    "stopOnEvent": args.stop_on_event,
                     "vtables": list(dict.fromkeys(args.vtable)),
                     "observations": list(dict.fromkeys(args.observe)),
                 },
@@ -149,11 +157,13 @@ def main() -> int:
                 detached_reason = reason
                 detached_crash = None if crash is None else str(crash)
                 detached.set()
+                stop_requested.set()
 
             session.on("detached", on_detached)
             agent_options = {
                 "vtables": list(dict.fromkeys(args.vtable)),
                 "observations": list(dict.fromkeys(args.observe)),
+                "stopOnEvent": args.stop_on_event,
             }
             agent_source = (
                 f'"use strict";\n'
@@ -163,8 +173,16 @@ def main() -> int:
             script = session.create_script(agent_source)
 
             def on_message(message: dict, _data: bytes | None) -> None:
+                nonlocal observed_stop_event
                 if message["type"] == "send":
-                    write_event(message["payload"], agent_event=True)
+                    event = message["payload"]
+                    write_event(event, agent_event=True)
+                    if (
+                        args.stop_on_event is not None
+                        and event.get("kind") == args.stop_on_event
+                    ):
+                        observed_stop_event = args.stop_on_event
+                        stop_requested.set()
                 else:
                     write_event(
                         {
@@ -182,8 +200,17 @@ def main() -> int:
             resumed = True
 
             try:
-                ended = detached.wait(None if args.seconds <= 0 else args.seconds)
-                stop_reason = "target-detached" if ended else "timeout"
+                timeout = None if args.seconds <= 0 else args.seconds
+                if args.stop_on_event is None:
+                    ended = detached.wait(timeout)
+                else:
+                    ended = stop_requested.wait(timeout)
+                if detached.is_set():
+                    stop_reason = "target-detached"
+                elif ended and observed_stop_event is not None:
+                    stop_reason = f"event-{observed_stop_event}"
+                else:
+                    stop_reason = "timeout"
             except KeyboardInterrupt:
                 stop_reason = "keyboard-interrupt"
         finally:

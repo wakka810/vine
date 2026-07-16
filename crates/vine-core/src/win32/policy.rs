@@ -40,6 +40,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_current_directory_a: Option<Kernel32SetCurrentDirectoryAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub get_drive_type_a: Option<Kernel32GetDriveTypeAPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub create_mutex_a: Option<Kernel32CreateMutexAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
@@ -118,6 +120,13 @@ pub struct Kernel32MultiByteToWideCharPolicy {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32SetCurrentDirectoryAPolicy {
     pub process_image_directory_only: bool,
+    pub maximum_path_bytes: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32GetDriveTypeAPolicy {
+    pub process_image_drive_only: bool,
     pub maximum_path_bytes: u32,
 }
 
@@ -222,6 +231,7 @@ impl Kernel32CompatibilityPolicy {
             wide_char_to_multi_byte: None,
             multi_byte_to_wide_char: None,
             set_current_directory_a: None,
+            get_drive_type_a: None,
             create_mutex_a: None,
             get_string_type_w: None,
             lc_map_string_w: None,
@@ -380,6 +390,15 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-set-current-directory-invalid",
                 "SetCurrentDirectoryA requires the CP_ACP conversion layer, process-image-directory selection, and a bounded DOS path limit",
+            ));
+        }
+        if let Some(drive) = self.get_drive_type_a
+            && (!drive.process_image_drive_only
+                || !(4..=32_768).contains(&drive.maximum_path_bytes))
+        {
+            return Err(policy_error(
+                "kernel32-policy-get-drive-type-invalid",
+                "GetDriveTypeA requires process-image-drive selection and a bounded DOS path limit",
             ));
         }
         if let Some(mutex) = self.create_mutex_a
@@ -609,6 +628,10 @@ impl Kernel32CompatibilityPolicy {
         self.set_current_directory_a
     }
 
+    pub fn get_drive_type_a(&self) -> Option<Kernel32GetDriveTypeAPolicy> {
+        self.get_drive_type_a
+    }
+
     pub fn create_mutex_a(&self) -> Option<Kernel32CreateMutexAPolicy> {
         self.create_mutex_a
     }
@@ -780,6 +803,7 @@ mod tests {
         assert!(policy.wide_char_to_multi_byte().is_none());
         assert!(policy.multi_byte_to_wide_char().is_none());
         assert!(policy.set_current_directory_a().is_none());
+        assert!(policy.get_drive_type_a().is_none());
         assert!(policy.get_string_type_w().is_none());
         assert!(policy.lc_map_string_w().is_none());
         assert!(policy.get_module_file_name_a().is_none());

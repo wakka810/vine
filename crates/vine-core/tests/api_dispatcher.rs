@@ -6,13 +6,14 @@ use vine_core::{
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CREATE_MUTEX_A_IMPLEMENTATION,
     CallbackPolicy, CallingConvention, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome,
     ExecutionSession, FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION,
-    GET_CP_INFO_IMPLEMENTATION, GET_CURRENT_THREAD_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION,
-    GET_STRING_TYPE_W_IMPLEMENTATION, GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION,
-    GET_SYSTEM_INFO_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
-    GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion, HostRequest,
-    INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
-    Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32GetStringTypeWPolicy,
+    GET_CP_INFO_IMPLEMENTATION, GET_CURRENT_THREAD_IMPLEMENTATION, GET_DRIVE_TYPE_A_IMPLEMENTATION,
+    GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION,
+    GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION, GET_SYSTEM_INFO_IMPLEMENTATION, GUEST_PAGE_SIZE,
+    GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION,
+    HostCompletion, HostRequest, INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION,
+    IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk, ImportThunkDisposition,
+    ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
+    Kernel32CreateMutexAPolicy, Kernel32GetDriveTypeAPolicy, Kernel32GetStringTypeWPolicy,
     Kernel32HeapAllocationPolicy, Kernel32InitializeCriticalSectionPolicy,
     Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
@@ -1635,6 +1636,159 @@ fn get_system_default_lang_id_zero_extends_policy_owned_u16_without_mutation() {
         DispatchOutcome::Fault(ref fault)
             if fault.class == ApiFaultClass::Unsupported
                 && fault.code == "get-system-default-lang-id-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+#[test]
+fn get_drive_type_a_queries_process_image_drive_without_host_or_state_mutation() {
+    const C_ROOT: u32 = OUTPUT_BASE + 0x180;
+    const C_ALIAS: u32 = OUTPUT_BASE + 0x190;
+    const OTHER_ROOT: u32 = OUTPUT_BASE + 0x1a0;
+    const NON_ROOT: u32 = OUTPUT_BASE + 0x1b0;
+    const RELATIVE: u32 = OUTPUT_BASE + 0x1c0;
+    const EMPTY: u32 = OUTPUT_BASE + 0x1d0;
+    const UNTERMINATED: u32 = OUTPUT_BASE + 0x1e0;
+
+    let (mut memory, owner) = initialized_memory();
+    for (address, bytes) in [
+        (C_ROOT, b"C:\\\0".as_slice()),
+        (C_ALIAS, b"c:/\0".as_slice()),
+        (OTHER_ROOT, b"D:\\\0".as_slice()),
+        (NON_ROOT, b"C:\\Vine\0".as_slice()),
+        (RELATIVE, b".\0".as_slice()),
+        (EMPTY, b"\0".as_slice()),
+        (UNTERMINATED, b"ABCD".as_slice()),
+    ] {
+        memory
+            .write_initialization(owner, GuestAddress(address), bytes)
+            .expect("initialize ANSI drive path");
+    }
+    let frames = [
+        (STACK_BASE, vec![0x1000_0590, 0]),
+        (STACK_BASE + 0x20, vec![0x1000_0591, C_ROOT]),
+        (STACK_BASE + 0x40, vec![0x1000_0592, C_ALIAS]),
+        (STACK_BASE + 0x60, vec![0x1000_0593, OTHER_ROOT]),
+        (STACK_BASE + 0x80, vec![0x1000_0594, NON_ROOT]),
+        (STACK_BASE + 0xa0, vec![0x1000_0595, RELATIVE]),
+        (STACK_BASE + 0xc0, vec![0x1000_0596, EMPTY]),
+        (STACK_BASE + 0xe0, vec![0x1000_0597, UNTERMINATED]),
+        (STACK_BASE + 0x100, vec![0x1000_0598, C_ROOT]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x68);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetDriveTypeA IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetDriveTypeA".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetDriveTypeA endpoint");
+    assert_eq!(contract.implementation_id, GET_DRIVE_TYPE_A_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json"
+    ))
+    .expect("parse drive-type policy fixture");
+    policy.validate().expect("valid drive-type policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(0x1234_5678).unwrap();
+    let runtime_before = runtime.clone();
+    let memory_before = memory.stats();
+
+    for (index, expected) in [3_u32, 3, 3, 1, 1, 1, 1].into_iter().enumerate() {
+        let completion = dispatch_owned_with_policy(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoint,
+            frames[index].0,
+            frames[index].1[0],
+            &policy,
+        );
+        assert_eq!(completion.eax, RegisterUpdate::Set(expected));
+        assert_eq!(completion.stack_pointer, GuestAddress(frames[index].0 + 8));
+        assert_eq!(completion.last_error, 0x1234_5678);
+        assert!(completion.guest_writes.is_empty());
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    let mut bounded_policy = policy.clone();
+    bounded_policy.get_drive_type_a = Some(Kernel32GetDriveTypeAPolicy {
+        process_image_drive_only: true,
+        maximum_path_bytes: 4,
+    });
+    bounded_policy
+        .validate()
+        .expect("valid four-byte path bound");
+    let unterminated = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[7].0, frames[7].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&bounded_policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        unterminated,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::ResourceLimit
+                && fault.code == "get-drive-type-a-path-not-terminated"
+    ));
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+
+    let mut disabled_policy = policy.clone();
+    disabled_policy.get_drive_type_a = None;
+    disabled_policy.validate().expect("valid preceding policy");
+    let disabled = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[8].0, frames[8].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&disabled_policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "get-drive-type-a-policy-disabled"
     ));
     assert_eq!(runtime, runtime_before);
     assert_eq!(memory.stats(), memory_before);

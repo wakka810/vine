@@ -1020,9 +1020,9 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-get-system-default-lang-id-v1" ||
+    kernel32Policy.id !== "kernel32-get-drive-type-a-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json" ||
+      "fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -1032,6 +1032,12 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.multiByteAllowedFlags.join(",") !== "0,1" ||
     kernel32Policy.setCurrentDirectoryProcessImageDirectoryOnly !== true ||
     kernel32Policy.setCurrentDirectoryMaximumPathBytes !== 32768 ||
+    kernel32Policy.getDriveTypeProcessImageDriveOnly !== true ||
+    kernel32Policy.getDriveTypeMaximumPathBytes !== 32768 ||
+    kernel32Policy.getDriveTypeAuthority !==
+      "runtime/process.rs::RuntimeProcessDirectories" ||
+    kernel32Policy.hostDriveTopologyImported !== false ||
+    kernel32Policy.browserDriveTopologyImported !== false ||
     kernel32Policy.createMutexAllowNamed !== true ||
     kernel32Policy.createMutexAllowUnnamed !== false ||
     kernel32Policy.createMutexMaximumNameBytes !== 32768 ||
@@ -1117,6 +1123,17 @@ export function validateCurrentCheckpoint(manifest) {
     active.genericDispatcherCallOccurrenceCount
   ) {
     errors.push("latest active evidence call count does not match the active summary");
+  }
+  if (
+    latestEvidence.getDriveTypeAImplemented !== true ||
+    latestEvidence.getDriveTypeACallCount !== 26 ||
+    latestEvidence.getDriveTypeAStateOwner !==
+      "runtime/process.rs::RuntimeProcessDirectories" ||
+    latestEvidence.getDriveTypeAHostDriveTopologyImported !== false ||
+    latestEvidence.getDriveTypeABrowserDriveTopologyImported !== false ||
+    latestEvidence.vfsBackendImplemented !== false
+  ) {
+    errors.push("latest drive-type authority evidence is invalid");
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,

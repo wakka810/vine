@@ -38,6 +38,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-bounded-heap-v2.json",
   "fixtures/runtime-policies/kernel32-get-system-info-v1.json",
   "fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json",
+  "fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -132,6 +133,15 @@ for (const relative of policyFiles) {
     );
     assert.equal(multibyte?.allowActiveCodePageSelector, true);
   }
+  const driveType = policy.getDriveTypeA ?? null;
+  if (driveType !== null) {
+    assert.equal(driveType.processImageDriveOnly, true);
+    assert(
+      Number.isInteger(driveType.maximumPathBytes) &&
+        driveType.maximumPathBytes >= 4 &&
+        driveType.maximumPathBytes <= 32768,
+    );
+  }
   const mutex = policy.createMutexA ?? null;
   if (mutex !== null) {
     assert.equal(typeof mutex.allowNamed, "boolean");
@@ -165,6 +175,14 @@ assert.equal(
 assert.equal(
   activePolicy.setCurrentDirectoryA.maximumPathBytes,
   summary.setCurrentDirectoryMaximumPathBytes,
+);
+assert.equal(
+  activePolicy.getDriveTypeA.processImageDriveOnly,
+  summary.getDriveTypeProcessImageDriveOnly,
+);
+assert.equal(
+  activePolicy.getDriveTypeA.maximumPathBytes,
+  summary.getDriveTypeMaximumPathBytes,
 );
 assert.deepEqual(activePolicy.heapAllocator.allowedFlags, summary.heapAllocator.allowedFlags);
 assert.equal(

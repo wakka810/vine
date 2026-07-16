@@ -99,6 +99,7 @@ with x86 virtual system information and an explicit system-default LANGID:
 | `kernel32-bounded-heap-v2` | stdin, stdout, stderr | same current process／NLS／mutex options + virtual process affinity mask `1` + `GetTickCount` increment `1` | flags `0`／`HEAP_ZERO_MEMORY`, nonzero sizes through 16 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 | `kernel32-get-system-info-v1` | stdin, stdout, stderr | preceding schema-v2 options + bounded PE32 address／processor profile; active mask and count derive from affinity | same bounded allocation/free/size variants |
 | `kernel32-get-system-default-lang-id-v1` | stdin, stdout, stderr | preceding schema-v2 options + explicit Japanese system-default LANGID `0x0411` | same bounded allocation/free/size variants |
+| `kernel32-get-drive-type-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + process-image drive only／32 KiB ANSI input bound | same bounded allocation/free/size variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -219,6 +220,13 @@ fails before mutation when the field is disabled. Native upper EAX bits are
 unspecified; the typed U16 completion zero-extends the policy value. Detailed
 evidence is in
 [bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md).
+`GetDriveTypeA` has a separate optional enablement record containing only the
+process-image-drive subset and ANSI scan bound. Drive letter and type are not
+policy data: `RuntimeProcessDirectories` derives them from its existing image
+and current-directory identities. NULL, exact root, non-root, relative,
+unterminated, and disabled-policy behavior is covered without importing native
+or browser topology. Detailed evidence is in
+[bgi-get-drive-type-a.md](bgi-get-drive-type-a.md).
 `InterlockedDecrement` is policy-independent. Its one-argument semantic handler
 requires a naturally aligned writable LONG, performs checked wrapping decrement,
 returns the new signed bits, and preserves LastError. The reached pointer,
@@ -396,6 +404,9 @@ state layouts, contention, deletion, wait scheduling, or cross-thread blocking.
 The current-directory policy does not implement general relative resolution,
 filesystem existence, directory enumeration, file identity, host path import,
 mounts, or a browser VFS backend.
+The drive-type policy exposes only one derived fixed process-image drive. It
+does not implement removable／remote／optical variants, UNC or volume identity,
+per-drive current directories, mount resolution, or host/browser enumeration.
 The mutex policy does not implement security descriptors, inheritance, unnamed
 objects, `OpenMutex`, access masks, abandonment, cross-process state,
 cross-thread blocking／wake, or guest wait／release／close API coverage.

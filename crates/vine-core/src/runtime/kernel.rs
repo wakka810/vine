@@ -437,6 +437,10 @@ impl RuntimeKernel {
         self.process.is_process_image_directory_a(requested)
     }
 
+    pub fn is_process_image_drive_root_a(&self, requested: Option<&[u8]>) -> bool {
+        self.process.is_process_image_drive_root_a(requested)
+    }
+
     pub fn plan_set_current_directory_a(
         &self,
         requested: &[u8],

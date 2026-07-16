@@ -250,6 +250,23 @@ impl RuntimeProcessDirectories {
             == self.process_image_directory_key)
     }
 
+    pub(super) fn is_process_image_drive_root(&self, requested: Option<&[u8]>) -> bool {
+        let requested_drive = match requested {
+            None => self.current_directory_a.bytes_with_nul.first().copied(),
+            Some([drive, b':', separator, 0])
+                if drive.is_ascii_alphabetic() && is_separator(*separator) =>
+            {
+                Some(*drive)
+            }
+            Some(_) => None,
+        };
+        requested_drive.is_some_and(|drive| {
+            self.process_image_directory_key
+                .first()
+                .is_some_and(|image_drive| drive.eq_ignore_ascii_case(image_drive))
+        })
+    }
+
     pub(super) fn plan_process_image_directory(
         &self,
         requested: &[u8],
@@ -567,6 +584,10 @@ impl RuntimeProcessState {
         requested: &[u8],
     ) -> Result<bool, RuntimeStateError> {
         self.directories.is_process_image_directory(requested)
+    }
+
+    pub(super) fn is_process_image_drive_root_a(&self, requested: Option<&[u8]>) -> bool {
+        self.directories.is_process_image_drive_root(requested)
     }
 
     pub(super) fn plan_set_current_directory_a(
@@ -1332,6 +1353,29 @@ mod tests {
             &current_directory(b"C:\\Vine\0").with_authority(PROCESS_IMAGE_DIRECTORY_AUTHORITY)
         );
         assert_eq!(directories.current_directory_generation(), 1);
+    }
+
+    #[test]
+    fn drive_root_query_derives_only_from_process_directory_identity() {
+        let mut directories = RuntimeProcessDirectories::new(
+            current_directory(b"D:\\Launcher\0"),
+            &image_path(b"C:\\Vine\\BGI.exe\0"),
+        )
+        .unwrap();
+        let before = directories.clone();
+        assert!(directories.is_process_image_drive_root(Some(b"C:\\\0")));
+        assert!(directories.is_process_image_drive_root(Some(b"c:/\0")));
+        assert!(!directories.is_process_image_drive_root(Some(b"D:\\\0")));
+        assert!(!directories.is_process_image_drive_root(Some(b"C:\\Vine\0")));
+        assert!(!directories.is_process_image_drive_root(Some(b".\0")));
+        assert!(!directories.is_process_image_drive_root(None));
+        assert_eq!(directories, before, "drive queries must be mutation-free");
+
+        let plan = directories
+            .plan_process_image_directory(b"C:\\Vine\0")
+            .unwrap();
+        directories.commit(plan).unwrap();
+        assert!(directories.is_process_image_drive_root(None));
     }
 
     #[test]

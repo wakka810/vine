@@ -313,6 +313,14 @@ EAX upper wordをsemantic valueとしてimportしない。Node／Chrome primary 
 same next stop、same memory digestを比較する。Native oracleとnon-claimsは
 [bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md)を正とする。
 
+Reached drive-type contractはprocess-directory owner unit fixtureとdispatcher fixtureで、NULL
+current drive、exact root aliases、other drive、non-root／relative／empty、unterminated、policy-disabled、
+LastError preserve、zero guest write／runtime mutationを固定する。Policyはscan boundだけを持ち、drive
+letter／typeは`RuntimeProcessDirectories`のimage/current identityから導出する。Node／Chrome primary
+gateはA–Z 26 calls、virtual `C:\`だけのfixed result、same next stop／memory digestを比較し、host／browser
+drive topologyをimportしない。Native oracleとnon-claimsは
+[bgi-get-drive-type-a.md](bgi-get-drive-type-a.md)を正とする。
+
 controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
 one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact
 signal／runnable wake／one event、already-signaled immediate completion、process-exit cancellationを

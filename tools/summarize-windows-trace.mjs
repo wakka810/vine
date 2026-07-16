@@ -39,6 +39,7 @@ const supportedObservations = new Set([
   "set-last-error",
   "get-acp",
   "system-default-lang-id",
+  "drive-type",
   "get-cp-info",
   "processor-feature",
   "unhandled-exception-filter",

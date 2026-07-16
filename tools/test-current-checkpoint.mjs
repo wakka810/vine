@@ -485,6 +485,33 @@ assert.ok(
   ),
 );
 
+const hostShapedDrivePolicy = structuredClone(manifest);
+hostShapedDrivePolicy.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.hostDriveTopologyImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(hostShapedDrivePolicy).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const duplicateDriveAuthority = structuredClone(manifest);
+duplicateDriveAuthority.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.getDriveTypeAuthority =
+  "browser-drive-profile";
+assert.ok(
+  validateCurrentCheckpoint(duplicateDriveAuthority).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const browserOwnedDriveEvidence = structuredClone(manifest);
+browserOwnedDriveEvidence.activeRuntimeCheckpoint.latestEvidence.getDriveTypeABrowserDriveTopologyImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedDriveEvidence).some((error) =>
+    error.includes("drive-type authority evidence"),
+  ),
+);
+
 const hostShapedDisplayPolicy = structuredClone(manifest);
 hostShapedDisplayPolicy.activeRuntimeCheckpoint.user32CompatibilityPolicy.browserDisplayTopologyImported =
   true;

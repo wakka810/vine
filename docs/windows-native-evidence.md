@@ -2480,3 +2480,29 @@ Memory SHA-256は
 `05bf22ce52303ba9b0849352ecd4e00460449ac3bbf84fd03e30cac146d8dc0c`である。
 3分gateは205 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-get-system-default-lang-id.md](bgi-get-system-default-lang-id.md)を正とする。
+
+## 91. BGI drive-type scan
+
+Focused `drive-type` capturesは68,100 bytes／128 lines／SHA-256
+`d42ff6b0032bf52bf134c712886abd6a56c8b833156a6dbd5d92794e7a4d4919`と
+68,042 bytes／128 lines／SHA-256
+`08fa728b429fb36ae6fc6a063048ba0a227fdc8235d2f69f7be8d77e6b14dd7a`
+である。両方37 API pairsはbalanced、diagnosticsはzeroである。Observer completion eventはBGIの
+26th `Z:\` leave後にguest threadを停止し、terminationが後続graphics／window APIをopenのまま
+残さない。
+
+BGI return RVA `0x602B2`は`A:\`から`Z:\`を列挙し、resultと`DRIVE_FIXED(3)`でないflagを
+二つのtableへ保存する。Native hostでは`C:\`とsource所在の`V:\`が3、他は
+`DRIVE_NO_ROOT_DIR(1)`である。Four-call oracleはcurrent root／NULLを3、existing non-root／`.`を1とし、
+LastError `0`／`87`／`122`／`0x12345678`を保存する。
+
+Runtimeはnative drive listをimportせず、private `RuntimeProcessDirectories`のprocess-image identityから
+virtual fixed driveを導出する。Controlled `C:\Vine` profileではoccurrence 3だけが3、他25 callsは1で、
+LastError 0、guest write zeroである。Nodeは53 contracts／1,321 calls、1,327 writebacks／2,513 dirty
+pages／8,669 changed bytes、80 host deltas、generation `1,436`を通す。Chrome Runtime Workerもsame
+ordered calls／results／stop／memoryを再現し、6,378 slices、5,051 yields、6,002 Wasm crossings、final
+generation `3,316`、terminal pending work 0を通す。Instruction `46215`でID `166`／
+`USER32.dll!SwapMouseButton(0)`を`endpoint-contract-missing`として停止する。Memory SHA-256は
+`070ccf6100b1a0537a43fa250942b23f9e293cad712d78b1d2a3c9d9a3ad0433`である。3分gateは193
+sessions／failure 0で17 thresholdsを通した。詳細は
+[bgi-get-drive-type-a.md](bgi-get-drive-type-a.md)を正とする。

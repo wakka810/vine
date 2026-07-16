@@ -24,8 +24,8 @@ mod policy;
 pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32CreateMutexAPolicy, Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy,
-    Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
+    Kernel32CreateMutexAPolicy, Kernel32GetDriveTypeAPolicy, Kernel32GetModuleFileNameAPolicy,
+    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
     Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
@@ -44,6 +44,7 @@ pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
 pub const GET_ACP_IMPLEMENTATION: &str = "kernel32.get-acp.v1";
 pub const GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION: &str =
     "kernel32.get-system-default-lang-id.v1";
+pub const GET_DRIVE_TYPE_A_IMPLEMENTATION: &str = "kernel32.get-drive-type-a.v1";
 pub const GET_CP_INFO_IMPLEMENTATION: &str = "kernel32.get-cp-info.v1";
 pub const IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION: &str =
     "kernel32.is-processor-feature-present.v1";
@@ -144,6 +145,9 @@ pub fn dispatch_kernel32_api_with_policy(
         SET_LAST_ERROR_IMPLEMENTATION => handle_set_last_error(contract, frame),
         GET_ACP_IMPLEMENTATION => handle_get_acp(policy),
         GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION => handle_get_system_default_lang_id(policy),
+        GET_DRIVE_TYPE_A_IMPLEMENTATION => {
+            handle_get_drive_type_a(policy, contract, frame, session)
+        }
         GET_CP_INFO_IMPLEMENTATION => handle_get_cp_info(policy, contract, frame),
         IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION => {
             handle_is_processor_feature_present(policy, contract, frame)
@@ -250,6 +254,7 @@ pub fn kernel32_contract_for_endpoint(
         "SetLastError" => set_last_error_contract(endpoint)?,
         "GetACP" => get_acp_contract(endpoint)?,
         "GetSystemDefaultLangID" => get_system_default_lang_id_contract(endpoint)?,
+        "GetDriveTypeA" => get_drive_type_a_contract(endpoint)?,
         "GetCPInfo" => get_cp_info_contract(endpoint)?,
         "IsProcessorFeaturePresent" => is_processor_feature_present_contract(endpoint)?,
         "SetUnhandledExceptionFilter" => set_unhandled_exception_filter_contract(endpoint)?,
@@ -472,6 +477,86 @@ fn handle_get_system_default_lang_id(
         )
     })?;
     Ok(ApiImmediate::new(ApiReturnValue::U16(lang_id)))
+}
+
+fn handle_get_drive_type_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    const DRIVE_NO_ROOT_DIR: u32 = 1;
+    const DRIVE_FIXED: u32 = 3;
+
+    let drive_policy = policy.get_drive_type_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-process-drive",
+            "get-drive-type-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable GetDriveTypeA",
+                policy.id
+            ),
+        )
+    })?;
+    let root_path_address = required_argument(contract, frame, 0, "ANSI root path")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let root_path = if root_path_address == 0 {
+        None
+    } else {
+        Some(read_nul_terminated_drive_root_path(
+            contract,
+            session,
+            GuestAddress(root_path_address),
+            drive_policy,
+        )?)
+    };
+    let result = if drive_policy.process_image_drive_only
+        && session
+            .runtime()
+            .is_process_image_drive_root_a(root_path.as_deref())
+    {
+        DRIVE_FIXED
+    } else {
+        DRIVE_NO_ROOT_DIR
+    };
+    Ok(ApiImmediate::new(ApiReturnValue::U32(result)).with_last_error(preserved_last_error))
+}
+
+fn read_nul_terminated_drive_root_path(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+    source: GuestAddress,
+    policy: Kernel32GetDriveTypeAPolicy,
+) -> Result<Vec<u8>, ApiFault> {
+    let maximum = usize::try_from(policy.maximum_path_bytes).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-process-drive",
+            "get-drive-type-a-limit-not-representable",
+            "validated ANSI drive-root path limit does not fit host accounting",
+        )
+    })?;
+    let mut bytes = Vec::new();
+    for offset in 0..maximum {
+        let address = add_guest_offset(contract, source, offset)?;
+        let byte = session
+            .memory()
+            .read(address, 1)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+        bytes.push(byte);
+        if byte == 0 {
+            return Ok(bytes);
+        }
+    }
+    Err(ApiFault::resource_limit(
+        "win32-process-drive",
+        "get-drive-type-a-path-not-terminated",
+        format!(
+            "ANSI drive-root path exceeds compatibility policy limit {}",
+            policy.maximum_path_bytes
+        ),
+    ))
 }
 
 fn handle_get_cp_info(
@@ -2776,6 +2861,18 @@ pub fn get_system_default_lang_id_contract(
         ApiReturnSchema::U16,
         GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION,
     )
+}
+
+pub fn get_drive_type_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "GetDriveTypeA",
+        vec![dynamic_in_bytes("rootPath", true, 1, 1, 32_768)],
+        ApiReturnSchema::U32,
+        GET_DRIVE_TYPE_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn get_cp_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
