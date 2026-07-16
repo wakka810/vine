@@ -31,8 +31,10 @@ The focused COM foundation contract is:
 npm run check:com-foundation
 ```
 
-It runs the Rust IUnknown ABI／identity／lifetime／rollback fixture, TypeScript Runtime Worker
-typecheck, and the Browser-resource identity-separation contract.
+It runs the Rust IUnknown ABI／identity／lifetime／rollback fixture, the reached
+`CoInitialize` ABI fixture, per-thread apartment plan／overflow／exit tests,
+TypeScript Runtime Worker typecheck, and the Browser-resource
+identity-separation contract.
 
 `check:fixture-e2e` prepares the pinned source adapter, fixes its generic
 execution-engine contract against the actual Wasm, then runs the controlled

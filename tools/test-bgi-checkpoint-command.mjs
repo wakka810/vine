@@ -128,6 +128,7 @@ for (const arguments_ of [
   assert.throws(() => planBgiCheckpointCommand(arguments_, manifest, root));
 }
 assert.equal(bgiProfileOutputDirectory("user32-message"), "v86-bgi-message");
-assert.throws(() => bgiProfileOutputDirectory("ole32-com"));
+assert.equal(bgiProfileOutputDirectory("ole32-com"), "v86-bgi-com");
+assert.throws(() => bgiProfileOutputDirectory("winmm-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

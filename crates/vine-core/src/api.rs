@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use crate::com::{
-    ComCallTrap, ComDispatchOutcome, ComObjectSpec, InstalledComObject, dispatch_com_call,
-    install_com_object,
+    ComCallTrap, ComDispatchOutcome, ComHResult, ComObjectSpec, InstalledComObject,
+    dispatch_com_call, install_com_object,
 };
 use crate::environment::InitialProcessEnvironment;
 use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId, RuntimeExportCatalog};
@@ -227,6 +227,7 @@ pub struct ApiArgumentSchema {
 pub enum ApiReturnSchema {
     Void,
     U32,
+    HResult,
     Bool32,
     OpaquePointer { nullable: bool },
     LogicalPointer { namespace: String, nullable: bool },
@@ -470,6 +471,7 @@ impl ApiCallFrame {
 pub enum ApiReturnValue {
     Void,
     U32(u32),
+    HResult(ComHResult),
     Bool32(bool),
     OpaquePointer(u32),
     LogicalPointer { namespace: String, value: u32 },
@@ -1799,6 +1801,9 @@ fn validate_return_value(
     let update = match (&contract.abi.return_value, value) {
         (ApiReturnSchema::Void, ApiReturnValue::Void) => RegisterUpdate::Preserve,
         (ApiReturnSchema::U32, ApiReturnValue::U32(value)) => RegisterUpdate::Set(*value),
+        (ApiReturnSchema::HResult, ApiReturnValue::HResult(value)) => {
+            RegisterUpdate::Set(value.bits())
+        }
         (ApiReturnSchema::Bool32, ApiReturnValue::Bool32(value)) => {
             RegisterUpdate::Set(u32::from(*value))
         }

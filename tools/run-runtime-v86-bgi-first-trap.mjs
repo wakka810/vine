@@ -97,6 +97,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-set-thread-affinity-mask",
         "kernel32-get-system-info",
         "user32-enum-display-monitors",
+        "ole32-co-initialize",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -123,6 +124,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "ole32-co-initialize" ||
     genericRuntimeCapability === "kernel32-get-system-info" ||
     genericRuntimeCapability === "user32-enum-display-monitors"
       ? "kernel32-get-system-info-v1.json"
@@ -224,8 +226,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const coInitializeEnabled = genericRuntimeCapability === "ole32-co-initialize";
 const enumDisplayMonitorsEnabled =
-  genericRuntimeCapability === "user32-enum-display-monitors";
+  coInitializeEnabled || genericRuntimeCapability === "user32-enum-display-monitors";
 const getSystemInfoEnabled =
   enumDisplayMonitorsEnabled || genericRuntimeCapability === "kernel32-get-system-info";
 const setThreadAffinityMaskEnabled =
@@ -353,7 +356,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? enumDisplayMonitorsEnabled
+      ? coInitializeEnabled
+        ? "v86-bgi-co-initialize"
+        : enumDisplayMonitorsEnabled
         ? "v86-bgi-enum-display-monitors"
         : getSystemInfoEnabled
         ? "v86-bgi-get-system-info"
@@ -4229,6 +4234,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (coInitializeEnabled) {
+        validateCoInitializeResult(genericResult);
       } else if (enumDisplayMonitorsEnabled) {
         validateEnumDisplayMonitorsResult(genericResult);
       } else if (getSystemInfoEnabled) {
@@ -4322,6 +4329,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : coInitializeEnabled
+            ? "bgi CoInitialize"
           : enumDisplayMonitorsEnabled
             ? "bgi EnumDisplayMonitors"
           : getSystemInfoEnabled
@@ -5116,6 +5125,9 @@ function buildGenericCallRecord(
     ...(completionFrame.tickCount === undefined
       ? {}
       : { tickCount: completionFrame.tickCount }),
+    ...(completionFrame.comApartment === undefined
+      ? {}
+      : { comApartment: completionFrame.comApartment }),
   };
 }
 
@@ -5141,6 +5153,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : coInitializeEnabled
+          ? 38
         : enumDisplayMonitorsEnabled
           ? 37
         : getSystemInfoEnabled
@@ -8885,6 +8899,65 @@ function validateEnumDisplayMonitorsResult(result) {
   assert.equal(result.terminal.terminal.stackWords[1], 0);
 }
 
+function validateCoInitializeResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 1294);
+  assert.equal(result.writebacks.length, 1300);
+  assert.equal(
+    result.writebacks.reduce((total, writeback) => total + writeback.dirtyPages.length, 0),
+    2460,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    7890,
+  );
+  assert.equal(result.hostDeltas.length, 80);
+  assert.equal(result.finalGeneration, 1409);
+  const calls = result.supportedCalls.filter(
+    ({ module, symbol }) => module.toLowerCase() === "ole32.dll" && symbol === "CoInitialize",
+  );
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.equal(call.sequence, 1294);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 45685);
+  assert.deepEqual(call.arguments, [0]);
+  assert.deepEqual(call.result, { action: "set", value: 0 });
+  assert.equal(call.implementationId, "ole32.co-initialize.v1");
+  assert.equal(call.returnAddress, 0x10087399);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.comApartment, {
+    model: "single-threaded",
+    initializationCount: 1,
+  });
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 39);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f000260);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GetSystemDefaultLangID",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d1144);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "b7e5005417aa49c642ded6fdb078be8fe1750e9853cbbcf19e1996d9fd4fad4b",
+  );
+  assert.equal(result.terminal.instructionCount, 45691);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 39);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f000260);
+  assert.equal(result.terminal.terminal.thunk.name, "GetSystemDefaultLangID");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006a556);
+}
+
 function validateGetSystemInfoResult(result) {
   const expected = getSystemInfoExpected;
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
@@ -9837,6 +9910,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : coInitializeEnabled
+          ? "vine.v86-bgi-co-initialize"
         : enumDisplayMonitorsEnabled
           ? "vine.v86-bgi-enum-display-monitors"
         : getSystemInfoEnabled

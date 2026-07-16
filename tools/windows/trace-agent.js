@@ -124,6 +124,9 @@ let enumDisplayMonitorsConsumerRecorded = false;
 const enumDisplayMonitorsOracleCallbacks = [];
 const activeEnumDisplayMonitorsByThread = new Map();
 const attachedEnumDisplayMonitorCallbacks = new Set();
+let comInitializationOracleScheduled = false;
+let comInitializationOracleCall = null;
+let comInitializationConsumerRecorded = false;
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -1877,8 +1880,8 @@ const hooks = {
     ["waveOutOpen", []],
   ],
   "ole32.dll": [
-    ["CoInitialize", []],
-    ["CoInitializeEx", []],
+    ["CoInitialize", [null]],
+    ["CoInitializeEx", [null, null]],
     ["CoCreateInstance", []],
   ],
 };
@@ -2049,6 +2052,9 @@ if (selectedObservations.has("enum-display-monitors")) {
     "EnumDisplayMonitors",
     [null, null, null, null],
   ]);
+}
+if (selectedObservations.has("com-initialization")) {
+  hooks["ole32.dll"].push(["CoUninitialize", []]);
 }
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -2682,6 +2688,15 @@ function attachHook(module, name, decoders) {
       if (this.traceEnumDisplayMonitorsOracle) {
         this.lastError = enumDisplayMonitorsOracleSentinel;
       }
+      this.traceComInitializationOracle =
+        comInitializationOracleCall !== null &&
+        selectedObservations.has("com-initialization") &&
+        name === comInitializationOracleCall.api &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceComInitializationOracle) {
+        this.lastError = comInitializationOracleCall.sentinel;
+      }
       this.traceUnhandledExceptionFilterOracle =
         unhandledExceptionFilterOracleSentinel !== null &&
         selectedObservations.has("unhandled-exception-filter") &&
@@ -2921,6 +2936,43 @@ function attachHook(module, name, decoders) {
       if (this.traceEnumDisplayMonitors !== null) {
         attachEnumDisplayMonitorCallback(args[2]);
       }
+      const tracesComInitialization =
+        selectedObservations.has("com-initialization") &&
+        (name === "CoInitialize" ||
+          name === "CoInitializeEx" ||
+          name === "CoUninitialize");
+      const recordsComInitializationConsumer =
+        tracesComInitialization &&
+        !comInitializationConsumerRecorded &&
+        name === "CoInitialize" &&
+        isMainModuleCaller;
+      if (recordsComInitializationConsumer) {
+        comInitializationConsumerRecorded = true;
+      }
+      this.traceComInitialization = tracesComInitialization
+        ? {
+            api: name,
+            reserved:
+              name === "CoInitialize" || name === "CoInitializeEx"
+                ? args[0].toString()
+                : null,
+            concurrency:
+              name === "CoInitializeEx" ? args[1].toUInt32() : null,
+            immediateConsumer: recordsComInitializationConsumer
+              ? {
+                  apiContinuation: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    24,
+                  ),
+                  frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                    this.context,
+                    name === "CoInitializeEx" ? 8 : name === "CoInitialize" ? 4 : 0,
+                    12,
+                  ),
+                }
+              : null,
+          }
+        : null;
       const observation =
         this.traceHeapAllocation !== null
           ? {
@@ -2994,6 +3046,11 @@ function attachHook(module, name, decoders) {
                 immediateConsumer:
                   this.traceEnumDisplayMonitors.immediateConsumer,
               },
+            }
+        : this.traceComInitialization !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              comInitialization: this.traceComInitialization,
             }
         : focusedProcessorFeatureObservation
           ? snapshotProcessorFeatureCall(
@@ -3289,6 +3346,10 @@ function attachHook(module, name, decoders) {
         enumDisplayMonitorsOracleResult = result.toUInt32();
         enumDisplayMonitorsOracleLastError = Number(lastError) >>> 0;
       }
+      if (this.traceComInitializationOracle) {
+        comInitializationOracleCall.hookResult = result.toUInt32();
+        comInitializationOracleCall.hookLastErrorAfter = Number(lastError) >>> 0;
+      }
       if (this.traceThreadAffinityPrimaryCall === 1 && result.toUInt32() !== 0) {
         setThreadAffinityCalibration = {
           active: true,
@@ -3567,6 +3628,17 @@ function attachHook(module, name, decoders) {
                 callback: this.traceEnumDisplayMonitors.callback,
                 data: this.traceEnumDisplayMonitors.data,
                 callbacks: this.traceEnumDisplayMonitors.callbacks,
+              },
+            }),
+        ...(this.traceComInitialization === null
+          ? {}
+          : {
+              comInitialization: {
+                ...this.traceComInitialization,
+                result:
+                  name === "CoUninitialize" ? null : result.toUInt32(),
+                signedResult:
+                  name === "CoUninitialize" ? null : signed32(result),
               },
             }),
       };
@@ -5555,6 +5627,212 @@ function scheduleEnumDisplayMonitorsOracle(module) {
   });
 }
 
+function scheduleComInitializationOracle(module) {
+  if (comInitializationOracleScheduled) {
+    return;
+  }
+  comInitializationOracleScheduled = true;
+  setImmediate(() => {
+    let coUninitialize = null;
+    let successfulCalls = 0;
+    try {
+      const coInitializeAddress = findExport(module, "CoInitialize");
+      const coInitializeExAddress = findExport(module, "CoInitializeEx");
+      const coUninitializeAddress = findExport(module, "CoUninitialize");
+      if (
+        coInitializeAddress === null ||
+        coInitializeExAddress === null ||
+        coUninitializeAddress === null
+      ) {
+        throw new Error("COM initialization exports are unavailable");
+      }
+      const coInitialize = new SystemFunction(
+        coInitializeAddress,
+        "int",
+        ["pointer"],
+        "stdcall",
+      );
+      const coInitializeEx = new SystemFunction(
+        coInitializeExAddress,
+        "int",
+        ["pointer", "uint32"],
+        "stdcall",
+      );
+      coUninitialize = new NativeFunction(
+        coUninitializeAddress,
+        "void",
+        [],
+        "stdcall",
+      );
+      const invoke = (id, api, call, args, sentinel) => {
+        const observation = {
+          id,
+          api,
+          threadId: Process.getCurrentThreadId(),
+          reserved: ptr(0).toString(),
+          concurrency: api === "CoInitializeEx" ? args[1] : null,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        comInitializationOracleCall = observation;
+        try {
+          const outcome = call(...args);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            observation.hookResult === null ||
+            observation.hookLastErrorAfter === null
+          ) {
+            throw new Error(`${api} ${id} oracle did not pass through the hook`);
+          }
+          if ((systemResult & 0x80000000) === 0) {
+            successfulCalls += 1;
+          }
+          return {
+            ...observation,
+            systemResult,
+            signedSystemResult: systemResult | 0,
+            systemLastError,
+            hookResultMatches: observation.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              observation.hookLastErrorAfter === systemLastError,
+            hookPreservesSentinel:
+              observation.hookLastErrorAfter === sentinel,
+            systemPreservesSentinel: systemLastError === sentinel,
+          };
+        } finally {
+          comInitializationOracleCall = null;
+        }
+      };
+      const balanceOne = () => {
+        if (successfulCalls === 0) {
+          throw new Error("COM oracle attempted an unbalanced CoUninitialize");
+        }
+        coUninitialize();
+        successfulCalls -= 1;
+      };
+
+      const calls = [];
+      calls.push(
+        invoke("sta-first", "CoInitialize", coInitialize, [ptr(0)], 0x11111111),
+      );
+      calls.push(
+        invoke("sta-repeat", "CoInitialize", coInitialize, [ptr(0)], 0x22222222),
+      );
+      calls.push(
+        invoke(
+          "sta-to-mta-conflict",
+          "CoInitializeEx",
+          coInitializeEx,
+          [ptr(0), 0],
+          0x33333333,
+        ),
+      );
+      balanceOne();
+      calls.push(
+        invoke(
+          "sta-count-one-conflict",
+          "CoInitializeEx",
+          coInitializeEx,
+          [ptr(0), 0],
+          0x44444444,
+        ),
+      );
+      balanceOne();
+      calls.push(
+        invoke(
+          "mta-first",
+          "CoInitializeEx",
+          coInitializeEx,
+          [ptr(0), 0],
+          0x55555555,
+        ),
+      );
+      calls.push(
+        invoke(
+          "mta-repeat",
+          "CoInitializeEx",
+          coInitializeEx,
+          [ptr(0), 0],
+          0x66666666,
+        ),
+      );
+      calls.push(
+        invoke(
+          "mta-to-sta-conflict",
+          "CoInitialize",
+          coInitialize,
+          [ptr(0)],
+          0x77777777,
+        ),
+      );
+      balanceOne();
+      balanceOne();
+      calls.push(
+        invoke(
+          "balanced-sta-first",
+          "CoInitialize",
+          coInitialize,
+          [ptr(0)],
+          0x88888888,
+        ),
+      );
+      balanceOne();
+
+      const expectedResults = [
+        0x00000000,
+        0x00000001,
+        0x80010106,
+        0x80010106,
+        0x00000000,
+        0x00000001,
+        0x80010106,
+        0x00000000,
+      ];
+      emit("com-initialization-oracle", {
+        profile: "x86-balanced-agent-thread-com-initialization-v1",
+        calls,
+        expectedResults,
+        expectedResultsObserved: calls.every(
+          (call, index) =>
+            call.systemResult === expectedResults[index] && call.hookResultMatches,
+        ),
+        allHookAndSystemLastErrorMatch: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+        repeatAndConflictCallsPreserveSentinels: calls
+          .filter(
+            (call) =>
+              call.id.includes("repeat") || call.id.includes("conflict"),
+          )
+          .every(
+            (call) => call.hookPreservesSentinel && call.systemPreservesSentinel,
+          ),
+        firstSuccessLastErrors: calls
+          .filter((call) => call.id.includes("first"))
+          .map((call) => ({
+            id: call.id,
+            hookLastErrorAfter: call.hookLastErrorAfter,
+            systemLastError: call.systemLastError,
+            sentinel: call.sentinel,
+          })),
+        successfulCallBalanceZero: successfulCalls === 0,
+      });
+    } catch (error) {
+      emit("com-initialization-oracle-error", { error: error.message });
+    } finally {
+      comInitializationOracleCall = null;
+      if (coUninitialize !== null) {
+        while (successfulCalls > 0) {
+          coUninitialize();
+          successfulCalls -= 1;
+        }
+      }
+    }
+  });
+}
+
 function scheduleProcessorFeatureOracle(module) {
   if (processorFeatureOracleScheduled) {
     return;
@@ -6603,6 +6881,12 @@ Process.attachModuleObserver({
       selectedObservations.has("enum-display-monitors")
     ) {
       scheduleEnumDisplayMonitorsOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "ole32.dll" &&
+      selectedObservations.has("com-initialization")
+    ) {
+      scheduleComInitializationOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

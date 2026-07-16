@@ -11,6 +11,45 @@ pub const TLS_OUT_OF_INDEXES: u32 = u32::MAX;
 pub const FLS_OUT_OF_INDEXES: u32 = u32::MAX;
 pub const RUNTIME_FLS_INDEX_LIMIT: u32 = 128;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeComApartmentModel {
+    SingleThreaded,
+    MultiThreaded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeComApartmentState {
+    pub model: RuntimeComApartmentModel,
+    pub initialization_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeComInitializationDisposition {
+    Initialized,
+    AlreadyInitialized,
+    ChangedMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeComInitializationOutcome {
+    pub thread_id: RuntimeThreadId,
+    pub requested_model: RuntimeComApartmentModel,
+    pub apartment: RuntimeComApartmentState,
+    pub disposition: RuntimeComInitializationDisposition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeComUninitializationOutcome {
+    pub thread_id: RuntimeThreadId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apartment: Option<RuntimeComApartmentState>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct RuntimeThreadId(pub u32);
@@ -86,6 +125,8 @@ pub struct RuntimeThreadState {
     pub lifecycle: RuntimeThreadLifecycleState,
     pub last_error: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub com_apartment: Option<RuntimeComApartmentState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub affinity_mask: Option<u32>,
     pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
     pub fls_storage_initialized: bool,
@@ -151,6 +192,20 @@ pub(super) struct RuntimeThreadAffinityPlan {
     mutation: RuntimeThreadMutationPlan,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeComInitializationPlan {
+    previous: RuntimeThreadState,
+    next: Option<RuntimeThreadState>,
+    outcome: RuntimeComInitializationOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeComUninitializationPlan {
+    previous: RuntimeThreadState,
+    next: RuntimeThreadState,
+    outcome: RuntimeComUninitializationOutcome,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeTlsIndexAllocationPlan {
     previous_next_index: u32,
@@ -194,6 +249,7 @@ impl RuntimeThreadMutationPlan {
         let previous = self.next.clone();
         let mut next = previous.clone();
         next.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
+        next.com_apartment = None;
         Ok(Self {
             previous: Some(previous),
             next,
@@ -207,6 +263,7 @@ impl RuntimeThreads {
             id: initial_thread_id,
             lifecycle: RuntimeThreadLifecycleState::Initialized,
             last_error: initial_last_error,
+            com_apartment: None,
             affinity_mask: None,
             tls_values: BTreeMap::new(),
             fls_storage_initialized: false,
@@ -450,6 +507,7 @@ impl RuntimeThreads {
                 id: thread_id,
                 lifecycle: RuntimeThreadLifecycleState::Running,
                 last_error: initial_last_error,
+                com_apartment: None,
                 affinity_mask: None,
                 tls_values: BTreeMap::new(),
                 fls_storage_initialized: false,
@@ -556,6 +614,156 @@ impl RuntimeThreads {
             previous: Some(previous),
             next,
         })
+    }
+
+    pub(super) fn com_apartment(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<Option<&RuntimeComApartmentState>, RuntimeStateError> {
+        Ok(self.current_state(thread_id)?.com_apartment.as_ref())
+    }
+
+    pub(super) fn plan_com_initialization(
+        &self,
+        thread_id: RuntimeThreadId,
+        requested_model: RuntimeComApartmentModel,
+    ) -> Result<RuntimeComInitializationPlan, RuntimeStateError> {
+        let previous = self.current_state(thread_id)?.clone();
+        if previous.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-com-apartment",
+                "com-initialization-lifecycle-state-invalid",
+                "COM initialization requires a running runtime thread",
+            ));
+        }
+        let (next, apartment, disposition) = match previous.com_apartment {
+            None => {
+                let apartment = RuntimeComApartmentState {
+                    model: requested_model,
+                    initialization_count: 1,
+                };
+                let mut next = previous.clone();
+                next.com_apartment = Some(apartment);
+                (
+                    Some(next),
+                    apartment,
+                    RuntimeComInitializationDisposition::Initialized,
+                )
+            }
+            Some(apartment) if apartment.model == requested_model => {
+                let initialization_count = apartment
+                    .initialization_count
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        RuntimeStateError::resource_limit(
+                            "runtime-com-apartment",
+                            "com-initialization-count-overflow",
+                            "COM apartment initialization count is exhausted",
+                        )
+                    })?;
+                let apartment = RuntimeComApartmentState {
+                    model: requested_model,
+                    initialization_count,
+                };
+                let mut next = previous.clone();
+                next.com_apartment = Some(apartment);
+                (
+                    Some(next),
+                    apartment,
+                    RuntimeComInitializationDisposition::AlreadyInitialized,
+                )
+            }
+            Some(apartment) => (
+                None,
+                apartment,
+                RuntimeComInitializationDisposition::ChangedMode,
+            ),
+        };
+        Ok(RuntimeComInitializationPlan {
+            previous,
+            next,
+            outcome: RuntimeComInitializationOutcome {
+                thread_id,
+                requested_model,
+                apartment,
+                disposition,
+            },
+        })
+    }
+
+    pub(super) fn commit_com_initialization(
+        &mut self,
+        plan: RuntimeComInitializationPlan,
+    ) -> Result<RuntimeComInitializationOutcome, RuntimeStateError> {
+        if self.states.get(&plan.previous.id) != Some(&plan.previous) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-com-apartment",
+                "com-initialization-plan-stale",
+                "runtime thread changed after COM initialization preflight",
+            ));
+        }
+        if let Some(next) = plan.next {
+            self.states.insert(next.id, next);
+        }
+        Ok(plan.outcome)
+    }
+
+    pub(super) fn plan_com_uninitialization(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeComUninitializationPlan, RuntimeStateError> {
+        let previous = self.current_state(thread_id)?.clone();
+        if previous.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-com-apartment",
+                "com-uninitialization-lifecycle-state-invalid",
+                "COM uninitialization requires a running runtime thread",
+            ));
+        }
+        let apartment = previous.com_apartment.ok_or_else(|| {
+            RuntimeStateError::conflict(
+                "runtime-com-apartment",
+                "com-apartment-uninitialized",
+                "current runtime thread has no initialized COM apartment",
+            )
+        })?;
+        if apartment.initialization_count == 0 {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-com-apartment",
+                "com-initialization-count-zero",
+                "initialized COM apartment has a zero initialization count",
+            ));
+        }
+        let remaining = apartment.initialization_count - 1;
+        let next_apartment = (remaining != 0).then_some(RuntimeComApartmentState {
+            model: apartment.model,
+            initialization_count: remaining,
+        });
+        let mut next = previous.clone();
+        next.com_apartment = next_apartment;
+        Ok(RuntimeComUninitializationPlan {
+            previous,
+            next,
+            outcome: RuntimeComUninitializationOutcome {
+                thread_id,
+                apartment: next_apartment,
+            },
+        })
+    }
+
+    pub(super) fn commit_com_uninitialization(
+        &mut self,
+        plan: RuntimeComUninitializationPlan,
+    ) -> Result<RuntimeComUninitializationOutcome, RuntimeStateError> {
+        if self.states.get(&plan.previous.id) != Some(&plan.previous) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-com-apartment",
+                "com-uninitialization-plan-stale",
+                "runtime thread changed after COM uninitialization preflight",
+            ));
+        }
+        self.states.insert(plan.next.id, plan.next);
+        Ok(plan.outcome)
     }
 
     pub(super) fn effective_affinity_mask(
@@ -861,6 +1069,7 @@ impl RuntimeThreads {
         };
         let mut next = previous.clone();
         next.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
+        next.com_apartment = None;
         Ok((
             RuntimeThreadMutationPlan {
                 previous: Some(previous),
@@ -893,6 +1102,152 @@ mod tests {
 
     const INITIAL: RuntimeThreadId = RuntimeThreadId(0x2000);
     const SECOND: RuntimeThreadId = RuntimeThreadId(0x1001);
+
+    #[test]
+    fn com_apartment_plans_are_counted_thread_local_and_failure_atomic() {
+        let mut threads = RuntimeThreads::new(INITIAL, 11);
+        let start = threads.plan_start(INITIAL).unwrap();
+        threads.commit(start);
+        let registration = threads.plan_registration(SECOND, 33).unwrap();
+        threads.commit(registration);
+
+        let first = threads
+            .plan_com_initialization(INITIAL, RuntimeComApartmentModel::SingleThreaded)
+            .unwrap();
+        assert_eq!(threads.com_apartment(INITIAL), Ok(None));
+        let first = threads.commit_com_initialization(first).unwrap();
+        assert_eq!(
+            first.disposition,
+            RuntimeComInitializationDisposition::Initialized
+        );
+        assert_eq!(first.apartment.initialization_count, 1);
+
+        let repeat = threads
+            .plan_com_initialization(INITIAL, RuntimeComApartmentModel::SingleThreaded)
+            .unwrap();
+        assert_eq!(
+            threads
+                .com_apartment(INITIAL)
+                .unwrap()
+                .unwrap()
+                .initialization_count,
+            1
+        );
+        let repeat = threads.commit_com_initialization(repeat).unwrap();
+        assert_eq!(
+            repeat.disposition,
+            RuntimeComInitializationDisposition::AlreadyInitialized
+        );
+        assert_eq!(repeat.apartment.initialization_count, 2);
+
+        let before_conflict = threads.clone();
+        let conflict = threads
+            .plan_com_initialization(INITIAL, RuntimeComApartmentModel::MultiThreaded)
+            .unwrap();
+        assert_eq!(
+            conflict.outcome.disposition,
+            RuntimeComInitializationDisposition::ChangedMode
+        );
+        assert!(conflict.next.is_none());
+        let conflict = threads.commit_com_initialization(conflict).unwrap();
+        assert_eq!(conflict.apartment.initialization_count, 2);
+        assert_eq!(threads, before_conflict);
+
+        let second = threads
+            .plan_com_initialization(SECOND, RuntimeComApartmentModel::MultiThreaded)
+            .unwrap();
+        threads.commit_com_initialization(second).unwrap();
+        assert_eq!(
+            threads.com_apartment(SECOND).unwrap().unwrap().model,
+            RuntimeComApartmentModel::MultiThreaded
+        );
+        assert_eq!(
+            threads.com_apartment(INITIAL).unwrap().unwrap().model,
+            RuntimeComApartmentModel::SingleThreaded
+        );
+
+        let stale = threads
+            .plan_com_initialization(SECOND, RuntimeComApartmentModel::MultiThreaded)
+            .unwrap();
+        let last_error = threads.plan_last_error(SECOND, 44).unwrap();
+        threads.commit(last_error);
+        let before_stale = threads.clone();
+        assert_eq!(
+            threads.commit_com_initialization(stale).unwrap_err().code,
+            "com-initialization-plan-stale"
+        );
+        assert_eq!(threads, before_stale);
+
+        let stale_uninitialize = threads.plan_com_uninitialization(INITIAL).unwrap();
+        let last_error = threads.plan_last_error(INITIAL, 12).unwrap();
+        threads.commit(last_error);
+        let before_stale = threads.clone();
+        assert_eq!(
+            threads
+                .commit_com_uninitialization(stale_uninitialize)
+                .unwrap_err()
+                .code,
+            "com-uninitialization-plan-stale"
+        );
+        assert_eq!(threads, before_stale);
+
+        let first_uninitialize = threads.plan_com_uninitialization(INITIAL).unwrap();
+        let first_uninitialize = threads
+            .commit_com_uninitialization(first_uninitialize)
+            .unwrap();
+        assert_eq!(
+            first_uninitialize.apartment.unwrap().initialization_count,
+            1
+        );
+        let final_uninitialize = threads.plan_com_uninitialization(INITIAL).unwrap();
+        let final_uninitialize = threads
+            .commit_com_uninitialization(final_uninitialize)
+            .unwrap();
+        assert_eq!(final_uninitialize.apartment, None);
+        let before_duplicate = threads.clone();
+        assert_eq!(
+            threads.plan_com_uninitialization(INITIAL).unwrap_err().code,
+            "com-apartment-uninitialized"
+        );
+        assert_eq!(threads, before_duplicate);
+    }
+
+    #[test]
+    fn com_apartment_overflow_and_thread_exit_do_not_leak_state() {
+        let mut threads = RuntimeThreads::new(INITIAL, 11);
+        let start = threads.plan_start(INITIAL).unwrap();
+        threads.commit(start);
+        threads.states.get_mut(&INITIAL).unwrap().com_apartment = Some(RuntimeComApartmentState {
+            model: RuntimeComApartmentModel::SingleThreaded,
+            initialization_count: u32::MAX,
+        });
+        let before_overflow = threads.clone();
+        assert_eq!(
+            threads
+                .plan_com_initialization(INITIAL, RuntimeComApartmentModel::SingleThreaded)
+                .unwrap_err()
+                .code,
+            "com-initialization-count-overflow"
+        );
+        assert_eq!(threads, before_overflow);
+
+        let (request, _) = threads.plan_exit_request(INITIAL, 23).unwrap();
+        let terminal = request.terminal_after_request(23).unwrap();
+        threads.commit(request);
+        threads.commit(terminal);
+        assert_eq!(threads.state(INITIAL).unwrap().com_apartment, None);
+        assert_eq!(
+            threads
+                .plan_com_initialization(INITIAL, RuntimeComApartmentModel::SingleThreaded)
+                .unwrap_err()
+                .code,
+            "com-initialization-lifecycle-state-invalid"
+        );
+        assert_eq!(
+            threads.plan_com_uninitialization(INITIAL).unwrap_err().code,
+            "com-uninitialization-lifecycle-state-invalid"
+        );
+    }
 
     #[test]
     fn plans_are_mutation_free_and_thread_local_values_remain_isolated() {

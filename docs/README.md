@@ -156,7 +156,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [runtime-module-images.md](runtime-module-images.md) | mapped guest module／exportをどう所有するか | sealed image identity、name／ordinal／forwarder resolution、failure atomicity |
 | [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md) | guest importとDLL process callbackをどう結ぶか | direct／runtime IAT、static dependency、attach unwind／retry、reverse detach |
 | [runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md) | process／thread terminationをどう所有するか | bootstrap／running、exit request／completion、atomic signal order |
-| [runtime-thread-registry.md](runtime-thread-registry.md) | logical thread stateをどう分離するか | controlled second thread、selection／exit、deterministic all-lane termination |
+| [runtime-thread-registry.md](runtime-thread-registry.md) | logical thread stateをどう分離するか | controlled second thread、selection／exit、logical affinity／COM apartment、deterministic all-lane termination |
 | [runtime-wait-queue.md](runtime-wait-queue.md) | waitable objectとschedulerをどう接続するか | one-object registration、signal／wake event、already-signaled／exit cancellation |
 | [runtime-message-queue.md](runtime-message-queue.md) | thread messageをどこが所有するか | bounded raw FIFO、empty block／first-message wake、ordered dequeue／exit cleanup |
 | [runtime-synchronization.md](runtime-synchronization.md) | process synchronization stateをどこが所有するか | private critical-section／named-mutex collections、object-table coordinator、plan／commit atomicity |
@@ -165,6 +165,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-create-mutex-a.md](bgi-create-mutex-a.md) | named mutex creationをどこまで返せるか | native new／existing oracle、private synchronization and typed-handle lifetime、Node／Chrome 284-call equivalence、GetCurrentThread stop |
 | [bgi-get-current-thread.md](bgi-get-current-thread.md) | current-thread pseudo-handleをどう解決するか | native pseudo-handle／LastError oracle、selected-thread typed-object relation、captured Node／Chrome equivalence |
 | [bgi-set-thread-affinity-mask.md](bgi-set-thread-affinity-mask.md) | logical affinityと進行するprocess clockをどう所有するか | native mask／calibration oracle、thread／process plan-commit、captured Node／Chrome／benchmark evidence |
+| [bgi-co-initialize.md](bgi-co-initialize.md) | reached COM apartment初期化をどこへ置くか | native HRESULT／balance oracle、per-thread counted apartment、Node／Chrome equivalence |
 | [runtime-heap-backing.md](runtime-heap-backing.md) | private heap bytes／lifetimeをどこが所有するか | bounded guest arena、allocation ID／alignment／initialization、free／reuse、heap／process teardown |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 

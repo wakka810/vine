@@ -10,6 +10,7 @@ import {
   type SessionFinishedMessage,
   type SessionReport,
   type RuntimeCurrentDirectorySnapshot,
+  type RuntimeComApartmentSnapshot,
   type RuntimeMutexSnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
@@ -111,6 +112,7 @@ interface CompletionMetadata {
   memory?: { generation: number; acknowledgedGeneration: number };
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
+  comApartment?: RuntimeComApartmentSnapshot;
 }
 
 interface ApiFaultMetadata {
@@ -148,6 +150,7 @@ interface CallbackCompletionMetadata {
   memory: { generation: number; acknowledgedGeneration: number };
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
+  comApartment?: RuntimeComApartmentSnapshot;
 }
 
 interface WritebackMetadata {
@@ -749,6 +752,11 @@ class BrowserRuntimeSession {
       isCreateMutex === (metadata.mutex !== undefined),
       "BGI mutex completion metadata mismatch",
     );
+    const isCoInitialize = completion.implementationId === "ole32.co-initialize.v1";
+    invariant(
+      isCoInitialize === (metadata.comApartment !== undefined),
+      "BGI COM apartment completion metadata mismatch",
+    );
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
     invariant(
       !this.#report.supportedCalls.some((call) => call.sequence === sequence),
@@ -773,6 +781,9 @@ class BrowserRuntimeSession {
         ? {}
         : { currentDirectory: metadata.currentDirectory }),
       ...(metadata.mutex === undefined ? {} : { mutex: metadata.mutex }),
+      ...(metadata.comApartment === undefined
+        ? {}
+        : { comApartment: metadata.comApartment }),
     });
     this.#report.supportedCalls.sort((left, right) => left.sequence - right.sequence);
   }

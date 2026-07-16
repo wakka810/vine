@@ -685,7 +685,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    comFoundation.schema !== "vine.runtime-com-foundation.v1" ||
+    comFoundation.schema !== "vine.runtime-com-foundation.v2" ||
     comFoundation.status !== "implemented-and-verified" ||
     comFoundation.stateOwner !== "runtime/com.rs::RuntimeCom" ||
     comFoundation.aggregateCoordinator !== "runtime/kernel.rs::RuntimeKernel" ||
@@ -694,6 +694,12 @@ export function validateCurrentCheckpoint(manifest) {
     comFoundation.logicalIdentityAuthority !== "rust" ||
     comFoundation.logicalIdentitySerialization !== "decimal-string" ||
     comFoundation.sharedReferenceCountAuthority !== "rust" ||
+    comFoundation.apartmentStateOwner !== "runtime/thread.rs::RuntimeThreads" ||
+    comFoundation.apartmentStateScope !==
+      "per-thread-model-and-successful-initialization-count" ||
+    comFoundation.apartmentMutation !==
+      "plan-stale-check-targeted-thread-commit" ||
+    comFoundation.apartmentThreadExitCleanup !== true ||
     comFoundation.canonicalIUnknownIid !==
       "00000000-0000-0000-c000-000000000046" ||
     comFoundation.abi !== "x86-com-stdcall" ||
@@ -719,7 +725,10 @@ export function validateCurrentCheckpoint(manifest) {
     comFoundation.atomicFailureTests < 3 ||
     comFoundation.wholeRuntimeStateClone !== false ||
     comFoundation.concreteGraphicsOrAudioInterfaces !== false ||
-    comFoundation.comInitializationOrAutomation !== false
+    comFoundation.coInitializeApi !== "null-reserved-single-threaded-v1" ||
+    comFoundation.coInitializeExApiImplemented !== false ||
+    comFoundation.coUninitializeApiImplemented !== false ||
+    comFoundation.classFactoryOrAutomationImplemented !== false
   ) {
     errors.push("active runtime COM foundation boundary is invalid");
   }
@@ -798,7 +807,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    threads.schema !== "vine.runtime-thread-registry.v4" ||
+    threads.schema !== "vine.runtime-thread-registry.v5" ||
     threads.stateOwner !== "runtime/thread.rs::RuntimeThreads" ||
     threads.mutableCollectionVisibility !== "private" ||
     threads.serializedRuntimeField !== "threads" ||
@@ -814,16 +823,19 @@ export function validateCurrentCheckpoint(manifest) {
       "tls-index-registry,fls-slot-registry,tls-index-allocator,fls-index-allocator,callback-frame-id-allocator" ||
     threads.crossSubsystemMutation !==
       "thread-resource-plan-aggregate-lifecycle-scheduler-preflight-infallible-commit" ||
-    threads.subsystemTests < 6 ||
+    threads.subsystemTests < 8 ||
     threads.crossSubsystemAtomicTests < 4 ||
     threads.directRecordMutationFromAggregate !== false ||
     threads.directResourceMutationFromAggregate !== false ||
     threads.resourceAllocatorFailureMutationFree !== true ||
     threads.callbackAllocatorAtomic !== true ||
     threads.stackMetadataPlanCommit !== true ||
+    threads.comApartmentPlanCommit !== true ||
+    threads.comApartmentOverflowMutationFree !== true ||
+    threads.comApartmentThreadExitCleanup !== true ||
     !Array.isArray(threads.perThreadState) ||
     threads.perThreadState.join(",") !==
-      "last-error,tls-values,fls-values,callback-frames,stack-metadata,logical-affinity-mask" ||
+      "last-error,tls-values,fls-values,callback-frames,stack-metadata,logical-affinity-mask,com-apartment" ||
     threads.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime thread subsystem boundary is invalid");

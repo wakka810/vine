@@ -298,6 +298,14 @@ endpoint、callsite付きで停止する。Browser contractは独立IDの非再�
 association、local releaseがRust refcountを変更しないことを固定する。詳細は
 [com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
 
+Reached COM initialization contractは別fixtureでone-argument x86 stdcall、typed HRESULT、
+`S_OK`／`S_FALSE`／`RPC_E_CHANGED_MODE`、LastError preserve、NULL-only reserved policyを固定する。
+Thread subsystem testはsame-model counted initialization、model conflictのno-mutation、per-thread isolation、
+stale commit、count overflow、balanced uninitialize、duplicate rejection、thread-exit cleanupを固定する。
+Node／Chrome primary gateはRust-owned apartment snapshot、same next stop、same memory digestを比較し、
+TypeScriptがapartment authorityを持たないことを検証する。Native oracleとnon-claimsは
+[bgi-co-initialize.md](bgi-co-initialize.md)を正とする。
+
 controlled wait queueの代表Rust contractはnonwaitable／duplicate rejection時のfull state不変、
 one registration、`WaitingObject` lane、別threadのtwo-stage exit completionまでのnonsignal、exact
 signal／runnable wake／one event、already-signaled immediate completion、process-exit cancellationを

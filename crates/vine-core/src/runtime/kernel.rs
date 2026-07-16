@@ -74,9 +74,10 @@ use super::synchronization::{
 };
 use super::thread::{
     RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCallbackFrameIdPlan, RuntimeCancellation,
-    RuntimeFlsSlot, RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMutationPlan,
-    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads,
-    RuntimeTlsValue,
+    RuntimeComApartmentModel, RuntimeComApartmentState, RuntimeComInitializationOutcome,
+    RuntimeComUninitializationOutcome, RuntimeFlsSlot, RuntimeThreadId,
+    RuntimeThreadLifecycleState, RuntimeThreadMutationPlan, RuntimeThreadStack,
+    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads, RuntimeTlsValue,
 };
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
@@ -1189,6 +1190,31 @@ impl RuntimeKernel {
             .plan_last_error(self.current_thread_id(), value)?;
         self.threads.commit(plan);
         Ok(())
+    }
+
+    pub fn current_com_apartment(
+        &self,
+    ) -> Result<Option<&RuntimeComApartmentState>, RuntimeStateError> {
+        self.threads.com_apartment(self.current_thread_id())
+    }
+
+    pub fn initialize_current_com_apartment(
+        &mut self,
+        model: RuntimeComApartmentModel,
+    ) -> Result<RuntimeComInitializationOutcome, RuntimeStateError> {
+        let plan = self
+            .threads
+            .plan_com_initialization(self.current_thread_id(), model)?;
+        self.threads.commit_com_initialization(plan)
+    }
+
+    pub fn uninitialize_current_com_apartment(
+        &mut self,
+    ) -> Result<RuntimeComUninitializationOutcome, RuntimeStateError> {
+        let plan = self
+            .threads
+            .plan_com_uninitialization(self.current_thread_id())?;
+        self.threads.commit_com_uninitialization(plan)
     }
 
     pub fn current_thread_affinity_mask(

@@ -2416,3 +2416,37 @@ Instruction `45685`でID `301`／`OLE32.dll!CoInitialize(NULL)`を
 `8ec8022f983af336f4e1b015d9f1760c6db01c606e678059cd6996cf4b403753`である。
 3分gateは198 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-enum-display-monitors.md](bgi-enum-display-monitors.md)を正とする。
+
+## 89. BGI COM apartment initialization
+
+Focused `com-initialization` capturesは154,928 bytes／457 lines／SHA-256
+`a85aea76149237c60508993ec1dd3e421ba69fc89bb2d4cfb6c3b59dae65e70e`と
+60,989 bytes／151 lines／SHA-256
+`b47ad8ae39f7451852bac6e2c59945a01599b94af970cbb450d9d10af8ed52cb`
+である。196／49 API pairsはbalanced、diagnosticsはzeroである。Kill時にunrelated
+D3D／dynamic-export callsがopenだった二つのshort captureはevidenceから除外した。
+
+BGIは`CoInitialize(NULL)`を呼びRVA `0x87399`へreturnする。Immediate consumerは
+`test eax,eax; js failure`でHRESULTのnegativeだけをfailureとし、LastErrorを読まない。
+Independent same-thread oracleはfirst STA／repeat STA／STA-to-MTA conflict／count-one
+conflict／first MTA／repeat MTA／MTA-to-STA conflict／balanced first STAを順に実行し、
+results `S_OK,S_FALSE,RPC_E_CHANGED_MODE,RPC_E_CHANGED_MODE,S_OK,S_FALSE,
+RPC_E_CHANGED_MODE,S_OK`を固定する。Successful callsはすべて`CoUninitialize`でbalance
+される。Repeat／conflictはLastError sentinelを保存するが、first successはzeroとsentinel
+preserveの両方を観測したためcontract外とする。
+
+Rust `RuntimeThreads`はper-thread model／successful initialization countを所有する。
+Same-model repeatはchecked increment、changed modeはno mutation、uninitializeはzeroでstateを
+retireし、thread exitもそのthreadのstateだけをclearする。COM object／interface／refcount authority
+`RuntimeCom`とは分離する。`ole32.co-initialize.v1`はNULL-only STA、typed HRESULT、stdcall、
+LastError preserveを実装し、non-NULL reservedをmutation前に拒否する。
+
+Nodeは51 contracts／1,294 calls、1,300 writebacks／2,460 dirty pages／7,890 changed
+bytes、80 host deltas、generation `1,409`を通す。Chrome Runtime Workerもsame ordered
+calls／apartment／stop／memoryを再現し、6,305 slices、5,005 yields、5,908 Wasm crossings、
+final generation `3,251`、terminal pending work 0を通す。Instruction `45691`でID `39`／
+`KERNEL32.dll!GetSystemDefaultLangID()`を`endpoint-contract-missing`として停止する。
+Memory SHA-256は
+`b7e5005417aa49c642ded6fdb078be8fe1750e9853cbbcf19e1996d9fd4fad4b`である。
+3分gateは198 sessions／failure 0で17 thresholdsを通した。詳細は
+[bgi-co-initialize.md](bgi-co-initialize.md)を正とする。

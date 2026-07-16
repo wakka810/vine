@@ -49,6 +49,7 @@ SUPPORTED_OBSERVATIONS = (
     "set-thread-affinity-mask",
     "get-system-info",
     "enum-display-monitors",
+    "com-initialization",
 )
 
 

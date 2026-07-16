@@ -13,6 +13,7 @@ mod materialize;
 mod memory;
 mod module_graph;
 mod module_images;
+mod ole32;
 mod pe32;
 mod runtime;
 mod snapshot;
@@ -43,11 +44,12 @@ pub use callbacks::{
     install_callback_return_sentinel, install_runtime_return_sentinels,
 };
 pub use com::{
-    COM_E_NOINTERFACE, COM_E_POINTER, COM_S_OK, ComCallCompletion, ComCallFrame, ComCallTrap,
-    ComDispatchOutcome, ComFault, ComFaultClass, ComFaultTarget, ComGuestWriteReceipt, ComHResult,
-    ComInterfaceSpec, ComMethodSpec, ComObjectSpec, ComReturnValue, InstalledComObject,
-    RUNTIME_COM_BACKING_BYTES, RUNTIME_COM_ENDPOINT_SLOT_SIZE,
-    RUNTIME_COM_MAX_ENDPOINTS_PER_OBJECT, dispatch_com_call, install_com_object,
+    COM_E_NOINTERFACE, COM_E_POINTER, COM_RPC_E_CHANGED_MODE, COM_S_FALSE, COM_S_OK,
+    ComCallCompletion, ComCallFrame, ComCallTrap, ComDispatchOutcome, ComFault, ComFaultClass,
+    ComFaultTarget, ComGuestWriteReceipt, ComHResult, ComInterfaceSpec, ComMethodSpec,
+    ComObjectSpec, ComReturnValue, InstalledComObject, RUNTIME_COM_BACKING_BYTES,
+    RUNTIME_COM_ENDPOINT_SLOT_SIZE, RUNTIME_COM_MAX_ENDPOINTS_PER_OBJECT, dispatch_com_call,
+    install_com_object,
 };
 pub use dynamic_exports::{
     DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
@@ -99,6 +101,10 @@ pub use module_images::{
     RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleImageRegistry,
     RuntimeResolvedExport,
 };
+pub use ole32::{
+    CO_INITIALIZE_IMPLEMENTATION, co_initialize_contract, dispatch_ole32_api,
+    ole32_contract_for_endpoint,
+};
 pub use pe32::{
     DataDirectoryAddressKind, DataDirectoryPlan, ExportDirectoryPlan, ExportLookup,
     ExportSymbolPlan, ExportTarget, FeatureInventory, HeaderMappingPlan, ImageKind, ImagePlan,
@@ -129,22 +135,25 @@ pub use runtime::{
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, RUNTIME_THREAD_OBJECT_NAMESPACE, RuntimeAddressRange,
     RuntimeBootstrap, RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCancellation,
-    RuntimeClockState, RuntimeCom, RuntimeComBacking, RuntimeComIid, RuntimeComInterfaceId,
-    RuntimeComInterfaceRecord, RuntimeComMethodImplementation, RuntimeComMethodRecord,
-    RuntimeComMethodTarget, RuntimeComObjectId, RuntimeComObjectRecord, RuntimeComReturnKind,
-    RuntimeCommandLine, RuntimeCreateMutexAResult, RuntimeCriticalSection,
-    RuntimeCurrentDirectoryA, RuntimeCurrentThreadPseudoHandleResolution, RuntimeDisplayProfile,
-    RuntimeDllAttachFailure, RuntimeDllCallbackReason, RuntimeDllCallbackRequest,
-    RuntimeDllLifecycleAction, RuntimeDllLifecycleCompletion, RuntimeDllLifecyclePhase,
-    RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeEnvironmentStringCopy,
-    RuntimeEnvironmentStrings, RuntimeFlsSlot, RuntimeGuestImport, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHandleClosePolicy, RuntimeHandleEntry,
-    RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationId, RuntimeHeapBacking,
-    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeHostCompletion, RuntimeHostRequest,
-    RuntimeKernel, RuntimeLogicalMonitor, RuntimeMessageId, RuntimeMessageReceiveDisposition,
-    RuntimeMessageWake, RuntimeModule, RuntimeModuleDependencyEdge, RuntimeMutex, RuntimeMutexId,
-    RuntimeMutexNameA, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
-    RuntimeObjectTable, RuntimeProcessCancellation, RuntimeProcessEnvironment, RuntimeProcessId,
+    RuntimeClockState, RuntimeCom, RuntimeComApartmentModel, RuntimeComApartmentState,
+    RuntimeComBacking, RuntimeComIid, RuntimeComInitializationDisposition,
+    RuntimeComInitializationOutcome, RuntimeComInterfaceId, RuntimeComInterfaceRecord,
+    RuntimeComMethodImplementation, RuntimeComMethodRecord, RuntimeComMethodTarget,
+    RuntimeComObjectId, RuntimeComObjectRecord, RuntimeComReturnKind,
+    RuntimeComUninitializationOutcome, RuntimeCommandLine, RuntimeCreateMutexAResult,
+    RuntimeCriticalSection, RuntimeCurrentDirectoryA, RuntimeCurrentThreadPseudoHandleResolution,
+    RuntimeDisplayProfile, RuntimeDllAttachFailure, RuntimeDllCallbackReason,
+    RuntimeDllCallbackRequest, RuntimeDllLifecycleAction, RuntimeDllLifecycleCompletion,
+    RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeEncodedPointer,
+    RuntimeEnvironmentStringCopy, RuntimeEnvironmentStrings, RuntimeFlsSlot, RuntimeGuestImport,
+    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle,
+    RuntimeHandleClosePolicy, RuntimeHandleEntry, RuntimeHeap, RuntimeHeapAllocation,
+    RuntimeHeapAllocationId, RuntimeHeapBacking, RuntimeHeapInitialization, RuntimeHeapTeardown,
+    RuntimeHostCompletion, RuntimeHostRequest, RuntimeKernel, RuntimeLogicalMonitor,
+    RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeModule,
+    RuntimeModuleDependencyEdge, RuntimeMutex, RuntimeMutexId, RuntimeMutexNameA, RuntimeObjectId,
+    RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectTable,
+    RuntimeProcessCancellation, RuntimeProcessEnvironment, RuntimeProcessId,
     RuntimeProcessImagePathA, RuntimeProcessLifecycleState, RuntimeProcessState,
     RuntimeProcessView, RuntimeRect, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
     RuntimeSetCurrentDirectoryAPlan, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,

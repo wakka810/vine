@@ -739,6 +739,13 @@ unhandledExceptionFilterSelection.find(
 ).selectedObservations = ["unhandled-exception-filter"];
 assert.doesNotThrow(() => summarizeTrace(encode(unhandledExceptionFilterSelection)));
 
+const comInitializationSelection = structuredClone(events);
+comInitializationSelection[0].arguments.observations = ["com-initialization"];
+comInitializationSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["com-initialization"];
+assert.doesNotThrow(() => summarizeTrace(encode(comInitializationSelection)));
+
 const heapSizeSelection = structuredClone(events);
 heapSizeSelection[0].arguments.observations = ["heap-size"];
 heapSizeSelection.find(

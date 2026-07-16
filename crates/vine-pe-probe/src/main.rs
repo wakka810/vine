@@ -22,28 +22,30 @@ use vine_core::{
     MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
     ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
-    RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeLogicalMonitor,
-    RuntimeModule, RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
-    RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord, RuntimeProcessId,
-    RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState, RuntimeDllLifecycleAction,
+    RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
+    RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
+    RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord,
+    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo,
+    RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack,
     RuntimeThreadStackGrowth, RuntimeTlsValue, SchedulerThreadState, UnsupportedPoint,
     User32CompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
     build_pe32_load_plan, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
-    dispatch_user32_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_controlled_process_environment,
+    dispatch_ole32_api, dispatch_user32_api_with_policy, encode_pointer_contract,
+    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
+    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
+    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
+    install_callback_return_sentinel, install_controlled_initial_stack,
+    install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
     install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
-    kernel32_contract_for_endpoint, materialize_pe32_image, query_performance_counter_contract,
-    tls_alloc_contract, tls_set_value_contract, user32_contract_for_endpoint,
+    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
+    query_performance_counter_contract, tls_alloc_contract, tls_set_value_contract,
+    user32_contract_for_endpoint,
 };
 
 #[derive(Debug)]
@@ -137,6 +139,7 @@ enum GenericRuntimeCapability {
     SetThreadAffinityMask,
     GetSystemInfo,
     EnumDisplayMonitors,
+    CoInitialize,
 }
 
 struct GenericRuntimeProcess {
@@ -308,6 +311,8 @@ struct GenericRuntimeCompletion {
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tick_count: Option<GenericRuntimeTickCount>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    com_apartment: Option<RuntimeComApartmentState>,
     memory: MemoryStats,
 }
 
@@ -2687,7 +2692,10 @@ fn generic_runtime_contract_for_endpoint(
     if let Some(contract) = kernel32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
-    user32_contract_for_endpoint(endpoint).map_err(api_fault)
+    if let Some(contract) = user32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
+    ole32_contract_for_endpoint(endpoint).map_err(api_fault)
 }
 
 fn run_v86_generic_runtime_session(
@@ -2703,7 +2711,9 @@ fn run_v86_generic_runtime_session(
     user32_policy.validate().map_err(api_fault)?;
     if matches!(
         endpoint_capability,
-        Some(GenericRuntimeCapability::EnumDisplayMonitors)
+        Some(
+            GenericRuntimeCapability::EnumDisplayMonitors | GenericRuntimeCapability::CoInitialize
+        )
     ) {
         process
             .runtime
@@ -2743,6 +2753,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
+                | GenericRuntimeCapability::CoInitialize
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2763,6 +2774,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
+                | GenericRuntimeCapability::CoInitialize
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2801,7 +2813,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetCurrentThread
             | GenericRuntimeCapability::SetThreadAffinityMask
             | GenericRuntimeCapability::GetSystemInfo
-            | GenericRuntimeCapability::EnumDisplayMonitors,
+            | GenericRuntimeCapability::EnumDisplayMonitors
+            | GenericRuntimeCapability::CoInitialize,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2953,7 +2966,10 @@ fn run_v86_generic_runtime_session(
             dynamic_export_endpoints: process.runtime.registries().dynamic_endpoints().len(),
             user32_compatibility_policy_id: matches!(
                 endpoint_capability,
-                Some(GenericRuntimeCapability::EnumDisplayMonitors)
+                Some(
+                    GenericRuntimeCapability::EnumDisplayMonitors
+                        | GenericRuntimeCapability::CoInitialize
+                )
             )
             .then(|| user32_policy.id.clone()),
             display_profile_id: process.runtime.display_profile_id().map(str::to_owned),
@@ -3088,6 +3104,7 @@ fn run_v86_generic_runtime_session(
                             mutex: None,
                             thread_affinity: None,
                             tick_count: None,
+                            com_apartment: None,
                             memory: memory.stats(),
                         },
                     )?;
@@ -3254,6 +3271,8 @@ fn run_v86_generic_runtime_session(
                                 frame,
                                 session,
                             )
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
+                            dispatch_ole32_api(contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 &kernel32_policy,
@@ -3424,6 +3443,16 @@ fn run_v86_generic_runtime_session(
                             } else {
                                 None
                             };
+                        let com_apartment =
+                            if completion.implementation_id == "ole32.co-initialize.v1" {
+                                session
+                                    .runtime()
+                                    .current_com_apartment()
+                                    .map_err(runtime_state_error)?
+                                    .copied()
+                            } else {
+                                None
+                            };
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -3442,6 +3471,7 @@ fn run_v86_generic_runtime_session(
                                 mutex,
                                 thread_affinity,
                                 tick_count,
+                                com_apartment,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3600,6 +3630,7 @@ fn run_v86_generic_runtime_session(
                                 mutex: None,
                                 thread_affinity: None,
                                 tick_count: None,
+                                com_apartment: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3657,6 +3688,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
+                | GenericRuntimeCapability::CoInitialize
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3679,6 +3711,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
+                | GenericRuntimeCapability::CoInitialize
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3690,6 +3723,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
+                | GenericRuntimeCapability::CoInitialize
         )
     );
     let create_mutex_a_enabled = matches!(
@@ -3700,6 +3734,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
+                | GenericRuntimeCapability::CoInitialize
         )
     );
     let get_current_thread_enabled = matches!(
@@ -3709,6 +3744,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
+                | GenericRuntimeCapability::CoInitialize
         )
     );
     let set_thread_affinity_mask_enabled = matches!(
@@ -3717,10 +3753,12 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
                 | GenericRuntimeCapability::EnumDisplayMonitors
+                | GenericRuntimeCapability::CoInitialize
         )
     );
-    let enum_display_monitors_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::EnumDisplayMonitors));
+    let co_initialize_enabled = matches!(enabled, Some(GenericRuntimeCapability::CoInitialize));
+    let enum_display_monitors_enabled = co_initialize_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::EnumDisplayMonitors));
     let get_system_info_enabled = enum_display_monitors_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::GetSystemInfo));
     let initialize_critical_section_enabled = set_current_directory_a_enabled
@@ -3831,7 +3869,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::GetCurrentThread
             | GenericRuntimeCapability::SetThreadAffinityMask
             | GenericRuntimeCapability::GetSystemInfo
-            | GenericRuntimeCapability::EnumDisplayMonitors,
+            | GenericRuntimeCapability::EnumDisplayMonitors
+            | GenericRuntimeCapability::CoInitialize,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3988,6 +4027,7 @@ fn runtime_capability_enables_endpoint(
         "SetThreadAffinityMask" => set_thread_affinity_mask_enabled,
         "GetSystemInfo" => get_system_info_enabled,
         "EnumDisplayMonitors" => enum_display_monitors_enabled,
+        "CoInitialize" => co_initialize_enabled,
         _ => true,
     }
 }
@@ -4042,7 +4082,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::GetCurrentThread
             | GenericRuntimeCapability::SetThreadAffinityMask
             | GenericRuntimeCapability::GetSystemInfo
-            | GenericRuntimeCapability::EnumDisplayMonitors,
+            | GenericRuntimeCapability::EnumDisplayMonitors
+            | GenericRuntimeCapability::CoInitialize,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9472,6 +9513,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "kernel32-get-system-info" => GenericRuntimeCapability::GetSystemInfo,
                 "user32-enum-display-monitors" => GenericRuntimeCapability::EnumDisplayMonitors,
+                "ole32-co-initialize" => GenericRuntimeCapability::CoInitialize,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

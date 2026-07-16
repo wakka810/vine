@@ -997,6 +997,23 @@ authority and bounded variants are documented in
 generalize arbitrary callback nesting, SEH, cross-thread callbacks, or all
 User32 callback APIs.
 
+## Typed HRESULT and Ole32 dispatch
+
+`ApiReturnSchema::HResult` and `ApiReturnValue::HResult` preserve the signed
+COM result domain while committing its exact 32-bit representation to EAX.
+They are distinct from raw U32 and BOOL normalization, so a caller can apply
+standard failed-HRESULT sign-bit semantics without an API-specific register
+path. ABI validation rejects a handler returning a mismatched kind before
+completion.
+
+The generic endpoint catalog now checks Kernel32, User32, then Ole32 semantic
+contract providers. `ole32.co-initialize.v1` is the first Ole32 contract and
+uses the same decoded frame, LastError policy, completion, Worker transport,
+and structured-stop path as the existing APIs. Apartment state stays in the
+Rust thread owner; the Worker forwards an immutable diagnostic snapshot only
+for that completion. Details and bounded non-claims are in
+[bgi-co-initialize.md](bgi-co-initialize.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.
@@ -1054,6 +1071,9 @@ User32 callback APIs.
   The x86 virtual `SYSTEM_INFO` profile is policy-owned and fixed to the bounded
   PE32 address model; x64, processor groups, NUMA, dynamic host topology, and
   broader system-information APIs remain absent.
+  Reached `CoInitialize(NULL)` owns a counted STA apartment on the selected
+  Rust thread. Guest `CoInitializeEx`／`CoUninitialize`, class activation,
+  marshaling, and automation remain absent.
   Active structured-stop identity is intentionally not repeated in this document.
 
 ## Frozen next-checkpoint notes

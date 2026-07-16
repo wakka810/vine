@@ -42,6 +42,11 @@ export interface RuntimeMutexSnapshot {
   alreadyExists: boolean;
 }
 
+export interface RuntimeComApartmentSnapshot {
+  model: "single-threaded" | "multi-threaded";
+  initializationCount: number;
+}
+
 export interface SessionConfiguration {
   mode: SessionMode;
   workload?: SessionWorkload;
@@ -187,6 +192,7 @@ export interface SessionReport {
     guestWrites: Array<{ address: number; bytes: number[] }>;
     currentDirectory?: RuntimeCurrentDirectorySnapshot;
     mutex?: RuntimeMutexSnapshot;
+    comApartment?: RuntimeComApartmentSnapshot;
   }>;
   firstUnsupported: {
     capabilityCluster: string;

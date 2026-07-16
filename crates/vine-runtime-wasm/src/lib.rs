@@ -21,11 +21,11 @@ use vine_core::{
     RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, SchedulerThreadState, StackCleanup,
     User32CompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
-    dispatch_kernel32_api_with_policy, dispatch_user32_api_with_policy,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
     install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
     install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
     install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
-    user32_contract_for_endpoint,
+    ole32_contract_for_endpoint, user32_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -801,6 +801,8 @@ impl BrowserRuntime {
                                 frame,
                                 session,
                             )
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
+                            dispatch_ole32_api(contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 kernel32_policy,
@@ -942,6 +944,14 @@ impl BrowserRuntime {
                                 ).map_err(error_string)?,
                                 "alreadyExists": completion.last_error == 183,
                             });
+                        }
+                        if completion.implementation_id == "ole32.co-initialize.v1" {
+                            metadata["comApartment"] = json!(
+                                self.runtime
+                                    .current_com_apartment()
+                                    .map_err(error_string)?
+                                    .copied()
+                            );
                         }
                         metadata
                     }
@@ -1616,7 +1626,10 @@ fn bgi_contract_for_endpoint(
     if let Some(contract) = kernel32_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
-    user32_contract_for_endpoint(endpoint)
+    if let Some(contract) = user32_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
+    ole32_contract_for_endpoint(endpoint)
 }
 
 fn runtime_capability_cluster(endpoint: &ApiEndpointIdentity) -> String {

@@ -41,6 +41,7 @@ const supportedObservations = new Set([
   "get-cp-info",
   "processor-feature",
   "unhandled-exception-filter",
+  "com-initialization",
 ]);
 const idirect3d9MethodNames = [
   "QueryInterface",

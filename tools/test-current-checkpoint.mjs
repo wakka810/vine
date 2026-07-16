@@ -214,6 +214,24 @@ assert.ok(
   ),
 );
 
+const browserOwnsComApartment = structuredClone(manifest);
+browserOwnsComApartment.activeRuntimeCheckpoint.runtimeComFoundation.apartmentStateOwner =
+  "browser/runtime-worker/runtime-worker.ts";
+assert.ok(
+  validateCurrentCheckpoint(browserOwnsComApartment).some((error) =>
+    error.includes("COM foundation boundary"),
+  ),
+);
+
+const apartmentLeaksOnThreadExit = structuredClone(manifest);
+apartmentLeaksOnThreadExit.activeRuntimeCheckpoint.runtimeThreadRegistry.comApartmentThreadExitCleanup =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(apartmentLeaksOnThreadExit).some((error) =>
+    error.includes("thread subsystem boundary"),
+  ),
+);
+
 const exposedRegistries = structuredClone(manifest);
 exposedRegistries.activeRuntimeCheckpoint.runtimeRegistries.mutableCollectionVisibility =
   "public";
@@ -487,7 +505,7 @@ assert.ok(
 
 const staleThreadRegistryShape = structuredClone(manifest);
 staleThreadRegistryShape.activeRuntimeCheckpoint.runtimeThreadRegistry.schema =
-  "vine.runtime-thread-registry.v3";
+  "vine.runtime-thread-registry.v4";
 assert.ok(
   validateCurrentCheckpoint(staleThreadRegistryShape).some((error) =>
     error.includes("thread subsystem boundary"),

@@ -92,8 +92,10 @@ pub use synchronization::{
 pub use thread::{
     FLS_OUT_OF_INDEXES, LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE,
     RUNTIME_FLS_INDEX_LIMIT, RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCancellation,
-    RuntimeFlsSlot, RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTlsValue, TLS_OUT_OF_INDEXES,
+    RuntimeComApartmentModel, RuntimeComApartmentState, RuntimeComInitializationDisposition,
+    RuntimeComInitializationOutcome, RuntimeComUninitializationOutcome, RuntimeFlsSlot,
+    RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadStack, RuntimeThreadStackGrowth,
+    RuntimeThreadState, RuntimeTlsValue, TLS_OUT_OF_INDEXES,
 };
 pub use waits::{
     RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,

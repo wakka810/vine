@@ -17,8 +17,10 @@ use crate::runtime::{
 };
 
 pub const COM_S_OK: ComHResult = ComHResult(0);
+pub const COM_S_FALSE: ComHResult = ComHResult(1);
 pub const COM_E_NOINTERFACE: ComHResult = ComHResult(0x8000_4002_u32 as i32);
 pub const COM_E_POINTER: ComHResult = ComHResult(0x8000_4003_u32 as i32);
+pub const COM_RPC_E_CHANGED_MODE: ComHResult = ComHResult(0x8001_0106_u32 as i32);
 pub const RUNTIME_COM_ENDPOINT_SLOT_SIZE: u32 = 16;
 pub const RUNTIME_COM_BACKING_BYTES: u32 = GUEST_PAGE_SIZE as u32 * 2;
 pub const RUNTIME_COM_MAX_ENDPOINTS_PER_OBJECT: usize =

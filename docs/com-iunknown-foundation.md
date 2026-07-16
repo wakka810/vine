@@ -9,6 +9,11 @@
 countを所有し、`RuntimeKernel`はprocess address allocationと`GuestMemory`をまたぐtransactionだけを
 調整する。Win32 HANDLE用`RuntimeObjectTable`へCOM pointerやreference countを混在させない。
 
+COM apartmentはobject identityとは別のthread-local stateである。
+`runtime/thread.rs::RuntimeThreads`だけが各threadのapartment modelとsuccessful initialization countを
+所有し、`RuntimeKernel`はselected threadに対するplan／commitを調整する。`RuntimeCom`、Browser
+resource table、host COMのいずれにもapartmentの第二の正本を置かない。
+
 Object IDとinterface IDはRust-ownedの単調増加identityであり、guest pointer、host pointer、native
 COM pointerのいずれでもない。各objectはcanonical `IID_IUnknown` interfaceを一つ持つ。
 `QueryInterface(IID_IUnknown)`はどのinterfaceから呼んでもその同じpointerを返し、supported IIDは
@@ -28,6 +33,12 @@ Return EIPとcallee cleanup後のESPをstate mutation前に計算し、`this`が
 ことを検査する。`QueryInterface`はHRESULT、`AddRef`／`Release`はULONGをEAXへ返す。COM callは
 threadのLastErrorを変更しない。
 
+Reached `CoInitialize(NULL)`はgeneric API dispatcherのtyped HRESULT returnを使うone-argument
+x86 stdcall contractである。First STA initializationは`S_OK`、same-model repeatはcountを増やして
+`S_FALSE`、既存MTAとの衝突はstateを変えず`RPC_E_CHANGED_MODE`を返す。Non-NULL reservedは
+mutation前にunsupported faultとなる。詳細なnative／Node／Chrome evidenceは
+[bgi-co-initialize.md](bgi-co-initialize.md)を正とする。
+
 ## Atomicityとlifetime
 
 - installはguest mapping／protectionをmemory transactionへstageし、allocation planとCOM registration
@@ -37,6 +48,9 @@ threadのLastErrorを変更しない。
 - final `Release`は全interface／endpoint index、guest mapping、memory owner、process allocationを同時に
   退役させる。いずれかのpreflight／memory operationが失敗した場合、Rust identityとallocationを
   partial mutationしない。
+- apartment initialization／uninitializationはthread ownerがprevious recordを持つplanを作り、stale
+  commitを拒否する。Count overflow、duplicate uninitialize、wrong lifecycleはmutation-freeであり、
+  thread exitはそのthreadのapartmentだけをretireする。
 
 未対応slotはsilent successにせず、interface、IID、slot、method、endpoint、guest callsite付きで
 mutation前に構造化停止する。Malformed stack、return address、`this`、IID／output memoryも同様に
@@ -63,5 +77,6 @@ releaseとRust refcountの分離を固定する。このgateは`check:fast`に�
 
 Windows traceではselected `IDirect3D9` rootの`AddRef`／`Release`到達が既に記録されているが、本実装は
 synthetic共通foundationだけである。`IDirect3D9`／device／resource、DirectInput、DirectSound、DirectDraw、
-graphics／audio backend、`CoInitialize`、apartment、class factory、BSTR／VARIANT／automationは実装しない。
+graphics／audio backend、guest `CoInitializeEx`／`CoUninitialize`、cross-thread marshaling、class factory、
+BSTR／VARIANT／automationは実装しない。
 具体的interfaceはcorpus traceから別taskとしてこのfoundationへ接続する。

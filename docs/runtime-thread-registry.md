@@ -5,7 +5,7 @@
 reviewのruntime responsibility splitとして、single controlled processのversion 1 thread
 registryを`runtime/thread.rs`のprivate `RuntimeThreads`へ移した。Initial threadとは別の
 logical threadを登録する既存contractを保ち、
-thread identity、typed object／handle、LastError／TLS／FLS／callback state、logical affinity、scheduler lane、exitを
+thread identity、typed object／handle、LastError／TLS／FLS／callback state、logical affinity、COM apartment、scheduler lane、exitを
 同じRust authorityへ置き、wait queueとper-thread CPU bootstrapの前提を作る。
 
 このcheckpointはguest `CreateThread`を追加せず、second-thread CPU context／stack／TEB／FS、
@@ -28,11 +28,11 @@ host-request table／request ID、wait registration、message queueはそれぞ�
 mapを参照またはmutateしない。Serialized `RuntimeState.threads` shapeはtransparent newtypeで維持する。
 Existing `process.allocatedTlsIndices`／`process.flsSlots`とroot `nextTlsIndex`／`nextFlsIndex`／
 `nextCallbackFrameId`はborrowed compatibility viewであり、aggregate-owned stateではない。
-Manifest boundary version `vine.runtime-thread-registry.v4` adds optional
-serialized `affinityMask` to a thread record. An unset mask is omitted, so
-historical reports retain their previous shape; active records materialize the
-field only after an affinity commit. There is no persistent snapshot migration
-or duplicate compatibility field.
+Manifest boundary version `vine.runtime-thread-registry.v5` includes optional
+serialized `affinityMask` and `comApartment` fields on a thread record. Unset
+state is omitted, so historical reports retain their previous shape; active
+records materialize each field only after its owner commit. There is no
+persistent snapshot migration or duplicate compatibility field.
 
 ## Registration and selection
 
@@ -66,7 +66,7 @@ the pseudo value and handle-table cardinality. The contract is documented in
 ## Thread-local ownership
 
 LastError、logical TLS／FLS value、callback frame stack、initial-thread stack metadata、
-optional logical affinity maskは
+optional logical affinity mask、optional COM apartment model／successful initialization countは
 TIDごとに分離する。Scheduler stateとpending host requestもTIDへ帰属し、private
 `RuntimeScheduler`が同じplan／commit境界で所有する。
 Controlled contractsは同じTLS indexへinitial thread `0x1111`、second
@@ -89,6 +89,17 @@ next record. The affinity-specific commit rejects stale／duplicate plans before
 delegating to the ordinary targeted thread-record replacement. Selecting
 another logical thread exposes its independent effective mask; no native handle,
 host CPU mask, or browser scheduler state enters the subsystem.
+
+An unset COM apartment is uninitialized. `plan_com_initialization` creates
+count 1 for the requested model, checked-increments a same-model count, or
+returns changed-mode without a next record. `plan_com_uninitialization`
+decrements only a successful count and removes the apartment at zero. Both
+commits compare the complete preflight thread record and reject stale or
+duplicate use; overflow, missing apartment, and non-running lifecycle failures
+do not mutate the registry. Exit completion clears the apartment on that thread
+only. `CoInitialize(NULL)` selects STA through this boundary; COM object
+identity and reference count remain in `RuntimeCom`. The reached contract is
+documented in [bgi-co-initialize.md](bgi-co-initialize.md).
 
 ## Exit and deterministic process termination
 
@@ -123,7 +134,7 @@ cargo test -p vine-core --test runtime_lifecycle --locked
 cargo test -p vine-core --test runtime_initial_thread_stack --locked
 ```
 
-Subsystem unit tests fix mutation-free planning、per-thread value／affinity isolation、callback／exit ordering、
+Subsystem unit tests fix mutation-free planning、per-thread value／affinity／COM-apartment isolation、callback／exit ordering、
 TLS／FLS／callback allocator co-commit、collision／limit／overflow rollback、duplicate／zero identity rejection.
 Scheduler tests add thread-scoped host start／completion／cancellation plans. Aggregate tests fix
 object／scheduler／message／wait atomicity、initial-stack GuestMemory coordination and the existing process／root
@@ -137,7 +148,8 @@ This checkpoint does not implement guest thread creation APIs, per-thread CPU／
 stack／guard／TEB allocation, start routine execution, suspend／resume, priority, natural last-thread
 process exit, concurrent guest execution, TLS／FLS cleanup callbacks, DLL thread attach／detach,
 waiter registration, timeout, wait-any／wait-all, APC, message wake, host affinity control,
-arbitrary thread-handle affinity, or host topology discovery. It is partial evidence for
+arbitrary thread-handle affinity, host topology discovery, guest `CoInitializeEx`／`CoUninitialize`,
+cross-thread COM marshaling, or apartment message pumping. It is partial evidence for
 `P1-SCH-01`／`P3-WIN-02`, not their completion.
 
 The controlled wait-queue dependency is implemented in

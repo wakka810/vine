@@ -184,7 +184,7 @@ OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は
 
 最初の候補は、複数の Windows thread を一つの Runtime Worker 上で cooperative に schedule する方式である。
 
-- 各 thread は register set、FPU state、stack、TEB／FS、LastError、Win32 TLS slot、wait state を持つ。
+- 各 thread は register set、FPU state、stack、TEB／FS、LastError、Win32 TLS slot、COM apartment、wait state を持つ。
 - 命令 count、virtual time、API boundary、wait で yield する。
 - Windows wait object と message queue を runtime 内で解決する。
 - browser main thread や Promise の完了を、runtime event として enqueue する。
@@ -192,7 +192,7 @@ OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は
 
 この方式は data race の再現性を高める一方、multi-core 性能や一部 timing-sensitive code を制約する。SharedArrayBuffer を使う 1 guest thread / 1 Worker 方式は、Phase 1 の benchmark と semantic test を通った場合だけ採用候補にする。
 
-version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、thread `initialized／running／exit-requested／exited`、scheduler `initialized／terminating`を所有する。controlled registryはsecond TID／typed handle、thread-local LastError／TLS／callback／lane、explicit selectionを加え、process terminationをTID昇順thread signal＋process-last signalとして最大3 object recordsへtargeted atomic commitする。wait queueはmonotonic registration／object FIFO、`WaitingObject`、thread signalによるrunnable wake／exact event、exit cancellationを所有する。message queueはper-thread bounded FIFO、global sequence、`WaitingMessage`、first enqueue wake、exit cleanupを所有する。CPU context／second-thread stack／TEB、last-thread semantics、wait-any／wait-all／timeout、User32 message semanticsは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)を正とする。
+version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、thread `initialized／running／exit-requested／exited`、scheduler `initialized／terminating`を所有する。controlled registryはsecond TID／typed handle、thread-local LastError／TLS／callback／logical affinity／COM apartment／lane、explicit selectionを加え、process terminationをTID昇順thread signal＋process-last signalとして最大3 object recordsへtargeted atomic commitする。COM apartmentはmodelとsuccessful initialization countだけをthread recordで所有し、COM object identity／refcountを所有する`RuntimeCom`とは分離する。wait queueはmonotonic registration／object FIFO、`WaitingObject`、thread signalによるrunnable wake／exact event、exit cancellationを所有する。message queueはper-thread bounded FIFO、global sequence、`WaitingMessage`、first enqueue wake、exit cleanupを所有する。CPU context／second-thread stack／TEB、last-thread semantics、wait-any／wait-all／timeout、User32 message semantics、cross-thread COM marshalingは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)、[com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
 
 `runtime.rs`はsubsystem宣言とpublic re-exportだけのfacadeである。実体のaggregate rootは
 `runtime/kernel.rs::RuntimeKernel`で、既存caller向けの`RuntimeState`はそのtype aliasとする。
@@ -450,6 +450,11 @@ Handle は tagged table entry と generation を持ち、guest-visible integer �
 | GDI | DC、object、bitmap、text、blit、clip |
 | COM subset | IUnknown、class registry、apartment の必要範囲 |
 | DirectX facade | DirectDraw、DirectSound。将来 D3D、DXGI、XAudio2 |
+
+COM object／interface identity、vtable、shared reference countはprivate `RuntimeCom`、
+thread-local apartment model／successful initialization countはprivate `RuntimeThreads`が所有する。
+`RuntimeKernel`は両者を統合したcollectionを持たず、必要なcross-subsystem preflightだけを調整する。
+Browser resource associationとhost COMはどちらのguest-visible stateのauthorityにもならない。
 
 `stub` は成功を返すだけの意味にしない。status は次で区別する。
 
