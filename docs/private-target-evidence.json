@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 4,
   "status": "passed",
-  "recordedAt": "2026-07-16T05:42:36.152Z",
+  "recordedAt": "2026-07-16T06:47:26.662Z",
   "repository": {
-    "implementationCommit": "53f32c9d4a836ed389faa2f37cc31f026c3e7ddd",
-    "implementationTree": "f41030864680b181502873a3b86c072972ada8fb",
-    "headCommit": "53f32c9d4a836ed389faa2f37cc31f026c3e7ddd",
+    "implementationCommit": "8aa26e0d394a66f002848534ebcea1fec8397e18",
+    "implementationTree": "3774859c735f3c512b9b02bba39eae33701b7b78",
+    "headCommit": "8aa26e0d394a66f002848534ebcea1fec8397e18",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,13 +27,13 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 2,
-    "runtimeCheckpoint": "bgi-get-drive-type-a",
-    "runtimeProfile": "kernel32-get-drive-type-a",
+    "runtimeCheckpoint": "bgi-swap-mouse-button",
+    "runtimeProfile": "user32-swap-mouse-button",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-get-drive-type-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-get-drive-type-a",
+    "nodeReportSchema": "vine.v86-bgi-swap-mouse-button",
     "nodeReportSchemaVersion": 1,
     "browserRuntimeProtocol": "vine.browser-runtime-worker.v5",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
@@ -69,27 +69,27 @@
     "outcome": "passed",
     "node": {
       "outcome": "structured-stop",
-      "implementedApiContracts": 53,
-      "supportedCalls": 1321,
-      "instructions": 46215,
-      "finalGeneration": 1436,
-      "memoryContentSha256": "070ccf6100b1a0537a43fa250942b23f9e293cad712d78b1d2a3c9d9a3ad0433",
-      "writebackBatches": 1327,
-      "dirtyPages": 2513,
-      "changedBytes": 8669,
-      "hostDeltaBatches": 80
+      "implementedApiContracts": 54,
+      "supportedCalls": 1333,
+      "instructions": 49731,
+      "finalGeneration": 1450,
+      "memoryContentSha256": "f6030b2d43bbbc6fe43a2ede52b1ecc6e4962822e39235032f25ca560a58d0e4",
+      "writebackBatches": 1339,
+      "dirtyPages": 2530,
+      "changedBytes": 8967,
+      "hostDeltaBatches": 82
     },
     "browser": {
       "outcome": "structured-stop",
-      "supportedCalls": 1321,
-      "instructions": 46215,
-      "finalGeneration": 3316,
-      "memoryContentSha256": "070ccf6100b1a0537a43fa250942b23f9e293cad712d78b1d2a3c9d9a3ad0433",
-      "wasmBridgeCalls": 6002,
+      "supportedCalls": 1333,
+      "instructions": 49731,
+      "finalGeneration": 3586,
+      "memoryContentSha256": "f6030b2d43bbbc6fe43a2ede52b1ecc6e4962822e39235032f25ca560a58d0e4",
+      "wasmBridgeCalls": 6375,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 19126,
+          "transitionCount": 20452,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -136,20 +136,21 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "api-endpoint",
-      "nextCheckpoint": "user32-swap-mouse-button",
+      "nextCheckpoint": "winmm-time-get-dev-caps",
       "pausedHistoricalCheckpoint": "twentieth-supported-win32-call-return",
-      "instructionCount": 46215,
-      "capabilityCluster": "user32-api-contract",
+      "instructionCount": 49731,
+      "capabilityCluster": "winmm-api-contract",
       "reason": "endpoint-contract-missing",
       "endpointKind": "runtime-system-export",
-      "endpointId": 166,
-      "api": "USER32.dll!SwapMouseButton",
+      "endpointId": 3,
+      "api": "WINMM.dll!timeGetDevCaps",
       "arguments": [
-        "0x00000000"
+        "0x1014c8e8",
+        "0x00000008"
       ],
-      "endpointAddress": "0x7f000a50",
-      "iatAddress": "0x100d1370",
-      "returnAddress": "0x10088a3b"
+      "endpointAddress": "0x7f000020",
+      "iatAddress": "0x100d14d0",
+      "returnAddress": "0x10091e6d"
     },
     "cleanup": {
       "pendingHostCalls": 0,
@@ -164,14 +165,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-get-drive-type-a/report.json",
-      "bytes": 5388302,
-      "sha256": "f639cd0b48a19ee1b62b1966ce8473dcf8cfc2cc8d4b60f3ed5fa6b1f43580a9"
+      "path": ".work/v86-bgi-swap-mouse-button/report.json",
+      "bytes": 5437068,
+      "sha256": "29e5061c7943140c48f5b5c0f5e0ccf22c930fa77b499ed8e5081fae65cc3f4a"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 789319,
-      "sha256": "ea5988d05cf353fc85fef6ef9cf391483b7211c6934c81e64c3b492ba5218f4a"
+      "bytes": 799237,
+      "sha256": "3e361a61383a62bacacd432b9fb3ef76836328bbb26c527ad336439c5b14919e"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -186,12 +187,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3201,
-      "sha256": "322e05bbd9378065270cba57f89a482c50c45a21d4e6f44b623fd9415640927b"
+      "sha256": "522f0997873ac3605719c0058bd0dc0ac8fc6f8f3ab885494e751a56e8228c9c"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 2287046,
-      "sha256": "48a26d0fceb0a7d7e44343a79ffd8451593305a37bab787627970500261b455c"
+      "bytes": 2295595,
+      "sha256": "5c94f7dbb904829a2a6e623d502d66aa39fdf5f7f563f0260bffaa39bef2d874"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -218,10 +219,10 @@
     "decisionReason": "all-17-versioned-thresholds-passed",
     "thresholdEvaluationCount": 17,
     "durationMilliseconds": 180000,
-    "completedSessions": 193,
+    "completedSessions": 346,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "5f6216d80b05b2f1f5b25e2fa74bce990e1f3d95c05bd4b5bf484ac811596ba3"
+    "reportSha256": "5293a80666e1148f7aca57183b1d967fb705a00379484ca3388cf839026afa2f"
   },
-  "payloadSha256": "366d4e4297348aeffe034837121df214fec10d7cf137b3da6c73d663495463b5"
+  "payloadSha256": "db02e08f9455619bf14e43d4e714d6ada9b3ba65c53213d062604d20803a1691"
 }
