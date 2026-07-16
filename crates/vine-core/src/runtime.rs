@@ -6,6 +6,7 @@
 
 mod address_space;
 mod com;
+mod displays;
 mod heaps;
 mod kernel;
 mod messages;
@@ -32,6 +33,10 @@ pub use com::{
     RuntimeComInterfaceId, RuntimeComInterfaceRecord, RuntimeComMethodImplementation,
     RuntimeComMethodRecord, RuntimeComMethodTarget, RuntimeComObjectId, RuntimeComObjectRecord,
     RuntimeComReturnKind,
+};
+pub use displays::{
+    LOGICAL_MONITOR_HANDLE_NAMESPACE, RUNTIME_PRIMARY_MONITOR_HANDLE, RuntimeDisplayProfile,
+    RuntimeLogicalMonitor, RuntimeRect,
 };
 pub use heaps::{
     LOGICAL_PRIVATE_HEAP_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,

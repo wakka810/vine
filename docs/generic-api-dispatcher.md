@@ -972,6 +972,31 @@ policy field. No semantic branch reads the browser or native host topology.
 Detailed native consumer, Node, Chrome, and benchmark evidence is in
 [bgi-get-system-info.md](bgi-get-system-info.md).
 
+## Typed guest-callback scratch frames
+
+`GuestCallbackRequest` separates scalar arguments from scratch-relative
+pointers and carries an explicit completion policy. `ExecutionSession` computes
+scratch padding, sentinel／argument bytes, and the full x86 allocation range
+with checked arithmetic; it validates callback and sentinel execute access plus
+the entire writable stack band before pushing a Rust callback frame or writing
+guest bytes. The contiguous write makes scratch pointers and argument bytes one
+failure domain. Invalid offsets, unaligned pointers, capacity overflow, and
+unmapped stacks leave memory generation and callback-frame allocation
+unchanged.
+
+Callback completion policy is checked against the outer ABI return schema.
+Current policies cover raw U32 and BOOL32 normalization. Runtime adapters retire
+only the exact top frame, apply any callback-completion memory delta, and then
+resume the suspended outer call. Call evidence reserves the outer sequence at
+entry, so reentrant API traps are ordered by call entry rather than completion.
+
+The first production use is `user32.enum-display-monitors.v1`: one 16-byte RECT
+scratch object and four stdcall arguments in a 36-byte frame. Its Rust display
+authority and bounded variants are documented in
+[bgi-enum-display-monitors.md](bgi-enum-display-monitors.md). This does not
+generalize arbitrary callback nesting, SEH, cross-thread callbacks, or all
+User32 callback APIs.
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.

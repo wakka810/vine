@@ -16,7 +16,7 @@ use crate::memory::{
 use crate::module_images::{RuntimeModuleImage, RuntimeModuleImageError};
 use crate::pe32::{ImportTarget, LoaderIngressReport};
 use crate::runtime::{
-    RuntimeDynamicEndpoint, RuntimeGuestImport, RuntimeGuestImportBinding,
+    RuntimeCallbackFrameId, RuntimeDynamicEndpoint, RuntimeGuestImport, RuntimeGuestImportBinding,
     RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeHeapInitialization,
     RuntimeHeapTeardown, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
 };
@@ -531,8 +531,52 @@ pub struct HostCompletion {
 #[serde(rename_all = "camelCase")]
 pub struct GuestCallbackRequest {
     pub target: GuestAddress,
-    pub arguments: Vec<u32>,
+    pub arguments: Vec<GuestCallbackArgument>,
+    pub scratch: Vec<u8>,
     pub return_sentinel: GuestAddress,
+    pub completion_policy: GuestCallbackCompletionPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "kebab-case")]
+pub enum GuestCallbackArgument {
+    U32(u32),
+    ScratchPointer { offset: u32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GuestCallbackCompletionPolicy {
+    ReturnU32,
+    ReturnBool32,
+}
+
+impl GuestCallbackCompletionPolicy {
+    fn matches_return_schema(self, schema: &ApiReturnSchema) -> bool {
+        matches!(
+            (self, schema),
+            (Self::ReturnU32, ApiReturnSchema::U32) | (Self::ReturnBool32, ApiReturnSchema::Bool32)
+        )
+    }
+
+    fn complete(self, result: u32) -> ApiImmediate {
+        let value = match self {
+            Self::ReturnU32 => ApiReturnValue::U32(result),
+            Self::ReturnBool32 => ApiReturnValue::Bool32(result != 0),
+        };
+        ApiImmediate::new(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedGuestCallback {
+    pub frame_id: RuntimeCallbackFrameId,
+    pub allocation_start: GuestAddress,
+    pub stack_pointer: GuestAddress,
+    pub scratch_address: GuestAddress,
+    pub scratch_bytes: u32,
+    pub frame_bytes: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -615,6 +659,189 @@ impl<'a> ExecutionSession<'a> {
 
     pub fn runtime_mut(&mut self) -> &mut RuntimeState {
         self.runtime
+    }
+
+    pub fn begin_guest_callback(
+        &mut self,
+        call: &ApiGuestCallbackCall,
+    ) -> Result<PreparedGuestCallback, ApiFault> {
+        const MAX_CALLBACK_ARGUMENTS: usize = 64;
+        const MAX_CALLBACK_SCRATCH_BYTES: usize = 64 * 1024;
+
+        let endpoint = &call.frame.endpoint;
+        if call.request.arguments.len() > MAX_CALLBACK_ARGUMENTS
+            || call.request.scratch.len() > MAX_CALLBACK_SCRATCH_BYTES
+        {
+            return Err(ApiFault::resource_limit(
+                "api-callback",
+                "callback-frame-limit-exceeded",
+                "guest callback arguments or scratch bytes exceed the bounded callback frame limit",
+            )
+            .with_endpoint(endpoint));
+        }
+        let scratch_padding = (4 - call.request.scratch.len() % 4) % 4;
+        let scratch_frame_bytes = call
+            .request
+            .scratch
+            .len()
+            .checked_add(scratch_padding)
+            .ok_or_else(|| {
+                ApiFault::resource_limit(
+                    "api-callback",
+                    "callback-scratch-size-overflow",
+                    "guest callback scratch alignment overflowed host accounting",
+                )
+                .with_endpoint(endpoint)
+            })?;
+        let argument_frame_bytes = call
+            .request
+            .arguments
+            .len()
+            .checked_add(1)
+            .and_then(|words| words.checked_mul(4))
+            .ok_or_else(|| {
+                ApiFault::resource_limit(
+                    "api-callback",
+                    "callback-argument-size-overflow",
+                    "guest callback argument frame overflowed host accounting",
+                )
+                .with_endpoint(endpoint)
+            })?;
+        let total_bytes = scratch_frame_bytes
+            .checked_add(argument_frame_bytes)
+            .ok_or_else(|| {
+                ApiFault::resource_limit(
+                    "api-callback",
+                    "callback-frame-size-overflow",
+                    "guest callback frame overflowed host accounting",
+                )
+                .with_endpoint(endpoint)
+            })?;
+        let total_bytes_u32 = u32::try_from(total_bytes).map_err(|_| {
+            ApiFault::resource_limit(
+                "api-callback",
+                "callback-frame-size-unrepresentable",
+                "guest callback frame does not fit x86 address accounting",
+            )
+            .with_endpoint(endpoint)
+        })?;
+        let scratch_bytes_u32 = u32::try_from(call.request.scratch.len()).map_err(|_| {
+            ApiFault::resource_limit(
+                "api-callback",
+                "callback-scratch-size-unrepresentable",
+                "guest callback scratch does not fit x86 address accounting",
+            )
+            .with_endpoint(endpoint)
+        })?;
+        let allocation_start = GuestAddress(
+            call.frame
+                .stack_pointer
+                .0
+                .checked_sub(total_bytes_u32)
+                .ok_or_else(|| {
+                    ApiFault::invalid_call(
+                        "api-callback",
+                        "callback-stack-pointer-underflow",
+                        "guest callback frame crosses the start of the x86 address space",
+                    )
+                    .with_endpoint(endpoint)
+                })?,
+        );
+        let scratch_frame_bytes_u32 = u32::try_from(scratch_frame_bytes).map_err(|_| {
+            ApiFault::resource_limit(
+                "api-callback",
+                "callback-scratch-size-unrepresentable",
+                "guest callback scratch does not fit x86 address accounting",
+            )
+            .with_endpoint(endpoint)
+        })?;
+        let stack_pointer = GuestAddress(
+            allocation_start
+                .0
+                .checked_add(scratch_frame_bytes_u32)
+                .ok_or_else(|| {
+                    ApiFault::runtime_defect(
+                        "api-callback",
+                        "callback-stack-pointer-overflow",
+                        "validated callback stack pointer overflowed x86 accounting",
+                    )
+                    .with_endpoint(endpoint)
+                })?,
+        );
+
+        self.memory
+            .validate_access(call.request.target, 1, MemoryAccess::Execute)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        self.memory
+            .validate_access(call.request.return_sentinel, 1, MemoryAccess::Execute)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        self.memory
+            .validate_access(allocation_start, total_bytes, MemoryAccess::Write)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+
+        let mut bytes = Vec::with_capacity(total_bytes);
+        bytes.extend_from_slice(&call.request.scratch);
+        bytes.resize(scratch_frame_bytes, 0);
+        bytes.extend_from_slice(&call.request.return_sentinel.0.to_le_bytes());
+        for argument in &call.request.arguments {
+            let value = match *argument {
+                GuestCallbackArgument::U32(value) => value,
+                GuestCallbackArgument::ScratchPointer { offset } => {
+                    let offset_usize = usize::try_from(offset).map_err(|_| {
+                        ApiFault::invalid_call(
+                            "api-callback",
+                            "callback-scratch-offset-unrepresentable",
+                            "guest callback scratch offset does not fit host accounting",
+                        )
+                        .with_endpoint(endpoint)
+                    })?;
+                    if offset % 4 != 0 || offset_usize >= call.request.scratch.len() {
+                        return Err(ApiFault::invalid_call(
+                            "api-callback",
+                            "callback-scratch-pointer-invalid",
+                            "guest callback scratch pointer must be aligned and identify live scratch bytes",
+                        )
+                        .with_endpoint(endpoint));
+                    }
+                    allocation_start.0.checked_add(offset).ok_or_else(|| {
+                        ApiFault::invalid_call(
+                            "api-callback",
+                            "callback-scratch-pointer-overflow",
+                            "guest callback scratch pointer overflowed x86 accounting",
+                        )
+                        .with_endpoint(endpoint)
+                    })?
+                }
+            };
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+
+        let runtime_frame = self
+            .runtime
+            .push_callback_frame(call.request.target, call.request.return_sentinel)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        if let Err(error) = self.memory.write(allocation_start, &bytes) {
+            if let Err(rollback_error) = self.runtime.pop_callback_frame(runtime_frame.id) {
+                return Err(ApiFault::runtime_defect(
+                    "api-callback",
+                    "callback-entry-rollback-failed",
+                    format!(
+                        "callback frame write failed ({error}) and runtime rollback failed ({rollback_error})"
+                    ),
+                )
+                .with_endpoint(endpoint));
+            }
+            return Err(ApiFault::from_memory(error, endpoint));
+        }
+
+        Ok(PreparedGuestCallback {
+            frame_id: runtime_frame.id,
+            allocation_start,
+            stack_pointer,
+            scratch_address: allocation_start,
+            scratch_bytes: scratch_bytes_u32,
+            frame_bytes: total_bytes_u32,
+        })
     }
 
     pub fn register_module_image(
@@ -935,6 +1162,18 @@ impl ApiDispatcher {
                         )
                         .with_endpoint(endpoint),
                     )
+                } else if !callback
+                    .completion_policy
+                    .matches_return_schema(&contract.abi.return_value)
+                {
+                    DispatchOutcome::Fault(
+                        ApiFault::runtime_defect(
+                            "api-dispatch",
+                            "callback-completion-policy-mismatch",
+                            "guest callback completion policy does not match the outer API return schema",
+                        )
+                        .with_endpoint(endpoint),
+                    )
                 } else {
                     DispatchOutcome::GuestCallback(ApiGuestCallbackCall {
                         request: callback,
@@ -1044,6 +1283,16 @@ impl ApiDispatcher {
             );
         }
         self.complete_suspended(call.contract, call.frame, result, session)
+    }
+
+    pub fn complete_guest_callback_result(
+        &self,
+        call: ApiGuestCallbackCall,
+        result: u32,
+        session: &mut ExecutionSession<'_>,
+    ) -> DispatchOutcome {
+        let completion = call.request.completion_policy.complete(result);
+        self.complete_guest_callback(call, completion, session)
     }
 
     fn complete_suspended(

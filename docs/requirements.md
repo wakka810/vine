@@ -233,7 +233,7 @@ WM_QUIT、paint、timer、dispatch callback、guest ABIは未実装なので`REQ
 | REQ-API-06 | unsupported API を silent success にせず、policy に従い fail、diagnostic、または明示的な限定 stub とする | Must |
 | REQ-API-07 | COM initialization、class factory、BSTR／VARIANT 等の automation/runtime は代表 corpus の要求に基づいて範囲を決定する | Should |
 | REQ-COM-01 | DirectSound／D3D9／DirectInput 8 と比較用 DirectDraw に必要な x86 COM method ABI、IUnknown、QueryInterface identity、reference count、HRESULT、vtable thunk を提供する | Must |
-| REQ-COM-02 | CoInitialize、apartment、class factory、BSTR／VARIANT 等は `REQ-COM-01` と分離し、corpus-driven な support band とする | Should |
+| REQ-COM-02 | COM apartment initialization APIs、class factory、BSTR／VARIANT 等は `REQ-COM-01` と分離し、corpus-driven な support band とする | Should |
 
 `P3-COM-01`／`AC-P3-08`の共通部分は
 [COM ABI／IUnknown foundation](com-iunknown-foundation.md)で固定する。これは具体的なDirectSound／D3D9／

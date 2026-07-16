@@ -3,10 +3,9 @@
 ## Status
 
 - Status: implemented controlled policy boundary
-- Date: 2026-07-14
-- Semantic authority: Rust `vine-core::win32`
-- Policy schema: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）
-- Active policy: `fixtures/runtime-policies/kernel32-bounded-heap-v2.json`
+- Date: 2026-07-16
+- Semantic authority: Rust `vine-core::win32`／`vine-core::user32`
+- Policy schemas: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）、`vine.user32-compatibility-policy` version `1`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -103,6 +102,30 @@ with x86 virtual system information:
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
 runtime or memory mutation.
+
+## User32 logical-display policy
+
+`User32CompatibilityPolicy` is a distinct versioned policy because logical
+display identity and geometry do not belong to Kernel32 process policy. Its
+controlled version enables one profile, `single-monitor-1920x1080-v1`, while
+`runtime/displays.rs::RuntimeDisplays` remains the authoritative owner of the
+configured monitor. The policy neither stores native HMONITOR values nor reads
+DOM／browser screen topology.
+
+The current `EnumDisplayMonitors` variant accepts only NULL HDC and NULL clip,
+invokes one executable stdcall callback with logical handle namespace
+`vine.logical-monitor.v1`, NULL monitor DC, a Rust-owned RECT scratch pointer,
+and the caller's unchanged LPARAM. Callback zero maps to outer BOOL FALSE and
+nonzero maps to TRUE. LastError is preserved. Non-NULL variants, missing or
+mismatched display authority, invalid callback targets, and callback-frame
+capacity failures stop before observable mutation.
+
+Display configuration is configure-once plan／commit. Callback scratch and
+arguments are preflighted as one contiguous x86 stack band; Rust callback-frame
+identity is committed before execution and retired only by the exact top frame.
+Node and Worker keep outer call-entry order while nested API traps execute.
+Detailed native, core, Node, Chrome, and performance evidence is in
+[bgi-enum-display-monitors.md](bgi-enum-display-monitors.md).
 
 ## Semantic tests
 

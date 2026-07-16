@@ -16,6 +16,7 @@ mod module_images;
 mod pe32;
 mod runtime;
 mod snapshot;
+mod user32;
 mod win32;
 
 pub use api::{
@@ -25,8 +26,9 @@ pub use api::{
     ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiImmediateCompletion, ApiOwnedTrap,
     ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding,
     ApiSymbol, ApiTrap, ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention,
-    DecodedApiArgument, DispatchOutcome, ExecutionSession, GuestCallbackRequest, HostCompletion,
-    HostRequest, LastErrorPolicy, ReentrancyPolicy, RegisterUpdate, StackCleanup,
+    DecodedApiArgument, DispatchOutcome, ExecutionSession, GuestCallbackArgument,
+    GuestCallbackCompletionPolicy, GuestCallbackRequest, HostCompletion, HostRequest,
+    LastErrorPolicy, PreparedGuestCallback, ReentrancyPolicy, RegisterUpdate, StackCleanup,
 };
 
 pub use bootstrap::{
@@ -108,8 +110,8 @@ pub use pe32::{
 pub use runtime::{
     DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_PROCESS_STATIC_RESERVED, FLS_OUT_OF_INDEXES,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
-    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
-    LOGICAL_STANDARD_HANDLE_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_MONITOR_HANDLE_NAMESPACE,
+    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE,
     ProcessAddressAllocationClassification, ProcessAddressAllocationId,
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy,
@@ -117,13 +119,13 @@ pub use runtime::{
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RUNTIME_COM_IUNKNOWN_IID,
     RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RUNTIME_COM_MAX_METHODS_PER_INTERFACE,
     RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT,
-    RUNTIME_MUTEX_LIMIT, RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
-    RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
-    RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
-    RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
-    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES,
-    RUNTIME_PROCESS_OBJECT_NAMESPACE, RUNTIME_STANDARD_ERROR_HANDLE,
-    RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
+    RUNTIME_MUTEX_LIMIT, RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PRIMARY_MONITOR_HANDLE,
+    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PRIVATE_HEAP_ARENA_BASE,
+    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
+    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS,
+    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING,
+    RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES, RUNTIME_PROCESS_OBJECT_NAMESPACE,
+    RUNTIME_STANDARD_ERROR_HANDLE, RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, RUNTIME_THREAD_OBJECT_NAMESPACE, RuntimeAddressRange,
     RuntimeBootstrap, RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCancellation,
@@ -131,20 +133,20 @@ pub use runtime::{
     RuntimeComInterfaceRecord, RuntimeComMethodImplementation, RuntimeComMethodRecord,
     RuntimeComMethodTarget, RuntimeComObjectId, RuntimeComObjectRecord, RuntimeComReturnKind,
     RuntimeCommandLine, RuntimeCreateMutexAResult, RuntimeCriticalSection,
-    RuntimeCurrentDirectoryA, RuntimeCurrentThreadPseudoHandleResolution, RuntimeDllAttachFailure,
-    RuntimeDllCallbackReason, RuntimeDllCallbackRequest, RuntimeDllLifecycleAction,
-    RuntimeDllLifecycleCompletion, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,
-    RuntimeEncodedPointer, RuntimeEnvironmentStringCopy, RuntimeEnvironmentStrings, RuntimeFlsSlot,
-    RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle,
-    RuntimeHandleClosePolicy, RuntimeHandleEntry, RuntimeHeap, RuntimeHeapAllocation,
-    RuntimeHeapAllocationId, RuntimeHeapBacking, RuntimeHeapInitialization, RuntimeHeapTeardown,
-    RuntimeHostCompletion, RuntimeHostRequest, RuntimeKernel, RuntimeMessageId,
-    RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeModule,
-    RuntimeModuleDependencyEdge, RuntimeMutex, RuntimeMutexId, RuntimeMutexNameA, RuntimeObjectId,
-    RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectTable,
-    RuntimeProcessCancellation, RuntimeProcessEnvironment, RuntimeProcessId,
+    RuntimeCurrentDirectoryA, RuntimeCurrentThreadPseudoHandleResolution, RuntimeDisplayProfile,
+    RuntimeDllAttachFailure, RuntimeDllCallbackReason, RuntimeDllCallbackRequest,
+    RuntimeDllLifecycleAction, RuntimeDllLifecycleCompletion, RuntimeDllLifecyclePhase,
+    RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeEnvironmentStringCopy,
+    RuntimeEnvironmentStrings, RuntimeFlsSlot, RuntimeGuestImport, RuntimeGuestImportBinding,
+    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHandleClosePolicy, RuntimeHandleEntry,
+    RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationId, RuntimeHeapBacking,
+    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeHostCompletion, RuntimeHostRequest,
+    RuntimeKernel, RuntimeLogicalMonitor, RuntimeMessageId, RuntimeMessageReceiveDisposition,
+    RuntimeMessageWake, RuntimeModule, RuntimeModuleDependencyEdge, RuntimeMutex, RuntimeMutexId,
+    RuntimeMutexNameA, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
+    RuntimeObjectTable, RuntimeProcessCancellation, RuntimeProcessEnvironment, RuntimeProcessId,
     RuntimeProcessImagePathA, RuntimeProcessLifecycleState, RuntimeProcessState,
-    RuntimeProcessView, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
+    RuntimeProcessView, RuntimeRect, RuntimeRegistries, RuntimeScheduler, RuntimeSchedulerEvent,
     RuntimeSetCurrentDirectoryAPlan, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,
     RuntimeStateError, RuntimeStateErrorClass, RuntimeSystemExportEndpoint,
     RuntimeSystemExportTable, RuntimeThreadExecutionSelection, RuntimeThreadId,
@@ -155,6 +157,11 @@ pub use runtime::{
     X86_STARTUP_INFO_W_BYTE_LENGTH, validate_process_address_mapping_allocation,
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
+pub use user32::{
+    ENUM_DISPLAY_MONITORS_IMPLEMENTATION, USER32_COMPATIBILITY_POLICY_SCHEMA,
+    USER32_COMPATIBILITY_POLICY_VERSION, User32CompatibilityPolicy,
+    dispatch_user32_api_with_policy, enum_display_monitors_contract, user32_contract_for_endpoint,
+};
 pub use win32::{
     CREATE_MUTEX_A_IMPLEMENTATION, DECODE_POINTER_IMPLEMENTATION, ENCODE_POINTER_IMPLEMENTATION,
     ENTER_CRITICAL_SECTION_IMPLEMENTATION, FLS_ALLOC_IMPLEMENTATION, FLS_GET_VALUE_IMPLEMENTATION,

@@ -11,7 +11,7 @@ use std::process::ExitCode;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use vine_core::{
-    ApiContract, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass,
+    ApiContract, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass, ApiGuestCallbackCall,
     ApiImmediateCompletion, ApiOwnedTrap, ApiSymbol, ApiTrap, CONTROLLED_COMMAND_LINE,
     CallbackReturnSentinel, CpuWritebackReceipt, DispatchOutcome, DynamicExportThunk,
     ExecutionSession, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
@@ -22,27 +22,28 @@ use vine_core::{
     MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
     ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
-    RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,
-    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
-    RuntimeHandle, RuntimeHeapAllocation, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
-    RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord,
-    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo,
-    RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
+    RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeLogicalMonitor,
+    RuntimeModule, RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
+    RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord, RuntimeProcessId,
+    RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack,
     RuntimeThreadStackGrowth, RuntimeTlsValue, SchedulerThreadState, UnsupportedPoint,
-    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
-    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, encode_pointer_contract,
-    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
-    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
-    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
-    install_callback_return_sentinel, install_controlled_initial_stack,
-    install_controlled_process_environment,
+    User32CompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
+    build_pe32_load_plan, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
+    dispatch_user32_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
     install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
     kernel32_contract_for_endpoint, materialize_pe32_image, query_performance_counter_contract,
-    tls_alloc_contract, tls_set_value_contract,
+    tls_alloc_contract, tls_set_value_contract, user32_contract_for_endpoint,
 };
 
 #[derive(Debug)]
@@ -83,6 +84,8 @@ const RUNTIME_FRAME_SESSION_STOP: u32 = 10;
 const RUNTIME_FRAME_SESSION_STOPPED: u32 = 11;
 const RUNTIME_FRAME_STACK_GROWTH: u32 = 12;
 const RUNTIME_FRAME_STACK_GROWTH_COMPLETION: u32 = 13;
+const RUNTIME_FRAME_GUEST_CALLBACK: u32 = 14;
+const RUNTIME_FRAME_GUEST_CALLBACK_RETURN: u32 = 15;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 4096;
@@ -133,6 +136,7 @@ enum GenericRuntimeCapability {
     GetCurrentThread,
     SetThreadAffinityMask,
     GetSystemInfo,
+    EnumDisplayMonitors,
 }
 
 struct GenericRuntimeProcess {
@@ -147,6 +151,11 @@ struct RuntimeFrame {
     kind: u32,
     control: Vec<u8>,
     payload: Vec<u8>,
+}
+
+struct GenericRuntimeActiveCallback {
+    call: ApiGuestCallbackCall,
+    frame_id: RuntimeCallbackFrameId,
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,6 +175,35 @@ struct GenericRuntimeTrapRequest {
     endpoint_address: u32,
     stack_pointer: u32,
     return_address: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenericRuntimeCallbackReturnRequest {
+    schema: String,
+    schema_version: u32,
+    frame_id: u64,
+    return_sentinel: u32,
+    stack_pointer: u32,
+    result: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeCallbackEntry {
+    schema: &'static str,
+    schema_version: u32,
+    endpoint: GenericRuntimeEndpoint,
+    frame_id: u64,
+    target: u32,
+    argument_count: usize,
+    allocation_start: u32,
+    stack_pointer: u32,
+    scratch_address: u32,
+    scratch_bytes: u32,
+    frame_bytes: u32,
+    return_sentinel: u32,
+    memory: MemoryStats,
 }
 
 #[derive(Debug, Deserialize)]
@@ -225,6 +263,12 @@ struct GenericRuntimeSessionReady {
     runtime_export_endpoints: usize,
     implemented_api_contracts: usize,
     dynamic_export_endpoints: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user32_compatibility_policy_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    primary_monitor: Option<RuntimeLogicalMonitor>,
     initial_thread_stack: RuntimeThreadStack,
     initial_stack_address_allocation: vine_core::ProcessAddressAllocationRecord,
     memory: MemoryStats,
@@ -2336,6 +2380,10 @@ fn run_v86_reflection_session(
             generic_runtime,
             generic_runtime_capability,
             kernel32_policy.ok_or_else(usage_error)?,
+            callback_return_sentinel
+                .as_ref()
+                .ok_or_else(usage_error)?
+                .address,
         )?;
     } else if supported_call_count >= 1 {
         let mut runtime = controlled_runtime_state(&dynamic_export_thunks)?;
@@ -2633,14 +2681,41 @@ fn finalize_generic_runtime_process(
     Ok(())
 }
 
+fn generic_runtime_contract_for_endpoint(
+    endpoint: ApiEndpointIdentity,
+) -> Result<Option<ApiContract>, LoaderError> {
+    if let Some(contract) = kernel32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
+    user32_contract_for_endpoint(endpoint).map_err(api_fault)
+}
+
 fn run_v86_generic_runtime_session(
     input: &mut impl BufRead,
     memory: &mut GuestMemory,
     mut process: GenericRuntimeProcess,
     enabled_capability: Option<GenericRuntimeCapability>,
     kernel32_policy: Kernel32CompatibilityPolicy,
+    callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
     let endpoint_capability = enabled_capability;
+    let user32_policy = User32CompatibilityPolicy::controlled_v1();
+    user32_policy.validate().map_err(api_fault)?;
+    if matches!(
+        endpoint_capability,
+        Some(GenericRuntimeCapability::EnumDisplayMonitors)
+    ) {
+        process
+            .runtime
+            .configure_display_profile(user32_policy.display_profile().ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "user32-display-profile-missing",
+                    "active User32 compatibility policy has no logical display profile",
+                )
+            })?)
+            .map_err(runtime_state_error)?;
+    }
     let fls_get_value_enabled = matches!(
         endpoint_capability,
         Some(
@@ -2667,6 +2742,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
+                | GenericRuntimeCapability::EnumDisplayMonitors
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2686,6 +2762,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
+                | GenericRuntimeCapability::EnumDisplayMonitors
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2723,7 +2800,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::CreateMutexA
             | GenericRuntimeCapability::GetCurrentThread
             | GenericRuntimeCapability::SetThreadAffinityMask
-            | GenericRuntimeCapability::GetSystemInfo,
+            | GenericRuntimeCapability::GetSystemInfo
+            | GenericRuntimeCapability::EnumDisplayMonitors,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -2743,8 +2821,7 @@ fn run_v86_generic_runtime_session(
     let mut dispatcher_endpoints = endpoints.clone();
     let mut contracts = Vec::new();
     for endpoint in &endpoints {
-        let Some(contract) = kernel32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)?
-        else {
+        let Some(contract) = generic_runtime_contract_for_endpoint(endpoint.clone())? else {
             continue;
         };
         if runtime_capability_enables_endpoint(endpoint_capability, endpoint) {
@@ -2840,6 +2917,7 @@ fn run_v86_generic_runtime_session(
     }
     let dispatcher =
         ApiDispatcher::new(dispatcher_endpoints, contracts.clone()).map_err(api_fault)?;
+    let mut active_callback: Option<GenericRuntimeActiveCallback> = None;
     let initial_thread_stack = process
         .runtime
         .thread_stack(process.runtime.current_thread_id())
@@ -2873,6 +2951,13 @@ fn run_v86_generic_runtime_session(
             runtime_export_endpoints: endpoints.len(),
             implemented_api_contracts: contracts.len(),
             dynamic_export_endpoints: process.runtime.registries().dynamic_endpoints().len(),
+            user32_compatibility_policy_id: matches!(
+                endpoint_capability,
+                Some(GenericRuntimeCapability::EnumDisplayMonitors)
+            )
+            .then(|| user32_policy.id.clone()),
+            display_profile_id: process.runtime.display_profile_id().map(str::to_owned),
+            primary_monitor: process.runtime.primary_monitor().cloned(),
             initial_thread_stack,
             initial_stack_address_allocation,
             memory: memory.stats(),
@@ -2931,6 +3016,99 @@ fn run_v86_generic_runtime_session(
                 },
             )?;
             return Ok(());
+        }
+        if trap_frame.kind == RUNTIME_FRAME_GUEST_CALLBACK_RETURN {
+            if !trap_frame.payload.is_empty() {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-callback-return-payload-unexpected",
+                    "generic runtime callback-return frames may not contain a byte payload",
+                ));
+            }
+            let request: GenericRuntimeCallbackReturnRequest =
+                serde_json::from_slice(&trap_frame.control).map_err(|error| {
+                    LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-callback-return-json-invalid",
+                        format!("generic runtime callback-return metadata is invalid: {error}"),
+                    )
+                })?;
+            let active = active_callback.as_ref().ok_or_else(|| {
+                LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-callback-return-unowned",
+                    "generic runtime callback return has no active API callback",
+                )
+            })?;
+            if request.schema != "vine.v86-generic-runtime-callback-return"
+                || request.schema_version != 1
+                || request.frame_id != active.frame_id.0
+                || request.return_sentinel != active.call.request.return_sentinel.0
+                || request.stack_pointer != active.call.frame.stack_pointer.0
+            {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-callback-return-identity-mismatch",
+                    "generic runtime callback return does not match the active frame, sentinel, or stdcall stack",
+                ));
+            }
+            let call = active.call.clone();
+            let frame_id = active.frame_id;
+            process
+                .runtime
+                .validate_callback_frame_return(frame_id)
+                .map_err(runtime_state_error)?;
+            let endpoint = call.frame.endpoint.clone();
+            let mut session = ExecutionSession::new(memory, &mut process.runtime);
+            match dispatcher.complete_guest_callback_result(call, request.result, &mut session) {
+                DispatchOutcome::Immediate(completion) => {
+                    process
+                        .runtime
+                        .pop_callback_frame(frame_id)
+                        .map_err(runtime_state_error)?;
+                    let retired = active_callback
+                        .take()
+                        .expect("validated active callback disappeared before commit");
+                    debug_assert_eq!(retired.frame_id, frame_id);
+                    send_pending_runtime_delta(input, memory)?;
+                    write_runtime_json_frame(
+                        RUNTIME_FRAME_API_COMPLETION,
+                        &GenericRuntimeCompletion {
+                            schema: "vine.v86-generic-runtime-completion",
+                            schema_version: 1,
+                            endpoint: GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
+                            completion,
+                            fls_value: None,
+                            interlocked_increment: None,
+                            interlocked_decrement: None,
+                            heap_allocation: None,
+                            standard_handle: None,
+                            file_type: None,
+                            current_directory: None,
+                            mutex: None,
+                            thread_affinity: None,
+                            tick_count: None,
+                            memory: memory.stats(),
+                        },
+                    )?;
+                }
+                DispatchOutcome::Fault(fault) => {
+                    write_generic_runtime_fault(
+                        memory,
+                        GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
+                        fault,
+                    )?;
+                    return Ok(());
+                }
+                DispatchOutcome::Deferred(_) | DispatchOutcome::GuestCallback(_) => {
+                    return Err(LoaderError::runtime_defect(
+                        "runtime-reentry",
+                        "runtime-callback-completion-suspended",
+                        "completed guest callback produced another suspended API outcome",
+                    ));
+                }
+            }
+            continue;
         }
         if trap_frame.kind == RUNTIME_FRAME_STACK_GROWTH {
             if !trap_frame.payload.is_empty() {
@@ -3068,12 +3246,22 @@ fn run_v86_generic_runtime_session(
                     },
                     &mut session,
                     |contract, frame, session| {
-                        dispatch_kernel32_api_with_policy(
-                            &kernel32_policy,
-                            contract,
-                            frame,
-                            session,
-                        )
+                        if contract.endpoint.module.eq_ignore_ascii_case("user32.dll") {
+                            dispatch_user32_api_with_policy(
+                                &user32_policy,
+                                callback_return_sentinel,
+                                contract,
+                                frame,
+                                session,
+                            )
+                        } else {
+                            dispatch_kernel32_api_with_policy(
+                                &kernel32_policy,
+                                contract,
+                                frame,
+                                session,
+                            )
+                        }
                     },
                 ) {
                     DispatchOutcome::Immediate(completion) => {
@@ -3266,14 +3454,62 @@ fn run_v86_generic_runtime_session(
                         )?;
                         return Ok(());
                     }
-                    DispatchOutcome::Deferred(_) | DispatchOutcome::GuestCallback(_) => {
+                    DispatchOutcome::GuestCallback(call) => {
+                        if active_callback.is_some() {
+                            write_generic_runtime_fault(
+                                memory,
+                                GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
+                                ApiFault::unsupported(
+                                    "runtime-reentry",
+                                    "nested-runtime-api-callback-unsupported",
+                                    "generic BGI re-entry currently supports one active API callback",
+                                ),
+                            )?;
+                            return Ok(());
+                        }
+                        let prepared = match session.begin_guest_callback(&call) {
+                            Ok(prepared) => prepared,
+                            Err(fault) => {
+                                write_generic_runtime_fault(
+                                    memory,
+                                    GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
+                                    fault,
+                                )?;
+                                return Ok(());
+                            }
+                        };
+                        send_pending_runtime_delta(input, memory)?;
+                        let callback_entry = GenericRuntimeCallbackEntry {
+                            schema: "vine.v86-generic-runtime-callback",
+                            schema_version: 1,
+                            endpoint: GenericRuntimeEndpoint::RuntimeSystemExport {
+                                endpoint: endpoint.clone(),
+                            },
+                            frame_id: prepared.frame_id.0,
+                            target: call.request.target.0,
+                            argument_count: call.request.arguments.len(),
+                            allocation_start: prepared.allocation_start.0,
+                            stack_pointer: prepared.stack_pointer.0,
+                            scratch_address: prepared.scratch_address.0,
+                            scratch_bytes: prepared.scratch_bytes,
+                            frame_bytes: prepared.frame_bytes,
+                            return_sentinel: call.request.return_sentinel.0,
+                            memory: memory.stats(),
+                        };
+                        active_callback = Some(GenericRuntimeActiveCallback {
+                            call,
+                            frame_id: prepared.frame_id,
+                        });
+                        write_runtime_json_frame(RUNTIME_FRAME_GUEST_CALLBACK, &callback_entry)?;
+                    }
+                    DispatchOutcome::Deferred(_) => {
                         write_generic_runtime_fault(
                             memory,
                             GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
                             ApiFault::unsupported(
                                 "runtime-reentry",
                                 "runtime-api-outcome-unimplemented",
-                                "generic BGI re-entry does not yet resume deferred or callback API outcomes",
+                                "generic BGI re-entry does not yet resume deferred API outcomes",
                             ),
                         )?;
                         return Ok(());
@@ -3420,6 +3656,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
+                | GenericRuntimeCapability::EnumDisplayMonitors
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3441,6 +3678,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
+                | GenericRuntimeCapability::EnumDisplayMonitors
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3451,6 +3689,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
+                | GenericRuntimeCapability::EnumDisplayMonitors
         )
     );
     let create_mutex_a_enabled = matches!(
@@ -3460,6 +3699,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
+                | GenericRuntimeCapability::EnumDisplayMonitors
         )
     );
     let get_current_thread_enabled = matches!(
@@ -3468,6 +3708,7 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::GetCurrentThread
                 | GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
+                | GenericRuntimeCapability::EnumDisplayMonitors
         )
     );
     let set_thread_affinity_mask_enabled = matches!(
@@ -3475,9 +3716,13 @@ fn runtime_capability_enables_endpoint(
         Some(
             GenericRuntimeCapability::SetThreadAffinityMask
                 | GenericRuntimeCapability::GetSystemInfo
+                | GenericRuntimeCapability::EnumDisplayMonitors
         )
     );
-    let get_system_info_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetSystemInfo));
+    let enum_display_monitors_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::EnumDisplayMonitors));
+    let get_system_info_enabled = enum_display_monitors_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::GetSystemInfo));
     let initialize_critical_section_enabled = set_current_directory_a_enabled
         || matches!(
             enabled,
@@ -3585,7 +3830,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::CreateMutexA
             | GenericRuntimeCapability::GetCurrentThread
             | GenericRuntimeCapability::SetThreadAffinityMask
-            | GenericRuntimeCapability::GetSystemInfo,
+            | GenericRuntimeCapability::GetSystemInfo
+            | GenericRuntimeCapability::EnumDisplayMonitors,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3741,6 +3987,7 @@ fn runtime_capability_enables_endpoint(
         "GetCurrentThread" => get_current_thread_enabled,
         "SetThreadAffinityMask" => set_thread_affinity_mask_enabled,
         "GetSystemInfo" => get_system_info_enabled,
+        "EnumDisplayMonitors" => enum_display_monitors_enabled,
         _ => true,
     }
 }
@@ -3794,7 +4041,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::CreateMutexA
             | GenericRuntimeCapability::GetCurrentThread
             | GenericRuntimeCapability::SetThreadAffinityMask
-            | GenericRuntimeCapability::GetSystemInfo,
+            | GenericRuntimeCapability::GetSystemInfo
+            | GenericRuntimeCapability::EnumDisplayMonitors,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9223,6 +9471,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::SetThreadAffinityMask
                 }
                 "kernel32-get-system-info" => GenericRuntimeCapability::GetSystemInfo,
+                "user32-enum-display-monitors" => GenericRuntimeCapability::EnumDisplayMonitors,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

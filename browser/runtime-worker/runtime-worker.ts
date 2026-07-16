@@ -90,7 +90,11 @@ interface GuestCallbackMetadata {
   frameId: number;
   depth: number;
   target: number;
+  allocationStart: number;
   stackPointer: number;
+  scratchAddress: number;
+  scratchBytes: number;
+  frameBytes: number;
   returnSentinel: number;
   generation: number;
 }
@@ -134,7 +138,16 @@ interface CallbackCompletionMetadata {
   kind: "callback-complete";
   frameId: number;
   remainingDepth: number;
+  endpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+  };
   completion: ApiCompletion;
+  memory: { generation: number; acknowledgedGeneration: number };
+  currentDirectory?: RuntimeCurrentDirectorySnapshot;
+  mutex?: RuntimeMutexSnapshot;
 }
 
 interface WritebackMetadata {
@@ -254,6 +267,8 @@ class BrowserRuntimeSession {
   readonly #runnableResolvers: Array<() => void> = [];
   readonly #execution = new ExecutionStateMachine();
   readonly #pendingHostRequests = new PendingHostRequestTable();
+  #nextBgiCallSequence = 0;
+  readonly #bgiCallbackCallSequences = new Map<number, number>();
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
   #watchdogTimer: number | null = null;
@@ -661,6 +676,14 @@ class BrowserRuntimeSession {
       case "guest-callback": {
         this.#takeApiResumeState();
         this.#applyRequiredDelta(output);
+        if (this.#requirePrepared().workload === "private-bgi") {
+          invariant(
+            !this.#bgiCallbackCallSequences.has(metadata.frameId),
+            "BGI callback frame reused an active call sequence",
+          );
+          this.#nextBgiCallSequence += 1;
+          this.#bgiCallbackCallSequences.set(metadata.frameId, this.#nextBgiCallSequence);
+        }
         this.#report.callbackEntries += 1;
         this.#report.maximumCallbackDepth = Math.max(
           this.#report.maximumCallbackDepth,
@@ -698,7 +721,10 @@ class BrowserRuntimeSession {
     }
   }
 
-  #recordBgiCompletion(metadata: CompletionMetadata): void {
+  #recordBgiCompletion(
+    metadata: CompletionMetadata | CallbackCompletionMetadata,
+    reservedSequence?: number,
+  ): void {
     const endpoint = metadata.endpoint;
     invariant(endpoint !== undefined, "BGI completion omitted its endpoint identity");
     invariant(endpoint.symbol.kind === "name", "BGI reached an ordinal API completion");
@@ -723,8 +749,13 @@ class BrowserRuntimeSession {
       isCreateMutex === (metadata.mutex !== undefined),
       "BGI mutex completion metadata mismatch",
     );
+    const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
+    invariant(
+      !this.#report.supportedCalls.some((call) => call.sequence === sequence),
+      "BGI call sequence was completed more than once",
+    );
     this.#report.supportedCalls.push({
-      sequence: this.#report.supportedCalls.length + 1,
+      sequence,
       module: endpoint.module,
       symbol: endpoint.symbol.name,
       arguments: frame.arguments.flatMap(({ words }) => words),
@@ -743,6 +774,7 @@ class BrowserRuntimeSession {
         : { currentDirectory: metadata.currentDirectory }),
       ...(metadata.mutex === undefined ? {} : { mutex: metadata.mutex }),
     });
+    this.#report.supportedCalls.sort((left, right) => left.sequence - right.sequence);
   }
 
   #completeStructuredStop(
@@ -943,11 +975,19 @@ class BrowserRuntimeSession {
 
   #completeCallback(result: number): void {
     const prepared = this.#requirePrepared();
-    const metadata = this.#requireBridge().completeCallback<CallbackCompletionMetadata>(
+    const output = this.#requireBridge().completeCallback<CallbackCompletionMetadata>(
       prepared.callbackSentinel,
       result,
-    ).metadata;
+    );
+    const metadata = output.metadata;
     invariant(metadata.kind === "callback-complete", "invalid callback completion metadata");
+    this.#applyOptionalDelta(output);
+    if (prepared.workload === "private-bgi") {
+      const sequence = this.#bgiCallbackCallSequences.get(metadata.frameId);
+      invariant(sequence !== undefined, "BGI callback completion has no reserved call sequence");
+      this.#bgiCallbackCallSequences.delete(metadata.frameId);
+      this.#recordBgiCompletion(metadata, sequence);
+    }
     this.#requireEngine().applyCpuResume(metadata.completion);
     const resumeState = metadata.remainingDepth > 0 ? "guest-callback" : "ready";
     this.#threadExecutionStates.set(this.#currentThreadId, resumeState);

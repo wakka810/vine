@@ -96,6 +96,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-get-current-thread",
         "kernel32-set-thread-affinity-mask",
         "kernel32-get-system-info",
+        "user32-enum-display-monitors",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -122,7 +123,8 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-get-system-info"
+    genericRuntimeCapability === "kernel32-get-system-info" ||
+    genericRuntimeCapability === "user32-enum-display-monitors"
       ? "kernel32-get-system-info-v1.json"
       : genericRuntimeCapability === "kernel32-get-current-thread" ||
     genericRuntimeCapability === "kernel32-set-thread-affinity-mask"
@@ -222,7 +224,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const getSystemInfoEnabled = genericRuntimeCapability === "kernel32-get-system-info";
+const enumDisplayMonitorsEnabled =
+  genericRuntimeCapability === "user32-enum-display-monitors";
+const getSystemInfoEnabled =
+  enumDisplayMonitorsEnabled || genericRuntimeCapability === "kernel32-get-system-info";
 const setThreadAffinityMaskEnabled =
   getSystemInfoEnabled || genericRuntimeCapability === "kernel32-set-thread-affinity-mask";
 const getCurrentThreadEnabled =
@@ -348,7 +353,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getSystemInfoEnabled
+      ? enumDisplayMonitorsEnabled
+        ? "v86-bgi-enum-display-monitors"
+        : getSystemInfoEnabled
         ? "v86-bgi-get-system-info"
         : setThreadAffinityMaskEnabled
         ? "v86-bgi-set-thread-affinity-mask"
@@ -1513,6 +1520,8 @@ const runtimeFrame = {
   sessionStopped: 11,
   stackGrowth: 12,
   stackGrowthCompletion: 13,
+  guestCallback: 14,
+  guestCallbackReturn: 15,
 };
 const writebackFormat = {
   magic: "VINEWB01",
@@ -4220,6 +4229,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (enumDisplayMonitorsEnabled) {
+        validateEnumDisplayMonitorsResult(genericResult);
       } else if (getSystemInfoEnabled) {
         validateGetSystemInfoResult(genericResult);
       } else if (setThreadAffinityMaskEnabled) {
@@ -4311,6 +4322,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : enumDisplayMonitorsEnabled
+            ? "bgi EnumDisplayMonitors"
           : getSystemInfoEnabled
             ? "bgi GetSystemInfo"
           : setThreadAffinityMaskEnabled
@@ -4538,6 +4551,8 @@ async function runGenericRuntimeReentry({
   const writebacks = [];
   const hostDeltas = [];
   const stackGrowths = [];
+  const callbackEvents = [];
+  const activeCallbacks = [];
   let frozenSemanticCalls = 0;
   let currentStackGuard = runtimeReady.initialThreadStack.guardPage?.start ?? null;
 
@@ -4548,9 +4563,11 @@ async function runGenericRuntimeReentry({
     const ownedTerminal =
       terminal.kind === "owned-import-thunk" ||
       terminal.kind === "owned-dynamic-export-thunk";
+    const callbackReturnTerminal = terminal.kind === "callback-return-sentinel";
     if (!ownedTerminal) {
       assert(
-        initializeCriticalSectionEnabled && terminal.kind === "page-fault",
+        callbackReturnTerminal ||
+          (initializeCriticalSectionEnabled && terminal.kind === "page-fault"),
         `generic runtime reached non-owned terminal at call ${sequence}, ` +
           `instruction ${continuation.instructionCount}: ${JSON.stringify(terminal)}`,
       );
@@ -4600,6 +4617,111 @@ async function runGenericRuntimeReentry({
       payloadSha256: sha256(writeback.payload),
       receipt: writebackReceipt,
     });
+
+    if (callbackReturnTerminal) {
+      const active = activeCallbacks.at(-1);
+      assert(active, "callback return sentinel has no active API callback");
+      assert.equal(terminal.address, active.entry.returnSentinel);
+      assert.equal(continuation.finalState.esp, active.outerState.esp);
+      const callbackResult = continuation.finalState.eax >>> 0;
+      await writeRuntimeJsonFrame(child.stdin, runtimeFrame.guestCallbackReturn, {
+        schema: "vine.v86-generic-runtime-callback-return",
+        schemaVersion: 1,
+        frameId: active.entry.frameId,
+        returnSentinel: terminal.address,
+        stackPointer: continuation.finalState.esp,
+        result: callbackResult,
+      });
+      let response = await readRuntimeFrame(
+        protocolReader,
+        null,
+        "generic callback completion",
+      );
+      if (response.kind === runtimeFrame.hostDelta) {
+        const delta = decodeRuntimeHostDelta(response.control, response.payload);
+        assert.equal(delta.fromGeneration, generation);
+        applyRuntimeHostDelta(context, delta);
+        generation = delta.generation;
+        hostDeltas.push({
+          sequence: active.sequence,
+          source: "guest-callback-completion",
+          fromGeneration: delta.fromGeneration,
+          generation: delta.generation,
+          mappingOperations: delta.mappingOperations.length,
+          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+          controlBytes: response.control.length,
+          payloadBytes: response.payload.length,
+          payloadSha256: sha256(response.payload),
+          cacheEffects: delta.cacheEffects,
+        });
+        await writeRuntimeFrame(
+          child.stdin,
+          runtimeFrame.acknowledgement,
+          encodeGeneration(generation),
+          Buffer.alloc(0),
+        );
+        response = await readRuntimeFrame(
+          protocolReader,
+          null,
+          "generic callback API completion",
+        );
+      }
+      assert.equal(response.kind, runtimeFrame.apiCompletion);
+      assert.equal(response.payload.length, 0);
+      const completionFrame = JSON.parse(response.control.toString("utf8"));
+      validateGenericCompletionFrame(completionFrame, active.endpoint, generation);
+      const call = buildGenericCallRecord(
+        active.sequence,
+        active.endpoint,
+        active.occurrence,
+        active.trapInstructionCount,
+        completionFrame,
+      );
+      call.callback = {
+        frameId: active.entry.frameId,
+        target: active.entry.target,
+        allocationStart: active.entry.allocationStart,
+        stackPointer: active.entry.stackPointer,
+        scratchAddress: active.entry.scratchAddress,
+        scratchBytes: active.entry.scratchBytes,
+        frameBytes: active.entry.frameBytes,
+        returnSentinel: active.entry.returnSentinel,
+        returnInstructionCount: continuation.instructionCount,
+        result: callbackResult,
+      };
+      supportedCalls[active.callIndex] = call;
+      if (active.manifestCheckpoint !== null) {
+        validateGenericCallAgainstManifest(call, active.manifestCheckpoint);
+        const dispatcherWriteAddresses = new Set(
+          completionFrame.completion.guestWrites.map(({ write }) => write.address),
+        );
+        const dispatcherWrites = active.manifestCheckpoint.expected.guestWrites.filter(
+          ({ address }) => dispatcherWriteAddresses.has(parseManifestInteger(address)),
+        );
+        validateManifestGuestWrites(context, dispatcherWrites);
+        frozenSemanticCalls += 1;
+      }
+      restoreGenericCallbackApiCompletion(
+        context,
+        continuation.finalState,
+        active.outerState,
+        completionFrame.completion,
+      );
+      activeCallbacks.pop();
+      callbackEvents.push({
+        action: "return",
+        sequence: active.sequence,
+        frameId: active.entry.frameId,
+        instructionCount: continuation.instructionCount,
+        result: callbackResult,
+      });
+      continuation = executeToNextOwnedTrap(
+        offer,
+        context,
+        continuation.instructionCount,
+      );
+      continue;
+    }
 
     if (endpoint === null) {
       const stackGrowthCandidate =
@@ -4729,6 +4851,8 @@ async function runGenericRuntimeReentry({
         writebacks,
         hostDeltas,
         stackGrowths,
+        callbackEvents,
+        activeCallbackDepth: activeCallbacks.length,
         finalGeneration: generation,
         fault: {
           schema: "vine.v86-generic-runtime-execution-fault",
@@ -4804,6 +4928,53 @@ async function runGenericRuntimeReentry({
       response = await readRuntimeFrame(protocolReader, null, "generic API completion");
     }
 
+    if (response.kind === runtimeFrame.guestCallback) {
+      assert.equal(response.payload.length, 0);
+      const entry = JSON.parse(response.control.toString("utf8"));
+      validateGenericCallbackEntry(entry, endpoint, generation, context);
+      occurrences.set(occurrenceKey, occurrence);
+      const manifestCheckpoint =
+        sequence <= selectedCheckpoint.supportedCallCount
+          ? checkpointManifest.checkpoints[sequence]
+          : null;
+      const callIndex = supportedCalls.length;
+      supportedCalls.push({
+        sequence,
+        module: endpoint.module,
+        symbol: endpoint.symbol,
+        occurrence,
+        trapInstructionCount: continuation.instructionCount,
+        arguments: terminal.stackWords.slice(1, 1 + entry.argumentCount),
+        pendingCallback: true,
+      });
+      const outerState = continuation.finalState;
+      enterGenericGuestCallback(context, outerState, entry);
+      activeCallbacks.push({
+        sequence,
+        endpoint,
+        occurrence,
+        trapInstructionCount: continuation.instructionCount,
+        outerState,
+        entry,
+        callIndex,
+        manifestCheckpoint,
+      });
+      callbackEvents.push({
+        action: "enter",
+        sequence,
+        frameId: entry.frameId,
+        instructionCount: continuation.instructionCount,
+        target: entry.target,
+        stackPointer: entry.stackPointer,
+      });
+      continuation = executeToNextOwnedTrap(
+        offer,
+        context,
+        continuation.instructionCount,
+      );
+      continue;
+    }
+
     if (response.kind === runtimeFrame.apiFault) {
       assert.equal(response.payload.length, 0);
       const fault = JSON.parse(response.control.toString("utf8"));
@@ -4827,6 +4998,8 @@ async function runGenericRuntimeReentry({
         writebacks,
         hostDeltas,
         stackGrowths,
+        callbackEvents,
+        activeCallbackDepth: activeCallbacks.length,
         finalGeneration: generation,
         fault,
         terminal: continuation,
@@ -4837,53 +5010,13 @@ async function runGenericRuntimeReentry({
     const completionFrame = JSON.parse(response.control.toString("utf8"));
     validateGenericCompletionFrame(completionFrame, endpoint, generation);
     occurrences.set(occurrenceKey, occurrence);
-    const call = {
+    const call = buildGenericCallRecord(
       sequence,
-      module: endpoint.module,
-      symbol: endpoint.symbol,
+      endpoint,
       occurrence,
-      trapInstructionCount: continuation.instructionCount,
-      arguments: completionFrame.completion.frame.arguments.flatMap(({ words }) => words),
-      result: completionFrame.completion.eax,
-      implementationId: completionFrame.completion.implementationId,
-      returnAddress: completionFrame.completion.instructionPointer,
-      stackPointerBefore: completionFrame.completion.frame.stackPointer,
-      stackPointerAfter: completionFrame.completion.stackPointer,
-      lastError: completionFrame.completion.lastError,
-      guestWrites: completionFrame.completion.guestWrites.map(({ write, result }) => ({
-        address: write.address,
-        bytes: write.bytes,
-        result,
-      })),
-      ...(completionFrame.flsValue === undefined
-        ? {}
-        : { flsValue: completionFrame.flsValue }),
-      ...(completionFrame.interlockedIncrement === undefined
-        ? {}
-        : { interlockedIncrement: completionFrame.interlockedIncrement }),
-      ...(completionFrame.interlockedDecrement === undefined
-        ? {}
-        : { interlockedDecrement: completionFrame.interlockedDecrement }),
-      ...(completionFrame.heapAllocation === undefined
-        ? {}
-        : { heapAllocation: completionFrame.heapAllocation }),
-      ...(completionFrame.standardHandle === undefined
-        ? {}
-        : { standardHandle: completionFrame.standardHandle }),
-      ...(completionFrame.fileType === undefined
-        ? {}
-        : { fileType: completionFrame.fileType }),
-      ...(completionFrame.currentDirectory === undefined
-        ? {}
-        : { currentDirectory: completionFrame.currentDirectory }),
-      ...(completionFrame.mutex === undefined ? {} : { mutex: completionFrame.mutex }),
-      ...(completionFrame.threadAffinity === undefined
-        ? {}
-        : { threadAffinity: completionFrame.threadAffinity }),
-      ...(completionFrame.tickCount === undefined
-        ? {}
-        : { tickCount: completionFrame.tickCount }),
-    };
+      continuation.instructionCount,
+      completionFrame,
+    );
 
     const manifestCheckpoint =
       sequence <= selectedCheckpoint.supportedCallCount
@@ -4930,6 +5063,62 @@ async function runGenericRuntimeReentry({
   );
 }
 
+function buildGenericCallRecord(
+  sequence,
+  endpoint,
+  occurrence,
+  trapInstructionCount,
+  completionFrame,
+) {
+  return {
+    sequence,
+    module: endpoint.module,
+    symbol: endpoint.symbol,
+    occurrence,
+    trapInstructionCount,
+    arguments: completionFrame.completion.frame.arguments.flatMap(({ words }) => words),
+    result: completionFrame.completion.eax,
+    implementationId: completionFrame.completion.implementationId,
+    returnAddress: completionFrame.completion.instructionPointer,
+    stackPointerBefore: completionFrame.completion.frame.stackPointer,
+    stackPointerAfter: completionFrame.completion.stackPointer,
+    lastError: completionFrame.completion.lastError,
+    guestWrites: completionFrame.completion.guestWrites.map(({ write, result }) => ({
+      address: write.address,
+      bytes: write.bytes,
+      result,
+    })),
+    ...(completionFrame.flsValue === undefined
+      ? {}
+      : { flsValue: completionFrame.flsValue }),
+    ...(completionFrame.interlockedIncrement === undefined
+      ? {}
+      : { interlockedIncrement: completionFrame.interlockedIncrement }),
+    ...(completionFrame.interlockedDecrement === undefined
+      ? {}
+      : { interlockedDecrement: completionFrame.interlockedDecrement }),
+    ...(completionFrame.heapAllocation === undefined
+      ? {}
+      : { heapAllocation: completionFrame.heapAllocation }),
+    ...(completionFrame.standardHandle === undefined
+      ? {}
+      : { standardHandle: completionFrame.standardHandle }),
+    ...(completionFrame.fileType === undefined
+      ? {}
+      : { fileType: completionFrame.fileType }),
+    ...(completionFrame.currentDirectory === undefined
+      ? {}
+      : { currentDirectory: completionFrame.currentDirectory }),
+    ...(completionFrame.mutex === undefined ? {} : { mutex: completionFrame.mutex }),
+    ...(completionFrame.threadAffinity === undefined
+      ? {}
+      : { threadAffinity: completionFrame.threadAffinity }),
+    ...(completionFrame.tickCount === undefined
+      ? {}
+      : { tickCount: completionFrame.tickCount }),
+  };
+}
+
 function validateGenericRuntimeReady(ready, offer) {
   assert.equal(ready.schema, "vine.v86-generic-runtime-session-ready");
   assert.equal(ready.schemaVersion, 1);
@@ -4952,6 +5141,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : enumDisplayMonitorsEnabled
+          ? 37
         : getSystemInfoEnabled
           ? 36
         : setThreadAffinityMaskEnabled
@@ -5029,6 +5220,23 @@ function validateGenericRuntimeReady(ready, offer) {
             : 3),
   );
   assert.equal(ready.dynamicExportEndpoints, 4);
+  if (enumDisplayMonitorsEnabled) {
+    assert.equal(
+      ready.user32CompatibilityPolicyId,
+      "user32-single-monitor-1920x1080-v1",
+    );
+    assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
+    assert.deepEqual(ready.primaryMonitor, {
+      namespace: "vine.logical-monitor.v1",
+      handle: 0x4f010001,
+      primary: true,
+      rect: { left: 0, top: 0, right: 1920, bottom: 1080 },
+    });
+  } else {
+    assert.equal(ready.user32CompatibilityPolicyId, undefined);
+    assert.equal(ready.displayProfileId, undefined);
+    assert.equal(ready.primaryMonitor, undefined);
+  }
   assert.equal(ready.initialThreadStack.threadId, ready.currentThreadId);
   assert.equal(ready.initialThreadStack.memoryOwner, expected.stack.owner);
   assert.deepEqual(ready.initialThreadStack.reservedRange, {
@@ -5425,6 +5633,101 @@ function validateGenericRuntimeFault(fault, endpoint, generation) {
   assert.equal(fault.memory.dirtyPages, 0);
   assert.equal(fault.memory.pendingInvalidation, undefined);
   assert.match(fault.memoryContentSha256, /^[0-9a-f]{64}$/u);
+}
+
+function validateGenericCallbackEntry(entry, endpoint, generation, context) {
+  assert.equal(entry.schema, "vine.v86-generic-runtime-callback");
+  assert.equal(entry.schemaVersion, 1);
+  assert.equal(entry.endpoint.kind, endpoint.kind);
+  assert.equal(entry.endpoint.endpoint.id, endpoint.id);
+  assert.equal(entry.endpoint.endpoint.address, endpoint.address);
+  assert(Number.isSafeInteger(entry.frameId) && entry.frameId > 0);
+  assert.equal(entry.memory.generation, generation);
+  assert.equal(entry.memory.acknowledgedGeneration, generation);
+  assert.equal(entry.memory.dirtyPages, 0);
+  assert.equal(entry.memory.pendingInvalidation, undefined);
+  assert.equal(entry.scratchAddress, entry.allocationStart);
+  assert.equal(entry.stackPointer, entry.allocationStart + ((entry.scratchBytes + 3) & ~3));
+  assert.equal(
+    entry.frameBytes,
+    ((entry.scratchBytes + 3) & ~3) + (entry.argumentCount + 1) * 4,
+  );
+  assert.equal(
+    context.readVirtualU32(entry.stackPointer, "callback return sentinel"),
+    entry.returnSentinel,
+  );
+  if (endpoint.module.toLowerCase() === "user32.dll" && endpoint.symbol === "EnumDisplayMonitors") {
+    assert.equal(entry.argumentCount, 4);
+    assert.equal(entry.scratchBytes, 16);
+    const rect = Buffer.from(
+      context.readVirtualBytes(entry.scratchAddress, 16, "EnumDisplayMonitors callback RECT"),
+    );
+    assert.deepEqual(
+      [0, 4, 8, 12].map((offset) => rect.readInt32LE(offset)),
+      [0, 0, 1920, 1080],
+    );
+    assert.deepEqual(
+      [1, 2, 3, 4].map((index) =>
+        context.readVirtualU32(
+          entry.stackPointer + index * 4,
+          `EnumDisplayMonitors callback argument ${index - 1}`,
+        ),
+      ),
+      [0x4f010001, 0, entry.scratchAddress, 0],
+    );
+  }
+}
+
+function enterGenericGuestCallback(context, trapped, entry) {
+  context.wasm.vine_cpu_state_save();
+  const words = new Uint32Array(
+    context.wasm.memory.buffer,
+    context.wasm.vine_cpu_state_ptr(),
+    context.wasm.vine_cpu_state_size() / 4,
+  );
+  assert.equal(words[stateWord.instructionPointer], trapped.instructionPointer);
+  assert.equal(words[stateWord.previousInstructionPointer], trapped.previousInstructionPointer);
+  assert.equal(words[stateWord.esp], trapped.esp);
+  words[stateWord.esp] = entry.stackPointer;
+  words[stateWord.instructionPointer] = entry.target;
+  words[stateWord.previousInstructionPointer] = entry.target;
+  assert.equal(context.wasm.vine_cpu_state_restore(), 0);
+  const entered = captureCpuState(context, 0);
+  assert.equal(entered.esp, entry.stackPointer);
+  assert.equal(entered.instructionPointer, entry.target);
+  assert.equal(entered.previousInstructionPointer, entry.target);
+}
+
+function restoreGenericCallbackApiCompletion(context, returned, outer, completion) {
+  context.wasm.vine_cpu_state_save();
+  const words = new Uint32Array(
+    context.wasm.memory.buffer,
+    context.wasm.vine_cpu_state_ptr(),
+    context.wasm.vine_cpu_state_size() / 4,
+  );
+  assert.equal(words[stateWord.instructionPointer], returned.instructionPointer);
+  assert.equal(words[stateWord.previousInstructionPointer], returned.previousInstructionPointer);
+  assert.equal(words[stateWord.esp], returned.esp);
+  assert.equal(completion.frame.stackPointer, outer.esp);
+  words[stateWord.eax] = outer.eax;
+  words[stateWord.ecx] = outer.ecx;
+  words[stateWord.edx] = outer.edx;
+  words[stateWord.ebx] = outer.ebx;
+  words[stateWord.ebp] = outer.ebp;
+  words[stateWord.esi] = outer.esi;
+  words[stateWord.edi] = outer.edi;
+  words[stateWord.flags] = outer.flags;
+  applyRegisterUpdate(words, stateWord.eax, completion.eax);
+  applyRegisterUpdate(words, stateWord.edx, completion.edx);
+  applyRegisterUpdate(words, stateWord.flags, completion.eflags);
+  words[stateWord.esp] = completion.stackPointer;
+  words[stateWord.instructionPointer] = completion.instructionPointer;
+  words[stateWord.previousInstructionPointer] = completion.instructionPointer;
+  assert.equal(context.wasm.vine_cpu_state_restore(), 0);
+  const resumed = captureCpuState(context, 0);
+  assert.equal(resumed.esp, completion.stackPointer);
+  assert.equal(resumed.instructionPointer, completion.instructionPointer);
+  assert.equal(resumed.previousInstructionPointer, completion.instructionPointer);
 }
 
 function restoreGenericApiCompletion(context, trapped, completion) {
@@ -8519,6 +8822,69 @@ function validateCreateMutexAResult(result) {
   );
 }
 
+function validateEnumDisplayMonitorsResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 1293);
+  assert.equal(
+    result.supportedCalls.some(({ pendingCallback }) => pendingCallback === true),
+    false,
+    "EnumDisplayMonitors must complete its guest callback before the next structured stop",
+  );
+  const calls = result.supportedCalls.filter(
+    ({ module, symbol }) => module.toLowerCase() === "user32.dll" && symbol === "EnumDisplayMonitors",
+  );
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.equal(call.sequence, 1292);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 45614);
+  assert.deepEqual(call.arguments, [0, 0, 0x1006a700, 0]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.implementationId, "user32.enum-display-monitors.v1");
+  assert.equal(call.returnAddress, 0x1006a781);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 20);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(call.callback.target, 0x1006a700);
+  assert.equal(call.callback.scratchBytes, 16);
+  assert.equal(call.callback.frameBytes, 36);
+  assert.equal(call.callback.returnSentinel, 0x7f010000);
+  assert.equal(call.callback.result, 1);
+  const nested = result.supportedCalls.find(({ sequence }) => sequence === 1293);
+  assert.equal(nested.module.toLowerCase(), "kernel32.dll");
+  assert.equal(nested.symbol, "HeapAlloc");
+  assert.equal(nested.occurrence, 10);
+  assert.equal(nested.trapInstructionCount, 45645);
+  assert.deepEqual(nested.arguments, [0x68010001, 0, 24]);
+  assert.deepEqual(nested.result, { action: "set", value: 0x200014e8 });
+  assert.equal(nested.returnAddress, 0x100a4a33);
+  assert.deepEqual(
+    result.callbackEvents.map(({ action, sequence, frameId }) => ({
+      action,
+      sequence,
+      frameId,
+    })),
+    [
+      { action: "enter", sequence: 1292, frameId: call.callback.frameId },
+      { action: "return", sequence: 1292, frameId: call.callback.frameId },
+    ],
+  );
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "ole32-api-contract");
+  assert.equal(result.fault.endpoint.endpoint.id, 301);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f0012c0);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "ole32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "CoInitialize",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d1544);
+  assert.equal(result.fault.memoryContentSha256, "8ec8022f983af336f4e1b015d9f1760c6db01c606e678059cd6996cf4b403753");
+  assert.equal(result.terminal.instructionCount, 45685);
+  assert.equal(result.terminal.terminal.returnAddress, 0x10087399);
+  assert.equal(result.terminal.terminal.stackWords[1], 0);
+}
+
 function validateGetSystemInfoResult(result) {
   const expected = getSystemInfoExpected;
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
@@ -9471,6 +9837,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : enumDisplayMonitorsEnabled
+          ? "vine.v86-bgi-enum-display-monitors"
         : getSystemInfoEnabled
           ? "vine.v86-bgi-get-system-info"
         : setThreadAffinityMaskEnabled
@@ -9601,6 +9969,8 @@ function buildGenericRuntimeReentryReport({
       changedBytes: totalChangedBytes,
       hostDeltaBatches: genericResult.hostDeltas.length,
       stackGrowths: genericResult.stackGrowths,
+      callbackEvents: genericResult.callbackEvents,
+      activeCallbackDepth: genericResult.activeCallbackDepth,
       finalGeneration: genericResult.finalGeneration,
       jsonPageByteArrays: false,
       writebacks: genericResult.writebacks,

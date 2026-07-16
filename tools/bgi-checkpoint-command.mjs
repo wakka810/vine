@@ -14,10 +14,10 @@ export function bgiProfileOutputDirectory(profile) {
   if (profile === "baseline") {
     return "v86-bgi-generic-runtime-reentry";
   }
-  if (!profile.startsWith("kernel32-")) {
-    throw new Error(`BGI profile must be baseline or a kernel32 capability: ${profile}`);
+  if (!profile.startsWith("kernel32-") && !profile.startsWith("user32-")) {
+    throw new Error(`BGI profile must be baseline or a Win32 capability: ${profile}`);
   }
-  return `v86-bgi-${profile.slice("kernel32-".length)}`;
+  return `v86-bgi-${profile.replace(/^(?:kernel32|user32)-/u, "")}`;
 }
 
 export function planBgiCheckpointCommand(arguments_, manifest, root) {

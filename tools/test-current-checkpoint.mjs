@@ -458,6 +458,33 @@ assert.ok(
   ),
 );
 
+const hostShapedDisplayPolicy = structuredClone(manifest);
+hostShapedDisplayPolicy.activeRuntimeCheckpoint.user32CompatibilityPolicy.browserDisplayTopologyImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(hostShapedDisplayPolicy).some((error) =>
+    error.includes("User32 compatibility policy boundary"),
+  ),
+);
+
+const sharedMonitorHandleNamespace = structuredClone(manifest);
+sharedMonitorHandleNamespace.activeRuntimeCheckpoint.user32CompatibilityPolicy.monitorHandleNamespace =
+  "vine.logical-window.v1";
+assert.ok(
+  validateCurrentCheckpoint(sharedMonitorHandleNamespace).some((error) =>
+    error.includes("User32 compatibility policy boundary"),
+  ),
+);
+
+const mutableDisplayProfile = structuredClone(manifest);
+mutableDisplayProfile.activeRuntimeCheckpoint.user32CompatibilityPolicy.configuration =
+  "replace-on-enumeration";
+assert.ok(
+  validateCurrentCheckpoint(mutableDisplayProfile).some((error) =>
+    error.includes("User32 compatibility policy boundary"),
+  ),
+);
+
 const staleThreadRegistryShape = structuredClone(manifest);
 staleThreadRegistryShape.activeRuntimeCheckpoint.runtimeThreadRegistry.schema =
   "vine.runtime-thread-registry.v3";

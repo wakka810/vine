@@ -525,6 +525,8 @@ production-memory cdecl representative contractは同じfixtureのfirst service�
 
 production callback representative contractはimport thunkと分離したsentinel ID／address、active frame ID／parent thunk、outer ESP／return address、target／valueを保持し、one-level cdecl callbackの`RET`をexact sentinelで分類する。これはone frameのentry／return stopだけであり、outer unwind、nested／reentrant callback、fault／cancellation、general frame allocatorの代用にはしない。
 
+production callback scratch contractはscalar argumentとscratch-relative pointerを区別し、argument／scratch bound、checked x86 frame arithmetic、callback／sentinel execute access、全writable bandをmutation前に検証する。Valid caseはscratch padding、sentinel、全argumentsをone contiguous writeで固定し、exact top frameだけをretireしてtyped outer resultへ変換する。Negative caseはunmapped stack、invalid scratch offset、wrong／duplicate frame IDでmemory generation、callback depth、allocatorが不変であることを要求する。Callback中に既存API trapが到達するcaseはouter sequenceをentry時に予約し、nested callを処理してからouter completionを同じslotへcommitする。現在のrepresentativeはone-level stdcall BOOL callbackとone nested immediate APIであり、arbitrary depth、cross-thread callback、SEHの代用にはしない。
+
 production outer-return representative contractはそのfixed frameをretireし、callee `RET`相当でouter return addressだけをconsumeしてresult `43`をguest cdecl callerへ返す。guest自身の2 argument cleanup、result write、entry comparison、stack balanceを検証するが、process-entry return sentinel、general entry lifecycle、nested／reentrant frame unwind、callback fault／cancellationの代用にはしない。
 
 production entry-return representative contractはtyped sentinel ID `2`をinitial stackへ置き、guest entry result `0`とbalanced ESPをexact `#UD`で分類する。別modeでunmapped returnがPFEC `4`のままであることも検査するが、adapter-local one-page stackをproduction stack、process／thread exit、PEB／TEB、process parametersの代用にはしない。

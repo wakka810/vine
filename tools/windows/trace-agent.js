@@ -116,6 +116,14 @@ let getSystemInfoOracleScheduled = false;
 let getSystemInfoOracleSentinel = null;
 let getSystemInfoOracleLastError = null;
 let getSystemInfoConsumerRecorded = false;
+let enumDisplayMonitorsOracleScheduled = false;
+let enumDisplayMonitorsOracleSentinel = null;
+let enumDisplayMonitorsOracleResult = null;
+let enumDisplayMonitorsOracleLastError = null;
+let enumDisplayMonitorsConsumerRecorded = false;
+const enumDisplayMonitorsOracleCallbacks = [];
+const activeEnumDisplayMonitorsByThread = new Map();
+const attachedEnumDisplayMonitorCallbacks = new Set();
 
 function snapshotNulTerminatedString(pointer, encoding) {
   const maximumBytes = 4096;
@@ -686,6 +694,70 @@ function snapshotSystemInfo(pointer) {
       error: error.message,
     };
   }
+}
+
+function snapshotRect(pointer) {
+  const raw = snapshotBoundedRawBytes(pointer, 16);
+  if (raw.error !== undefined) {
+    return { profile: "x86-rect-v1", raw };
+  }
+  try {
+    return {
+      profile: "x86-rect-v1",
+      raw,
+      fields: {
+        left: pointer.readS32(),
+        top: pointer.add(4).readS32(),
+        right: pointer.add(8).readS32(),
+        bottom: pointer.add(12).readS32(),
+      },
+    };
+  } catch (error) {
+    return { profile: "x86-rect-v1", raw, error: error.message };
+  }
+}
+
+function attachEnumDisplayMonitorCallback(callback) {
+  if (callback.isNull()) {
+    return;
+  }
+  const key = callback.toString().toLowerCase();
+  if (attachedEnumDisplayMonitorCallbacks.has(key)) {
+    return;
+  }
+  attachedEnumDisplayMonitorCallbacks.add(key);
+  Interceptor.attach(callback, {
+    onEnter(args) {
+      const threadId = Process.getCurrentThreadId();
+      const active = activeEnumDisplayMonitorsByThread.get(threadId) ?? null;
+      this.enumDisplayMonitorsActive = active;
+      this.enumDisplayMonitorsRect = args[2];
+      if (active === null) {
+        this.enumDisplayMonitorsCallback = null;
+        return;
+      }
+      const record = {
+        callback: callback.toString(),
+        caller: describeCaller(this.returnAddress),
+        monitor: args[0].toString(),
+        monitorDc: args[1].toString(),
+        rectBefore: snapshotRect(args[2]),
+        data: args[3].toString(),
+        lastErrorBefore: Number(this.lastError) >>> 0,
+      };
+      this.enumDisplayMonitorsCallback = record;
+      active.callbacks.push(record);
+    },
+    onLeave(result) {
+      const record = this.enumDisplayMonitorsCallback;
+      if (record === null) {
+        return;
+      }
+      record.result = result.toUInt32();
+      record.rectAfter = snapshotRect(this.enumDisplayMonitorsRect);
+      record.lastErrorAfter = Number(this.lastError) >>> 0;
+    },
+  });
 }
 
 function snapshotOptionalBool(pointer) {
@@ -1972,6 +2044,12 @@ if (selectedObservations.has("set-thread-affinity-mask")) {
 if (selectedObservations.has("get-system-info")) {
   hooks["kernel32.dll"].push(["GetSystemInfo", [null]]);
 }
+if (selectedObservations.has("enum-display-monitors")) {
+  hooks["user32.dll"].push([
+    "EnumDisplayMonitors",
+    [null, null, null, null],
+  ]);
+}
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
   [1, "AddRef", 0],
@@ -2232,6 +2310,13 @@ function attachHook(module, name, decoders) {
         (isMainModuleCaller ||
           (caller.module.toLowerCase() === "frida-agent.dll" &&
             getSystemInfoOracleSentinel !== null));
+      const focusedEnumDisplayMonitorsObservation =
+        selectedObservations.has("enum-display-monitors") &&
+        name === "EnumDisplayMonitors" &&
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            enumDisplayMonitorsOracleSentinel !== null));
       const focusedUnhandledExceptionFilterObservation =
         selectedObservations.has("unhandled-exception-filter") &&
         name === "SetUnhandledExceptionFilter" &&
@@ -2354,6 +2439,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("get-system-info") &&
         name === "GetSystemInfo" &&
         !focusedGetSystemInfoObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("enum-display-monitors") &&
+        name === "EnumDisplayMonitors" &&
+        !focusedEnumDisplayMonitorsObservation
       ) {
         this.traceFrame = null;
         return;
@@ -2580,6 +2673,15 @@ function attachHook(module, name, decoders) {
       if (this.traceGetSystemInfoOracle) {
         this.lastError = getSystemInfoOracleSentinel;
       }
+      this.traceEnumDisplayMonitorsOracle =
+        enumDisplayMonitorsOracleSentinel !== null &&
+        selectedObservations.has("enum-display-monitors") &&
+        name === "EnumDisplayMonitors" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceEnumDisplayMonitorsOracle) {
+        this.lastError = enumDisplayMonitorsOracleSentinel;
+      }
       this.traceUnhandledExceptionFilterOracle =
         unhandledExceptionFilterOracleSentinel !== null &&
         selectedObservations.has("unhandled-exception-filter") &&
@@ -2783,6 +2885,42 @@ function attachHook(module, name, decoders) {
           : null;
       this.traceGetSystemInfo =
         focusedGetSystemInfoObservation ? { output: args[0] } : null;
+      const recordsEnumDisplayMonitorsConsumer =
+        focusedEnumDisplayMonitorsObservation &&
+        isMainModuleCaller &&
+        !enumDisplayMonitorsConsumerRecorded;
+      if (recordsEnumDisplayMonitorsConsumer) {
+        enumDisplayMonitorsConsumerRecorded = true;
+      }
+      this.traceEnumDisplayMonitors = focusedEnumDisplayMonitorsObservation
+        ? {
+            hdc: args[0].toString(),
+            clipRect: args[1].toString(),
+            clipRectBefore: args[1].isNull() ? null : snapshotRect(args[1]),
+            callback: args[2].toString(),
+            callbackInstructions: args[2].isNull()
+              ? null
+              : snapshotInstructions(args[2], 24),
+            data: args[3].toString(),
+            immediateConsumer: recordsEnumDisplayMonitorsConsumer
+              ? {
+                  apiContinuation: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    24,
+                  ),
+                  frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                    this.context,
+                    4,
+                    12,
+                  ),
+                }
+              : null,
+            callbacks: [],
+          }
+        : null;
+      if (this.traceEnumDisplayMonitors !== null) {
+        attachEnumDisplayMonitorCallback(args[2]);
+      }
       const observation =
         this.traceHeapAllocation !== null
           ? {
@@ -2842,6 +2980,21 @@ function attachHook(module, name, decoders) {
               this.context,
               this.traceGetSystemInfo.output,
             )
+        : this.traceEnumDisplayMonitors !== null
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              enumDisplayMonitors: {
+                hdc: this.traceEnumDisplayMonitors.hdc,
+                clipRect: this.traceEnumDisplayMonitors.clipRect,
+                clipRectBefore: this.traceEnumDisplayMonitors.clipRectBefore,
+                callback: this.traceEnumDisplayMonitors.callback,
+                callbackInstructions:
+                  this.traceEnumDisplayMonitors.callbackInstructions,
+                data: this.traceEnumDisplayMonitors.data,
+                immediateConsumer:
+                  this.traceEnumDisplayMonitors.immediateConsumer,
+              },
+            }
         : focusedProcessorFeatureObservation
           ? snapshotProcessorFeatureCall(
               caller,
@@ -3048,6 +3201,12 @@ function attachHook(module, name, decoders) {
         },
         this.returnAddress,
       );
+      if (this.traceEnumDisplayMonitors !== null) {
+        activeEnumDisplayMonitorsByThread.set(
+          this.traceFrame.threadId,
+          this.traceEnumDisplayMonitors,
+        );
+      }
     },
     onLeave(result) {
       if (this.trackHeapSizeAllocation != null && !result.isNull()) {
@@ -3125,6 +3284,10 @@ function attachHook(module, name, decoders) {
       }
       if (this.traceGetSystemInfoOracle) {
         getSystemInfoOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceEnumDisplayMonitorsOracle) {
+        enumDisplayMonitorsOracleResult = result.toUInt32();
+        enumDisplayMonitorsOracleLastError = Number(lastError) >>> 0;
       }
       if (this.traceThreadAffinityPrimaryCall === 1 && result.toUInt32() !== 0) {
         setThreadAffinityCalibration = {
@@ -3390,7 +3553,31 @@ function attachHook(module, name, decoders) {
                 outputAfter: snapshotSystemInfo(this.traceGetSystemInfo.output),
               },
             }),
+        ...(this.traceEnumDisplayMonitors === null
+          ? {}
+          : {
+              enumDisplayMonitors: {
+                result: result.toUInt32(),
+                hdc: this.traceEnumDisplayMonitors.hdc,
+                clipRect: this.traceEnumDisplayMonitors.clipRect,
+                clipRectAfter:
+                  this.traceEnumDisplayMonitors.clipRect === ptr(0).toString()
+                    ? null
+                    : snapshotRect(ptr(this.traceEnumDisplayMonitors.clipRect)),
+                callback: this.traceEnumDisplayMonitors.callback,
+                data: this.traceEnumDisplayMonitors.data,
+                callbacks: this.traceEnumDisplayMonitors.callbacks,
+              },
+            }),
       };
+      if (this.traceEnumDisplayMonitors !== null) {
+        const active = activeEnumDisplayMonitorsByThread.get(
+          this.traceFrame.threadId,
+        );
+        if (active === this.traceEnumDisplayMonitors) {
+          activeEnumDisplayMonitorsByThread.delete(this.traceFrame.threadId);
+        }
+      }
       finishCall(
         this.traceFrame,
         {
@@ -5251,6 +5438,123 @@ function scheduleGetSystemInfoOracle(module) {
   });
 }
 
+function scheduleEnumDisplayMonitorsOracle(module) {
+  if (enumDisplayMonitorsOracleScheduled) {
+    return;
+  }
+  enumDisplayMonitorsOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "EnumDisplayMonitors");
+      if (address === null) {
+        throw new Error("EnumDisplayMonitors export is unavailable");
+      }
+      const enumDisplayMonitors = new SystemFunction(
+        address,
+        "uint32",
+        ["pointer", "pointer", "pointer", "pointer"],
+        "stdcall",
+      );
+      const invoke = (id, callbackResult, sentinel, data) => {
+        const callbacks = [];
+        const callback = new NativeCallback(
+          (monitor, monitorDc, rect, callbackData) => {
+            callbacks.push({
+              threadId: Process.getCurrentThreadId(),
+              monitor: monitor.toString(),
+              monitorDc: monitorDc.toString(),
+              rect: snapshotRect(rect),
+              data: callbackData.toString(),
+              result: callbackResult,
+            });
+            return callbackResult;
+          },
+          "uint32",
+          ["pointer", "pointer", "pointer", "pointer"],
+          "stdcall",
+        );
+        enumDisplayMonitorsOracleCallbacks.push(callback);
+        enumDisplayMonitorsOracleSentinel = sentinel;
+        enumDisplayMonitorsOracleResult = null;
+        enumDisplayMonitorsOracleLastError = null;
+        try {
+          const outcome = enumDisplayMonitors(ptr(0), ptr(0), callback, data);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            enumDisplayMonitorsOracleResult === null ||
+            enumDisplayMonitorsOracleLastError === null
+          ) {
+            throw new Error(
+              `EnumDisplayMonitors ${id} oracle did not pass through the hook`,
+            );
+          }
+          return {
+            id,
+            callbackResult,
+            sentinel,
+            hdc: ptr(0).toString(),
+            clipRect: ptr(0).toString(),
+            data: data.toString(),
+            hookResult: enumDisplayMonitorsOracleResult,
+            hookLastErrorAfter: enumDisplayMonitorsOracleLastError,
+            systemResult,
+            systemLastError,
+            callbacks,
+            hookResultMatches:
+              enumDisplayMonitorsOracleResult === systemResult,
+            hookPreservesLastError:
+              enumDisplayMonitorsOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+            allCallbackDataRoundTrips: callbacks.every(
+              (invocation) => invocation.data === data.toString(),
+            ),
+            allCallbackDcsNull: callbacks.every(
+              (invocation) => invocation.monitorDc === ptr(0).toString(),
+            ),
+          };
+        } finally {
+          enumDisplayMonitorsOracleSentinel = null;
+          enumDisplayMonitorsOracleResult = null;
+          enumDisplayMonitorsOracleLastError = null;
+        }
+      };
+      const calls = [
+        invoke("continue", 1, 87, ptr("0x12345678")),
+        invoke("stop", 0, 0x12345678, ptr("0x87654321")),
+      ];
+      emit("enum-display-monitors-oracle", {
+        profile: "x86-null-dc-null-clip-callback-enumeration-v1",
+        calls,
+        continueCallbackCount: calls[0].callbacks.length,
+        stopCallbackCount: calls[1].callbacks.length,
+        stopHaltsAfterFirstCallback: calls[1].callbacks.length === 1,
+        expectedResultsObserved:
+          calls[0].systemResult === 1 &&
+          calls[1].systemResult === 0 &&
+          calls.every((call) => call.hookResultMatches),
+        allCallbackDataRoundTrips: calls.every(
+          (call) => call.allCallbackDataRoundTrips,
+        ),
+        allCallbackDcsNull: calls.every((call) => call.allCallbackDcsNull),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+        firstMonitorStable:
+          calls.every((call) => call.callbacks.length > 0) &&
+          calls[0].callbacks[0].monitor === calls[1].callbacks[0].monitor,
+        firstRectStable:
+          calls.every((call) => call.callbacks.length > 0) &&
+          JSON.stringify(calls[0].callbacks[0].rect.fields) ===
+            JSON.stringify(calls[1].callbacks[0].rect.fields),
+      });
+    } catch (error) {
+      emit("enum-display-monitors-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleProcessorFeatureOracle(module) {
   if (processorFeatureOracleScheduled) {
     return;
@@ -6293,6 +6597,12 @@ Process.attachModuleObserver({
       selectedObservations.has("get-system-info")
     ) {
       scheduleGetSystemInfoOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("enum-display-monitors")
+    ) {
+      scheduleEnumDisplayMonitorsOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&

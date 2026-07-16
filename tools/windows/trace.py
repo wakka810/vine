@@ -48,6 +48,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-current-thread",
     "set-thread-affinity-mask",
     "get-system-info",
+    "enum-display-monitors",
 )
 
 

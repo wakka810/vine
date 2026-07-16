@@ -9,21 +9,23 @@ use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall, ApiHandlerResult,
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
     CallbackPolicy, CallingConvention, CpuWritebackReceipt, DispatchOutcome, ExecutionSession,
-    ExportTarget, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange,
-    HostCompletion, HostRequest, ImportBinding, ImportTarget, InitialThreadStack,
-    Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
-    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
-    MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate,
-    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
-    RuntimeHandle, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind,
-    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    SchedulerThreadState, StackCleanup, bind_pe32_imports, build_pe32_load_plan,
-    dispatch_kernel32_api_with_policy, install_controlled_initial_stack,
-    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
-    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
-    kernel32_contract_for_endpoint, materialize_pe32_image,
+    ExportTarget, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
+    GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
+    HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
+    MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
+    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
+    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, SchedulerThreadState, StackCleanup,
+    User32CompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
+    dispatch_kernel32_api_with_policy, dispatch_user32_api_with_policy,
+    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
+    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
+    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
+    user32_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -180,6 +182,7 @@ enum BrowserRuntimeTarget {
     ControlledFixture,
     Bgi {
         kernel32_policy: Box<Kernel32CompatibilityPolicy>,
+        user32_policy: Box<User32CompatibilityPolicy>,
     },
 }
 
@@ -375,6 +378,16 @@ impl BrowserRuntime {
         let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
         let mut process =
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
+        let user32_policy = User32CompatibilityPolicy::controlled_v1();
+        user32_policy.validate().map_err(api_fault_string)?;
+        process
+            .runtime
+            .configure_display_profile(
+                user32_policy
+                    .display_profile()
+                    .ok_or_else(|| "active User32 policy has no display profile".to_owned())?,
+            )
+            .map_err(error_string)?;
         let callback_allocation = control_mapping_allocation(
             &process.runtime,
             ProcessAddressAllocationPurpose::CallbackReturns,
@@ -474,6 +487,7 @@ impl BrowserRuntime {
                 "dependencyEdges": process.binding.dependency_edges.len(),
                 "attachOrder": process.attach_order,
                 "kernel32Policy": kernel32_policy.id,
+                "user32Policy": user32_policy.id,
             },
         });
         Ok((
@@ -491,6 +505,7 @@ impl BrowserRuntime {
                 mapping_fixture: BrowserMappingFixture::default(),
                 target: BrowserRuntimeTarget::Bgi {
                     kernel32_policy: Box::new(kernel32_policy),
+                    user32_policy: Box::new(user32_policy),
                 },
             },
             metadata,
@@ -774,8 +789,26 @@ impl BrowserRuntime {
                 trap,
                 &mut session,
                 |contract, frame, session| match &target {
-                    BrowserRuntimeTarget::Bgi { kernel32_policy } => {
-                        dispatch_kernel32_api_with_policy(kernel32_policy, contract, frame, session)
+                    BrowserRuntimeTarget::Bgi {
+                        kernel32_policy,
+                        user32_policy,
+                    } => {
+                        if contract.endpoint.module.eq_ignore_ascii_case("user32.dll") {
+                            dispatch_user32_api_with_policy(
+                                user32_policy,
+                                callback_sentinel,
+                                contract,
+                                frame,
+                                session,
+                            )
+                        } else {
+                            dispatch_kernel32_api_with_policy(
+                                kernel32_policy,
+                                contract,
+                                frame,
+                                session,
+                            )
+                        }
                     }
                     BrowserRuntimeTarget::ControlledFixture => {
                         match contract.implementation_id.as_str() {
@@ -827,8 +860,10 @@ impl BrowserRuntime {
                                 }
                                 ApiHandlerResult::GuestCallback(GuestCallbackRequest {
                                     target: GuestAddress(target),
-                                    arguments: vec![value],
+                                    arguments: vec![GuestCallbackArgument::U32(value)],
+                                    scratch: Vec::new(),
                                     return_sentinel: callback_sentinel,
+                                    completion_policy: GuestCallbackCompletionPolicy::ReturnU32,
                                 })
                             }
                             _ => ApiHandlerResult::Fault(ApiFault::unsupported(
@@ -949,33 +984,9 @@ impl BrowserRuntime {
         &mut self,
         call: ApiGuestCallbackCall,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
-        let frame_bytes = call
-            .request
-            .arguments
-            .len()
-            .checked_add(1)
-            .and_then(|words| words.checked_mul(4))
-            .ok_or_else(|| "callback frame size overflowed".to_owned())?;
-        let stack_pointer = GuestAddress(
-            call.frame
-                .stack_pointer
-                .0
-                .checked_sub(u32::try_from(frame_bytes).map_err(|_| "callback frame is too large")?)
-                .ok_or_else(|| "callback stack pointer underflowed".to_owned())?,
-        );
-        let runtime_frame = self
-            .runtime
-            .push_callback_frame(call.request.target, call.request.return_sentinel)
-            .map_err(error_string)?;
-        let mut bytes = Vec::with_capacity(frame_bytes);
-        bytes.extend_from_slice(&call.request.return_sentinel.0.to_le_bytes());
-        for argument in &call.request.arguments {
-            bytes.extend_from_slice(&argument.to_le_bytes());
-        }
-        if let Err(error) = self.memory.write(stack_pointer, &bytes) {
-            let _ = self.runtime.pop_callback_frame(runtime_frame.id);
-            return Err(error.to_string());
-        }
+        let prepared = ExecutionSession::new(&mut self.memory, &mut self.runtime)
+            .begin_guest_callback(&call)
+            .map_err(api_fault_string)?;
         let delta = self.memory.pending_delta().map_err(error_string)?;
         let generation = delta.generation;
         let buffers = delta.encode_binary().map_err(error_string)?;
@@ -984,17 +995,21 @@ impl BrowserRuntime {
         let depth = callbacks.len() + 1;
         let metadata = json!({
             "kind": "guest-callback",
-            "frameId": runtime_frame.id.0,
+            "frameId": prepared.frame_id.0,
             "depth": depth,
             "target": call.request.target.0,
-            "stackPointer": stack_pointer.0,
+            "allocationStart": prepared.allocation_start.0,
+            "stackPointer": prepared.stack_pointer.0,
+            "scratchAddress": prepared.scratch_address.0,
+            "scratchBytes": prepared.scratch_bytes,
+            "frameBytes": prepared.frame_bytes,
             "returnSentinel": call.request.return_sentinel.0,
             "generation": generation,
         });
         callbacks.push(ActiveCallback {
             call,
-            frame_id: runtime_frame.id,
-            stack_pointer,
+            frame_id: prepared.frame_id,
+            stack_pointer: prepared.stack_pointer,
         });
         Ok((metadata, Some(buffers)))
     }
@@ -1068,45 +1083,74 @@ impl BrowserRuntime {
         }))
     }
 
-    fn complete_callback(&mut self, sentinel: GuestAddress, result: u32) -> Result<Value, String> {
+    fn complete_callback(
+        &mut self,
+        sentinel: GuestAddress,
+        result: u32,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
         let thread_id = self.runtime.current_thread_id();
-        let (active, remaining_depth) = {
+        let (call, frame_id, callback_stack_pointer, remaining_depth) = {
             let callbacks = self
                 .callbacks
-                .get_mut(&thread_id)
+                .get(&thread_id)
                 .ok_or_else(|| "callback return has no active thread frame".to_owned())?;
             let active = callbacks
-                .pop()
+                .last()
                 .ok_or_else(|| "callback return has no active frame".to_owned())?;
             if sentinel != active.call.request.return_sentinel {
-                callbacks.push(active);
                 return Err("callback return sentinel mismatch".to_owned());
             }
-            (active, callbacks.len())
+            (
+                active.call.clone(),
+                active.frame_id,
+                active.stack_pointer,
+                callbacks.len() - 1,
+            )
         };
+        self.runtime
+            .validate_callback_frame_return(frame_id)
+            .map_err(error_string)?;
+        let endpoint = call.frame.endpoint.clone();
+        let dispatcher = &self.dispatcher;
+        let completion = {
+            let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+            match dispatcher.complete_guest_callback_result(call, result, &mut session) {
+                DispatchOutcome::Immediate(completion) => completion,
+                DispatchOutcome::Fault(fault) => return Err(api_fault_string(fault)),
+                _ => {
+                    return Err("callback completion produced another suspended outcome".to_owned());
+                }
+            }
+        };
+        self.runtime
+            .pop_callback_frame(frame_id)
+            .map_err(error_string)?;
+        let retired = self
+            .callbacks
+            .get_mut(&thread_id)
+            .and_then(Vec::pop)
+            .ok_or_else(|| {
+                "validated callback adapter frame disappeared before commit".to_owned()
+            })?;
+        if retired.frame_id != frame_id {
+            return Err("callback adapter frame changed after return preflight".to_owned());
+        }
         if remaining_depth == 0 {
             self.callbacks.remove(&thread_id);
         }
-        self.runtime
-            .pop_callback_frame(active.frame_id)
-            .map_err(error_string)?;
-        let dispatcher = &self.dispatcher;
-        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
-        match dispatcher.complete_guest_callback(
-            active.call,
-            ApiImmediate::new(ApiReturnValue::U32(result)),
-            &mut session,
-        ) {
-            DispatchOutcome::Immediate(completion) => Ok(json!({
+        let delta = self.pending_delta()?;
+        Ok((
+            json!({
                 "kind": "callback-complete",
-                "frameId": active.frame_id.0,
-                "callbackStackPointer": active.stack_pointer.0,
+                "frameId": frame_id.0,
+                "callbackStackPointer": callback_stack_pointer.0,
                 "remainingDepth": remaining_depth,
+                "endpoint": endpoint,
                 "completion": completion,
-            })),
-            DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
-            _ => Err("callback completion produced another suspended outcome".to_owned()),
-        }
+                "memory": self.memory.stats(),
+            }),
+            delta,
+        ))
     }
 
     fn schedule_next_thread(&mut self) -> Result<Value, String> {
@@ -1527,7 +1571,7 @@ fn build_bgi_dispatcher(
                 _ => true,
             }
         })
-        .filter_map(|endpoint| kernel32_contract_for_endpoint(endpoint.clone()).transpose())
+        .filter_map(|endpoint| bgi_contract_for_endpoint(endpoint.clone()).transpose())
         .collect::<Result<Vec<_>, _>>()
         .map_err(api_fault_string)?;
     for name in ["FlsAlloc", "FlsGetValue", "FlsSetValue", "FlsFree"] {
@@ -1564,6 +1608,15 @@ fn build_bgi_dispatcher(
     }
     let dispatcher = ApiDispatcher::new(endpoints.clone(), contracts).map_err(api_fault_string)?;
     Ok((dispatcher, routes, endpoints))
+}
+
+fn bgi_contract_for_endpoint(
+    endpoint: ApiEndpointIdentity,
+) -> Result<Option<ApiContract>, ApiFault> {
+    if let Some(contract) = kernel32_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
+    user32_contract_for_endpoint(endpoint)
 }
 
 fn runtime_capability_cluster(endpoint: &ApiEndpointIdentity) -> String {
@@ -1959,10 +2012,13 @@ pub extern "C" fn vine_bridge_finish_thread(exit_code: u32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_complete_callback(sentinel: u32, result: u32) -> u32 {
     run_bridge(|bridge| {
-        let metadata = bridge
+        let (metadata, delta) = bridge
             .runtime_mut()?
             .complete_callback(GuestAddress(sentinel), result)?;
-        bridge.set_output(metadata, Vec::new(), Vec::new())
+        let (control, payload) = delta
+            .map(|buffers| (buffers.control, buffers.page_bytes))
+            .unwrap_or_default();
+        bridge.set_output(metadata, control, payload)
     })
 }
 

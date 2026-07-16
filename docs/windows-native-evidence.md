@@ -2384,3 +2384,35 @@ Chrome Runtime Workerもsame ordered calls／output／stop／memoryを再現し�
 work 0を通す。3分gateは415 sessions／failure 0、session P95 440.220 ms、slice P99
 1.935 ms、heartbeat P99 6.045 ms／maximum 18.535 msを含む全17 thresholdを通した。
 詳細は[bgi-get-system-info.md](bgi-get-system-info.md)を正とする。
+
+## 88. BGI logical monitor callback enumeration
+
+Focused `enum-display-monitors` capturesは208,419 bytes／643 lines／SHA-256
+`3b3f673eaf46dcc902483dc2bededa2eeea595ff4149f7743bd3bacf16275f0e`と
+153,699 bytes／465 lines／SHA-256
+`8753e255371e544a10c118f17f60e06ec59d80b75bf546c8c3d92a65f43a172c`
+である。287／200 API pairsはbalancedでdiagnosticsはzeroである。
+
+BGIは`EnumDisplayMonitors(NULL,NULL,0x1006A700,0)`をRVA `0x6A781`から呼ぶ。
+Callbackは1回、native opaque HMONITOR `0x10001`、NULL HDC、
+`RECT(0,0,1920,1080)`、LPARAM 0を受けてTRUEを返し、outer resultもTRUE、
+LastErrorも0のままである。Independent TRUE／FALSE oracleはdistinct LPARAMと
+LastError sentinelsをround-tripし、FALSEがouter FALSEを返してfirst callback後に
+停止することを固定する。Native handle値はruntime semanticsへimportしない。
+
+Rust `RuntimeDisplays`はlogical namespace `vine.logical-monitor.v1`、handle
+`0x4F010001`、fixed 1920x1080 geometryを所有する。Generic callback preparerは
+16-byte RECT、return sentinel、4 argumentsをone 36-byte writable bandとして
+preflight／commitし、zero／nonzero callback resultをouter BOOLへ正規化する。
+BGI callback内の既存`HeapAlloc(...,24)` trapをouter call suspension中に処理し、
+frame ID／stdcall ESP／LastError／call-entry orderを保持する。
+
+Nodeは50 contracts／1,293 calls、1,299 writebacks／2,459 dirty pages／7,883
+changed bytes、80 host deltas、generation `1,408`を通す。Chrome Runtime Workerも
+same ordered calls／callback／stop／memoryを再現し、6,304 slices、5,005 yields、
+5,906 Wasm crossings、final generation `3,250`、terminal pending work 0を通す。
+Instruction `45685`でID `301`／`OLE32.dll!CoInitialize(NULL)`を
+`endpoint-contract-missing`として停止する。Memory SHA-256は
+`8ec8022f983af336f4e1b015d9f1760c6db01c606e678059cd6996cf4b403753`である。
+3分gateは198 sessions／failure 0で17 thresholdsを通した。詳細は
+[bgi-enum-display-monitors.md](bgi-enum-display-monitors.md)を正とする。

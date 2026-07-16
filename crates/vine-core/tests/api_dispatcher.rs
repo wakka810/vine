@@ -7063,8 +7063,12 @@ fn deferred_and_guest_callback_completions_preserve_the_decoded_abi_frame() {
             |_, frame, _| {
                 ApiHandlerResult::GuestCallback(GuestCallbackRequest {
                     target: GuestAddress(frame.argument_u32(0).expect("callback target")),
-                    arguments: vec![frame.argument_u32(1).expect("callback value")],
+                    arguments: vec![vine_core::GuestCallbackArgument::U32(
+                        frame.argument_u32(1).expect("callback value"),
+                    )],
+                    scratch: Vec::new(),
                     return_sentinel: GuestAddress(0x7f01_0000),
+                    completion_policy: vine_core::GuestCallbackCompletionPolicy::ReturnU32,
                 })
             },
         )
@@ -7073,7 +7077,10 @@ fn deferred_and_guest_callback_completions_preserve_the_decoded_abi_frame() {
         DispatchOutcome::GuestCallback(call) => call,
         other => panic!("expected guest callback dispatch, got {other:?}"),
     };
-    assert_eq!(callback.request.arguments, [42]);
+    assert_eq!(
+        callback.request.arguments,
+        [vine_core::GuestCallbackArgument::U32(42)]
+    );
     let callback_completion = {
         let mut session = ExecutionSession::new(&mut memory, &mut runtime);
         dispatcher.complete_guest_callback(

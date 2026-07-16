@@ -32,6 +32,7 @@ use super::com::{
     RuntimeComMethodTarget, RuntimeComMutationPlan, RuntimeComObjectRegistration,
     RuntimeComReferenceResult, RuntimeComRegistrationResult,
 };
+use super::displays::{RuntimeDisplayProfile, RuntimeDisplays, RuntimeLogicalMonitor};
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
     RuntimeHeapCreationPlan, RuntimeHeapDestructionPlan, RuntimeHeapFreePlan,
@@ -159,6 +160,7 @@ pub struct RuntimeKernel {
     threads: RuntimeThreads,
     scheduler: RuntimeScheduler,
     messages: RuntimeMessages,
+    displays: RuntimeDisplays,
     objects: RuntimeObjectTable,
     com: RuntimeCom,
     heaps: RuntimeHeaps,
@@ -234,6 +236,7 @@ struct RuntimeStateSnapshot<'a> {
     threads: &'a RuntimeThreads,
     scheduler: &'a RuntimeScheduler,
     messages: &'a RuntimeMessages,
+    displays: &'a RuntimeDisplays,
     objects: &'a RuntimeObjectTable,
     #[serde(skip_serializing_if = "Option::is_none")]
     com: Option<&'a RuntimeCom>,
@@ -270,6 +273,7 @@ impl Serialize for RuntimeKernel {
             threads: &self.threads,
             scheduler: &self.scheduler,
             messages: &self.messages,
+            displays: &self.displays,
             objects: &self.objects,
             com: (!self.com.is_empty()).then_some(&self.com),
             modules: &self.modules,
@@ -363,6 +367,7 @@ impl RuntimeKernel {
             threads,
             scheduler: RuntimeScheduler::new(bootstrap.initial_thread_id),
             messages: RuntimeMessages::new(bootstrap.initial_thread_id),
+            displays: RuntimeDisplays::default(),
             objects,
             com: RuntimeCom::default(),
             heaps: RuntimeHeaps::default(),
@@ -375,6 +380,22 @@ impl RuntimeKernel {
 
     pub fn process_id(&self) -> RuntimeProcessId {
         self.process.id()
+    }
+
+    pub fn configure_display_profile(
+        &mut self,
+        profile: RuntimeDisplayProfile,
+    ) -> Result<(), RuntimeStateError> {
+        let plan = self.displays.plan_configuration(profile)?;
+        self.displays.commit_configuration(plan)
+    }
+
+    pub fn display_profile_id(&self) -> Option<&str> {
+        self.displays.profile_id()
+    }
+
+    pub fn primary_monitor(&self) -> Option<&RuntimeLogicalMonitor> {
+        self.displays.primary_monitor()
     }
 
     pub fn process(&self) -> RuntimeProcessView<'_> {
@@ -2317,6 +2338,13 @@ impl RuntimeKernel {
             .commit_callback_mutation(plan)
             .1
             .expect("callback pop plan did not exit a frame"))
+    }
+
+    pub fn validate_callback_frame_return(
+        &self,
+        expected: RuntimeCallbackFrameId,
+    ) -> Result<(), RuntimeStateError> {
+        self.plan_callback_pop(expected).map(drop)
     }
 
     fn plan_callback_pop(

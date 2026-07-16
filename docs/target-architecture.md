@@ -497,6 +497,8 @@ Registry は typed key-value tree とし、VFS file へ無理に模倣しない�
 
 Guest の HWND は logical object であり、DOM element を直接公開しない。最初は一つの top-level canvas に複数 logical window を composition する方式を候補とする。
 
+Guest の HMONITOR と monitor geometry も Rust-owned logical display state とし、native HMONITOR、DOM `Screen`、browser window identityを直接公開しない。Compatibility policyがbounded profileを選び、display subsystemがlogical handle namespace、primary identity、geometryをconfigure-once plan／commitで所有する。User32 enumerationはこのimmutable viewからcallback scratchを組み立て、browser topologyを第二の正本にしない。
+
 - Runtime Worker が window tree、z-order、focus、capture、invalid region を所有する
 - Main thread は DOM event を timestamp 付きで normalized input event にする
 - User32 layer が virtual key、scan code、mouse coordinate、message sequence へ変換する
