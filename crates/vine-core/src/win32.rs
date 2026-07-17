@@ -15,8 +15,9 @@ use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
     RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
-    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeCriticalSection, RuntimeHeapInitialization,
-    RuntimeMutexNameA, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
+    RuntimeCriticalSection, RuntimeHeapInitialization, RuntimeMutexNameA,
+    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -24,10 +25,10 @@ mod policy;
 pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32CreateMutexAPolicy, Kernel32GetDriveTypeAPolicy, Kernel32GetModuleFileNameAPolicy,
-    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
-    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
+    Kernel32CreateMutexAPolicy, Kernel32CreateWaitableTimerAPolicy, Kernel32GetDriveTypeAPolicy,
+    Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
+    Kernel32HeapAllocatorPolicy, Kernel32InitializeCriticalSectionPolicy,
+    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
     Kernel32ProcessorFeaturePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy,
     Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
@@ -65,6 +66,7 @@ pub const WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION: &str = "kernel32.wide-char-to-
 pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to-wide-char.v1";
 pub const SET_CURRENT_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.set-current-directory-a.v1";
 pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
+pub const CREATE_WAITABLE_TIMER_A_IMPLEMENTATION: &str = "kernel32.create-waitable-timer-a.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
 pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
@@ -186,6 +188,9 @@ pub fn dispatch_kernel32_api_with_policy(
             handle_set_current_directory_a(policy, contract, frame, session)
         }
         CREATE_MUTEX_A_IMPLEMENTATION => handle_create_mutex_a(policy, contract, frame, session),
+        CREATE_WAITABLE_TIMER_A_IMPLEMENTATION => {
+            handle_create_waitable_timer_a(policy, contract, frame, session)
+        }
         GET_STRING_TYPE_W_IMPLEMENTATION => {
             handle_get_string_type_w(policy, contract, frame, session)
         }
@@ -278,6 +283,7 @@ pub fn kernel32_contract_for_endpoint(
         "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
         "SetCurrentDirectoryA" => set_current_directory_a_contract(endpoint)?,
         "CreateMutexA" => create_mutex_a_contract(endpoint)?,
+        "CreateWaitableTimerA" => create_waitable_timer_a_contract(endpoint)?,
         "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
         "LCMapStringW" => lc_map_string_w_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
@@ -1651,6 +1657,62 @@ fn read_nul_terminated_ansi_mutex_name(
             policy.maximum_name_bytes
         ),
     ))
+}
+
+fn handle_create_waitable_timer_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let timer_policy = policy.create_waitable_timer_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-waitable-timer",
+            "create-waitable-timer-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable CreateWaitableTimerA",
+                policy.id
+            ),
+        )
+    })?;
+    let security_attributes = required_argument(contract, frame, 0, "security attributes")?;
+    let manual_reset = required_argument(contract, frame, 1, "manual reset")? != 0;
+    let name_address = required_argument(contract, frame, 2, "ANSI timer name")?;
+    if security_attributes != 0 {
+        return Err(ApiFault::unsupported(
+            "win32-waitable-timer",
+            "create-waitable-timer-a-security-attributes-unsupported",
+            "the selected CreateWaitableTimerA policy enables only null security attributes",
+        ));
+    }
+    if name_address != 0 || !timer_policy.allow_unnamed {
+        return Err(ApiFault::unsupported(
+            "win32-waitable-timer",
+            "create-waitable-timer-a-named-unsupported",
+            "the selected CreateWaitableTimerA policy enables only unnamed timers",
+        ));
+    }
+    if (manual_reset && !timer_policy.allow_manual_reset)
+        || (!manual_reset && !timer_policy.allow_auto_reset)
+    {
+        return Err(ApiFault::unsupported(
+            "win32-waitable-timer",
+            "create-waitable-timer-a-reset-mode-unsupported",
+            format!(
+                "compatibility policy {} does not enable the requested timer reset mode",
+                policy.id
+            ),
+        ));
+    }
+    let result = session
+        .runtime_mut()
+        .create_waitable_timer_a(manual_reset)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE.to_owned(),
+        value: result.handle.0,
+    })
+    .with_last_error(ERROR_SUCCESS))
 }
 
 fn handle_get_string_type_w(
@@ -3175,6 +3237,27 @@ pub fn create_mutex_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         ],
         ApiReturnSchema::U32,
         CREATE_MUTEX_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn create_waitable_timer_a_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "CreateWaitableTimerA",
+        vec![
+            opaque_pointer("securityAttributes", true, 4),
+            u32_argument("manualReset"),
+            opaque_pointer("timerName", true, 1),
+        ],
+        ApiReturnSchema::LogicalHandle {
+            namespace: RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE.to_owned(),
+            nullable: false,
+        },
+        CREATE_WAITABLE_TIMER_A_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

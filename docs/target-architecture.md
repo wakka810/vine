@@ -263,17 +263,24 @@ Process-owned critical-section／mutex collectionsとnamed indexは`runtime/sync
 `RuntimeSynchronization`が所有する。`RuntimeKernel`はprocess／selected-thread／scheduler lifecycleを
 preflightしてcurrent thread identityを渡すcoordinatorに限定する。Critical-section and mutex transitionsは
 subsystem内のmutation-free plan後にcommitし、mutex create／last closeはgeneric object tableと両方を
-preflightする。Object tableはopaque `RuntimeMutexObjectMutationPlan`を返し、kernelはobject／synchronization
+preflightする。Object tableはpayload-backed close-handle objectsに共通のopaque
+`RuntimeCloseHandleObjectMutationPlan`を返し、kernelはobject／synchronization
 collectionをcloneまたは置換せず、両planの成功後にownerのtargeted commitだけを呼ぶ。詳細は
 [runtime-synchronization.md](runtime-synchronization.md)を正とする。
 
-Mutable WinMM timer-resolution request countsとgenerationはprivate
+Mutable WinMM timer-resolution request counts／generationとwaitable-timer ID／reset-mode payloadはprivate
 `runtime/timers.rs::RuntimeTimers`だけが所有する。Effective periodとtotal countは同じmapからderiveし、
 compatibility serializationはimmutable snapshotを返す。Begin／endはexpected generationとtarget countを
 含むmutation-free planを使い、stale／duplicate commit、unmatched end、capacity／counter exhaustionを
 mutation前に拒否する。Process exitはprocess／thread planとtimer teardownを全てpreflightした後にrequest
-tableを一回でretireする。Browser scheduler／audio adapterはこのrequest tableを所有しない。詳細は
-[winmm-compatibility-policy.md](winmm-compatibility-policy.md)を正とする。
+tableを一回でretireする。
+
+Waitable timerのtyped handle／object ID／wait stateは`RuntimeObjectTable`が別authorityとして所有する。
+Creation、last close、process teardownはtimer payload planとopaque close-handle object planを両方preflightし、
+timer map、object index、handle slot、allocatorを部分更新しない。Browser scheduler／audio adapterはrequest
+tableもwaitable-timer identityも所有せず、WorkerはRust completionのimmutable snapshotだけを運ぶ。詳細は
+[winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
+[bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。
 
 Guest-visible OS version is compatibility data, not browser capability
 detection. `Kernel32CompatibilityPolicy` owns one bounded ANSI profile while

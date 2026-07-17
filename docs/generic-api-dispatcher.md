@@ -989,6 +989,26 @@ LastError. Policy owns the virtual NT version; native and browser host identity
 never enter the handler. Detailed evidence is in
 [bgi-get-version-ex-a.md](bgi-get-version-ex-a.md).
 
+## Waitable-timer creation contract
+
+`kernel32.create-waitable-timer-a.v1` is a three-argument x86 stdcall whose
+catalog return is a non-NULL logical handle in the waitable-timer object
+namespace. The bounded policy accepts only NULL security attributes, manual
+reset, and a NULL name. Auto-reset, named, security-attribute, and disabled
+policy variants return explicit unsupported faults before runtime mutation.
+Success sets LastError 0 and writes no guest byte.
+
+The handler delegates identity to two existing owners instead of creating an
+API-local registry. `RuntimeTimers` plans the monotonic timer ID and reset-mode
+payload; `RuntimeObjectTable` plans object ID, typed handle, close policy, and
+initial nonsignaled wait state. The aggregate preflights both plans before
+targeted commits. Last close and process teardown use the generalized opaque
+`RuntimeCloseHandleObjectMutationPlan` together with private timer-retirement
+plans, preserving both allocators and indexes on failure. Worker metadata is an
+immutable snapshot of the Rust result, not a browser timer authority. Detailed
+evidence is in
+[bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md).
+
 ## Typed guest-callback scratch frames
 
 `GuestCallbackRequest` separates scalar arguments from scratch-relative
@@ -1126,6 +1146,10 @@ or apply the request table. Details are in
   recursive immediate wait／release, distinct-handle lifetime, and teardown are
   Rust-owned; security attributes, unnamed objects, abandonment, cross-thread
   blocking／wake, and guest wait／release／close API coverage remain absent.
+  Reached unnamed manual-reset waitable-timer identity, typed handle, initial
+  nonsignaled state, last-close retirement, and process teardown are Rust-owned;
+  due time, period, signaling, cancellation, auto-reset, named variants, and
+  guest timer／wait／close APIs remain absent.
   Current-thread logical affinity and deterministic tick progression are
   Rust-owned, but host affinity／topology, arbitrary thread handles, process
   affinity APIs, and general sleep／timer／wait-deadline semantics remain absent.

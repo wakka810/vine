@@ -104,6 +104,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "winmm-time-get-dev-caps",
         "winmm-time-begin-period",
         "kernel32-get-version-ex-a",
+        "kernel32-create-waitable-timer-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -130,7 +131,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-get-version-ex-a"
+    genericRuntimeCapability === "kernel32-create-waitable-timer-a"
+      ? "kernel32-create-waitable-timer-a-v1.json"
+      : genericRuntimeCapability === "kernel32-get-version-ex-a"
       ? "kernel32-get-version-ex-a-v1.json"
       : genericRuntimeCapability === "winmm-time-begin-period" ||
     genericRuntimeCapability === "winmm-time-get-dev-caps" ||
@@ -241,7 +244,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const createWaitableTimerAEnabled =
+  genericRuntimeCapability === "kernel32-create-waitable-timer-a";
 const getVersionExAEnabled =
+  createWaitableTimerAEnabled ||
   genericRuntimeCapability === "kernel32-get-version-ex-a";
 const timeBeginPeriodEnabled =
   getVersionExAEnabled || genericRuntimeCapability === "winmm-time-begin-period";
@@ -384,7 +390,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getVersionExAEnabled
+      ? createWaitableTimerAEnabled
+        ? "v86-bgi-create-waitable-timer-a"
+      : getVersionExAEnabled
         ? "v86-bgi-get-version-ex-a"
       : timeBeginPeriodEnabled
         ? "v86-bgi-time-begin-period"
@@ -4274,6 +4282,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (createWaitableTimerAEnabled) {
+        validateCreateWaitableTimerAResult(genericResult);
       } else if (getVersionExAEnabled) {
         validateGetVersionExAResult(genericResult);
       } else if (timeBeginPeriodEnabled) {
@@ -4381,6 +4391,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : createWaitableTimerAEnabled
+            ? "bgi CreateWaitableTimerA"
           : getVersionExAEnabled
             ? "bgi GetVersionExA"
           : timeBeginPeriodEnabled
@@ -5183,6 +5195,9 @@ function buildGenericCallRecord(
       ? {}
       : { currentDirectory: completionFrame.currentDirectory }),
     ...(completionFrame.mutex === undefined ? {} : { mutex: completionFrame.mutex }),
+    ...(completionFrame.waitableTimer === undefined
+      ? {}
+      : { waitableTimer: completionFrame.waitableTimer }),
     ...(completionFrame.threadAffinity === undefined
       ? {}
       : { threadAffinity: completionFrame.threadAffinity }),
@@ -5220,6 +5235,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : createWaitableTimerAEnabled
+          ? 46
         : getVersionExAEnabled
           ? 45
         : timeBeginPeriodEnabled
@@ -9424,6 +9441,84 @@ function validateGetVersionExAResult(result) {
   );
 }
 
+function validateCreateWaitableTimerAResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.supportedCalls.length, 1338);
+  assert.equal(result.writebacks.length, 1344);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2541,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    9178,
+  );
+  assert.equal(result.hostDeltas.length, 85);
+  assert.equal(result.finalGeneration, 1458);
+  const call = result.supportedCalls.find(
+    ({ symbol }) => symbol === "CreateWaitableTimerA",
+  );
+  assert(call, "CreateWaitableTimerA call is missing");
+  assert.equal(call.sequence, 1338);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 49897);
+  assert.deepEqual(call.arguments, [0, 1, 0]);
+  assert.deepEqual(call.result, { action: "set", value: 0x57010001 });
+  assert.equal(
+    call.implementationId,
+    "kernel32.create-waitable-timer-a.v1",
+  );
+  assert.equal(call.returnAddress, 0x1005053b);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 16);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.waitableTimer, {
+    handle: 0x57010001,
+    timer: { id: 1, manualReset: true },
+    objectRecord: {
+      id: 20,
+      key: { kind: "waitable-timer", timer_id: 1 },
+      kind: "waitable-timer",
+      namespace: "vine.runtime-waitable-timer-object.v1",
+      closePolicy: "close-handle",
+      waitState: { state: "nonsignaled" },
+      openHandles: 1,
+    },
+  });
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 192);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f000bf0);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "LoadIconA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d13d8);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "de0f2de11612c4792c7f87daa195c3a0b95d519069eefa7f93edc959cd4ce26a",
+  );
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.instructionCount, 49942);
+  assert.equal(result.terminal.terminal.thunk.id, 192);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f000bf0);
+  assert.equal(result.terminal.terminal.thunk.name, "LoadIconA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x10067cf3);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 3),
+    [0x10000000, 101],
+  );
+}
+
 function validateTimeBeginPeriodResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
@@ -10456,6 +10551,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : createWaitableTimerAEnabled
+          ? "vine.v86-bgi-create-waitable-timer-a"
         : getVersionExAEnabled
           ? "vine.v86-bgi-get-version-ex-a"
         : timeBeginPeriodEnabled

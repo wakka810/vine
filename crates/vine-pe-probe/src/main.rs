@@ -29,9 +29,9 @@ use vine_core::{
     RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord,
     RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo,
     RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeTimerResolutionState, RuntimeTlsValue, SchedulerThreadState,
-    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
+    RuntimeThreadStackGrowth, RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer,
+    SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
+    UnsupportedPoint, User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
     dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
     dispatch_winmm_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
@@ -147,6 +147,7 @@ enum GenericRuntimeCapability {
     TimeGetDevCaps,
     TimeBeginPeriod,
     GetVersionExA,
+    CreateWaitableTimerA,
 }
 
 struct GenericRuntimeProcess {
@@ -319,6 +320,8 @@ struct GenericRuntimeCompletion {
     #[serde(skip_serializing_if = "Option::is_none")]
     mutex: Option<GenericRuntimeMutex>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    waitable_timer: Option<GenericRuntimeWaitableTimer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tick_count: Option<GenericRuntimeTickCount>,
@@ -343,6 +346,14 @@ struct GenericRuntimeMutex {
     object: RuntimeMutex,
     object_record: RuntimeObjectRecord,
     already_exists: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeWaitableTimer {
+    handle: RuntimeHandle,
+    timer: RuntimeWaitableTimer,
+    object_record: RuntimeObjectRecord,
 }
 
 #[derive(Debug, Serialize)]
@@ -2738,6 +2749,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
                 | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA
         )
     ) {
         process
@@ -2757,7 +2769,8 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
-                | GenericRuntimeCapability::GetVersionExA,
+                | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA,
         )
     ) {
         process
@@ -2805,6 +2818,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
                 | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2832,6 +2846,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
                 | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2877,7 +2892,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SwapMouseButton
             | GenericRuntimeCapability::TimeGetDevCaps
             | GenericRuntimeCapability::TimeBeginPeriod
-            | GenericRuntimeCapability::GetVersionExA,
+            | GenericRuntimeCapability::GetVersionExA
+            | GenericRuntimeCapability::CreateWaitableTimerA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3038,6 +3054,7 @@ fn run_v86_generic_runtime_session(
                         | GenericRuntimeCapability::TimeGetDevCaps
                         | GenericRuntimeCapability::TimeBeginPeriod
                         | GenericRuntimeCapability::GetVersionExA
+                        | GenericRuntimeCapability::CreateWaitableTimerA
                 )
             )
             .then(|| user32_policy.id.clone()),
@@ -3046,7 +3063,8 @@ fn run_v86_generic_runtime_session(
                 Some(
                     GenericRuntimeCapability::TimeGetDevCaps
                         | GenericRuntimeCapability::TimeBeginPeriod
-                        | GenericRuntimeCapability::GetVersionExA,
+                        | GenericRuntimeCapability::GetVersionExA
+                        | GenericRuntimeCapability::CreateWaitableTimerA,
                 )
             )
             .then(|| winmm_policy.id.clone()),
@@ -3181,6 +3199,7 @@ fn run_v86_generic_runtime_session(
                             file_type: None,
                             current_directory: None,
                             mutex: None,
+                            waitable_timer: None,
                             thread_affinity: None,
                             tick_count: None,
                             com_apartment: None,
@@ -3482,6 +3501,32 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let waitable_timer = if completion.implementation_id
+                            == "kernel32.create-waitable-timer-a.v1"
+                        {
+                            let RegisterUpdate::Set(handle) = completion.eax else {
+                                return Err(LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "create-waitable-timer-handle-result-invalid",
+                                    "CreateWaitableTimerA completion did not set a logical handle",
+                                ));
+                            };
+                            let handle = RuntimeHandle(handle);
+                            Some(GenericRuntimeWaitableTimer {
+                                handle,
+                                timer: *session
+                                    .runtime()
+                                    .waitable_timer_for_handle(handle)
+                                    .map_err(runtime_state_error)?,
+                                object_record: session
+                                    .runtime()
+                                    .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)
+                                    .map_err(runtime_state_error)?
+                                    .clone(),
+                            })
+                        } else {
+                            None
+                        };
                         let thread_affinity = if completion.implementation_id
                             == "kernel32.set-thread-affinity-mask.v1"
                         {
@@ -3557,6 +3602,7 @@ fn run_v86_generic_runtime_session(
                                 file_type,
                                 current_directory,
                                 mutex,
+                                waitable_timer,
                                 thread_affinity,
                                 tick_count,
                                 com_apartment,
@@ -3717,6 +3763,7 @@ fn run_v86_generic_runtime_session(
                                 file_type: None,
                                 current_directory: None,
                                 mutex: None,
+                                waitable_timer: None,
                                 thread_affinity: None,
                                 tick_count: None,
                                 com_apartment: None,
@@ -3785,6 +3832,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
                 | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3814,6 +3862,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
                 | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3832,6 +3881,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
                 | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA
         )
     );
     let create_mutex_a_enabled = matches!(
@@ -3849,6 +3899,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
                 | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA
         )
     );
     let get_current_thread_enabled = matches!(
@@ -3865,6 +3916,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
                 | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA
         )
     );
     let set_thread_affinity_mask_enabled = matches!(
@@ -3880,9 +3932,15 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
                 | GenericRuntimeCapability::GetVersionExA
+                | GenericRuntimeCapability::CreateWaitableTimerA
         )
     );
-    let get_version_ex_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetVersionExA));
+    let create_waitable_timer_a_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::CreateWaitableTimerA)
+    );
+    let get_version_ex_a_enabled = create_waitable_timer_a_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::GetVersionExA));
     let time_begin_period_enabled = get_version_ex_a_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::TimeBeginPeriod));
     let time_get_dev_caps_enabled = time_begin_period_enabled
@@ -4017,7 +4075,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::SwapMouseButton
             | GenericRuntimeCapability::TimeGetDevCaps
             | GenericRuntimeCapability::TimeBeginPeriod
-            | GenericRuntimeCapability::GetVersionExA,
+            | GenericRuntimeCapability::GetVersionExA
+            | GenericRuntimeCapability::CreateWaitableTimerA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -4181,6 +4240,7 @@ fn runtime_capability_enables_endpoint(
         "timeGetDevCaps" => time_get_dev_caps_enabled,
         "timeBeginPeriod" | "timeEndPeriod" => time_begin_period_enabled,
         "GetVersionExA" => get_version_ex_a_enabled,
+        "CreateWaitableTimerA" => create_waitable_timer_a_enabled,
         _ => true,
     }
 }
@@ -4242,7 +4302,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::SwapMouseButton
             | GenericRuntimeCapability::TimeGetDevCaps
             | GenericRuntimeCapability::TimeBeginPeriod
-            | GenericRuntimeCapability::GetVersionExA,
+            | GenericRuntimeCapability::GetVersionExA
+            | GenericRuntimeCapability::CreateWaitableTimerA,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9681,6 +9742,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "winmm-time-get-dev-caps" => GenericRuntimeCapability::TimeGetDevCaps,
                 "winmm-time-begin-period" => GenericRuntimeCapability::TimeBeginPeriod,
                 "kernel32-get-version-ex-a" => GenericRuntimeCapability::GetVersionExA,
+                "kernel32-create-waitable-timer-a" => {
+                    GenericRuntimeCapability::CreateWaitableTimerA
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

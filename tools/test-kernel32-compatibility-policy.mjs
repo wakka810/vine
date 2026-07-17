@@ -40,6 +40,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json",
   "fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json",
   "fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json",
+  "fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -169,6 +170,14 @@ for (const relative of policyFiles) {
         mutex.maximumNameBytes >= 2 &&
         mutex.maximumNameBytes <= 32768,
     );
+  }
+  const waitableTimer = policy.createWaitableTimerA ?? null;
+  if (waitableTimer !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert.equal(typeof waitableTimer.allowManualReset, "boolean");
+    assert.equal(typeof waitableTimer.allowAutoReset, "boolean");
+    assert.equal(waitableTimer.allowUnnamed, true);
+    assert(waitableTimer.allowManualReset || waitableTimer.allowAutoReset);
   }
 }
 

@@ -12,6 +12,7 @@ import {
   type RuntimeCurrentDirectorySnapshot,
   type RuntimeComApartmentSnapshot,
   type RuntimeMutexSnapshot,
+  type RuntimeWaitableTimerSnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -112,6 +113,7 @@ interface CompletionMetadata {
   memory?: { generation: number; acknowledgedGeneration: number };
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
+  waitableTimer?: RuntimeWaitableTimerSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
 }
 
@@ -150,6 +152,7 @@ interface CallbackCompletionMetadata {
   memory: { generation: number; acknowledgedGeneration: number };
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
+  waitableTimer?: RuntimeWaitableTimerSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
 }
 
@@ -752,6 +755,12 @@ class BrowserRuntimeSession {
       isCreateMutex === (metadata.mutex !== undefined),
       "BGI mutex completion metadata mismatch",
     );
+    const isCreateWaitableTimer =
+      completion.implementationId === "kernel32.create-waitable-timer-a.v1";
+    invariant(
+      isCreateWaitableTimer === (metadata.waitableTimer !== undefined),
+      "BGI waitable timer completion metadata mismatch",
+    );
     const isCoInitialize = completion.implementationId === "ole32.co-initialize.v1";
     invariant(
       isCoInitialize === (metadata.comApartment !== undefined),
@@ -781,6 +790,9 @@ class BrowserRuntimeSession {
         ? {}
         : { currentDirectory: metadata.currentDirectory }),
       ...(metadata.mutex === undefined ? {} : { mutex: metadata.mutex }),
+      ...(metadata.waitableTimer === undefined
+        ? {}
+        : { waitableTimer: metadata.waitableTimer }),
       ...(metadata.comApartment === undefined
         ? {}
         : { comApartment: metadata.comApartment }),

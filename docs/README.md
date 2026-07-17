@@ -174,6 +174,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-time-get-dev-caps.md](bgi-time-get-dev-caps.md) | reached WinMM timer capabilityをどう返すか | native size／guard oracle、policy-owned TIMECAPS、clock非進行、next resolution stop |
 | [bgi-time-begin-period.md](bgi-time-begin-period.md) | WinMM timer-resolution requestをどこが所有するか | native pairing oracle、Rust timer plan／commit／teardown、Node／Chrome equivalence |
 | [bgi-get-version-ex-a.md](bgi-get-version-ex-a.md) | size-versioned ANSI OS情報をどこが所有するか | guarded native layout oracle、policy-owned virtual version、atomic read-merge-write、Node／Chrome equivalence |
+| [bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md) | waitable timer identity／lifetimeをどこが所有するか | native initial-state oracle、Rust timer payload＋typed object handle、atomic close／process teardown、Node／Chrome／benchmark evidence |
 | [runtime-heap-backing.md](runtime-heap-backing.md) | private heap bytes／lifetimeをどこが所有するか | bounded guest arena、allocation ID／alignment／initialization、free／reuse、heap／process teardown |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 

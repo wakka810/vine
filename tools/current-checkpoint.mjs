@@ -474,9 +474,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 2 ||
     bgiBenchmarkEvidence.configuration !== "fixtures/benchmarks/bgi-browser-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "winmm-time-begin-period" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "kernel32-create-waitable-timer-a" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "retained-semantic-leaf-not-rerun" ||
+      "current-lifecycle-boundary-rerun" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
@@ -492,8 +492,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.thresholdFailures !== benchmarkFailureIds.length ||
     (browser.bgiBenchmark === "threshold-passed" && benchmarkFailureIds.length !== 0) ||
     (browser.bgiBenchmark === "threshold-blocked" && benchmarkFailureIds.length === 0) ||
+    bgiBenchmarkEvidence.wasmBridgeCallsPerSession !== bgiBrowserEvidence.wasmBridgeCalls ||
     bgiBenchmarkEvidence.executionEngineLinearMemoryBytes !==
-      bgiBrowserEvidence.executionEngineLinearMemoryBytes
+      bgiBrowserEvidence.executionEngineLinearMemoryBytes ||
+    bgiBenchmarkEvidence.runtimeCoreWasmSha256 !== browser.browserRuntimeCoreWasm?.sha256
   ) {
     errors.push("browser BGI benchmark evidence is invalid or inconsistent");
   }
@@ -635,14 +637,14 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/kernel.rs::RuntimeProcessView" ||
     kernelBoundary.processSerializationViewAccess !== "immutable-borrow" ||
     kernelBoundary.processLifecyclePlansRejectStaleCommit !== true ||
-    kernelBoundary.mutexObjectPlan !==
-      "runtime/objects.rs::RuntimeMutexObjectMutationPlan" ||
-    kernelBoundary.mutexObjectPlanVisibility !== "opaque-to-kernel" ||
-    kernelBoundary.mutexSubsystemRootCloneOrReplacementFromKernel !== false ||
+    kernelBoundary.closeHandleObjectPlan !==
+      "runtime/objects.rs::RuntimeCloseHandleObjectMutationPlan" ||
+    kernelBoundary.closeHandleObjectPlanVisibility !== "opaque-to-kernel" ||
+    kernelBoundary.payloadObjectSubsystemRootCloneOrReplacementFromKernel !== false ||
     representativeSubsystemTests.join(",") !==
-      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
+      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -653,17 +655,29 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.runtimeObjectModel",
     errors,
   );
+  const objectKinds = requireStringArray(
+    objects.objectKinds,
+    "activeRuntimeCheckpoint.runtimeObjectModel.objectKinds",
+    errors,
+  );
+  const waitableKinds = requireStringArray(
+    objects.waitableKinds,
+    "activeRuntimeCheckpoint.runtimeObjectModel.waitableKinds",
+    errors,
+  );
   if (
     objects.schema !== "vine.runtime-object-table.v2" ||
     objects.stateOwner !== "runtime/objects.rs::RuntimeObjectTable" ||
     objects.mutableCollectionVisibility !== "private" ||
     objects.readInspection !== "immutable-borrow" ||
     objects.crossSubsystemMutation !== "plan-preflight-commit" ||
-    objects.subsystemTests < 3 ||
-    objects.crossSubsystemAtomicTests < 3 ||
+    objects.subsystemTests < 4 ||
+    objects.crossSubsystemAtomicTests < 4 ||
     objects.failedRegistrationPreservesAllocator !== true ||
     objects.aggregateDirectCollectionMutation !== false ||
-    objects.wholeRuntimeStateClone !== false
+    objects.wholeRuntimeStateClone !== false ||
+    objectKinds.join(",") !== "process,thread,mutex,waitable-timer,private-heap,module" ||
+    waitableKinds.join(",") !== "process,thread,mutex,waitable-timer"
   ) {
     errors.push("active runtime object subsystem boundary is invalid");
   }
@@ -1028,9 +1042,9 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-get-version-ex-a-v1" ||
+    kernel32Policy.id !== "kernel32-create-waitable-timer-a-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json" ||
+      "fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -1049,6 +1063,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.createMutexAllowNamed !== true ||
     kernel32Policy.createMutexAllowUnnamed !== false ||
     kernel32Policy.createMutexMaximumNameBytes !== 32768 ||
+    kernel32Policy.createWaitableTimerAllowManualReset !== true ||
+    kernel32Policy.createWaitableTimerAllowAutoReset !== false ||
+    kernel32Policy.createWaitableTimerAllowUnnamed !== true ||
     kernel32Policy.threadAffinityProcessMask !== 1 ||
     systemInfo.processorArchitecture !== 0 ||
     systemInfo.pageSize !== 4096 ||
@@ -1227,6 +1244,8 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeTimePeriodConfirmationTraceSha256",
     "nativeGetVersionExAPrimaryTraceSha256",
     "nativeGetVersionExAConfirmationTraceSha256",
+    "nativeCreateWaitableTimerAPrimaryTraceSha256",
+    "nativeCreateWaitableTimerAConfirmationTraceSha256",
   ]) {
     requireSha256(
       latestEvidence[field],
@@ -1307,6 +1326,55 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.getVersionExABrowserVersionImported !== false
   ) {
     errors.push("latest ANSI OS-version evidence is invalid");
+  }
+  if (
+    latestEvidence.schema !== "vine.v86-bgi-create-waitable-timer-a.v1" ||
+    latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
+    latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
+    latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
+    latestEvidence.nativeCreateWaitableTimerAConfirmationTraceBytes !== 255_564 ||
+    latestEvidence.nativeCreateWaitableTimerAConfirmationTraceLines !== 777 ||
+    latestEvidence.nativeCreateWaitableTimerAConfirmationBalancedApiPairs !== 353 ||
+    latestEvidence.nativeCreateWaitableTimerATraceDiagnostics !== 0 ||
+    latestEvidence.nativeCreateWaitableTimerAOracleProfile !==
+      "x86-create-waitable-timer-initial-state-v1" ||
+    latestEvidence.nativeCreateWaitableTimerAOracleManualAndAutoCreated !== true ||
+    latestEvidence.nativeCreateWaitableTimerAOracleSuccessLastError !== 0 ||
+    latestEvidence.nativeCreateWaitableTimerAOracleInitialWaitResult !== 258 ||
+    latestEvidence.nativeCreateWaitableTimerAOracleAllInitiallyNonsignaled !== true ||
+    latestEvidence.nativeCreateWaitableTimerAOracleAllClosed !== true ||
+    latestEvidence.nativeCreateWaitableTimerABgiCallerReturnRva !== "0x0005053b" ||
+    latestEvidence.nativeCreateWaitableTimerABgiSecurityAttributes !== "0x00000000" ||
+    latestEvidence.nativeCreateWaitableTimerABgiManualReset !== true ||
+    latestEvidence.nativeCreateWaitableTimerABgiNameAddress !== "0x00000000" ||
+    latestEvidence.nativeCreateWaitableTimerABgiResultNonNull !== true ||
+    latestEvidence.nativeCreateWaitableTimerABgiLastError !== 0 ||
+    latestEvidence.nativeCreateWaitableTimerABgiConsumer !==
+      "store-eax-directly-at-object-offset-4" ||
+    latestEvidence.createWaitableTimerAImplemented !== true ||
+    latestEvidence.createWaitableTimerASequence !== 1338 ||
+    latestEvidence.createWaitableTimerAInstructionCount !== 49_897 ||
+    latestEvidence.createWaitableTimerAArguments?.join(",") !==
+      "0x00000000,0x00000001,0x00000000" ||
+    latestEvidence.createWaitableTimerAReturnAddress !== "0x1005053b" ||
+    latestEvidence.createWaitableTimerAResult !== "0x57010001" ||
+    latestEvidence.createWaitableTimerALastError !== 0 ||
+    latestEvidence.createWaitableTimerAGuestWrites !== 0 ||
+    latestEvidence.createWaitableTimerAStateOwner !==
+      "runtime/timers.rs::RuntimeTimers" ||
+    latestEvidence.createWaitableTimerATimerId !== 1 ||
+    latestEvidence.createWaitableTimerAManualReset !== true ||
+    latestEvidence.createWaitableTimerAObjectTableId !== 20 ||
+    latestEvidence.createWaitableTimerAObjectNamespace !==
+      "vine.runtime-waitable-timer-object.v1" ||
+    latestEvidence.createWaitableTimerAInitialWaitState !== "nonsignaled" ||
+    latestEvidence.createWaitableTimerAOpenHandles !== 1 ||
+    latestEvidence.createWaitableTimerALastCloseRetiresPayloadAndObject !== true ||
+    latestEvidence.createWaitableTimerAProcessExitRetiresPayloadAndObject !== true ||
+    latestEvidence.createWaitableTimerAHostTimerImported !== false ||
+    latestEvidence.createWaitableTimerABrowserTimerImported !== false
+  ) {
+    errors.push("latest waitable-timer identity and lifetime evidence is invalid");
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,

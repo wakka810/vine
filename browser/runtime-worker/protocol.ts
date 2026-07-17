@@ -42,6 +42,23 @@ export interface RuntimeMutexSnapshot {
   alreadyExists: boolean;
 }
 
+export interface RuntimeWaitableTimerSnapshot {
+  handle: number;
+  timer: {
+    id: number;
+    manualReset: boolean;
+  };
+  objectRecord: {
+    id: number;
+    key: { kind: "waitable-timer"; timer_id: number };
+    kind: "waitable-timer";
+    namespace: string;
+    closePolicy: "close-handle";
+    waitState: { state: "nonsignaled" };
+    openHandles: number;
+  };
+}
+
 export interface RuntimeComApartmentSnapshot {
   model: "single-threaded" | "multi-threaded";
   initializationCount: number;
@@ -192,6 +209,7 @@ export interface SessionReport {
     guestWrites: Array<{ address: number; bytes: number[] }>;
     currentDirectory?: RuntimeCurrentDirectorySnapshot;
     mutex?: RuntimeMutexSnapshot;
+    waitableTimer?: RuntimeWaitableTimerSnapshot;
     comApartment?: RuntimeComApartmentSnapshot;
   }>;
   firstUnsupported: {

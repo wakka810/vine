@@ -4,17 +4,18 @@ use vine_core::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDirection, ApiDispatcher,
     ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiOwnedTrap,
     ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CREATE_MUTEX_A_IMPLEMENTATION,
-    CallbackPolicy, CallingConvention, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome,
-    ExecutionSession, FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION,
-    GET_CP_INFO_IMPLEMENTATION, GET_CURRENT_THREAD_IMPLEMENTATION, GET_DRIVE_TYPE_A_IMPLEMENTATION,
+    CREATE_WAITABLE_TIMER_A_IMPLEMENTATION, CallbackPolicy, CallingConvention,
+    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
+    FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
+    GET_CURRENT_THREAD_IMPLEMENTATION, GET_DRIVE_TYPE_A_IMPLEMENTATION,
     GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION,
     GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION, GET_SYSTEM_INFO_IMPLEMENTATION,
     GET_VERSION_EX_A_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
     GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion, HostRequest,
     INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
     ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
-    Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32GetDriveTypeAPolicy,
-    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
+    Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32CreateWaitableTimerAPolicy,
+    Kernel32GetDriveTypeAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
     Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
@@ -28,10 +29,11 @@ use vine_core::{
     RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_STANDARD_ERROR_HANDLE,
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
-    RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId,
-    RuntimeHeapInitialization, RuntimeModule, RuntimeObjectKind, RuntimeProcessId,
-    RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, Rva,
+    RUNTIME_STANDARD_OUTPUT_SELECTOR, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, ReentrancyPolicy,
+    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap,
+    RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeModule, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeTlsValue, RuntimeWaitState, RuntimeWaitableTimerId, Rva,
     SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
     SET_THREAD_AFFINITY_MASK_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
     SchedulerThreadState, StackCleanup, TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api,
@@ -6121,6 +6123,158 @@ fn create_mutex_a_copies_named_identity_and_returns_object_handles() {
         disabled,
         DispatchOutcome::Fault(ref fault)
             if fault.code == "create-mutex-a-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before_disabled);
+}
+
+#[test]
+fn create_waitable_timer_a_returns_typed_nonsignaled_manual_reset_object() {
+    let (mut memory, owner) = initialized_memory();
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x110);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize CreateWaitableTimerA IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "CreateWaitableTimerA".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("CreateWaitableTimerA contract");
+    assert_eq!(
+        contract.implementation_id,
+        CREATE_WAITABLE_TIMER_A_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.arguments.len(), 3);
+    assert_eq!(
+        contract.abi.return_value,
+        ApiReturnSchema::LogicalHandle {
+            namespace: RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE.to_owned(),
+            nullable: false,
+        }
+    );
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let frames = [
+        vec![0x1000_0e01, 0, 1, 0],
+        vec![0x1000_0e02, 4, 1, 0],
+        vec![0x1000_0e03, 0, 1, OUTPUT_BASE],
+        vec![0x1000_0e04, 0, 0, 0],
+    ];
+    for (index, words) in frames.iter().enumerate() {
+        write_frame(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_BASE + index as u32 * 0x20),
+            words,
+        );
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+
+    let mut policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json"
+    ))
+    .expect("CreateWaitableTimerA policy fixture");
+    policy.id = "public-create-waitable-timer-a-v1".to_owned();
+    policy.create_waitable_timer_a = Some(Kernel32CreateWaitableTimerAPolicy {
+        allow_manual_reset: true,
+        allow_auto_reset: false,
+        allow_unnamed: true,
+    });
+    policy
+        .validate()
+        .expect("valid bounded waitable timer policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let dispatch = |index: usize,
+                    memory: &mut GuestMemory,
+                    runtime: &mut RuntimeState,
+                    selected_policy: &Kernel32CompatibilityPolicy|
+     -> DispatchOutcome {
+        let mut session = ExecutionSession::new(memory, runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(
+                &endpoint,
+                STACK_BASE + index as u32 * 0x20,
+                frames[index][0],
+            ),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(selected_policy, contract, frame, session)
+            },
+        )
+    };
+
+    let memory_before = memory.stats();
+    let created = dispatch(0, &mut memory, &mut runtime, &policy);
+    let DispatchOutcome::Immediate(created) = created else {
+        panic!("expected waitable timer handle, got {created:?}");
+    };
+    assert_eq!(created.eax, RegisterUpdate::Set(0x5701_0001));
+    assert_eq!(created.stack_pointer, GuestAddress(STACK_BASE + 16));
+    assert_eq!(created.last_error, 0);
+    assert!(created.guest_writes.is_empty());
+    assert_eq!(memory.stats(), memory_before);
+    let handle = vine_core::RuntimeHandle(0x5701_0001);
+    let timer = runtime
+        .waitable_timer_for_handle(handle)
+        .expect("created timer payload");
+    assert_eq!(timer.id, RuntimeWaitableTimerId(1));
+    assert!(timer.manual_reset);
+    assert_eq!(
+        runtime
+            .object_wait_state(handle, RuntimeObjectKind::WaitableTimer)
+            .expect("created timer wait state"),
+        RuntimeWaitState::Nonsignaled
+    );
+
+    for (index, code) in [
+        (
+            1_usize,
+            "create-waitable-timer-a-security-attributes-unsupported",
+        ),
+        (2, "create-waitable-timer-a-named-unsupported"),
+        (3, "create-waitable-timer-a-reset-mode-unsupported"),
+    ] {
+        let runtime_before = runtime.clone();
+        let memory_before = memory.stats();
+        let rejected = dispatch(index, &mut memory, &mut runtime, &policy);
+        assert!(matches!(
+            rejected,
+            DispatchOutcome::Fault(ref fault) if fault.code == code
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    let mut disabled_policy = policy;
+    disabled_policy.create_waitable_timer_a = None;
+    disabled_policy.validate().expect("valid preceding policy");
+    let runtime_before_disabled = runtime.clone();
+    let disabled = dispatch(0, &mut memory, &mut runtime, &disabled_policy);
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.code == "create-waitable-timer-a-policy-disabled"
     ));
     assert_eq!(runtime, runtime_before_disabled);
 }

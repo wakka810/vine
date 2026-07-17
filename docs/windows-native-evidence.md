@@ -2615,3 +2615,31 @@ Nodeは58 contracts／1,337 calls、1,343 writebacks／2,537 dirty pages／9,110
 SHA-256は`6d5a550c0f16b5097465e1af2f3ffe0c97097d9223b8d2991757ba73a87b0280`である。
 Performance gateはsemantic leafのため再実行せず、直前profileの観測を履歴として保持する。詳細は
 [bgi-get-version-ex-a.md](bgi-get-version-ex-a.md)を正とする。
+
+## 96. BGI waitable-timer creation
+
+Focused `create-waitable-timer-a` capturesは256,897 bytes／779 lines／SHA-256
+`1debfadd3238adb16d5607779fdce297d6420350f85323f07b15f047230551af`と
+255,564 bytes／777 lines／SHA-256
+`07e769e5e27d7495ea4fbc3f09bebb55cbc6de2c4b6779e37c1e796977eb475c`
+である。354／353 API pairsはbalanced、agent sequenceはcontiguous、diagnosticsはzeroで、BGI call後
+250 msのquiescenceを通す。
+
+Controlled x86 oracleはunnamed manual-reset／auto-reset timerを各一件createし、どちらもnon-NULL、
+success LastError 0、initial `WaitForSingleObject(handle,0)` result 258、close result 1を返す。
+Hooked result／LastErrorはdirect system callと一致する。Native handle valueはartifact identityであり、
+runtimeへimportしない。
+
+BGIは`CreateWaitableTimerA(NULL,TRUE,NULL)`からRVA `0x5053B`へreturnし、EAXを直接`[esi+4]`へ
+保存する。Rust `RuntimeTimers`はtimer ID／manual-reset payload、`RuntimeObjectTable`はobject ID／
+typed handle／nonsignaled wait stateを所有する。Creation、last close、process teardownは全ownerを
+preflightしたtargeted commitであり、TypeScriptはcompletion snapshotだけを運ぶ。
+
+Nodeは59 contracts／1,338 calls、1,344 writebacks／2,541 dirty pages／9,178 changed bytes、85 host
+deltas、generation 1,458を通す。Chromeもsame timer snapshot／ordered calls／stop／memoryを再現し、
+6,848 slices、5,504 yields、6,407 Wasm crossings、final generation 3,611、terminal pending work 0を
+通す。Instruction `49942`でID `192`／`USER32.dll!LoadIconA(0x10000000,0x65)`へstructured
+stopする。Memory SHA-256は
+`de0f2de11612c4792c7f87daa195c3a0b95d519069eefa7f93edc959cd4ce26a`である。Lifecycle boundary
+変更後の3分gateは242 sessions／failure 0で17 thresholdsを通した。詳細は
+[bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。

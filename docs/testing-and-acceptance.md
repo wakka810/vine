@@ -561,6 +561,21 @@ Worker transport、scheduler、memory topology、graphics、audio、lifecycleを
 performance gateは再実行せず、直前の`winmm-time-begin-period`観測をprofile付き履歴として保持する。
 詳細は[bgi-get-version-ex-a.md](bgi-get-version-ex-a.md)を正とする。
 
+Reached `CreateWaitableTimerA`の代表contractはthree-argument x86 stdcall、non-NULL logical
+handle、handler-owned LastError 0、guest write zeroを固定する。Native oracleはmanual／auto resetの
+unnamed timerが両方create成功し、initial zero-time waitが258、close成功であることと、BGIの
+`NULL,TRUE,NULL` caller／direct handle storeをtwo balanced tracesで固定する。Active policyはreached
+manual-reset unnamed variantだけを許可し、security attributes／name／auto reset／disabled policyを
+mutation前に拒否する。
+
+Subsystem testはtimer ID／capacity／stale plan／retirement、object-table testはwaitable-timer kind／
+handle generation／batch teardown、cross-subsystem testはcreation capacity failure、last close、process
+exitのpayload／object／handle atomicityを検査する。Dispatcher fixtureはlogical `0x57010001`、timer ID 1、
+object ID 20、manual reset、nonsignaled stateとnegative variantsを固定する。Primary evidenceはNode／
+Chrome same timer snapshot／memory／`LoadIconA` stop、clean cancel／watchdogを要求する。Object lifetimeと
+process teardown boundaryを変更するため3分benchmarkを再実行し、17 thresholds全通過を要求する。
+詳細は[bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。
+
 Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
 implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、
 Node／Chrome semantic outcome、Rust／LLVM／v86 identity、next structured stop、memory digest、

@@ -962,6 +962,22 @@ impl BrowserRuntime {
                                 "alreadyExists": completion.last_error == 183,
                             });
                         }
+                        if completion.implementation_id == "kernel32.create-waitable-timer-a.v1"
+                            && let RegisterUpdate::Set(handle) = completion.eax
+                        {
+                            let handle = RuntimeHandle(handle);
+                            metadata["waitableTimer"] = json!({
+                                "handle": handle,
+                                "timer": self
+                                    .runtime
+                                    .waitable_timer_for_handle(handle)
+                                    .map_err(error_string)?,
+                                "objectRecord": self.runtime.object_for_handle(
+                                    handle,
+                                    RuntimeObjectKind::WaitableTimer,
+                                ).map_err(error_string)?,
+                            });
+                        }
                         if completion.implementation_id == "ole32.co-initialize.v1" {
                             metadata["comApartment"] = json!(
                                 self.runtime

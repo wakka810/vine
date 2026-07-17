@@ -121,6 +121,13 @@ let getVersionExAOracleEvidence = null;
 let getVersionExACompletionRecorded = false;
 let getVersionExADrainCheckScheduled = false;
 const getVersionExAMainModuleCalls = [];
+let createWaitableTimerAOracleScheduled = false;
+let createWaitableTimerAOracleCall = null;
+let createWaitableTimerAOracleComplete = false;
+let createWaitableTimerAOracleEvidence = null;
+let createWaitableTimerACompletionRecorded = false;
+let createWaitableTimerADrainCheckScheduled = false;
+const createWaitableTimerAMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -2507,6 +2514,120 @@ function attachGetVersionExAHook(module) {
           immediateConsumer: this.immediateConsumer,
         });
         setImmediate(maybeCompleteGetVersionExAObservation);
+      }
+    },
+  });
+}
+
+function attachCreateWaitableTimerAHook(module) {
+  const name = "CreateWaitableTimerA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" &&
+        createWaitableTimerAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.securityAttributes = args[0];
+      this.manualReset = args[1].toUInt32();
+      this.nameAddress = args[2];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = createWaitableTimerAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = isMainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              32,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              12,
+              16,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.securityAttributes.toString(),
+            this.manualReset,
+            this.nameAddress.isNull()
+              ? null
+              : snapshotNulTerminatedString(this.nameAddress, "ansi"),
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          createWaitableTimerA: {
+            securityAttributes: this.securityAttributes.toString(),
+            manualReset: this.manualReset,
+            nameAddress: this.nameAddress.toString(),
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      if (this.oracleCaller) {
+        createWaitableTimerAOracleCall.hookResult = resultValue;
+        createWaitableTimerAOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          createWaitableTimerA: {
+            result: resultValue,
+            resultNonNull: !result.isNull(),
+          },
+        },
+        this.lastError,
+      );
+      if (
+        this.mainModuleCaller &&
+        createWaitableTimerAMainModuleCalls.length === 0
+      ) {
+        createWaitableTimerAMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          securityAttributes: this.securityAttributes.toString(),
+          manualReset: this.manualReset,
+          nameAddress: this.nameAddress.toString(),
+          result: resultValue,
+          resultNonNull: !result.isNull(),
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteCreateWaitableTimerAObservation);
       }
     },
   });
@@ -6594,6 +6715,157 @@ function scheduleTimeGetDevCapsOracle(module) {
   });
 }
 
+function maybeCompleteCreateWaitableTimerAObservation() {
+  if (
+    createWaitableTimerACompletionRecorded ||
+    !createWaitableTimerAOracleComplete ||
+    createWaitableTimerAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteCreateWaitableTimerAObservation, 10);
+    return;
+  }
+  if (createWaitableTimerADrainCheckScheduled) {
+    return;
+  }
+  createWaitableTimerADrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    createWaitableTimerADrainCheckScheduled = false;
+    if (createWaitableTimerACompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteCreateWaitableTimerAObservation();
+      return;
+    }
+    createWaitableTimerACompletionRecorded = true;
+    emit("create-waitable-timer-a-complete", {
+      profile: "x86-bgi-create-waitable-timer-a-v1",
+      oracleProfile: createWaitableTimerAOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: createWaitableTimerAMainModuleCalls.map((call) => ({
+        ...call,
+      })),
+    });
+    if (stopOnEvent === "create-waitable-timer-a-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function scheduleCreateWaitableTimerAOracle(module) {
+  if (createWaitableTimerAOracleScheduled) {
+    return;
+  }
+  createWaitableTimerAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const createAddress = findExport(module, "CreateWaitableTimerA");
+      const waitAddress = findExport(module, "WaitForSingleObject");
+      const closeAddress = findExport(module, "CloseHandle");
+      if (createAddress === null || waitAddress === null || closeAddress === null) {
+        throw new Error("waitable timer oracle exports are unavailable");
+      }
+      const createWaitableTimerA = new SystemFunction(
+        createAddress,
+        "pointer",
+        ["pointer", "uint32", "pointer"],
+        "stdcall",
+      );
+      const waitForSingleObject = new SystemFunction(
+        waitAddress,
+        "uint32",
+        ["pointer", "uint32"],
+        "stdcall",
+      );
+      const closeHandle = new SystemFunction(
+        closeAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = ({ manualReset, sentinel }) => {
+        createWaitableTimerAOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const createOutcome = createWaitableTimerA(
+            ptr(0),
+            manualReset ? 1 : 0,
+            ptr(0),
+          );
+          const handle = createOutcome.value;
+          const systemLastError = Number(createOutcome.lastError) >>> 0;
+          if (
+            createWaitableTimerAOracleCall.hookResult === null ||
+            createWaitableTimerAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(
+              "CreateWaitableTimerA oracle did not pass through the hook",
+            );
+          }
+          if (handle.isNull()) {
+            throw new Error("CreateWaitableTimerA oracle returned null");
+          }
+          const waitOutcome = waitForSingleObject(handle, 0);
+          const closeOutcome = closeHandle(handle);
+          return {
+            manualReset,
+            sentinel,
+            handleNonNull: true,
+            hookResult: createWaitableTimerAOracleCall.hookResult,
+            systemResult: handle.toString(),
+            hookLastErrorAfter:
+              createWaitableTimerAOracleCall.hookLastErrorAfter,
+            systemLastError,
+            initialWaitResult: Number(waitOutcome.value) >>> 0,
+            closeResult: Number(closeOutcome.value) >>> 0,
+            hookResultMatches:
+              createWaitableTimerAOracleCall.hookResult === handle.toString(),
+            hookAndSystemLastErrorMatch:
+              createWaitableTimerAOracleCall.hookLastErrorAfter ===
+              systemLastError,
+          };
+        } finally {
+          createWaitableTimerAOracleCall = null;
+        }
+      };
+      const calls = [
+        { manualReset: true, sentinel: 0x11223344 },
+        { manualReset: false, sentinel: 0x55667788 },
+      ].map(invoke);
+      createWaitableTimerAOracleEvidence = {
+        profile: "x86-create-waitable-timer-initial-state-v1",
+        waitObject0: 0,
+        waitTimeout: 258,
+        calls,
+        allCreated: calls.every((call) => call.handleNonNull),
+        allInitiallyNonsignaled: calls.every(
+          (call) => call.initialWaitResult === 258,
+        ),
+        allClosed: calls.every((call) => call.closeResult !== 0),
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      createWaitableTimerAOracleComplete = true;
+      emit(
+        "create-waitable-timer-a-oracle",
+        createWaitableTimerAOracleEvidence,
+      );
+      maybeCompleteCreateWaitableTimerAObservation();
+    } catch (error) {
+      emit("create-waitable-timer-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function maybeCompleteGetVersionExAObservation() {
   if (
     getVersionExACompletionRecorded ||
@@ -8210,6 +8482,21 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "GetVersionExA",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("create-waitable-timer-a")
+    ) {
+      try {
+        attachCreateWaitableTimerAHook(module);
+        scheduleCreateWaitableTimerAOracle(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "CreateWaitableTimerA",
           error: error.message,
         });
       }

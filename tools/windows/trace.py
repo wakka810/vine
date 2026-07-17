@@ -37,6 +37,7 @@ SUPPORTED_OBSERVATIONS = (
     "multi-byte-to-wide-char",
     "set-current-directory-a",
     "create-mutex-a",
+    "create-waitable-timer-a",
     "get-string-type-w",
     "lc-map-string-w",
     "get-last-error",

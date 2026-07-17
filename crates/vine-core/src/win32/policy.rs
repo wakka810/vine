@@ -44,6 +44,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub create_mutex_a: Option<Kernel32CreateMutexAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_waitable_timer_a: Option<Kernel32CreateWaitableTimerAPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lc_map_string_w: Option<Kernel32LcMapStringWPolicy>,
@@ -138,6 +140,14 @@ pub struct Kernel32CreateMutexAPolicy {
     pub allow_named: bool,
     pub allow_unnamed: bool,
     pub maximum_name_bytes: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32CreateWaitableTimerAPolicy {
+    pub allow_manual_reset: bool,
+    pub allow_auto_reset: bool,
+    pub allow_unnamed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -249,6 +259,7 @@ impl Kernel32CompatibilityPolicy {
             set_current_directory_a: None,
             get_drive_type_a: None,
             create_mutex_a: None,
+            create_waitable_timer_a: None,
             get_string_type_w: None,
             lc_map_string_w: None,
             get_module_file_name_a: None,
@@ -426,6 +437,16 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-create-mutex-invalid",
                 "CreateMutexA requires Windows-932 ACP, an enabled name mode, and a bounded name limit",
+            ));
+        }
+        if let Some(timer) = self.create_waitable_timer_a
+            && (self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || !timer.allow_unnamed
+                || (!timer.allow_manual_reset && !timer.allow_auto_reset))
+        {
+            return Err(policy_error(
+                "kernel32-policy-create-waitable-timer-invalid",
+                "CreateWaitableTimerA requires schema v2, unnamed-object support, and at least one reset mode",
             ));
         }
         if let Some(classification) = self.get_string_type_w.as_ref()
@@ -666,6 +687,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn create_mutex_a(&self) -> Option<Kernel32CreateMutexAPolicy> {
         self.create_mutex_a
+    }
+
+    pub fn create_waitable_timer_a(&self) -> Option<Kernel32CreateWaitableTimerAPolicy> {
+        self.create_waitable_timer_a
     }
 
     pub fn get_string_type_w(&self) -> Option<&Kernel32GetStringTypeWPolicy> {

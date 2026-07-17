@@ -128,16 +128,17 @@ assert.deepEqual(validateCurrentCheckpoint(structuredBenchmarkBlocker), []);
 
 const mismatchedBenchmarkCrossings = structuredClone(manifest);
 mismatchedBenchmarkCrossings.browserCheckpoint.bgiBenchmarkEvidence.wasmBridgeCallsPerSession -= 1;
-assert.deepEqual(
-  validateCurrentCheckpoint(mismatchedBenchmarkCrossings),
-  [],
-  "retained performance evidence must not be coupled to a later semantic leaf",
+assert.ok(
+  validateCurrentCheckpoint(mismatchedBenchmarkCrossings).some((error) =>
+    error.includes("benchmark evidence"),
+  ),
 );
 
-const unlabeledRetainedBenchmark = structuredClone(manifest);
-unlabeledRetainedBenchmark.browserCheckpoint.bgiBenchmarkEvidence.observationStatus = "current";
+const staleRetainedBenchmark = structuredClone(manifest);
+staleRetainedBenchmark.browserCheckpoint.bgiBenchmarkEvidence.observationStatus =
+  "retained-semantic-leaf-not-rerun";
 assert.ok(
-  validateCurrentCheckpoint(unlabeledRetainedBenchmark).some((error) =>
+  validateCurrentCheckpoint(staleRetainedBenchmark).some((error) =>
     error.includes("benchmark evidence"),
   ),
 );
@@ -183,6 +184,26 @@ exposedObjects.activeRuntimeCheckpoint.runtimeObjectModel.mutableCollectionVisib
 assert.ok(
   validateCurrentCheckpoint(exposedObjects).some((error) =>
     error.includes("object subsystem boundary"),
+  ),
+);
+
+const missingWaitableTimerObjectKind = structuredClone(manifest);
+missingWaitableTimerObjectKind.activeRuntimeCheckpoint.runtimeObjectModel.objectKinds =
+  missingWaitableTimerObjectKind.activeRuntimeCheckpoint.runtimeObjectModel.objectKinds.filter(
+    (kind) => kind !== "waitable-timer",
+  );
+assert.ok(
+  validateCurrentCheckpoint(missingWaitableTimerObjectKind).some((error) =>
+    error.includes("object subsystem boundary"),
+  ),
+);
+
+const mutexOnlyObjectPlan = structuredClone(manifest);
+mutexOnlyObjectPlan.activeRuntimeCheckpoint.runtimeKernelBoundary.closeHandleObjectPlan =
+  "runtime/objects.rs::RuntimeMutexObjectMutationPlan";
+assert.ok(
+  validateCurrentCheckpoint(mutexOnlyObjectPlan).some((error) =>
+    error.includes("kernel responsibility boundary"),
   ),
 );
 
@@ -517,6 +538,33 @@ hostOwnedOsVersionEvidence.activeRuntimeCheckpoint.latestEvidence.getVersionExAH
 assert.ok(
   validateCurrentCheckpoint(hostOwnedOsVersionEvidence).some((error) =>
     error.includes("ANSI OS-version evidence"),
+  ),
+);
+
+const enabledAutoResetWaitableTimer = structuredClone(manifest);
+enabledAutoResetWaitableTimer.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.createWaitableTimerAllowAutoReset =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(enabledAutoResetWaitableTimer).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const browserOwnedWaitableTimer = structuredClone(manifest);
+browserOwnedWaitableTimer.activeRuntimeCheckpoint.latestEvidence.createWaitableTimerABrowserTimerImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedWaitableTimer).some((error) =>
+    error.includes("waitable-timer identity and lifetime evidence"),
+  ),
+);
+
+const partialWaitableTimerTeardown = structuredClone(manifest);
+partialWaitableTimerTeardown.activeRuntimeCheckpoint.latestEvidence.createWaitableTimerAProcessExitRetiresPayloadAndObject =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(partialWaitableTimerTeardown).some((error) =>
+    error.includes("waitable-timer identity and lifetime evidence"),
   ),
 );
 

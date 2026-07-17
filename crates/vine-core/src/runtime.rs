@@ -63,9 +63,9 @@ pub use modules::{
 };
 pub use objects::{
     RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PROCESS_OBJECT_NAMESPACE,
-    RUNTIME_THREAD_OBJECT_NAMESPACE, RuntimeHandle, RuntimeHandleClosePolicy, RuntimeHandleEntry,
-    RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectTable,
-    RuntimeWaitState,
+    RUNTIME_THREAD_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeHandle,
+    RuntimeHandleClosePolicy, RuntimeHandleEntry, RuntimeObjectId, RuntimeObjectKey,
+    RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectTable, RuntimeWaitState,
 };
 pub use process::{
     LOGICAL_STANDARD_HANDLE_NAMESPACE, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING,
@@ -101,7 +101,11 @@ pub use thread::{
     RuntimeThreadState, RuntimeTlsValue, TLS_OUT_OF_INDEXES,
 };
 pub(crate) use timers::RUNTIME_TIMER_RESOLUTION_DISTINCT_PERIOD_LIMIT;
-pub use timers::{RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState};
+pub use timers::{
+    RUNTIME_WAITABLE_TIMER_LIMIT, RuntimeCreateWaitableTimerAResult,
+    RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState, RuntimeWaitableTimer,
+    RuntimeWaitableTimerId,
+};
 pub use waits::{
     RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,
     RuntimeWaitRegistrationId,

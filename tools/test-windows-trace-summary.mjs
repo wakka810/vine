@@ -681,6 +681,15 @@ createMutexSelection.find(
 ).selectedObservations = ["create-mutex-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(createMutexSelection)));
 
+const createWaitableTimerSelection = structuredClone(events);
+createWaitableTimerSelection[0].arguments.observations = [
+  "create-waitable-timer-a",
+];
+createWaitableTimerSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["create-waitable-timer-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(createWaitableTimerSelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

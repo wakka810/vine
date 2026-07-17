@@ -7,6 +7,7 @@ use super::{LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE, Run
 pub const RUNTIME_PROCESS_OBJECT_NAMESPACE: &str = "vine.runtime-process-object.v1";
 pub const RUNTIME_THREAD_OBJECT_NAMESPACE: &str = "vine.runtime-thread-object.v1";
 pub const RUNTIME_MUTEX_OBJECT_NAMESPACE: &str = "vine.runtime-mutex-object.v1";
+pub const RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE: &str = "vine.runtime-waitable-timer-object.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -14,6 +15,7 @@ pub enum RuntimeObjectKind {
     Process,
     Thread,
     Mutex,
+    WaitableTimer,
     PrivateHeap,
     Module,
 }
@@ -24,6 +26,7 @@ impl RuntimeObjectKind {
             Self::Process => 0x50,
             Self::Thread => 0x54,
             Self::Mutex => 0x58,
+            Self::WaitableTimer => 0x57,
             Self::PrivateHeap => 0x68,
             Self::Module => 0x4d,
         }
@@ -34,6 +37,7 @@ impl RuntimeObjectKind {
             0x50 => Some(Self::Process),
             0x54 => Some(Self::Thread),
             0x58 => Some(Self::Mutex),
+            0x57 => Some(Self::WaitableTimer),
             0x68 => Some(Self::PrivateHeap),
             0x4d => Some(Self::Module),
             _ => None,
@@ -92,6 +96,7 @@ pub enum RuntimeObjectKey {
     Process { process_id: u32 },
     Thread { thread_id: u32 },
     Mutex { mutex_id: u64 },
+    WaitableTimer { timer_id: u64 },
     PrivateHeap { handle: u32 },
     Module { handle: u32 },
 }
@@ -102,6 +107,7 @@ impl RuntimeObjectKey {
             Self::Process { .. } => RuntimeObjectKind::Process,
             Self::Thread { .. } => RuntimeObjectKind::Thread,
             Self::Mutex { .. } => RuntimeObjectKind::Mutex,
+            Self::WaitableTimer { .. } => RuntimeObjectKind::WaitableTimer,
             Self::PrivateHeap { .. } => RuntimeObjectKind::PrivateHeap,
             Self::Module { .. } => RuntimeObjectKind::Module,
         }
@@ -161,38 +167,40 @@ struct RuntimeObjectRetirementPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeMutexObjectMutationPlan {
+pub(super) struct RuntimeCloseHandleObjectMutationPlan {
     previous: RuntimeObjectTable,
     next: RuntimeObjectTable,
-    outcome: RuntimeMutexObjectMutationOutcome,
+    outcome: RuntimeCloseHandleObjectMutationOutcome,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RuntimeMutexObjectMutationOutcome {
+enum RuntimeCloseHandleObjectMutationOutcome {
     Opened(RuntimeHandle),
     Closed(RuntimeHandleEntry),
     Teardown { retired_handles: usize },
 }
 
-impl RuntimeMutexObjectMutationPlan {
+impl RuntimeCloseHandleObjectMutationPlan {
     pub(super) fn opened_handle(&self) -> RuntimeHandle {
         match self.outcome {
-            RuntimeMutexObjectMutationOutcome::Opened(handle) => handle,
-            _ => unreachable!("mutex object plan does not open a handle"),
+            RuntimeCloseHandleObjectMutationOutcome::Opened(handle) => handle,
+            _ => unreachable!("close-handle object plan does not open a handle"),
         }
     }
 
     pub(super) fn closed_entry(&self) -> RuntimeHandleEntry {
         match self.outcome {
-            RuntimeMutexObjectMutationOutcome::Closed(entry) => entry,
-            _ => unreachable!("mutex object plan does not close a handle"),
+            RuntimeCloseHandleObjectMutationOutcome::Closed(entry) => entry,
+            _ => unreachable!("close-handle object plan does not close a handle"),
         }
     }
 
     pub(super) fn retired_handles(&self) -> usize {
         match self.outcome {
-            RuntimeMutexObjectMutationOutcome::Teardown { retired_handles } => retired_handles,
-            _ => unreachable!("mutex object plan is not a teardown"),
+            RuntimeCloseHandleObjectMutationOutcome::Teardown { retired_handles } => {
+                retired_handles
+            }
+            _ => unreachable!("close-handle object plan is not a teardown"),
         }
     }
 }
@@ -221,16 +229,16 @@ impl Default for RuntimeObjectTable {
 }
 
 impl RuntimeObjectTable {
-    pub(super) fn plan_mutex_handle_open(
+    pub(super) fn plan_close_handle_object_open(
         &self,
         key: RuntimeObjectKey,
         already_exists: bool,
-    ) -> Result<RuntimeMutexObjectMutationPlan, RuntimeStateError> {
-        if key.kind() != RuntimeObjectKind::Mutex {
+    ) -> Result<RuntimeCloseHandleObjectMutationPlan, RuntimeStateError> {
+        if !is_payload_close_handle_kind(key.kind()) {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-object",
-                "runtime-mutex-plan-kind-invalid",
-                "mutex handle planning requires a mutex object identity",
+                "runtime-close-handle-object-plan-kind-invalid",
+                "payload handle planning requires a supported close-handle object identity",
             ));
         }
         let mut next = self.clone();
@@ -239,59 +247,61 @@ impl RuntimeObjectTable {
         } else {
             next.register_object_and_open_handle(key)?.1
         };
-        Ok(RuntimeMutexObjectMutationPlan {
+        Ok(RuntimeCloseHandleObjectMutationPlan {
             previous: self.clone(),
             next,
-            outcome: RuntimeMutexObjectMutationOutcome::Opened(handle),
+            outcome: RuntimeCloseHandleObjectMutationOutcome::Opened(handle),
         })
     }
 
-    pub(super) fn plan_mutex_handle_close(
+    pub(super) fn plan_close_handle_object_close(
         &self,
         handle: RuntimeHandle,
         retiring_key: Option<&RuntimeObjectKey>,
-    ) -> Result<RuntimeMutexObjectMutationPlan, RuntimeStateError> {
-        if handle.kind()? != RuntimeObjectKind::Mutex {
+    ) -> Result<RuntimeCloseHandleObjectMutationPlan, RuntimeStateError> {
+        let kind = handle.kind()?;
+        if !is_payload_close_handle_kind(kind) || retiring_key.is_some_and(|key| key.kind() != kind)
+        {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-object",
-                "runtime-mutex-plan-kind-invalid",
-                "mutex handle close planning requires a mutex handle",
+                "runtime-close-handle-object-plan-kind-invalid",
+                "payload handle close planning requires matching supported object identities",
             ));
         }
         let mut next = self.clone();
         let closed = next.close_handle(handle)?;
         if let Some(key) = retiring_key {
-            next.remove_closed_mutex_object(key)?;
+            next.remove_closed_close_handle_object(key)?;
         }
-        Ok(RuntimeMutexObjectMutationPlan {
+        Ok(RuntimeCloseHandleObjectMutationPlan {
             previous: self.clone(),
             next,
-            outcome: RuntimeMutexObjectMutationOutcome::Closed(closed),
+            outcome: RuntimeCloseHandleObjectMutationOutcome::Closed(closed),
         })
     }
 
-    pub(super) fn plan_mutex_teardown(
+    pub(super) fn plan_close_handle_object_teardown(
         &self,
         keys: &[RuntimeObjectKey],
-    ) -> Result<RuntimeMutexObjectMutationPlan, RuntimeStateError> {
+    ) -> Result<RuntimeCloseHandleObjectMutationPlan, RuntimeStateError> {
         let mut next = self.clone();
-        let retired_handles = next.retire_mutex_objects(keys)?;
-        Ok(RuntimeMutexObjectMutationPlan {
+        let retired_handles = next.retire_close_handle_objects(keys)?;
+        Ok(RuntimeCloseHandleObjectMutationPlan {
             previous: self.clone(),
             next,
-            outcome: RuntimeMutexObjectMutationOutcome::Teardown { retired_handles },
+            outcome: RuntimeCloseHandleObjectMutationOutcome::Teardown { retired_handles },
         })
     }
 
-    pub(super) fn commit_mutex_mutation(
+    pub(super) fn commit_close_handle_object_mutation(
         &mut self,
-        plan: RuntimeMutexObjectMutationPlan,
+        plan: RuntimeCloseHandleObjectMutationPlan,
     ) -> Result<(), RuntimeStateError> {
         if *self != plan.previous {
             return Err(RuntimeStateError::conflict(
                 "runtime-object",
-                "runtime-mutex-object-plan-stale",
-                "runtime object state changed after mutex transaction preflight",
+                "runtime-close-handle-object-plan-stale",
+                "runtime object state changed after payload transaction preflight",
             ));
         }
         *self = plan.next;
@@ -319,11 +329,15 @@ impl RuntimeObjectTable {
         })?;
         let kind = key.kind();
         let (namespace, close_policy, wait_state) = match kind {
-            RuntimeObjectKind::Process | RuntimeObjectKind::Thread | RuntimeObjectKind::Mutex => (
+            RuntimeObjectKind::Process
+            | RuntimeObjectKind::Thread
+            | RuntimeObjectKind::Mutex
+            | RuntimeObjectKind::WaitableTimer => (
                 match kind {
                     RuntimeObjectKind::Process => RUNTIME_PROCESS_OBJECT_NAMESPACE,
                     RuntimeObjectKind::Thread => RUNTIME_THREAD_OBJECT_NAMESPACE,
                     RuntimeObjectKind::Mutex => RUNTIME_MUTEX_OBJECT_NAMESPACE,
+                    RuntimeObjectKind::WaitableTimer => RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
                     RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => unreachable!(),
                 },
                 RuntimeHandleClosePolicy::CloseHandle,
@@ -501,29 +515,29 @@ impl RuntimeObjectTable {
         Ok(removed)
     }
 
-    pub(super) fn remove_closed_mutex_object(
+    pub(super) fn remove_closed_close_handle_object(
         &mut self,
         key: &RuntimeObjectKey,
     ) -> Result<RuntimeObjectRecord, RuntimeStateError> {
-        if key.kind() != RuntimeObjectKind::Mutex {
+        if !is_payload_close_handle_kind(key.kind()) {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-object",
-                "runtime-mutex-retirement-kind-invalid",
-                "closed-object retirement is restricted to mutex objects",
+                "runtime-close-handle-object-retirement-kind-invalid",
+                "payload retirement requires a supported close-handle object identity",
             ));
         }
         let id = self.identity_index.get(key).copied().ok_or_else(|| {
             RuntimeStateError::not_found(
                 "runtime-object",
                 "runtime-object-identity-unknown",
-                "mutex object identity is not registered",
+                "close-handle object identity is not registered",
             )
         })?;
         let record = self.objects.get(&id).cloned().ok_or_else(|| {
             RuntimeStateError::runtime_defect(
                 "runtime-object",
                 "runtime-object-index-dangling",
-                "mutex object identity index references a missing object",
+                "close-handle object identity index references a missing object",
             )
         })?;
         if record.open_handles != 0
@@ -532,8 +546,8 @@ impl RuntimeObjectTable {
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-object",
-                "runtime-mutex-retirement-handles-live",
-                "mutex object cannot retire while a handle remains open",
+                "runtime-close-handle-object-retirement-handles-live",
+                "close-handle object cannot retire while a handle remains open",
             ));
         }
         self.identity_index.remove(key);
@@ -541,29 +555,37 @@ impl RuntimeObjectTable {
             RuntimeStateError::runtime_defect(
                 "runtime-object",
                 "runtime-object-retirement-missing",
-                "preflighted mutex object disappeared during retirement",
+                "preflighted close-handle object disappeared during retirement",
             )
         })
     }
 
-    pub(super) fn retire_mutex_objects(
+    pub(super) fn retire_close_handle_objects(
         &mut self,
         keys: &[RuntimeObjectKey],
     ) -> Result<usize, RuntimeStateError> {
+        let mut unique_keys = BTreeSet::new();
         let mut retired_handles = 0;
         for key in keys {
-            if key.kind() != RuntimeObjectKind::Mutex {
+            if !unique_keys.insert(key.clone()) {
                 return Err(RuntimeStateError::invalid_input(
                     "runtime-object",
-                    "runtime-mutex-retirement-kind-invalid",
-                    "process mutex teardown received a non-mutex object identity",
+                    "runtime-close-handle-object-retirement-duplicate",
+                    "process payload teardown contains a duplicate object identity",
+                ));
+            }
+            if !is_payload_close_handle_kind(key.kind()) {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-object",
+                    "runtime-close-handle-object-retirement-kind-invalid",
+                    "process payload teardown received an unsupported object identity",
                 ));
             }
             let id = self.identity_index.get(key).copied().ok_or_else(|| {
                 RuntimeStateError::not_found(
                     "runtime-object",
                     "runtime-object-identity-unknown",
-                    "process mutex teardown targets an unregistered object",
+                    "process payload teardown targets an unregistered object",
                 )
             })?;
             let handles = self
@@ -576,7 +598,7 @@ impl RuntimeObjectTable {
                 self.close_handle(handle)?;
                 retired_handles += 1;
             }
-            self.remove_closed_mutex_object(key)?;
+            self.remove_closed_close_handle_object(key)?;
         }
         Ok(retired_handles)
     }
@@ -944,6 +966,13 @@ const fn runtime_handle_slot_key(kind: RuntimeObjectKind, slot: u16) -> u32 {
     (kind.handle_tag() as u32) << 16 | slot as u32
 }
 
+const fn is_payload_close_handle_kind(kind: RuntimeObjectKind) -> bool {
+    matches!(
+        kind,
+        RuntimeObjectKind::Mutex | RuntimeObjectKind::WaitableTimer
+    )
+}
+
 fn runtime_handle_type_mismatch(
     handle: RuntimeHandle,
     expected: RuntimeObjectKind,
@@ -1007,48 +1036,54 @@ mod tests {
     }
 
     #[test]
-    fn mutex_object_plans_are_atomic_and_reject_stale_commits() {
+    fn close_handle_object_plans_are_atomic_and_reject_stale_commits() {
         let mut objects = RuntimeObjectTable::default();
         let key = RuntimeObjectKey::Mutex { mutex_id: 7 };
         let initial = objects.clone();
         let first = objects
-            .plan_mutex_handle_open(key.clone(), false)
+            .plan_close_handle_object_open(key.clone(), false)
             .expect("new mutex object plan");
         let first_handle = first.opened_handle();
         assert_eq!(objects, initial, "open planning must not mutate tables");
         objects
-            .commit_mutex_mutation(first)
+            .commit_close_handle_object_mutation(first)
             .expect("commit first mutex handle");
 
         let stale_close = objects
-            .plan_mutex_handle_close(first_handle, Some(&key))
+            .plan_close_handle_object_close(first_handle, Some(&key))
             .expect("last-handle close plan");
         let second = objects
-            .plan_mutex_handle_open(key.clone(), true)
+            .plan_close_handle_object_open(key.clone(), true)
             .expect("existing mutex handle plan");
         objects
-            .commit_mutex_mutation(second)
+            .commit_close_handle_object_mutation(second)
             .expect("commit second mutex handle");
         let before_stale_commit = objects.clone();
         assert_eq!(
             objects
-                .commit_mutex_mutation(stale_close)
+                .commit_close_handle_object_mutation(stale_close)
                 .expect_err("stale close plan must fail")
                 .code,
-            "runtime-mutex-object-plan-stale"
+            "runtime-close-handle-object-plan-stale"
         );
         assert_eq!(objects, before_stale_commit);
 
-        let teardown = objects
-            .plan_mutex_teardown(std::slice::from_ref(&key))
-            .expect("mutex teardown plan");
-        assert_eq!(teardown.retired_handles(), 2);
-        assert_eq!(
-            objects, before_stale_commit,
-            "teardown planning must be pure"
-        );
+        let timer_key = RuntimeObjectKey::WaitableTimer { timer_id: 11 };
+        let timer = objects
+            .plan_close_handle_object_open(timer_key.clone(), false)
+            .expect("new waitable timer object plan");
+        assert_eq!(timer.opened_handle(), RuntimeHandle(0x5701_0001));
         objects
-            .commit_mutex_mutation(teardown)
+            .commit_close_handle_object_mutation(timer)
+            .expect("commit waitable timer handle");
+        let before_teardown = objects.clone();
+        let teardown = objects
+            .plan_close_handle_object_teardown(&[key, timer_key])
+            .expect("payload teardown plan");
+        assert_eq!(teardown.retired_handles(), 3);
+        assert_eq!(objects, before_teardown, "teardown planning must be pure");
+        objects
+            .commit_close_handle_object_mutation(teardown)
             .expect("commit mutex teardown");
         assert!(objects.objects().is_empty());
         assert!(objects.handles().is_empty());

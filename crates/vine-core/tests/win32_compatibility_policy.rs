@@ -52,6 +52,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         ),
         include_str!("../../../fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -254,6 +255,25 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(version_profile.service_pack_minor, 0);
     assert_eq!(version_profile.suite_mask, 0x0100);
     assert_eq!(version_profile.product_type, 1);
+
+    let waitable_timer: Kernel32CompatibilityPolicy = serde_json::from_str(policies[32]).unwrap();
+    let timer_profile = waitable_timer
+        .create_waitable_timer_a()
+        .expect("waitable timer profile");
+    assert!(timer_profile.allow_manual_reset);
+    assert!(!timer_profile.allow_auto_reset);
+    assert!(timer_profile.allow_unnamed);
+
+    let mut unsupported_timer_profile = waitable_timer;
+    unsupported_timer_profile
+        .create_waitable_timer_a
+        .as_mut()
+        .unwrap()
+        .allow_unnamed = false;
+    assert_eq!(
+        unsupported_timer_profile.validate().unwrap_err().code,
+        "kernel32-policy-create-waitable-timer-invalid"
+    );
 
     let mut unsupported_os_version = os_version.clone();
     unsupported_os_version

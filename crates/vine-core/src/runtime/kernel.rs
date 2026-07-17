@@ -50,8 +50,8 @@ use super::modules::{
     runtime_module_image_state_error,
 };
 use super::objects::{
-    RuntimeHandle, RuntimeHandleEntry, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind,
-    RuntimeObjectRecord, RuntimeObjectTable, RuntimeWaitState,
+    RuntimeCloseHandleObjectMutationPlan, RuntimeHandle, RuntimeHandleEntry, RuntimeObjectId,
+    RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectTable, RuntimeWaitState,
 };
 use super::process::{
     RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES,
@@ -73,7 +73,7 @@ use super::scheduler::{RuntimeHostRequestCancellationPlan, RuntimeSchedulerLaneP
 use super::synchronization::RuntimeSynchronization;
 use super::synchronization::{
     RuntimeCreateMutexAResult, RuntimeCriticalSection, RuntimeMutex, RuntimeMutexId,
-    RuntimeMutexNameA,
+    RuntimeMutexNameA, RuntimeMutexRetirementPlan,
 };
 use super::thread::{
     RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCallbackFrameIdPlan, RuntimeCancellation,
@@ -83,8 +83,9 @@ use super::thread::{
     RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads, RuntimeTlsValue,
 };
 use super::timers::{
-    RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState,
-    RuntimeTimerResolutionTeardownPlan, RuntimeTimers,
+    RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
+    RuntimeTimerResolutionState, RuntimeTimerResolutionTeardownPlan, RuntimeTimers,
+    RuntimeWaitableTimer, RuntimeWaitableTimerId, RuntimeWaitableTimerRetirementPlan,
 };
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
@@ -130,6 +131,13 @@ struct RuntimeProcessExitRequestPlan {
     thread_plans: Vec<RuntimeThreadExitRequestPlan>,
     timer_resolution_teardown: Option<RuntimeTimerResolutionTeardownPlan>,
     cancellation: RuntimeProcessCancellation,
+}
+
+struct RuntimePayloadObjectTeardownPlan {
+    object_plan: Option<RuntimeCloseHandleObjectMutationPlan>,
+    mutex_plans: Vec<RuntimeMutexRetirementPlan>,
+    waitable_timer_plans: Vec<RuntimeWaitableTimerRetirementPlan>,
+    retired_handles: usize,
 }
 
 struct RuntimeCallbackMutationPlan {
@@ -202,6 +210,8 @@ struct RuntimeProcessStateSnapshot<'a> {
     synchronization: &'a RuntimeSynchronization,
     allocated_tls_indices: &'a BTreeSet<u32>,
     fls_slots: &'a BTreeMap<u32, RuntimeFlsSlot>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    waitable_timers: &'a BTreeMap<RuntimeWaitableTimerId, RuntimeWaitableTimer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     timer_resolution: Option<RuntimeTimerResolutionState>,
 }
@@ -237,6 +247,7 @@ impl Serialize for RuntimeProcessView<'_> {
             synchronization: self.synchronization,
             allocated_tls_indices: self.allocated_tls_indices,
             fls_slots: self.fls_slots,
+            waitable_timers: self.timers.waitable_timers(),
             timer_resolution: self.timers.state(),
         }
         .serialize(serializer)
@@ -284,6 +295,7 @@ impl Serialize for RuntimeKernel {
                 synchronization: &self.synchronization,
                 allocated_tls_indices: self.threads.allocated_tls_indices(),
                 fls_slots: self.threads.fls_slots(),
+                waitable_timers: self.timers.waitable_timers(),
                 timer_resolution: self.timers.state(),
             },
             address_space_allocator: &self.address_space_allocator,
@@ -1201,35 +1213,72 @@ impl RuntimeKernel {
         &mut self,
         handle: RuntimeHandle,
     ) -> Result<RuntimeHandleEntry, RuntimeStateError> {
-        if handle.kind()? != RuntimeObjectKind::Mutex {
-            return self.objects.close_handle(handle);
+        match handle.kind()? {
+            RuntimeObjectKind::Mutex => {
+                let record = self
+                    .objects
+                    .object_for_handle(handle, RuntimeObjectKind::Mutex)?
+                    .clone();
+                let RuntimeObjectKey::Mutex { mutex_id } = record.key.clone() else {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-mutex",
+                        "mutex-object-key-invalid",
+                        "mutex handle resolved to a non-mutex object identity",
+                    ));
+                };
+                let retirement = (record.open_handles == 1)
+                    .then(|| {
+                        self.synchronization
+                            .plan_mutex_retirement(RuntimeMutexId(mutex_id))
+                    })
+                    .transpose()?;
+                let object_plan = self.objects.plan_close_handle_object_close(
+                    handle,
+                    retirement.as_ref().map(|_| &record.key),
+                )?;
+                let removed = object_plan.closed_entry();
+                self.objects
+                    .commit_close_handle_object_mutation(object_plan)?;
+                if let Some(retirement) = retirement {
+                    self.synchronization.commit_mutex_retirement(retirement);
+                }
+                Ok(removed)
+            }
+            RuntimeObjectKind::WaitableTimer => {
+                let record = self
+                    .objects
+                    .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?
+                    .clone();
+                let RuntimeObjectKey::WaitableTimer { timer_id } = record.key.clone() else {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-waitable-timer",
+                        "waitable-timer-object-key-invalid",
+                        "waitable timer handle resolved to a different object identity",
+                    ));
+                };
+                let retirement = (record.open_handles == 1)
+                    .then(|| {
+                        self.timers
+                            .plan_waitable_timer_retirement(RuntimeWaitableTimerId(timer_id))
+                    })
+                    .transpose()?;
+                let object_plan = self.objects.plan_close_handle_object_close(
+                    handle,
+                    retirement.as_ref().map(|_| &record.key),
+                )?;
+                let removed = object_plan.closed_entry();
+                self.objects
+                    .commit_close_handle_object_mutation(object_plan)?;
+                if let Some(retirement) = retirement {
+                    self.timers.commit_waitable_timer_retirement(retirement);
+                }
+                Ok(removed)
+            }
+            RuntimeObjectKind::Process
+            | RuntimeObjectKind::Thread
+            | RuntimeObjectKind::PrivateHeap
+            | RuntimeObjectKind::Module => self.objects.close_handle(handle),
         }
-        let record = self
-            .objects
-            .object_for_handle(handle, RuntimeObjectKind::Mutex)?
-            .clone();
-        let RuntimeObjectKey::Mutex { mutex_id } = record.key.clone() else {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-mutex",
-                "mutex-object-key-invalid",
-                "mutex handle resolved to a non-mutex object identity",
-            ));
-        };
-        let retirement = (record.open_handles == 1)
-            .then(|| {
-                self.synchronization
-                    .plan_mutex_retirement(RuntimeMutexId(mutex_id))
-            })
-            .transpose()?;
-        let object_plan = self
-            .objects
-            .plan_mutex_handle_close(handle, retirement.as_ref().map(|_| &record.key))?;
-        let removed = object_plan.closed_entry();
-        self.objects.commit_mutex_mutation(object_plan)?;
-        if let Some(retirement) = retirement {
-            self.synchronization.commit_mutex_retirement(retirement);
-        }
-        Ok(removed)
     }
 
     pub fn object_wait_state(
@@ -2211,15 +2260,72 @@ impl RuntimeKernel {
         let key = RuntimeObjectKey::Mutex {
             mutex_id: mutex_id.0,
         };
-        let object_plan = self.objects.plan_mutex_handle_open(key, already_exists)?;
+        let object_plan = self
+            .objects
+            .plan_close_handle_object_open(key, already_exists)?;
         let handle = object_plan.opened_handle();
-        self.objects.commit_mutex_mutation(object_plan)?;
+        self.objects
+            .commit_close_handle_object_mutation(object_plan)?;
         self.synchronization.commit_mutex_creation(plan);
         Ok(RuntimeCreateMutexAResult {
             mutex_id,
             handle,
             already_exists,
         })
+    }
+
+    pub fn create_waitable_timer_a(
+        &mut self,
+        manual_reset: bool,
+    ) -> Result<RuntimeCreateWaitableTimerAResult, RuntimeStateError> {
+        self.require_waitable_timer_operation_state()?;
+        let plan = self.timers.plan_waitable_timer_creation(manual_reset)?;
+        let timer_id = plan.id();
+        let key = RuntimeObjectKey::WaitableTimer {
+            timer_id: timer_id.0,
+        };
+        let object_plan = self.objects.plan_close_handle_object_open(key, false)?;
+        self.timers.preflight_waitable_timer_creation(&plan)?;
+        let handle = object_plan.opened_handle();
+        self.objects
+            .commit_close_handle_object_mutation(object_plan)?;
+        self.timers.commit_waitable_timer_creation(plan);
+        Ok(RuntimeCreateWaitableTimerAResult { timer_id, handle })
+    }
+
+    pub fn waitable_timer_for_handle(
+        &self,
+        handle: RuntimeHandle,
+    ) -> Result<&RuntimeWaitableTimer, RuntimeStateError> {
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?;
+        let RuntimeObjectKey::WaitableTimer { timer_id } = &record.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-waitable-timer",
+                "waitable-timer-object-key-invalid",
+                "waitable timer handle resolved to a different object identity",
+            ));
+        };
+        self.timers
+            .waitable_timer(RuntimeWaitableTimerId(*timer_id))
+    }
+
+    fn require_waitable_timer_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-waitable-timer",
+                "waitable-timer-operation-state-invalid",
+                "waitable timer operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
     }
 
     pub fn mutex_for_handle(
@@ -2268,23 +2374,57 @@ impl RuntimeKernel {
         Ok(())
     }
 
-    fn teardown_mutexes(&mut self) -> Result<usize, RuntimeStateError> {
-        let ids = self.synchronization.mutex_ids();
-        let keys = ids
+    fn plan_payload_object_teardown(
+        &self,
+    ) -> Result<RuntimePayloadObjectTeardownPlan, RuntimeStateError> {
+        let mutex_ids = self.synchronization.mutex_ids();
+        let waitable_timer_ids = self.timers.waitable_timer_ids();
+        let mut keys = mutex_ids
             .iter()
             .map(|id| RuntimeObjectKey::Mutex { mutex_id: id.0 })
             .collect::<Vec<_>>();
-        let plans = ids
+        keys.extend(
+            waitable_timer_ids
+                .iter()
+                .map(|id| RuntimeObjectKey::WaitableTimer { timer_id: id.0 }),
+        );
+        let mutex_plans = mutex_ids
             .iter()
             .map(|id| self.synchronization.plan_mutex_retirement(*id))
             .collect::<Result<Vec<_>, _>>()?;
-        let object_plan = self.objects.plan_mutex_teardown(&keys)?;
-        let retired_handles = object_plan.retired_handles();
-        self.objects.commit_mutex_mutation(object_plan)?;
-        for plan in plans {
+        let waitable_timer_plans = waitable_timer_ids
+            .iter()
+            .map(|id| self.timers.plan_waitable_timer_retirement(*id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let object_plan = (!keys.is_empty())
+            .then(|| self.objects.plan_close_handle_object_teardown(&keys))
+            .transpose()?;
+        let retired_handles = object_plan
+            .as_ref()
+            .map_or(0, RuntimeCloseHandleObjectMutationPlan::retired_handles);
+        Ok(RuntimePayloadObjectTeardownPlan {
+            object_plan,
+            mutex_plans,
+            waitable_timer_plans,
+            retired_handles,
+        })
+    }
+
+    fn commit_payload_object_teardown(
+        &mut self,
+        plan: RuntimePayloadObjectTeardownPlan,
+    ) -> Result<usize, RuntimeStateError> {
+        if let Some(object_plan) = plan.object_plan {
+            self.objects
+                .commit_close_handle_object_mutation(object_plan)?;
+        }
+        for plan in plan.mutex_plans {
             self.synchronization.commit_mutex_retirement(plan);
         }
-        Ok(retired_handles)
+        for plan in plan.waitable_timer_plans {
+            self.timers.commit_waitable_timer_retirement(plan);
+        }
+        Ok(plan.retired_handles)
     }
 
     pub fn initialize_critical_section(
@@ -2696,8 +2836,9 @@ impl RuntimeKernel {
                 "process exit cannot leave a registered waiter to resume",
             ));
         }
+        let payload_teardown = self.plan_payload_object_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
-        self.teardown_mutexes()?;
+        self.commit_payload_object_teardown(payload_teardown)?;
         self.objects.commit_wait_state_updates(wait_updates);
         for completion in completions {
             self.commit_thread_exit_completion(completion);
@@ -2761,11 +2902,12 @@ impl RuntimeKernel {
                 "process termination cannot leave a registered waiter to resume",
             ));
         }
+        let payload_teardown = self.plan_payload_object_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(timer_plan) = plan.timer_resolution_teardown.as_ref() {
             self.timers.preflight_process_teardown(timer_plan)?;
         }
-        self.teardown_mutexes()?;
+        self.commit_payload_object_teardown(payload_teardown)?;
         let cancellation = plan.cancellation.clone();
         if let Some(timer_plan) = plan.timer_resolution_teardown {
             self.timers.commit_process_teardown(timer_plan)?;
