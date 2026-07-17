@@ -1,0 +1,18 @@
+{
+  "schema": "vine.source-snapshot-manifest",
+  "schemaVersion": 1,
+  "titleFingerprint": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+  "snapshotId": "bgi-gdb-e14899243887737b-v1",
+  "mount": {
+    "sourceId": 1,
+    "rootPathA": [67, 58, 92, 86, 105, 110, 101, 0]
+  },
+  "files": [
+    {
+      "objectId": 1,
+      "relativePathA": [66, 71, 73, 46, 103, 100, 98],
+      "byteLength": 125461,
+      "sha256": "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92"
+    }
+  ]
+}

@@ -33,6 +33,12 @@ use super::com::{
     RuntimeComReferenceResult, RuntimeComRegistrationResult,
 };
 use super::displays::{RuntimeDisplayProfile, RuntimeDisplays, RuntimeLogicalMonitor};
+use super::files::{
+    RUNTIME_SOURCE_READ_SERVICE, RuntimeFiles, RuntimeSourceFile, RuntimeSourceFileRetirementPlan,
+    RuntimeSourceReadBeginPlan, RuntimeSourceReadCancellationPlan, RuntimeSourceReadCompletion,
+    RuntimeSourceReadCompletionPlan, RuntimeSourceReadHostResponse, RuntimeSourceReadRequest,
+    RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
+};
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
     RuntimeHeapCreationPlan, RuntimeHeapDestructionPlan, RuntimeHeapFreePlan,
@@ -128,6 +134,7 @@ struct RuntimeThreadExitRequestPlan {
     scheduler_plan: RuntimeSchedulerLanePlan,
     cancelled_wait: Option<RuntimeWaitRegistration>,
     host_request_cancellation: RuntimeHostRequestCancellationPlan,
+    source_read_cancellation: RuntimeSourceReadCancellationPlan,
     message_clear: RuntimeMessageClearPlan,
     cancellation: RuntimeCancellation,
 }
@@ -155,7 +162,31 @@ struct RuntimePayloadObjectTeardownPlan {
     object_plan: Option<RuntimeCloseHandleObjectMutationPlan>,
     mutex_plans: Vec<RuntimeMutexRetirementPlan>,
     waitable_timer_plans: Vec<RuntimeWaitableTimerRetirementPlan>,
+    source_file_plans: Vec<RuntimeSourceFileRetirementPlan>,
     retired_handles: usize,
+}
+
+pub(crate) struct RuntimeSourceReadAggregateCompletionPlan {
+    scheduler: super::scheduler::RuntimeHostCompletionPlan,
+    source_read: RuntimeSourceReadCompletionPlan,
+}
+
+impl RuntimeSourceReadAggregateCompletionPlan {
+    pub(crate) fn response(&self) -> &RuntimeSourceReadHostResponse {
+        self.source_read.response()
+    }
+
+    pub(crate) const fn buffer(&self) -> GuestAddress {
+        self.source_read.buffer()
+    }
+
+    pub(crate) const fn bytes_read(&self) -> GuestAddress {
+        self.source_read.bytes_read()
+    }
+
+    pub(crate) fn completion(&self) -> &RuntimeSourceReadCompletion {
+        self.source_read.completion()
+    }
 }
 
 struct RuntimeCallbackMutationPlan {
@@ -202,6 +233,7 @@ pub struct RuntimeKernel {
     objects: RuntimeObjectTable,
     com: RuntimeCom,
     heaps: RuntimeHeaps,
+    files: RuntimeFiles,
     module_records: RuntimeModuleRecords,
     synchronization: RuntimeSynchronization,
     modules: RuntimeModules,
@@ -426,6 +458,7 @@ impl RuntimeKernel {
             objects,
             com: RuntimeCom::default(),
             heaps: RuntimeHeaps::default(),
+            files: RuntimeFiles::default(),
             module_records: RuntimeModuleRecords::default(),
             synchronization: RuntimeSynchronization::default(),
             modules: RuntimeModules::default(),
@@ -569,6 +602,165 @@ impl RuntimeKernel {
         plan: RuntimeSetCurrentDirectoryAPlan,
     ) -> Result<&RuntimeCurrentDirectoryA, RuntimeStateError> {
         self.process.commit_set_current_directory_a(plan)
+    }
+
+    pub fn register_source_snapshot(
+        &mut self,
+        manifest: RuntimeSourceSnapshotManifest,
+    ) -> Result<&RuntimeSourceSnapshot, RuntimeStateError> {
+        let plan = self.files.plan_snapshot_registration(manifest)?;
+        self.files.commit_snapshot_registration(plan)?;
+        self.files.snapshot().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-vfs",
+                "source-snapshot-registration-missing",
+                "source snapshot disappeared after registration commit",
+            )
+        })
+    }
+
+    pub fn source_snapshot(&self) -> Option<&RuntimeSourceSnapshot> {
+        self.files.snapshot()
+    }
+
+    pub fn open_source_file_a(
+        &mut self,
+        requested_path: &[u8],
+        desired_access: u32,
+        share_mode: u32,
+        flags_and_attributes: u32,
+    ) -> Result<Option<super::RuntimeOpenSourceFileResult>, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        let Some(plan) = self.files.plan_open(
+            requested_path,
+            &self.process.current_directory_a().bytes_with_nul,
+            desired_access,
+            share_mode,
+            flags_and_attributes,
+        )?
+        else {
+            return Ok(None);
+        };
+        let key = RuntimeObjectKey::File {
+            file_id: plan.file_id().0,
+        };
+        let object_plan = self.objects.plan_close_handle_object_open(key, false)?;
+        self.files.preflight_open(&plan)?;
+        let handle = object_plan.opened_handle();
+        self.objects
+            .commit_close_handle_object_mutation(object_plan)?;
+        let file = self.files.commit_open(plan);
+        Ok(Some(super::RuntimeOpenSourceFileResult { file, handle }))
+    }
+
+    pub fn source_file_for_handle(
+        &self,
+        handle: RuntimeHandle,
+    ) -> Result<&RuntimeSourceFile, RuntimeStateError> {
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::File)?;
+        let RuntimeObjectKey::File { file_id } = record.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-vfs",
+                "source-file-object-key-invalid",
+                "source file handle resolved to a different object identity",
+            ));
+        };
+        self.files.open_file(super::RuntimeSourceFileId(file_id))
+    }
+
+    pub fn begin_source_file_read(
+        &mut self,
+        handle: RuntimeHandle,
+        buffer: GuestAddress,
+        bytes_read: GuestAddress,
+        requested_bytes: u32,
+    ) -> Result<RuntimeSourceReadRequest, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        let file_id = self.source_file_for_handle(handle)?.id;
+        let scheduler_plan = self
+            .scheduler
+            .plan_host_request(RUNTIME_SOURCE_READ_SERVICE.to_owned())?;
+        let source_plan: RuntimeSourceReadBeginPlan = self.files.plan_read_begin(
+            file_id,
+            scheduler_plan.request().request_id,
+            buffer,
+            bytes_read,
+            requested_bytes,
+        )?;
+        self.files.preflight_read_begin(&source_plan)?;
+        let runtime_request = self.scheduler.commit_host_request(scheduler_plan);
+        let source_request = self.files.commit_read_begin(source_plan);
+        debug_assert_eq!(runtime_request.request_id, source_request.request_id);
+        debug_assert_eq!(runtime_request.service, RUNTIME_SOURCE_READ_SERVICE);
+        Ok(source_request)
+    }
+
+    pub(crate) fn plan_source_file_read_completion(
+        &self,
+        response: RuntimeSourceReadHostResponse,
+    ) -> Result<RuntimeSourceReadAggregateCompletionPlan, RuntimeStateError> {
+        let scheduler = self.scheduler.plan_host_completion(response.request_id)?;
+        if scheduler.request().service != RUNTIME_SOURCE_READ_SERVICE {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-vfs",
+                "source-read-host-service-mismatch",
+                "source read completion belongs to another host service",
+            ));
+        }
+        let source_read = self.files.plan_read_completion(response)?;
+        self.files.preflight_read_completion(&source_read)?;
+        Ok(RuntimeSourceReadAggregateCompletionPlan {
+            scheduler,
+            source_read,
+        })
+    }
+
+    pub(crate) fn commit_source_file_read_completion(
+        &mut self,
+        plan: RuntimeSourceReadAggregateCompletionPlan,
+    ) -> RuntimeSourceReadCompletion {
+        debug_assert!(
+            self.files
+                .preflight_read_completion(&plan.source_read)
+                .is_ok()
+        );
+        let scheduler_completion = self.scheduler.commit_host_completion(plan.scheduler);
+        debug_assert_eq!(
+            scheduler_completion.request_id,
+            plan.source_read.completion().request.request_id
+        );
+        self.files.commit_read_completion(plan.source_read)
+    }
+
+    pub fn seek_source_file(
+        &mut self,
+        handle: RuntimeHandle,
+        distance: i64,
+        origin: u32,
+    ) -> Result<u64, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        let file_id = self.source_file_for_handle(handle)?.id;
+        let plan = self.files.plan_seek(file_id, distance, origin)?;
+        self.files.commit_seek(plan)
+    }
+
+    fn require_source_file_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "source-file-operation-state-invalid",
+                "source file operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
     }
 
     pub fn unhandled_exception_filter(&self) -> Option<GuestAddress> {
@@ -1333,6 +1525,39 @@ impl RuntimeKernel {
                     .commit_close_handle_object_mutation(object_plan)?;
                 if let Some(retirement) = retirement {
                     self.timers.commit_waitable_timer_retirement(retirement);
+                }
+                Ok(removed)
+            }
+            RuntimeObjectKind::File => {
+                let record = self
+                    .objects
+                    .object_for_handle(handle, RuntimeObjectKind::File)?
+                    .clone();
+                let RuntimeObjectKey::File { file_id } = record.key.clone() else {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-vfs",
+                        "source-file-object-key-invalid",
+                        "source file handle resolved to a different object identity",
+                    ));
+                };
+                let retirement = (record.open_handles == 1)
+                    .then(|| {
+                        self.files
+                            .plan_retirement(super::RuntimeSourceFileId(file_id))
+                    })
+                    .transpose()?;
+                let object_plan = self.objects.plan_close_handle_object_close(
+                    handle,
+                    retirement.as_ref().map(|_| &record.key),
+                )?;
+                if let Some(retirement) = retirement.as_ref() {
+                    self.files.preflight_retirement(retirement)?;
+                }
+                let removed = object_plan.closed_entry();
+                self.objects
+                    .commit_close_handle_object_mutation(object_plan)?;
+                if let Some(retirement) = retirement {
+                    self.files.commit_retirement(retirement);
                 }
                 Ok(removed)
             }
@@ -2681,9 +2906,11 @@ impl RuntimeKernel {
 
     fn plan_payload_object_teardown(
         &self,
+        cancelling_source_reads: &BTreeSet<u64>,
     ) -> Result<RuntimePayloadObjectTeardownPlan, RuntimeStateError> {
         let mutex_ids = self.synchronization.mutex_ids();
         let waitable_timer_ids = self.timers.waitable_timer_ids();
+        let source_file_ids = self.files.open_file_ids().collect::<Vec<_>>();
         let mut keys = mutex_ids
             .iter()
             .map(|id| RuntimeObjectKey::Mutex { mutex_id: id.0 })
@@ -2693,6 +2920,11 @@ impl RuntimeKernel {
                 .iter()
                 .map(|id| RuntimeObjectKey::WaitableTimer { timer_id: id.0 }),
         );
+        keys.extend(
+            source_file_ids
+                .iter()
+                .map(|id| RuntimeObjectKey::File { file_id: id.0 }),
+        );
         let mutex_plans = mutex_ids
             .iter()
             .map(|id| self.synchronization.plan_mutex_retirement(*id))
@@ -2701,6 +2933,16 @@ impl RuntimeKernel {
             .iter()
             .map(|id| self.timers.plan_waitable_timer_retirement(*id))
             .collect::<Result<Vec<_>, _>>()?;
+        let source_file_plans = source_file_ids
+            .iter()
+            .map(|id| {
+                self.files
+                    .plan_process_retirement(*id, cancelling_source_reads)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for plan in &source_file_plans {
+            self.files.preflight_retirement(plan)?;
+        }
         let object_plan = (!keys.is_empty())
             .then(|| self.objects.plan_close_handle_object_teardown(&keys))
             .transpose()?;
@@ -2711,6 +2953,7 @@ impl RuntimeKernel {
             object_plan,
             mutex_plans,
             waitable_timer_plans,
+            source_file_plans,
             retired_handles,
         })
     }
@@ -2728,6 +2971,9 @@ impl RuntimeKernel {
         }
         for plan in plan.waitable_timer_plans {
             self.timers.commit_waitable_timer_retirement(plan);
+        }
+        for plan in plan.source_file_plans {
+            self.files.commit_retirement(plan);
         }
         Ok(plan.retired_handles)
     }
@@ -3141,7 +3387,7 @@ impl RuntimeKernel {
                 "process exit cannot leave a registered waiter to resume",
             ));
         }
-        let payload_teardown = self.plan_payload_object_teardown()?;
+        let payload_teardown = self.plan_payload_object_teardown(&BTreeSet::new())?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(user32_plan) = user32_teardown.as_ref() {
@@ -3214,7 +3460,12 @@ impl RuntimeKernel {
                 "process termination cannot leave a registered waiter to resume",
             ));
         }
-        let payload_teardown = self.plan_payload_object_teardown()?;
+        let cancelling_source_reads = plan
+            .thread_plans
+            .iter()
+            .flat_map(|thread| thread.source_read_cancellation.request_ids())
+            .collect::<BTreeSet<_>>();
+        let payload_teardown = self.plan_payload_object_teardown(&cancelling_source_reads)?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(timer_plan) = plan.timer_resolution_teardown.as_ref() {
@@ -3223,15 +3474,10 @@ impl RuntimeKernel {
         if let Some(user32_plan) = user32_teardown.as_ref() {
             self.user32.preflight_process_teardown(user32_plan)?;
         }
-        self.commit_payload_object_teardown(payload_teardown)?;
-        if let Some(user32_plan) = user32_teardown {
-            self.user32.commit_process_teardown(user32_plan);
-        }
         let cancellation = plan.cancellation.clone();
         if let Some(timer_plan) = plan.timer_resolution_teardown {
             self.timers.commit_process_teardown(timer_plan)?;
         }
-        self.objects.commit_wait_state_updates(wait_updates);
         for ((thread_plan, terminal_thread_plan), terminal_scheduler_plan) in plan
             .thread_plans
             .into_iter()
@@ -3242,6 +3488,11 @@ impl RuntimeKernel {
             self.threads.commit(terminal_thread_plan);
             self.scheduler.commit_lane(terminal_scheduler_plan);
         }
+        self.commit_payload_object_teardown(payload_teardown)?;
+        if let Some(user32_plan) = user32_teardown {
+            self.user32.commit_process_teardown(user32_plan);
+        }
+        self.objects.commit_wait_state_updates(wait_updates);
         self.process.commit_mutation(process_plan);
         Ok(cancellation)
     }
@@ -3392,6 +3643,9 @@ impl RuntimeKernel {
             .plan_transition(thread_id, SchedulerThreadState::Terminating { exit_code })?;
         let cancelled_wait = self.plan_thread_wait_cancellation(thread_id, scheduler_state)?;
         let host_request_cancellation = self.scheduler.plan_host_request_cancellation(thread_id);
+        let source_read_cancellation = self
+            .files
+            .plan_read_cancellation(host_request_cancellation.request_ids());
         let message_clear = self.messages.plan_clear(thread_id)?;
         let messages_discarded = message_clear.message_count;
         let host_requests_cancelled = host_request_cancellation.request_count();
@@ -3402,6 +3656,7 @@ impl RuntimeKernel {
             scheduler_plan,
             cancelled_wait,
             host_request_cancellation,
+            source_read_cancellation,
             message_clear,
             cancellation: RuntimeCancellation {
                 thread_id,
@@ -3417,6 +3672,8 @@ impl RuntimeKernel {
 
     fn commit_thread_exit_request(&mut self, plan: RuntimeThreadExitRequestPlan) {
         self.messages.commit_clear(plan.message_clear);
+        self.files
+            .commit_read_cancellation(plan.source_read_cancellation);
         self.scheduler
             .commit_host_request_cancellation(plan.host_request_cancellation);
         if let Some(registration) = plan.cancelled_wait {

@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
-use super::{LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE, RuntimeStateError};
+use super::{
+    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE, RUNTIME_SOURCE_FILE_NAMESPACE,
+    RuntimeStateError,
+};
 
 pub const RUNTIME_PROCESS_OBJECT_NAMESPACE: &str = "vine.runtime-process-object.v1";
 pub const RUNTIME_THREAD_OBJECT_NAMESPACE: &str = "vine.runtime-thread-object.v1";
@@ -16,6 +19,7 @@ pub enum RuntimeObjectKind {
     Thread,
     Mutex,
     WaitableTimer,
+    File,
     PrivateHeap,
     Module,
 }
@@ -27,6 +31,7 @@ impl RuntimeObjectKind {
             Self::Thread => 0x54,
             Self::Mutex => 0x58,
             Self::WaitableTimer => 0x57,
+            Self::File => 0x46,
             Self::PrivateHeap => 0x68,
             Self::Module => 0x4d,
         }
@@ -38,6 +43,7 @@ impl RuntimeObjectKind {
             0x54 => Some(Self::Thread),
             0x58 => Some(Self::Mutex),
             0x57 => Some(Self::WaitableTimer),
+            0x46 => Some(Self::File),
             0x68 => Some(Self::PrivateHeap),
             0x4d => Some(Self::Module),
             _ => None,
@@ -97,6 +103,7 @@ pub enum RuntimeObjectKey {
     Thread { thread_id: u32 },
     Mutex { mutex_id: u64 },
     WaitableTimer { timer_id: u64 },
+    File { file_id: u64 },
     PrivateHeap { handle: u32 },
     Module { handle: u32 },
 }
@@ -108,6 +115,7 @@ impl RuntimeObjectKey {
             Self::Thread { .. } => RuntimeObjectKind::Thread,
             Self::Mutex { .. } => RuntimeObjectKind::Mutex,
             Self::WaitableTimer { .. } => RuntimeObjectKind::WaitableTimer,
+            Self::File { .. } => RuntimeObjectKind::File,
             Self::PrivateHeap { .. } => RuntimeObjectKind::PrivateHeap,
             Self::Module { .. } => RuntimeObjectKind::Module,
         }
@@ -332,16 +340,24 @@ impl RuntimeObjectTable {
             RuntimeObjectKind::Process
             | RuntimeObjectKind::Thread
             | RuntimeObjectKind::Mutex
-            | RuntimeObjectKind::WaitableTimer => (
+            | RuntimeObjectKind::WaitableTimer
+            | RuntimeObjectKind::File => (
                 match kind {
                     RuntimeObjectKind::Process => RUNTIME_PROCESS_OBJECT_NAMESPACE,
                     RuntimeObjectKind::Thread => RUNTIME_THREAD_OBJECT_NAMESPACE,
                     RuntimeObjectKind::Mutex => RUNTIME_MUTEX_OBJECT_NAMESPACE,
                     RuntimeObjectKind::WaitableTimer => RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
+                    RuntimeObjectKind::File => RUNTIME_SOURCE_FILE_NAMESPACE,
                     RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => unreachable!(),
                 },
                 RuntimeHandleClosePolicy::CloseHandle,
-                (kind != RuntimeObjectKind::Mutex).then_some(RuntimeWaitState::Nonsignaled),
+                matches!(
+                    kind,
+                    RuntimeObjectKind::Process
+                        | RuntimeObjectKind::Thread
+                        | RuntimeObjectKind::WaitableTimer
+                )
+                .then_some(RuntimeWaitState::Nonsignaled),
             ),
             RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => (
                 if kind == RuntimeObjectKind::PrivateHeap {
@@ -969,7 +985,7 @@ const fn runtime_handle_slot_key(kind: RuntimeObjectKind, slot: u16) -> u32 {
 const fn is_payload_close_handle_kind(kind: RuntimeObjectKind) -> bool {
     matches!(
         kind,
-        RuntimeObjectKind::Mutex | RuntimeObjectKind::WaitableTimer
+        RuntimeObjectKind::Mutex | RuntimeObjectKind::WaitableTimer | RuntimeObjectKind::File
     )
 }
 

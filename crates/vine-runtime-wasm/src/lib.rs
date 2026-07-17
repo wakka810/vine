@@ -19,19 +19,22 @@ use vine_core::{
     RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
     RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
     RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, SchedulerThreadState, StackCleanup,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, install_controlled_initial_stack,
-    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
-    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
-    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
-    user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
+    RuntimeThreadId, SchedulerThreadState, StackCleanup, User32CompatibilityPolicy,
+    WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
+    complete_kernel32_source_read, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
+    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
+    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
+    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
+    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
+    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const FIXTURE_SHA256: &str = "26a9a1d836c421ef7bf5e5b36ddd9dad83c5cbd4b4150acd85fc6f269bd7d68c";
 const FIXTURE_MODULE: &str = "vine_browser_fixture.dll";
+const SOURCE_READ_FIXTURE_SHA256: &str =
+    "292d298cb77a8223cb0f6fb66333457b3fab9b8e4f0c1643cf01936b769a1d63";
 const LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
@@ -116,22 +119,77 @@ impl Bridge {
         &mut self,
         executable_length: usize,
         policy_length: usize,
+        source_manifest_length: usize,
     ) -> Result<(), String> {
         let total_length = executable_length
             .checked_add(policy_length)
+            .and_then(|length| length.checked_add(source_manifest_length))
             .ok_or_else(|| "BGI bridge input length overflowed".to_owned())?;
         let input = self
             .input
             .get(..total_length)
             .ok_or_else(|| "BGI input lengths exceed the bridge buffer".to_owned())?;
-        let (executable, policy) = input.split_at(executable_length);
+        let (executable, remaining) = input.split_at(executable_length);
+        let (policy, source_manifest) = remaining.split_at(policy_length);
         let policy: Kernel32CompatibilityPolicy =
             serde_json::from_slice(policy).map_err(|error| error.to_string())?;
         policy.validate().map_err(error_string)?;
+        let source_manifest: RuntimeSourceSnapshotManifest =
+            serde_json::from_slice(source_manifest).map_err(|error| error.to_string())?;
         let (runtime, metadata, reflection) =
-            BrowserRuntime::prepare_bgi(executable.to_vec(), policy)?;
+            BrowserRuntime::prepare_bgi(executable.to_vec(), policy, source_manifest)?;
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
+    }
+
+    fn prepare_source_read(
+        &mut self,
+        executable_length: usize,
+        policy_length: usize,
+        source_manifest_length: usize,
+    ) -> Result<(), String> {
+        let total_length = executable_length
+            .checked_add(policy_length)
+            .and_then(|length| length.checked_add(source_manifest_length))
+            .ok_or_else(|| "source read bridge input length overflowed".to_owned())?;
+        let input = self
+            .input
+            .get(..total_length)
+            .ok_or_else(|| "source read input lengths exceed the bridge buffer".to_owned())?;
+        let (executable, remaining) = input.split_at(executable_length);
+        let (policy, source_manifest) = remaining.split_at(policy_length);
+        let policy: Kernel32CompatibilityPolicy =
+            serde_json::from_slice(policy).map_err(|error| error.to_string())?;
+        policy.validate().map_err(error_string)?;
+        let source_manifest: RuntimeSourceSnapshotManifest =
+            serde_json::from_slice(source_manifest).map_err(|error| error.to_string())?;
+        let (runtime, metadata, reflection) =
+            BrowserRuntime::prepare_source_read(executable.to_vec(), policy, source_manifest)?;
+        self.runtime = Some(runtime);
+        self.set_output(metadata, reflection.control, reflection.page_bytes)
+    }
+
+    fn complete_source_read(
+        &mut self,
+        request_id: u64,
+        control_length: usize,
+        payload_length: usize,
+    ) -> Result<(), String> {
+        let total_length = control_length
+            .checked_add(payload_length)
+            .ok_or_else(|| "source read bridge input length overflowed".to_owned())?;
+        let input = self
+            .input
+            .get(..total_length)
+            .ok_or_else(|| "source read input lengths exceed the bridge buffer".to_owned())?;
+        let (control, payload) = input.split_at(control_length);
+        let response = RuntimeSourceReadHostResponse::decode_binary(request_id, control, payload)
+            .map_err(error_string)?;
+        let (metadata, delta) = self.runtime_mut()?.complete_source_read(response)?;
+        let (control, payload) = delta
+            .map(|buffers| (buffers.control, buffers.page_bytes))
+            .unwrap_or_default();
+        self.set_output(metadata, control, payload)
     }
 
     fn runtime_mut(&mut self) -> Result<&mut BrowserRuntime, String> {
@@ -153,6 +211,7 @@ struct ActiveCallback {
     stack_pointer: GuestAddress,
 }
 
+#[derive(Clone)]
 struct PendingHostCall {
     thread_id: RuntimeThreadId,
     call: ApiDeferredCall,
@@ -181,6 +240,9 @@ struct BrowserMappingFixture {
 #[derive(Clone)]
 enum BrowserRuntimeTarget {
     ControlledFixture,
+    ControlledSourceRead {
+        kernel32_policy: Box<Kernel32CompatibilityPolicy>,
+    },
     Bgi {
         kernel32_policy: Box<Kernel32CompatibilityPolicy>,
         user32_policy: Box<User32CompatibilityPolicy>,
@@ -362,6 +424,7 @@ impl BrowserRuntime {
     fn prepare_bgi(
         executable: Vec<u8>,
         kernel32_policy: Kernel32CompatibilityPolicy,
+        source_manifest: RuntimeSourceSnapshotManifest,
     ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
         let loader_limits = Pe32Limits::default();
         let snapshot =
@@ -369,6 +432,13 @@ impl BrowserRuntime {
         snapshot
             .verify_expected_sha256(BGI_SHA256)
             .map_err(error_string)?;
+        let source_identity = snapshot.identity();
+        if source_manifest.title_fingerprint != source_identity.sha256 {
+            return Err(
+                "source snapshot title fingerprint does not match the prepared BGI executable"
+                    .to_owned(),
+            );
+        }
         let plan = build_pe32_load_plan(&snapshot, loader_limits).map_err(error_string)?;
         let mut memory = GuestMemory::new(MemoryLimits {
             max_physical_pages: BGI_MAX_PHYSICAL_PAGES,
@@ -380,6 +450,10 @@ impl BrowserRuntime {
         let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
         let mut process =
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
+        process
+            .runtime
+            .register_source_snapshot(source_manifest)
+            .map_err(error_string)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v6();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -476,6 +550,7 @@ impl BrowserRuntime {
             "schemaVersion": 2,
             "workload": "private-bgi",
             "source": snapshot.identity(),
+            "sourceSnapshot": process.runtime.source_snapshot(),
             "entryPoint": materialization.entry_point_address.0,
             "fsBase": environment.teb_address.0,
             "generation": reflection.invalidation.generation,
@@ -520,6 +595,119 @@ impl BrowserRuntime {
                     kernel32_policy: Box::new(kernel32_policy),
                     user32_policy: Box::new(user32_policy),
                     winmm_policy: Box::new(winmm_policy),
+                },
+            },
+            metadata,
+            reflection_buffers,
+        ))
+    }
+
+    fn prepare_source_read(
+        executable: Vec<u8>,
+        kernel32_policy: Kernel32CompatibilityPolicy,
+        source_manifest: RuntimeSourceSnapshotManifest,
+    ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
+        let loader_limits = Pe32Limits::default();
+        let snapshot =
+            ModuleSnapshot::from_bytes(executable, &loader_limits).map_err(error_string)?;
+        snapshot
+            .verify_expected_sha256(SOURCE_READ_FIXTURE_SHA256)
+            .map_err(error_string)?;
+        let source_identity = snapshot.identity();
+        if source_manifest.title_fingerprint != source_identity.sha256 {
+            return Err(
+                "source snapshot title fingerprint does not match the controlled source fixture"
+                    .to_owned(),
+            );
+        }
+        let plan = build_pe32_load_plan(&snapshot, loader_limits).map_err(error_string)?;
+        let mut memory = GuestMemory::new(MemoryLimits {
+            max_physical_pages: FIXTURE_MAX_PHYSICAL_PAGES,
+            ..MemoryLimits::default()
+        })
+        .map_err(error_string)?;
+        let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, LOAD_BASE)
+            .map_err(error_string)?;
+        let mut runtime = controlled_runtime_state()?;
+        runtime
+            .register_source_snapshot(source_manifest)
+            .map_err(error_string)?;
+        let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
+        let import_allocation =
+            control_mapping_allocation(&runtime, ProcessAddressAllocationPurpose::ImportThunks)?;
+        let binding = bind_pe32_imports(
+            &mut memory,
+            &import_allocation,
+            &plan,
+            &materialization,
+            &runtime_catalog,
+        )
+        .map_err(error_string)?;
+        if !binding.complete || !binding.image_owner_sealed {
+            return Err("source read fixture import binding did not complete".to_owned());
+        }
+        let callback_allocation =
+            control_mapping_allocation(&runtime, ProcessAddressAllocationPurpose::CallbackReturns)?;
+        let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation)
+            .map_err(error_string)?;
+        let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
+            .map_err(error_string)?;
+        runtime
+            .register_initial_thread_stack(&stack)
+            .map_err(error_string)?;
+        let (dispatcher, routes) = build_source_read_dispatcher(&binding)?;
+        let runtime_stack = runtime
+            .thread_stack(runtime.current_thread_id())
+            .map_err(error_string)?;
+        let stack_allocation = runtime
+            .process_address_space_allocator()
+            .allocation(runtime_stack.address_allocation_id)
+            .map_err(error_string)?;
+        let reflection = memory.pending_reflection().map_err(error_string)?;
+        let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
+        let metadata = json!({
+            "kind": "prepared",
+            "schemaVersion": 2,
+            "workload": "controlled-source-read",
+            "source": source_identity,
+            "sourceSnapshot": runtime.source_snapshot(),
+            "entryPoint": materialization.entry_point_address.0,
+            "fsBase": 0,
+            "generation": reflection.invalidation.generation,
+            "stackTop": stack.stack_top.0,
+            "initialStackPointer": stack.initial_esp.0,
+            "initialThreadStack": runtime_stack,
+            "initialStackAddressAllocation": stack_allocation,
+            "callbackSentinel": sentinels.callback_return.address.0,
+            "entrySentinel": sentinels.process_entry_return.address.0,
+            "pageCount": reflection.pages.len(),
+            "maximumPhysicalPages": FIXTURE_MAX_PHYSICAL_PAGES,
+            "regions": memory.region_snapshots(),
+            "endpoints": binding.thunks,
+            "additionalThreads": [],
+            "runtime": {
+                "processId": runtime.process_id().0,
+                "threadId": runtime.current_thread_id().0,
+                "currentDirectoryA": runtime.current_directory_a(),
+                "currentDirectoryGeneration": runtime.current_directory_generation(),
+                "kernel32Policy": kernel32_policy.id,
+            },
+        });
+        Ok((
+            Self {
+                memory,
+                runtime,
+                dispatcher,
+                routes,
+                callback_sentinel: sentinels.callback_return.address,
+                entry_sentinel: sentinels.process_entry_return.address,
+                stack,
+                pending_host: BTreeMap::new(),
+                callbacks: BTreeMap::new(),
+                controlled_guest_thread: None,
+                mapping_fixture: BrowserMappingFixture::default(),
+                target: BrowserRuntimeTarget::ControlledSourceRead {
+                    kernel32_policy: Box::new(kernel32_policy),
                 },
             },
             metadata,
@@ -934,6 +1122,9 @@ impl BrowserRuntime {
                             )),
                         }
                     }
+                    BrowserRuntimeTarget::ControlledSourceRead { kernel32_policy } => {
+                        dispatch_kernel32_api_with_policy(kernel32_policy, contract, frame, session)
+                    }
                 },
             );
         match outcome {
@@ -974,7 +1165,8 @@ impl BrowserRuntime {
             DispatchOutcome::Immediate(completion) => {
                 let delta = self.pending_delta()?;
                 let metadata = match &self.target {
-                    BrowserRuntimeTarget::ControlledFixture => {
+                    BrowserRuntimeTarget::ControlledFixture
+                    | BrowserRuntimeTarget::ControlledSourceRead { .. } => {
                         completion_metadata("api-complete", &completion)
                     }
                     BrowserRuntimeTarget::Bgi { .. } => {
@@ -1056,7 +1248,8 @@ impl BrowserRuntime {
                 Ok((metadata, delta))
             }
             DispatchOutcome::Fault(fault) => match &self.target {
-                BrowserRuntimeTarget::ControlledFixture => Err(api_fault_string(fault)),
+                BrowserRuntimeTarget::ControlledFixture
+                | BrowserRuntimeTarget::ControlledSourceRead { .. } => Err(api_fault_string(fault)),
                 BrowserRuntimeTarget::Bgi { .. } => {
                     let reflection = self.memory.current_reflection().map_err(error_string)?;
                     Ok((
@@ -1188,6 +1381,82 @@ impl BrowserRuntime {
             "scheduler": scheduler,
             "completion": completion,
         }))
+    }
+
+    fn complete_source_read(
+        &mut self,
+        response: RuntimeSourceReadHostResponse,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        let request_id = response.request_id;
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .cloned()
+            .ok_or_else(|| "source read completion has no pending API call".to_owned())?;
+        if pending.call.request.request_id != request_id {
+            return Err("source read completion request identity is corrupt".to_owned());
+        }
+        let endpoint = pending.call.frame.endpoint.clone();
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let dispatcher = &self.dispatcher;
+        let (outcome, source_completion) = complete_kernel32_source_read(
+            dispatcher,
+            pending.call.clone(),
+            response,
+            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err("source read completion produced a suspended outcome".to_owned());
+            }
+        };
+        let source_completion = source_completion.ok_or_else(|| {
+            "source read API completed without committing its VFS state".to_owned()
+        })?;
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(completion))
+                if completion.request_id == request_id
+                    && completion.thread_id == owner_thread_id => {}
+            _ => return Err("source read scheduler completion event mismatch".to_owned()),
+        }
+        let removed = self
+            .pending_host
+            .remove(&request_id)
+            .ok_or_else(|| "source read pending call disappeared before commit".to_owned())?;
+        debug_assert_eq!(removed.call.request.request_id, request_id);
+        let scheduler = self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?;
+        if !scheduler.is_executable() {
+            return Err("Rust scheduler did not resume the source read request".to_owned());
+        }
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        let delta = self.pending_delta()?;
+        Ok((
+            json!({
+                "kind": "host-complete",
+                "threadId": owner_thread_id.0,
+                "scheduler": scheduler,
+                "endpoint": endpoint,
+                "completion": completion,
+                "sourceRead": source_completion,
+                "memory": self.memory.stats(),
+            }),
+            delta,
+        ))
     }
 
     fn complete_callback(
@@ -1854,6 +2123,36 @@ fn build_dispatcher(
     Ok((dispatcher, routes))
 }
 
+fn build_source_read_dispatcher(
+    binding: &ImportBinding,
+) -> Result<(ApiDispatcher, BTreeMap<GuestAddress, EndpointRoute>), String> {
+    let endpoints = binding
+        .thunks
+        .iter()
+        .map(ApiEndpointIdentity::from_import_thunk)
+        .collect::<Vec<_>>();
+    let mut contracts = Vec::with_capacity(endpoints.len());
+    let mut routes = BTreeMap::new();
+    for endpoint in &endpoints {
+        let contract = kernel32_contract_for_endpoint(endpoint.clone())
+            .map_err(api_fault_string)?
+            .ok_or_else(|| {
+                "controlled source fixture import has no Kernel32 contract".to_owned()
+            })?;
+        routes.insert(
+            endpoint.address,
+            EndpointRoute {
+                id: endpoint.id.0,
+                argument_bytes: contract.abi.argument_bytes().map_err(api_fault_string)?,
+                endpoint: endpoint.clone(),
+            },
+        );
+        contracts.push(contract);
+    }
+    let dispatcher = ApiDispatcher::new(endpoints, contracts).map_err(api_fault_string)?;
+    Ok((dispatcher, routes))
+}
+
 fn u32_argument(name: &str) -> ApiArgumentSchema {
     ApiArgumentSchema {
         name: name.to_owned(),
@@ -1933,6 +2232,23 @@ fn decode_u32_payload(payload: &[u8]) -> Vec<u32> {
         .collect()
 }
 
+fn restore_selected_thread(
+    runtime: &mut RuntimeState,
+    previous_thread_id: RuntimeThreadId,
+    owner_thread_id: RuntimeThreadId,
+) -> Result<(), String> {
+    if previous_thread_id != owner_thread_id
+        && runtime
+            .thread_state(previous_thread_id)
+            .is_ok_and(|thread| thread.lifecycle == vine_core::RuntimeThreadLifecycleState::Running)
+    {
+        runtime
+            .select_thread(previous_thread_id)
+            .map_err(error_string)?;
+    }
+    Ok(())
+}
+
 fn api_fault_string(fault: ApiFault) -> String {
     format!("{}:{}: {}", fault.stage, fault.code, fault.message)
 }
@@ -2008,8 +2324,33 @@ pub extern "C" fn vine_bridge_prepare(input_length: u32) -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_prepare_bgi(executable_length: u32, policy_length: u32) -> u32 {
-    run_bridge(|bridge| bridge.prepare_bgi(executable_length as usize, policy_length as usize))
+pub extern "C" fn vine_bridge_prepare_bgi(
+    executable_length: u32,
+    policy_length: u32,
+    source_manifest_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        bridge.prepare_bgi(
+            executable_length as usize,
+            policy_length as usize,
+            source_manifest_length as usize,
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_prepare_source_read(
+    executable_length: u32,
+    policy_length: u32,
+    source_manifest_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        bridge.prepare_source_read(
+            executable_length as usize,
+            policy_length as usize,
+            source_manifest_length as usize,
+        )
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -2119,6 +2460,19 @@ pub extern "C" fn vine_bridge_complete_host(
         let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
         let metadata = bridge.runtime_mut()?.complete_host(request_id, result)?;
         bridge.set_output(metadata, Vec::new(), Vec::new())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_complete_source_read(
+    request_low: u32,
+    request_high: u32,
+    control_length: u32,
+    payload_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        bridge.complete_source_read(request_id, control_length as usize, payload_length as usize)
     })
 }
 

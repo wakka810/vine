@@ -324,6 +324,84 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browser mapping-operation evidence is incomplete");
   }
+  const browserRuntimeCoreWasm = requireRecord(
+    browser.browserRuntimeCoreWasm,
+    "browserCheckpoint.browserRuntimeCoreWasm",
+    errors,
+  );
+  requireInteger(
+    browserRuntimeCoreWasm.bytes,
+    "browserCheckpoint.browserRuntimeCoreWasm.bytes",
+    errors,
+    1,
+  );
+  requireSha256(
+    browserRuntimeCoreWasm.sha256,
+    "browserCheckpoint.browserRuntimeCoreWasm.sha256",
+    errors,
+  );
+  if (browserRuntimeCoreWasm.imports !== 0) {
+    errors.push("browser runtime core Wasm must remain import-free");
+  }
+  const sourceFixture = requireRecord(
+    browser.browserSourceReadFixture,
+    "browserCheckpoint.browserSourceReadFixture",
+    errors,
+  );
+  const sourceEvidence = requireRecord(
+    browser.browserSourceReadEvidence,
+    "browserCheckpoint.browserSourceReadEvidence",
+    errors,
+  );
+  for (const [field, value] of [
+    ["fixture sha256", sourceFixture.sha256],
+    ["source object sha256", sourceFixture.sourceObjectSha256],
+    ["report sha256", sourceEvidence.reportSha256],
+  ]) {
+    requireSha256(value, `browser source ${field}`, errors);
+  }
+  if (
+    sourceFixture.bytes !== 2_560 ||
+    sourceFixture.sha256 !==
+      "292d298cb77a8223cb0f6fb66333457b3fab9b8e4f0c1643cf01936b769a1d63" ||
+    sourceFixture.nativeExitCode !== 0 ||
+    sourceFixture.sourceObjectBytes !== 94 ||
+    sourceFixture.sourceObjectSha256 !==
+      "95c642cb0120d8973d8dc66972cd09c1191f31dc85f30af4f75a80fb5836ed2c" ||
+    sourceEvidence.guestInstructions !== 217 ||
+    sourceEvidence.cpuSlices !== 30 ||
+    sourceEvidence.budgetYields !== 23 ||
+    sourceEvidence.hostRequests !== 2 ||
+    sourceEvidence.rustSchedulerTransitions !== 2 ||
+    sourceEvidence.sourceReadCompletions !== 2 ||
+    sourceEvidence.sourceReadOffsets?.join(",") !== "0,50" ||
+    sourceEvidence.sourceReadRequestedBytes?.join(",") !== "8,11" ||
+    sourceEvidence.sourceReadTransferredBytes?.join(",") !== "8,11" ||
+    sourceEvidence.sourceReadPayloadSha256?.join(",") !==
+      "202034b246570abc8e0e549637dbeb3ce7990de1fedeef6bcbf795934a3bb2da,71c02fe83d1ee0855a1875c47a53372209e4892b3b8bd7bcdc5d1ea9610d0dc3" ||
+    sourceEvidence.titleSnapshotObjectHttpIdentity !== true ||
+    sourceEvidence.initialGeneration !== 12 ||
+    sourceEvidence.finalGeneration !== 24 ||
+    sourceEvidence.wasmBridgeCalls !== 26 ||
+    sourceEvidence.runtimeCoreLinearMemoryBytes !== 1_572_864 ||
+    sourceEvidence.executionEngineLinearMemoryBytes !== 9_764_864 ||
+    sourceEvidence.successExitCode !== 0 ||
+    sourceEvidence.successPendingHostCallsAfterCleanup !== 0 ||
+    sourceEvidence.successPendingCallbacksAfterCleanup !== 0 ||
+    sourceEvidence.cancelInstructions !== 32 ||
+    sourceEvidence.cancelSourceReadCompletions !== 0 ||
+    sourceEvidence.cancelPendingHostCallsAfterCleanup !== 0 ||
+    sourceEvidence.cancelPendingCallbacksAfterCleanup !== 0 ||
+    sourceEvidence.watchdogInstructions !== 32 ||
+    sourceEvidence.watchdogRequestId !== "1" ||
+    sourceEvidence.watchdogLastTransition !== "waiting-host" ||
+    sourceEvidence.watchdogSourceReadCompletions !== 0 ||
+    sourceEvidence.watchdogPendingHostCallsAfterCleanup !== 0 ||
+    sourceEvidence.watchdogPendingCallbacksAfterCleanup !== 0 ||
+    sourceEvidence.reportBytes !== 23_266
+  ) {
+    errors.push("browser immutable source-read evidence is invalid");
+  }
   const bgiBrowserEvidence = requireRecord(
     browser.bgiRuntimeEvidence,
     "browserCheckpoint.bgiRuntimeEvidence",
@@ -361,6 +439,8 @@ export function validateCurrentCheckpoint(manifest) {
     "largeHeapNodeMaterializationGeneration",
     "largeHeapBrowserMaterializationFromGeneration",
     "largeHeapBrowserMaterializationGeneration",
+    "sourceReadCompletions",
+    "sourceReadPendingAfterCleanup",
   ]) {
     requireInteger(
       bgiBrowserEvidence[field],
@@ -391,6 +471,7 @@ export function validateCurrentCheckpoint(manifest) {
     "nodeOracleReportSha256",
     "browserReportSha256",
     "largeHeapMaterializationPayloadSha256",
+    "sourceReadPayloadSha256",
   ]) {
     requireSha256(
       bgiBrowserEvidence[field],
@@ -419,8 +500,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.largeHeapFirstCommittedPageBytes !== 4_096 ||
     bgiBrowserEvidence.largeHeapNodeMaterializationFromGeneration !== 1_470 ||
     bgiBrowserEvidence.largeHeapNodeMaterializationGeneration !== 1_472 ||
-    bgiBrowserEvidence.largeHeapBrowserMaterializationFromGeneration !== 3_635 ||
-    bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 3_637
+    bgiBrowserEvidence.largeHeapBrowserMaterializationFromGeneration !== 1_532 ||
+    bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_534 ||
+    bgiBrowserEvidence.sourceReadCompletions !== 2 ||
+    bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
   }
@@ -511,10 +594,11 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 2 ||
-    bgiBenchmarkEvidence.configuration !== "fixtures/benchmarks/bgi-browser-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "kernel32-large-heap-allocation" ||
+    bgiBenchmarkEvidence.configuration !==
+      "fixtures/benchmarks/bgi-browser-source-read-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "kernel32-source-file-read" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-large-heap-lazy-materialization-boundary-observation" ||
+      "current-immutable-source-read-boundary-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
@@ -661,7 +745,7 @@ export function validateCurrentCheckpoint(manifest) {
     kernelRoles.join(",") !==
       "private-subsystem-ownership,cross-subsystem-transaction-coordination,compatibility-serialization" ||
     kernelFields.join(",") !==
-      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,input,user32,timers,objects,com,heaps,module-records,synchronization,modules,registries" ||
+      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,input,user32,timers,objects,com,heaps,files,module-records,synchronization,modules,registries" ||
     kernelBoundary.directMutableCollectionFields !== 0 ||
     kernelBoundary.directScalarAllocators !== 0 ||
     kernelBoundary.directSubsystemCollectionMutation !== false ||
@@ -670,7 +754,7 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/process.rs::RuntimeProcessState" ||
     kernelBoundary.processMutableCollectionVisibility !== "private" ||
     processIndependentOwners.join(",") !==
-      "displays,input,user32,timers,heaps,module-records,synchronization,com" ||
+      "displays,input,user32,timers,heaps,files,module-records,synchronization,com" ||
     kernelBoundary.processSerializationView !==
       "runtime/kernel.rs::RuntimeProcessView" ||
     kernelBoundary.processSerializationViewAccess !== "immutable-borrow" ||
@@ -680,9 +764,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernelBoundary.closeHandleObjectPlanVisibility !== "opaque-to-kernel" ||
     kernelBoundary.payloadObjectSubsystemRootCloneOrReplacementFromKernel !== false ||
     representativeSubsystemTests.join(",") !==
-      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_system_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
+      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_system_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -714,7 +798,12 @@ export function validateCurrentCheckpoint(manifest) {
     objects.failedRegistrationPreservesAllocator !== true ||
     objects.aggregateDirectCollectionMutation !== false ||
     objects.wholeRuntimeStateClone !== false ||
-    objectKinds.join(",") !== "process,thread,mutex,waitable-timer,private-heap,module" ||
+    objectKinds.join(",") !== "process,thread,mutex,waitable-timer,file,private-heap,module" ||
+    objects.sourceFileHandleNamespace !== "vine.runtime-source-file.v1" ||
+    objects.sourceFileClosePlan !==
+      "payload-last-handle-retirement-plan-preflight-commit" ||
+    objects.sourceFilePendingReadCloseRejected !== true ||
+    objects.sourceFileProcessExitCancelsBeforeRetirement !== true ||
     waitableKinds.join(",") !== "process,thread,mutex,waitable-timer"
   ) {
     errors.push("active runtime object subsystem boundary is invalid");
@@ -1095,12 +1184,17 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.osVersionInfoA",
     errors,
   );
+  const sourceFiles = requireRecord(
+    kernel32Policy.sourceFiles,
+    "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.sourceFiles",
+    errors,
+  );
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-large-heap-allocation-v1" ||
+    kernel32Policy.id !== "kernel32-source-file-read-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json" ||
+      "fixtures/runtime-policies/kernel32-source-file-read-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -1122,6 +1216,21 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.createWaitableTimerAllowManualReset !== true ||
     kernel32Policy.createWaitableTimerAllowAutoReset !== false ||
     kernel32Policy.createWaitableTimerAllowUnnamed !== true ||
+    sourceFiles.authority !== "runtime/files.rs::RuntimeFiles" ||
+    sourceFiles.sourceManifestAuthority !== "rust-runtime-files" ||
+    sourceFiles.browserRole !== "same-origin-byte-service" ||
+    sourceFiles.allowedDesiredAccess?.join(",") !== `${0x8000_0000}` ||
+    sourceFiles.allowedShareModes?.join(",") !== "1" ||
+    sourceFiles.allowedCreationDispositions?.join(",") !== "3" ||
+    sourceFiles.allowedFlagsAndAttributes?.join(",") !== `${0x0800_0020}` ||
+    sourceFiles.maximumPathBytes !== 32_768 ||
+    sourceFiles.maximumReadBytes !== 1_048_576 ||
+    sourceFiles.handleNamespace !== "vine.runtime-source-file.v1" ||
+    sourceFiles.mutation !== "owner-plan-stale-check-targeted-commit" ||
+    sourceFiles.completionValidation !==
+      "request-thread-generation-lifetime-before-commit" ||
+    sourceFiles.immutableSourceAndWritableOverlaySeparated !== true ||
+    sourceFiles.browserOwnsWindowsFileState !== false ||
     kernel32Policy.threadAffinityProcessMask !== 1 ||
     systemInfo.processorArchitecture !== 0 ||
     systemInfo.pageSize !== 4096 ||
@@ -1166,6 +1275,31 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.unsupportedBeforeMutation !== true
   ) {
     errors.push("active Kernel32 compatibility policy boundary is invalid");
+  }
+  const sourceSnapshot = requireRecord(
+    active.sourceSnapshot,
+    "activeRuntimeCheckpoint.sourceSnapshot",
+    errors,
+  );
+  if (
+    sourceSnapshot.schema !== "vine.source-snapshot-manifest" ||
+    sourceSnapshot.schemaVersion !== 1 ||
+    sourceSnapshot.source !== "fixtures/source-snapshots/bgi-gdb-v1.json" ||
+    sourceSnapshot.titleFingerprint !==
+      "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1" ||
+    sourceSnapshot.snapshotId !== "bgi-gdb-e14899243887737b-v1" ||
+    sourceSnapshot.sourceId !== 1 ||
+    sourceSnapshot.rootPathA?.join(",") !== "67,58,92,86,105,110,101,0" ||
+    sourceSnapshot.fileCount !== 1 ||
+    sourceSnapshot.objectId !== 1 ||
+    sourceSnapshot.relativePathA?.join(",") !== "66,71,73,46,103,100,98" ||
+    sourceSnapshot.byteLength !== 125_461 ||
+    sourceSnapshot.sha256 !==
+      "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92" ||
+    sourceSnapshot.immutableAcrossRun !== true ||
+    sourceSnapshot.privateSourcePathCommitted !== false
+  ) {
+    errors.push("active immutable source snapshot boundary is invalid");
   }
   const user32Policy = requireRecord(
     active.user32CompatibilityPolicy,
@@ -1383,9 +1517,47 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/process.rs::RuntimeProcessDirectories" ||
     latestEvidence.getDriveTypeAHostDriveTopologyImported !== false ||
     latestEvidence.getDriveTypeABrowserDriveTopologyImported !== false ||
-    latestEvidence.vfsBackendImplemented !== false
+    latestEvidence.vfsBackendImplemented !== true
   ) {
     errors.push("latest drive-type authority evidence is invalid");
+  }
+  requireSha256(
+    latestEvidence.sourceFileReadPayloadSha256,
+    "activeRuntimeCheckpoint.latestEvidence.sourceFileReadPayloadSha256",
+    errors,
+  );
+  if (
+    latestEvidence.sourceFileCreateImplemented !== true ||
+    latestEvidence.sourceFileGetSizeImplemented !== true ||
+    latestEvidence.sourceFileReadImplemented !== true ||
+    latestEvidence.sourceFileSetPointerImplemented !== true ||
+    latestEvidence.sourceFileCloseImplemented !== true ||
+    latestEvidence.sourceFileCreateCallCount !== 2 ||
+    latestEvidence.sourceFileGetSizeCallCount !== 2 ||
+    latestEvidence.sourceFileReadCallCount !== 2 ||
+    latestEvidence.sourceFileSetPointerCallCount !== 0 ||
+    latestEvidence.sourceFileCloseCallCount !== 2 ||
+    latestEvidence.sourceFileReadSequences?.join(",") !== "1362,1378" ||
+    latestEvidence.sourceFileReadRequestedBytes !== 125_461 ||
+    latestEvidence.sourceFileReadTransferredBytes !== 125_461 ||
+    latestEvidence.sourceFileReadOffsets?.join(",") !== "0,0" ||
+    latestEvidence.sourceFileReadRequestIds?.join(",") !== "1,2" ||
+    latestEvidence.sourceFileReadObjectId !== 1 ||
+    latestEvidence.sourceFileReadSourceId !== 1 ||
+    latestEvidence.sourceFileMappingOperationCount !== 43 ||
+    latestEvidence.sourceFileHostDirtyPageCount !== 958 ||
+    latestEvidence.sourceFileHeapPageMaterializationCount !== 31 ||
+    latestEvidence.sourceFileCallbackEventCount !== 2 ||
+    latestEvidence.sourceFileReadFailureAtomicity !== true ||
+    latestEvidence.sourceFileReadPendingCancellation !== true ||
+    latestEvidence.sourceFileReadProcessExitTeardown !== true ||
+    latestEvidence.sourceFileReadBrowserOwnsWindowsState !== false ||
+    latestEvidence.sourceSnapshotId !== "bgi-gdb-e14899243887737b-v1" ||
+    latestEvidence.sourceSnapshotManifest !== "fixtures/source-snapshots/bgi-gdb-v1.json" ||
+    latestEvidence.sourceSnapshotImmutableAcrossRun !== true ||
+    latestEvidence.sourceSnapshotPrivatePathCommitted !== false
+  ) {
+    errors.push("latest immutable source-file evidence is invalid");
   }
   if (
     latestEvidence.swapMouseButtonImplemented !== true ||
@@ -1576,7 +1748,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-large-heap-allocation.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-source-file-read.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -1918,7 +2090,22 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.nextFaultCode !== root.nextStructuredStop?.reason ||
     bgiBrowserEvidence.nextEndpointAddress !== root.nextStructuredStop?.endpointAddress ||
     bgiBrowserEvidence.nextArguments?.join(",") !==
-      root.nextStructuredStop?.arguments?.join(",")
+      root.nextStructuredStop?.arguments?.join(",") ||
+    latestEvidence.firstStructuredStopInstructionCount !==
+      root.nextStructuredStop?.instructionCount ||
+    latestEvidence.firstStructuredStopCapabilityCluster !==
+      root.nextStructuredStop?.capabilityCluster ||
+    latestEvidence.firstStructuredStopEndpoint?.toLowerCase() !==
+      root.nextStructuredStop?.api?.toLowerCase() ||
+    latestEvidence.firstStructuredStopEndpointKind !== root.nextStructuredStop?.endpointKind ||
+    latestEvidence.firstStructuredStopEndpointId !== root.nextStructuredStop?.endpointId ||
+    latestEvidence.firstStructuredStopEndpointAddress !==
+      root.nextStructuredStop?.endpointAddress ||
+    latestEvidence.firstStructuredStopArguments?.join(",") !==
+      root.nextStructuredStop?.arguments?.join(",") ||
+    latestEvidence.firstStructuredStopIatAddress !== root.nextStructuredStop?.iatAddress ||
+    latestEvidence.firstStructuredStopReturnAddress !== root.nextStructuredStop?.returnAddress ||
+    latestEvidence.firstStructuredStopFault !== root.nextStructuredStop?.reason
   ) {
     errors.push("browser BGI evidence must match the active runtime checkpoint");
   }

@@ -7,6 +7,7 @@
 mod address_space;
 mod com;
 mod displays;
+mod files;
 mod heaps;
 mod input;
 mod kernel;
@@ -40,6 +41,15 @@ pub use com::{
 pub use displays::{
     LOGICAL_MONITOR_HANDLE_NAMESPACE, RUNTIME_PRIMARY_MONITOR_HANDLE, RuntimeDisplayProfile,
     RuntimeLogicalMonitor, RuntimeRect,
+};
+pub use files::{
+    RUNTIME_SOURCE_FILE_LIMIT, RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES,
+    RUNTIME_SOURCE_READ_REQUEST_BYTES, RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES,
+    RUNTIME_SOURCE_READ_SERVICE, RUNTIME_SOURCE_READ_TRANSPORT_VERSION,
+    RUNTIME_SOURCE_SNAPSHOT_SCHEMA, RUNTIME_SOURCE_SNAPSHOT_VERSION, RuntimeOpenSourceFileResult,
+    RuntimeSourceFile, RuntimeSourceFileDescriptor, RuntimeSourceFileId, RuntimeSourceFileManifest,
+    RuntimeSourceMountManifest, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
+    RuntimeSourceReadRequest, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{

@@ -58,6 +58,7 @@ high-impact unknownだけは、到達前でもbounded spikeを許可する。
   待機中に別guest threadを実行できる。General Win32 thread creation／wait coverageは後続gatewayである。
 - Runtimeのcollection／allocatorは各private subsystemが所有し、`RuntimeKernel`はcross-subsystem
   preflightとtargeted commitだけを調整する。
+- First immutable-source gatewayはRust-owned manifest／path／typed handle／cursor／pending readとsame-origin byte serviceを通り、public PE32とprivate targetでOpen／Size／Read／Seek／Close、cancel／watchdog、source hash不変を検証済みである。Writable overlayとdurabilityは未完了である。
 
 ## 5. 残る実装順序
 
@@ -65,7 +66,7 @@ high-impact unknownだけは、到達前でもbounded spikeを許可する。
 |---|---|---|---|
 | 1 | Primary bootを継続 | Manifest-selected semantic leafを次のsubsystem gatewayまで閉じる。caller-visible semanticsと既存authorityを維持する | Node／Chromeが同じ次stopへ到達し、cancel後にworkを残さずsource bytesを変更しない |
 | 2 | Process／loader／execution completeness | 到達したdynamic DLL load／unload、thread creation／bootstrap、per-thread stack／TEB lifecycle、wait-any／wait-all、timeout、message、synchronization blocking、corpus-required exception behavior | Controlled multi-thread fixtureとprimary pathがcreate、block、wake、callback、exitを複数CPU contextで実行し、starvation／orphan workを残さない |
-| 3 | Immutable sourceとpersistence | [ADR-006](adr-006-vfs-local-server.md)のsame-origin localhost serverを最初のbackendとし、決定的Windows path、source snapshot、file／registry handle、SQLite write-set、flush／close commitを接続する。最初に実asset readと一つのsave／restart／loadだけをverticalに通す | Assetはimmutable sourceから読み、browser／Worker／server再起動後にsaveを復元できる。Kill時はlast committed generationへ戻り、EXE／DLL／asset hashが不変 |
+| 3 | Immutable sourceとpersistence | 実装済みread-only source gatewayを[ADR-006](adr-006-vfs-local-server.md)のwritable overlayへ拡張し、file／registry handle、SQLite write-set、flush／close commitを接続する。一つのsave／restart／loadだけを次のstorage verticalに通す | Assetはimmutable sourceから読み、browser／Worker／server再起動後にsaveを復元できる。Kill時はlast committed generationへ戻り、EXE／DLL／asset hashが不変 |
 | 4 | Logical windowとmessage flow | HWND／class ownership、message dispatch、paint invalidation、focus、normalized keyboard／mouse、GDI object／DC lifetime、DIB／blit／text／font、到達GDI+ image path | Browser E2Eがfirst readable presentへ到達し、semantic／visual oracle付きでinputを消費する |
 | 5 | Primary graphicsとinput | Corpus-bounded D3D9 COM／device／resource／state／present、DirectInput device／acquire／state、backend translation、device／context loss recovery | Primary first-presentとrepresentative scene／input checkpointがsilent unsupportedやunbounded growthなしで通る |
 | 6 | Primary audio | DirectSound identity／buffer semantics、guest clockとaudio clock、cursor／notification wake、browser transport、activation／suspend／resume、到達WinMM／media command | BGM／voice／effectがoffline semantics、browser lifecycle E2E、long-run underrun／drift gateを通る |

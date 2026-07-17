@@ -32,8 +32,8 @@
 | process、thread、handle、module、heap、wait、message、TLS／FLS | Rust runtime kernel | なし |
 | guest scheduler state、wait registration、host request identity | Rust runtime kernel | Worker event loop |
 | CPU context | per-thread runtime-owned context record | execution engine state buffer |
-| Windows path、mount、file／directory、handle、cursor、share state | Rust VFS subsystem | storage object identity |
-| Immutable source bytes、committed save／registry generation | Local Vine server | Rust logical source／transaction state |
+| Windows path、mount、snapshot／object descriptor、file／directory、handle、cursor、share state | Rust `RuntimeFiles` | storage object identity |
+| Fingerprint済みimmutable source bytes、committed save／registry generation | Local Vine server | Rust logical source／transaction state |
 | Canvas、WebGL／WebGPU、Audio resource | TypeScript browser backend | Rust logical resource identity |
 | DOM input、permission、user activation、browser lifecycle | TypeScript | Rust scheduler event |
 | Win32 argument／pointer validationと同期semantics | Rust | なし |
@@ -202,6 +202,8 @@ subsystem collectionやscalar allocatorを持たない。Process lifecycle／env
 handle／policyは`runtime/process.rs::RuntimeProcessState`が所有する。既存diagnostic JSONは
 `RuntimeProcessView`がheap、module、synchronization、timer resolution、TLS／FLS ownerをimmutable borrowして従来の
 `process` shapeへflattenするが、このviewはmutation authorityではない。
+
+Immutable source stateはprivate `runtime/files.rs::RuntimeFiles`が所有する。Manifest、Windows-932-aware path index、monotonic file ID、cursor、pending readはkernelへmutable collectionとして公開しない。Typed file handle generationは`RuntimeObjectTable`、file payload lifetimeは`RuntimeFiles`が所有し、kernelはopen／last close、scheduler request／completion、process exitを全owner preflight後にcommitする。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
 
 Mutable thread records、process-wide TLS index／FLS slot registries、TLS／FLS／callback-frame ID allocatorsは
 private `runtime/thread.rs::RuntimeThreads`だけが所有する。Registration、LastError／TLS／FLS、callback
@@ -527,6 +529,10 @@ Path normalization は Windows semantics と mount resolution を同じ関数で
 - title fingerprint ごとに storage を隔離する
 
 初期backendはsame-origin localhost Vine serverとし、immutable source filesystemはread-only、save／registryはtitle fingerprint別SQLite transactionを使う。Rust VFSがWindows path、mount、handle、cursor、access／share、LastErrorのauthorityであり、serverはsource snapshot bytesとcommitted generationのdurabilityだけを所有する。Workerはscheduler-owned host requestを運び、別のfile stateを作らない。
+
+実装済みsource sliceはprocess-static version-1 manifestをRustへ登録し、`CreateFileA`／`GetFileSize`／`ReadFile`／`SetFilePointer`／`CloseHandle`を一つのread-only mountへ接続する。Worker requestはprepared manifestへbindingされ、HTTP URLとresponse headerでtitle fingerprint、snapshot、source、object、offset、lengthを往復検証し、Workerと異なるoriginのsource manifest／byte serviceはfetch前に拒否する。Serverは明示登録fileの全length／SHA-256を先に検証したimmutable copyだけをrange deliveryする。Wrong／stale／duplicate completion、memory write failure、cancel、process exitはcursor、guest bytes、handle allocatorを部分更新しない。
+
+このsource sliceはwritable overlay、directory enumeration、mapped file、large-corpus streaming、server restart、save／load、SQLite durabilityを実装済みとしない。
 
 Storage requestにはtitle fingerprint、snapshot／profile ID、mount内object／path key、range、base generationを渡し、生のguest pointer、Win32 handle、任意host absolute pathを渡さない。UIとAPIをloopbackの同一originから配信し、利用者が登録したsource rootとVine管理profile root以外を公開しない。Flushまたは成功したCloseを最初のdurability boundaryとし、cancel／watchdog／server killでは未commit write-setをrollbackする。詳細は[ADR-006](adr-006-vfs-local-server.md)を正とする。
 

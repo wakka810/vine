@@ -4,7 +4,7 @@ import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 export const protocolVersion = 5 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
-export type SessionWorkload = "controlled-fixture" | "private-bgi";
+export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
 
 export interface RuntimeCurrentDirectoryA {
   sourceAuthority: string;
@@ -132,6 +132,8 @@ export interface SessionConfiguration {
   workload?: SessionWorkload;
   executableUrl?: string;
   policyUrl?: string;
+  sourceManifestUrl?: string;
+  sourceApiUrl?: string;
   instructionBudget: number;
   watchdogInstructionLimit: number;
   watchdogWallMilliseconds: number;
@@ -296,7 +298,9 @@ export interface SessionReport {
     cursor?: RuntimeCursorSnapshot;
     windowClass?: RuntimeWindowClassSnapshot;
     comApartment?: RuntimeComApartmentSnapshot;
+    sourceRead?: RuntimeSourceReadSnapshot;
   }>;
+  sourceReads: RuntimeSourceReadSnapshot[];
   firstUnsupported: {
     capabilityCluster: string;
     endpoint: unknown;
@@ -305,6 +309,23 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   error: string | null;
+}
+
+export interface RuntimeSourceReadSnapshot {
+  request: {
+    requestId: number;
+    fileId: number;
+    sourceId: number;
+    objectId: number;
+    offset: number;
+    requestedBytes: number;
+  };
+  succeeded: boolean;
+  transferredBytes: number;
+  win32Error: number;
+  cursorBefore: number;
+  cursorAfter: number;
+  contentSha256: string;
 }
 
 export interface SessionFinishedMessage {

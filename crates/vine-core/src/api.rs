@@ -286,6 +286,7 @@ pub enum ReentrancyPolicy {
 pub enum ApiBehavior {
     Immediate,
     Deferred,
+    ImmediateOrDeferred,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1113,7 +1114,7 @@ impl ApiDispatcher {
 
         match handler(contract, &frame, session) {
             ApiHandlerResult::Immediate(immediate) => {
-                if contract.behavior != ApiBehavior::Immediate {
+                if contract.behavior == ApiBehavior::Deferred {
                     return DispatchOutcome::Fault(
                         ApiFault::runtime_defect(
                             "api-dispatch",
@@ -1139,7 +1140,7 @@ impl ApiDispatcher {
                 }
             }
             ApiHandlerResult::Deferred(request) => {
-                if contract.behavior != ApiBehavior::Deferred {
+                if contract.behavior == ApiBehavior::Immediate {
                     DispatchOutcome::Fault(
                         ApiFault::runtime_defect(
                             "api-dispatch",
@@ -1257,7 +1258,7 @@ impl ApiDispatcher {
                 .with_endpoint(&call.frame.endpoint),
             );
         }
-        if call.contract.behavior != ApiBehavior::Deferred {
+        if call.contract.behavior == ApiBehavior::Immediate {
             return DispatchOutcome::Fault(
                 ApiFault::runtime_defect(
                     "api-dispatch",
@@ -1745,10 +1746,10 @@ fn complete_immediate(
     };
     validate_guest_writes(contract, &frame, &immediate.guest_writes)?;
 
+    let mut transaction = session.memory.begin_transaction();
     let mut guest_writes = Vec::with_capacity(immediate.guest_writes.len());
     for write in immediate.guest_writes {
-        let result = session
-            .memory
+        let result = transaction
             .write(write.address, &write.bytes)
             .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
         guest_writes.push(ApiGuestWriteReceipt { write, result });
@@ -1783,6 +1784,7 @@ fn complete_immediate(
         .runtime
         .set_current_last_error(next_last_error)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    transaction.commit_transaction();
     Ok(ApiImmediateCompletion {
         implementation_id: contract.implementation_id.clone(),
         instruction_pointer: frame.return_address,

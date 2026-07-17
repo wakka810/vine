@@ -42,6 +42,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json",
   "fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json",
   "fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json",
+  "fixtures/runtime-policies/kernel32-source-file-read-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -153,6 +154,16 @@ for (const relative of policyFiles) {
         currentDirectory.maximumPathBytes >= 4 &&
         currentDirectory.maximumPathBytes <= 32768,
     );
+    assert.equal(multibyte?.allowActiveCodePageSelector, true);
+  }
+  const sourceFiles = policy.sourceFiles ?? null;
+  if (sourceFiles !== null) {
+    assert.deepEqual(sourceFiles.allowedDesiredAccess, [0x8000_0000]);
+    assert.deepEqual(sourceFiles.allowedShareModes, [1]);
+    assert.deepEqual(sourceFiles.allowedCreationDispositions, [3]);
+    assert.deepEqual(sourceFiles.allowedFlagsAndAttributes, [0x0800_0020]);
+    assert.equal(sourceFiles.maximumPathBytes, 32_768);
+    assert.equal(sourceFiles.maximumReadBytes, 1024 * 1024);
     assert.equal(multibyte?.allowActiveCodePageSelector, true);
   }
   const driveType = policy.getDriveTypeA ?? null;

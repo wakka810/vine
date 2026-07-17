@@ -54,6 +54,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-source-file-read-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -242,6 +243,25 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert!(large_heap.allows_heap_allocation(0, 64 * 1024 * 1024));
     assert!(!large_heap.allows_heap_allocation(0, 32 * 1024 * 1024));
     assert!(!large_heap.allows_heap_allocation(0, 64 * 1024 * 1024 + 1));
+
+    let source_files: Kernel32CompatibilityPolicy = serde_json::from_str(policies[34]).unwrap();
+    let source_profile = source_files.source_files().expect("source file profile");
+    assert_eq!(source_profile.allowed_desired_access, [0x8000_0000]);
+    assert_eq!(source_profile.allowed_share_modes, [1]);
+    assert_eq!(source_profile.allowed_creation_dispositions, [3]);
+    assert_eq!(source_profile.allowed_flags_and_attributes, [0x0800_0020]);
+    assert_eq!(source_profile.maximum_path_bytes, 32_768);
+    assert_eq!(source_profile.maximum_read_bytes, 1024 * 1024);
+    let mut unsupported_source_files = source_files;
+    unsupported_source_files
+        .source_files
+        .as_mut()
+        .unwrap()
+        .maximum_read_bytes = 1024 * 1024 + 1;
+    assert_eq!(
+        unsupported_source_files.validate().unwrap_err().code,
+        "kernel32-policy-source-files-invalid"
+    );
     assert_eq!(profile.processor_level, 6);
     assert_eq!(profile.processor_revision, 0);
     assert_eq!(system_info.system_default_lang_id(), None);

@@ -16,6 +16,7 @@ import {
   type RuntimeIconSnapshot,
   type RuntimeCursorSnapshot,
   type RuntimeWindowClassSnapshot,
+  type RuntimeSourceReadSnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -121,6 +122,7 @@ interface CompletionMetadata {
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
+  sourceRead?: RuntimeSourceReadSnapshot;
 }
 
 interface ApiFaultMetadata {
@@ -142,6 +144,30 @@ interface HostCompletionMetadata {
   threadId: number;
   scheduler: ExecutableSchedulerMetadata;
   completion: ApiCompletion;
+  endpoint?: CompletionMetadata["endpoint"];
+  memory?: CompletionMetadata["memory"];
+  currentDirectory?: RuntimeCurrentDirectorySnapshot;
+  mutex?: RuntimeMutexSnapshot;
+  waitableTimer?: RuntimeWaitableTimerSnapshot;
+  icon?: RuntimeIconSnapshot;
+  cursor?: RuntimeCursorSnapshot;
+  windowClass?: RuntimeWindowClassSnapshot;
+  comApartment?: RuntimeComApartmentSnapshot;
+  sourceRead?: RuntimeSourceReadSnapshot;
+}
+
+interface SourceManifest {
+  schema: "vine.source-snapshot-manifest";
+  schemaVersion: 1;
+  titleFingerprint: string;
+  snapshotId: string;
+  mount: { sourceId: number; rootPathA: number[] };
+  files: Array<{
+    objectId: number;
+    relativePathA: number[];
+    byteLength: number;
+    sha256: string;
+  }>;
 }
 
 interface CallbackCompletionMetadata {
@@ -163,6 +189,7 @@ interface CallbackCompletionMetadata {
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
+  sourceRead?: RuntimeSourceReadSnapshot;
 }
 
 interface WritebackMetadata {
@@ -284,6 +311,26 @@ function invariant(condition: unknown, message: string): asserts condition {
   }
 }
 
+function failInvariant(message: string): never {
+  throw new Error(message);
+}
+
+function validByteArray(bytes: number[], trailingNul: boolean): boolean {
+  return (
+    Array.isArray(bytes) &&
+    bytes.length > 0 &&
+    bytes.length <= 32_768 &&
+    bytes.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff) &&
+    (trailingNul
+      ? bytes.at(-1) === 0 && !bytes.slice(0, -1).includes(0)
+      : !bytes.includes(0))
+  );
+}
+
+function byteArraysEqual(left: number[], right: number[]): boolean {
+  return left.length === right.length && left.every((byte, index) => byte === right[index]);
+}
+
 function post(message: WorkerToMainMessage): void {
   worker.postMessage(message);
 }
@@ -314,6 +361,8 @@ class BrowserRuntimeSession {
   readonly #runnableResolvers: Array<() => void> = [];
   readonly #execution = new ExecutionStateMachine();
   readonly #pendingHostRequests = new PendingHostRequestTable();
+  readonly #sourceReadControllers = new Map<string, AbortController>();
+  #sourceManifest: SourceManifest | null = null;
   #nextBgiCallSequence = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
   #watchdogContext: SessionReport["watchdogContext"] = null;
@@ -357,6 +406,7 @@ class BrowserRuntimeSession {
     initialCurrentDirectory: null as SessionReport["initialCurrentDirectory"],
     maximumSliceMilliseconds: 0,
     supportedCalls: [] as SessionReport["supportedCalls"],
+    sourceReads: [] as SessionReport["sourceReads"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
   };
 
@@ -368,12 +418,16 @@ class BrowserRuntimeSession {
   async run(): Promise<void> {
     try {
       const workload = this.#configuration.workload ?? "controlled-fixture";
+      const sourceBackedWorkload =
+        workload === "controlled-source-read" || workload === "private-bgi";
       this.#status("loading", `Loading Rust runtime, execution engine, and ${workload}`);
       const coreUrl = new URL("./runtime-core.wasm", import.meta.url);
       const executableUrl = new URL(
         workload === "private-bgi"
           ? this.#configuration.executableUrl ?? "./private/BGI.exe"
-          : "./browser-vertical.exe",
+          : workload === "controlled-source-read"
+            ? this.#configuration.executableUrl ?? "./source-read.exe"
+            : "./browser-vertical.exe",
         import.meta.url,
       );
       const [bridge, engineFactory, executableResponse] = await Promise.all([
@@ -390,6 +444,19 @@ class BrowserRuntimeSession {
       }
       this.#bridge = bridge;
       const executable = new Uint8Array(await executableResponse.arrayBuffer());
+      const sourceManifestBytes =
+        sourceBackedWorkload
+          ? await this.#fetchBytes(
+              this.#sameOriginSourceUrl(
+                this.#configuration.sourceManifestUrl,
+                "/api/source/v1/manifest",
+                "source manifest URL",
+              ),
+              "source manifest",
+            )
+          : null;
+      this.#sourceManifest =
+        sourceManifestBytes === null ? null : this.#parseSourceManifest(sourceManifestBytes);
       const preparedOutput =
         workload === "private-bgi"
           ? bridge.prepareBgi(
@@ -400,8 +467,20 @@ class BrowserRuntimeSession {
                   import.meta.url,
                 ),
               ),
-            )
-          : bridge.prepare(executable);
+               sourceManifestBytes ?? failInvariant("BGI source manifest is missing"),
+             )
+          : workload === "controlled-source-read"
+            ? bridge.prepareSourceRead(
+                executable,
+                await this.#fetchPolicy(
+                  new URL(
+                    this.#configuration.policyUrl ?? "./kernel32-source-file-read-v1.json",
+                    import.meta.url,
+                  ),
+                ),
+                sourceManifestBytes ?? failInvariant("source fixture manifest is missing"),
+              )
+            : bridge.prepare(executable);
       invariant(preparedOutput.metadata.schemaVersion === 2, "prepared metadata schema mismatch");
       const engine = engineFactory({
         maximumPhysicalPages: preparedOutput.metadata.maximumPhysicalPages,
@@ -443,6 +522,9 @@ class BrowserRuntimeSession {
         (preparedOutput.metadata.workload ?? "controlled-fixture") === workload,
         "prepared workload mismatch",
       );
+      if (sourceBackedWorkload) {
+        this.#validatePreparedSourceSnapshot(preparedOutput.metadata);
+      }
       if (workload === "private-bgi") {
         const stack = preparedOutput.metadata.initialThreadStack;
         const allocation = preparedOutput.metadata.initialStackAddressAllocation;
@@ -528,9 +610,81 @@ class BrowserRuntimeSession {
   }
 
   async #fetchPolicy(url: URL): Promise<Uint8Array> {
+    return this.#fetchBytes(url, "runtime policy");
+  }
+
+  #sameOriginSourceUrl(configured: string | undefined, fallback: string, label: string): URL {
+    const runtimeUrl = new URL(import.meta.url);
+    const url = new URL(configured ?? fallback, runtimeUrl);
+    invariant(url.origin === runtimeUrl.origin, `${label} must use the Runtime Worker origin`);
+    return url;
+  }
+
+  async #fetchBytes(url: URL, label: string): Promise<Uint8Array> {
     const response = await fetch(url);
-    invariant(response.ok, `runtime policy fetch failed with ${response.status}`);
+    invariant(response.ok, `${label} fetch failed with ${response.status}`);
     return new Uint8Array(await response.arrayBuffer());
+  }
+
+  #parseSourceManifest(bytes: Uint8Array): SourceManifest {
+    const manifest = JSON.parse(new TextDecoder().decode(bytes)) as SourceManifest;
+    invariant(manifest.schema === "vine.source-snapshot-manifest", "source manifest schema mismatch");
+    invariant(manifest.schemaVersion === 1, "source manifest version mismatch");
+    invariant(
+      /^[a-zA-Z0-9:._-]{1,128}$/u.test(manifest.titleFingerprint) &&
+        /^[a-zA-Z0-9._-]{1,128}$/u.test(manifest.snapshotId),
+      "source manifest identity is invalid",
+    );
+    invariant(
+      Number.isInteger(manifest.mount.sourceId) &&
+        manifest.mount.sourceId > 0 &&
+        validByteArray(manifest.mount.rootPathA, true),
+      "source manifest mount is invalid",
+    );
+    invariant(manifest.files.length > 0 && manifest.files.length <= 4096, "source file count is invalid");
+    const objectIds = new Set<number>();
+    for (const file of manifest.files) {
+      invariant(
+        Number.isInteger(file.objectId) &&
+          file.objectId > 0 &&
+          !objectIds.has(file.objectId) &&
+          validByteArray(file.relativePathA, false) &&
+          Number.isSafeInteger(file.byteLength) &&
+          file.byteLength >= 0 &&
+          file.byteLength <= 0xffff_ffff &&
+          /^[0-9a-f]{64}$/u.test(file.sha256),
+        "source file descriptor is invalid",
+      );
+      objectIds.add(file.objectId);
+    }
+    return manifest;
+  }
+
+  #validatePreparedSourceSnapshot(prepared: PreparedMetadata): void {
+    const manifest = this.#sourceManifest ?? failInvariant("source manifest was not registered");
+    const snapshot = prepared.sourceSnapshot ?? failInvariant("Rust source snapshot metadata is missing");
+    invariant(
+      snapshot.titleFingerprint === manifest.titleFingerprint &&
+        snapshot.snapshotId === manifest.snapshotId &&
+        snapshot.sourceId === manifest.mount.sourceId &&
+        byteArraysEqual(snapshot.rootPathA, manifest.mount.rootPathA),
+      "Rust and browser source snapshot identities differ",
+    );
+    invariant(
+      Object.keys(snapshot.files).length === manifest.files.length,
+      "Rust and browser source file counts differ",
+    );
+    for (const file of manifest.files) {
+      const preparedFile = snapshot.files[String(file.objectId)];
+      invariant(
+        preparedFile !== undefined &&
+          preparedFile.objectId === file.objectId &&
+          byteArraysEqual(preparedFile.relativePathA, file.relativePathA) &&
+          preparedFile.byteLength === file.byteLength &&
+          preparedFile.sha256 === file.sha256,
+        `Rust and browser source object ${file.objectId} differ`,
+      );
+    }
   }
 
   completeHost(message: HostCompletionMessage): void {
@@ -577,6 +731,126 @@ class BrowserRuntimeSession {
       this.#fail(error instanceof Error ? error : new Error(String(error)));
       return;
     }
+  }
+
+  async #serviceSourceRead(metadata: HostRequestMetadata): Promise<void> {
+    const manifest = this.#sourceManifest ?? failInvariant("source read has no registered manifest");
+    invariant(metadata.service === "storage.source-read.v1", "unexpected source read service");
+    invariant(metadata.arguments.length === 6, "source read request must contain six words");
+    const [version, sourceId, objectId, offsetLow, offsetHigh, requestedBytes] =
+      metadata.arguments;
+    invariant(version === 1, "source read request version mismatch");
+    invariant(sourceId === manifest.mount.sourceId, "source read mount identity mismatch");
+    const file = manifest.files.find((candidate) => candidate.objectId === objectId);
+    invariant(file !== undefined, "source read object identity is not registered");
+    const offset = BigInt(offsetLow ?? 0) | (BigInt(offsetHigh ?? 0) << 32n);
+    invariant(offset <= BigInt(file.byteLength), "source read offset is outside the object");
+    invariant(
+      Number.isInteger(requestedBytes) &&
+        (requestedBytes ?? 0) > 0 &&
+        (requestedBytes ?? 0) <= 1024 * 1024,
+      "source read length is outside the transport bound",
+    );
+    const expectedBytes = Math.min(requestedBytes ?? 0, file.byteLength - Number(offset));
+    const base = this.#sameOriginSourceUrl(
+      this.#configuration.sourceApiUrl,
+      "/api/source/v1/",
+      "source API URL",
+    );
+    if (!base.pathname.endsWith("/")) {
+      base.pathname += "/";
+    }
+    const url = new URL(
+      `titles/${encodeURIComponent(manifest.titleFingerprint)}/` +
+        `snapshots/${encodeURIComponent(manifest.snapshotId)}/` +
+        `sources/${sourceId}/objects/${objectId}`,
+      base,
+    );
+    url.searchParams.set("offset", offset.toString());
+    url.searchParams.set("length", String(requestedBytes));
+    const controller = new AbortController();
+    invariant(
+      !this.#sourceReadControllers.has(metadata.requestId),
+      "source read request already owns a fetch",
+    );
+    this.#sourceReadControllers.set(metadata.requestId, controller);
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      invariant(response.status === 206, `source read failed with ${response.status}`);
+      invariant(
+        response.headers.get("x-vine-title-fingerprint") === manifest.titleFingerprint &&
+          response.headers.get("x-vine-snapshot-id") === manifest.snapshotId &&
+          response.headers.get("x-vine-source-id") === String(sourceId) &&
+          response.headers.get("x-vine-object-id") === String(objectId) &&
+          response.headers.get("x-vine-offset") === offset.toString() &&
+          response.headers.get("x-vine-requested-bytes") === String(requestedBytes) &&
+          response.headers.get("x-vine-transferred-bytes") === String(expectedBytes),
+        "source read response identity mismatch",
+      );
+      const payload = new Uint8Array(await response.arrayBuffer());
+      invariant(payload.byteLength === expectedBytes, "source read response length mismatch");
+      const control = new Uint8Array(32);
+      const view = new DataView(control.buffer);
+      [
+        1,
+        sourceId ?? 0,
+        objectId ?? 0,
+        offsetLow ?? 0,
+        offsetHigh ?? 0,
+        requestedBytes ?? 0,
+        payload.byteLength,
+        0,
+      ].forEach((word, index) => view.setUint32(index * 4, word, true));
+      this.#completeSourceRead(metadata, control, payload);
+    } finally {
+      this.#sourceReadControllers.delete(metadata.requestId);
+    }
+  }
+
+  #completeSourceRead(
+    request: HostRequestMetadata,
+    control: Uint8Array,
+    payload: Uint8Array,
+  ): void {
+    if (this.#terminal) {
+      return;
+    }
+    const pending = this.#pendingHostRequests.complete(request.requestId, request.threadId, 1);
+    const output = this.#requireBridge().completeSourceRead<HostCompletionMetadata>(
+      BigInt(pending.requestId),
+      control,
+      payload,
+    );
+    const completion = output.metadata;
+    invariant(completion.kind === "host-complete", "invalid source completion metadata");
+    invariant(completion.threadId === pending.threadId, "Rust resumed a different source thread");
+    invariant(completion.sourceRead !== undefined, "Rust omitted source completion evidence");
+    this.#applyRequiredDelta(output);
+    const resumeState = completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    const expectedResumeState =
+      pending.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
+    invariant(resumeState === expectedResumeState, "source completion resume policy mismatch");
+    if (this.#requirePrepared().workload === "private-bgi") {
+      this.#recordBgiCompletion(completion);
+    }
+    this.#report.sourceReads.push(completion.sourceRead);
+    this.#applyCpuResumeToThread(completion.threadId, completion.completion);
+    this.#threadExecutionStates.set(completion.threadId, resumeState);
+    this.#report.rustSchedulerTransitions += 1;
+    pending.resolve({ result: 1, completionPolicy: pending.completionPolicy });
+    if (this.#execution.state() === "waiting-host") {
+      this.#execution.transition("host-completion", {
+        cause: "source-read-completion",
+        threadId: pending.threadId,
+        requestId: pending.requestId,
+      });
+      this.#signalRunnable();
+    }
+    this.#status("running", `${pending.service} completed`);
   }
 
   cancel(): void {
@@ -771,7 +1045,7 @@ class BrowserRuntimeSession {
   }
 
   #recordBgiCompletion(
-    metadata: CompletionMetadata | CallbackCompletionMetadata,
+    metadata: CompletionMetadata | CallbackCompletionMetadata | HostCompletionMetadata,
     reservedSequence?: number,
   ): void {
     const endpoint = metadata.endpoint;
@@ -860,6 +1134,7 @@ class BrowserRuntimeSession {
       ...(metadata.comApartment === undefined
         ? {}
         : { comApartment: metadata.comApartment }),
+      ...(metadata.sourceRead === undefined ? {} : { sourceRead: metadata.sourceRead }),
     });
     this.#report.supportedCalls.sort((left, right) => left.sequence - right.sequence);
   }
@@ -1408,7 +1683,17 @@ class BrowserRuntimeSession {
     if (this.#configuration.mode === "watchdog" && this.#watchdogArmedAt === null) {
       this.#armWatchdog();
     }
-    post(request);
+    if (metadata.service === "storage.source-read.v1") {
+      if (this.#configuration.mode === "success") {
+        void this.#serviceSourceRead(metadata).catch((error: unknown) => {
+          if (!this.#terminal) {
+            this.#fail(error instanceof Error ? error : new Error(String(error)));
+          }
+        });
+      }
+    } else {
+      post(request);
+    }
   }
 
   #takeApiResumeState(threadId = this.#currentThreadId): "ready" | "guest-callback" {
@@ -1588,6 +1873,7 @@ class BrowserRuntimeSession {
     let pendingHostCalls = this.#pendingHostRequests.size();
     let pendingCallbacks = 0;
     let error: string | null = detail;
+    this.#abortSourceReads();
     if (this.#runtimePrepared && this.#bridge !== null) {
       try {
         const metadata = this.#bridge.cancel<CancellationMetadata>().metadata;
@@ -1620,6 +1906,7 @@ class BrowserRuntimeSession {
     }
     let pendingHostCalls = this.#pendingHostRequests.size();
     let pendingCallbacks = 0;
+    this.#abortSourceReads();
     if (this.#runtimePrepared && this.#bridge !== null) {
       try {
         const metadata = this.#bridge.cancel<CancellationMetadata>().metadata;
@@ -1637,6 +1924,13 @@ class BrowserRuntimeSession {
       pendingCallbacks,
       error: error.message,
     });
+  }
+
+  #abortSourceReads(): void {
+    for (const controller of this.#sourceReadControllers.values()) {
+      controller.abort();
+    }
+    this.#sourceReadControllers.clear();
   }
 
   #finish(
@@ -1777,6 +2071,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             executionEngine: null,
             executionEngineLinearMemoryBytes: 0,
             supportedCalls: [],
+            sourceReads: [],
             firstUnsupported: null,
             error: "another runtime session is active",
           },

@@ -6,7 +6,8 @@
 - Decision date: 2026-07-16
 - Scope: 最初のasset／save vertical sliceに使うstorage topologyとauthority境界
 - Decision: same-origin localhost Vine serverを最初のbackendとし、immutable sourceはread-only、save／registryはtitle-local SQLite transactionへ保存する
-- Not implemented: Windows file API、path／share semantics、実asset read、save／restart／load、migration／backup
+- Implemented: bounded immutable-source manifest、Windows-932 path／share／cursor／typed-handle state、`CreateFileA`／`GetFileSize`／`ReadFile`／`SetFilePointer`／`CloseHandle`、same-origin range service、cancel／watchdog cleanup、実asset read
+- Not implemented: writable overlay、save／restart／load、SQLite commit path、migration／backup、general Windows file breadth
 
 このADRは最初のbackendを決めるものであり、VFSまたはpersistenceの完成を意味しない。OPFS／IndexedDBやremote serviceは初期baselineに含めず、実測された必要性が出た場合に同じbackend contractへ追加する。
 
@@ -21,11 +22,12 @@ Windows file APIはguestから見ると同期的だが、browser storageとnetwo
 | State | Authority | Adapter／mirror |
 |---|---|---|
 | Windows path、mount resolution、file／directory identity、handle、cursor、access／share mode、LastError | Rust VFS subsystem | なし |
-| Immutable source snapshot ID、file ID、hash、read bytes | Local Vine server | Rust logical source object |
+| Immutable source snapshot／object descriptor、Windows path index、open identity | Rust VFS subsystem | Local server registration |
+| Fingerprint済みsource bytes、complete-file length／hash verification、range delivery | Local Vine server | Rust logical source object／pending request |
 | Committed save／registry bytes、generation、schema、content hash | Local Vine serverのtitle-local SQLite | Rust logical transaction／file state |
 | Async request、cancel、timeout、completion delivery | Runtime Worker | Rust scheduler-owned host request |
 
-Runtime Workerとserverはguest pointer、Win32 handle、生のhost absolute pathをauthorityとして保持しない。RustはWindows pathを正規化してmount内のstable object IDへ解決し、server requestにはtitle fingerprint、snapshot／profile ID、object／path key、range、transaction generationだけを渡す。
+Runtime Workerとserverはguest pointer、Win32 handle、生のhost absolute pathをauthorityとして保持しない。RustはWindows pathを正規化してmount内のstable object IDへ解決する。最初のread transportはsource／object IDとrangeだけをWorkerへ渡し、Workerはprocess準備時にRustと共有したimmutable manifestへtitle fingerprint／snapshot IDをbindingしてserver requestを作る。Server requestにはtitle fingerprint、snapshot ID、source／object ID、rangeだけを渡す。Save transportは将来profile ID、path key、base generationを追加する。
 
 Local serverはVine UI、immutable source API、save APIを同じloopback originから提供する。任意directoryをHTTP越しに公開せず、利用者が明示的に登録したread-only source rootと、Vine管理のwritable profile rootだけへアクセスする。Remote upload、multi-user同期、cloud accountは初期scope外とする。
 
@@ -53,6 +55,14 @@ SQLiteは最初のtransactional storeであり、Windows file semanticsのauthor
 4. Runtime Worker、browser context、local serverを停止して再起動し、Open／Read／load後のbytesとstate hashを比較する。
 5. Commit前、transaction中、publish後へkillを注入し、再起動後に旧generationまたは新generationの完全な一方だけが見えることを確認する。
 6. Wrong path／title／generation、quota full、duplicate completionをmutation前に拒否する。
+
+### 5.1 Implemented source half
+
+Source halfはpublic PE32 fixtureとprivate targetで完了した。Rust `RuntimeFiles`がmanifest、Windows-932-aware path identity、typed file payload、share、cursor、pending requestを所有し、Workerはsame-origin byte requestだけを行う。Local serverは明示登録fileの全bytes／SHA-256を先に検証してimmutable copyからrangeを返す。HTTP identityはtitle fingerprint、snapshot、source、object、offset、requested／transferred lengthを往復検査する。
+
+Public fixtureはOpen／Size／Read／Seek／Read／Closeを自己検証し、Chromeはsuccess、pending cancel、watchdogを通す。Private targetは同じfingerprinted assetを二つのfile lifetimeで全量readし、実行前後のsource hash不変とNode／Chrome semantic equivalenceを確認する。詳細contractは[runtime-vfs.md](runtime-vfs.md)を正とする。
+
+Save half、server／browser restart、SQLite durability、kill injection、overlay precedenceは未完了であり、このsource結果からclaimしない。
 
 ## 6. Consequences and reconsideration
 

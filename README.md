@@ -13,14 +13,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `bgi-large-heap-allocation`: 1358 calls across 63 API contracts, memory generation 1481 |
+| Active runtime | `bgi-source-file-read`: 1389 calls across 68 API contracts, memory generation 1622 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (326 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (35 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `KERNEL32.dll!CreateFileA(0x006ff45c, 0x80000000, 0x00000001, 0x00000000, 0x00000003, 0x08000020, 0x00000000)` at instruction 51614: `endpoint-contract-missing` |
+| Next structured stop | `USER32.dll!CreateWindowExA(0x00040000, 0x100fba4c, 0x006ffb48, 0x80ca0000, 0x0000022d, 0x000000d6, 0x00000326)` at instruction 11476233: `endpoint-contract-missing` |
 
-The active semantic report is 5,549,091 bytes with SHA-256
-`eddac339d56ba6932ebc311fbe6f422b6d161fa8c11080cd3d42ef6b7bd4d80e`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 10,177,942 bytes with SHA-256
+`174ba2ca4c761755723b4cdb5574ac4db3a5316a79880544aec484e47807054d`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
@@ -87,6 +87,11 @@ The active semantic report is 5,549,091 bytes with SHA-256
 - `USER32.dll!LoadCursorA`
 - `USER32.dll!RegisterClassExA`
 - `USER32.dll!GetSystemMetrics`
+- `KERNEL32.dll!CreateFileA`
+- `KERNEL32.dll!GetFileSize`
+- `KERNEL32.dll!ReadFile`
+- `KERNEL32.dll!SetFilePointer`
+- `KERNEL32.dll!CloseHandle`
 
 ### Reproduce Current Checkpoint
 

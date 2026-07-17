@@ -34,6 +34,13 @@ const assets = {
     "v86-fallback.wasm",
   ),
   fixture: path.join(root, ".work", "toolchain-spike", "browser-vertical.exe"),
+  sourceFixture: path.join(root, ".work", "toolchain-spike", "source-read.exe"),
+  sourcePolicy: path.join(
+    root,
+    "fixtures",
+    "runtime-policies",
+    "kernel32-source-file-read-v1.json",
+  ),
 };
 
 for (const [name, file] of Object.entries(assets)) {
@@ -80,6 +87,7 @@ await mkdir(output, { recursive: true });
 await build({
   entryPoints: {
     main: path.join(source, "main.ts"),
+    "source-check": path.join(source, "source-check.ts"),
     "bgi-check": path.join(source, "bgi-check.ts"),
     "bgi-benchmark": path.join(source, "bgi-benchmark.ts"),
     "runtime-worker": path.join(source, "runtime-worker.ts"),
@@ -98,6 +106,7 @@ await build({
 
 await Promise.all([
   copyFile(path.join(source, "index.html"), path.join(output, "index.html")),
+  copyFile(path.join(source, "source-check.html"), path.join(output, "source-check.html")),
   copyFile(path.join(source, "bgi-check.html"), path.join(output, "bgi-check.html")),
   copyFile(path.join(source, "bgi-benchmark.html"), path.join(output, "bgi-benchmark.html")),
   copyFile(path.join(source, "styles.css"), path.join(output, "styles.css")),
@@ -119,6 +128,11 @@ await Promise.all([
   copyFile(assets.runtimeCore, path.join(output, "runtime-core.wasm")),
   copyFile(assets.v86Adapter, path.join(output, "v86-adapter.wasm")),
   copyFile(assets.fixture, path.join(output, "browser-vertical.exe")),
+  copyFile(assets.sourceFixture, path.join(output, "source-read.exe")),
+  copyFile(
+    assets.sourcePolicy,
+    path.join(output, "kernel32-source-file-read-v1.json"),
+  ),
 ]);
 
 const manifest = {
@@ -133,8 +147,10 @@ const manifest = {
     await Promise.all(
       [
         "index.html",
+        "source-check.html",
         "styles.css",
         "main.js",
+        "source-check.js",
         "bgi-check.html",
         "bgi-check.js",
         "bgi-benchmark.html",
@@ -151,6 +167,8 @@ const manifest = {
         "runtime-core.wasm",
         "v86-adapter.wasm",
         "browser-vertical.exe",
+        "source-read.exe",
+        "kernel32-source-file-read-v1.json",
       ].map(async (name) => {
         const bytes = await readFile(path.join(output, name));
         return [

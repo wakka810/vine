@@ -204,6 +204,7 @@ async function runBenchmark(): Promise<void> {
 
 function releaseCompletedSessionPayload(report: SessionReport): void {
   report.supportedCalls.length = 0;
+  report.sourceReads.length = 0;
   report.stackGrowths.length = 0;
   report.registeredThreadIds.length = 0;
   report.executedThreadIds.length = 0;
@@ -222,8 +223,8 @@ function runSession(sessionId: number): Promise<SessionReport> {
       workload: "private-bgi",
       executableUrl: "./private/BGI.exe",
       policyUrl: "./private/kernel32-policy.json",
-      instructionBudget: 8,
-      watchdogInstructionLimit: 100_000,
+      instructionBudget: 256,
+      watchdogInstructionLimit: 20_000_000,
       watchdogWallMilliseconds: 10_000,
     },
   } satisfies MainToWorkerMessage);

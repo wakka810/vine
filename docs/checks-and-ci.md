@@ -42,8 +42,22 @@ entry, cdecl dispatch, callback, outer return, entry sentinel, Rust-owned stack,
 FS／TEB／PEB, process parameters, MemoryDelta data roundtrip, automatic binary
 CPU writeback, window loader, Chrome Canvas presentation, and the full Chrome
 Runtime Worker vertical path. The Worker check runs guest CPU, deferred host
-completion, depth-2 callbacks, Canvas, Web Audio, IndexedDB, pending-request
-cancellation, and watchdog cleanup. It uses only repository fixtures.
+completion, depth-2 callbacks, Canvas, Web Audio, IndexedDB, immutable source
+Open／Size／Read／Seek／Close, pending-request cancellation, and watchdog cleanup.
+It also rejects a cross-origin source service before fetch and uses only repository fixtures.
+
+The focused immutable-source contracts are:
+
+```powershell
+cargo test -p vine-core --test source_file_gateway --locked
+cargo test -p vine-core --lib runtime::files::tests --locked
+npm run check:runtime:browser-worker
+```
+
+The Rust tests fix manifest／path／share／typed-handle／cursor／completion／teardown
+atomicity. The browser command builds the public self-checking PE32 source fixture,
+verifies its native exit, and exercises same-origin success, pending cancel, and
+watchdog without requiring the private title.
 
 The engine contract rejects source-revision, CPU-context ABI, or artifact
 identity mismatch before guest startup and checks budgeted stops, context
@@ -79,8 +93,10 @@ The last command adds a 30-minute repeated lifecycle soak and is not part of the
 ordinary short gate. Its exact evidence and non-claims are recorded in
 [browser-runtime-worker.md](browser-runtime-worker.md).
 
-The BGI benchmark command is a separate three-minute private workload gate. It
-repeats the complete current session, checks semantics on every repetition, and
+The BGI benchmark command is a separate three-minute private workload gate. Its
+source-read workload is pinned by
+[`bgi-browser-source-read-v1.json`](../fixtures/benchmarks/bgi-browser-source-read-v1.json).
+It repeats the complete current session, checks semantics on every repetition, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
 and Wasm-crossing thresholds. Its result and non-claims are recorded in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md). It is not part of public CI

@@ -181,6 +181,8 @@ const largeHeapAccessMinimumBytes = 16 * 1024 * 1024;
 let activeLargeHeapAccessMonitor = null;
 let largeHeapAllocationCompletionCandidate = null;
 let largeHeapAllocationCompletionRecorded = false;
+const observedSourceFileHandles = new Map();
+let sourceFileReadCompletionRecorded = false;
 let getCurrentThreadOracleScheduled = false;
 let setThreadAffinityMaskOracleScheduled = false;
 let setThreadAffinityMaskOracleSentinel = null;
@@ -262,6 +264,25 @@ function snapshotNulTerminatedString(pointer, encoding) {
       pointer: pointer.toString(),
       encoding,
       maximumBytes,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotOptionalU32(pointer) {
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), isNull: true };
+  }
+  try {
+    return {
+      pointer: pointer.toString(),
+      isNull: false,
+      value: pointer.readU32(),
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      isNull: false,
       error: error.message,
     };
   }
@@ -2397,6 +2418,28 @@ if (selectedObservations.has("multi-byte-to-wide-char")) {
 if (selectedObservations.has("set-current-directory-a")) {
   hooks["kernel32.dll"].push(["SetCurrentDirectoryA", ["ansi"]]);
 }
+if (selectedObservations.has("source-file-read")) {
+  const createFileA = hooks["kernel32.dll"].findIndex(
+    ([name]) => name === "CreateFileA",
+  );
+  const createFileW = hooks["kernel32.dll"].findIndex(
+    ([name]) => name === "CreateFileW",
+  );
+  hooks["kernel32.dll"][createFileA] = [
+    "CreateFileA",
+    ["ansi", null, null, null, null, null, null],
+  ];
+  hooks["kernel32.dll"][createFileW] = [
+    "CreateFileW",
+    ["utf16", null, null, null, null, null, null],
+  ];
+  hooks["kernel32.dll"].push(
+    ["ReadFile", [null, null, null, null, null]],
+    ["SetFilePointer", [null, null, null, null]],
+    ["GetFileSize", [null, null]],
+    ["CloseHandle", [null]],
+  );
+}
 if (selectedObservations.has("create-mutex-a")) {
   hooks["kernel32.dll"].push(
     ["CreateMutexA", [null, null, "ansi"]],
@@ -3517,6 +3560,18 @@ function attachHook(module, name, decoders) {
         (isMainModuleCaller ||
           (caller.module.toLowerCase() === "frida-agent.dll" &&
             setCurrentDirectoryOracleSentinel !== null));
+      const focusedSourceFileCreateObservation =
+        selectedObservations.has("source-file-read") &&
+        name === "CreateFileA" &&
+        isMainModuleCaller;
+      const sourceFileHandleKey =
+        selectedObservations.has("source-file-read") &&
+        ["ReadFile", "SetFilePointer", "GetFileSize", "CloseHandle"].includes(name)
+          ? args[0].toString().toLowerCase()
+          : null;
+      const focusedSourceFileOperationObservation =
+        sourceFileHandleKey !== null &&
+        observedSourceFileHandles.has(sourceFileHandleKey);
       const isCreateMutexA = name === "CreateMutexA";
       const isMutexLifecycleApi =
         name === "WaitForSingleObject" ||
@@ -3681,6 +3736,22 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("set-current-directory-a") &&
         name === "SetCurrentDirectoryA" &&
         !focusedSetCurrentDirectoryAObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("source-file-read") &&
+        name === "CreateFileA" &&
+        !focusedSourceFileCreateObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("source-file-read") &&
+        ["ReadFile", "SetFilePointer", "GetFileSize", "CloseHandle"].includes(name) &&
+        !focusedSourceFileOperationObservation
       ) {
         this.traceFrame = null;
         return;
@@ -4079,6 +4150,76 @@ function attachHook(module, name, decoders) {
               })(),
             }
           : null;
+      this.traceSourceFileCreate = focusedSourceFileCreateObservation
+        ? {
+            path: snapshotMultiByteSource(args[0], -1),
+            desiredAccess: args[1].toUInt32(),
+            shareMode: args[2].toUInt32(),
+            securityAttributes: args[3].toString(),
+            creationDisposition: args[4].toUInt32(),
+            flagsAndAttributes: args[5].toUInt32(),
+            templateFile: args[6].toString(),
+            lastErrorBefore: Number(this.lastError) >>> 0,
+            immediateConsumer: {
+              apiContinuation: snapshotInstructionsFollowingDirectJump(
+                this.returnAddress,
+                32,
+              ),
+              frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                this.context,
+                4,
+                16,
+              ),
+            },
+          }
+        : null;
+      const sourceFileRecord =
+        sourceFileHandleKey === null
+          ? null
+          : (observedSourceFileHandles.get(sourceFileHandleKey) ?? null);
+      this.traceSourceFileOperation =
+        sourceFileRecord === null
+          ? null
+          : {
+              api: name,
+              handle: sourceFileHandleKey,
+              record: sourceFileRecord,
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              immediateConsumer: {
+                apiContinuation: snapshotInstructionsFollowingDirectJump(
+                  this.returnAddress,
+                  32,
+                ),
+                frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                  this.context,
+                  4,
+                  16,
+                ),
+              },
+              ...(name === "ReadFile"
+                ? {
+                    buffer: args[1],
+                    requestedBytes: args[2].toUInt32(),
+                    bytesRead: args[3],
+                    bytesReadBefore: snapshotOptionalU32(args[3]),
+                    overlapped: args[4].toString(),
+                  }
+                : {}),
+              ...(name === "SetFilePointer"
+                ? {
+                    distanceLow: signed32(args[1]),
+                    distanceHigh: args[2],
+                    distanceHighBefore: snapshotOptionalU32(args[2]),
+                    moveMethod: args[3].toUInt32(),
+                  }
+                : {}),
+              ...(name === "GetFileSize"
+                ? {
+                    sizeHigh: args[1],
+                    sizeHighBefore: snapshotOptionalU32(args[1]),
+                  }
+                : {}),
+            };
       this.traceCreateMutexA =
         focusedCreateMutexAObservation
           ? {
@@ -4982,6 +5123,63 @@ function attachHook(module, name, decoders) {
                 currentDirectoryAfter: setCurrentDirectoryAfter,
               },
             }),
+        ...(this.traceSourceFileCreate === null
+          ? {}
+          : {
+              sourceFileCreate: {
+                ...this.traceSourceFileCreate,
+                handle: result.toString().toLowerCase(),
+                succeeded: result.toUInt32() !== 0xffffffff,
+              },
+            }),
+        ...(this.traceSourceFileOperation === null
+          ? {}
+          : {
+              sourceFileOperation: {
+                api: this.traceSourceFileOperation.api,
+                handle: this.traceSourceFileOperation.handle,
+                result: result.toString(),
+                ...(this.traceSourceFileOperation.api === "ReadFile"
+                  ? (() => {
+                      const bytesReadAfter = snapshotOptionalU32(
+                        this.traceSourceFileOperation.bytesRead,
+                      );
+                      const transferredBytes = bytesReadAfter.value ?? 0;
+                      return {
+                        requestedBytes: this.traceSourceFileOperation.requestedBytes,
+                        bytesReadBefore: this.traceSourceFileOperation.bytesReadBefore,
+                        bytesReadAfter,
+                        overlapped: this.traceSourceFileOperation.overlapped,
+                        outputAfter: snapshotByteBuffer(
+                          this.traceSourceFileOperation.buffer,
+                          transferredBytes,
+                        ),
+                      };
+                    })()
+                  : {}),
+                ...(this.traceSourceFileOperation.api === "SetFilePointer"
+                  ? {
+                      distanceLow: this.traceSourceFileOperation.distanceLow,
+                      distanceHighBefore:
+                        this.traceSourceFileOperation.distanceHighBefore,
+                      distanceHighAfter: snapshotOptionalU32(
+                        this.traceSourceFileOperation.distanceHigh,
+                      ),
+                      moveMethod: this.traceSourceFileOperation.moveMethod,
+                    }
+                  : {}),
+                ...(this.traceSourceFileOperation.api === "GetFileSize"
+                  ? {
+                      sizeHighBefore: this.traceSourceFileOperation.sizeHighBefore,
+                      sizeHighAfter: snapshotOptionalU32(
+                        this.traceSourceFileOperation.sizeHigh,
+                      ),
+                    }
+                  : {}),
+                immediateConsumer:
+                  this.traceSourceFileOperation.immediateConsumer,
+              },
+            }),
         ...(this.traceCreateMutexA === null
           ? {}
           : {
@@ -5139,6 +5337,86 @@ function attachHook(module, name, decoders) {
         },
         lastError,
       );
+      if (
+        this.traceSourceFileCreate !== null &&
+        result.toUInt32() !== 0xffffffff
+      ) {
+        const handle = result.toString().toLowerCase();
+        observedSourceFileHandles.set(handle, {
+          profile: "main-module-source-file-read-v1",
+          open: {
+            callId: this.traceFrame.callId,
+            caller: this.traceFrame.caller,
+            returnAddress: this.returnAddress.toString().toLowerCase(),
+            ...this.traceSourceFileCreate,
+            handle,
+            lastError: Number(lastError) >>> 0,
+          },
+          operations: [],
+        });
+      }
+      if (this.traceSourceFileOperation !== null) {
+        const operation = {
+          callId: this.traceFrame.callId,
+          caller: this.traceFrame.caller,
+          returnAddress: this.returnAddress.toString().toLowerCase(),
+          api: this.traceSourceFileOperation.api,
+          result: result.toString(),
+          lastErrorBefore: this.traceSourceFileOperation.lastErrorBefore,
+          lastError: Number(lastError) >>> 0,
+          immediateConsumer: this.traceSourceFileOperation.immediateConsumer,
+          ...(this.traceSourceFileOperation.api === "ReadFile"
+            ? (() => {
+                const bytesRead = snapshotOptionalU32(
+                  this.traceSourceFileOperation.bytesRead,
+                );
+                return {
+                  requestedBytes: this.traceSourceFileOperation.requestedBytes,
+                  bytesRead,
+                  overlapped: this.traceSourceFileOperation.overlapped,
+                  output: snapshotByteBuffer(
+                    this.traceSourceFileOperation.buffer,
+                    bytesRead.value ?? 0,
+                  ),
+                };
+              })()
+            : {}),
+          ...(this.traceSourceFileOperation.api === "SetFilePointer"
+            ? {
+                distanceLow: this.traceSourceFileOperation.distanceLow,
+                distanceHigh: snapshotOptionalU32(
+                  this.traceSourceFileOperation.distanceHigh,
+                ),
+                moveMethod: this.traceSourceFileOperation.moveMethod,
+              }
+            : {}),
+          ...(this.traceSourceFileOperation.api === "GetFileSize"
+            ? {
+                sizeHigh: snapshotOptionalU32(
+                  this.traceSourceFileOperation.sizeHigh,
+                ),
+              }
+            : {}),
+        };
+        this.traceSourceFileOperation.record.operations.push(operation);
+        if (
+          !sourceFileReadCompletionRecorded &&
+          this.traceSourceFileOperation.api === "CloseHandle" &&
+          result.toUInt32() !== 0
+        ) {
+          sourceFileReadCompletionRecorded = true;
+          observedSourceFileHandles.delete(
+            this.traceSourceFileOperation.handle,
+          );
+          emit("source-file-read-complete", {
+            ...this.traceSourceFileOperation.record,
+            close: operation,
+          });
+          if (stopOnEvent === "source-file-read-complete") {
+            recv("vine-trace-stop", () => {}).wait();
+          }
+        }
+      }
       if (
         this.traceTimeGetDevCaps !== null &&
         this.traceTimeGetDevCapsMainModuleCaller &&

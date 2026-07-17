@@ -2770,3 +2770,15 @@ Primaryではinstruction 50,123のPFEC 6でfirst pageを`0xA5`初期化し、Nod
 page identity、memory digest、instruction 51,614の`CreateFileA` stopを再現する。Memory／Worker boundary
 変更後の3分gateは326 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-large-heap-allocation.md](bgi-large-heap-allocation.md)を正とする。
+
+## 102. Immutable source-file gateway
+
+Historical Windows startup traceは最初のtitle-local `CreateFileA`が`${TITLE_ROOT}\BGI.gdb`を開き、main `CreateWindowExA`より前に到達することを示す。旧hookはdesired access／share／creation／flags／LastErrorを保持しないため、そのtraceだけからfile contractを一般化しない。Source manifestはinstalled `BGI.gdb`をobject ID 1、125,461 bytes、SHA-256 `e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92`としてfingerprintし、private pathやbytesをGitへ入れない。
+
+Public Windows oracleは新しい2,560-byte PE32 fixtureである。SHA-256は`292d298cb77a8223cb0f6fb66333457b3fab9b8e4f0c1643cf01936b769a1d63`、native exitは0である。Fixture自身が`CreateFileA -> GetFileSize -> ReadFile(8) -> SetFilePointer(50) -> ReadFile(11) -> CloseHandle`を実行し、94-byte public source objectのsizeと二つのpayloadを比較する。これによりx86 stdcall ABI、caller-visible BOOL／DWORD output、cursor consumerをWindows self-oracleとして固定するが、Vineのlogical handle数値やasync transportをnative goldenにしない。
+
+Rust `RuntimeFiles`はmanifest／Windows-932 path／share／typed file payload／cursor／pending requestをprivateに所有する。Wrong mount、share conflict、stale manifest plan、wrong／duplicate completion、guest-memory failure、pending close、process exitはobservable stateを部分更新しない。Workerはprepared manifestへRust requestをbindingし、title fingerprint／snapshot／source／object／rangeだけでsame-origin serviceを呼ぶ。
+
+Private Node evidenceは二つのfile lifetimeで同じassetをoffset 0から全量readし、各payload hashがmanifestと一致する。Source executableは実行前後で1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。Chromeもordered calls、二つのsource completion、guest writes、memory digest、next `CreateWindowExA` stopを再現し、pending cancel／watchdog後にRust／Worker recordを残さない。3分source-read workloadは全versioned thresholdを通した。
+
+このevidenceは一objectのread-only Open／Size／Read／Seek／Closeだけを成立させる。Directory enumeration、write、truncate、mapped file、replacement recovery、large-corpus streaming、writable overlay、save／restart／load、SQLite durabilityは未検証である。Stable contractは[runtime-vfs.md](runtime-vfs.md)、backend decisionは[ADR-006](adr-006-vfs-local-server.md)を正とする。

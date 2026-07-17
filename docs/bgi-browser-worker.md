@@ -17,6 +17,9 @@ that its bytes remain unchanged.
   object identity, heap state, synchronization, and Win32 compatibility semantics.
 - The Runtime Worker owns bounded execution orchestration and browser adapters. It
   does not maintain a second Windows-state authority.
+- Rust `RuntimeFiles` owns the immutable manifest, path／file identity, typed handle,
+  cursor, and pending read. The Worker binds Rust IDs to the prepared manifest and
+  performs only title／snapshot／object-addressed same-origin byte requests.
 - Node is a deterministic semantic oracle, not a production scheduler or memory
   authority.
 - The execution engine sees versioned CPU contexts, checked memory reflections and
@@ -51,13 +54,13 @@ the module graph, and leave no runnable Worker session behind.
 
 Chrome and the Node oracle are compared using guest-visible semantics: ordered API
 occurrences, decoded arguments, return and stack state, LastError, guest writes,
-directory and synchronization metadata, final memory content, and the structured
-fault. Memory generations and whole-report hashes are synchronization or artifact
+directory and synchronization metadata, source request／cursor／payload identity,
+final memory content, and the structured fault. Memory generations and whole-report hashes are synchronization or artifact
 identity, not guest-visible equivalence.
 
 The browser gate also covers success, cancellation, watchdog, callback, Canvas, audio,
-IndexedDB, memory mapping, physical-pool growth and reuse, multi-thread execution, and
-source fingerprint preservation. Performance thresholds and their current results are
+IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth and reuse,
+multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
 ## Reproduction
@@ -72,7 +75,7 @@ fingerprint before and after execution.
 
 ## Non-claims
 
-- The checkpoint is not title rendering, input, audio, save/load, or full-play
+- The checkpoint is not title rendering, input, audio, writable persistence, save/load, or full-play
   acceptance.
 - The controlled second thread does not claim broad Win32 thread, wait,
   synchronization, APC, SEH, or scheduling fairness compatibility.

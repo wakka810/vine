@@ -28,12 +28,14 @@ use vine_core::{
     RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
     RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord,
     RuntimePageFaultResolution, RuntimeProcessId, RuntimeProcessLifecycleState,
-    RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack, RuntimeThreadStackGrowth,
-    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, SchedulerThreadState,
-    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
-    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
+    RuntimeSchedulerEvent, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
+    RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
+    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeTimerResolutionState, RuntimeTlsValue,
+    RuntimeWaitableTimer, SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION,
+    TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint, User32CompatibilityPolicy,
+    WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
+    build_pe32_load_plan, complete_kernel32_source_read, dispatch_kernel32_api,
     dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
     dispatch_winmm_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
     get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
@@ -64,6 +66,7 @@ struct Arguments {
     generic_runtime_reentry: bool,
     generic_runtime_capability: Option<GenericRuntimeCapability>,
     kernel32_policy: Option<Kernel32CompatibilityPolicy>,
+    source_manifest: Option<RuntimeSourceSnapshotManifest>,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -92,6 +95,8 @@ const RUNTIME_FRAME_GUEST_CALLBACK: u32 = 14;
 const RUNTIME_FRAME_GUEST_CALLBACK_RETURN: u32 = 15;
 const RUNTIME_FRAME_PAGE_FAULT_SERVICE: u32 = 16;
 const RUNTIME_FRAME_PAGE_FAULT_COMPLETION: u32 = 17;
+const RUNTIME_FRAME_HOST_REQUEST: u32 = 18;
+const RUNTIME_FRAME_HOST_COMPLETION: u32 = 19;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 4096;
@@ -156,6 +161,7 @@ enum GenericRuntimeCapability {
     RegisterClassExA,
     GetSystemMetrics,
     LargeHeapAllocation,
+    SourceFileRead,
 }
 
 struct GenericRuntimeProcess {
@@ -223,6 +229,27 @@ struct GenericRuntimeCallbackEntry {
     frame_bytes: u32,
     return_sentinel: u32,
     memory: MemoryStats,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeHostRequest {
+    schema: &'static str,
+    schema_version: u32,
+    endpoint: GenericRuntimeEndpoint,
+    request_id: u64,
+    thread_id: u32,
+    service: String,
+    arguments: Vec<u32>,
+    scheduler_state: GenericRuntimeWaitingHostState,
+    memory: MemoryStats,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeWaitingHostState {
+    state: &'static str,
+    request_id: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -311,6 +338,8 @@ struct GenericRuntimeSessionReady {
     primary_monitor: Option<RuntimeLogicalMonitor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mouse_button_mapping: Option<vine_core::RuntimeMouseButtonMapping>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_snapshot: Option<RuntimeSourceSnapshot>,
     initial_thread_stack: RuntimeThreadStack,
     initial_stack_address_allocation: vine_core::ProcessAddressAllocationRecord,
     memory: MemoryStats,
@@ -362,6 +391,8 @@ struct GenericRuntimeCompletion {
     com_apartment: Option<RuntimeComApartmentState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     timer_resolution: Option<RuntimeTimerResolutionState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_read: Option<RuntimeSourceReadCompletion>,
     memory: MemoryStats,
 }
 
@@ -1904,7 +1935,7 @@ fn run_v86_reflection_session(
     loader_report: &LoaderIngressReport,
 ) -> Result<(), LoaderError> {
     const MAX_REFLECTION_PAGES: usize = 16;
-    const MAX_LARGE_IMAGE_REFLECTION_PAGES: usize = 400;
+    const MAX_LARGE_IMAGE_REFLECTION_PAGES: usize = 16 * 1024;
     const MAX_REFLECTION_MESSAGE_BYTES: usize = 512 * 1024;
     const MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
     let generic_runtime_reentry = arguments.generic_runtime_reentry;
@@ -1918,6 +1949,17 @@ fn run_v86_reflection_session(
         .as_ref()
         .is_some_and(Kernel32CompatibilityPolicy::allows_wide_environment_strings);
     let kernel32_policy = arguments.kernel32_policy;
+    let source_manifest = arguments.source_manifest;
+    if source_manifest
+        .as_ref()
+        .is_some_and(|manifest| manifest.title_fingerprint != snapshot.identity().sha256)
+    {
+        return Err(LoaderError::invalid_input(
+            "source-snapshot-manifest",
+            "source-snapshot-title-fingerprint-mismatch",
+            "source snapshot title fingerprint does not match the prepared PE source",
+        ));
+    }
     let supported_call_count = arguments
         .checkpoint_session
         .as_ref()
@@ -1937,7 +1979,7 @@ fn run_v86_reflection_session(
     };
     if max_physical_pages > reflection_page_limit {
         let message = if arguments.large_image_reflection {
-            "the version 1 large-image reflection session is limited to 400 physical pages"
+            "the version 1 large-image reflection session is limited to 16384 physical pages"
         } else {
             "the version 1 reflection session is limited to 16 physical pages"
         };
@@ -1996,6 +2038,7 @@ fn run_v86_reflection_session(
             &materialization,
             &runtime_catalog,
             &declared_catalog,
+            source_manifest,
         )?;
         generic_runtime = Some(runtime);
         evidence_binding
@@ -2502,8 +2545,14 @@ fn prepare_generic_runtime_process(
     materialization: &ImageMaterialization,
     runtime_catalog: &RuntimeExportCatalog,
     declared_catalog: &RuntimeExportCatalog,
+    source_manifest: Option<RuntimeSourceSnapshotManifest>,
 ) -> Result<(GenericRuntimeProcess, ImportBinding), LoaderError> {
     let mut runtime = controlled_runtime_state(&[])?;
+    if let Some(source_manifest) = source_manifest {
+        runtime
+            .register_source_snapshot(source_manifest)
+            .map_err(runtime_state_error)?;
+    }
     let mut module_handles = vec![CONTROLLED_KERNEL32_HANDLE];
     let mut canonical_modules = BTreeSet::from(["kernel32.dll".to_owned()]);
     let mut next_module_slot = 2_u16;
@@ -2773,7 +2822,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::LoadCursorA
             | GenericRuntimeCapability::RegisterClassExA
             | GenericRuntimeCapability::GetSystemMetrics
-            | GenericRuntimeCapability::LargeHeapAllocation,
+            | GenericRuntimeCapability::LargeHeapAllocation
+            | GenericRuntimeCapability::SourceFileRead,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3114,6 +3164,7 @@ fn run_v86_generic_runtime_session(
             display_profile_id: process.runtime.display_profile_id().map(str::to_owned),
             primary_monitor: process.runtime.primary_monitor().cloned(),
             mouse_button_mapping: process.runtime.mouse_button_mapping().cloned(),
+            source_snapshot: process.runtime.source_snapshot().cloned(),
             initial_thread_stack,
             initial_stack_address_allocation,
             memory: memory.stats(),
@@ -3250,6 +3301,7 @@ fn run_v86_generic_runtime_session(
                             tick_count: None,
                             com_apartment: None,
                             timer_resolution: None,
+                            source_read: None,
                             memory: memory.stats(),
                         },
                     )?;
@@ -3764,6 +3816,7 @@ fn run_v86_generic_runtime_session(
                                 tick_count,
                                 com_apartment,
                                 timer_resolution,
+                                source_read: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3824,17 +3877,138 @@ fn run_v86_generic_runtime_session(
                         });
                         write_runtime_json_frame(RUNTIME_FRAME_GUEST_CALLBACK, &callback_entry)?;
                     }
-                    DispatchOutcome::Deferred(_) => {
-                        write_generic_runtime_fault(
-                            memory,
-                            GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
-                            ApiFault::unsupported(
+                    DispatchOutcome::Deferred(call) => {
+                        let request_id = call.request.request_id;
+                        let thread_id = session.runtime().current_thread_id();
+                        let scheduler_state = session
+                            .runtime()
+                            .scheduler_state()
+                            .map_err(runtime_state_error)?;
+                        if scheduler_state != (SchedulerThreadState::WaitingHost { request_id }) {
+                            return Err(LoaderError::runtime_defect(
                                 "runtime-reentry",
-                                "runtime-api-outcome-unimplemented",
-                                "generic BGI re-entry does not yet resume deferred API outcomes",
-                            ),
+                                "source-read-scheduler-state-invalid",
+                                "deferred source read is not owned by the waiting runtime thread",
+                            ));
+                        }
+                        let arguments = decode_runtime_host_payload(&call.request.payload)?;
+                        write_runtime_json_frame(
+                            RUNTIME_FRAME_HOST_REQUEST,
+                            &GenericRuntimeHostRequest {
+                                schema: "vine.v86-generic-runtime-host-request",
+                                schema_version: 1,
+                                endpoint: GenericRuntimeEndpoint::RuntimeSystemExport {
+                                    endpoint: endpoint.clone(),
+                                },
+                                request_id,
+                                thread_id: thread_id.0,
+                                service: call.request.service.clone(),
+                                arguments,
+                                scheduler_state: GenericRuntimeWaitingHostState {
+                                    state: "waiting-host",
+                                    request_id,
+                                },
+                                memory: session.memory().stats(),
+                            },
                         )?;
-                        return Ok(());
+                        let response_frame = read_runtime_frame(input)?;
+                        require_runtime_frame_kind(&response_frame, RUNTIME_FRAME_HOST_COMPLETION)?;
+                        if response_frame.control.len() != 40 {
+                            return Err(LoaderError::invalid_input(
+                                "runtime-reentry",
+                                "source-read-completion-control-size-invalid",
+                                "source read completion requires an eight-byte request identity and 32-byte response control",
+                            ));
+                        }
+                        let response_request_id = u64::from_le_bytes(
+                            response_frame.control[..8]
+                                .try_into()
+                                .expect("checked source response request ID"),
+                        );
+                        if response_request_id != request_id {
+                            return Err(LoaderError::invalid_input(
+                                "runtime-reentry",
+                                "source-read-completion-request-mismatch",
+                                "source read completion identifies a different pending request",
+                            ));
+                        }
+                        let response = RuntimeSourceReadHostResponse::decode_binary(
+                            request_id,
+                            &response_frame.control[8..],
+                            &response_frame.payload,
+                        )
+                        .map_err(runtime_state_error)?;
+                        let (outcome, source_read) = complete_kernel32_source_read(
+                            &dispatcher,
+                            call,
+                            response,
+                            &mut session,
+                        );
+                        let completion = match outcome {
+                            DispatchOutcome::Immediate(completion) => completion,
+                            DispatchOutcome::Fault(fault) => {
+                                write_generic_runtime_fault(
+                                    memory,
+                                    GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
+                                    fault,
+                                )?;
+                                return Ok(());
+                            }
+                            _ => {
+                                return Err(LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "source-read-completion-suspended",
+                                    "source read completion produced another suspended outcome",
+                                ));
+                            }
+                        };
+                        let source_read = source_read.ok_or_else(|| {
+                            LoaderError::runtime_defect(
+                                "runtime-reentry",
+                                "source-read-completion-state-missing",
+                                "source read API completed without committing VFS state",
+                            )
+                        })?;
+                        match session.runtime_mut().pop_scheduler_event() {
+                            Some(RuntimeSchedulerEvent::HostCompleted(completion))
+                                if completion.request_id == request_id
+                                    && completion.thread_id == thread_id => {}
+                            _ => {
+                                return Err(LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "source-read-scheduler-event-mismatch",
+                                    "source read completion emitted a mismatched scheduler event",
+                                ));
+                            }
+                        }
+                        send_pending_runtime_delta(input, memory)?;
+                        write_runtime_json_frame(
+                            RUNTIME_FRAME_API_COMPLETION,
+                            &GenericRuntimeCompletion {
+                                schema: "vine.v86-generic-runtime-completion",
+                                schema_version: 1,
+                                endpoint: GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
+                                completion,
+                                fls_value: None,
+                                interlocked_increment: None,
+                                interlocked_decrement: None,
+                                heap_allocation: None,
+                                standard_handle: None,
+                                file_type: None,
+                                current_directory: None,
+                                mutex: None,
+                                waitable_timer: None,
+                                icon: None,
+                                cursor: None,
+                                window_class: None,
+                                thread_affinity: None,
+                                tick_count: None,
+                                com_apartment: None,
+                                timer_resolution: None,
+                                source_read: Some(source_read),
+                                memory: memory.stats(),
+                            },
+                        )?;
                     }
                 }
             }
@@ -3928,6 +4102,7 @@ fn run_v86_generic_runtime_session(
                                 tick_count: None,
                                 com_apartment: None,
                                 timer_resolution: None,
+                                source_read: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -3967,6 +4142,13 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
+    let source_file_read_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::SourceFileRead));
+    let enabled = if source_file_read_enabled {
+        Some(GenericRuntimeCapability::LargeHeapAllocation)
+    } else {
+        enabled
+    };
     let get_system_metrics_enabled = matches!(
         enabled,
         Some(
@@ -4423,6 +4605,9 @@ fn runtime_capability_enables_endpoint(
         "LoadCursorA" => load_cursor_a_enabled,
         "RegisterClassExA" => register_class_ex_a_enabled,
         "GetSystemMetrics" => get_system_metrics_enabled,
+        "CreateFileA" | "GetFileSize" | "ReadFile" | "SetFilePointer" | "CloseHandle" => {
+            source_file_read_enabled
+        }
         _ => true,
     }
 }
@@ -4431,6 +4616,11 @@ fn runtime_capability_enables_dynamic_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &RuntimeDynamicEndpoint,
 ) -> bool {
+    let enabled = if matches!(enabled, Some(GenericRuntimeCapability::SourceFileRead)) {
+        Some(GenericRuntimeCapability::LargeHeapAllocation)
+    } else {
+        enabled
+    };
     let enabled = if matches!(
         enabled,
         Some(
@@ -4970,6 +5160,25 @@ fn write_runtime_json_frame(kind: u32, value: &impl Serialize) -> Result<(), Loa
         )
     })?;
     write_runtime_frame(kind, &control, &[])
+}
+
+fn decode_runtime_host_payload(payload: &[u8]) -> Result<Vec<u32>, LoaderError> {
+    if !payload.len().is_multiple_of(4) || payload.len() > 64 * 4 {
+        return Err(LoaderError::invalid_input(
+            "runtime-reentry",
+            "runtime-host-request-payload-invalid",
+            "runtime host request payload must contain at most 64 little-endian words",
+        ));
+    }
+    Ok(payload
+        .chunks_exact(4)
+        .map(|word| {
+            u32::from_le_bytes(
+                word.try_into()
+                    .expect("four-byte runtime host request word"),
+            )
+        })
+        .collect())
 }
 
 fn write_runtime_frame(kind: u32, control: &[u8], payload: &[u8]) -> Result<(), LoaderError> {
@@ -9774,6 +9983,24 @@ fn load_kernel32_compatibility_policy(
     Ok(policy)
 }
 
+fn load_source_snapshot_manifest(
+    path: &Path,
+) -> Result<RuntimeSourceSnapshotManifest, LoaderError> {
+    const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+
+    let bytes = read_bounded(path, MAX_MANIFEST_BYTES).map_err(|error| LoaderError {
+        stage: "source-snapshot-manifest",
+        ..error
+    })?;
+    serde_json::from_slice(&bytes).map_err(|error| {
+        LoaderError::invalid_input(
+            "source-snapshot-manifest",
+            "source-snapshot-json-invalid",
+            format!("could not parse source snapshot manifest: {error}"),
+        )
+    })
+}
+
 fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut input = None;
     let mut output = None;
@@ -9786,6 +10013,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut generic_runtime_reentry = false;
     let mut generic_runtime_capability = None;
     let mut runtime_policy = None;
+    let mut source_manifest = None;
     let mut checkpoint_manifest = None;
     let mut checkpoint_id = None;
     let mut large_image_reflection = false;
@@ -9943,6 +10171,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-register-class-ex-a" => GenericRuntimeCapability::RegisterClassExA,
                 "user32-get-system-metrics" => GenericRuntimeCapability::GetSystemMetrics,
                 "kernel32-large-heap-allocation" => GenericRuntimeCapability::LargeHeapAllocation,
+                "kernel32-source-file-read" => GenericRuntimeCapability::SourceFileRead,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
@@ -9951,6 +10180,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         } else if argument == "--runtime-policy" {
             let value = arguments.next().ok_or_else(usage_error)?;
             if runtime_policy.replace(PathBuf::from(value)).is_some() {
+                return Err(usage_error());
+            }
+        } else if argument == "--source-manifest" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            if source_manifest.replace(PathBuf::from(value)).is_some() {
                 return Err(usage_error());
             }
         } else if argument == "--checkpoint-manifest" {
@@ -10052,6 +10286,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if generic_runtime_reentry != runtime_policy.is_some() {
         return Err(usage_error());
     }
+    if source_manifest.is_some() && !generic_runtime_reentry {
+        return Err(usage_error());
+    }
     if checkpoint_manifest.is_some() != checkpoint_id.is_some()
         || (checkpoint_manifest.is_some() && !v86_reflection_session)
     {
@@ -10070,6 +10307,17 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         .as_deref()
         .map(load_kernel32_compatibility_policy)
         .transpose()?;
+    let source_manifest = source_manifest
+        .as_deref()
+        .map(load_source_snapshot_manifest)
+        .transpose()?;
+    if kernel32_policy
+        .as_ref()
+        .is_some_and(|policy| policy.source_files().is_some())
+        != source_manifest.is_some()
+    {
+        return Err(usage_error());
+    }
 
     Ok(Arguments {
         input: input.ok_or_else(usage_error)?,
@@ -10084,6 +10332,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         generic_runtime_reentry,
         generic_runtime_capability,
         kernel32_policy,
+        source_manifest,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,

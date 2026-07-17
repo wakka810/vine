@@ -3,9 +3,9 @@
 ## Status
 
 - Status: implemented controlled policy boundary
-- Date: 2026-07-17
+- Date: 2026-07-18
 - Semantic authority: Rust `vine-core::win32`／`vine-core::user32`
-- Policy schemas: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）、`vine.user32-compatibility-policy` version `2`
+- Policy schemas: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）、`vine.user32-compatibility-policy` version `6`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -49,6 +49,7 @@ runtime execution. It contains only target-independent bounded data:
   Windows-932 name scan;
 - opt-in unnamed `CreateWaitableTimerA` reset modes with null security
   attributes;
+- opt-in immutable source files with duplicate-free exact desired-access／share／creation／flags variants, bounded Windows-932 path scan, and bounded read length;
 - enabled `HeapAlloc` flags, an ordinary maximum nonzero size, and explicit
   large-size variants; `HeapFree` flags; and `HeapSize` flags;
 - an opt-in x86 `InitializeCriticalSection` raw spin-state field for the measured
@@ -70,8 +71,8 @@ execution.
 Twenty-seven schema-v1 files remain immutable historical reproduction policies
 with exact flag／size pairs. Schema v2 removes those sizes from runtime
 selection; the active profile extends the preceding bounded-heap checkpoint
-with x86 virtual system information, an explicit system-default LANGID, and a
-controlled ANSI OS-version profile:
+with x86 virtual system information, an explicit system-default LANGID, a
+controlled ANSI OS-version profile, and the bounded immutable-source open／read band:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -109,8 +110,9 @@ controlled ANSI OS-version profile:
 | `kernel32-get-version-ex-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + NT 10.0 build 19045 workstation profile／148- and 156-byte layouts | same bounded allocation/free/size variants |
 | `kernel32-create-waitable-timer-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + unnamed manual-reset waitable timer; auto-reset disabled | same bounded allocation/free/size variants |
 | `kernel32-large-heap-allocation-v1` | stdin, stdout, stderr | preceding schema-v2 options | ordinary nonzero sizes through 16 MiB plus exact 64 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
+| `kernel32-source-file-read-v1` | stdin, stdout, stderr | preceding schema-v2 options + exact read-only `OPEN_EXISTING`／share-read／measured flags, 32 KiB path and 1 MiB read bounds | ordinary nonzero sizes through 16 MiB plus exact 64 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 
-Unlisted selectors and file classifications remain unsupported. The handler
+Unlisted selectors, file classifications, file access／share／creation／flags, overlapped reads, and high-DWORD size／seek variants remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
 runtime or memory mutation.
 

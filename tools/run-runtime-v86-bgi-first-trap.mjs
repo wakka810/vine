@@ -12,6 +12,12 @@ import {
   selectRuntimeCheckpoint,
 } from "./runtime-checkpoint-manifest.mjs";
 import { observeArtifactIdentity } from "./evidence-classification.mjs";
+import {
+  decodeSourceReadRequest,
+  encodeSourceReadResponse,
+  readSourceSnapshot,
+  registerSourceSnapshot,
+} from "./source-snapshot.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
@@ -29,6 +35,8 @@ let genericRuntimeReentry = false;
 let genericRuntimeCapability = null;
 let runtimePolicyPath = null;
 let runtimePolicyOptionSeen = false;
+let sourceManifestPath = null;
+let sourceManifestOptionSeen = false;
 const positionalArguments = [];
 for (let index = 0; index < commandArguments.length; index += 1) {
   const argument = commandArguments[index];
@@ -110,6 +118,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-register-class-ex-a",
         "user32-get-system-metrics",
         "kernel32-large-heap-allocation",
+        "kernel32-source-file-read",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -120,6 +129,12 @@ for (let index = 0; index < commandArguments.length; index += 1) {
     runtimePolicyPath = path.resolve(commandArguments[index + 1] ?? "");
     assert(commandArguments[index + 1] !== undefined, "--runtime-policy requires a file");
     index += 1;
+  } else if (argument === "--source-manifest") {
+    assert(!sourceManifestOptionSeen, "--source-manifest may be specified only once");
+    sourceManifestOptionSeen = true;
+    sourceManifestPath = path.resolve(commandArguments[index + 1] ?? "");
+    assert(commandArguments[index + 1] !== undefined, "--source-manifest requires a file");
+    index += 1;
   } else {
     assert(!argument.startsWith("--"), `unknown option ${argument}`);
     positionalArguments.push(argument);
@@ -127,16 +142,31 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability ID] [--runtime-policy FILE]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability ID] [--runtime-policy FILE] [--source-manifest FILE]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
   "--runtime-capability requires --generic-runtime-reentry",
 );
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
+assert(sourceManifestPath === null || genericRuntimeReentry, "--source-manifest requires --generic-runtime-reentry");
+assert(
+  sourceManifestPath === null || genericRuntimeCapability === "kernel32-source-file-read",
+  "--source-manifest is reserved for kernel32-source-file-read",
+);
+if (genericRuntimeCapability === "kernel32-source-file-read" && sourceManifestPath === null) {
+  sourceManifestPath = path.join(
+    root,
+    "fixtures",
+    "source-snapshots",
+    "bgi-gdb-v1.json",
+  );
+}
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-large-heap-allocation"
+    genericRuntimeCapability === "kernel32-source-file-read"
+      ? "kernel32-source-file-read-v1.json"
+      : genericRuntimeCapability === "kernel32-large-heap-allocation"
       ? "kernel32-large-heap-allocation-v1.json"
       : genericRuntimeCapability === "user32-get-system-metrics" ||
     genericRuntimeCapability === "user32-register-class-ex-a" ||
@@ -255,8 +285,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const sourceFileReadEnabled = genericRuntimeCapability === "kernel32-source-file-read";
 const largeHeapAllocationEnabled =
-  genericRuntimeCapability === "kernel32-large-heap-allocation";
+  sourceFileReadEnabled || genericRuntimeCapability === "kernel32-large-heap-allocation";
 const getSystemMetricsEnabled =
   largeHeapAllocationEnabled || genericRuntimeCapability === "user32-get-system-metrics";
 const registerClassExAEnabled =
@@ -411,7 +442,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? largeHeapAllocationEnabled
+      ? sourceFileReadEnabled
+        ? "v86-bgi-source-file-read"
+      : largeHeapAllocationEnabled
         ? "v86-bgi-large-heap-allocation"
       : getSystemMetricsEnabled
         ? "v86-bgi-get-system-metrics"
@@ -1608,6 +1641,8 @@ const runtimeFrame = {
   guestCallbackReturn: 15,
   pageFaultService: 16,
   pageFaultCompletion: 17,
+  hostRequest: 18,
+  hostCompletion: 19,
 };
 const writebackFormat = {
   magic: "VINEWB01",
@@ -3853,8 +3888,9 @@ const getSystemInfoExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
+const bgiMaximumPhysicalPages = 16 * 1024;
 const guest = {
-  physicalPoolBytes: 2 * 1024 * 1024,
+  physicalPoolBytes: sourceFileReadEnabled ? 71_442_432 : 2 * 1024 * 1024,
   excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
   instructionBudget: 1,
   maximumExecuteStops: 4_096,
@@ -4159,6 +4195,12 @@ function buildFirstTrapReport({
 async function run() {
   requireFile(wasmPath, "npm run prepare:engine");
   requireFile(bgiPath, "the primary title must be installed at its configured path");
+  const sourceRegistration = sourceFileReadEnabled
+    ? await registerSourceSnapshot({
+        manifestPath: sourceManifestPath,
+        objectFiles: { 1: path.join(path.dirname(bgiPath), "BGI.gdb") },
+      })
+    : null;
   const sourceBefore = sourceIdentity(bgiPath);
   assert.deepEqual(sourceBefore, expected.source);
   const runtimeBindingArguments = declaredDispatches.flatMap(({ module, symbol }) => [
@@ -4179,7 +4221,11 @@ async function run() {
     "--expect-sha256",
     expected.source.sha256,
     "--prepare-memory-pages",
-    String(expected.memory.reflectedPages + runtimeHeapPageAllowance),
+    String(
+      sourceFileReadEnabled
+        ? bgiMaximumPhysicalPages
+        : expected.memory.reflectedPages + runtimeHeapPageAllowance,
+    ),
     "--materialize-image-base",
     `0x${expected.image.loadBase.toString(16)}`,
     "--bind-name",
@@ -4195,6 +4241,7 @@ async function run() {
       ? []
       : ["--runtime-capability", genericRuntimeCapability]),
     ...(runtimePolicyPath === null ? [] : ["--runtime-policy", runtimePolicyPath]),
+    ...(sourceManifestPath === null ? [] : ["--source-manifest", sourceManifestPath]),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -4290,6 +4337,7 @@ async function run() {
         offer,
         protocolReader,
         runtimeReady,
+        sourceRegistration,
       });
       child.stdin.end();
       const processExit = await exit;
@@ -4315,6 +4363,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (sourceFileReadEnabled) {
+        validateSourceFileReadResult(genericResult);
       } else if (largeHeapAllocationEnabled) {
         validateLargeHeapAllocationResult(genericResult);
       } else if (getSystemMetricsEnabled) {
@@ -4434,6 +4484,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : sourceFileReadEnabled
+            ? "bgi source file read"
           : largeHeapAllocationEnabled
             ? "bgi large HeapAlloc"
           : getSystemMetricsEnabled
@@ -4662,12 +4714,15 @@ async function run() {
         `classification=${historicalReportIdentity.classification}, semantic gate=independent`,
     );
   } catch (error) {
-    if (child.exitCode === null) {
-      await exit;
+    if (child.exitCode === null && !child.stdin.writableEnded) {
+      child.stdin.end();
     }
-    if (stderr.trim() !== "") {
-      error.message = `${error.message}\nprobe stderr:\n${stderr.trim()}`;
-    }
+    const processExit = await exit;
+    const processContext = [
+      `probe exit: code=${processExit.code}, signal=${processExit.signal}`,
+      ...(stderr.trim() === "" ? [] : [`probe stderr:\n${stderr.trim()}`]),
+    ].join("\n");
+    error.stack = `${error.stack ?? error.message}\n${processContext}`;
     throw error;
   } finally {
     if (!sessionCompleted && child.exitCode === null) {
@@ -4683,14 +4738,30 @@ async function runGenericRuntimeReentry({
   offer,
   protocolReader,
   runtimeReady,
+  sourceRegistration,
 }) {
   validateGenericRuntimeReady(runtimeReady, offer);
+  if (sourceRegistration === null) {
+    assert.equal(runtimeReady.sourceSnapshot, undefined);
+  } else {
+    assert.equal(runtimeReady.sourceSnapshot.titleFingerprint, sourceRegistration.manifest.titleFingerprint);
+    assert.equal(runtimeReady.sourceSnapshot.snapshotId, sourceRegistration.manifest.snapshotId);
+    assert.equal(runtimeReady.sourceSnapshot.sourceId, sourceRegistration.manifest.mount.sourceId);
+    assert.equal(
+      Object.keys(runtimeReady.sourceSnapshot.files).length,
+      sourceRegistration.manifest.files.length,
+    );
+    for (const descriptor of sourceRegistration.manifest.files) {
+      assert.deepEqual(runtimeReady.sourceSnapshot.files[String(descriptor.objectId)], descriptor);
+    }
+  }
   let generation = runtimeReady.memory.acknowledgedGeneration;
   let continuation = execution;
   const occurrences = new Map();
   const supportedCalls = [];
   const writebacks = [];
   const hostDeltas = [];
+  const sourceReads = [];
   const stackGrowths = [];
   const heapPageMaterializations = [];
   const callbackEvents = [];
@@ -5105,6 +5176,7 @@ async function runGenericRuntimeReentry({
         supportedCalls,
         writebacks,
         hostDeltas,
+        sourceReads,
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
@@ -5159,6 +5231,18 @@ async function runGenericRuntimeReentry({
     await writeRuntimeJsonFrame(child.stdin, runtimeFrame.trap, trapRequest);
 
     let response = await readRuntimeFrame(protocolReader, null, "generic API response");
+    while (response.kind === runtimeFrame.hostRequest) {
+      response = await completeSourceHostRequest({
+        child,
+        protocolReader,
+        response,
+        endpoint,
+        generation,
+        sourceRegistration,
+        sourceReads,
+        sequence,
+      });
+    }
     if (response.kind === runtimeFrame.hostDelta) {
       const delta = decodeRuntimeHostDelta(response.control, response.payload);
       assert.equal(delta.fromGeneration, generation);
@@ -5253,6 +5337,7 @@ async function runGenericRuntimeReentry({
         supportedCalls,
         writebacks,
         hostDeltas,
+        sourceReads,
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
@@ -5296,7 +5381,16 @@ async function runGenericRuntimeReentry({
     }
     supportedCalls.push(call);
     restoreGenericApiCompletion(context, continuation.finalState, completionFrame.completion);
-    const next = executeToNextOwnedTrap(offer, context, continuation.instructionCount);
+    let next;
+    try {
+      next = executeToNextOwnedTrap(offer, context, continuation.instructionCount);
+    } catch (error) {
+      error.stack =
+        `${error.stack ?? error.message}\nafter supported call ${call.sequence} ` +
+        `${call.module}!${call.symbol} occurrence ${call.occurrence} ` +
+        `arguments=[${call.arguments.map((value) => `0x${value.toString(16)}`).join(",")}]`;
+      throw error;
+    }
     if (manifestCheckpoint !== null) {
       validateManifestGuestWrites(context, postReturnGuestWrites);
       const nextEndpoint = genericTerminalEndpoint(next.terminal);
@@ -5318,6 +5412,61 @@ async function runGenericRuntimeReentry({
       `occurrence ${lastCall?.occurrence ?? 0} at instruction ` +
       `${lastCall?.trapInstructionCount ?? continuation.instructionCount}`,
   );
+}
+
+async function completeSourceHostRequest({
+  child,
+  protocolReader,
+  response,
+  endpoint,
+  generation,
+  sourceRegistration,
+  sourceReads,
+  sequence,
+}) {
+  assert(sourceRegistration !== null, "runtime emitted a source request without registration");
+  assert.equal(response.payload.length, 0);
+  const metadata = JSON.parse(response.control.toString("utf8"));
+  assert.equal(metadata.schema, "vine.v86-generic-runtime-host-request");
+  assert.equal(metadata.schemaVersion, 1);
+  assert.equal(metadata.endpoint.kind, "runtime-system-export");
+  assert.equal(metadata.endpoint.endpoint.id, endpoint.id);
+  assert.equal(metadata.endpoint.endpoint.address, endpoint.address);
+  assert.equal(metadata.endpoint.endpoint.module.toLowerCase(), endpoint.module.toLowerCase());
+  assert.equal(metadata.endpoint.endpoint.symbol.kind, "name");
+  assert.equal(metadata.endpoint.endpoint.symbol.name, "ReadFile");
+  assert.equal(metadata.memory.generation, generation);
+  assert.equal(metadata.memory.acknowledgedGeneration, generation);
+  assert.deepEqual(metadata.schedulerState, {
+    state: "waiting-host",
+    requestId: metadata.requestId,
+  });
+  const request = decodeSourceReadRequest(
+    String(metadata.requestId),
+    metadata.service,
+    metadata.arguments,
+  );
+  const sourceResponse = readSourceSnapshot(sourceRegistration, request);
+  const encoded = encodeSourceReadResponse(sourceResponse);
+  const requestIdentity = Buffer.alloc(8);
+  requestIdentity.writeBigUInt64LE(BigInt(request.requestId));
+  await writeRuntimeFrame(
+    child.stdin,
+    runtimeFrame.hostCompletion,
+    Buffer.concat([requestIdentity, encoded.control]),
+    encoded.payload,
+  );
+  sourceReads.push({
+    sequence,
+    requestId: request.requestId,
+    sourceId: request.sourceId,
+    objectId: request.objectId,
+    offset: request.offset.toString(),
+    requestedBytes: request.requestedBytes,
+    transferredBytes: sourceResponse.transferredBytes,
+    payloadSha256: sha256(encoded.payload),
+  });
+  return readRuntimeFrame(protocolReader, null, "generic source read completion");
 }
 
 function buildGenericCallRecord(
@@ -5387,6 +5536,9 @@ function buildGenericCallRecord(
     ...(completionFrame.timerResolution === undefined
       ? {}
       : { timerResolution: completionFrame.timerResolution }),
+    ...(completionFrame.sourceRead === undefined
+      ? {}
+      : { sourceRead: completionFrame.sourceRead }),
   };
 }
 
@@ -5412,6 +5564,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : sourceFileReadEnabled
+          ? 55
         : largeHeapAllocationEnabled
           ? 50
         : getSystemMetricsEnabled
@@ -5874,23 +6028,112 @@ function applyRuntimeHostDelta(context, delta) {
         write: false,
         execute: false,
       });
+      for (const reservation of context.reservations.values()) {
+        const reservationEnd = reservation.address + reservation.byteLength;
+        assert(
+          end <= reservation.address || operation.address >= reservationEnd,
+          "runtime host reserve overlaps an existing reservation",
+        );
+      }
+      assert(
+        ![...context.mappings.keys()].some(
+          (address) => address < end && operation.address < address + page.size,
+        ),
+        "runtime host reserve overlaps a committed page",
+      );
+      context.reservations.set(operation.address, { ...operation });
       continue;
     }
-    assert.equal(operation.operation, 2, "unsupported runtime host mapping operation");
-    for (let address = operation.address; address < end; address += page.size) {
-      const dirty = dirtyByAddress.get(address);
-      assert(dirty, "committed runtime host page has no bytes");
-      assert.equal(dirty.owner, operation.owner);
-      assert.deepEqual(dirty.protection, operation.protection);
-      context.mapRuntimePage(
+    if (operation.operation === 2) {
+      const overlappingReservations = [...context.reservations.values()].filter(
+        (reservation) =>
+          operation.address < reservation.address + reservation.byteLength &&
+          reservation.address < end,
+      );
+      assert(
+        overlappingReservations.length === 0 ||
+          overlappingReservations.some(
+            (reservation) =>
+              reservation.owner === operation.owner &&
+              reservation.addressAllocationId === operation.addressAllocationId &&
+              reservation.address <= operation.address &&
+              end <= reservation.address + reservation.byteLength,
+          ),
+        "runtime host commit is outside its reservation",
+      );
+      for (let address = operation.address; address < end; address += page.size) {
+        const dirty = dirtyByAddress.get(address);
+        assert(dirty, "committed runtime host page has no bytes");
+        assert.equal(dirty.owner, operation.owner);
+        assert.deepEqual(dirty.protection, operation.protection);
+        context.mapRuntimePage(
+          address,
+          operation.owner,
+          dirty.ownerSealed,
+          operation.protection,
+          dirty.bytes,
+          `host-committed-owner-${operation.owner}`,
+          operation.addressAllocationId,
+        );
+        dirtyByAddress.delete(address);
+      }
+      continue;
+    }
+    if (operation.operation === 3) {
+      for (let address = operation.address; address < end; address += page.size) {
+        context.protectRuntimePage(
+          address,
+          operation.owner,
+          operation.addressAllocationId,
+          operation.protection,
+        );
+      }
+      continue;
+    }
+    if (operation.operation === 4) {
+      for (let address = operation.address; address < end; address += page.size) {
+        context.unmapRuntimePage(
+          address,
+          operation.owner,
+          operation.addressAllocationId,
+          "runtime host decommit",
+        );
+      }
+      continue;
+    }
+    assert.equal(operation.operation, 5, "unsupported runtime host mapping operation");
+    const overlappingReservations = [...context.reservations.values()].filter(
+      (reservation) =>
+        operation.address < reservation.address + reservation.byteLength &&
+        reservation.address < end,
+    );
+    const reservation = context.reservations.get(operation.address);
+    if (reservation === undefined) {
+      assert.equal(
+        overlappingReservations.length,
+        0,
+        "runtime host release partially overlaps a reservation",
+      );
+    } else {
+      assert.equal(reservation.owner, operation.owner);
+      assert.equal(reservation.addressAllocationId, operation.addressAllocationId);
+      assert.equal(reservation.byteLength, operation.byteLength);
+      context.reservations.delete(operation.address);
+    }
+    const releasedAddresses = [...context.mappings.keys()].filter(
+      (address) => operation.address <= address && address < end,
+    );
+    assert(
+      reservation !== undefined || releasedAddresses.length > 0,
+      "runtime host release targets an unknown range",
+    );
+    for (const address of releasedAddresses) {
+      context.unmapRuntimePage(
         address,
         operation.owner,
-        dirty.ownerSealed,
-        operation.protection,
-        dirty.bytes,
-        `host-committed-owner-${operation.owner}`,
+        operation.addressAllocationId,
+        "runtime host release",
       );
-      dirtyByAddress.delete(address);
     }
   }
   for (const dirty of dirtyByAddress.values()) {
@@ -9939,6 +10182,162 @@ function validateRegisterClassExAResult(result) {
   assert.equal(result.terminal.terminal.stackWords[1], 7);
 }
 
+function validateSourceFileReadResult(result) {
+  const contentSha256 = "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92";
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.supportedCalls.length, 1_389);
+  assert.equal(result.writebacks.length, 1_426);
+  assert.equal(
+    result.writebacks.reduce((total, writeback) => total + writeback.dirtyPages.length, 0),
+    2_968,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_450_217,
+  );
+  assert.equal(result.hostDeltas.length, 132);
+  assert.equal(
+    result.hostDeltas.reduce((total, delta) => total + delta.mappingOperations, 0),
+    43,
+  );
+  assert.equal(
+    result.hostDeltas.reduce((total, delta) => total + delta.dirtyPages.length, 0),
+    958,
+  );
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.callbackEvents.length, 2);
+  assert.equal(result.finalGeneration, 1_622);
+  assert.deepEqual(result.sourceReads, [
+    {
+      sequence: 1_362,
+      requestId: "1",
+      sourceId: 1,
+      objectId: 1,
+      offset: "0",
+      requestedBytes: 125_461,
+      transferredBytes: 125_461,
+      payloadSha256: contentSha256,
+    },
+    {
+      sequence: 1_378,
+      requestId: "2",
+      sourceId: 1,
+      objectId: 1,
+      offset: "0",
+      requestedBytes: 125_461,
+      transferredBytes: 125_461,
+      payloadSha256: contentSha256,
+    },
+  ]);
+
+  const sourceCalls = result.supportedCalls.filter(({ symbol }) =>
+    ["CreateFileA", "GetFileSize", "ReadFile", "SetFilePointer", "CloseHandle"].includes(
+      symbol,
+    ),
+  );
+  assert.deepEqual(
+    sourceCalls.map(({ sequence, symbol, occurrence, trapInstructionCount }) => ({
+      sequence,
+      symbol,
+      occurrence,
+      trapInstructionCount,
+    })),
+    [
+      { sequence: 1_359, symbol: "CreateFileA", occurrence: 1, trapInstructionCount: 51_614 },
+      { sequence: 1_360, symbol: "GetFileSize", occurrence: 1, trapInstructionCount: 51_629 },
+      { sequence: 1_362, symbol: "ReadFile", occurrence: 1, trapInstructionCount: 51_701 },
+      { sequence: 1_364, symbol: "CloseHandle", occurrence: 1, trapInstructionCount: 71_560 },
+      { sequence: 1_375, symbol: "CreateFileA", occurrence: 2, trapInstructionCount: 73_213 },
+      { sequence: 1_376, symbol: "GetFileSize", occurrence: 2, trapInstructionCount: 73_228 },
+      { sequence: 1_378, symbol: "ReadFile", occurrence: 2, trapInstructionCount: 73_300 },
+      { sequence: 1_380, symbol: "CloseHandle", occurrence: 2, trapInstructionCount: 73_584 },
+    ],
+  );
+  const [firstCreate, firstSize, firstRead, firstClose, secondCreate, secondSize, secondRead, secondClose] =
+    sourceCalls;
+  assert.deepEqual(firstCreate.arguments, [0x006f_f45c, 0x8000_0000, 1, 0, 3, 0x0800_0020, 0]);
+  assert.deepEqual(secondCreate.arguments, [0x006f_f364, 0x8000_0000, 1, 0, 3, 0x0800_0020, 0]);
+  assert.equal(firstCreate.result.value, 0x4601_0001);
+  assert.equal(secondCreate.result.value, 0x4602_0001);
+  assert.notEqual(firstCreate.result.value, secondCreate.result.value);
+  assert.deepEqual(firstSize.arguments, [firstCreate.result.value, 0]);
+  assert.deepEqual(secondSize.arguments, [secondCreate.result.value, 0]);
+  assert.equal(firstSize.result.value, 125_461);
+  assert.equal(secondSize.result.value, 125_461);
+  assert.deepEqual(firstRead.arguments, [0x4601_0001, 0x2000_1500, 125_461, 0x006f_f3ec, 0]);
+  assert.deepEqual(secondRead.arguments, [0x4602_0001, 0x2001_ff18, 125_461, 0x006f_f2f4, 0]);
+  for (const [index, read] of [firstRead, secondRead].entries()) {
+    assert.equal(read.result.value, 1);
+    assert.equal(read.lastError, 0);
+    assert.equal(read.sourceRead.request.requestId, index + 1);
+    assert.equal(read.sourceRead.request.fileId, index + 1);
+    assert.equal(read.sourceRead.request.sourceId, 1);
+    assert.equal(read.sourceRead.request.objectId, 1);
+    assert.equal(read.sourceRead.request.offset, 0);
+    assert.equal(read.sourceRead.request.requestedBytes, 125_461);
+    assert.equal(read.sourceRead.succeeded, true);
+    assert.equal(read.sourceRead.transferredBytes, 125_461);
+    assert.equal(read.sourceRead.win32Error, 0);
+    assert.equal(read.sourceRead.cursorBefore, 0);
+    assert.equal(read.sourceRead.cursorAfter, 125_461);
+    assert.equal(read.sourceRead.contentSha256, contentSha256);
+    assert.deepEqual(
+      read.guestWrites.map(({ address, bytes }) => ({ address, byteLength: bytes.length })),
+      [
+        { address: read.arguments[3], byteLength: 4 },
+        { address: read.arguments[1], byteLength: 125_461 },
+      ],
+    );
+    assert.equal(sha256(Buffer.from(read.guestWrites[0].bytes)), "145638eb05a9c9c514d6a421e0c322768e5ca70d7a809685cbe49ed24debd493");
+    assert.equal(sha256(Buffer.from(read.guestWrites[1].bytes)), contentSha256);
+  }
+  assert.deepEqual(firstClose.arguments, [firstCreate.result.value]);
+  assert.deepEqual(secondClose.arguments, [secondCreate.result.value]);
+  assert.equal(firstClose.result.value, 1);
+  assert.equal(secondClose.result.value, 1);
+  assert.equal(firstClose.lastError, 0);
+  assert.equal(secondClose.lastError, 0);
+
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 232);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0e70);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "CreateWindowExA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1478);
+  assert.equal(result.fault.memory.physicalPages, 716);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "c490fbaa3807de8602deaba122344222ae903b3d9a57e751edac81fff375d891",
+  );
+  assert.equal(result.terminal.instructionCount, 11_476_233);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 232);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0e70);
+  assert.equal(result.terminal.terminal.thunk.name, "CreateWindowExA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_7efa);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1), [
+    0x0004_0000,
+    0x100f_ba4c,
+    0x006f_fb48,
+    0x80ca_0000,
+    0x0000_022d,
+    0x0000_00d6,
+    0x0000_0326,
+  ]);
+}
+
 function validateLargeHeapAllocationResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
@@ -11248,6 +11647,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : sourceFileReadEnabled
+          ? "vine.v86-bgi-source-file-read"
         : largeHeapAllocationEnabled
           ? "vine.v86-bgi-large-heap-allocation"
         : getSystemMetricsEnabled
@@ -11415,6 +11816,7 @@ function buildGenericRuntimeReentryReport({
       jsonPageByteArrays: false,
       writebacks: genericResult.writebacks,
       hostDeltas: genericResult.hostDeltas,
+      sourceReads: genericResult.sourceReads,
     },
     supportedContinuation: genericResult.supportedCalls,
     firstUnsupported: {
@@ -11893,8 +12295,17 @@ async function prepareV86(offer) {
   wasm.zero_memory(0, guest.physicalPoolBytes);
 
   const allocations = [];
+  const freePhysicalPages = [];
   let nextPhysicalPage = page.size;
   const allocatePhysicalPage = (role) => {
+    const reusable = freePhysicalPages.pop();
+    if (reusable !== undefined) {
+      physicalMemory.fill(0, reusable, reusable + page.size);
+      const allocation = allocations.find(({ address }) => address === reusable);
+      assert(allocation, "reusable physical page has no allocation record");
+      allocation.role = role;
+      return reusable;
+    }
     for (const excluded of guest.excludedPhysicalRanges) {
       if (nextPhysicalPage >= excluded.start && nextPhysicalPage < excluded.end) {
         nextPhysicalPage = excluded.end;
@@ -11914,6 +12325,7 @@ async function prepareV86(offer) {
   const pageDirectory = allocatePhysicalPage("page-directory");
   const pageTables = new Map();
   const mappings = new Map();
+  const reservations = new Map();
   const ensurePageTable = (virtualBase) => {
     const directoryIndex = virtualBase >>> 22;
     let table = pageTables.get(directoryIndex);
@@ -11928,7 +12340,15 @@ async function prepareV86(offer) {
     }
     return table;
   };
-  const mapRuntimePage = (virtualBase, owner, ownerSealed, protection, bytes, role) => {
+  const mapRuntimePage = (
+    virtualBase,
+    owner,
+    ownerSealed,
+    protection,
+    bytes,
+    role,
+    addressAllocationId = undefined,
+  ) => {
     checkedGuestEnd(virtualBase, page.size, role);
     assert.equal(virtualBase & (page.size - 1), 0);
     assert(!mappings.has(virtualBase), `duplicate mapping 0x${virtualBase.toString(16)}`);
@@ -11946,6 +12366,7 @@ async function prepareV86(offer) {
     );
     physicalMemory.set(Uint8Array.from(bytes), physicalBase);
     mappings.set(virtualBase, {
+      ...(addressAllocationId === undefined ? {} : { addressAllocationId }),
       owner,
       ownerSealed,
       physicalBase,
@@ -11953,6 +12374,62 @@ async function prepareV86(offer) {
       protection: { ...protection },
       role,
     });
+  };
+  const requireRuntimeMapping = (virtualBase, owner, addressAllocationId, label) => {
+    assert.equal(virtualBase & (page.size - 1), 0, `${label} address is not page aligned`);
+    const mapping = mappings.get(virtualBase);
+    assert(mapping, `${label} targets an unmapped page`);
+    assert.equal(mapping.owner, owner, `${label} owner mismatch`);
+    assert.equal(
+      mapping.addressAllocationId,
+      addressAllocationId,
+      `${label} address allocation mismatch`,
+    );
+    return mapping;
+  };
+  const protectRuntimePage = (
+    virtualBase,
+    owner,
+    addressAllocationId,
+    protection,
+  ) => {
+    const mapping = requireRuntimeMapping(
+      virtualBase,
+      owner,
+      addressAllocationId,
+      "runtime host protect",
+    );
+    writePhysicalU32(
+      mapping.pteAddress,
+      mapping.physicalBase |
+        page.present |
+        page.user |
+        (protection.write ? page.writable : 0),
+      "runtime host protect page table entry",
+    );
+    mapping.protection = { ...protection };
+  };
+  const releasePhysicalPage = (physicalBase) => {
+    physicalMemory.fill(0, physicalBase, physicalBase + page.size);
+    freePhysicalPages.push(physicalBase);
+  };
+  const unmapRuntimePage = (virtualBase, owner, addressAllocationId, label) => {
+    const mapping = requireRuntimeMapping(virtualBase, owner, addressAllocationId, label);
+    writePhysicalU32(mapping.pteAddress, 0, `${label} page table entry`);
+    mappings.delete(virtualBase);
+    releasePhysicalPage(mapping.physicalBase);
+    const directoryIndex = virtualBase >>> 22;
+    if (![...mappings.keys()].some((address) => address >>> 22 === directoryIndex)) {
+      const table = pageTables.get(directoryIndex);
+      assert(table !== undefined, `${label} empty directory has no page table`);
+      writePhysicalU32(
+        pageDirectory + directoryIndex * 4,
+        0,
+        `${label} page directory entry`,
+      );
+      pageTables.delete(directoryIndex);
+      releasePhysicalPage(table);
+    }
   };
   for (const reflected of offer.reflection.pages) {
     mapRuntimePage(
@@ -12071,6 +12548,9 @@ async function prepareV86(offer) {
     hostImportCalls,
     mappings,
     mapRuntimePage,
+    protectRuntimePage,
+    reservations,
+    unmapRuntimePage,
     pageDirectory,
     pageTables,
     physicalMemory,
@@ -16870,6 +17350,8 @@ function restoreStdcall(context, trapped, returnAddress, argumentBytes, eax, lab
 }
 
 function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
+  const instructionBudget = sourceFileReadEnabled ? 256 : guest.instructionBudget;
+  const maximumExecuteStops = sourceFileReadEnabled ? 39_063 : guest.maximumExecuteStops;
   const executablePages = new Set(
     offer.reflection.pages
       .filter(({ ownerSealed, protection }) => ownerSealed && protection.execute)
@@ -16891,7 +17373,7 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
   let terminal = null;
   let finalState = captureCpuState(context, 0);
   assert.equal(finalState.instructionCount, initialInstructionCount);
-  for (let index = 0; index < guest.maximumExecuteStops; index += 1) {
+  for (let index = 0; index < maximumExecuteStops; index += 1) {
     const before = captureCpuState(context, 0);
     const fetchWindow = executableFetchWindow(before.instructionPointer, executablePages);
     if (!fetchWindow.allowed) {
@@ -16906,7 +17388,7 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
       finalState = before;
       break;
     }
-    const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
+    const reason = context.wasm.vine_execute_budget(instructionBudget);
     executeStops += 1;
     const state = captureCpuState(context, reason);
     finalState = state;
@@ -16923,11 +17405,16 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
     );
     break;
   }
-  assert(terminal, "BGI continuation exhausted its bounded window without a terminal stop");
+  assert(
+    terminal,
+    `BGI continuation exhausted its bounded ${instructionBudget * maximumExecuteStops}-instruction ` +
+      `window at 0x${finalState.instructionPointer.toString(16)} after ` +
+      `${finalState.instructionCount - initialInstructionCount} instructions`,
+  );
   return {
-    instructionBudget: guest.instructionBudget,
-    maximumExecuteStops: guest.maximumExecuteStops,
-    maximumAdditionalInstructions: guest.instructionBudget * guest.maximumExecuteStops,
+    instructionBudget,
+    maximumExecuteStops,
+    maximumAdditionalInstructions: instructionBudget * maximumExecuteStops,
     executeStops,
     budgetStops,
     initialInstructionCount,

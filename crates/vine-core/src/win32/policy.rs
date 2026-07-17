@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::{
     RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE,
-    RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_SELECTOR,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR,
+    RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_STANDARD_ERROR_SELECTOR,
+    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_SELECTOR,
 };
 
 pub const KERNEL32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.kernel32-compatibility-policy";
@@ -40,6 +40,7 @@ pub struct Kernel32CompatibilityPolicy {
     pub multi_byte_to_wide_char: Option<Kernel32MultiByteToWideCharPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_current_directory_a: Option<Kernel32SetCurrentDirectoryAPolicy>,
+    pub source_files: Option<Kernel32SourceFilePolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_drive_type_a: Option<Kernel32GetDriveTypeAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -128,6 +129,17 @@ pub struct Kernel32MultiByteToWideCharPolicy {
 pub struct Kernel32SetCurrentDirectoryAPolicy {
     pub process_image_directory_only: bool,
     pub maximum_path_bytes: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32SourceFilePolicy {
+    pub allowed_desired_access: Vec<u32>,
+    pub allowed_share_modes: Vec<u32>,
+    pub allowed_creation_dispositions: Vec<u32>,
+    pub allowed_flags_and_attributes: Vec<u32>,
+    pub maximum_path_bytes: u32,
+    pub maximum_read_bytes: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -260,6 +272,7 @@ impl Kernel32CompatibilityPolicy {
             wide_char_to_multi_byte: None,
             multi_byte_to_wide_char: None,
             set_current_directory_a: None,
+            source_files: None,
             get_drive_type_a: None,
             create_mutex_a: None,
             create_waitable_timer_a: None,
@@ -422,6 +435,51 @@ impl Kernel32CompatibilityPolicy {
                 "kernel32-policy-set-current-directory-invalid",
                 "SetCurrentDirectoryA requires the CP_ACP conversion layer, process-image-directory selection, and a bounded DOS path limit",
             ));
+        }
+        if let Some(files) = self.source_files.as_ref() {
+            let desired_access = files
+                .allowed_desired_access
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            let share_modes = files
+                .allowed_share_modes
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            let dispositions = files
+                .allowed_creation_dispositions
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            let flags = files
+                .allowed_flags_and_attributes
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            if self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || self.active_code_page() != Some(932)
+                || files.allowed_desired_access.is_empty()
+                || files.allowed_desired_access.len() > MAX_POLICY_ENTRIES
+                || desired_access.len() != files.allowed_desired_access.len()
+                || desired_access.iter().any(|access| *access != 0x8000_0000)
+                || files.allowed_share_modes.is_empty()
+                || share_modes.len() != files.allowed_share_modes.len()
+                || share_modes.iter().any(|share| *share != 1)
+                || files.allowed_creation_dispositions.is_empty()
+                || dispositions.len() != files.allowed_creation_dispositions.len()
+                || dispositions.iter().any(|disposition| *disposition != 3)
+                || files.allowed_flags_and_attributes.is_empty()
+                || flags.len() != files.allowed_flags_and_attributes.len()
+                || flags.iter().any(|value| *value != 0x0800_0020)
+                || !(4..=32_768).contains(&files.maximum_path_bytes)
+                || !(1..=RUNTIME_SOURCE_READ_MAX_BYTES).contains(&files.maximum_read_bytes)
+            {
+                return Err(policy_error(
+                    "kernel32-policy-source-files-invalid",
+                    "source file policy requires the bounded reached read-only open and read variants",
+                ));
+            }
         }
         if let Some(drive) = self.get_drive_type_a
             && (!drive.process_image_drive_only
@@ -692,6 +750,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn set_current_directory_a(&self) -> Option<Kernel32SetCurrentDirectoryAPolicy> {
         self.set_current_directory_a
+    }
+
+    pub fn source_files(&self) -> Option<&Kernel32SourceFilePolicy> {
+        self.source_files.as_ref()
     }
 
     pub fn get_drive_type_a(&self) -> Option<Kernel32GetDriveTypeAPolicy> {

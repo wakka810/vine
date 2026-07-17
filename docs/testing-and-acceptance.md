@@ -715,6 +715,7 @@ API count だけを coverage としない。status ごとに implementation vari
 ### 5.6 VFS と registry tests
 
 - same-origin localhost serverが登録済みsource rootとtitle-local profileだけを公開し、raw host path／wrong title／wrong snapshotを拒否する
+- source manifest登録時に全objectのbyte length／SHA-256を検証し、HTTP request／responseのtitle fingerprint、snapshot、source、object、offset、requested／transferred lengthを照合する
 - drive、absolute／relative、`.`／`..`、separator、case、trailing dot／space の policy
 - case collision、enumeration、wildcard、rename、replace
 - read-only source と writable overlay の通常 file shadowing、および executable／DLL shadowing の拒否
@@ -725,7 +726,9 @@ API count だけを coverage としない。status ごとに implementation vari
 - runtime schema upgrade／downgrade refusal、backup／restore
 - import 後／delay-load 前の host source replacement と、managed module snapshot の restart 後 hash
 
-最初のvertical sliceは、fingerprint済みtitleが実際に読むasset一つのOpen／Read／Seek／Closeと、一つのsave fileのCreate／Write／Seek／Closeだけを通す。Browser context、Runtime Worker、localhost serverを停止／再起動し、asset hash不変、save bytes／state hash一致、pending request zeroを確認する。API breadth、複数save slot、general mapped fileをこの結果からclaimしない。
+最初のvertical sliceのsource halfは完了している。Rust modelはmount escape、Windows-932-aware case identity、share conflict、stale manifest plan、wrong／duplicate completion、cursor、guest-memory failure atomicity、pending close、process-exit cancellationを検証する。Public PE32 fixtureは`CreateFileA -> GetFileSize -> ReadFile -> SetFilePointer -> ReadFile -> CloseHandle`を自己検証し、clean-profile Chromeはsame-origin success、pending cancellation、watchdog cleanupを通す。Private targetはfingerprint済みasset一つを二つのfile lifetimeで全量readし、Node／Chromeのordered semanticsと実行前後hash不変を比較する。
+
+一つのsave fileのCreate／Write／Seek／Close、browser／Worker／server restart、SQLite durability、kill injectionは未完了である。API breadth、複数save slot、general mapped fileもsource halfからclaimしない。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
 
 Crash consistency test は SQLite transactionのstage前、stage後、commit中、publish後でprocess／Worker／server killを模擬し、再起動後に旧generationまたは新generationのどちらか一方が完全に読めることを確認する。
 
@@ -741,11 +744,11 @@ fixed `GetMessageA`はcandidateをzero metadataのMSGへmaterialize／dequeueし
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
-後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、pending cancel、watchdog、thread／process return sentinelを通す。protocol version 5は`thread-switch`／`thread-exit`を含むclosed execution-state graphとper-thread opaque CPU contextを持ち、initial threadのhost wait中にsecond guest threadがmarker write／exitし、その後initial contextへ復帰することを要求する。State contractはillegal transitionのmutation前拒否、wrong-thread／duplicate／cancelled-late completion、nested sync APIとcallback-resuming async policy、全terminal pathの`stopped`／pending request record zero、watchdogのthread／request／last-transition contextを検査する。Engine contractはactual WasmでCPU contextのmutation-free生成／保存／復元、structured stop、mapping operation、owner-tagged changed batch、cache effect、pinned revision／ABI／artifact mismatchを検査し、Runtime Worker sourceにPTE／private offset／v86 reasonがないことを固定する。Current measurementは[current-checkpoint.json](current-checkpoint.json)だけを正とする。これは`AC-P1-04`、`AC-P1-05`、`AC-P1-07`、`AC-P1-10`へのpartial evidenceであり、general Win32 thread creation、wait-any／wait-all、timeout／fairness、full-play title behaviorを代用しない。
+後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、immutable source range read、pending cancel、watchdog、thread／process return sentinelを通す。Source fixtureはRust-owned manifest／handle／cursorとsame-origin title／snapshot／object adapterを通り、二つのrange payloadとexit codeをguest自身とrunnerの両方で検証する。protocol version 5は`thread-switch`／`thread-exit`を含むclosed execution-state graphとper-thread opaque CPU contextを持ち、initial threadのhost wait中にsecond guest threadがmarker write／exitし、その後initial contextへ復帰することを要求する。State contractはillegal transitionのmutation前拒否、wrong-thread／duplicate／cancelled-late completion、nested sync APIとcallback-resuming async policy、全terminal pathの`stopped`／pending request record zero、watchdogのthread／request／last-transition contextを検査する。Engine contractはactual WasmでCPU contextのmutation-free生成／保存／復元、structured stop、mapping operation、owner-tagged changed batch、cache effect、pinned revision／ABI／artifact mismatchを検査し、Runtime Worker sourceにPTE／private offset／v86 reasonがないことを固定する。Current measurementは[current-checkpoint.json](current-checkpoint.json)だけを正とする。これは`AC-P1-04`、`AC-P1-05`、`AC-P1-07`、`AC-P1-10`とimmutable-source ingressへのpartial evidenceであり、general Win32 thread creation、wait-any／wait-all、timeout／fairness、writable persistence、full-play title behaviorを代用しない。
 
 private BGI Worker contractはactive generic profileをChrome内Rust/Wasm authorityで実行する。Nodeは
 oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatcher／memory stateを所有しない。
-Ordered completion、final memory content、next structured faultを比較し、cancel／watchdogでprocess exit、
+Ordered completion、source-read request／cursor／payload identity、final memory content、next structured faultを比較し、cancel／watchdogでprocess exit、
 module detach、pending work zeroを要求する。別のversioned workload gateは同じWorkerでsessionを反復し、
 latency／slice／heartbeat distribution、main／Worker heap、backing storage、Rust／execution-engine linear
 memory、Wasm crossingをthreshold判定する。必要sampleが取得不能ならfailし、current resultはmanifestだけへ

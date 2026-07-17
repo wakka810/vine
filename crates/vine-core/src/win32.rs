@@ -3,11 +3,12 @@ use std::mem::size_of;
 use encoding_rs::{EncoderResult, SHIFT_JIS};
 
 use crate::api::{
-    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDirection,
-    ApiDynamicPointerConstraint, ApiEndpointIdentity, ApiFault, ApiHandlerResult, ApiImmediate,
-    ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding,
-    ApiSymbol, ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention,
-    ExecutionSession, LastErrorPolicy, ReentrancyPolicy, StackCleanup,
+    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDeferredCall,
+    ApiDirection, ApiDispatcher, ApiDynamicPointerConstraint, ApiEndpointIdentity, ApiFault,
+    ApiHandlerResult, ApiImmediate, ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema,
+    ApiReturnValue, ApiStringEncoding, ApiSymbol, ApiValueSchema, ApiWriteRequirement,
+    CallbackPolicy, CallingConvention, DispatchOutcome, ExecutionSession, HostCompletion,
+    LastErrorPolicy, ReentrancyPolicy, StackCleanup,
 };
 use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
 use crate::memory::{GuestAddress, MemoryAccess};
@@ -15,8 +16,10 @@ use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
     RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
-    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
-    RuntimeCriticalSection, RuntimeHeapInitialization, RuntimeMutexNameA,
+    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_SOURCE_FILE_NAMESPACE,
+    RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE,
+    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeCriticalSection, RuntimeHandle,
+    RuntimeHeapInitialization, RuntimeMutexNameA, RuntimeObjectKind, RuntimeSourceReadHostResponse,
     X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
@@ -29,7 +32,7 @@ pub use policy::{
     Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
     Kernel32HeapAllocatorPolicy, Kernel32InitializeCriticalSectionPolicy,
     Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
-    Kernel32ProcessorFeaturePolicy, Kernel32SetCurrentDirectoryAPolicy,
+    Kernel32ProcessorFeaturePolicy, Kernel32SetCurrentDirectoryAPolicy, Kernel32SourceFilePolicy,
     Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy,
     Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
 };
@@ -65,6 +68,11 @@ pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
 pub const WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION: &str = "kernel32.wide-char-to-multi-byte.v1";
 pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to-wide-char.v1";
 pub const SET_CURRENT_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.set-current-directory-a.v1";
+pub const CREATE_FILE_A_IMPLEMENTATION: &str = "kernel32.create-file-a.source.v1";
+pub const GET_FILE_SIZE_IMPLEMENTATION: &str = "kernel32.get-file-size.source.v1";
+pub const READ_FILE_IMPLEMENTATION: &str = "kernel32.read-file.source.v1";
+pub const SET_FILE_POINTER_IMPLEMENTATION: &str = "kernel32.set-file-pointer.source.v1";
+pub const CLOSE_HANDLE_IMPLEMENTATION: &str = "kernel32.close-handle.source.v1";
 pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
 pub const CREATE_WAITABLE_TIMER_A_IMPLEMENTATION: &str = "kernel32.create-waitable-timer-a.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
@@ -102,11 +110,15 @@ const MAX_EXPORT_NAME_BYTES: usize = 64;
 const CP_ACP: u32 = 0;
 const WINDOWS_932_CODE_PAGE: u32 = 932;
 const ERROR_SUCCESS: u32 = 0;
+const ERROR_FILE_NOT_FOUND: u32 = 2;
 const ERROR_INVALID_HANDLE: u32 = 6;
+const ERROR_SHARING_VIOLATION: u32 = 32;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const ERROR_INVALID_NAME: u32 = 123;
 const ERROR_ALREADY_EXISTS: u32 = 183;
+const ERROR_NEGATIVE_SEEK: u32 = 131;
+const INVALID_HANDLE_VALUE: u32 = u32::MAX;
 const X86_OS_VERSION_INFO_A_BASE_BYTES: u32 = 148;
 const X86_OS_VERSION_INFO_EX_A_BYTES: u32 = 156;
 
@@ -135,6 +147,9 @@ pub fn dispatch_kernel32_api_with_policy(
             error.code,
             error.message,
         ));
+    }
+    if contract.implementation_id == READ_FILE_IMPLEMENTATION {
+        return handle_read_file(policy, contract, frame, session);
     }
     let result = match contract.implementation_id.as_str() {
         GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION => {
@@ -187,6 +202,12 @@ pub fn dispatch_kernel32_api_with_policy(
         SET_CURRENT_DIRECTORY_A_IMPLEMENTATION => {
             handle_set_current_directory_a(policy, contract, frame, session)
         }
+        CREATE_FILE_A_IMPLEMENTATION => handle_create_file_a(policy, contract, frame, session),
+        GET_FILE_SIZE_IMPLEMENTATION => handle_get_file_size(policy, contract, frame, session),
+        SET_FILE_POINTER_IMPLEMENTATION => {
+            handle_set_file_pointer(policy, contract, frame, session)
+        }
+        CLOSE_HANDLE_IMPLEMENTATION => handle_close_handle(policy, contract, frame, session),
         CREATE_MUTEX_A_IMPLEMENTATION => handle_create_mutex_a(policy, contract, frame, session),
         CREATE_WAITABLE_TIMER_A_IMPLEMENTATION => {
             handle_create_waitable_timer_a(policy, contract, frame, session)
@@ -282,6 +303,11 @@ pub fn kernel32_contract_for_endpoint(
         "WideCharToMultiByte" => wide_char_to_multi_byte_contract(endpoint)?,
         "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
         "SetCurrentDirectoryA" => set_current_directory_a_contract(endpoint)?,
+        "CreateFileA" => create_file_a_contract(endpoint)?,
+        "GetFileSize" => get_file_size_contract(endpoint)?,
+        "ReadFile" => read_file_contract(endpoint)?,
+        "SetFilePointer" => set_file_pointer_contract(endpoint)?,
+        "CloseHandle" => close_handle_contract(endpoint)?,
         "CreateMutexA" => create_mutex_a_contract(endpoint)?,
         "CreateWaitableTimerA" => create_waitable_timer_a_contract(endpoint)?,
         "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
@@ -1544,6 +1570,363 @@ fn read_nul_terminated_ansi_path(
             "ANSI directory path did not terminate within the policy limit of {} bytes",
             policy.maximum_path_bytes
         ),
+    ))
+}
+
+fn handle_create_file_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let file_policy = require_source_file_policy(policy)?;
+    let path_address = required_argument(contract, frame, 0, "ANSI file path")?;
+    let desired_access = required_argument(contract, frame, 1, "desired access")?;
+    let share_mode = required_argument(contract, frame, 2, "share mode")?;
+    let security_attributes = required_argument(contract, frame, 3, "security attributes")?;
+    let creation_disposition = required_argument(contract, frame, 4, "creation disposition")?;
+    let flags_and_attributes = required_argument(contract, frame, 5, "flags and attributes")?;
+    let template_file = required_argument(contract, frame, 6, "template file")?;
+    if path_address == 0 {
+        return Ok(source_file_handle_result(INVALID_HANDLE_VALUE)
+            .with_last_error(ERROR_INVALID_PARAMETER));
+    }
+    if security_attributes != 0
+        || template_file != 0
+        || !file_policy.allowed_desired_access.contains(&desired_access)
+        || !file_policy.allowed_share_modes.contains(&share_mode)
+        || !file_policy
+            .allowed_creation_dispositions
+            .contains(&creation_disposition)
+        || !file_policy
+            .allowed_flags_and_attributes
+            .contains(&flags_and_attributes)
+    {
+        return Err(ApiFault::unsupported(
+            "win32-vfs",
+            "create-file-a-variant-unsupported",
+            format!(
+                "compatibility policy {} enables only its bounded immutable-source open variants",
+                policy.id
+            ),
+        ));
+    }
+    let path = read_nul_terminated_source_path(
+        contract,
+        session,
+        GuestAddress(path_address),
+        file_policy.maximum_path_bytes,
+    )?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.runtime_mut().open_source_file_a(
+        &path,
+        desired_access,
+        share_mode,
+        flags_and_attributes,
+    ) {
+        Ok(Some(opened)) => {
+            Ok(source_file_handle_result(opened.handle.0).with_last_error(preserved_last_error))
+        }
+        Ok(None) => {
+            Ok(source_file_handle_result(INVALID_HANDLE_VALUE)
+                .with_last_error(ERROR_FILE_NOT_FOUND))
+        }
+        Err(error) if error.code == "source-file-sharing-violation" => {
+            Ok(source_file_handle_result(INVALID_HANDLE_VALUE)
+                .with_last_error(ERROR_SHARING_VIOLATION))
+        }
+        Err(error) => Err(ApiFault::unsupported(
+            "win32-vfs",
+            "create-file-a-path-unsupported",
+            error.message,
+        )),
+    }
+}
+
+fn source_file_handle_result(value: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: RUNTIME_SOURCE_FILE_NAMESPACE.to_owned(),
+        value,
+    })
+}
+
+fn handle_get_file_size(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    require_source_file_policy(policy)?;
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
+    let size_high = required_argument(contract, frame, 1, "file size high output")?;
+    if size_high != 0 {
+        return Err(ApiFault::unsupported(
+            "win32-vfs",
+            "get-file-size-high-output-unsupported",
+            "the immutable-source slice supports only files whose size fits the low DWORD",
+        ));
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let file = match session.runtime().source_file_for_handle(handle) {
+        Ok(file) => file,
+        Err(_) => {
+            return Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
+                .with_last_error(ERROR_INVALID_HANDLE));
+        }
+    };
+    let size = u32::try_from(file.byte_length).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-vfs",
+            "source-file-size-not-representable",
+            "validated source file size does not fit GetFileSize low DWORD",
+        )
+    })?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(size)).with_last_error(preserved_last_error))
+}
+
+fn handle_read_file(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    let result = (|| {
+        let file_policy = require_source_file_policy(policy)?;
+        let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
+        let buffer = GuestAddress(required_argument(contract, frame, 1, "read buffer")?);
+        let requested_bytes = required_argument(contract, frame, 2, "requested bytes")?;
+        let bytes_read = GuestAddress(required_argument(contract, frame, 3, "bytes-read output")?);
+        let overlapped = required_argument(contract, frame, 4, "overlapped state")?;
+        if session.runtime().source_file_for_handle(handle).is_err() {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_INVALID_HANDLE),
+            ));
+        }
+        if buffer.0 == 0
+            || bytes_read.0 == 0
+            || requested_bytes == 0
+            || requested_bytes > file_policy.maximum_read_bytes
+            || requested_bytes > RUNTIME_SOURCE_READ_MAX_BYTES
+            || overlapped != 0
+        {
+            return Err(ApiFault::unsupported(
+                "win32-vfs",
+                "read-file-variant-unsupported",
+                format!(
+                    "compatibility policy {} enables one bounded synchronous source read shape",
+                    policy.id
+                ),
+            ));
+        }
+        let requested_bytes_usize = usize::try_from(requested_bytes).map_err(|_| {
+            ApiFault::runtime_defect(
+                "win32-vfs",
+                "source-read-length-not-representable",
+                "validated source read length does not fit host accounting",
+            )
+        })?;
+        session
+            .memory()
+            .validate_access(buffer, requested_bytes_usize, MemoryAccess::Write)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        session
+            .memory()
+            .validate_access(bytes_read, 4, MemoryAccess::Write)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        let request = session
+            .runtime_mut()
+            .begin_source_file_read(handle, buffer, bytes_read, requested_bytes)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+            request_id: request.request_id,
+            service: RUNTIME_SOURCE_READ_SERVICE.to_owned(),
+            payload: request.encode_host_payload().to_vec(),
+        }))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+fn handle_set_file_pointer(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    require_source_file_policy(policy)?;
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
+    let distance = required_argument(contract, frame, 1, "distance low")? as i32 as i64;
+    let distance_high = required_argument(contract, frame, 2, "distance high")?;
+    let origin = required_argument(contract, frame, 3, "move method")?;
+    if distance_high != 0 {
+        return Err(ApiFault::unsupported(
+            "win32-vfs",
+            "set-file-pointer-high-distance-unsupported",
+            "the first immutable-source seek slice supports a signed low DWORD only",
+        ));
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if session.runtime().source_file_for_handle(handle).is_err() {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::U32(u32::MAX)).with_last_error(ERROR_INVALID_HANDLE)
+        );
+    }
+    match session
+        .runtime_mut()
+        .seek_source_file(handle, distance, origin)
+    {
+        Ok(cursor) => Ok(ApiImmediate::new(ApiReturnValue::U32(cursor as u32))
+            .with_last_error(preserved_last_error)),
+        Err(error) if error.code == "source-seek-range-invalid" => {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
+                .with_last_error(ERROR_NEGATIVE_SEEK))
+        }
+        Err(error) if error.code == "source-seek-origin-invalid" => {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
+                .with_last_error(ERROR_INVALID_PARAMETER))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_close_handle(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    require_source_file_policy(policy)?;
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if handle.kind() != Ok(RuntimeObjectKind::File)
+        || session.runtime().source_file_for_handle(handle).is_err()
+    {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_INVALID_HANDLE)
+        );
+    }
+    session
+        .runtime_mut()
+        .close_handle(handle)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(preserved_last_error))
+}
+
+pub fn complete_kernel32_source_read(
+    dispatcher: &ApiDispatcher,
+    call: ApiDeferredCall,
+    response: RuntimeSourceReadHostResponse,
+    session: &mut ExecutionSession<'_>,
+) -> (
+    DispatchOutcome,
+    Option<crate::runtime::RuntimeSourceReadCompletion>,
+) {
+    if call.contract.implementation_id != READ_FILE_IMPLEMENTATION
+        || call.request.request_id != response.request_id
+        || call.request.service != RUNTIME_SOURCE_READ_SERVICE
+    {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-vfs",
+                "source-read-suspended-call-mismatch",
+                "source read host completion does not match its suspended API call",
+            )),
+            None,
+        );
+    }
+    let plan = match session.runtime().plan_source_file_read_completion(response) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    let response = plan.response();
+    let mut immediate = ApiImmediate::new(ApiReturnValue::Bool32(plan.completion().succeeded))
+        .with_guest_write(
+            plan.bytes_read(),
+            response.transferred_bytes.to_le_bytes().to_vec(),
+        )
+        .with_last_error(plan.completion().win32_error);
+    if plan.completion().succeeded && !response.bytes.is_empty() {
+        immediate = immediate.with_guest_write(plan.buffer(), response.bytes.clone());
+    }
+    let request_id = call.request.request_id;
+    let outcome = dispatcher.complete_deferred(
+        call,
+        HostCompletion {
+            request_id,
+            result: immediate,
+        },
+        session,
+    );
+    if matches!(outcome, DispatchOutcome::Immediate(_)) {
+        let completion = session
+            .runtime_mut()
+            .commit_source_file_read_completion(plan);
+        (outcome, Some(completion))
+    } else {
+        (outcome, None)
+    }
+}
+
+fn require_source_file_policy(
+    policy: &Kernel32CompatibilityPolicy,
+) -> Result<&Kernel32SourceFilePolicy, ApiFault> {
+    policy.source_files().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-vfs",
+            "source-file-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable immutable source files",
+                policy.id
+            ),
+        )
+    })
+}
+
+fn read_nul_terminated_source_path(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+    source: GuestAddress,
+    maximum_path_bytes: u32,
+) -> Result<Vec<u8>, ApiFault> {
+    let maximum = usize::try_from(maximum_path_bytes).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-vfs",
+            "source-file-path-limit-not-representable",
+            "validated source file path limit does not fit host accounting",
+        )
+    })?;
+    let mut bytes = Vec::new();
+    for offset in 0..maximum {
+        let address = add_guest_offset(contract, source, offset)?;
+        let byte = session
+            .memory()
+            .read(address, 1)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+        bytes.push(byte);
+        if byte == 0 {
+            return Ok(bytes);
+        }
+    }
+    Err(ApiFault::resource_limit(
+        "win32-vfs",
+        "source-file-path-not-terminated",
+        format!("ANSI source file path did not terminate within {maximum_path_bytes} bytes"),
     ))
 }
 
@@ -3221,6 +3604,92 @@ pub fn set_current_directory_a_contract(
         vec![dynamic_in_bytes("directoryPath", true, 1, 1, 32_768)],
         ApiReturnSchema::Bool32,
         SET_CURRENT_DIRECTORY_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn create_file_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "CreateFileA",
+        vec![
+            dynamic_in_bytes("fileName", false, 1, 1, 32_768),
+            u32_argument("desiredAccess"),
+            u32_argument("shareMode"),
+            opaque_pointer("securityAttributes", true, 4),
+            u32_argument("creationDisposition"),
+            u32_argument("flagsAndAttributes"),
+            logical_handle("templateFile", RUNTIME_SOURCE_FILE_NAMESPACE, true),
+        ],
+        ApiReturnSchema::LogicalHandle {
+            namespace: RUNTIME_SOURCE_FILE_NAMESPACE.to_owned(),
+            nullable: false,
+        },
+        CREATE_FILE_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn get_file_size_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "GetFileSize",
+        vec![
+            logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false),
+            optional_out_struct("fileSizeHigh", "DWORD", 4, 4),
+        ],
+        ApiReturnSchema::U32,
+        GET_FILE_SIZE_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn read_file_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "ReadFile",
+        vec![
+            logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false),
+            dynamic_out_bytes("buffer", false, 1, 1, RUNTIME_SOURCE_READ_MAX_BYTES),
+            u32_argument("bytesToRead"),
+            out_struct("bytesRead", "DWORD", 4),
+            opaque_pointer("overlapped", true, 4),
+        ],
+        ApiReturnSchema::Bool32,
+        READ_FILE_IMPLEMENTATION,
+    )?;
+    contract.behavior = ApiBehavior::ImmediateOrDeferred;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn set_file_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "SetFilePointer",
+        vec![
+            logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false),
+            u32_argument("distanceLow"),
+            opaque_pointer("distanceHigh", true, 4),
+            u32_argument("moveMethod"),
+        ],
+        ApiReturnSchema::U32,
+        SET_FILE_POINTER_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn close_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "CloseHandle",
+        vec![logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false)],
+        ApiReturnSchema::Bool32,
+        CLOSE_HANDLE_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

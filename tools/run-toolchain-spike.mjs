@@ -237,6 +237,10 @@ const browserExeObject = path.join(outputDirectory, "browser-fixture-exe.obj");
 const browserDllFile = path.join(outputDirectory, "vine_browser_fixture.dll");
 const browserImportLibrary = path.join(outputDirectory, "vine_browser_fixture.lib");
 const browserExeFile = path.join(outputDirectory, "browser-vertical.exe");
+const sourceReadFixtureDirectory = path.join(root, "fixtures", "pe32", "source-read");
+const sourceReadObject = path.join(outputDirectory, "fixture-source-read.obj");
+const sourceReadExe = path.join(outputDirectory, "source-read.exe");
+const sourceReadKernel32Library = path.join(outputDirectory, "source-read-kernel32.lib");
 const lifecycleFixtureDirectory = path.join(
   root,
   "fixtures",
@@ -364,6 +368,10 @@ compilePeObject(
   browserExeObject,
 );
 compilePeObject(
+  path.join(sourceReadFixtureDirectory, "fixture-source-read.c"),
+  sourceReadObject,
+);
+compilePeObject(
   path.join(lifecycleFixtureDirectory, "codec.c"),
   lifecycleCodecObject,
 );
@@ -444,6 +452,16 @@ run("llvm-dlltool", [
   path.join(flsGetValueFixtureDirectory, "kernel32.def"),
   "-l",
   flsGetValueKernel32Library,
+]);
+
+run("llvm-dlltool", [
+  "-m",
+  "i386",
+  "-k",
+  "-d",
+  path.join(sourceReadFixtureDirectory, "kernel32.def"),
+  "-l",
+  sourceReadKernel32Library,
 ]);
 
 run("lld-link", [
@@ -536,6 +554,19 @@ run("lld-link", [
   `/out:${browserExeFile}`,
   browserExeObject,
   browserImportLibrary,
+]);
+
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${sourceReadExe}`,
+  sourceReadObject,
+  sourceReadKernel32Library,
 ]);
 
 run("lld-link", [
@@ -639,6 +670,7 @@ run("lld-link", [
 
 let nativeAbiExitCode = null;
 let browserVerticalNativeExitCode = null;
+let sourceReadNativeExitCode = null;
 let dllLifecycleNativeExitCode = null;
 let dllLifecycleNativeAttempts = null;
 let windowPixelNativeExitCode = null;
@@ -651,6 +683,8 @@ if (process.platform === "win32") {
   nativeAbiExitCode = 0;
   await runNativeFixture(browserExeFile);
   browserVerticalNativeExitCode = 0;
+  await runNativeFixture(sourceReadExe);
+  sourceReadNativeExitCode = 0;
   // A freshly linked multi-DLL image can transiently remain in a zero-CPU host
   // launch wait while Windows inspects it. This gate checks loader semantics,
   // not launch latency, so retry one bounded timeout while still rejecting two
@@ -686,6 +720,11 @@ const browserExeInspection = run("llvm-readobj", [
 const browserDllInspection = run("llvm-readobj", [
   "--coff-exports",
   browserDllFile,
+]);
+const sourceReadInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  sourceReadExe,
 ]);
 const lifecycleExeInspection = run("llvm-readobj", [
   "--file-headers",
@@ -774,6 +813,21 @@ for (const expected of [
 ]) {
   if (!browserExeInspection.includes(expected)) {
     throw new Error(`browser vertical PE32 inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
+  "Name: kernel32.dll",
+  "Symbol: CloseHandle",
+  "Symbol: CreateFileA",
+  "Symbol: GetFileSize",
+  "Symbol: ReadFile",
+  "Symbol: SetFilePointer",
+]) {
+  if (!sourceReadInspection.includes(expected)) {
+    throw new Error(`source read PE32 inspection is missing: ${expected}`);
   }
 }
 
@@ -988,6 +1042,7 @@ const report = {
       "fixture_deferred_add",
     ],
     browserVerticalNativeExitCode,
+    sourceReadNativeExitCode,
     dllLifecycleFormat: "PE32/i386",
     dllLifecycleAttachOrder: ["lifecycle_codec.dll", "lifecycle_engine.dll"],
     dllLifecycleDetachOrder: ["lifecycle_engine.dll", "lifecycle_codec.dll"],
@@ -1042,6 +1097,8 @@ const report = {
     browserExeFile,
     browserDllFile,
     browserImportLibrary,
+    sourceReadExe,
+    sourceReadKernel32Library,
     lifecycleExe,
     lifecycleEngineDll,
     lifecycleEngineLibrary,

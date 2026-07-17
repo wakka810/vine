@@ -25,7 +25,7 @@ export interface ApiCompletion {
 export interface PreparedMetadata {
   kind: "prepared";
   schemaVersion: 2;
-  workload?: "controlled-fixture" | "private-bgi";
+  workload?: "controlled-fixture" | "controlled-source-read" | "private-bgi";
   entryPoint: number;
   fsBase?: number;
   generation: number;
@@ -65,6 +65,21 @@ export interface PreparedMetadata {
     currentDirectoryA: RuntimeCurrentDirectoryA;
     currentDirectoryGeneration: number;
   };
+  sourceSnapshot?: {
+    titleFingerprint: string;
+    snapshotId: string;
+    sourceId: number;
+    rootPathA: number[];
+    files: Record<
+      string,
+      {
+        objectId: number;
+        relativePathA: number[];
+        byteLength: number;
+        sha256: string;
+      }
+    >;
+  };
   endpoints: Array<{
     id: number;
     address: number;
@@ -100,7 +115,16 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_payload_ptr(): number;
   vine_bridge_payload_len(): number;
   vine_bridge_prepare(length: number): number;
-  vine_bridge_prepare_bgi(executableLength: number, policyLength: number): number;
+  vine_bridge_prepare_bgi(
+    executableLength: number,
+    policyLength: number,
+    sourceManifestLength: number,
+  ): number;
+  vine_bridge_prepare_source_read(
+    executableLength: number,
+    policyLength: number,
+    sourceManifestLength: number,
+  ): number;
   vine_bridge_acknowledge(low: number, high: number): number;
   vine_bridge_reconcile_writeback(controlLength: number, payloadLength: number): number;
   vine_bridge_advance_mapping_fixture(stage: number): number;
@@ -109,6 +133,12 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_service_page_fault(faultAddress: number, errorCode: number): number;
   vine_bridge_dispatch(endpoint: number, stackPointer: number, returnAddress: number): number;
   vine_bridge_complete_host(low: number, high: number, result: number): number;
+  vine_bridge_complete_source_read(
+    low: number,
+    high: number,
+    controlLength: number,
+    payloadLength: number,
+  ): number;
   vine_bridge_schedule_next_thread(): number;
   vine_bridge_finish_thread(exitCode: number): number;
   vine_bridge_complete_callback(sentinel: number, result: number): number;
@@ -151,10 +181,30 @@ export class RuntimeBridge {
   prepareBgi(
     executable: Uint8Array,
     policy: Uint8Array,
+    sourceManifest: Uint8Array,
   ): BridgeOutput<PreparedMetadata> {
-    this.#setInput([executable, policy]);
+    this.#setInput([executable, policy, sourceManifest]);
     return this.#invoke(() =>
-      this.#exports.vine_bridge_prepare_bgi(executable.byteLength, policy.byteLength),
+      this.#exports.vine_bridge_prepare_bgi(
+        executable.byteLength,
+        policy.byteLength,
+        sourceManifest.byteLength,
+      ),
+    );
+  }
+
+  prepareSourceRead(
+    executable: Uint8Array,
+    policy: Uint8Array,
+    sourceManifest: Uint8Array,
+  ): BridgeOutput<PreparedMetadata> {
+    this.#setInput([executable, policy, sourceManifest]);
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_prepare_source_read(
+        executable.byteLength,
+        policy.byteLength,
+        sourceManifest.byteLength,
+      ),
     );
   }
 
@@ -212,6 +262,23 @@ export class RuntimeBridge {
   completeHost<T = Record<string, unknown>>(requestId: bigint, result: number): BridgeOutput<T> {
     const [low, high] = splitU64(requestId);
     return this.#invoke(() => this.#exports.vine_bridge_complete_host(low, high, result));
+  }
+
+  completeSourceRead<T = Record<string, unknown>>(
+    requestId: bigint,
+    control: Uint8Array,
+    payload: Uint8Array,
+  ): BridgeOutput<T> {
+    this.#setInput([control, payload]);
+    const [low, high] = splitU64(requestId);
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_complete_source_read(
+        low,
+        high,
+        control.byteLength,
+        payload.byteLength,
+      ),
+    );
   }
 
   scheduleNextThread<T = Record<string, unknown>>(): BridgeOutput<T> {

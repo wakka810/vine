@@ -133,6 +133,18 @@ pub(super) struct RuntimeHostCompletionPlan {
     scheduler: RuntimeSchedulerLanePlan,
 }
 
+impl RuntimeHostRequestPlan {
+    pub(super) fn request(&self) -> &RuntimeHostRequest {
+        &self.request
+    }
+}
+
+impl RuntimeHostCompletionPlan {
+    pub(super) fn request(&self) -> &RuntimeHostRequest {
+        &self.request
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeHostRequestCancellationPlan {
     thread_id: RuntimeThreadId,
@@ -142,6 +154,10 @@ pub(super) struct RuntimeHostRequestCancellationPlan {
 impl RuntimeHostRequestCancellationPlan {
     pub(super) fn request_count(&self) -> usize {
         self.request_ids.len()
+    }
+
+    pub(super) fn request_ids(&self) -> &[u64] {
+        &self.request_ids
     }
 }
 

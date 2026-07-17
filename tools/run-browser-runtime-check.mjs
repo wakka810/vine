@@ -14,6 +14,10 @@ import {
   classifyBenchmarkDecision,
   EVIDENCE_CLASSIFICATION,
 } from "./evidence-classification.mjs";
+import {
+  handleSourceSnapshotHttp,
+  registerSourceSnapshot,
+} from "./source-snapshot.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assetsRoot = path.join(root, ".work", "browser-runtime");
@@ -35,6 +39,15 @@ const bgiPolicyPath = path.join(
   root,
   checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
 );
+const sourceManifestPath = path.join(
+  root,
+  "fixtures",
+  "source-snapshots",
+  bgiMode ? "bgi-gdb-v1.json" : "controlled-source-read-v1.json",
+);
+const sourceObjectPath = bgiMode
+  ? path.join(path.dirname(bgiPath), "BGI.gdb")
+  : path.join(root, "fixtures", "storage", "source-read-v1.dat");
 const bgiOracleReportPath = path.join(
   root,
   ".work",
@@ -45,7 +58,7 @@ const bgiBenchmarkConfigurationPath = path.join(
   root,
   "fixtures",
   "benchmarks",
-  "bgi-browser-v1.json",
+  "bgi-browser-source-read-v1.json",
 );
 
 function optionValue(name) {
@@ -488,6 +501,17 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    assert.deepEqual(evidence.report.registeredThreadIds, [8192]);
+    assert.deepEqual(evidence.report.executedThreadIds, [8192]);
+    assert.equal(evidence.report.contextSwitches, 0);
+    assert.deepEqual(evidence.report.initialCurrentDirectory, {
+      directory: {
+        sourceAuthority: "browser-private-process-bootstrap",
+        bytesWithNul: [67, 58, 92, 86, 105, 110, 101, 0],
+        encoding: "windows-932-v1",
+      },
+      generation: 0,
+    });
     assert(evidence.statuses.some(({ phase }) => phase === "running"));
     if (scenario === "success") {
       assert.equal(evidence.report.outcome, "structured-stop");
@@ -501,6 +525,111 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         evidence.report.outcome,
         scenario === "watchdog" ? "watchdog" : "cancelled",
       );
+    }
+    return evidence;
+  } finally {
+    client.close();
+  }
+}
+
+async function waitForSourceCheckpoint(client, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  let snapshot = null;
+  while (Date.now() < deadline) {
+    snapshot = await evaluate(client, `window.__vineSourceCheck`);
+    if (snapshot?.error !== null && snapshot?.error !== undefined) {
+      throw new Error(`source gateway browser runtime failed: ${snapshot.error}`);
+    }
+    if (snapshot?.result !== null && snapshot?.result !== undefined) {
+      return snapshot.result;
+    }
+    await wait(50);
+  }
+  throw new Error(`source gateway browser runtime timed out: ${JSON.stringify(snapshot)}`);
+}
+
+async function runSourceProbe(browserWebSocketUrl, baseUrl, scenario) {
+  const target = await createDebugTarget(
+    browserWebSocketUrl,
+    `${baseUrl}source-check.html?scenario=${scenario}`,
+  );
+  const client = await connectDevTools(target.webSocketDebuggerUrl);
+  try {
+    await client.send("Runtime.enable");
+    await client.send("Page.enable");
+    const evidence = await waitForSourceCheckpoint(client);
+    assert.equal(evidence.scenario, scenario);
+    assert.equal(evidence.report.pendingHostCalls, 0);
+    assert.equal(evidence.report.pendingCallbacks, 0);
+    assertExecutionStateMachine(evidence.report, scenario);
+    assertExecutionEngine(evidence.report);
+    assert(
+      evidence.statuses.some(({ phase }) => phase === "waiting-host"),
+      `${scenario} source status history has no waiting-host phase: ${JSON.stringify(evidence.statuses)}`,
+    );
+    if (scenario === "success") {
+      assert.equal(evidence.report.outcome, "completed");
+      assert.equal(evidence.report.exitCode, 0);
+      assert.equal(evidence.report.instructions, 217);
+      assert.equal(evidence.report.hostRequests, 2);
+      assert.equal(evidence.report.rustSchedulerTransitions, 2);
+      assert.deepEqual(evidence.report.sourceReads, [
+        {
+          request: {
+            requestId: 1,
+            fileId: 1,
+            sourceId: 1,
+            objectId: 1,
+            offset: 0,
+            requestedBytes: 8,
+          },
+          succeeded: true,
+          transferredBytes: 8,
+          win32Error: 0,
+          cursorBefore: 0,
+          cursorAfter: 8,
+          contentSha256: "202034b246570abc8e0e549637dbeb3ce7990de1fedeef6bcbf795934a3bb2da",
+        },
+        {
+          request: {
+            requestId: 2,
+            fileId: 1,
+            sourceId: 1,
+            objectId: 1,
+            offset: 50,
+            requestedBytes: 11,
+          },
+          succeeded: true,
+          transferredBytes: 11,
+          win32Error: 0,
+          cursorBefore: 50,
+          cursorAfter: 61,
+          contentSha256: "71c02fe83d1ee0855a1875c47a53372209e4892b3b8bd7bcdc5d1ea9610d0dc3",
+        },
+      ]);
+    } else if (scenario === "wrong-origin") {
+      assert.equal(evidence.report.outcome, "fault");
+      assert.equal(evidence.report.hostRequests, 1);
+      assert.equal(evidence.report.instructions, 32);
+      assert.equal(evidence.report.rustSchedulerTransitions, 0);
+      assert.deepEqual(evidence.report.sourceReads, []);
+      assert.equal(
+        evidence.report.error,
+        "source API URL must use the Runtime Worker origin",
+      );
+    } else {
+      assert.equal(
+        evidence.report.outcome,
+        scenario === "watchdog" ? "watchdog" : "cancelled",
+      );
+      assert.equal(evidence.report.hostRequests, 1);
+      assert.equal(evidence.report.instructions, 32);
+      assert.equal(evidence.report.rustSchedulerTransitions, 0);
+      assert.deepEqual(evidence.report.sourceReads, []);
+      if (scenario === "watchdog") {
+        assert.equal(evidence.report.watchdogContext.requestId, "1");
+        assert.equal(evidence.report.watchdogContext.lastTransition?.to, "waiting-host");
+      }
     }
     return evidence;
   } finally {
@@ -820,6 +949,7 @@ function normalizeBgiCall(call) {
     icon: call.icon ?? null,
     cursor: call.cursor ?? null,
     windowClass: call.windowClass ?? null,
+    sourceRead: call.sourceRead ?? null,
   };
 }
 
@@ -896,6 +1026,13 @@ function validateBgiEquivalence(browser, oracle) {
     ),
     "Chrome Worker heap page-materialization semantics differ from the Node oracle",
   );
+  assert.deepEqual(
+    browser.report.sourceReads,
+    oracle.supportedContinuation
+      .filter(({ sourceRead }) => sourceRead !== undefined)
+      .map(({ sourceRead }) => sourceRead),
+    "Chrome Worker source-read completions differ from the Node oracle",
+  );
   const browserStop = browser.report.firstUnsupported;
   const oracleStop = oracle.firstUnsupported;
   assert(browserStop !== null, "Chrome Worker omitted its structured stop");
@@ -963,9 +1100,12 @@ function mimeType(file) {
   }
 }
 
-function createServer() {
+function createServer(sourceRegistration) {
   return http.createServer(async (request, response) => {
     try {
+      if (handleSourceSnapshotHttp(request, response, sourceRegistration)) {
+        return;
+      }
       const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
       let file;
       if (bgiMode && pathname === "/private/BGI.exe") {
@@ -1000,11 +1140,11 @@ function listen(server, port) {
   });
 }
 
-async function startServer(preferredPort) {
+async function startServer(preferredPort, sourceRegistration) {
   const ports = preferredPort === 0 ? [0] : Array.from({ length: 20 }, (_, index) => preferredPort + index);
   let lastError = null;
   for (const port of ports) {
-    const server = createServer();
+    const server = createServer(sourceRegistration);
     try {
       return { server, port: await listen(server, port) };
     } catch (error) {
@@ -1021,6 +1161,55 @@ function closeServer(server) {
   return new Promise((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
+}
+
+async function checkSourceApi(baseUrl, registration) {
+  const manifestResponse = await fetch(`${baseUrl}api/source/v1/manifest`, {
+    cache: "no-store",
+  });
+  assert.equal(manifestResponse.status, 200);
+  assert.deepEqual(
+    Buffer.from(await manifestResponse.arrayBuffer()),
+    registration.manifestBytes,
+    "source API manifest bytes changed after registration",
+  );
+  const file = registration.manifest.files[0];
+  const rangeUrl =
+    `${baseUrl}api/source/v1/titles/${encodeURIComponent(registration.manifest.titleFingerprint)}` +
+    `/snapshots/${encodeURIComponent(registration.manifest.snapshotId)}` +
+    `/sources/${registration.manifest.mount.sourceId}/objects/${file.objectId}` +
+    "?offset=0&length=7";
+  const rangeResponse = await fetch(rangeUrl, { cache: "no-store" });
+  assert.equal(rangeResponse.status, 206);
+  assert.equal(
+    rangeResponse.headers.get("x-vine-title-fingerprint"),
+    registration.manifest.titleFingerprint,
+  );
+  assert.equal(rangeResponse.headers.get("x-vine-snapshot-id"), registration.manifest.snapshotId);
+  assert.equal(rangeResponse.headers.get("x-vine-object-id"), String(file.objectId));
+  assert.equal(rangeResponse.headers.get("x-vine-transferred-bytes"), "7");
+  assert.deepEqual(
+    Buffer.from(await rangeResponse.arrayBuffer()),
+    registration.objects.get(file.objectId).bytes.subarray(0, 7),
+    "source API returned different registered bytes",
+  );
+  const wrongSnapshot = await fetch(
+    rangeUrl.replace(encodeURIComponent(registration.manifest.snapshotId), "wrong-snapshot"),
+  );
+  assert.equal(wrongSnapshot.status, 404);
+  const wrongTitle = await fetch(
+    rangeUrl.replace(
+      encodeURIComponent(registration.manifest.titleFingerprint),
+      "wrong-title",
+    ),
+  );
+  assert.equal(wrongTitle.status, 404);
+  const wrongObject = await fetch(rangeUrl.replace(`/objects/${file.objectId}`, "/objects/999"));
+  assert.equal(wrongObject.status, 404);
+  const wrongRange = await fetch(
+    rangeUrl.replace("offset=0", `offset=${file.byteLength + 1}`),
+  );
+  assert.equal(wrongRange.status, 416);
 }
 
 function findChrome() {
@@ -1068,6 +1257,12 @@ async function waitForShutdown() {
 }
 
 assert(fs.existsSync(path.join(assetsRoot, "index.html")), "browser runtime is not built");
+assert(
+  fs.existsSync(path.join(assetsRoot, "source-check.html")),
+  "source gateway browser check is not built",
+);
+assert(fs.existsSync(sourceManifestPath), `source manifest is missing at ${sourceManifestPath}`);
+assert(fs.existsSync(sourceObjectPath), `source object is missing at ${sourceObjectPath}`);
 if (bgiMode) {
   assert(fs.existsSync(path.join(assetsRoot, "bgi-check.html")), "BGI browser check is not built");
   assert(fs.existsSync(bgiPath), `BGI source is missing at ${bgiPath}`);
@@ -1090,8 +1285,13 @@ assert(
   "--bgi-benchmark-ms is invalid",
 );
 const requestedPort = serveOnly ? Number(optionValue("--port") ?? 4173) : 0;
-const { server, port } = await startServer(requestedPort);
+const sourceRegistration = await registerSourceSnapshot({
+  manifestPath: sourceManifestPath,
+  objectFiles: { 1: sourceObjectPath },
+});
+const { server, port } = await startServer(requestedPort, sourceRegistration);
 const url = `http://127.0.0.1:${port}/`;
+await checkSourceApi(url, sourceRegistration);
 
 if (serveOnly) {
   console.log(`Vine browser runtime listening at ${url}`);
@@ -1133,6 +1333,14 @@ if (serveOnly) {
         const configuration = JSON.parse(configurationBytes);
         assert.equal(configuration.schema, "vine.bgi-browser-benchmark");
         assert.equal(configuration.schemaVersion, 1);
+        assert.deepEqual(configuration.workload, {
+          profile: checkpoint.activeRuntimeCheckpoint.profile,
+          guestInstructions: checkpoint.browserCheckpoint.bgiRuntimeEvidence.guestInstructions,
+          supportedCalls: checkpoint.browserCheckpoint.bgiRuntimeEvidence.supportedCalls,
+          sourceReadCompletions:
+            checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceReadCompletions,
+          nextApi: checkpoint.nextStructuredStop.api,
+        });
         assert.equal(
           bgiBenchmarkMilliseconds,
           configuration.durationMilliseconds,
@@ -1284,6 +1492,18 @@ if (serveOnly) {
       const success = await runProbe(chrome.browserWebSocketUrl, url, "success", true);
       const cancellation = await runProbe(chrome.browserWebSocketUrl, url, "cancel-pending");
       const watchdog = await runProbe(chrome.browserWebSocketUrl, url, "watchdog");
+      const sourceSuccess = await runSourceProbe(chrome.browserWebSocketUrl, url, "success");
+      const sourceCancellation = await runSourceProbe(
+        chrome.browserWebSocketUrl,
+        url,
+        "cancel-pending",
+      );
+      const sourceWatchdog = await runSourceProbe(
+        chrome.browserWebSocketUrl,
+        url,
+        "watchdog",
+      );
+      await runSourceProbe(chrome.browserWebSocketUrl, url, "wrong-origin");
       let stress = null;
       if (stressMilliseconds > 0) {
         const target = await createDebugTarget(chrome.browserWebSocketUrl, `${url}?scenario=success`);
@@ -1301,13 +1521,18 @@ if (serveOnly) {
       }
       const report = {
         schema: "vine.browser-runtime-worker",
-        schemaVersion: 5,
+        schemaVersion: 6,
         runtimeProtocol,
         measuredAt: new Date().toISOString(),
         chromeVersion: version,
         success,
         cancellation,
         watchdog,
+        sourceGateway: {
+          success: sourceSuccess,
+          cancellation: sourceCancellation,
+          watchdog: sourceWatchdog,
+        },
         stress,
       };
       const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
@@ -1316,6 +1541,7 @@ if (serveOnly) {
         `browser Worker vertical slice passed: instructions=${success.evidence.report.instructions}, ` +
           `yields=${success.evidence.report.budgetYields}, callbacks=2/depth2, ` +
           `pixel=rgba(255,0,0,255), audio=880Hz, storage=0x5a, ` +
+          `sourceReads=${sourceSuccess.report.sourceReads.length}, ` +
           `cancel/watchdog=clean, Chrome=${version}, reportSha256=${hash(reportBytes)}`,
       );
     }

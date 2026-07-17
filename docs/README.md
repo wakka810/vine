@@ -183,6 +183,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-register-class-ex-a.md](bgi-register-class-ex-a.md) | process-local window classをどう登録するか | module/name identity、logical ATOM、WndProc／resource metadata、failure atomicity |
 | [bgi-get-system-metrics.md](bgi-get-system-metrics.md) | initial window metricsをどこから返すか | Rust display authority、bounded non-client policy、caller geometry oracle、Node／Chrome equivalence |
 | [runtime-heap-backing.md](runtime-heap-backing.md) | private heap bytes／lifetimeをどこが所有するか | bounded guest arena、allocation ID／alignment／initialization、free／reuse、heap／process teardown |
+| [runtime-vfs.md](runtime-vfs.md) | immutable source file stateとasync byte serviceをどう分離するか | Rust manifest／path／typed handle／cursor authority、same-origin range adapter、failure atomicity、cancel／teardown |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 
 推奨する読み順は、corpus 台帳、要件、目標アーキテクチャ、リスク、検証、ロードマップの順である。ロードマップ内の `REQ-*`、`NFR-*`、`R-*`、`Q-*`、`AC-*` は各文書の識別子を参照する。

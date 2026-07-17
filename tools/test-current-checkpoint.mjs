@@ -71,6 +71,15 @@ assert.ok(
   ),
 );
 
+const sourceAdapterLosesTitleIdentity = structuredClone(manifest);
+sourceAdapterLosesTitleIdentity.browserCheckpoint.browserSourceReadEvidence.titleSnapshotObjectHttpIdentity =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(sourceAdapterLosesTitleIdentity).some((error) =>
+    error.includes("immutable source-read evidence"),
+  ),
+);
+
 const fixedExecutionMirrorPool = structuredClone(manifest);
 fixedExecutionMirrorPool.memoryAuthorityEvidence.executionMirrorCapacity.growthPolicy =
   "fixed-two-mebibytes";
@@ -195,6 +204,17 @@ missingWaitableTimerObjectKind.activeRuntimeCheckpoint.runtimeObjectModel.object
   );
 assert.ok(
   validateCurrentCheckpoint(missingWaitableTimerObjectKind).some((error) =>
+    error.includes("object subsystem boundary"),
+  ),
+);
+
+const missingSourceFileObjectKind = structuredClone(manifest);
+missingSourceFileObjectKind.activeRuntimeCheckpoint.runtimeObjectModel.objectKinds =
+  missingSourceFileObjectKind.activeRuntimeCheckpoint.runtimeObjectModel.objectKinds.filter(
+    (kind) => kind !== "file",
+  );
+assert.ok(
+  validateCurrentCheckpoint(missingSourceFileObjectKind).some((error) =>
     error.includes("object subsystem boundary"),
   ),
 );
