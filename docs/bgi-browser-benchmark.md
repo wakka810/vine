@@ -4,13 +4,13 @@
 
 - Status: threshold passed
 - Date: 2026-07-17
-- Workload: current 1,344-call `user32-register-class-ex-a` private BGI generic session
-- Observation status: `current-window-class-registration-boundary-rerun`
+- Workload: retained 1,344-call `user32-register-class-ex-a` private BGI generic session
+- Observation status: `previous-window-class-registration-boundary-observation`
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-v1.json`](../fixtures/benchmarks/bgi-browser-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This current observation repeats the complete `user32-register-class-ex-a` BGI
+This retained observation repeats the complete `user32-register-class-ex-a` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
 runtime and v86 mirror, dispatches
 1,344 ordered calls over 49,990 guest instructions, performs 6,420 Rust/Wasm bridge
@@ -42,10 +42,13 @@ Every repetition checks the call count, instruction count, crossing count,
 memory digest, next structured stop, and zero pending work before its compact
 summary is retained.
 
-The window-class gateway changes User32 process lifetime and the Worker
-completion payload, so this workload was rerun against the exact current
-Rust/Wasm and Worker artifacts. The active Node／Chrome semantic gate remains
-separately required in [`current-checkpoint.json`](current-checkpoint.json).
+The window-class gateway changed User32 process lifetime and the Worker
+completion payload, so this workload was rerun against the exact artifacts at
+that checkpoint. Later read-only semantic leaves may retain this observation
+only with an explicit `previous-*` label; their active Node／Chrome semantic gate
+remains separately required in
+[`current-checkpoint.json`](current-checkpoint.json), and this report is not an
+artifact-identity measurement for later Rust/Wasm builds.
 
 This is title-workload evidence. The synthetic CPU／ABI／audio／background gate
 remains separately versioned in [v86-browser-benchmark.md](v86-browser-benchmark.md);
@@ -191,7 +194,8 @@ profile plus a loopback-only server and DevTools endpoint.
   Icon coverage is limited to logical module-resource selection and identity;
   cursor coverage is limited to shared `IDC_ARROW` identity. Window-class
   coverage is limited to two process-local registrations and logical ATOM／
-  metadata lifetime. No window creation, WndProc dispatch, bitmap／cursor
+  metadata lifetime. The later `GetSystemMetrics` contract and its five metric
+  reads are not part of this retained workload. No window creation, WndProc dispatch, bitmap／cursor
   rendering, hotspot, active cursor, or browser resource is measured.
 - A passing slope threshold does not prove that V8 heap capacity has reached a
   permanent plateau; longer scenario-specific gates remain required.

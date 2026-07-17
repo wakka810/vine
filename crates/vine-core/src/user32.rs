@@ -21,12 +21,13 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 5;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 6;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
+pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
 
 const RT_ICON: u32 = 3;
 const RT_GROUP_ICON: u32 = 14;
@@ -73,6 +74,15 @@ pub struct User32RegisterClassExAPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct User32GetSystemMetricsPolicy {
+    pub profile_id: String,
+    pub caption_height: u32,
+    pub fixed_frame_width: u32,
+    pub fixed_frame_height: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct User32CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -82,14 +92,15 @@ pub struct User32CompatibilityPolicy {
     pub load_icon_a: Option<User32LoadIconAPolicy>,
     pub load_cursor_a: Option<User32LoadCursorAPolicy>,
     pub register_class_ex_a: Option<User32RegisterClassExAPolicy>,
+    pub get_system_metrics: Option<User32GetSystemMetricsPolicy>,
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v5() -> Self {
+    pub fn controlled_v6() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-icon-cursor-class-v5".to_owned(),
+            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-v6".to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
                 primary_monitor_rect: RuntimeRect {
@@ -125,6 +136,12 @@ impl User32CompatibilityPolicy {
                 require_null_background_brush: true,
                 require_null_menu_name: true,
                 require_null_small_icon: true,
+            }),
+            get_system_metrics: Some(User32GetSystemMetricsPolicy {
+                profile_id: "initial-window-metrics-1920x1080-v1".to_owned(),
+                caption_height: 23,
+                fixed_frame_width: 3,
+                fixed_frame_height: 3,
             }),
         }
     }
@@ -228,6 +245,22 @@ impl User32CompatibilityPolicy {
                 "User32 class registration profile requires the bounded reached local class variants",
             ));
         }
+        if let Some(profile) = self.get_system_metrics.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.caption_height == 0
+                || profile.caption_height > 1_024
+                || profile.fixed_frame_width == 0
+                || profile.fixed_frame_width > 1_024
+                || profile.fixed_frame_height == 0
+                || profile.fixed_frame_height > 1_024
+                || self.enum_display_monitors.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-system-metrics-profile-invalid",
+                "User32 system metrics require bounded non-client values and a logical display profile",
+            ));
+        }
         Ok(())
     }
 
@@ -272,6 +305,12 @@ pub fn dispatch_user32_api_with_policy(
         }
         REGISTER_CLASS_EX_A_IMPLEMENTATION => {
             match handle_register_class_ex_a(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        GET_SYSTEM_METRICS_IMPLEMENTATION => {
+            match handle_get_system_metrics(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
@@ -324,6 +363,80 @@ fn handle_swap_mouse_button(
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(
         result.previous_swapped,
     )))
+}
+
+fn handle_get_system_metrics(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let metrics = policy.get_system_metrics.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-display",
+            "get-system-metrics-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical system metrics",
+                policy.id
+            ),
+        )
+    })?;
+    let display = policy.enum_display_monitors.as_ref().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-display",
+            "get-system-metrics-display-policy-missing",
+            "validated system metrics policy has no logical display profile",
+        )
+    })?;
+    let metric_index = required_argument(contract, frame, 0, "system metric index")?;
+    let runtime_profile_id = session.runtime().display_profile_id().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-display",
+            "logical-display-profile-missing",
+            "User32 system metrics policy is enabled but RuntimeDisplays is not configured",
+        )
+    })?;
+    let monitor = session.runtime().primary_monitor().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-display",
+            "logical-primary-monitor-missing",
+            "configured RuntimeDisplays has no logical primary monitor",
+        )
+    })?;
+    if runtime_profile_id != display.id
+        || !monitor.primary
+        || monitor.rect != display.primary_monitor_rect
+    {
+        return Err(ApiFault::runtime_defect(
+            "user32-display",
+            "logical-display-profile-mismatch",
+            "Rust display authority does not match the selected User32 compatibility profile",
+        ));
+    }
+    let value = match metric_index {
+        0 => u32::try_from(monitor.rect.right - monitor.rect.left),
+        1 => u32::try_from(monitor.rect.bottom - monitor.rect.top),
+        4 => Ok(metrics.caption_height),
+        7 => Ok(metrics.fixed_frame_width),
+        8 => Ok(metrics.fixed_frame_height),
+        _ => {
+            return Err(ApiFault::unsupported(
+                "user32-display",
+                "get-system-metrics-index-unsupported",
+                format!(
+                    "GetSystemMetrics index {metric_index} is outside the reached controlled profile"
+                ),
+            ));
+        }
+    }
+    .map_err(|_| {
+        ApiFault::runtime_defect(
+            "user32-display",
+            "logical-display-dimension-invalid",
+            "logical display dimensions do not fit the x86 GetSystemMetrics result",
+        )
+    })?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(value)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1028,6 +1141,7 @@ pub fn user32_contract_for_endpoint(
         "LoadIconA" => Ok(Some(load_icon_a_contract(endpoint)?)),
         "LoadCursorA" => Ok(Some(load_cursor_a_contract(endpoint)?)),
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
+        "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
         _ => Ok(None),
     }
 }
@@ -1127,6 +1241,23 @@ pub fn register_class_ex_a_contract(
     })
 }
 
+pub fn get_system_metrics_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![u32_argument("metricIndex")],
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: GET_SYSTEM_METRICS_IMPLEMENTATION.to_owned(),
+    })
+}
+
 fn required_argument(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -1210,7 +1341,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v5();
+        let policy = User32CompatibilityPolicy::controlled_v6();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -1228,14 +1359,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v5();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v6();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v5();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v6();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -1246,7 +1377,7 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v5();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v6();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -1257,7 +1388,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v5();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v6();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -1267,6 +1398,17 @@ mod tests {
         assert_eq!(
             invalid_class.validate().unwrap_err().code,
             "user32-register-class-ex-a-profile-invalid"
+        );
+
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v6();
+        invalid_metrics
+            .get_system_metrics
+            .as_mut()
+            .unwrap()
+            .caption_height = 0;
+        assert_eq!(
+            invalid_metrics.validate().unwrap_err().code,
+            "user32-system-metrics-profile-invalid"
         );
     }
 }

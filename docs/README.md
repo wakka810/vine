@@ -178,6 +178,10 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-time-begin-period.md](bgi-time-begin-period.md) | WinMM timer-resolution requestをどこが所有するか | native pairing oracle、Rust timer plan／commit／teardown、Node／Chrome equivalence |
 | [bgi-get-version-ex-a.md](bgi-get-version-ex-a.md) | size-versioned ANSI OS情報をどこが所有するか | guarded native layout oracle、policy-owned virtual version、atomic read-merge-write、Node／Chrome equivalence |
 | [bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md) | waitable timer identity／lifetimeをどこが所有するか | native initial-state oracle、Rust timer payload＋typed object handle、atomic close／process teardown、Node／Chrome／benchmark evidence |
+| [bgi-load-icon-a.md](bgi-load-icon-a.md) | mapped module iconをどう選び所有するか | PE resource catalog、shared logical HICON、native selection oracle、process teardown |
+| [bgi-load-cursor-a.md](bgi-load-cursor-a.md) | predefined cursor identityをどこが所有するか | shared logical HCURSOR、LastError oracle、resource namespace分離、process teardown |
+| [bgi-register-class-ex-a.md](bgi-register-class-ex-a.md) | process-local window classをどう登録するか | module/name identity、logical ATOM、WndProc／resource metadata、failure atomicity |
+| [bgi-get-system-metrics.md](bgi-get-system-metrics.md) | initial window metricsをどこから返すか | Rust display authority、bounded non-client policy、caller geometry oracle、Node／Chrome equivalence |
 | [runtime-heap-backing.md](runtime-heap-backing.md) | private heap bytes／lifetimeをどこが所有するか | bounded guest arena、allocation ID／alignment／initialization、free／reuse、heap／process teardown |
 | [roadmap.md](roadmap.md) | どの順序で実装するか | 依存関係、フェーズ、タスク分解、各フェーズの受け入れ条件 |
 

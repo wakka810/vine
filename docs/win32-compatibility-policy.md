@@ -114,12 +114,15 @@ runtime or memory mutation.
 ## User32 logical display and input policy
 
 `User32CompatibilityPolicy` is a distinct versioned policy because logical
-display and input state do not belong to Kernel32 process policy. Version 2
-enables display profile `single-monitor-1920x1080-v1` and input profile
-`normal-mouse-buttons-v1`. `runtime/displays.rs::RuntimeDisplays` owns the
+display, input, and User32 resource selection do not belong to Kernel32 process
+policy. Version 6 composes display profile `single-monitor-1920x1080-v1`, input
+profile `normal-mouse-buttons-v1`, bounded icon／cursor／class variants, and the
+initial-window metrics profile. `runtime/displays.rs::RuntimeDisplays` owns the
 configured monitor; `runtime/input.rs::RuntimeInput` separately owns initial／
-current mouse-button mapping and its generation. The policy stores neither
-native HMONITOR nor host／browser mouse settings and reads no DOM topology.
+current mouse-button mapping and its generation; `RuntimeUser32` owns icon,
+cursor, and class identities. Policy values select variants but do not become
+parallel state collections. The policy stores no native HMONITOR, HICON,
+HCURSOR, ATOM, host／browser mouse setting, or DOM topology.
 
 The current `EnumDisplayMonitors` variant accepts only NULL HDC and NULL clip,
 invokes one executable stdcall callback with logical handle namespace
@@ -135,6 +138,17 @@ identity is committed before execution and retired only by the exact top frame.
 Node and Worker keep outer call-entry order while nested API traps execute.
 Detailed native, core, Node, Chrome, and performance evidence is in
 [bgi-enum-display-monitors.md](bgi-enum-display-monitors.md).
+
+`GetSystemMetrics` reads screen width／height for indices 0／1 from that same
+Rust-owned primary monitor rectangle. Version 6 policy separately owns only
+the reached non-client values: caption height for index 4 and fixed-frame
+width／height for indices 7／8. The handler requires the configured display
+profile ID, primary identity, and geometry to match policy, preserves
+LastError, writes no guest bytes, and mutates no runtime state. Unlisted indices
+and missing／mismatched authority stop before observable mutation; there is no
+fallback to native metrics, DOM `Screen`, browser window bounds, CSS pixels, or
+DPI. Detailed evidence is in
+[bgi-get-system-metrics.md](bgi-get-system-metrics.md).
 
 The `SwapMouseButton` variant accepts the Win32 BOOL domain: zero selects normal
 primary／secondary mapping and nonzero selects swapped mapping. The handler

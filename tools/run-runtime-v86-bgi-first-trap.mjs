@@ -108,6 +108,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-load-icon-a",
         "user32-load-cursor-a",
         "user32-register-class-ex-a",
+        "user32-get-system-metrics",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -134,6 +135,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "user32-get-system-metrics" ||
     genericRuntimeCapability === "user32-register-class-ex-a" ||
     genericRuntimeCapability === "user32-load-cursor-a" ||
     genericRuntimeCapability === "user32-load-icon-a" ||
@@ -250,8 +252,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getSystemMetricsEnabled =
+  genericRuntimeCapability === "user32-get-system-metrics";
 const registerClassExAEnabled =
-  genericRuntimeCapability === "user32-register-class-ex-a";
+  getSystemMetricsEnabled || genericRuntimeCapability === "user32-register-class-ex-a";
 const loadCursorAEnabled =
   registerClassExAEnabled || genericRuntimeCapability === "user32-load-cursor-a";
 const loadIconAEnabled =
@@ -402,7 +406,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? registerClassExAEnabled
+      ? getSystemMetricsEnabled
+        ? "v86-bgi-get-system-metrics"
+      : registerClassExAEnabled
         ? "v86-bgi-register-class-ex-a"
       : loadCursorAEnabled
         ? "v86-bgi-load-cursor-a"
@@ -4300,6 +4306,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getSystemMetricsEnabled) {
+        validateGetSystemMetricsResult(genericResult);
       } else if (registerClassExAEnabled) {
         validateRegisterClassExAResult(genericResult);
       } else if (loadCursorAEnabled) {
@@ -4415,6 +4423,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : getSystemMetricsEnabled
+            ? "bgi GetSystemMetrics"
           : registerClassExAEnabled
             ? "bgi RegisterClassExA"
           : loadCursorAEnabled
@@ -5270,6 +5280,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : getSystemMetricsEnabled
+          ? 50
         : registerClassExAEnabled
           ? 49
         : loadCursorAEnabled
@@ -5374,7 +5386,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-v5",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-v6",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -9793,6 +9805,125 @@ function validateRegisterClassExAResult(result) {
   assert.equal(result.terminal.terminal.stackWords[1], 7);
 }
 
+function validateGetSystemMetricsResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.supportedCalls.length, 1349);
+  assert.equal(result.writebacks.length, 1355);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2555,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    9442,
+  );
+  assert.equal(result.hostDeltas.length, 85);
+  assert.equal(result.finalGeneration, 1469);
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetSystemMetrics",
+  );
+  assert.equal(calls.length, 5);
+  assert.deepEqual(
+    calls.map(
+      ({
+        sequence,
+        occurrence,
+        trapInstructionCount,
+        arguments: callArguments,
+        result: callResult,
+        returnAddress,
+      }) => ({
+        sequence,
+        occurrence,
+        trapInstructionCount,
+        arguments: callArguments,
+        result: callResult,
+        returnAddress,
+      }),
+    ),
+    [
+      {
+        sequence: 1345,
+        occurrence: 1,
+        trapInstructionCount: 49990,
+        arguments: [7],
+        result: { action: "set", value: 3 },
+        returnAddress: 0x10067ddb,
+      },
+      {
+        sequence: 1346,
+        occurrence: 2,
+        trapInstructionCount: 49995,
+        arguments: [8],
+        result: { action: "set", value: 3 },
+        returnAddress: 0x10067de6,
+      },
+      {
+        sequence: 1347,
+        occurrence: 3,
+        trapInstructionCount: 50000,
+        arguments: [4],
+        result: { action: "set", value: 23 },
+        returnAddress: 0x10067dee,
+      },
+      {
+        sequence: 1348,
+        occurrence: 4,
+        trapInstructionCount: 50020,
+        arguments: [0],
+        result: { action: "set", value: 1920 },
+        returnAddress: 0x10067e26,
+      },
+      {
+        sequence: 1349,
+        occurrence: 5,
+        trapInstructionCount: 50024,
+        arguments: [1],
+        result: { action: "set", value: 1080 },
+        returnAddress: 0x10067e2e,
+      },
+    ],
+  );
+  for (const call of calls) {
+    assert.equal(call.implementationId, "user32.get-system-metrics.v1");
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+  }
+  assert.equal(result.fault.fault.code, "heap-alloc-variant-unsupported");
+  assert.equal(result.fault.capabilityCluster, "kernel32-private-heap-allocation");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 75);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f0004a0);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "HeapAlloc",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d11d4);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "79534ea1107d5cb023fa0d2a0d23d766195067f6634301dfc5d14d782f4405f9",
+  );
+  assert.equal(result.terminal.instructionCount, 50105);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 75);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f0004a0);
+  assert.equal(result.terminal.terminal.thunk.name, "HeapAlloc");
+  assert.equal(result.terminal.terminal.returnAddress, 0x100a4a33);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 4),
+    [0x68010001, 0, 0x04000000],
+  );
+}
+
 function validateLoadCursorAResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
@@ -10895,6 +11026,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : getSystemMetricsEnabled
+          ? "vine.v86-bgi-get-system-metrics"
         : registerClassExAEnabled
           ? "vine.v86-bgi-register-class-ex-a"
         : loadCursorAEnabled

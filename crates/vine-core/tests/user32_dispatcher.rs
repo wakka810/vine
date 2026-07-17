@@ -14,8 +14,8 @@ use vine_core::{
     RuntimeProcessImagePathA, RuntimeRect, RuntimeStartupInfo, RuntimeState,
     RuntimeSystemCursorKind, RuntimeThreadId, StackCleanup, User32CompatibilityPolicy,
     build_pe32_load_plan, dispatch_user32_api_with_policy, enum_display_monitors_contract,
-    load_cursor_a_contract, load_icon_a_contract, materialize_pe32_image,
-    register_class_ex_a_contract, swap_mouse_button_contract,
+    get_system_metrics_contract, load_cursor_a_contract, load_icon_a_contract,
+    materialize_pe32_image, register_class_ex_a_contract, swap_mouse_button_contract,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -35,6 +35,8 @@ const CURSOR_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0f30);
 const CURSOR_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7d09);
 const CLASS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0be0);
 const CLASS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7d28);
+const METRICS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ca0);
+const METRICS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7ddb);
 const ICON_IMAGE_BASE: u32 = 0x0040_0000;
 const ICON_MODULE_HANDLE: u32 = 0x4d01_000f;
 const ICON_FIXTURE_SHA256: &str =
@@ -109,7 +111,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v5();
+        let policy = User32CompatibilityPolicy::controlled_v6();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -200,7 +202,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v5();
+        let mut policy = User32CompatibilityPolicy::controlled_v6();
         policy
             .swap_mouse_button
             .as_mut()
@@ -227,6 +229,101 @@ impl SwapFixture {
                 endpoint_id: self.endpoint.id,
                 endpoint_address: self.endpoint.address,
                 stack_pointer: GuestAddress(stack_pointer),
+                return_address,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_user32_api_with_policy(
+                    &self.policy,
+                    CALLBACK_SENTINEL,
+                    contract,
+                    frame,
+                    session,
+                )
+            },
+        )
+    }
+}
+
+struct MetricsFixture {
+    memory: GuestMemory,
+    runtime: RuntimeState,
+    dispatcher: ApiDispatcher,
+    endpoint: ApiEndpointIdentity,
+    policy: User32CompatibilityPolicy,
+}
+
+impl MetricsFixture {
+    fn new(configure_display: bool) -> Self {
+        let (mut memory, owner) = initialized_memory();
+        let thunk = ImportThunk {
+            id: ImportThunkId(203),
+            address: METRICS_ENDPOINT_ADDRESS,
+            requester_owner: owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1404),
+            iat_address: IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetSystemMetrics".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        };
+        memory
+            .write_initialization(
+                owner,
+                IAT_ADDRESS,
+                &METRICS_ENDPOINT_ADDRESS.0.to_le_bytes(),
+            )
+            .expect("initialize GetSystemMetrics IAT");
+        for (index, metric) in [7_u32, 8, 4, 0, 1, 49].into_iter().enumerate() {
+            write_words(
+                &mut memory,
+                owner,
+                GuestAddress(STACK_POINTER + index as u32 * 0x20),
+                &[METRICS_RETURN_ADDRESS.0 + index as u32, metric],
+            );
+        }
+        memory
+            .seal_owner(owner)
+            .expect("seal metrics fixture owner");
+        let reflection = memory.pending_reflection().expect("metrics reflection");
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .expect("acknowledge metrics reflection");
+
+        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
+        let contract =
+            get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
+        let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
+            .expect("GetSystemMetrics dispatcher");
+        let policy = User32CompatibilityPolicy::controlled_v6();
+        let mut runtime = controlled_runtime();
+        if configure_display {
+            runtime
+                .configure_display_profile(policy.display_profile().expect("display profile"))
+                .expect("configure metrics display");
+        }
+        Self {
+            memory,
+            runtime,
+            dispatcher,
+            endpoint,
+            policy,
+        }
+    }
+
+    fn dispatch(&mut self, index: u32) -> DispatchOutcome {
+        let stack_pointer = GuestAddress(STACK_POINTER + index * 0x20);
+        let return_address = GuestAddress(METRICS_RETURN_ADDRESS.0 + index);
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        self.dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: self.endpoint.id,
+                endpoint_address: self.endpoint.address,
+                stack_pointer,
                 return_address,
             },
             &mut session,
@@ -383,7 +480,7 @@ impl IconFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v5(),
+            policy: User32CompatibilityPolicy::controlled_v6(),
         }
     }
 
@@ -478,7 +575,7 @@ impl CursorFixture {
             runtime: controlled_runtime(),
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v5(),
+            policy: User32CompatibilityPolicy::controlled_v6(),
         }
     }
 
@@ -761,7 +858,7 @@ impl RegisterClassFixture {
             icon_endpoint,
             cursor_endpoint,
             class_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v5(),
+            policy: User32CompatibilityPolicy::controlled_v6(),
         }
     }
 
@@ -961,6 +1058,127 @@ fn register_class_ex_a_contract_is_one_struct_stdcall_with_u16_result() {
     assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
     assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn get_system_metrics_contract_is_one_index_stdcall_and_preserves_last_error() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(203),
+        address: METRICS_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1404),
+        iat_address: IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetSystemMetrics".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = get_system_metrics_contract(endpoint).expect("GetSystemMetrics contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn get_system_metrics_reads_only_the_controlled_display_profile() {
+    let mut fixture = MetricsFixture::new(true);
+    let generation = fixture.memory.stats().generation;
+    let expected = [3_u32, 3, 23, 1920, 1080];
+    for (index, expected_value) in expected.into_iter().enumerate() {
+        let sentinel = 0x1122_3300 + index as u32;
+        fixture
+            .runtime
+            .set_current_last_error(sentinel)
+            .expect("seed metrics LastError");
+        let completion = match fixture.dispatch(index as u32) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected GetSystemMetrics completion {index}, got {other:?}"),
+        };
+        assert_eq!(completion.eax, RegisterUpdate::Set(expected_value));
+        assert_eq!(
+            completion.stack_pointer,
+            GuestAddress(STACK_POINTER + index as u32 * 0x20 + 8)
+        );
+        assert_eq!(
+            completion.instruction_pointer,
+            GuestAddress(METRICS_RETURN_ADDRESS.0 + index as u32)
+        );
+        assert_eq!(completion.last_error, sentinel);
+        assert!(completion.guest_writes.is_empty());
+        assert_eq!(fixture.memory.stats().generation, generation);
+    }
+    assert_eq!(
+        fixture.runtime.display_profile_id(),
+        Some("single-monitor-1920x1080-v1")
+    );
+    assert_eq!(
+        fixture.runtime.primary_monitor().unwrap().rect,
+        RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        }
+    );
+}
+
+#[test]
+fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation() {
+    let mut unsupported = MetricsFixture::new(true);
+    let generation = unsupported.memory.stats().generation;
+    let fault = match unsupported.dispatch(5) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected unsupported system metric fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "get-system-metrics-index-unsupported");
+    assert_eq!(unsupported.memory.stats().generation, generation);
+
+    let mut disabled = MetricsFixture::new(true);
+    disabled.policy.get_system_metrics = None;
+    let fault = match disabled.dispatch(0) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled metrics policy fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "get-system-metrics-policy-disabled");
+
+    let mut missing = MetricsFixture::new(false);
+    let fault = match missing.dispatch(0) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected missing display authority fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(fault.code, "logical-display-profile-missing");
+
+    let mut mismatch = MetricsFixture::new(false);
+    mismatch
+        .runtime
+        .configure_display_profile(RuntimeDisplayProfile {
+            id: "mismatched-1280x720-v1".to_owned(),
+            primary_monitor_rect: RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 1280,
+                bottom: 720,
+            },
+        })
+        .expect("configure mismatched metrics display");
+    let fault = match mismatch.dispatch(0) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected mismatched display authority fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(fault.code, "logical-display-profile-mismatch");
 }
 
 #[test]

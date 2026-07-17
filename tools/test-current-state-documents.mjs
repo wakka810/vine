@@ -87,7 +87,10 @@ for (const [body, id] of [
     "exact-current-report-identity",
   ],
   ["Run `npm run check:runtime:bgi-browser`.", "exact-current-canonical-command"],
-  ["The consumer calls EnumDisplayMonitors.", "exact-current-next-stop"],
+  [
+    "The consumer calls USER32.dll!EnumDisplayMonitors.",
+    "exact-current-next-stop",
+  ],
 ]) {
   const documents = baselineDocuments();
   documents.set(
@@ -100,6 +103,14 @@ for (const [body, id] of [
     ),
   );
 }
+
+assert.deepEqual(
+  errorsFor(
+    "docs/requirements.md",
+    "The display subsystem implements EnumDisplayMonitors semantics.",
+  ),
+  [],
+);
 
 assert(
   errorsFor(

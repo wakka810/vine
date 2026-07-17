@@ -149,6 +149,12 @@ let registerClassExAOracleEvidence = null;
 let registerClassExACompletionRecorded = false;
 let registerClassExADrainCheckScheduled = false;
 const registerClassExAMainModuleCalls = [];
+let getSystemMetricsOracleScheduled = false;
+let getSystemMetricsOracleCall = null;
+let getSystemMetricsOracleComplete = false;
+let getSystemMetricsOracleEvidence = null;
+let getSystemMetricsCompletionRecorded = false;
+const getSystemMetricsMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -3076,6 +3082,105 @@ function attachRegisterClassExAHook(module) {
         });
         scheduleRegisterClassExAOracle(module);
         setImmediate(maybeCompleteRegisterClassExAObservation);
+      }
+    },
+  });
+}
+
+function attachGetSystemMetricsHook(module) {
+  const name = "GetSystemMetrics";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && getSystemMetricsOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.metricIndex = signed32(args[0]);
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = getSystemMetricsOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer =
+        isMainModuleCaller && getSystemMetricsMainModuleCalls.length === 0
+          ? {
+              apiContinuation: snapshotInstructionsFollowingDirectJump(
+                this.returnAddress,
+                96,
+              ),
+              frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                this.context,
+                4,
+                20,
+              ),
+            }
+          : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.metricIndex],
+          lastErrorBefore: this.lastErrorBefore,
+          getSystemMetrics: {
+            metricIndex: this.metricIndex,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const metricValue = signed32(result);
+      const lastError = Number(this.lastError) >>> 0;
+      if (this.oracleCaller) {
+        getSystemMetricsOracleCall.hookResult = metricValue;
+        getSystemMetricsOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          getSystemMetrics: {
+            metricIndex: this.metricIndex,
+            metricValue,
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !getSystemMetricsCompletionRecorded) {
+        getSystemMetricsMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          metricIndex: this.metricIndex,
+          metricValue,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleGetSystemMetricsOracle(module);
+        setImmediate(maybeCompleteGetSystemMetricsObservation);
       }
     },
   });
@@ -7725,6 +7830,134 @@ function scheduleLoadCursorAOracle(module) {
   });
 }
 
+function maybeCompleteGetSystemMetricsObservation() {
+  if (
+    getSystemMetricsCompletionRecorded ||
+    !getSystemMetricsOracleComplete ||
+    getSystemMetricsMainModuleCalls.length < 5
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteGetSystemMetricsObservation, 10);
+    return;
+  }
+  const initialCalls = getSystemMetricsMainModuleCalls.slice(0, 5);
+  const expectedMetricIndexes = [7, 8, 4, 0, 1];
+  const observedMetricIndexes = initialCalls.map((call) => call.metricIndex);
+  if (
+    JSON.stringify(observedMetricIndexes) !==
+    JSON.stringify(expectedMetricIndexes)
+  ) {
+    emit("get-system-metrics-profile-error", {
+      expectedMetricIndexes,
+      observedMetricIndexes,
+    });
+    return;
+  }
+  const oracleByIndex = new Map(
+    getSystemMetricsOracleEvidence.calls.map((call) => [
+      call.metricIndex,
+      call.systemResult,
+    ]),
+  );
+  getSystemMetricsCompletionRecorded = true;
+  emit("get-system-metrics-complete", {
+    profile: "x86-bgi-initial-window-metrics-v1",
+    oracleProfile: getSystemMetricsOracleEvidence.profile,
+    expectedMetricIndexes,
+    mainModuleCalls: initialCalls,
+    allMainResultsMatchOracle: initialCalls.every(
+      (call) => oracleByIndex.get(call.metricIndex) === call.metricValue,
+    ),
+  });
+  if (stopOnEvent === "get-system-metrics-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function scheduleGetSystemMetricsOracle(module) {
+  if (getSystemMetricsOracleScheduled) {
+    return;
+  }
+  getSystemMetricsOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetSystemMetrics");
+      if (address === null) {
+        throw new Error("GetSystemMetrics oracle export is unavailable");
+      }
+      const getSystemMetrics = new SystemFunction(
+        address,
+        "int32",
+        ["int32"],
+        "stdcall",
+      );
+      const invoke = ({ id, metricIndex, sentinel }) => {
+        getSystemMetricsOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = getSystemMetrics(metricIndex);
+          const systemResult = Number(outcome.value);
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getSystemMetricsOracleCall.hookResult === null ||
+            getSystemMetricsOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(
+              "GetSystemMetrics oracle did not pass through the hook",
+            );
+          }
+          return {
+            id,
+            metricIndex,
+            sentinel,
+            hookResult: getSystemMetricsOracleCall.hookResult,
+            systemResult,
+            hookLastErrorAfter:
+              getSystemMetricsOracleCall.hookLastErrorAfter,
+            systemLastError,
+            hookResultMatches:
+              getSystemMetricsOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              getSystemMetricsOracleCall.hookLastErrorAfter ===
+              systemLastError,
+            successLastErrorPreserved: systemLastError === sentinel,
+          };
+        } finally {
+          getSystemMetricsOracleCall = null;
+        }
+      };
+      const calls = [
+        { id: "fixed-frame-width", metricIndex: 7, sentinel: 0x11223344 },
+        { id: "fixed-frame-height", metricIndex: 8, sentinel: 0x55667788 },
+        { id: "caption-height", metricIndex: 4, sentinel: 0x7a6b5c4d },
+        { id: "primary-screen-width", metricIndex: 0, sentinel: 0x13572468 },
+        { id: "primary-screen-height", metricIndex: 1, sentinel: 0x24681357 },
+      ].map(invoke);
+      getSystemMetricsOracleEvidence = {
+        profile: "x86-system-metrics-last-error-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+        allSuccessLastErrorsPreserved: calls.every(
+          (call) => call.successLastErrorPreserved,
+        ),
+      };
+      getSystemMetricsOracleComplete = true;
+      emit("get-system-metrics-oracle", getSystemMetricsOracleEvidence);
+      maybeCompleteGetSystemMetricsObservation();
+    } catch (error) {
+      emit("get-system-metrics-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function maybeCompleteRegisterClassExAObservation() {
   if (
     registerClassExACompletionRecorded ||
@@ -9774,6 +10007,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "RegisterClassExA",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("get-system-metrics")
+    ) {
+      try {
+        attachGetSystemMetricsHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetSystemMetrics",
           error: error.message,
         });
       }

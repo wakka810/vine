@@ -37,6 +37,7 @@ const supportedObservations = new Set([
   "load-icon-a",
   "load-cursor-a",
   "register-class-ex-a",
+  "get-system-metrics",
   "get-string-type-w",
   "lc-map-string-w",
   "get-last-error",

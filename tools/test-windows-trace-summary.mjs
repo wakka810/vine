@@ -711,6 +711,13 @@ registerClassSelection.find(
 ).selectedObservations = ["register-class-ex-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(registerClassSelection)));
 
+const getSystemMetricsSelection = structuredClone(events);
+getSystemMetricsSelection[0].arguments.observations = ["get-system-metrics"];
+getSystemMetricsSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["get-system-metrics"];
+assert.doesNotThrow(() => summarizeTrace(encode(getSystemMetricsSelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

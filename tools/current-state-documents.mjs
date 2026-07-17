@@ -177,10 +177,9 @@ function exactCurrentValuePatterns(checkpoint) {
     });
   }
   if (typeof nextStop.api === "string") {
-    const symbol = nextStop.api.split("!").at(-1);
     patterns.push({
       id: "exact-current-next-stop",
-      pattern: new RegExp(`\\b${escapeRegExp(symbol)}\\b`, "iu"),
+      pattern: new RegExp(`\\b${escapeRegExp(nextStop.api)}\\b`, "iu"),
     });
   }
   return patterns;

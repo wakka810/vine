@@ -542,6 +542,8 @@ Guest の HWND は logical object であり、DOM element を直接公開しな�
 
 Guest の HMONITOR と monitor geometry も Rust-owned logical display state とし、native HMONITOR、DOM `Screen`、browser window identityを直接公開しない。Compatibility policyがbounded profileを選び、display subsystemがlogical handle namespace、primary identity、geometryをconfigure-once plan／commitで所有する。User32 enumerationはこのimmutable viewからcallback scratchを組み立て、browser topologyを第二の正本にしない。
 
+`GetSystemMetrics`のscreen dimensionも同じdisplay authorityから導出し、caption／frame等のbounded virtual non-client値だけをversioned User32 policyが所有する。TypeScript、DOM、native hostにmetric tableを複製せず、profile／primary geometry不一致と未到達indexはguest-visible stateを変える前に停止する。
+
 Mouseのprimary／secondary mappingもRust-owned logical input stateとする。現在の`RuntimeInput` foundationはprofile identity、initial／current swapped state、generationをconfigure-onceとstale-plan拒否で所有する。`SwapMouseButton`、将来のUser32 mouse message、DirectInput mouse frontendは同じmappingを参照し、native `SM_SWAPBUTTON`やDOM adapterへ別tableを作らない。
 
 Module iconもRust-owned User32 stateとする。`RuntimeUser32`はresource identity、monotonic icon ID、

@@ -151,6 +151,7 @@ enum GenericRuntimeCapability {
     LoadIconA,
     LoadCursorA,
     RegisterClassExA,
+    GetSystemMetrics,
 }
 
 struct GenericRuntimeProcess {
@@ -2747,11 +2748,12 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::LoadIconA
             | GenericRuntimeCapability::LoadCursorA
-            | GenericRuntimeCapability::RegisterClassExA,
+            | GenericRuntimeCapability::RegisterClassExA
+            | GenericRuntimeCapability::GetSystemMetrics,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let user32_policy = User32CompatibilityPolicy::controlled_v5();
+    let user32_policy = User32CompatibilityPolicy::controlled_v6();
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
@@ -3895,8 +3897,10 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let register_class_ex_a_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::RegisterClassExA));
+    let get_system_metrics_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::GetSystemMetrics));
+    let register_class_ex_a_enabled = get_system_metrics_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::RegisterClassExA));
     let load_cursor_a_enabled = register_class_ex_a_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::LoadCursorA));
     let load_icon_a_enabled =
@@ -4343,6 +4347,7 @@ fn runtime_capability_enables_endpoint(
         "LoadIconA" => load_icon_a_enabled,
         "LoadCursorA" => load_cursor_a_enabled,
         "RegisterClassExA" => register_class_ex_a_enabled,
+        "GetSystemMetrics" => get_system_metrics_enabled,
         _ => true,
     }
 }
@@ -4357,6 +4362,7 @@ fn runtime_capability_enables_dynamic_endpoint(
             GenericRuntimeCapability::LoadIconA
                 | GenericRuntimeCapability::LoadCursorA
                 | GenericRuntimeCapability::RegisterClassExA
+                | GenericRuntimeCapability::GetSystemMetrics
         )
     ) {
         Some(GenericRuntimeCapability::CreateWaitableTimerA)
@@ -9862,6 +9868,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-load-icon-a" => GenericRuntimeCapability::LoadIconA,
                 "user32-load-cursor-a" => GenericRuntimeCapability::LoadCursorA,
                 "user32-register-class-ex-a" => GenericRuntimeCapability::RegisterClassExA,
+                "user32-get-system-metrics" => GenericRuntimeCapability::GetSystemMetrics,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

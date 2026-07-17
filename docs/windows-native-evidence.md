@@ -2723,3 +2723,24 @@ loadsはidentity 1をreuseする。Chromeもsame ordered immutable class metadat
 SHA-256は`1aa4139c9a3a70a3f2090a6381212846a3171f40cfb93954867a2dc7efe6011c`である。Stateful User32
 lifetimeとWorker payload変更後の3分gateは363 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-register-class-ex-a.md](bgi-register-class-ex-a.md)を正とする。
+
+## 100. BGI initial system metrics
+
+Focused `get-system-metrics` capturesは55,901 bytes／99 lines／SHA-256
+`368d62d858ca8b26102b330d805ca1b7671deda64f7d9d6159ef08985f717d4f`と
+55,839 bytes／99 lines／SHA-256
+`32884be3566ecb1b15d25fc91b42a44eab223b1cd932a3ff3396fd1882036f08`
+である。各22 API pairsはbalancedでdiagnosticsはzero、source executable hashは不変である。
+
+Guarded x86 oracleはindices `7,8,4,0,1`へdistinct LastError sentinelをseedし、結果
+`3,3,23,1920,1080`と全success LastError preserveを固定する。Hook result／LastErrorはdirect
+system callと一致する。BGIも同じindex順と値をreturn RVA `0x67DDB`／`0x67DE6`／`0x67DEE`／
+`0x67E26`／`0x67E2E`で受け取る。Immediate consumerはfixed-frame widthを2倍して6、heightを
+2倍してcaptionを加え29とし、screen width／height ratioもinitial window geometryへ使う。
+
+Runtimeはscreen dimensionsを`RuntimeDisplays` primary RECTから、caption／frameをversion-6
+User32 policyから返し、host／browser metricsをimportしない。Nodeはfive callsを含むcontrolled
+sessionを通し、Chromeもsame ordered results、memory digest、next structured stopを再現する。
+Read-only semantic leafなので3分gateは再実行せず、manifestはprevious window-class observationを
+current artifactと分離して保持する。詳細は
+[bgi-get-system-metrics.md](bgi-get-system-metrics.md)を正とする。

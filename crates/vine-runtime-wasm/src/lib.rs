@@ -380,7 +380,7 @@ impl BrowserRuntime {
         let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
         let mut process =
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v5();
+        let user32_policy = User32CompatibilityPolicy::controlled_v6();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;

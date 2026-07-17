@@ -589,7 +589,7 @@ Node／Chrome same icon snapshot／memory／`LoadCursorA` stop、clean cancel／
 詳細は[bgi-load-icon-a.md](bgi-load-icon-a.md)を正とする。
 
 Reached `LoadCursorA`のrepresentative contractはtwo-argument x86 stdcall、U32 HCURSOR、
-handler-owned LastError、guest write zeroを固定する。Version-5 User32 policyは
+handler-owned LastError、guest write zeroを固定する。Version-6 User32 policyは
 `NULL,IDC_ARROW`だけを許可し、success LastError preserve、missing ID 65,535のNULL／1,814を
 検査する。Other predefined、module、string、disabled variantsはmutation前にstructured faultとなる。
 
@@ -617,6 +617,18 @@ balanced native traces、guarded identity/lifetime oracle、BGI main／child reg
 same immutable class snapshot／memory／`GetSystemMetrics` stop、clean cancel／watchdogを要求する。
 Worker payloadとstateful lifetime変更後の3分benchmarkは既存17 thresholds全通過を要求する。詳細は
 [bgi-register-class-ex-a.md](bgi-register-class-ex-a.md)を正とする。
+
+Reached `GetSystemMetrics`のrepresentative contractはone-argument x86 stdcall、U32 register
+result、LastError preserve、guest write／callback／runtime mutation zeroを固定する。Screen width／
+heightは`RuntimeDisplays`のprimary RECTから導出し、caption／fixed-frame値だけをversioned User32
+policyから読む。Dispatcher fixtureはreached five-index mapping、stack cleanup、success LastError、
+memory generation不変に加え、unlisted index、disabled policy、missing／mismatched display authorityが
+無変更でspecific faultになることを検査する。Primary evidenceはtwo balanced native traces、distinct
+LastError sentinel oracle、BGIのframe／aspect consumer、Node／Chrome same ordered values／memory／
+structured stop、clean cancel／watchdogを要求する。Read-only semantic leafなのでWorker transport、
+scheduler、memory topology、graphics／audio、lifecycleのperformance gateは再実行せず、previous
+observationをcurrent artifact measurementと扱わない。詳細は
+[bgi-get-system-metrics.md](bgi-get-system-metrics.md)を正とする。
 
 Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
 implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、

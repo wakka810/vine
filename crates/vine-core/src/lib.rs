@@ -183,11 +183,12 @@ pub use runtime::{
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use user32::{
-    ENUM_DISPLAY_MONITORS_IMPLEMENTATION, LOAD_CURSOR_A_IMPLEMENTATION, LOAD_ICON_A_IMPLEMENTATION,
-    REGISTER_CLASS_EX_A_IMPLEMENTATION, SWAP_MOUSE_BUTTON_IMPLEMENTATION,
-    USER32_COMPATIBILITY_POLICY_SCHEMA, USER32_COMPATIBILITY_POLICY_VERSION,
-    User32CompatibilityPolicy, User32LoadCursorAPolicy, User32LoadIconAPolicy,
-    User32RegisterClassExAPolicy, dispatch_user32_api_with_policy, enum_display_monitors_contract,
+    ENUM_DISPLAY_MONITORS_IMPLEMENTATION, GET_SYSTEM_METRICS_IMPLEMENTATION,
+    LOAD_CURSOR_A_IMPLEMENTATION, LOAD_ICON_A_IMPLEMENTATION, REGISTER_CLASS_EX_A_IMPLEMENTATION,
+    SWAP_MOUSE_BUTTON_IMPLEMENTATION, USER32_COMPATIBILITY_POLICY_SCHEMA,
+    USER32_COMPATIBILITY_POLICY_VERSION, User32CompatibilityPolicy, User32GetSystemMetricsPolicy,
+    User32LoadCursorAPolicy, User32LoadIconAPolicy, User32RegisterClassExAPolicy,
+    dispatch_user32_api_with_policy, enum_display_monitors_contract, get_system_metrics_contract,
     load_cursor_a_contract, load_icon_a_contract, register_class_ex_a_contract,
     swap_mouse_button_contract, user32_contract_for_endpoint,
 };

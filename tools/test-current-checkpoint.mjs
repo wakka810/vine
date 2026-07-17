@@ -126,10 +126,11 @@ structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkEvidence.decisionReason
   "-versioned-thresholds-failed";
 assert.deepEqual(validateCurrentCheckpoint(structuredBenchmarkBlocker), []);
 
-const mismatchedBenchmarkCrossings = structuredClone(manifest);
-mismatchedBenchmarkCrossings.browserCheckpoint.bgiBenchmarkEvidence.wasmBridgeCallsPerSession -= 1;
+const mismatchedBenchmarkProfile = structuredClone(manifest);
+mismatchedBenchmarkProfile.browserCheckpoint.bgiBenchmarkEvidence.runtimeProfile =
+  "user32-get-system-metrics";
 assert.ok(
-  validateCurrentCheckpoint(mismatchedBenchmarkCrossings).some((error) =>
+  validateCurrentCheckpoint(mismatchedBenchmarkProfile).some((error) =>
     error.includes("benchmark evidence"),
   ),
 );
