@@ -690,6 +690,13 @@ createWaitableTimerSelection.find(
 ).selectedObservations = ["create-waitable-timer-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(createWaitableTimerSelection)));
 
+const loadIconSelection = structuredClone(events);
+loadIconSelection[0].arguments.observations = ["load-icon-a"];
+loadIconSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["load-icon-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(loadIconSelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

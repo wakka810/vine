@@ -823,6 +823,7 @@ function normalizeBgiCall(call) {
     currentDirectory: call.currentDirectory ?? null,
     mutex: call.mutex ?? null,
     waitableTimer: call.waitableTimer ?? null,
+    icon: call.icon ?? null,
   };
 }
 

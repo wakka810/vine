@@ -37,6 +37,9 @@ const IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE: u16 = 0x0040;
 const IMAGE_DLLCHARACTERISTICS_NX_COMPAT: u16 = 0x0100;
 const IMPORT_DESCRIPTOR_SIZE: u32 = 20;
 const EXPORT_DIRECTORY_SIZE: u32 = 40;
+const RESOURCE_DIRECTORY_SIZE: u32 = 16;
+const RESOURCE_DIRECTORY_ENTRY_SIZE: u32 = 8;
+const RESOURCE_DATA_ENTRY_SIZE: u32 = 16;
 const PE32_THUNK_SIZE: u32 = 4;
 const RELOCATION_BLOCK_HEADER_SIZE: usize = 8;
 const IMAGE_REL_BASED_ABSOLUTE: u8 = 0;
@@ -82,6 +85,14 @@ pub struct Pe32Limits {
     pub max_export_name_bytes: usize,
     #[serde(skip)]
     pub max_forwarder_bytes: usize,
+    #[serde(skip)]
+    pub max_resource_directories: usize,
+    #[serde(skip)]
+    pub max_resource_entries: usize,
+    #[serde(skip)]
+    pub max_resource_data_entries: usize,
+    #[serde(skip)]
+    pub max_resource_name_code_units: usize,
     pub max_relocation_blocks: usize,
     pub max_relocations: usize,
 }
@@ -99,6 +110,10 @@ impl Default for Pe32Limits {
             max_export_names: 65_536,
             max_export_name_bytes: 1_024,
             max_forwarder_bytes: 1_024,
+            max_resource_directories: 4_096,
+            max_resource_entries: 65_536,
+            max_resource_data_entries: 65_536,
+            max_resource_name_code_units: 1_024,
             max_relocation_blocks: 65_536,
             max_relocations: 1_000_000,
         }
@@ -211,6 +226,8 @@ pub struct Pe32LoadPlan {
     pub data_directories: Vec<DataDirectoryPlan>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<ExportDirectoryPlan>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ResourceDirectoryPlan>,
     pub imports: Vec<ImportModulePlan>,
     pub relocations: RelocationPlan,
     pub features: FeatureInventory,
@@ -300,6 +317,49 @@ pub struct DataDirectoryPlan {
     pub address_kind: DataDirectoryAddressKind,
     pub address: u32,
     pub size: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ResourceIdentifier {
+    Id { id: u32 },
+    Name { name: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceDataEntryPlan {
+    pub resource_type: ResourceIdentifier,
+    pub name: ResourceIdentifier,
+    pub language: ResourceIdentifier,
+    pub data_rva: Rva,
+    pub size: u32,
+    pub code_page: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceDirectoryPlan {
+    pub directory_rva: Rva,
+    pub directory_size: u32,
+    pub directory_count: usize,
+    pub entry_count: usize,
+    pub entries: Vec<ResourceDataEntryPlan>,
+}
+
+impl ResourceDirectoryPlan {
+    pub fn integer_entries(
+        &self,
+        type_id: u32,
+        name_id: u32,
+    ) -> impl Iterator<Item = &ResourceDataEntryPlan> {
+        self.entries.iter().filter(move |entry| {
+            matches!(
+                &entry.resource_type,
+                ResourceIdentifier::Id { id } if *id == type_id
+            ) && matches!(&entry.name, ResourceIdentifier::Id { id } if *id == name_id)
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -680,6 +740,7 @@ pub fn build_pe32_load_plan(
     }
 
     let exports = parse_exports(optional, &layout, &limits)?;
+    let resources = parse_resources(optional, &layout, &limits)?;
     let imports = parse_imports(optional, &layout, &limits)?;
     let relocations = parse_relocations(optional, &layout, &limits)?;
     if features.relocations_stripped && relocations.entry_count != 0 {
@@ -778,6 +839,7 @@ pub fn build_pe32_load_plan(
         sections,
         data_directories: directories,
         exports,
+        resources,
         imports,
         relocations,
         features,
@@ -1120,6 +1182,437 @@ fn feature_inventory(
         clr: present(IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR),
         relocations_stripped: coff_characteristics & IMAGE_FILE_RELOCS_STRIPPED != 0,
     }
+}
+
+#[derive(Debug)]
+struct RawResourceDirectoryEntry {
+    identifier: ResourceIdentifier,
+    target_offset: u32,
+    target_is_directory: bool,
+}
+
+#[derive(Debug, Default)]
+struct ResourceParseState {
+    directory_count: usize,
+    entry_count: usize,
+    data_entry_count: usize,
+    visited_directories: BTreeSet<u32>,
+}
+
+fn parse_resources(
+    optional: &goblin::pe::optional_header::OptionalHeader,
+    layout: &ValidatedLayout<'_>,
+    limits: &Pe32Limits,
+) -> Result<Option<ResourceDirectoryPlan>, LoaderError> {
+    let Some((_, directory)) =
+        optional.data_directories.data_directories[IMAGE_DIRECTORY_ENTRY_RESOURCE]
+    else {
+        return Ok(None);
+    };
+    if directory.size < RESOURCE_DIRECTORY_SIZE {
+        return Err(LoaderError::invalid_input(
+            "resources",
+            "resource-directory-too-small",
+            "resource directory is smaller than IMAGE_RESOURCE_DIRECTORY",
+        ));
+    }
+    let directory_end = directory
+        .virtual_address
+        .checked_add(directory.size)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "resources",
+                "resource-directory-range-overflow",
+                "resource directory RVA range overflowed x86 accounting",
+            )
+        })?;
+    let mut state = ResourceParseState::default();
+    let root = parse_resource_directory(
+        layout,
+        directory.virtual_address,
+        directory_end,
+        0,
+        limits,
+        &mut state,
+    )?;
+    let mut entries = Vec::new();
+    let mut identities = BTreeSet::new();
+
+    for type_entry in root {
+        if !type_entry.target_is_directory {
+            return Err(LoaderError::invalid_input(
+                "resources",
+                "resource-type-entry-not-directory",
+                "resource type entry must reference a name directory",
+            ));
+        }
+        let names = parse_resource_directory(
+            layout,
+            directory.virtual_address,
+            directory_end,
+            type_entry.target_offset,
+            limits,
+            &mut state,
+        )?;
+        for name_entry in names {
+            if !name_entry.target_is_directory {
+                return Err(LoaderError::invalid_input(
+                    "resources",
+                    "resource-name-entry-not-directory",
+                    "resource name entry must reference a language directory",
+                ));
+            }
+            let languages = parse_resource_directory(
+                layout,
+                directory.virtual_address,
+                directory_end,
+                name_entry.target_offset,
+                limits,
+                &mut state,
+            )?;
+            for language_entry in languages {
+                if language_entry.target_is_directory {
+                    return Err(LoaderError::invalid_input(
+                        "resources",
+                        "resource-language-entry-not-data",
+                        "resource language entry must reference a data entry",
+                    ));
+                }
+                state.data_entry_count =
+                    state.data_entry_count.checked_add(1).ok_or_else(|| {
+                        LoaderError::resource_limit(
+                            "resources",
+                            "resource-data-entry-count-overflow",
+                            "resource data-entry count overflowed host accounting",
+                        )
+                    })?;
+                if state.data_entry_count > limits.max_resource_data_entries {
+                    return Err(LoaderError::resource_limit(
+                        "resources",
+                        "resource-data-entry-limit-exceeded",
+                        format!(
+                            "image declares more than {} resource data entries",
+                            limits.max_resource_data_entries
+                        ),
+                    ));
+                }
+                let data = resource_relative_span(
+                    layout,
+                    directory.virtual_address,
+                    directory_end,
+                    language_entry.target_offset,
+                    RESOURCE_DATA_ENTRY_SIZE,
+                    "resource-data-entry-outside-directory",
+                )?;
+                let data_rva = read_u32(data, 0)?;
+                let size = read_u32(data, 4)?;
+                let code_page = read_u32(data, 8)?;
+                let reserved = read_u32(data, 12)?;
+                if data_rva == 0 || size == 0 {
+                    return Err(LoaderError::invalid_input(
+                        "resources",
+                        "resource-data-range-empty",
+                        "resource data entry requires a nonzero RVA and byte length",
+                    ));
+                }
+                if reserved != 0 {
+                    return Err(LoaderError::invalid_input(
+                        "resources",
+                        "resource-data-reserved-nonzero",
+                        "resource data entry reserved field is nonzero",
+                    ));
+                }
+                layout.file_span(data_rva, size, "resource-data-not-file-backed")?;
+                let identity = (
+                    type_entry.identifier.clone(),
+                    name_entry.identifier.clone(),
+                    language_entry.identifier.clone(),
+                );
+                if !identities.insert(identity.clone()) {
+                    return Err(LoaderError::invalid_input(
+                        "resources",
+                        "resource-data-identity-duplicate",
+                        "resource type, name, and language identity is duplicated",
+                    ));
+                }
+                entries.push(ResourceDataEntryPlan {
+                    resource_type: identity.0,
+                    name: identity.1,
+                    language: identity.2,
+                    data_rva: Rva(data_rva),
+                    size,
+                    code_page,
+                });
+            }
+        }
+    }
+
+    Ok(Some(ResourceDirectoryPlan {
+        directory_rva: Rva(directory.virtual_address),
+        directory_size: directory.size,
+        directory_count: state.directory_count,
+        entry_count: state.entry_count,
+        entries,
+    }))
+}
+
+fn parse_resource_directory(
+    layout: &ValidatedLayout<'_>,
+    root_rva: u32,
+    directory_end: u32,
+    directory_offset: u32,
+    limits: &Pe32Limits,
+    state: &mut ResourceParseState,
+) -> Result<Vec<RawResourceDirectoryEntry>, LoaderError> {
+    if !state.visited_directories.insert(directory_offset) {
+        return Err(LoaderError::invalid_input(
+            "resources",
+            "resource-directory-cycle-or-alias",
+            "resource directory offset is referenced more than once",
+        ));
+    }
+    state.directory_count = state.directory_count.checked_add(1).ok_or_else(|| {
+        LoaderError::resource_limit(
+            "resources",
+            "resource-directory-count-overflow",
+            "resource directory count overflowed host accounting",
+        )
+    })?;
+    if state.directory_count > limits.max_resource_directories {
+        return Err(LoaderError::resource_limit(
+            "resources",
+            "resource-directory-limit-exceeded",
+            format!(
+                "image declares more than {} resource directories",
+                limits.max_resource_directories
+            ),
+        ));
+    }
+    let header = resource_relative_span(
+        layout,
+        root_rva,
+        directory_end,
+        directory_offset,
+        RESOURCE_DIRECTORY_SIZE,
+        "resource-directory-header-outside-directory",
+    )?;
+    if read_u32(header, 0)? != 0 {
+        return Err(LoaderError::invalid_input(
+            "resources",
+            "resource-directory-characteristics-nonzero",
+            "reserved resource directory Characteristics field is nonzero",
+        ));
+    }
+    let named_count = u32::from(read_u16(header, 12)?);
+    let id_count = u32::from(read_u16(header, 14)?);
+    let count = named_count.checked_add(id_count).ok_or_else(|| {
+        LoaderError::resource_limit(
+            "resources",
+            "resource-directory-entry-count-overflow",
+            "resource directory entry count overflowed x86 accounting",
+        )
+    })?;
+    let count_usize = usize::try_from(count).map_err(|_| {
+        LoaderError::resource_limit(
+            "resources",
+            "resource-directory-entry-count-unrepresentable",
+            "resource directory entry count does not fit host accounting",
+        )
+    })?;
+    state.entry_count = state.entry_count.checked_add(count_usize).ok_or_else(|| {
+        LoaderError::resource_limit(
+            "resources",
+            "resource-entry-count-overflow",
+            "resource entry count overflowed host accounting",
+        )
+    })?;
+    if state.entry_count > limits.max_resource_entries {
+        return Err(LoaderError::resource_limit(
+            "resources",
+            "resource-entry-limit-exceeded",
+            format!(
+                "image declares more than {} resource directory entries",
+                limits.max_resource_entries
+            ),
+        ));
+    }
+    let table_offset = directory_offset
+        .checked_add(RESOURCE_DIRECTORY_SIZE)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "resources",
+                "resource-entry-table-offset-overflow",
+                "resource entry table offset overflowed x86 accounting",
+            )
+        })?;
+    let table_size = count
+        .checked_mul(RESOURCE_DIRECTORY_ENTRY_SIZE)
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "resources",
+                "resource-entry-table-size-overflow",
+                "resource entry table size overflowed x86 accounting",
+            )
+        })?;
+    let table = resource_relative_span(
+        layout,
+        root_rva,
+        directory_end,
+        table_offset,
+        table_size,
+        "resource-entry-table-outside-directory",
+    )?;
+    let mut identifiers = BTreeSet::new();
+    let mut entries = Vec::with_capacity(count_usize);
+    for index in 0..count {
+        let offset = usize::try_from(index * RESOURCE_DIRECTORY_ENTRY_SIZE).map_err(|_| {
+            LoaderError::resource_limit(
+                "resources",
+                "resource-entry-offset-unrepresentable",
+                "resource entry offset does not fit host accounting",
+            )
+        })?;
+        let name_raw = read_u32(table, offset)?;
+        let target_raw = read_u32(table, offset + 4)?;
+        let is_named = name_raw & 0x8000_0000 != 0;
+        if (index < named_count) != is_named {
+            return Err(LoaderError::invalid_input(
+                "resources",
+                "resource-entry-name-band-invalid",
+                "resource directory named and integer entry bands disagree with their counts",
+            ));
+        }
+        let identifier =
+            parse_resource_identifier(layout, root_rva, directory_end, name_raw, limits)?;
+        if !identifiers.insert(identifier.clone()) {
+            return Err(LoaderError::invalid_input(
+                "resources",
+                "resource-directory-identifier-duplicate",
+                "resource directory contains a duplicate child identifier",
+            ));
+        }
+        entries.push(RawResourceDirectoryEntry {
+            identifier,
+            target_offset: target_raw & 0x7fff_ffff,
+            target_is_directory: target_raw & 0x8000_0000 != 0,
+        });
+    }
+    Ok(entries)
+}
+
+fn parse_resource_identifier(
+    layout: &ValidatedLayout<'_>,
+    root_rva: u32,
+    directory_end: u32,
+    raw: u32,
+    limits: &Pe32Limits,
+) -> Result<ResourceIdentifier, LoaderError> {
+    if raw & 0x8000_0000 == 0 {
+        if raw & 0x7fff_0000 != 0 {
+            return Err(LoaderError::invalid_input(
+                "resources",
+                "resource-id-reserved-bits-nonzero",
+                "integer resource identifier has nonzero reserved bits",
+            ));
+        }
+        return Ok(ResourceIdentifier::Id { id: raw & 0xffff });
+    }
+    let offset = raw & 0x7fff_ffff;
+    let length_bytes = resource_relative_span(
+        layout,
+        root_rva,
+        directory_end,
+        offset,
+        2,
+        "resource-name-length-outside-directory",
+    )?;
+    let length = usize::from(read_u16(length_bytes, 0)?);
+    if length == 0 || length > limits.max_resource_name_code_units {
+        return Err(LoaderError::resource_limit(
+            "resources",
+            "resource-name-limit-exceeded",
+            format!(
+                "resource name has {length} UTF-16 code units; accepted range is 1..={} ",
+                limits.max_resource_name_code_units
+            ),
+        ));
+    }
+    let byte_length = u32::try_from(length)
+        .ok()
+        .and_then(|units| units.checked_mul(2))
+        .ok_or_else(|| {
+            LoaderError::resource_limit(
+                "resources",
+                "resource-name-byte-length-overflow",
+                "resource name byte length overflowed x86 accounting",
+            )
+        })?;
+    let string_offset = offset.checked_add(2).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "resources",
+            "resource-name-offset-overflow",
+            "resource name offset overflowed x86 accounting",
+        )
+    })?;
+    let bytes = resource_relative_span(
+        layout,
+        root_rva,
+        directory_end,
+        string_offset,
+        byte_length,
+        "resource-name-outside-directory",
+    )?;
+    let units = bytes
+        .chunks_exact(2)
+        .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
+        .collect::<Vec<_>>();
+    let name = String::from_utf16(&units).map_err(|_| {
+        LoaderError::invalid_input(
+            "resources",
+            "resource-name-utf16-invalid",
+            "resource name is not valid UTF-16",
+        )
+    })?;
+    if name.contains('\0') {
+        return Err(LoaderError::invalid_input(
+            "resources",
+            "resource-name-contains-nul",
+            "resource name contains an embedded NUL code point",
+        ));
+    }
+    Ok(ResourceIdentifier::Name { name })
+}
+
+fn resource_relative_span<'a>(
+    layout: &'a ValidatedLayout<'_>,
+    root_rva: u32,
+    directory_end: u32,
+    relative_offset: u32,
+    size: u32,
+    code: &'static str,
+) -> Result<&'a [u8], LoaderError> {
+    let rva = root_rva.checked_add(relative_offset).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "resources",
+            code,
+            "resource-relative RVA overflowed x86 accounting",
+        )
+    })?;
+    let end = rva.checked_add(size).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "resources",
+            code,
+            "resource-relative span overflowed x86 accounting",
+        )
+    })?;
+    if end > directory_end {
+        return Err(LoaderError::invalid_input(
+            "resources",
+            code,
+            "resource-relative span extends beyond the resource directory",
+        ));
+    }
+    layout.file_span(rva, size, code)
 }
 
 fn parse_exports(

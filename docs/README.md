@@ -109,6 +109,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-set-unhandled-exception-filter.md](bgi-set-unhandled-exception-filter.md) | guest top-level filterをどこで所有するか | process-owned replacement、executable preflight、HeapSize stop |
 | [bgi-heap-size.md](bgi-heap-size.md) | private-heap sizeをどのauthorityから返すか | exact live allocation、requested size、InitializeCriticalSection stop |
 | [bgi-initialize-critical-section.md](bgi-initialize-critical-section.md) | one-argument critical sectionをどう初期化するか | native 24-byte state、VOID ABI、versioned raw-field policy、initial stack-growth fault |
+| [bgi-load-icon-a.md](bgi-load-icon-a.md) | module iconをどう選択・所有するか | bounded PE resources、shared logical HICON、native／Node／Chrome evidence |
 | [browser-runtime-worker.md](browser-runtime-worker.md) | Chrome内でruntime全経路をどこまで通せるか | Worker guest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdog、30分stress |
 | [bgi-browser-worker.md](bgi-browser-worker.md) | current BGI sessionをChromeへ移せたか | Rust/Wasm authority、Node semantic oracle、memory digest、heartbeat、cancel／watchdog |
 | [bgi-browser-benchmark.md](bgi-browser-benchmark.md) | BGI Browser workloadの性能／memoryはgate内か | 3分反復、session／slice分布、main／Worker heap slope、linear memory、Wasm crossing |
@@ -155,7 +156,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [v86-browser-benchmark.md](v86-browser-benchmark.md) | v86を継続するか | Chrome Worker CPU／ABI／memory／audio／background／steady-memory gate |
 | [runtime-object-model.md](runtime-object-model.md) | runtime object identityをどう所有するか | typed handle、generation、close／stale、waitable process／thread lifetime |
 | [runtime-module-graph.md](runtime-module-graph.md) | process module identityと順序をどう所有するか | canonical identity、dependency／reference、attach／detach order |
-| [runtime-module-images.md](runtime-module-images.md) | mapped guest module／exportをどう所有するか | sealed image identity、name／ordinal／forwarder resolution、failure atomicity |
+| [runtime-module-images.md](runtime-module-images.md) | mapped guest module／export／resourceをどう所有するか | sealed image identity、name／ordinal／forwarder、load-base resource catalog、failure atomicity |
 | [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md) | guest importとDLL process callbackをどう結ぶか | direct／runtime IAT、static dependency、attach unwind／retry、reverse detach |
 | [runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md) | process／thread terminationをどう所有するか | bootstrap／running、exit request／completion、atomic signal order |
 | [runtime-thread-registry.md](runtime-thread-registry.md) | logical thread stateをどう分離するか | controlled second thread、selection／exit、logical affinity／COM apartment、deterministic all-lane termination |

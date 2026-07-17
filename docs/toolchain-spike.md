@@ -63,6 +63,11 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 
 `fixtures/pe32/bootstrap-params/`もimportなしのPE32 fixtureである。native i386の`PEB+0x10` process-parameters pointerから`+0x40` command-line `UNICODE_STRING`とbuffer `+0x04`を読み、32 KiB以内で`bootstrap-params.exe`をbounded matchする。Windowsではnative exit code `0`を要求し、source-v86ではzero guest pointerのexplicit result `2`を別contractで固定する。
 
+`fixtures/pe32/icon-resource/`はSDK header／resource compilerに依存しない
+PE32 resource fixtureである。Toolchain scriptがdeterministic ICOとCOFF `.res`を`.work/`へ
+生成し、tracked C entryとlinkする。Group ID 101／language 1,041は48／32／16-pixel DIBを
+参照し、PE resource directoryのinteger／named identity、language、leaf rangeを検査できる。
+
 ## 5. Generated evidence
 
 `npm run check:toolchain` は `.work/toolchain-spike/` を作り直し、次を検証する。
@@ -75,7 +80,8 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - window fixtureのPE32形式、3 DLL／13 symbol、関連message順、native exit code `0`を検証する
 - high-memory fixtureのPE32／LAA、image base、section flags、named probe exportを検証し、nativeでは起動しない
 - bootstrap FS／process-parameters fixturesがPE32／i386、import-free、required exportsを持ち、Windowsでexit code `0`になることを検証する
-- native processを10秒で打ち切り、paintに必要な通常のwindow表示を抑止しない
+- icon-resource fixtureがPE32／i386、group ID 101、language 1,041、three DIB leavesを持つことを検証する
+- native processを30秒で打ち切り、paintに必要な通常のwindow表示を抑止しない
 - Wasm、EXE、DLL、import library、window／high-memory／bootstrap fixtures の size と SHA-256 を `report.json` に記録する
 
 `.work/` は生成物なので Git 管理しない。
@@ -92,6 +98,7 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 | `high-memory.exe` | 3,072 bytes | `084bca4dbd9c60a178f751e7c6a87e0b2865fd45cdff8d6135468886316a7aa7` |
 | `bootstrap-fs.exe` | 2,560 bytes | `5712377ff8a8bd2be292f8678902d19d3b4b2f1c1919922cce9d373f0696637c` |
 | `bootstrap-params.exe` | 2,560 bytes | `50a5f27f9ce65071f3d8668213eea67f67ccef7b09dc1a72d9192100de4f0c40` |
+| `icon-resource.exe` | 16,896 bytes | `52587db69f1ea9f39f8604bf7ccb8c50ee783f7378228cf5f20229ac54803dac` |
 
 旧文書のWasm値は319 bytes／`6e5218...`だったが、そのraw artifactは保持されておらず差の原因を再検証できない。現在のWindows canonical commandを複数回実行した結果は399 bytes／`d8e2fe...`で安定しているため、本表で旧観測を置き換える。source変化やcompiler regressionが確認できたという意味にはしない。
 
@@ -107,4 +114,4 @@ CreateWindowExA -> queued GetMessageA / DispatchMessageA
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 
-x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。production memory／bootstrap、BGI full trap binding／owner seal、389-page dynamic-endpoint mode、first seventeen Kernel32 returns、automatic binary writeback、controlled Chrome Runtime Worker vertical slice、version 1 browser engine gate、typed object／handle、process-owned module graph、controlled lifecycle／two-thread registry／one-object wait／raw message queue／private-heap backing foundationsまで進み、v86継続`go`となった。BGI continuationは凍結し、次はDLL-lifecycle foundationである。詳細は[runtime-heap-backing.md](runtime-heap-backing.md)、[runtime-message-queue.md](runtime-message-queue.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-module-graph.md](runtime-module-graph.md)、[v86-browser-benchmark.md](v86-browser-benchmark.md)を正とする。
+x86 engine の比較と v86 adapter smoke は [x86-engine-scorecard.md](x86-engine-scorecard.md) に進んだ。production memory／bootstrap、BGI full trap binding／owner seal、389-page dynamic-endpoint mode、first seventeen Kernel32 returns、automatic binary writeback、controlled Chrome Runtime Worker vertical slice、version 1 browser engine gate、typed object／handle、process-owned module graph、controlled lifecycle／two-thread registry／one-object wait／raw message queue／private-heap backing foundationsまで進み、v86継続`go`となった。現在のcapability queueはこのtoolchain baselineではなく[`current-checkpoint.json`](current-checkpoint.json)だけを正とする。詳細は[runtime-heap-backing.md](runtime-heap-backing.md)、[runtime-message-queue.md](runtime-message-queue.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-module-graph.md](runtime-module-graph.md)、[v86-browser-benchmark.md](v86-browser-benchmark.md)を正とする。

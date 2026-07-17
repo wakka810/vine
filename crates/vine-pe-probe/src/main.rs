@@ -148,6 +148,7 @@ enum GenericRuntimeCapability {
     TimeBeginPeriod,
     GetVersionExA,
     CreateWaitableTimerA,
+    LoadIconA,
 }
 
 struct GenericRuntimeProcess {
@@ -321,6 +322,8 @@ struct GenericRuntimeCompletion {
     mutex: Option<GenericRuntimeMutex>,
     #[serde(skip_serializing_if = "Option::is_none")]
     waitable_timer: Option<GenericRuntimeWaitableTimer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<vine_core::RuntimeIcon>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2733,8 +2736,14 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let endpoint_capability = enabled_capability;
-    let user32_policy = User32CompatibilityPolicy::controlled_v2();
+    let requested_capability = enabled_capability;
+    let endpoint_capability = match enabled_capability {
+        Some(GenericRuntimeCapability::LoadIconA) => {
+            Some(GenericRuntimeCapability::CreateWaitableTimerA)
+        }
+        capability => capability,
+    };
+    let user32_policy = User32CompatibilityPolicy::controlled_v3();
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
@@ -2854,7 +2863,7 @@ fn run_v86_generic_runtime_session(
             endpoint_capability,
             Some(GenericRuntimeCapability::InterlockedDecrement)
         );
-    let enabled_capability = match enabled_capability {
+    let enabled_capability = match endpoint_capability {
         Some(
             GenericRuntimeCapability::CommandLineA
             | GenericRuntimeCapability::EnvironmentStringsW
@@ -2916,7 +2925,7 @@ fn run_v86_generic_runtime_session(
         let Some(contract) = generic_runtime_contract_for_endpoint(endpoint.clone())? else {
             continue;
         };
-        if runtime_capability_enables_endpoint(endpoint_capability, endpoint) {
+        if runtime_capability_enables_endpoint(requested_capability, endpoint) {
             contracts.push(contract);
         }
     }
@@ -3200,6 +3209,7 @@ fn run_v86_generic_runtime_session(
                             current_directory: None,
                             mutex: None,
                             waitable_timer: None,
+                            icon: None,
                             thread_affinity: None,
                             tick_count: None,
                             com_apartment: None,
@@ -3527,6 +3537,24 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let icon = if completion.implementation_id == "user32.load-icon-a.v1" {
+                            let RegisterUpdate::Set(handle) = completion.eax else {
+                                return Err(LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "load-icon-handle-result-invalid",
+                                    "LoadIconA completion did not set a logical HICON",
+                                ));
+                            };
+                            Some(
+                                session
+                                    .runtime()
+                                    .icon(handle)
+                                    .map_err(runtime_state_error)?
+                                    .clone(),
+                            )
+                        } else {
+                            None
+                        };
                         let thread_affinity = if completion.implementation_id
                             == "kernel32.set-thread-affinity-mask.v1"
                         {
@@ -3603,6 +3631,7 @@ fn run_v86_generic_runtime_session(
                                 current_directory,
                                 mutex,
                                 waitable_timer,
+                                icon,
                                 thread_affinity,
                                 tick_count,
                                 com_apartment,
@@ -3764,6 +3793,7 @@ fn run_v86_generic_runtime_session(
                                 current_directory: None,
                                 mutex: None,
                                 waitable_timer: None,
+                                icon: None,
                                 thread_affinity: None,
                                 tick_count: None,
                                 com_apartment: None,
@@ -3807,6 +3837,12 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
+    let load_icon_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::LoadIconA));
+    let enabled = if load_icon_a_enabled {
+        Some(GenericRuntimeCapability::CreateWaitableTimerA)
+    } else {
+        enabled
+    };
     let get_module_file_name_a_enabled = matches!(
         enabled,
         Some(
@@ -4241,6 +4277,7 @@ fn runtime_capability_enables_endpoint(
         "timeBeginPeriod" | "timeEndPeriod" => time_begin_period_enabled,
         "GetVersionExA" => get_version_ex_a_enabled,
         "CreateWaitableTimerA" => create_waitable_timer_a_enabled,
+        "LoadIconA" => load_icon_a_enabled,
         _ => true,
     }
 }
@@ -4249,6 +4286,11 @@ fn runtime_capability_enables_dynamic_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &RuntimeDynamicEndpoint,
 ) -> bool {
+    let enabled = if matches!(enabled, Some(GenericRuntimeCapability::LoadIconA)) {
+        Some(GenericRuntimeCapability::CreateWaitableTimerA)
+    } else {
+        enabled
+    };
     if !endpoint.module.eq_ignore_ascii_case("kernel32.dll") {
         return false;
     }
@@ -9745,6 +9787,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-create-waitable-timer-a" => {
                     GenericRuntimeCapability::CreateWaitableTimerA
                 }
+                "user32-load-icon-a" => GenericRuntimeCapability::LoadIconA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

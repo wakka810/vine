@@ -59,6 +59,29 @@ export interface RuntimeWaitableTimerSnapshot {
   };
 }
 
+export interface RuntimeIconSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  shared: boolean;
+  resource: {
+    moduleId: number;
+    moduleLoadBase: number;
+    moduleSourceSha256: string;
+    groupResourceId: number;
+    languageId: number;
+    iconResourceId: number;
+    groupDataRva: number;
+    groupDataSize: number;
+    iconDataRva: number;
+    iconDataSize: number;
+    width: number;
+    height: number;
+    planes: number;
+    bitsPerPixel: number;
+  };
+}
+
 export interface RuntimeComApartmentSnapshot {
   model: "single-threaded" | "multi-threaded";
   initializationCount: number;
@@ -210,6 +233,7 @@ export interface SessionReport {
     currentDirectory?: RuntimeCurrentDirectorySnapshot;
     mutex?: RuntimeMutexSnapshot;
     waitableTimer?: RuntimeWaitableTimerSnapshot;
+    icon?: RuntimeIconSnapshot;
     comApartment?: RuntimeComApartmentSnapshot;
   }>;
   firstUnsupported: {

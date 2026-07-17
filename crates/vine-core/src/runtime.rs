@@ -19,6 +19,7 @@ mod scheduler;
 mod synchronization;
 mod thread;
 mod timers;
+mod user32;
 mod waits;
 
 pub use address_space::{
@@ -105,6 +106,10 @@ pub use timers::{
     RUNTIME_WAITABLE_TIMER_LIMIT, RuntimeCreateWaitableTimerAResult,
     RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState, RuntimeWaitableTimer,
     RuntimeWaitableTimerId,
+};
+pub use user32::{
+    LOGICAL_ICON_HANDLE_NAMESPACE, RUNTIME_ICON_HANDLE_BASE, RUNTIME_SHARED_ICON_LIMIT,
+    RuntimeIcon, RuntimeIconId, RuntimeIconResource, RuntimeLoadIconAResult,
 };
 pub use waits::{
     RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,

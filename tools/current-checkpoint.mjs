@@ -474,9 +474,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 2 ||
     bgiBenchmarkEvidence.configuration !== "fixtures/benchmarks/bgi-browser-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "kernel32-create-waitable-timer-a" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "user32-load-icon-a" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-lifecycle-boundary-rerun" ||
+      "current-module-resource-icon-boundary-rerun" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
@@ -623,7 +623,7 @@ export function validateCurrentCheckpoint(manifest) {
     kernelRoles.join(",") !==
       "private-subsystem-ownership,cross-subsystem-transaction-coordination,compatibility-serialization" ||
     kernelFields.join(",") !==
-      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,input,timers,objects,com,heaps,module-records,synchronization,modules,registries" ||
+      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,input,user32,timers,objects,com,heaps,module-records,synchronization,modules,registries" ||
     kernelBoundary.directMutableCollectionFields !== 0 ||
     kernelBoundary.directScalarAllocators !== 0 ||
     kernelBoundary.directSubsystemCollectionMutation !== false ||
@@ -632,7 +632,7 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/process.rs::RuntimeProcessState" ||
     kernelBoundary.processMutableCollectionVisibility !== "private" ||
     processIndependentOwners.join(",") !==
-      "displays,input,timers,heaps,module-records,synchronization,com" ||
+      "displays,input,user32,timers,heaps,module-records,synchronization,com" ||
     kernelBoundary.processSerializationView !==
       "runtime/kernel.rs::RuntimeProcessView" ||
     kernelBoundary.processSerializationViewAccess !== "immutable-borrow" ||
@@ -642,9 +642,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernelBoundary.closeHandleObjectPlanVisibility !== "opaque-to-kernel" ||
     kernelBoundary.payloadObjectSubsystemRootCloneOrReplacementFromKernel !== false ||
     representativeSubsystemTests.join(",") !==
-      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
+      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -1128,12 +1128,17 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.swapMouseButtonVariants",
     errors,
   );
+  const loadIconVariants = requireStringArray(
+    user32Policy.loadIconVariants,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.loadIconVariants",
+    errors,
+  );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 2 ||
-    user32Policy.id !== "user32-single-monitor-normal-mouse-v2" ||
+    user32Policy.schemaVersion !== 3 ||
+    user32Policy.id !== "user32-single-monitor-normal-mouse-module-icon-v3" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v2" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v3" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
@@ -1159,6 +1164,24 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.browserDisplayTopologyImported !== false ||
     user32Policy.hostMouseButtonMappingImported !== false ||
     user32Policy.browserMouseButtonMappingImported !== false ||
+    user32Policy.logicalIconAuthority !== "runtime/user32.rs::RuntimeUser32" ||
+    user32Policy.loadIconProfileId !== "module-shared-large-icon-32x32-v1" ||
+    user32Policy.loadIconTargetWidth !== 32 ||
+    user32Policy.loadIconTargetHeight !== 32 ||
+    user32Policy.loadIconMaximumGroupEntries !== 64 ||
+    loadIconVariants.join(",") !== "mapped-module-integer-resource" ||
+    user32Policy.loadIconLastErrorPolicy !==
+      "handler-success-zero-specific-failure-code" ||
+    user32Policy.iconHandleNamespace !== "vine.logical-icon.v1" ||
+    user32Policy.firstIconHandle !== "0x49010001" ||
+    user32Policy.sharedIconMutation !== "owner-plan-stale-check-targeted-commit" ||
+    user32Policy.repeatedResourceSharesIdentity !== true ||
+    user32Policy.processExitRetiresIcons !== true ||
+    user32Policy.hostIconImported !== false ||
+    user32Policy.browserIconImported !== false ||
+    user32Policy.systemIconImplemented !== false ||
+    user32Policy.stringResourceNameImplemented !== false ||
+    user32Policy.pngIconImplemented !== false ||
     user32Policy.unsupportedBeforeMutation !== true
   ) {
     errors.push("active User32 compatibility policy boundary is invalid");
@@ -1246,6 +1269,8 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeGetVersionExAConfirmationTraceSha256",
     "nativeCreateWaitableTimerAPrimaryTraceSha256",
     "nativeCreateWaitableTimerAConfirmationTraceSha256",
+    "nativeLoadIconAPrimaryTraceSha256",
+    "nativeLoadIconAConfirmationTraceSha256",
   ]) {
     requireSha256(
       latestEvidence[field],
@@ -1328,7 +1353,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-create-waitable-timer-a.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-load-icon-a.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -1375,6 +1400,74 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.createWaitableTimerABrowserTimerImported !== false
   ) {
     errors.push("latest waitable-timer identity and lifetime evidence is invalid");
+  }
+  if (
+    latestEvidence.nativeLoadIconAPrimaryTraceBytes !== 285_147 ||
+    latestEvidence.nativeLoadIconAPrimaryTraceLines !== 779 ||
+    latestEvidence.nativeLoadIconAPrimaryBalancedApiPairs !== 354 ||
+    latestEvidence.nativeLoadIconAConfirmationTraceBytes !== 2_257_599 ||
+    latestEvidence.nativeLoadIconAConfirmationTraceLines !== 6_952 ||
+    latestEvidence.nativeLoadIconAConfirmationBalancedApiPairs !== 3_438 ||
+    latestEvidence.nativeLoadIconATraceDiagnostics !== 0 ||
+    latestEvidence.nativeLoadIconAOracleProfile !==
+      "x86-module-group-icon-shared-identity-v1" ||
+    latestEvidence.nativeLoadIconAOracleValidCallsSucceeded !== true ||
+    latestEvidence.nativeLoadIconAOracleRepeatedIdentityShared !== true ||
+    latestEvidence.nativeLoadIconAOracleMissingResourceId !== 65_535 ||
+    latestEvidence.nativeLoadIconAOracleMissingResourceLastError !== 1_813 ||
+    latestEvidence.nativeLoadIconABgiProfile !== "x86-bgi-load-icon-a-v1" ||
+    latestEvidence.nativeLoadIconABgiCallCount !== 2 ||
+    latestEvidence.nativeLoadIconABgiCallerReturnRvas?.join(",") !==
+      "0x00067cf3,0x00067d7c" ||
+    latestEvidence.nativeLoadIconABgiResourceId !== 101 ||
+    latestEvidence.nativeLoadIconABgiResultsNonNull !== true ||
+    latestEvidence.nativeLoadIconABgiIdentityShared !== true ||
+    latestEvidence.nativeLoadIconABgiLastErrors?.join(",") !== "0,0" ||
+    latestEvidence.nativeLoadIconABgiConsumer !==
+      "wndclassexa-hicon-with-null-hiconsm" ||
+    latestEvidence.nativeLoadIconASelectedWidth !== 32 ||
+    latestEvidence.nativeLoadIconASelectedHeight !== 32 ||
+    latestEvidence.nativeLoadIconASelectedPlanes !== 1 ||
+    latestEvidence.nativeLoadIconASelectedBitsPerPixel !== 32 ||
+    latestEvidence.nativeLoadIconALargeSystemMetrics?.join(",") !== "32,32" ||
+    latestEvidence.nativeLoadIconASmallSystemMetrics?.join(",") !== "16,16" ||
+    latestEvidence.nativeLoadIconAGroupResourceId !== 101 ||
+    latestEvidence.nativeLoadIconAGroupLanguageId !== 1_041 ||
+    latestEvidence.nativeLoadIconAGroupDataBytes !== 62 ||
+    latestEvidence.nativeLoadIconASelectedIconResourceId !== 3 ||
+    latestEvidence.nativeLoadIconASelectedIconDataBytes !== 4_264 ||
+    latestEvidence.loadIconAImplemented !== true ||
+    latestEvidence.loadIconASequence !== 1_339 ||
+    latestEvidence.loadIconAInstructionCount !== 49_942 ||
+    latestEvidence.loadIconAArguments?.join(",") !== "0x10000000,0x00000065" ||
+    latestEvidence.loadIconAReturnAddress !== "0x10067cf3" ||
+    latestEvidence.loadIconAResult !== "0x49010001" ||
+    latestEvidence.loadIconALastError !== 0 ||
+    latestEvidence.loadIconAGuestWrites !== 0 ||
+    latestEvidence.loadIconAStateOwner !== "runtime/user32.rs::RuntimeUser32" ||
+    latestEvidence.loadIconAIconId !== 1 ||
+    latestEvidence.loadIconAHandleNamespace !== "vine.logical-icon.v1" ||
+    latestEvidence.loadIconAShared !== true ||
+    latestEvidence.loadIconAModuleLoadBase !== "0x10000000" ||
+    latestEvidence.loadIconAModuleSourceSha256 !==
+      "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1" ||
+    latestEvidence.loadIconAGroupResourceId !== 101 ||
+    latestEvidence.loadIconALanguageId !== 1_041 ||
+    latestEvidence.loadIconAIconResourceId !== 3 ||
+    latestEvidence.loadIconAGroupDataRva !== "0x0016ea08" ||
+    latestEvidence.loadIconAGroupDataBytes !== 62 ||
+    latestEvidence.loadIconAIconDataRva !== "0x0016bf5c" ||
+    latestEvidence.loadIconAIconDataBytes !== 4_264 ||
+    latestEvidence.loadIconAWidth !== 32 ||
+    latestEvidence.loadIconAHeight !== 32 ||
+    latestEvidence.loadIconAPlanes !== 1 ||
+    latestEvidence.loadIconABitsPerPixel !== 32 ||
+    latestEvidence.loadIconARepeatedResourceSharesIdentity !== true ||
+    latestEvidence.loadIconAProcessExitRetiresIdentity !== true ||
+    latestEvidence.loadIconAHostIconImported !== false ||
+    latestEvidence.loadIconABrowserIconImported !== false
+  ) {
+    errors.push("latest module-icon identity and resource evidence is invalid");
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,

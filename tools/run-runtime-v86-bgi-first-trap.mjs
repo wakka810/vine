@@ -105,6 +105,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "winmm-time-begin-period",
         "kernel32-get-version-ex-a",
         "kernel32-create-waitable-timer-a",
+        "user32-load-icon-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -131,6 +132,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "user32-load-icon-a" ||
     genericRuntimeCapability === "kernel32-create-waitable-timer-a"
       ? "kernel32-create-waitable-timer-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-version-ex-a"
@@ -244,8 +246,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const loadIconAEnabled = genericRuntimeCapability === "user32-load-icon-a";
 const createWaitableTimerAEnabled =
-  genericRuntimeCapability === "kernel32-create-waitable-timer-a";
+  loadIconAEnabled || genericRuntimeCapability === "kernel32-create-waitable-timer-a";
 const getVersionExAEnabled =
   createWaitableTimerAEnabled ||
   genericRuntimeCapability === "kernel32-get-version-ex-a";
@@ -390,7 +393,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? createWaitableTimerAEnabled
+      ? loadIconAEnabled
+        ? "v86-bgi-load-icon-a"
+      : createWaitableTimerAEnabled
         ? "v86-bgi-create-waitable-timer-a"
       : getVersionExAEnabled
         ? "v86-bgi-get-version-ex-a"
@@ -4282,6 +4287,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (loadIconAEnabled) {
+        validateLoadIconAResult(genericResult);
       } else if (createWaitableTimerAEnabled) {
         validateCreateWaitableTimerAResult(genericResult);
       } else if (getVersionExAEnabled) {
@@ -4391,6 +4398,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : loadIconAEnabled
+            ? "bgi LoadIconA"
           : createWaitableTimerAEnabled
             ? "bgi CreateWaitableTimerA"
           : getVersionExAEnabled
@@ -5198,6 +5207,7 @@ function buildGenericCallRecord(
     ...(completionFrame.waitableTimer === undefined
       ? {}
       : { waitableTimer: completionFrame.waitableTimer }),
+    ...(completionFrame.icon === undefined ? {} : { icon: completionFrame.icon }),
     ...(completionFrame.threadAffinity === undefined
       ? {}
       : { threadAffinity: completionFrame.threadAffinity }),
@@ -5235,6 +5245,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : loadIconAEnabled
+          ? 47
         : createWaitableTimerAEnabled
           ? 46
         : getVersionExAEnabled
@@ -5333,7 +5345,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-v2",
+      "user32-single-monitor-normal-mouse-module-icon-v3",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -9519,6 +9531,87 @@ function validateCreateWaitableTimerAResult(result) {
   );
 }
 
+function validateLoadIconAResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.supportedCalls.length, 1339);
+  assert.equal(result.writebacks.length, 1345);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2542,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    9189,
+  );
+  assert.equal(result.hostDeltas.length, 85);
+  assert.equal(result.finalGeneration, 1459);
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "LoadIconA");
+  assert.equal(calls.length, 1);
+  for (const call of calls) {
+    assert.equal(call.sequence, 1339);
+    assert.equal(call.occurrence, 1);
+    assert.equal(call.trapInstructionCount, 49942);
+    assert.deepEqual(call.arguments, [0x10000000, 101]);
+    assert.deepEqual(call.result, { action: "set", value: 0x49010001 });
+    assert.equal(call.implementationId, "user32.load-icon-a.v1");
+    assert.equal(call.returnAddress, 0x10067cf3);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 12);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+    assert.deepEqual(call.icon, {
+      id: 1,
+      handle: 0x49010001,
+      namespace: "vine.logical-icon.v1",
+      shared: true,
+      resource: {
+        moduleId: 15,
+        moduleLoadBase: 0x10000000,
+        moduleSourceSha256: "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+        groupResourceId: 101,
+        languageId: 1041,
+        iconResourceId: 3,
+        groupDataRva: 0x0016ea08,
+        groupDataSize: 62,
+        iconDataRva: 0x0016bf5c,
+        iconDataSize: 4264,
+        width: 32,
+        height: 32,
+        planes: 1,
+        bitsPerPixel: 32,
+      },
+    });
+  }
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 244);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f000f30);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "LoadCursorA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d14a8);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "b342681d4f87eaf94a93d2f5b86fd66e5fad3168f364354f42149d6b6d0136c2",
+  );
+  assert.equal(result.terminal.instructionCount, 49949);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 244);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f000f30);
+  assert.equal(result.terminal.terminal.thunk.name, "LoadCursorA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x10067d09);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 3), [0, 32512]);
+}
+
 function validateTimeBeginPeriodResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
@@ -10551,6 +10644,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : loadIconAEnabled
+          ? "vine.v86-bgi-load-icon-a"
         : createWaitableTimerAEnabled
           ? "vine.v86-bgi-create-waitable-timer-a"
         : getVersionExAEnabled

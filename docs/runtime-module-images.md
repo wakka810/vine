@@ -56,6 +56,23 @@ PE `AddressOfEntryPoint == 0`はimage baseではなく`None`として記録す�
 ないDLLを後続lifecycleが誤ってcallbackしないためのcontractである。Registered ownerはsealed
 なので、registryが保持したguest bytesをhostまたはguest writeで後から変更できない。
 
+## Resource catalog extension
+
+Mapped image records now retain the optional resource catalog from the same
+`Pe32LoadPlan` and add a unique load-base index. A resource consumer resolves
+the caller-supplied HMODULE/load base to one registered image, then matches
+type／name／language／RVA／size against that catalog before reading guest memory.
+The registry never reparses mutable guest bytes into a second tree.
+
+Registration preflights every resource leaf against the materialized image
+range and rejects duplicate load bases with the other module identities. The
+catalog and load-base index commit together; failure preserves every module,
+name, handle, range, and resource index. The `icon-resource.exe` fixture fixes
+seven directories, ten entries, four leaves, UTF-16 named-entry support, and
+malformed／limit rejection. BGI's catalog resolves group icon 101／language
+1,041 and selected icon 3 without using a title hash or call site in semantic
+lookup.
+
 ## Export resolution
 
 Lookupはcanonical module＋`ExportLookup::Name`または`Ordinal`から始まり、direct targetを
@@ -121,5 +138,6 @@ module memory／object retirement, or BGI continuation. It is partial evidence f
 The controlled guest import／runtime export catalog binding and dependency-ordered process callback
 lifecycle are implemented in [runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). The graph, image,
 import binding, runtime export, and DLL lifecycle operation state now have one private module owner.
-Responsibility checkpoint S13 completes the remaining process/kernel aggregate audit without adding
-loader capability. The saved `GetCurrentThread` stop remains the next capability checkpoint.
+Responsibility checkpoint S13 completed the remaining process/kernel aggregate audit without adding
+loader capability. Its saved `GetCurrentThread` stop is historical; the active capability queue is
+defined only by `current-checkpoint.json`.

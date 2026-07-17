@@ -4,18 +4,18 @@
 
 - Status: threshold passed
 - Date: 2026-07-17
-- Workload: current 1,338-call `kernel32-create-waitable-timer-a` private BGI generic session
-- Observation status: `current-lifecycle-boundary-rerun`
+- Workload: current 1,339-call `user32-load-icon-a` private BGI generic session
+- Observation status: `current-module-resource-icon-boundary-rerun`
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-v1.json`](../fixtures/benchmarks/bgi-browser-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This current observation repeats the complete `kernel32-create-waitable-timer-a` BGI
+This current observation repeats the complete `user32-load-icon-a` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
 runtime and v86 mirror, dispatches
-1,338 ordered calls over 49,942 guest instructions, performs 6,407 Rust/Wasm bridge
+1,339 ordered calls over 49,949 guest instructions, performs 6,409 Rust/Wasm bridge
 operations, applies four initial-thread stack-growth commits, and reaches the
-same `LoadIconA(0x10000000, 0x65)` contract-missing stop after CP_ACP
+same `LoadCursorA(NULL, IDC_ARROW)` contract-missing stop after CP_ACP
 conversion, the process-owned current-directory update, named mutex creation,
 its immediate LastError／heap continuation, and `GetCurrentThread` pseudo-handle
 resolution. The workload additionally commits current-thread logical affinity
@@ -32,15 +32,17 @@ then records the Rust-owned logical `timeBeginPeriod(1)` request and continues
 through the following heap allocation without changing browser timer or audio
 configuration. It writes the bounded ANSI OS-version structure, creates the
 Rust-owned unnamed manual-reset waitable timer, and verifies its typed handle,
-timer ID, object ID, and initial nonsignaled state before reaching the stop.
+timer ID, object ID, and initial nonsignaled state. It then selects the mapped
+module's exact 32-pixel DIB icon and records the Rust-owned shared logical HICON
+before reaching the stop.
 Every repetition checks the call count, instruction count, crossing count,
 memory digest, next structured stop, and zero pending work before its compact
 summary is retained.
 
-The waitable-timer checkpoint changes typed-object lifetime and process
-teardown, so this workload was rerun against the exact current Rust/Wasm and
-Worker artifacts. The active Node／Chrome semantic gate remains separately
-required in [`current-checkpoint.json`](current-checkpoint.json).
+The module-icon checkpoint changes PE resource parsing, User32 process lifetime,
+and the Worker completion payload, so this workload was rerun against the exact
+current Rust/Wasm and Worker artifacts. The active Node／Chrome semantic gate
+remains separately required in [`current-checkpoint.json`](current-checkpoint.json).
 
 This is title-workload evidence. The synthetic CPU／ABI／audio／background gate
 remains separately versioned in [v86-browser-benchmark.md](v86-browser-benchmark.md);
@@ -65,31 +67,31 @@ required sample is a failure. Report schema version 2 also stores a structured
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 267 sessions with no
+The authoritative clean-profile Chrome run completed 254 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 267 |
+| Completed sessions | >= 120 | 254 |
 | Failed sessions | <= 0 | 0 |
-| Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 3,000 ms | 745.900 ms |
-| Maximum slice p99 | <= 10 ms | 2.325 ms |
-| Main heartbeat gap p99 | <= 25 ms | 15.865 ms |
-| Main heartbeat gap maximum | <= 250 ms | 25.020 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 4,031,108 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | -2,154.46 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 28,004,540 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 3,657,094.03 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 59,244,544 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 34,005,400 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 2,523,829.48 bytes/min |
+| Main／Worker heap samples | >= 30 each | 38 / 36 |
+| Session latency p95 | <= 3,000 ms | 734.170 ms |
+| Maximum slice p99 | <= 10 ms | 4.135 ms |
+| Main heartbeat gap p99 | <= 25 ms | 10.370 ms |
+| Main heartbeat gap maximum | <= 250 ms | 38.570 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 4,366,876 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 270,358.03 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 28,428,596 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | -351,968.14 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 60,030,976 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 38,030,209 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | -1,366,893.99 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,027,008 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 969,997 bytes with SHA-256
-`77a52398ef6db6618715a42fc3d0354be60d4215737f3984d8071a2f24657e74`.
+The exact report is 969,455 bytes with SHA-256
+`e75cac32068f78a1d00beec9b6c623d6cab18b8f0416662b2dcf88d204c765e4`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -125,7 +127,7 @@ loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
 storage below the unchanged limit. That correction remains part of the loader
-contract; this current benchmark observes 34,005,400
+contract; this current benchmark observes 38,030,209
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -139,7 +141,7 @@ bytes and retains bounded p95 latency without changing any threshold.
 | Chrome | `150.0.7871.115` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `76ae792326a1460550ba2507d2cbfa96e42f9405`
+The report records base implementation commit `bac844e4159bacbe98e5e9669aaf51747b68eb40`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -148,9 +150,9 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 2,361,392 | `03a9dc99bdd6b592c71e3d9fd344e9ed29402a0faf82a4c02a73b8410eec722b` |
+| Rust runtime core Wasm | 2,438,709 | `146daeb99867ba30908e8b5d234b2d39211d24434853ed4dc79972145f35d8c5` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
-| Runtime Worker bundle | 121,345 | `d2d0b27a680312bcd5300bb4d0e65d35dedcc57b52447b92d1bf039528f42f4b` |
+| Runtime Worker bundle | 121,609 | `7716e295815c7d8f441133fd093f12eef49631c10e52b48bd76dbc6b9060e7fe` |
 | BGI benchmark bundle | 9,286 | `33be6c16928ebee490f9c5f75680923898ea9b9f66dc6546bb5b87d2b0a6eebb` |
 | Execution-engine profile | 545 | `792980bc78b58d8aae491c72b9ea13f39176206306321069a4f2bcb2989e7250` |
 | Version 1 configuration | 967 | `0862c59c00adc8d1b0218283b57ffdb2e87393624b6461c873b035fc4b2d98ef` |
@@ -183,6 +185,8 @@ profile plus a loopback-only server and DevTools endpoint.
   input coverage is limited to the logical mouse-button mapping transaction.
   Waitable-timer coverage is limited to creation and initial nonsignaled
   lifetime; no due-time, period, signal, or cancellation workload is measured.
+  Icon coverage is limited to logical module-resource selection and identity;
+  no bitmap rendering or browser resource is measured.
 - A passing slope threshold does not prove that V8 heap capacity has reached a
   permanent plateau; longer scenario-specific gates remain required.
 - Additional-thread stack lifecycle, stack overflow, and all title output remain

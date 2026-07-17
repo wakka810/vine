@@ -13,6 +13,7 @@ import {
   type RuntimeComApartmentSnapshot,
   type RuntimeMutexSnapshot,
   type RuntimeWaitableTimerSnapshot,
+  type RuntimeIconSnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -114,6 +115,7 @@ interface CompletionMetadata {
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
   waitableTimer?: RuntimeWaitableTimerSnapshot;
+  icon?: RuntimeIconSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
 }
 
@@ -153,6 +155,7 @@ interface CallbackCompletionMetadata {
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
   waitableTimer?: RuntimeWaitableTimerSnapshot;
+  icon?: RuntimeIconSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
 }
 
@@ -761,6 +764,11 @@ class BrowserRuntimeSession {
       isCreateWaitableTimer === (metadata.waitableTimer !== undefined),
       "BGI waitable timer completion metadata mismatch",
     );
+    const isLoadIcon = completion.implementationId === "user32.load-icon-a.v1";
+    invariant(
+      isLoadIcon === (metadata.icon !== undefined),
+      "BGI icon completion metadata mismatch",
+    );
     const isCoInitialize = completion.implementationId === "ole32.co-initialize.v1";
     invariant(
       isCoInitialize === (metadata.comApartment !== undefined),
@@ -793,6 +801,7 @@ class BrowserRuntimeSession {
       ...(metadata.waitableTimer === undefined
         ? {}
         : { waitableTimer: metadata.waitableTimer }),
+      ...(metadata.icon === undefined ? {} : { icon: metadata.icon }),
       ...(metadata.comApartment === undefined
         ? {}
         : { comApartment: metadata.comApartment }),

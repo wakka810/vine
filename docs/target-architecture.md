@@ -410,6 +410,12 @@ version 1 loader ingressは、owned source bytesをmap-timeに再hashし、PE32 
 
 separate runtime-kernel profileはbinding-scoped dynamic endpoint dispatch、strict pointer inverse、bounded TLS／FLS／LastError state、private-heap allocation／free／size、checked LONG updates、logical standard handles、controlled process environment／Windows-932 and NLS views、bootstrap-owned image path／current directory、explicit processor-feature presence、process-owned filter／critical sections／named mutexを含むgeneric contractsを通す。Win32 ABI／validation／state effectはsingle semantic handler IDを使い、bounded selector／file type／heap／process-view／code-page／processor-feature／default critical-section／current-directory／named-mutex subsetだけをversioned compatibility policyから受け取る。HeapAllocのactive policyはimplemented flagsとnonzero最大sizeを持つrangeであり、観測size一覧をsemantic gateにしない。`RuntimeProcessDirectories`はcurrent-directory bytesとgenerationをprivateに所有し、`RuntimeSynchronization`はmutex name／owner／recursionをprivateに所有する。`SetCurrentDirectoryA`と`CreateMutexA`はguest pointerを保持せずowned identityをcopyし、aggregate plan／lifecycle preflight／commitを通す。BGI caller RVA、observed arguments、call order、next stopはevidence profileに残り、implementation branchを選ばない。process-owned module graphはcanonical identity、main／guest／runtime class、dependency／reference ownership、dependency-first attach／reverse detach metadataを持つ。Logical private heapとinitial-thread stackはprocess allocation identityへ接続し、reserve／commit／dirty deltaをv86 mirrorと同じRust authorityで処理する。Current stop等の変動値は`current-checkpoint.json`を正とする。
 
+PE resource treeはimmutable `Pe32LoadPlan`のoptional catalogとして解析し、type／name／languageと
+leaf RVA／size／code pageを保持する。Mapped-module ownerはsealed image record、load-base index、
+resource catalogを一緒に所有し、consumerはcatalog identityとguest rangeの両方を照合してから読む。
+Guest memory、TypeScript、個別API handlerがresource treeを再解析して第二のauthorityを作らない。
+Directory／entry／name countとoffset arithmeticはbounded plan作成時にfail closedとする。
+
 system-DLL image、broad export／forwarder resolution、guest DLL callback、TLS／FLS free・callback teardown、host environment import／mutation、broad file／heap／NLS semantics、general processor-feature discovery、SEH dispatch／filter invocation／vectored handlers、general FLS lifecycle、other interlocked operations／cross-Worker atomicity、critical-section contention／delete／arbitrary raw initialization、initial stack growth／overflow、general pointer-cookie semanticsはnot attemptedである。policy boundaryは[win32-compatibility-policy.md](win32-compatibility-policy.md)、memory boundaryは[guest-memory-ingress.md](guest-memory-ingress.md)、module metadataは[runtime-module-graph.md](runtime-module-graph.md)、heap backingは[runtime-heap-backing.md](runtime-heap-backing.md)、runtime continuationは[bgi-initialize-critical-section.md](bgi-initialize-critical-section.md)、frozen entry／API executionは[v86-bgi-seventeenth-win32-call.md](v86-bgi-seventeenth-win32-call.md)を正とする。
 <!-- END FROZEN HISTORICAL EVIDENCE -->
 
@@ -537,6 +543,12 @@ Guest の HWND は logical object であり、DOM element を直接公開しな�
 Guest の HMONITOR と monitor geometry も Rust-owned logical display state とし、native HMONITOR、DOM `Screen`、browser window identityを直接公開しない。Compatibility policyがbounded profileを選び、display subsystemがlogical handle namespace、primary identity、geometryをconfigure-once plan／commitで所有する。User32 enumerationはこのimmutable viewからcallback scratchを組み立て、browser topologyを第二の正本にしない。
 
 Mouseのprimary／secondary mappingもRust-owned logical input stateとする。現在の`RuntimeInput` foundationはprofile identity、initial／current swapped state、generationをconfigure-onceとstale-plan拒否で所有する。`SwapMouseButton`、将来のUser32 mouse message、DirectInput mouse frontendは同じmappingを参照し、native `SM_SWAPBUTTON`やDOM adapterへ別tableを作らない。
+
+Module iconもRust-owned User32 stateとする。`RuntimeUser32`はresource identity、monotonic icon ID、
+logical HICON namespace、resource／handle index、generationをprivateに所有し、repeated shared loadは
+同じidentityを返す。Process teardownがidentityをretireする。Browser rendererが後にbitmap resourceを
+関連付ける場合もassociationはnon-owningであり、native HICON、GDI handle、DOM image IDをlogical
+HICONとして流用しない。Size／language／format selectionはversioned User32 policyに置く。
 
 - Runtime Worker が window tree、z-order、focus、capture、invalid region を所有する
 - Main thread は DOM event を timestamp 付きで normalized input event にする

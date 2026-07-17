@@ -128,6 +128,13 @@ let createWaitableTimerAOracleEvidence = null;
 let createWaitableTimerACompletionRecorded = false;
 let createWaitableTimerADrainCheckScheduled = false;
 const createWaitableTimerAMainModuleCalls = [];
+let loadIconAOracleScheduled = false;
+let loadIconAOracleCall = null;
+let loadIconAOracleComplete = false;
+let loadIconAOracleEvidence = null;
+let loadIconACompletionRecorded = false;
+let loadIconADrainCheckScheduled = false;
+const loadIconAMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -2628,6 +2635,129 @@ function attachCreateWaitableTimerAHook(module) {
           immediateConsumer: this.immediateConsumer,
         });
         setImmediate(maybeCompleteCreateWaitableTimerAObservation);
+      }
+    },
+  });
+}
+
+function snapshotResourceNameA(address) {
+  const value = address.toUInt32();
+  if (value <= 0xffff) {
+    return {
+      address: address.toString(),
+      kind: "integer",
+      id: value,
+    };
+  }
+  return {
+    address: address.toString(),
+    kind: "string",
+    value: snapshotNulTerminatedString(address, "ansi"),
+  };
+}
+
+function attachLoadIconAHook(module) {
+  const name = "LoadIconA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && loadIconAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.instance = args[0];
+      this.resourceName = args[1];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = loadIconAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.resource = snapshotResourceNameA(this.resourceName);
+      this.immediateConsumer = isMainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              48,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              6,
+              20,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.instance.toString(), this.resource],
+          lastErrorBefore: this.lastErrorBefore,
+          loadIconA: {
+            instance: this.instance.toString(),
+            instanceIsMainModule:
+              this.instance.toString() === Process.mainModule.base.toString(),
+            resource: this.resource,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      if (this.oracleCaller) {
+        loadIconAOracleCall.hookResult = resultValue;
+        loadIconAOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          loadIconA: {
+            result: resultValue,
+            resultNonNull: !result.isNull(),
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !loadIconACompletionRecorded) {
+        loadIconAMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          instance: this.instance.toString(),
+          instanceIsMainModule:
+            this.instance.toString() === Process.mainModule.base.toString(),
+          resource: this.resource,
+          result: resultValue,
+          resultNonNull: !result.isNull(),
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleLoadIconAOracle(module);
+        setImmediate(maybeCompleteLoadIconAObservation);
       }
     },
   });
@@ -6866,6 +6996,270 @@ function scheduleCreateWaitableTimerAOracle(module) {
   });
 }
 
+function maybeCompleteLoadIconAObservation() {
+  if (
+    loadIconACompletionRecorded ||
+    !loadIconAOracleComplete ||
+    loadIconAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteLoadIconAObservation, 10);
+    return;
+  }
+  if (loadIconADrainCheckScheduled) {
+    return;
+  }
+  loadIconADrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    loadIconADrainCheckScheduled = false;
+    if (loadIconACompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteLoadIconAObservation();
+      return;
+    }
+    loadIconACompletionRecorded = true;
+    emit("load-icon-a-complete", {
+      profile: "x86-bgi-load-icon-a-v1",
+      oracleProfile: loadIconAOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: loadIconAMainModuleCalls.map((call) => ({ ...call })),
+    });
+    if (stopOnEvent === "load-icon-a-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function scheduleLoadIconAOracle(module) {
+  if (loadIconAOracleScheduled) {
+    return;
+  }
+  loadIconAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const loadIconAddress = findExport(module, "LoadIconA");
+      const getIconInfoAddress = findExport(module, "GetIconInfo");
+      const getSystemMetricsAddress = findExport(module, "GetSystemMetrics");
+      const gdi32 = Process.getModuleByName("gdi32.dll");
+      const getObjectAddress = findExport(gdi32, "GetObjectW");
+      const deleteObjectAddress = findExport(gdi32, "DeleteObject");
+      if (
+        loadIconAddress === null ||
+        getIconInfoAddress === null ||
+        getSystemMetricsAddress === null ||
+        getObjectAddress === null ||
+        deleteObjectAddress === null
+      ) {
+        throw new Error("LoadIconA oracle exports are unavailable");
+      }
+      const loadIconA = new SystemFunction(
+        loadIconAddress,
+        "pointer",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const getIconInfo = new SystemFunction(
+        getIconInfoAddress,
+        "uint32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const getSystemMetrics = new NativeFunction(
+        getSystemMetricsAddress,
+        "int32",
+        ["int32"],
+        "stdcall",
+      );
+      const getObjectW = new SystemFunction(
+        getObjectAddress,
+        "int32",
+        ["pointer", "int32", "pointer"],
+        "stdcall",
+      );
+      const deleteObject = new SystemFunction(
+        deleteObjectAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+
+      const snapshotBitmap = (handle) => {
+        if (handle.isNull()) {
+          return { handle: handle.toString(), isNull: true };
+        }
+        const storage = Memory.alloc(24);
+        storage.writeByteArray(Array(24).fill(0xa5));
+        const outcome = getObjectW(handle, 24, storage);
+        const result = Number(outcome.value);
+        const bytes = [...new Uint8Array(storage.readByteArray(24))];
+        const view = new DataView(Uint8Array.from(bytes).buffer);
+        return {
+          handle: handle.toString(),
+          isNull: false,
+          result,
+          lastError: Number(outcome.lastError) >>> 0,
+          fields:
+            result === 0
+              ? null
+              : {
+                  type: view.getInt32(0, true),
+                  width: view.getInt32(4, true),
+                  height: view.getInt32(8, true),
+                  widthBytes: view.getInt32(12, true),
+                  planes: view.getUint16(16, true),
+                  bitsPixel: view.getUint16(18, true),
+                  bits: `0x${view.getUint32(20, true).toString(16)}`,
+                },
+        };
+      };
+
+      const snapshotIcon = (handle) => {
+        const storage = Memory.alloc(20);
+        storage.writeByteArray(Array(20).fill(0xa5));
+        const outcome = getIconInfo(handle, storage);
+        const succeeded = Number(outcome.value) !== 0;
+        if (!succeeded) {
+          return {
+            result: Number(outcome.value) >>> 0,
+            lastError: Number(outcome.lastError) >>> 0,
+          };
+        }
+        const mask = storage.add(12).readPointer();
+        const color = storage.add(16).readPointer();
+        let maskSnapshot = null;
+        let colorSnapshot = null;
+        const deletions = [];
+        try {
+          maskSnapshot = snapshotBitmap(mask);
+          colorSnapshot = snapshotBitmap(color);
+        } finally {
+          for (const [kind, bitmap] of [
+            ["mask", mask],
+            ["color", color],
+          ]) {
+            if (!bitmap.isNull()) {
+              const deletion = deleteObject(bitmap);
+              deletions.push({
+                kind,
+                result: Number(deletion.value) >>> 0,
+                lastError: Number(deletion.lastError) >>> 0,
+              });
+            }
+          }
+        }
+        return {
+          result: Number(outcome.value) >>> 0,
+          lastError: Number(outcome.lastError) >>> 0,
+          fIcon: storage.readU32(),
+          xHotspot: storage.add(4).readU32(),
+          yHotspot: storage.add(8).readU32(),
+          mask: maskSnapshot,
+          color: colorSnapshot,
+          deletions,
+        };
+      };
+
+      const invoke = ({ id, resourceId, sentinel, inspect }) => {
+        loadIconAOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = loadIconA(
+            Process.mainModule.base,
+            ptr(resourceId),
+          );
+          const handle = outcome.value;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            loadIconAOracleCall.hookResult === null ||
+            loadIconAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("LoadIconA oracle did not pass through the hook");
+          }
+          return {
+            id,
+            instance: Process.mainModule.base.toString(),
+            resourceId,
+            sentinel,
+            hookResult: loadIconAOracleCall.hookResult,
+            systemResult: handle.toString(),
+            resultNonNull: !handle.isNull(),
+            hookLastErrorAfter: loadIconAOracleCall.hookLastErrorAfter,
+            systemLastError,
+            hookResultMatches:
+              loadIconAOracleCall.hookResult === handle.toString(),
+            hookAndSystemLastErrorMatch:
+              loadIconAOracleCall.hookLastErrorAfter === systemLastError,
+            icon: inspect && !handle.isNull() ? snapshotIcon(handle) : null,
+          };
+        } finally {
+          loadIconAOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "valid-first",
+          resourceId: 101,
+          sentinel: 0x11223344,
+          inspect: true,
+        },
+        {
+          id: "valid-repeated",
+          resourceId: 101,
+          sentinel: 0x55667788,
+          inspect: false,
+        },
+        {
+          id: "missing-resource",
+          resourceId: 0xffff,
+          sentinel: 0x7a6b5c4d,
+          inspect: false,
+        },
+      ].map(invoke);
+      const validCalls = calls.slice(0, 2);
+      const missingCall = calls[2];
+      const mainResult = loadIconAMainModuleCalls[0].result;
+      loadIconAOracleEvidence = {
+        profile: "x86-module-group-icon-shared-identity-v1",
+        mainModule: {
+          name: Process.mainModule.name,
+          base: Process.mainModule.base.toString(),
+        },
+        systemMetrics: {
+          iconWidth: getSystemMetrics(11),
+          iconHeight: getSystemMetrics(12),
+          smallIconWidth: getSystemMetrics(49),
+          smallIconHeight: getSystemMetrics(50),
+        },
+        calls,
+        validCallsSucceeded: validCalls.every((call) => call.resultNonNull),
+        repeatedValidIdentityShared:
+          validCalls[0].systemResult === validCalls[1].systemResult,
+        validIdentityMatchesMainCall: validCalls.every(
+          (call) => call.systemResult === mainResult,
+        ),
+        missingResourceRejected: !missingCall.resultNonNull,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      loadIconAOracleComplete = true;
+      emit("load-icon-a-oracle", loadIconAOracleEvidence);
+      maybeCompleteLoadIconAObservation();
+    } catch (error) {
+      emit("load-icon-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function maybeCompleteGetVersionExAObservation() {
   if (
     getVersionExACompletionRecorded ||
@@ -8608,6 +9002,20 @@ Process.attachModuleObserver({
       selectedObservations.has("get-system-info")
     ) {
       scheduleGetSystemInfoOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("load-icon-a")
+    ) {
+      try {
+        attachLoadIconAHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "LoadIconA",
+          error: error.message,
+        });
+      }
     }
     if (
       module.name.toLowerCase() === "user32.dll" &&

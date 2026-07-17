@@ -13,7 +13,7 @@ use crate::module_graph::{
 };
 use crate::pe32::{
     ExportDirectoryPlan, ExportLookup, ExportSymbolPlan, ExportTarget, ImageKind,
-    LoaderIngressReport,
+    LoaderIngressReport, ResourceDirectoryPlan,
 };
 use crate::snapshot::ModuleIdentity;
 
@@ -37,6 +37,8 @@ pub struct RuntimeModuleImage {
     pub mapped_content_sha256: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<ExportDirectoryPlan>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ResourceDirectoryPlan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -71,6 +73,8 @@ pub struct RuntimeModuleImageRegistry {
     canonical_index: BTreeMap<String, RuntimeModuleId>,
     #[serde(skip)]
     handle_index: BTreeMap<u32, RuntimeModuleId>,
+    #[serde(skip)]
+    load_base_index: BTreeMap<GuestAddress, RuntimeModuleId>,
 }
 
 impl RuntimeModuleImageRegistry {
@@ -180,6 +184,7 @@ impl RuntimeModuleImageRegistry {
             ));
         }
         validate_export_addresses(&loader.load_plan.exports, materialization)?;
+        validate_resource_addresses(&loader.load_plan.resources, materialization)?;
 
         let image = RuntimeModuleImage {
             module_id: module.id,
@@ -194,12 +199,17 @@ impl RuntimeModuleImageRegistry {
                 .then_some(expected_entry_point),
             mapped_content_sha256: materialization.mapped_content_sha256.clone(),
             exports: loader.load_plan.exports.clone(),
+            resources: loader.load_plan.resources.clone(),
         };
         let module_id = module.id;
         let canonical_name = module.canonical_name.clone();
         let handle = module.handle;
         self.canonical_index.insert(canonical_name, module_id);
         self.handle_index.insert(handle, module_id);
+        let previous_load_base = self
+            .load_base_index
+            .insert(materialization.load_base, module_id);
+        debug_assert!(previous_load_base.is_none());
         Ok(self.images.entry(module_id).or_insert(image))
     }
 
@@ -241,6 +251,23 @@ impl RuntimeModuleImageRegistry {
                 RuntimeModuleImageError::not_found(
                     "module-image-name-unknown",
                     format!("module {canonical} has no mapped image"),
+                )
+            })?;
+        self.image(module_id)
+    }
+
+    pub fn image_by_load_base(
+        &self,
+        load_base: GuestAddress,
+    ) -> Result<&RuntimeModuleImage, RuntimeModuleImageError> {
+        let module_id = self
+            .load_base_index
+            .get(&load_base)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeModuleImageError::not_found(
+                    "module-image-load-base-unknown",
+                    format!("load base {:#010x} has no mapped module image", load_base.0),
                 )
             })?;
         self.image(module_id)
@@ -389,6 +416,37 @@ fn validate_export_addresses(
                     "direct export address is outside the materialized image",
                 ));
             }
+        }
+    }
+    Ok(())
+}
+
+fn validate_resource_addresses(
+    resources: &Option<ResourceDirectoryPlan>,
+    materialization: &ImageMaterialization,
+) -> Result<(), RuntimeModuleImageError> {
+    let Some(resources) = resources else {
+        return Ok(());
+    };
+    for entry in &resources.entries {
+        let start = materialization
+            .load_base
+            .0
+            .checked_add(entry.data_rva.0)
+            .ok_or_else(|| {
+                RuntimeModuleImageError::invalid_input(
+                    "module-resource-address-overflow",
+                    "load base plus resource data RVA overflowed x86 accounting",
+                )
+            })?;
+        let end = u64::from(start) + u64::from(entry.size);
+        if start < materialization.layout.image_range.start().0
+            || end > materialization.layout.image_range.end()
+        {
+            return Err(RuntimeModuleImageError::invalid_input(
+                "module-resource-outside-image",
+                "resource data range is outside its materialized image",
+            ));
         }
     }
     Ok(())

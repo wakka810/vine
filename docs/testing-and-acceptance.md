@@ -576,6 +576,18 @@ Chrome same timer snapshot／memory／`LoadIconA` stop、clean cancel／watchdog
 process teardown boundaryを変更するため3分benchmarkを再実行し、17 thresholds全通過を要求する。
 詳細は[bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。
 
+Reached `LoadIconA`のrepresentative loader contractはSHA-256固定のpublic PE32 fixtureから
+type／name／language resource treeとfour leavesをbounded parseし、UTF-16 name、malformed offset／
+directory band／duplicate identity／count limitを検査する。Mapped-module contractはload-base lookup、
+catalog leaf range、duplicate registration、failure atomicityを固定する。
+
+User32 dispatcher contractはinteger resource 101からexact 32×32／highest-bpp DIBを選び、logical
+HICON `0x49010001`、success LastError 0、guest write zero、same-resource identity reuse、process teardownを
+検査する。Missing resource／invalid module／malformed DIB／system icon／string name／PNG variantは
+mutation前に具体的failureとなる。Primary evidenceはtwo balanced native traces、BGI caller／consumer、
+Node／Chrome same icon snapshot／memory／`LoadCursorA` stop、clean cancel／watchdogを要求する。
+詳細は[bgi-load-icon-a.md](bgi-load-icon-a.md)を正とする。
+
 Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
 implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、
 Node／Chrome semantic outcome、Rust／LLVM／v86 identity、next structured stop、memory digest、

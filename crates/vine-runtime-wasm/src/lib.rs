@@ -380,7 +380,7 @@ impl BrowserRuntime {
         let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
         let mut process =
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v2();
+        let user32_policy = User32CompatibilityPolicy::controlled_v3();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -977,6 +977,12 @@ impl BrowserRuntime {
                                     RuntimeObjectKind::WaitableTimer,
                                 ).map_err(error_string)?,
                             });
+                        }
+                        if completion.implementation_id == "user32.load-icon-a.v1"
+                            && let RegisterUpdate::Set(handle) = completion.eax
+                        {
+                            metadata["icon"] =
+                                json!(self.runtime.icon(handle).map_err(error_string)?);
                         }
                         if completion.implementation_id == "ole32.co-initialize.v1" {
                             metadata["comApartment"] = json!(

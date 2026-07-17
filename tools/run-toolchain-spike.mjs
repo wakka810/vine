@@ -141,6 +141,51 @@ const parseCoffImports = (inspection) => {
   return imports;
 };
 
+const buildDibIcon = (dimension, [red, green, blue]) => {
+  const xorBytes = dimension * dimension * 4;
+  const maskStride = Math.ceil(dimension / 32) * 4;
+  const maskBytes = maskStride * dimension;
+  const header = Buffer.alloc(40);
+  header.writeUInt32LE(40, 0);
+  header.writeInt32LE(dimension, 4);
+  header.writeInt32LE(dimension * 2, 8);
+  header.writeUInt16LE(1, 12);
+  header.writeUInt16LE(32, 14);
+  header.writeUInt32LE(xorBytes, 20);
+  const pixels = Buffer.alloc(xorBytes);
+  for (let offset = 0; offset < pixels.length; offset += 4) {
+    pixels[offset] = blue;
+    pixels[offset + 1] = green;
+    pixels[offset + 2] = red;
+    pixels[offset + 3] = 0xff;
+  }
+  return Buffer.concat([header, pixels, Buffer.alloc(maskBytes)]);
+};
+
+const buildIconFile = () => {
+  const images = [
+    { dimension: 48, bytes: buildDibIcon(48, [0x44, 0x88, 0xcc]) },
+    { dimension: 32, bytes: buildDibIcon(32, [0x22, 0x66, 0xaa]) },
+    { dimension: 16, bytes: buildDibIcon(16, [0x11, 0x55, 0x99]) },
+  ];
+  const directoryBytes = 6 + images.length * 16;
+  const directory = Buffer.alloc(directoryBytes);
+  directory.writeUInt16LE(1, 2);
+  directory.writeUInt16LE(images.length, 4);
+  let imageOffset = directoryBytes;
+  images.forEach((image, index) => {
+    const offset = 6 + index * 16;
+    directory[offset] = image.dimension;
+    directory[offset + 1] = image.dimension;
+    directory.writeUInt16LE(1, offset + 4);
+    directory.writeUInt16LE(32, offset + 6);
+    directory.writeUInt32LE(image.bytes.length, offset + 8);
+    directory.writeUInt32LE(imageOffset, offset + 12);
+    imageOffset += image.bytes.length;
+  });
+  return Buffer.concat([directory, ...images.map(({ bytes }) => bytes)]);
+};
+
 fs.rmSync(outputDirectory, { recursive: true, force: true });
 fs.mkdirSync(outputDirectory, { recursive: true });
 
@@ -222,6 +267,17 @@ const windowFixtureDirectory = path.join(
 );
 const windowObject = path.join(outputDirectory, "fixture-window.obj");
 const windowExe = path.join(outputDirectory, "window-pixel.exe");
+const iconFixtureDirectory = path.join(
+  root,
+  "fixtures",
+  "pe32",
+  "icon-resource",
+);
+const iconObject = path.join(outputDirectory, "fixture-icon.obj");
+const iconFile = path.join(outputDirectory, "icon-resource.ico");
+const iconResourceScript = path.join(outputDirectory, "icon-resource.rc");
+const iconResource = path.join(outputDirectory, "icon-resource.res");
+const iconExe = path.join(outputDirectory, "icon-resource.exe");
 const memoryFixtureDirectory = path.join(
   root,
   "fixtures",
@@ -322,6 +378,10 @@ compilePeObject(
 compilePeObject(
   path.join(windowFixtureDirectory, "fixture-window.c"),
   windowObject,
+);
+compilePeObject(
+  path.join(iconFixtureDirectory, "fixture-icon.c"),
+  iconObject,
 );
 compilePeObject(
   path.join(memoryFixtureDirectory, "fixture-memory.c"),
@@ -491,6 +551,28 @@ run("lld-link", [
   ...windowImportLibraries.map(({ library }) => library),
 ]);
 
+fs.writeFileSync(iconFile, buildIconFile());
+const iconFileForResourceScript = path
+  .relative(root, iconFile)
+  .replaceAll("\\", "/");
+fs.writeFileSync(
+  iconResourceScript,
+  `LANGUAGE 0x11, 0x1\n101 ICON "${iconFileForResourceScript}"\n`,
+);
+run("llvm-rc", ["/nologo", `/fo${iconResource}`, iconResourceScript]);
+run("lld-link", [
+  "/nodefaultlib",
+  "/machine:x86",
+  "/subsystem:windows,6.0",
+  "/entry:fixture_entry",
+  "/dynamicbase",
+  "/nxcompat",
+  "/timestamp:0",
+  `/out:${iconExe}`,
+  iconObject,
+  iconResource,
+]);
+
 run("lld-link", [
   "/nodefaultlib",
   "/machine:x86",
@@ -625,6 +707,12 @@ const windowInspection = run("llvm-readobj", [
   "--file-headers",
   "--coff-imports",
   windowExe,
+]);
+const iconInspection = run("llvm-readobj", [
+  "--file-headers",
+  "--coff-imports",
+  "--coff-resources",
+  iconExe,
 ]);
 const memoryInspection = run("llvm-readobj", [
   "--file-headers",
@@ -769,6 +857,24 @@ for (const expected of [
 for (const expected of [
   "Format: COFF-i386",
   "Machine: IMAGE_FILE_MACHINE_I386",
+  "Total Number of Resources: 4",
+  "Type: ICON (ID 3)",
+  "Type: GROUP_ICON (ID 14)",
+  "Name: (ID 101)",
+  "Language: (ID 1041)",
+  "DataSize: 48",
+]) {
+  if (!iconInspection.includes(expected)) {
+    throw new Error(`icon resource inspection is missing: ${expected}`);
+  }
+}
+if (parseCoffImports(iconInspection).length !== 0) {
+  throw new Error("icon resource fixture must remain import-free");
+}
+
+for (const expected of [
+  "Format: COFF-i386",
+  "Machine: IMAGE_FILE_MACHINE_I386",
   "Name: fixture_entry",
   "Name: fixture_peb",
   "Name: fixture_teb",
@@ -892,6 +998,10 @@ const report = {
     windowPixelImports,
     windowPixelExpectedEvents: ["WM_CREATE", "WM_PAINT", "WM_DESTROY"],
     windowPixelNativeExitCode,
+    iconResourceFormat: "PE32/i386",
+    iconResourceGroupId: 101,
+    iconResourceLanguageId: 1041,
+    iconResourceDimensions: [48, 32, 16],
     highMemoryFormat: "PE32/i386",
     highMemoryImageBase: "0xf1000000",
     highMemoryNativeExecution: "not-run",
@@ -939,6 +1049,7 @@ const report = {
     lifecycleCodecLibrary,
     lifecycleKernel32Library,
     windowExe,
+    iconExe,
     memoryExe,
     bootstrapExe,
     bootstrapParamsExe,

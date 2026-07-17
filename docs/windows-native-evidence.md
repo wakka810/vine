@@ -2643,3 +2643,26 @@ stopする。Memory SHA-256は
 `de0f2de11612c4792c7f87daa195c3a0b95d519069eefa7f93edc959cd4ce26a`である。Lifecycle boundary
 変更後の3分gateは267 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。
+
+## 97. BGI module icon loading
+
+Focused `load-icon-a` capturesは285,147 bytes／779 lines／SHA-256
+`668a89b250c796eadce88ea8eec767220c8671b4a63b541327ad6969bdc8c49d`と
+2,257,599 bytes／6,952 lines／SHA-256
+`7b6fdc36e757566b7bb71cbfa21960e3b7297c5b2ee413ff7abfa25f5252a098`
+である。354／3,438 API pairsはbalancedでdiagnosticsはzeroである。
+
+Guarded x86 oracleはmain moduleのinteger resource 101を2回loadし、同じnon-NULL HICON、
+success LastError 0を返す。`GetIconInfo`のcolor bitmapは32×32、1 plane、32 bppで、large／small
+system metricsは32×32／16×16だった。Missing ID 65,535はNULL／LastError 1,813である。
+
+BGI return RVAは`0x67CF3`／`0x67D7C`で、両resultは`WNDCLASSEXA.hIcon`へ入り、
+`hIconSm`はNULLである。Resource treeの`RT_GROUP_ICON` 101／language 1,041は
+256／48／32／16-pixel entriesを持ち、Windowsは4,264-byte `RT_ICON` 3の32-pixel DIBを選ぶ。
+Rust policyもこのexact 32×32 variantを選ぶが、native HICON／bitmap handleはimportしない。
+
+Nodeは60 contracts／1,339 calls、generation 1,459まで進み、Chromeもsame ordered icon
+metadata／memory digestを再現する。Instruction 49,949で
+`LoadCursorA(NULL,IDC_ARROW)`へstructured stopする。3分gateは254 sessions／failure 0で
+17 thresholdsを通した。詳細は
+[bgi-load-icon-a.md](bgi-load-icon-a.md)を正とする。

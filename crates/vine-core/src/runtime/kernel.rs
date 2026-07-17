@@ -18,7 +18,7 @@ use crate::module_graph::{RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleI
 use crate::module_images::{
     RuntimeModuleImage, RuntimeModuleImageError, RuntimeModuleImageRegistry, RuntimeResolvedExport,
 };
-use crate::pe32::{ExportLookup, LoaderIngressReport};
+use crate::pe32::{ExportLookup, LoaderIngressReport, ResourceIdentifier};
 use crate::snapshot::ModuleIdentity;
 
 use super::address_space::{
@@ -47,7 +47,7 @@ use super::modules::{
     RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDllLifecyclePlan,
     RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportBindingPlan, RuntimeModule,
     RuntimeModuleDependencyEdge, RuntimeModuleRecords, RuntimeModules, RuntimeSystemExportTable,
-    runtime_module_image_state_error,
+    runtime_module_image_error, runtime_module_image_state_error,
 };
 use super::objects::{
     RuntimeCloseHandleObjectMutationPlan, RuntimeHandle, RuntimeHandleEntry, RuntimeObjectId,
@@ -86,6 +86,9 @@ use super::timers::{
     RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
     RuntimeTimerResolutionState, RuntimeTimerResolutionTeardownPlan, RuntimeTimers,
     RuntimeWaitableTimer, RuntimeWaitableTimerId, RuntimeWaitableTimerRetirementPlan,
+};
+use super::user32::{
+    RuntimeIcon, RuntimeIconId, RuntimeIconResource, RuntimeLoadIconAResult, RuntimeUser32,
 };
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
@@ -179,6 +182,7 @@ pub struct RuntimeKernel {
     messages: RuntimeMessages,
     displays: RuntimeDisplays,
     input: RuntimeInput,
+    user32: RuntimeUser32,
     timers: RuntimeTimers,
     objects: RuntimeObjectTable,
     com: RuntimeCom,
@@ -264,6 +268,8 @@ struct RuntimeStateSnapshot<'a> {
     messages: &'a RuntimeMessages,
     displays: &'a RuntimeDisplays,
     input: &'a RuntimeInput,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user32: Option<&'a RuntimeUser32>,
     objects: &'a RuntimeObjectTable,
     #[serde(skip_serializing_if = "Option::is_none")]
     com: Option<&'a RuntimeCom>,
@@ -304,6 +310,7 @@ impl Serialize for RuntimeKernel {
             messages: &self.messages,
             displays: &self.displays,
             input: &self.input,
+            user32: (!self.user32.is_empty()).then_some(&self.user32),
             objects: &self.objects,
             com: (!self.com.is_empty()).then_some(&self.com),
             modules: &self.modules,
@@ -399,6 +406,7 @@ impl RuntimeKernel {
             messages: RuntimeMessages::new(bootstrap.initial_thread_id),
             displays: RuntimeDisplays::default(),
             input: RuntimeInput::default(),
+            user32: RuntimeUser32::default(),
             timers: RuntimeTimers::default(),
             objects,
             com: RuntimeCom::default(),
@@ -1076,6 +1084,13 @@ impl RuntimeKernel {
         symbol: ExportLookup,
     ) -> Result<RuntimeResolvedExport, RuntimeModuleImageError> {
         self.modules.resolve(module, symbol)
+    }
+
+    pub fn module_image_by_load_base(
+        &self,
+        load_base: GuestAddress,
+    ) -> Result<&RuntimeModuleImage, RuntimeModuleImageError> {
+        self.modules.images().image_by_load_base(load_base)
     }
 
     pub(crate) fn register_module_image(
@@ -2311,6 +2326,109 @@ impl RuntimeKernel {
             .waitable_timer(RuntimeWaitableTimerId(*timer_id))
     }
 
+    pub fn load_shared_icon(
+        &mut self,
+        resource: RuntimeIconResource,
+    ) -> Result<RuntimeLoadIconAResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let image = self
+            .modules
+            .images()
+            .image(resource.module_id)
+            .map_err(runtime_module_image_error)?;
+        if image.load_base != resource.module_load_base
+            || image.source.sha256 != resource.module_source_sha256
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "icon-module-identity-mismatch",
+                "shared icon resource does not match its registered module image",
+            ));
+        }
+        let resources = image.resources.as_ref().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-user32",
+                "icon-module-resource-catalog-missing",
+                "registered module image has no PE resource catalog",
+            )
+        })?;
+        let language_matches =
+            |entry: &&crate::pe32::ResourceDataEntryPlan, type_id, name_id, rva, size| {
+                matches!(
+                    &entry.resource_type,
+                    ResourceIdentifier::Id { id } if *id == type_id
+                ) && matches!(&entry.name, ResourceIdentifier::Id { id } if *id == name_id)
+                    && matches!(
+                        &entry.language,
+                        ResourceIdentifier::Id { id } if *id == resource.language_id
+                    )
+                    && entry.data_rva == rva
+                    && entry.size == size
+            };
+        if resources
+            .entries
+            .iter()
+            .filter(|entry| {
+                language_matches(
+                    entry,
+                    14,
+                    resource.group_resource_id,
+                    resource.group_data_rva,
+                    resource.group_data_size,
+                )
+            })
+            .count()
+            != 1
+            || resources
+                .entries
+                .iter()
+                .filter(|entry| {
+                    language_matches(
+                        entry,
+                        3,
+                        resource.icon_resource_id,
+                        resource.icon_data_rva,
+                        resource.icon_data_size,
+                    )
+                })
+                .count()
+                != 1
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "icon-resource-catalog-mismatch",
+                "shared icon resource does not match unique group-icon and icon catalog entries",
+            ));
+        }
+        let plan = self.user32.plan_shared_icon_load(resource)?;
+        self.user32.commit_shared_icon_load(plan)
+    }
+
+    pub fn icon(&self, handle: u32) -> Result<&RuntimeIcon, RuntimeStateError> {
+        self.user32.icon(handle)
+    }
+
+    pub fn icons(&self) -> &BTreeMap<RuntimeIconId, RuntimeIcon> {
+        self.user32.icons()
+    }
+
+    fn require_user32_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "user32-operation-state-invalid",
+                "User32 resource operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
+    }
+
     fn require_waitable_timer_operation_state(&self) -> Result<(), RuntimeStateError> {
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
@@ -2837,8 +2955,15 @@ impl RuntimeKernel {
             ));
         }
         let payload_teardown = self.plan_payload_object_teardown()?;
+        let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
+        if let Some(user32_plan) = user32_teardown.as_ref() {
+            self.user32.preflight_process_teardown(user32_plan)?;
+        }
         self.commit_payload_object_teardown(payload_teardown)?;
+        if let Some(user32_plan) = user32_teardown {
+            self.user32.commit_process_teardown(user32_plan);
+        }
         self.objects.commit_wait_state_updates(wait_updates);
         for completion in completions {
             self.commit_thread_exit_completion(completion);
@@ -2903,11 +3028,18 @@ impl RuntimeKernel {
             ));
         }
         let payload_teardown = self.plan_payload_object_teardown()?;
+        let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(timer_plan) = plan.timer_resolution_teardown.as_ref() {
             self.timers.preflight_process_teardown(timer_plan)?;
         }
+        if let Some(user32_plan) = user32_teardown.as_ref() {
+            self.user32.preflight_process_teardown(user32_plan)?;
+        }
         self.commit_payload_object_teardown(payload_teardown)?;
+        if let Some(user32_plan) = user32_teardown {
+            self.user32.commit_process_teardown(user32_plan);
+        }
         let cancellation = plan.cancellation.clone();
         if let Some(timer_plan) = plan.timer_resolution_teardown {
             self.timers.commit_process_teardown(timer_plan)?;
