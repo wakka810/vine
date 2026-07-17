@@ -82,6 +82,18 @@ export interface RuntimeIconSnapshot {
   };
 }
 
+export interface RuntimeCursorSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  shared: boolean;
+  source: {
+    kind: "system-predefined";
+    resourceId: number;
+    cursor: "arrow";
+  };
+}
+
 export interface RuntimeComApartmentSnapshot {
   model: "single-threaded" | "multi-threaded";
   initializationCount: number;
@@ -234,6 +246,7 @@ export interface SessionReport {
     mutex?: RuntimeMutexSnapshot;
     waitableTimer?: RuntimeWaitableTimerSnapshot;
     icon?: RuntimeIconSnapshot;
+    cursor?: RuntimeCursorSnapshot;
     comApartment?: RuntimeComApartmentSnapshot;
   }>;
   firstUnsupported: {

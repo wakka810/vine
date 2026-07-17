@@ -35,6 +35,7 @@ const supportedObservations = new Set([
   "create-mutex-a",
   "create-waitable-timer-a",
   "load-icon-a",
+  "load-cursor-a",
   "get-string-type-w",
   "lc-map-string-w",
   "get-last-error",

@@ -550,6 +550,13 @@ logical HICON namespace、resource／handle index、generationをprivateに所�
 関連付ける場合もassociationはnon-owningであり、native HICON、GDI handle、DOM image IDをlogical
 HICONとして流用しない。Size／language／format selectionはversioned User32 policyに置く。
 
+System cursorも同じUser32 ownerの別identity namespaceに置く。`RuntimeUser32`はcursor source、
+monotonic cursor ID、logical HCURSOR、source／handle indexをprivateに所有するが、icon ID／handleと
+相互代用しない。Shared predefined cursorのrepeatはidentityを再利用し、icon／cursorを含むprocess
+teardownを一つのstale-checked lifecycle planでretireする。Cursor kind selectionはversioned policy、
+CSS cursor／DOM input／browser bitmapとのassociationは明示的なnon-owning adapter stateとし、native
+HCURSORやbrowser resource IDをguest-visible identityへimportしない。
+
 - Runtime Worker が window tree、z-order、focus、capture、invalid region を所有する
 - Main thread は DOM event を timestamp 付きで normalized input event にする
 - User32 layer が virtual key、scan code、mouse coordinate、message sequence へ変換する

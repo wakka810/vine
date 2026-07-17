@@ -88,7 +88,8 @@ use super::timers::{
     RuntimeWaitableTimer, RuntimeWaitableTimerId, RuntimeWaitableTimerRetirementPlan,
 };
 use super::user32::{
-    RuntimeIcon, RuntimeIconId, RuntimeIconResource, RuntimeLoadIconAResult, RuntimeUser32,
+    RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon, RuntimeIconId,
+    RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult, RuntimeUser32,
 };
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
@@ -2410,6 +2411,23 @@ impl RuntimeKernel {
 
     pub fn icons(&self) -> &BTreeMap<RuntimeIconId, RuntimeIcon> {
         self.user32.icons()
+    }
+
+    pub(crate) fn load_shared_system_cursor(
+        &mut self,
+        source: RuntimeCursorSource,
+    ) -> Result<RuntimeLoadCursorAResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self.user32.plan_shared_system_cursor_load(source)?;
+        self.user32.commit_shared_system_cursor_load(plan)
+    }
+
+    pub fn cursor(&self, handle: u32) -> Result<&RuntimeCursor, RuntimeStateError> {
+        self.user32.cursor(handle)
+    }
+
+    pub fn cursors(&self) -> &BTreeMap<RuntimeCursorId, RuntimeCursor> {
+        self.user32.cursors()
     }
 
     fn require_user32_operation_state(&self) -> Result<(), RuntimeStateError> {

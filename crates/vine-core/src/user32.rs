@@ -11,14 +11,16 @@ use crate::api::{
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::pe32::{ResourceDataEntryPlan, ResourceIdentifier};
 use crate::runtime::{
-    RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile, RuntimeRect,
+    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RuntimeCursorSource, RuntimeDisplayProfile,
+    RuntimeIconResource, RuntimeInputProfile, RuntimeRect, RuntimeSystemCursorKind,
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 3;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 4;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
+pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 
 const RT_ICON: u32 = 3;
 const RT_GROUP_ICON: u32 = 14;
@@ -26,6 +28,7 @@ const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_RESOURCE_DATA_NOT_FOUND: u32 = 1812;
 const ERROR_RESOURCE_TYPE_NOT_FOUND: u32 = 1813;
+const ERROR_RESOURCE_NAME_NOT_FOUND: u32 = 1814;
 const ERROR_RESOURCE_LANG_NOT_FOUND: u32 = 1815;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -39,6 +42,13 @@ pub struct User32LoadIconAPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct User32LoadCursorAPolicy {
+    pub profile_id: String,
+    pub arrow_resource_id: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct User32CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -46,14 +56,15 @@ pub struct User32CompatibilityPolicy {
     pub enum_display_monitors: Option<RuntimeDisplayProfile>,
     pub swap_mouse_button: Option<RuntimeInputProfile>,
     pub load_icon_a: Option<User32LoadIconAPolicy>,
+    pub load_cursor_a: Option<User32LoadCursorAPolicy>,
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v3() -> Self {
+    pub fn controlled_v4() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-module-icon-v3".to_owned(),
+            id: "user32-single-monitor-normal-mouse-icon-cursor-v4".to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
                 primary_monitor_rect: RuntimeRect {
@@ -72,6 +83,10 @@ impl User32CompatibilityPolicy {
                 target_width: 32,
                 target_height: 32,
                 maximum_group_entries: 64,
+            }),
+            load_cursor_a: Some(User32LoadCursorAPolicy {
+                profile_id: "system-arrow-shared-cursor-v1".to_owned(),
+                arrow_resource_id: RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
             }),
         }
     }
@@ -137,6 +152,16 @@ impl User32CompatibilityPolicy {
                 "User32 module icon profile requires bounded target dimensions and group entries",
             ));
         }
+        if let Some(profile) = self.load_cursor_a.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.arrow_resource_id != RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID)
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-load-cursor-profile-invalid",
+                "User32 system cursor profile requires the predefined arrow identity",
+            ));
+        }
         Ok(())
     }
 
@@ -173,6 +198,12 @@ pub fn dispatch_user32_api_with_policy(
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
+        LOAD_CURSOR_A_IMPLEMENTATION => {
+            match handle_load_cursor_a(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
         implementation_id => ApiHandlerResult::Fault(ApiFault::unsupported(
             "user32-api-dispatch",
             "implementation-id-unsupported",
@@ -377,6 +408,62 @@ fn handle_load_icon_a(
     Ok(ApiImmediate::new(ApiReturnValue::U32(result.handle)).with_last_error(ERROR_SUCCESS))
 }
 
+fn handle_load_cursor_a(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let cursor_policy = policy.load_cursor_a.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-cursors",
+            "load-cursor-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable system cursor loading",
+                policy.id
+            ),
+        )
+    })?;
+    let instance = required_argument(contract, frame, 0, "module instance")?;
+    let cursor_name = required_argument(contract, frame, 1, "cursor resource name")?;
+    if instance != 0 {
+        return Err(ApiFault::unsupported(
+            "user32-cursors",
+            "load-cursor-a-module-resource-unsupported",
+            "LoadCursorA currently supports the predefined system arrow, not module cursors",
+        ));
+    }
+    if cursor_name > u32::from(u16::MAX) {
+        return Err(ApiFault::unsupported(
+            "user32-cursors",
+            "load-cursor-a-string-resource-unsupported",
+            "LoadCursorA currently supports only a predefined integer system cursor",
+        ));
+    }
+    if cursor_name != cursor_policy.arrow_resource_id {
+        if cursor_name == u32::from(u16::MAX) {
+            return Ok(load_cursor_failure(ERROR_RESOURCE_NAME_NOT_FOUND));
+        }
+        return Err(ApiFault::unsupported(
+            "user32-cursors",
+            "load-cursor-a-predefined-variant-unsupported",
+            "LoadCursorA currently supports only IDC_ARROW from the controlled policy",
+        ));
+    }
+
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let result = session
+        .runtime_mut()
+        .load_shared_system_cursor(RuntimeCursorSource::SystemPredefined {
+            resource_id: cursor_name,
+            cursor: RuntimeSystemCursorKind::Arrow,
+        })
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(result.handle)).with_last_error(preserved_last_error))
+}
+
 fn integer_language_id(entry: &ResourceDataEntryPlan) -> Option<u32> {
     match &entry.language {
         ResourceIdentifier::Id { id } => Some(*id),
@@ -480,6 +567,10 @@ fn validate_selected_icon_dib(header: &[u8], selected: &SelectedGroupIcon, data_
 }
 
 fn load_icon_failure(last_error: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(last_error)
+}
+
+fn load_cursor_failure(last_error: u32) -> ApiImmediate {
     ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(last_error)
 }
 
@@ -592,6 +683,7 @@ pub fn user32_contract_for_endpoint(
         "EnumDisplayMonitors" => Ok(Some(enum_display_monitors_contract(endpoint)?)),
         "SwapMouseButton" => Ok(Some(swap_mouse_button_contract(endpoint)?)),
         "LoadIconA" => Ok(Some(load_icon_a_contract(endpoint)?)),
+        "LoadCursorA" => Ok(Some(load_cursor_a_contract(endpoint)?)),
         _ => Ok(None),
     }
 }
@@ -652,6 +744,23 @@ pub fn load_icon_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: LOAD_ICON_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn load_cursor_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![u32_argument("instance"), u32_argument("cursorName")],
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: LOAD_CURSOR_A_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -720,7 +829,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v3();
+        let policy = User32CompatibilityPolicy::controlled_v4();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -738,14 +847,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v3();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v4();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v3();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v4();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -754,6 +863,17 @@ mod tests {
         assert_eq!(
             invalid_icon.validate().unwrap_err().code,
             "user32-load-icon-profile-invalid"
+        );
+
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v4();
+        invalid_cursor
+            .load_cursor_a
+            .as_mut()
+            .unwrap()
+            .arrow_resource_id = 0x7f01;
+        assert_eq!(
+            invalid_cursor.validate().unwrap_err().code,
+            "user32-load-cursor-profile-invalid"
         );
     }
 }

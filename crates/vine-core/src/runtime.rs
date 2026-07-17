@@ -108,8 +108,11 @@ pub use timers::{
     RuntimeWaitableTimerId,
 };
 pub use user32::{
-    LOGICAL_ICON_HANDLE_NAMESPACE, RUNTIME_ICON_HANDLE_BASE, RUNTIME_SHARED_ICON_LIMIT,
-    RuntimeIcon, RuntimeIconId, RuntimeIconResource, RuntimeLoadIconAResult,
+    LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE, RUNTIME_CURSOR_HANDLE_BASE,
+    RUNTIME_ICON_HANDLE_BASE, RUNTIME_SHARED_CURSOR_LIMIT, RUNTIME_SHARED_ICON_LIMIT,
+    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource,
+    RuntimeIcon, RuntimeIconId, RuntimeIconResource, RuntimeLoadCursorAResult,
+    RuntimeLoadIconAResult, RuntimeSystemCursorKind,
 };
 pub use waits::{
     RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,

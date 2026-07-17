@@ -149,6 +149,7 @@ enum GenericRuntimeCapability {
     GetVersionExA,
     CreateWaitableTimerA,
     LoadIconA,
+    LoadCursorA,
 }
 
 struct GenericRuntimeProcess {
@@ -324,6 +325,8 @@ struct GenericRuntimeCompletion {
     waitable_timer: Option<GenericRuntimeWaitableTimer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     icon: Option<vine_core::RuntimeIcon>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cursor: Option<vine_core::RuntimeCursor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2738,12 +2741,12 @@ fn run_v86_generic_runtime_session(
 ) -> Result<(), LoaderError> {
     let requested_capability = enabled_capability;
     let endpoint_capability = match enabled_capability {
-        Some(GenericRuntimeCapability::LoadIconA) => {
+        Some(GenericRuntimeCapability::LoadIconA | GenericRuntimeCapability::LoadCursorA) => {
             Some(GenericRuntimeCapability::CreateWaitableTimerA)
         }
         capability => capability,
     };
-    let user32_policy = User32CompatibilityPolicy::controlled_v3();
+    let user32_policy = User32CompatibilityPolicy::controlled_v4();
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
@@ -3210,6 +3213,7 @@ fn run_v86_generic_runtime_session(
                             mutex: None,
                             waitable_timer: None,
                             icon: None,
+                            cursor: None,
                             thread_affinity: None,
                             tick_count: None,
                             com_apartment: None,
@@ -3555,6 +3559,24 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let cursor = if completion.implementation_id == "user32.load-cursor-a.v1" {
+                            let RegisterUpdate::Set(handle) = completion.eax else {
+                                return Err(LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "load-cursor-handle-result-invalid",
+                                    "LoadCursorA completion did not set a logical HCURSOR",
+                                ));
+                            };
+                            Some(
+                                session
+                                    .runtime()
+                                    .cursor(handle)
+                                    .map_err(runtime_state_error)?
+                                    .clone(),
+                            )
+                        } else {
+                            None
+                        };
                         let thread_affinity = if completion.implementation_id
                             == "kernel32.set-thread-affinity-mask.v1"
                         {
@@ -3632,6 +3654,7 @@ fn run_v86_generic_runtime_session(
                                 mutex,
                                 waitable_timer,
                                 icon,
+                                cursor,
                                 thread_affinity,
                                 tick_count,
                                 com_apartment,
@@ -3794,6 +3817,7 @@ fn run_v86_generic_runtime_session(
                                 mutex: None,
                                 waitable_timer: None,
                                 icon: None,
+                                cursor: None,
                                 thread_affinity: None,
                                 tick_count: None,
                                 com_apartment: None,
@@ -3837,7 +3861,9 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let load_icon_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::LoadIconA));
+    let load_cursor_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::LoadCursorA));
+    let load_icon_a_enabled =
+        load_cursor_a_enabled || matches!(enabled, Some(GenericRuntimeCapability::LoadIconA));
     let enabled = if load_icon_a_enabled {
         Some(GenericRuntimeCapability::CreateWaitableTimerA)
     } else {
@@ -4278,6 +4304,7 @@ fn runtime_capability_enables_endpoint(
         "GetVersionExA" => get_version_ex_a_enabled,
         "CreateWaitableTimerA" => create_waitable_timer_a_enabled,
         "LoadIconA" => load_icon_a_enabled,
+        "LoadCursorA" => load_cursor_a_enabled,
         _ => true,
     }
 }
@@ -4286,7 +4313,10 @@ fn runtime_capability_enables_dynamic_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &RuntimeDynamicEndpoint,
 ) -> bool {
-    let enabled = if matches!(enabled, Some(GenericRuntimeCapability::LoadIconA)) {
+    let enabled = if matches!(
+        enabled,
+        Some(GenericRuntimeCapability::LoadIconA | GenericRuntimeCapability::LoadCursorA)
+    ) {
         Some(GenericRuntimeCapability::CreateWaitableTimerA)
     } else {
         enabled
@@ -9788,6 +9818,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::CreateWaitableTimerA
                 }
                 "user32-load-icon-a" => GenericRuntimeCapability::LoadIconA,
+                "user32-load-cursor-a" => GenericRuntimeCapability::LoadCursorA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

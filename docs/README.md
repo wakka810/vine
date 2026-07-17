@@ -110,6 +110,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-heap-size.md](bgi-heap-size.md) | private-heap sizeをどのauthorityから返すか | exact live allocation、requested size、InitializeCriticalSection stop |
 | [bgi-initialize-critical-section.md](bgi-initialize-critical-section.md) | one-argument critical sectionをどう初期化するか | native 24-byte state、VOID ABI、versioned raw-field policy、initial stack-growth fault |
 | [bgi-load-icon-a.md](bgi-load-icon-a.md) | module iconをどう選択・所有するか | bounded PE resources、shared logical HICON、native／Node／Chrome evidence |
+| [bgi-load-cursor-a.md](bgi-load-cursor-a.md) | system cursor identityをどこで所有するか | shared logical HCURSOR、LastError preserve、process teardown、native／Node／Chrome evidence |
 | [browser-runtime-worker.md](browser-runtime-worker.md) | Chrome内でruntime全経路をどこまで通せるか | Worker guest CPU、async completion、nested callback、pixel／audio／storage、cancel／watchdog、30分stress |
 | [bgi-browser-worker.md](bgi-browser-worker.md) | current BGI sessionをChromeへ移せたか | Rust/Wasm authority、Node semantic oracle、memory digest、heartbeat、cancel／watchdog |
 | [bgi-browser-benchmark.md](bgi-browser-benchmark.md) | BGI Browser workloadの性能／memoryはgate内か | 3分反復、session／slice分布、main／Worker heap slope、linear memory、Wasm crossing |

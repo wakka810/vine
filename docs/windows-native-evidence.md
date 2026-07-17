@@ -2666,3 +2666,30 @@ metadata／memory digestを再現する。Instruction 49,949で
 `LoadCursorA(NULL,IDC_ARROW)`へstructured stopする。3分gateは254 sessions／failure 0で
 17 thresholdsを通した。詳細は
 [bgi-load-icon-a.md](bgi-load-icon-a.md)を正とする。
+
+## 98. BGI system arrow cursor loading
+
+Focused `load-cursor-a` capturesは333,790 bytes／806 lines／SHA-256
+`252195f84e3d3d7e24d8f34b5531d248e738a7600ca9c2b1241663d31fb21382`と
+333,385 bytes／805 lines／SHA-256
+`30d6ec4272b6700a7d481276205ce25cbce7527e5ba22ff5820024a7c1cc844c`
+である。367／366 API pairsはbalancedでdiagnosticsはzeroである。
+
+Guarded x86 oracleは`LoadCursorA(NULL,IDC_ARROW)`を2回呼び、同じnon-NULL HCURSORを返し、
+seeded success LastErrorを保持する。Cursor system metricsは32×32で、missing predefined ID
+65,535はNULL／LastError 1,814を返す。Hooked result／LastErrorはdirect system callと一致する。
+
+BGIはreturn RVA `0x67D09`／`0x67D8C`／`0x67FD2`でsystem arrowをrequestし、同じnative
+identityを受け取る。RVA `0x67FE1`はmodule resource 106をrequestしてnon-NULLを得る。最初の
+system resultは`WNDCLASSEXA.hCursor`へ入り、直後の`RegisterClassExA`がconsumerとなる。
+Runtimeはcurrent reachで必要な最初の`NULL,IDC_ARROW`だけをpolicy-enableし、native HCURSORは
+importしない。
+
+Nodeは61 contracts／1,340 calls、1,346 writebacks／2,543 dirty pages／9,208 changed bytes、
+85 host deltas、generation 1,460を通す。Chromeもsame ordered cursor metadata／memory digestを再現し、
+6,850 slices、5,504 yields、6,411 Wasm crossings、final generation 3,613、terminal pending work 0を
+通す。Instruction 49,957でID 191／`USER32.dll!RegisterClassExA(0x006FFB08)`へstructured stopする。
+Memory SHA-256は
+`8c580b84b365739f602e1e2c2307b87ecbd605d8bf28a52590e844f203af728f`である。User32 lifetimeと
+Worker payload変更後の3分gateは376 sessions／failure 0で17 thresholdsを通した。詳細は
+[bgi-load-cursor-a.md](bgi-load-cursor-a.md)を正とする。

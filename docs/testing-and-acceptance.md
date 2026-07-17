@@ -588,6 +588,20 @@ mutation前に具体的failureとなる。Primary evidenceはtwo balanced native
 Node／Chrome same icon snapshot／memory／`LoadCursorA` stop、clean cancel／watchdogを要求する。
 詳細は[bgi-load-icon-a.md](bgi-load-icon-a.md)を正とする。
 
+Reached `LoadCursorA`のrepresentative contractはtwo-argument x86 stdcall、U32 HCURSOR、
+handler-owned LastError、guest write zeroを固定する。Version-4 User32 policyは
+`NULL,IDC_ARROW`だけを許可し、success LastError preserve、missing ID 65,535のNULL／1,814を
+検査する。Other predefined、module、string、disabled variantsはmutation前にstructured faultとなる。
+
+Owner model testはcursor ID／logical handle／source index、repeat identity、icon commit後のstale cursor
+plan、capacity、allocator、combined process teardownを検査する。Dispatcher fixtureはlogical
+`0x43010001`、system-arrow metadata、LastError preserve、memory generation不変、teardown後のstale
+handleを固定する。Primary evidenceはtwo balanced native traces、same native shared identity、BGIの
+four callsitesとfirst `WNDCLASSEXA.hCursor` consumer、Node／Chrome same cursor snapshot／memory／
+`RegisterClassExA` stop、clean cancel／watchdogを要求する。User32 lifetimeとWorker payload変更後の
+3分benchmarkは17 thresholds全通過を要求する。詳細は
+[bgi-load-cursor-a.md](bgi-load-cursor-a.md)を正とする。
+
 Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
 implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、
 Node／Chrome semantic outcome、Rust／LLVM／v86 identity、next structured stop、memory digest、
@@ -635,7 +649,9 @@ process-parameters first-stop representative contractはnative command-line self
 
 process-parameters ingress representative contractはfirst-stopと同じimageへ2 typed pagesだけを追加し、PEB pointer、8-byte `UNICODE_STRING`、42 command-line bytesのexact readbackとentry result `0`を要求する。fixed addresses、exact basename、zero-filled unmeasured fieldsをgeneral process parametersやBGI bootstrapの代用にはしない。
 
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
 W2のcreate／invalidation ingress segmentは`GetModuleHandleA(NULL)`とfixed `RegisterClassExA`をstdcall resumeし、fixed `CreateWindowExA`では48-byte argument bandを保持したまま1段のWndProc stdcall callbackを往復する。callback frameはreturn sentinelを含む20 bytesで、WndProcの`ret 16`後にouter ESP `0x006FFFC0`へ戻る。outer service完了時はreturn addressと12 argumentsの52 bytesをpopし、EAX `0x57010001`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x0040109B`とする。fixed `ShowWindow`は2 DWORD argumentsをpopし、previous visibilityのBOOL `0`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x004010AE`でresumeする。fixed `InvalidateRect`は3 DWORD argumentsをpopし、BOOL `1`、ESP `0x006FFFF4`、EIP／PREVIOUS_EIP `0x004010B9`でresumeする。host boundaryのcallee-saved registerとentry prologueのsaved ESI／EDIを保持する。後続のpaint／quit flowはfixed 2-level callbackとfixture entry returnまで通すが、これらをgeneral stdcall、invalid stack、thiscall／fastcall、arbitrary nested callback／reentrant service、callback fault／failure、general process entry lifecycleの代用にはしない。
+<!-- END FROZEN HISTORICAL EVIDENCE -->
 
 最適化 engine は reference path と instruction boundary または basic block boundary の state hash を比較できるようにする。
 

@@ -135,6 +135,13 @@ let loadIconAOracleEvidence = null;
 let loadIconACompletionRecorded = false;
 let loadIconADrainCheckScheduled = false;
 const loadIconAMainModuleCalls = [];
+let loadCursorAOracleScheduled = false;
+let loadCursorAOracleCall = null;
+let loadCursorAOracleComplete = false;
+let loadCursorAOracleEvidence = null;
+let loadCursorACompletionRecorded = false;
+let loadCursorADrainCheckScheduled = false;
+const loadCursorAMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -2758,6 +2765,111 @@ function attachLoadIconAHook(module) {
         });
         scheduleLoadIconAOracle(module);
         setImmediate(maybeCompleteLoadIconAObservation);
+      }
+    },
+  });
+}
+
+function attachLoadCursorAHook(module) {
+  const name = "LoadCursorA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && loadCursorAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.instance = args[0];
+      this.resourceName = args[1];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = loadCursorAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.resource = snapshotResourceNameA(this.resourceName);
+      this.immediateConsumer = isMainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              48,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              6,
+              20,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.instance.toString(), this.resource],
+          lastErrorBefore: this.lastErrorBefore,
+          loadCursorA: {
+            instance: this.instance.toString(),
+            instanceIsNull: this.instance.isNull(),
+            resource: this.resource,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      if (this.oracleCaller) {
+        loadCursorAOracleCall.hookResult = resultValue;
+        loadCursorAOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          loadCursorA: {
+            result: resultValue,
+            resultNonNull: !result.isNull(),
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !loadCursorACompletionRecorded) {
+        loadCursorAMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          instance: this.instance.toString(),
+          instanceIsNull: this.instance.isNull(),
+          resource: this.resource,
+          result: resultValue,
+          resultNonNull: !result.isNull(),
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleLoadCursorAOracle(module);
+        setImmediate(maybeCompleteLoadCursorAObservation);
       }
     },
   });
@@ -7260,6 +7372,153 @@ function scheduleLoadIconAOracle(module) {
   });
 }
 
+function maybeCompleteLoadCursorAObservation() {
+  if (
+    loadCursorACompletionRecorded ||
+    !loadCursorAOracleComplete ||
+    loadCursorAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteLoadCursorAObservation, 10);
+    return;
+  }
+  if (loadCursorADrainCheckScheduled) {
+    return;
+  }
+  loadCursorADrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    loadCursorADrainCheckScheduled = false;
+    if (loadCursorACompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteLoadCursorAObservation();
+      return;
+    }
+    loadCursorACompletionRecorded = true;
+    emit("load-cursor-a-complete", {
+      profile: "x86-bgi-load-cursor-a-v1",
+      oracleProfile: loadCursorAOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: loadCursorAMainModuleCalls.map((call) => ({ ...call })),
+    });
+    if (stopOnEvent === "load-cursor-a-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function scheduleLoadCursorAOracle(module) {
+  if (loadCursorAOracleScheduled) {
+    return;
+  }
+  loadCursorAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const loadCursorAddress = findExport(module, "LoadCursorA");
+      const getSystemMetricsAddress = findExport(module, "GetSystemMetrics");
+      if (loadCursorAddress === null || getSystemMetricsAddress === null) {
+        throw new Error("LoadCursorA oracle exports are unavailable");
+      }
+      const loadCursorA = new SystemFunction(
+        loadCursorAddress,
+        "pointer",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const getSystemMetrics = new NativeFunction(
+        getSystemMetricsAddress,
+        "int32",
+        ["int32"],
+        "stdcall",
+      );
+      const invoke = ({ id, resourceId, sentinel }) => {
+        loadCursorAOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = loadCursorA(ptr(0), ptr(resourceId));
+          const handle = outcome.value;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            loadCursorAOracleCall.hookResult === null ||
+            loadCursorAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("LoadCursorA oracle did not pass through the hook");
+          }
+          return {
+            id,
+            instance: "0x0",
+            resourceId,
+            sentinel,
+            hookResult: loadCursorAOracleCall.hookResult,
+            systemResult: handle.toString(),
+            resultNonNull: !handle.isNull(),
+            hookLastErrorAfter: loadCursorAOracleCall.hookLastErrorAfter,
+            systemLastError,
+            hookResultMatches:
+              loadCursorAOracleCall.hookResult === handle.toString(),
+            hookAndSystemLastErrorMatch:
+              loadCursorAOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          loadCursorAOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "arrow-first",
+          resourceId: 0x7f00,
+          sentinel: 0x11223344,
+        },
+        {
+          id: "arrow-repeated",
+          resourceId: 0x7f00,
+          sentinel: 0x55667788,
+        },
+        {
+          id: "missing-predefined",
+          resourceId: 0xffff,
+          sentinel: 0x7a6b5c4d,
+        },
+      ].map(invoke);
+      const validCalls = calls.slice(0, 2);
+      const missingCall = calls[2];
+      const mainResult = loadCursorAMainModuleCalls[0].result;
+      loadCursorAOracleEvidence = {
+        profile: "x86-system-arrow-cursor-shared-identity-v1",
+        predefinedResourceId: 0x7f00,
+        systemMetrics: {
+          cursorWidth: getSystemMetrics(13),
+          cursorHeight: getSystemMetrics(14),
+        },
+        calls,
+        validCallsSucceeded: validCalls.every((call) => call.resultNonNull),
+        repeatedValidIdentityShared:
+          validCalls[0].systemResult === validCalls[1].systemResult,
+        validIdentityMatchesMainCall: validCalls.every(
+          (call) => call.systemResult === mainResult,
+        ),
+        missingPredefinedRejected: !missingCall.resultNonNull,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      loadCursorAOracleComplete = true;
+      emit("load-cursor-a-oracle", loadCursorAOracleEvidence);
+      maybeCompleteLoadCursorAObservation();
+    } catch (error) {
+      emit("load-cursor-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function maybeCompleteGetVersionExAObservation() {
   if (
     getVersionExACompletionRecorded ||
@@ -9013,6 +9272,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "LoadIconA",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("load-cursor-a")
+    ) {
+      try {
+        attachLoadCursorAHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "LoadCursorA",
           error: error.message,
         });
       }

@@ -106,6 +106,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-get-version-ex-a",
         "kernel32-create-waitable-timer-a",
         "user32-load-icon-a",
+        "user32-load-cursor-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -132,6 +133,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "user32-load-cursor-a" ||
     genericRuntimeCapability === "user32-load-icon-a" ||
     genericRuntimeCapability === "kernel32-create-waitable-timer-a"
       ? "kernel32-create-waitable-timer-a-v1.json"
@@ -246,7 +248,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const loadIconAEnabled = genericRuntimeCapability === "user32-load-icon-a";
+const loadCursorAEnabled = genericRuntimeCapability === "user32-load-cursor-a";
+const loadIconAEnabled =
+  loadCursorAEnabled || genericRuntimeCapability === "user32-load-icon-a";
 const createWaitableTimerAEnabled =
   loadIconAEnabled || genericRuntimeCapability === "kernel32-create-waitable-timer-a";
 const getVersionExAEnabled =
@@ -393,7 +397,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? loadIconAEnabled
+      ? loadCursorAEnabled
+        ? "v86-bgi-load-cursor-a"
+      : loadIconAEnabled
         ? "v86-bgi-load-icon-a"
       : createWaitableTimerAEnabled
         ? "v86-bgi-create-waitable-timer-a"
@@ -4287,6 +4293,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (loadCursorAEnabled) {
+        validateLoadCursorAResult(genericResult);
       } else if (loadIconAEnabled) {
         validateLoadIconAResult(genericResult);
       } else if (createWaitableTimerAEnabled) {
@@ -4398,6 +4406,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : loadCursorAEnabled
+            ? "bgi LoadCursorA"
           : loadIconAEnabled
             ? "bgi LoadIconA"
           : createWaitableTimerAEnabled
@@ -5208,6 +5218,7 @@ function buildGenericCallRecord(
       ? {}
       : { waitableTimer: completionFrame.waitableTimer }),
     ...(completionFrame.icon === undefined ? {} : { icon: completionFrame.icon }),
+    ...(completionFrame.cursor === undefined ? {} : { cursor: completionFrame.cursor }),
     ...(completionFrame.threadAffinity === undefined
       ? {}
       : { threadAffinity: completionFrame.threadAffinity }),
@@ -5245,6 +5256,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : loadCursorAEnabled
+          ? 48
         : loadIconAEnabled
           ? 47
         : createWaitableTimerAEnabled
@@ -5345,7 +5358,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-module-icon-v3",
+      "user32-single-monitor-normal-mouse-icon-cursor-v4",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -9612,6 +9625,76 @@ function validateLoadIconAResult(result) {
   assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 3), [0, 32512]);
 }
 
+function validateLoadCursorAResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.supportedCalls.length, 1340);
+  assert.equal(result.writebacks.length, 1346);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2543,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    9208,
+  );
+  assert.equal(result.hostDeltas.length, 85);
+  assert.equal(result.finalGeneration, 1460);
+  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "LoadCursorA");
+  assert.equal(calls.length, 1);
+  for (const call of calls) {
+    assert.equal(call.sequence, 1340);
+    assert.equal(call.occurrence, 1);
+    assert.equal(call.trapInstructionCount, 49949);
+    assert.deepEqual(call.arguments, [0, 0x7f00]);
+    assert.deepEqual(call.result, { action: "set", value: 0x43010001 });
+    assert.equal(call.implementationId, "user32.load-cursor-a.v1");
+    assert.equal(call.returnAddress, 0x10067d09);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 12);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+    assert.deepEqual(call.cursor, {
+      id: 1,
+      handle: 0x43010001,
+      namespace: "vine.logical-cursor.v1",
+      shared: true,
+      source: {
+        kind: "system-predefined",
+        resourceId: 0x7f00,
+        cursor: "arrow",
+      },
+    });
+  }
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 191);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f000be0);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "RegisterClassExA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d13d4);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "8c580b84b365739f602e1e2c2307b87ecbd605d8bf28a52590e844f203af728f",
+  );
+  assert.equal(result.terminal.instructionCount, 49957);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 191);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f000be0);
+  assert.equal(result.terminal.terminal.thunk.name, "RegisterClassExA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x10067d28);
+  assert.equal(result.terminal.terminal.stackWords[1], 0x006ffb08);
+}
+
 function validateTimeBeginPeriodResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
@@ -10644,6 +10727,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : loadCursorAEnabled
+          ? "vine.v86-bgi-load-cursor-a"
         : loadIconAEnabled
           ? "vine.v86-bgi-load-icon-a"
         : createWaitableTimerAEnabled

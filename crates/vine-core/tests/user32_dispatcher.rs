@@ -9,11 +9,13 @@ use vine_core::{
     LoaderIngressReport, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
     ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressSpaceLayout,
     RUNTIME_PRIMARY_MONITOR_HANDLE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeDisplayProfile,
-    RuntimeInputProfile, RuntimeModule, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, StackCleanup, User32CompatibilityPolicy,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeCursorSource,
+    RuntimeDisplayProfile, RuntimeInputProfile, RuntimeModule, RuntimeProcessId,
+    RuntimeProcessImagePathA, RuntimeRect, RuntimeStartupInfo, RuntimeState,
+    RuntimeSystemCursorKind, RuntimeThreadId, StackCleanup, User32CompatibilityPolicy,
     build_pe32_load_plan, dispatch_user32_api_with_policy, enum_display_monitors_contract,
-    load_icon_a_contract, materialize_pe32_image, swap_mouse_button_contract,
+    load_cursor_a_contract, load_icon_a_contract, materialize_pe32_image,
+    swap_mouse_button_contract,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -29,6 +31,8 @@ const SWAP_FIRST_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a3b);
 const SWAP_SECOND_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a43);
 const SWAP_SECOND_STACK_POINTER: u32 = STACK_POINTER + 0x20;
 const ICON_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0bf0);
+const CURSOR_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0f30);
+const CURSOR_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7d09);
 const ICON_IMAGE_BASE: u32 = 0x0040_0000;
 const ICON_MODULE_HANDLE: u32 = 0x4d01_000f;
 const ICON_FIXTURE_SHA256: &str =
@@ -100,7 +104,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v3();
+        let policy = User32CompatibilityPolicy::controlled_v4();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -191,7 +195,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v3();
+        let mut policy = User32CompatibilityPolicy::controlled_v4();
         policy
             .swap_mouse_button
             .as_mut()
@@ -374,13 +378,108 @@ impl IconFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v3(),
+            policy: User32CompatibilityPolicy::controlled_v4(),
         }
     }
 
     fn dispatch(&mut self, index: u32) -> DispatchOutcome {
         let stack_pointer = GuestAddress(STACK_POINTER + index * 0x20);
         let return_address = GuestAddress(RETURN_ADDRESS.0 + index);
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        self.dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: self.endpoint.id,
+                endpoint_address: self.endpoint.address,
+                stack_pointer,
+                return_address,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_user32_api_with_policy(
+                    &self.policy,
+                    CALLBACK_SENTINEL,
+                    contract,
+                    frame,
+                    session,
+                )
+            },
+        )
+    }
+}
+
+struct CursorFixture {
+    memory: GuestMemory,
+    runtime: RuntimeState,
+    dispatcher: ApiDispatcher,
+    endpoint: ApiEndpointIdentity,
+    policy: User32CompatibilityPolicy,
+}
+
+impl CursorFixture {
+    fn new() -> Self {
+        let (mut memory, owner) = initialized_memory();
+        let thunk = ImportThunk {
+            id: ImportThunkId(244),
+            address: CURSOR_ENDPOINT_ADDRESS,
+            requester_owner: owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_14a8),
+            iat_address: IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "LoadCursorA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        };
+        memory
+            .write_initialization(owner, IAT_ADDRESS, &CURSOR_ENDPOINT_ADDRESS.0.to_le_bytes())
+            .expect("initialize LoadCursorA IAT");
+        for (index, (instance, cursor_name)) in [
+            (0_u32, 0x7f00_u32),
+            (0, 0x7f00),
+            (0, 0xffff),
+            (0, 0x7f01),
+            (ICON_IMAGE_BASE, 106),
+            (0, MEMORY_BASE.0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            write_words(
+                &mut memory,
+                owner,
+                GuestAddress(STACK_POINTER + index as u32 * 0x20),
+                &[
+                    CURSOR_RETURN_ADDRESS.0 + index as u32,
+                    instance,
+                    cursor_name,
+                ],
+            );
+        }
+        memory.seal_owner(owner).expect("seal cursor fixture owner");
+        let reflection = memory.pending_reflection().expect("cursor reflection");
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .expect("acknowledge cursor reflection");
+
+        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
+        let contract = load_cursor_a_contract(endpoint.clone()).expect("LoadCursorA contract");
+        let dispatcher =
+            ApiDispatcher::new([endpoint.clone()], [contract]).expect("LoadCursorA dispatcher");
+        Self {
+            memory,
+            runtime: controlled_runtime(),
+            dispatcher,
+            endpoint,
+            policy: User32CompatibilityPolicy::controlled_v4(),
+        }
+    }
+
+    fn dispatch(&mut self, index: u32) -> DispatchOutcome {
+        let stack_pointer = GuestAddress(STACK_POINTER + index * 0x20);
+        let return_address = GuestAddress(CURSOR_RETURN_ADDRESS.0 + index);
         let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
         self.dispatcher.dispatch_owned(
             ApiOwnedTrap {
@@ -478,6 +577,34 @@ fn load_icon_a_contract_is_bounded_stdcall_with_handler_last_error() {
         },
     });
     let contract = load_icon_a_contract(endpoint).expect("LoadIconA contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 2);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn load_cursor_a_contract_is_bounded_stdcall_with_handler_last_error() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(244),
+        address: CURSOR_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_14a8),
+        iat_address: IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "LoadCursorA".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = load_cursor_a_contract(endpoint).expect("LoadCursorA contract");
     assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
     assert_eq!(contract.abi.arguments.len(), 2);
     assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
@@ -638,6 +765,106 @@ fn load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity() {
     assert_eq!(fault.class, ApiFaultClass::Unsupported);
     assert_eq!(fault.code, "load-icon-a-size-selection-unsupported");
     assert!(alternate_size.runtime.icons().is_empty());
+}
+
+#[test]
+fn load_cursor_a_preserves_last_error_and_reuses_shared_arrow_identity() {
+    let mut fixture = CursorFixture::new();
+    let memory_generation = fixture.memory.stats().generation;
+    let first = match fixture.dispatch(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected first LoadCursorA completion, got {other:?}"),
+    };
+    assert_eq!(first.eax, RegisterUpdate::Set(0x4301_0001));
+    assert_eq!(first.stack_pointer, GuestAddress(STACK_POINTER + 12));
+    assert_eq!(first.instruction_pointer, CURSOR_RETURN_ADDRESS);
+    assert_eq!(first.last_error, INITIAL_LAST_ERROR);
+    assert!(first.guest_writes.is_empty());
+    assert_eq!(fixture.memory.stats().generation, memory_generation);
+    assert_eq!(fixture.runtime.cursors().len(), 1);
+    let cursor = fixture
+        .runtime
+        .cursor(0x4301_0001)
+        .expect("logical shared cursor")
+        .clone();
+    assert_eq!(cursor.id.0, 1);
+    assert_eq!(cursor.namespace, "vine.logical-cursor.v1");
+    assert!(cursor.shared);
+    assert_eq!(
+        cursor.source,
+        RuntimeCursorSource::SystemPredefined {
+            resource_id: 0x7f00,
+            cursor: RuntimeSystemCursorKind::Arrow,
+        }
+    );
+
+    let repeated = match fixture.dispatch(1) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated LoadCursorA completion, got {other:?}"),
+    };
+    assert_eq!(repeated.eax, RegisterUpdate::Set(cursor.handle));
+    assert_eq!(repeated.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(fixture.runtime.cursors().len(), 1);
+    assert_eq!(fixture.runtime.cursor(cursor.handle).unwrap(), &cursor);
+    assert_eq!(fixture.memory.stats().generation, memory_generation);
+
+    fixture
+        .runtime
+        .terminate_current_process(0)
+        .expect("terminate cursor process");
+    assert!(fixture.runtime.cursors().is_empty());
+    assert_eq!(
+        fixture
+            .runtime
+            .cursor(cursor.handle)
+            .expect_err("process teardown retires HCURSOR")
+            .code,
+        "cursor-handle-unknown"
+    );
+}
+
+#[test]
+fn load_cursor_a_negative_variants_are_failure_atomic() {
+    let mut missing = CursorFixture::new();
+    let memory_generation = missing.memory.stats().generation;
+    let completion = match missing.dispatch(2) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected missing cursor completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, 1814);
+    assert!(missing.runtime.cursors().is_empty());
+    assert_eq!(missing.memory.stats().generation, memory_generation);
+    let valid = match missing.dispatch(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected valid cursor retry, got {other:?}"),
+    };
+    assert_eq!(valid.eax, RegisterUpdate::Set(0x4301_0001));
+
+    for (index, expected_code) in [
+        (3, "load-cursor-a-predefined-variant-unsupported"),
+        (4, "load-cursor-a-module-resource-unsupported"),
+        (5, "load-cursor-a-string-resource-unsupported"),
+    ] {
+        let mut fixture = CursorFixture::new();
+        let fault = match fixture.dispatch(index) {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected cursor variant fault, got {other:?}"),
+        };
+        assert_eq!(fault.class, ApiFaultClass::Unsupported);
+        assert_eq!(fault.code, expected_code);
+        assert!(fixture.runtime.cursors().is_empty());
+    }
+
+    let mut disabled = CursorFixture::new();
+    disabled.policy.load_cursor_a = None;
+    let fault = match disabled.dispatch(0) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled cursor policy fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "load-cursor-a-policy-disabled");
+    assert!(disabled.runtime.cursors().is_empty());
 }
 
 #[test]

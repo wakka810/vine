@@ -697,6 +697,13 @@ loadIconSelection.find(
 ).selectedObservations = ["load-icon-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(loadIconSelection)));
 
+const loadCursorSelection = structuredClone(events);
+loadCursorSelection[0].arguments.observations = ["load-cursor-a"];
+loadCursorSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["load-cursor-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(loadCursorSelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(
