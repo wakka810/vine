@@ -40,6 +40,7 @@ SUPPORTED_OBSERVATIONS = (
     "create-waitable-timer-a",
     "load-icon-a",
     "load-cursor-a",
+    "register-class-ex-a",
     "get-string-type-w",
     "lc-map-string-w",
     "get-last-error",

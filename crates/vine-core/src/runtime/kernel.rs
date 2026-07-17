@@ -89,7 +89,9 @@ use super::timers::{
 };
 use super::user32::{
     RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon, RuntimeIconId,
-    RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult, RuntimeUser32,
+    RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
+    RuntimeRegisterClassExAResult, RuntimeUser32, RuntimeWindowClass, RuntimeWindowClassId,
+    RuntimeWindowClassRegistration,
 };
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
@@ -2428,6 +2430,56 @@ impl RuntimeKernel {
 
     pub fn cursors(&self) -> &BTreeMap<RuntimeCursorId, RuntimeCursor> {
         self.user32.cursors()
+    }
+
+    pub(crate) fn register_window_class(
+        &mut self,
+        registration: RuntimeWindowClassRegistration,
+    ) -> Result<RuntimeRegisterClassExAResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let image = self
+            .modules
+            .images()
+            .image(registration.module.module_id)
+            .map_err(runtime_module_image_error)?;
+        if image.load_base != registration.module.load_base
+            || image.source.sha256 != registration.module.source_sha256
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "window-class-module-identity-mismatch",
+                "window class module identity does not match its registered image",
+            ));
+        }
+        let procedure_address = u64::from(registration.window_procedure.address.0);
+        if registration.window_procedure.module_id != image.module_id
+            || procedure_address < u64::from(image.image_range.start().0)
+            || procedure_address >= image.image_range.end()
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "window-class-procedure-module-mismatch",
+                "window class WndProc does not belong to its registered module image",
+            ));
+        }
+        let plan = self.user32.plan_window_class_registration(registration)?;
+        self.user32.commit_window_class_registration(plan)
+    }
+
+    pub fn window_class(&self, atom: u16) -> Result<&RuntimeWindowClass, RuntimeStateError> {
+        self.user32.window_class(atom)
+    }
+
+    pub fn window_class_by_name(
+        &self,
+        module_id: RuntimeModuleId,
+        name: &str,
+    ) -> Result<&RuntimeWindowClass, RuntimeStateError> {
+        self.user32.window_class_by_name(module_id, name)
+    }
+
+    pub fn window_classes(&self) -> &BTreeMap<RuntimeWindowClassId, RuntimeWindowClass> {
+        self.user32.window_classes()
     }
 
     fn require_user32_operation_state(&self) -> Result<(), RuntimeStateError> {

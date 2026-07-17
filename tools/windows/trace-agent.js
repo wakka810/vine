@@ -142,6 +142,13 @@ let loadCursorAOracleEvidence = null;
 let loadCursorACompletionRecorded = false;
 let loadCursorADrainCheckScheduled = false;
 const loadCursorAMainModuleCalls = [];
+let registerClassExAOracleScheduled = false;
+let registerClassExAOracleCall = null;
+let registerClassExAOracleComplete = false;
+let registerClassExAOracleEvidence = null;
+let registerClassExACompletionRecorded = false;
+let registerClassExADrainCheckScheduled = false;
+const registerClassExAMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -2663,6 +2670,93 @@ function snapshotResourceNameA(address) {
   };
 }
 
+function snapshotClassNameA(address) {
+  if (address.isNull()) {
+    return {
+      address: address.toString(),
+      kind: "null",
+    };
+  }
+  const value = address.toUInt32();
+  if (value <= 0xffff) {
+    return {
+      address: address.toString(),
+      kind: "integer",
+      atom: value,
+    };
+  }
+  return {
+    address: address.toString(),
+    kind: "string",
+    value: snapshotNulTerminatedString(address, "ansi"),
+  };
+}
+
+function snapshotAddressIdentity(address) {
+  if (address.isNull()) {
+    return {
+      address: address.toString(),
+      module: null,
+      rva: null,
+    };
+  }
+  const module = Process.findModuleByAddress(address);
+  return {
+    address: address.toString(),
+    module: module?.name ?? null,
+    moduleBase: module?.base.toString() ?? null,
+    rva: module === null ? null : address.sub(module.base).toUInt32(),
+  };
+}
+
+function snapshotWndClassExA(pointer) {
+  const profile = "x86-wndclassexa-v1";
+  const measuredBytes = 48;
+  const raw = snapshotBoundedRawBytes(pointer, measuredBytes);
+  if (raw.error !== undefined) {
+    return { profile, measuredBytes, raw };
+  }
+  if (Process.pointerSize !== 4) {
+    return {
+      profile,
+      measuredBytes,
+      raw,
+      error: `x86 WNDCLASSEXA observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  try {
+    const wndProc = pointer.add(8).readPointer();
+    const instance = pointer.add(20).readPointer();
+    const icon = pointer.add(24).readPointer();
+    const cursor = pointer.add(28).readPointer();
+    const backgroundBrush = pointer.add(32).readPointer();
+    const menuName = pointer.add(36).readPointer();
+    const className = pointer.add(40).readPointer();
+    const smallIcon = pointer.add(44).readPointer();
+    return {
+      profile,
+      measuredBytes,
+      raw,
+      fields: {
+        cbSize: pointer.readU32(),
+        style: pointer.add(4).readU32(),
+        wndProc: snapshotAddressIdentity(wndProc),
+        classExtraBytes: pointer.add(12).readS32(),
+        windowExtraBytes: pointer.add(16).readS32(),
+        instance: snapshotAddressIdentity(instance),
+        icon: icon.toString(),
+        cursor: cursor.toString(),
+        backgroundBrush: backgroundBrush.toString(),
+        menuName: snapshotClassNameA(menuName),
+        className: snapshotClassNameA(className),
+        smallIcon: smallIcon.toString(),
+      },
+    };
+  } catch (error) {
+    return { profile, measuredBytes, raw, error: error.message };
+  }
+}
+
 function attachLoadIconAHook(module) {
   const name = "LoadIconA";
   const address = findExport(module, name);
@@ -2870,6 +2964,118 @@ function attachLoadCursorAHook(module) {
         });
         scheduleLoadCursorAOracle(module);
         setImmediate(maybeCompleteLoadCursorAObservation);
+      }
+    },
+  });
+}
+
+function attachRegisterClassExAHook(module) {
+  const name = "RegisterClassExA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && registerClassExAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.windowClassAddress = args[0];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = registerClassExAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.windowClassBefore = snapshotWndClassExA(this.windowClassAddress);
+      this.immediateConsumer = isMainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              64,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              6,
+              20,
+            ),
+          }
+        : null;
+      if (isOracleCaller) {
+        registerClassExAOracleCall.hookWindowClassBefore =
+          this.windowClassBefore;
+      }
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.windowClassAddress.toString()],
+          lastErrorBefore: this.lastErrorBefore,
+          registerClassExA: {
+            windowClassBefore: this.windowClassBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const atom = result.toUInt32();
+      const windowClassAfter = snapshotWndClassExA(this.windowClassAddress);
+      if (this.oracleCaller) {
+        registerClassExAOracleCall.hookResult = atom;
+        registerClassExAOracleCall.hookLastErrorAfter = lastError;
+        registerClassExAOracleCall.hookWindowClassAfter = windowClassAfter;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          registerClassExA: {
+            atom,
+            succeeded: atom !== 0,
+            windowClassAfter,
+            inputPreserved:
+              JSON.stringify(this.windowClassBefore.raw?.bytes ?? null) ===
+              JSON.stringify(windowClassAfter.raw?.bytes ?? null),
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !registerClassExACompletionRecorded) {
+        registerClassExAMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          windowClassAddress: this.windowClassAddress.toString(),
+          windowClassBefore: this.windowClassBefore,
+          windowClassAfter,
+          atom,
+          succeeded: atom !== 0,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleRegisterClassExAOracle(module);
+        setImmediate(maybeCompleteRegisterClassExAObservation);
       }
     },
   });
@@ -7519,6 +7725,274 @@ function scheduleLoadCursorAOracle(module) {
   });
 }
 
+function maybeCompleteRegisterClassExAObservation() {
+  if (
+    registerClassExACompletionRecorded ||
+    !registerClassExAOracleComplete ||
+    registerClassExAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteRegisterClassExAObservation, 10);
+    return;
+  }
+  if (registerClassExADrainCheckScheduled) {
+    return;
+  }
+  registerClassExADrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    registerClassExADrainCheckScheduled = false;
+    if (registerClassExACompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteRegisterClassExAObservation();
+      return;
+    }
+    registerClassExACompletionRecorded = true;
+    emit("register-class-ex-a-complete", {
+      profile: "x86-bgi-register-class-ex-a-v1",
+      oracleProfile: registerClassExAOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: registerClassExAMainModuleCalls.map((call) => ({
+        ...call,
+      })),
+    });
+    if (stopOnEvent === "register-class-ex-a-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function scheduleRegisterClassExAOracle(module) {
+  if (registerClassExAOracleScheduled) {
+    return;
+  }
+  registerClassExAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      if (Process.pointerSize !== 4) {
+        throw new Error("RegisterClassExA oracle requires an x86 process");
+      }
+      const registerClassAddress = findExport(module, "RegisterClassExA");
+      const getClassInfoAddress = findExport(module, "GetClassInfoExA");
+      const unregisterClassAddress = findExport(module, "UnregisterClassA");
+      const defWindowProcAddress = findExport(module, "DefWindowProcA");
+      if (
+        registerClassAddress === null ||
+        getClassInfoAddress === null ||
+        unregisterClassAddress === null ||
+        defWindowProcAddress === null
+      ) {
+        throw new Error("RegisterClassExA oracle exports are unavailable");
+      }
+      const registerClassExA = new SystemFunction(
+        registerClassAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const getClassInfoExA = new SystemFunction(
+        getClassInfoAddress,
+        "int32",
+        ["pointer", "pointer", "pointer"],
+        "stdcall",
+      );
+      const unregisterClassA = new SystemFunction(
+        unregisterClassAddress,
+        "int32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const instance = Process.mainModule.base;
+      const zeroWndClass = () => {
+        const storage = Memory.alloc(48);
+        storage.writeByteArray(new Uint8Array(48).buffer);
+        return storage;
+      };
+      const createWndClass = ({ name, cbSize }) => {
+        const nameAddress = Memory.allocUtf8String(name);
+        const storage = zeroWndClass();
+        storage.writeU32(cbSize);
+        storage.add(4).writeU32(3);
+        storage.add(8).writePointer(defWindowProcAddress);
+        storage.add(12).writeS32(4);
+        storage.add(16).writeS32(8);
+        storage.add(20).writePointer(instance);
+        storage.add(32).writePointer(ptr(6));
+        storage.add(40).writePointer(nameAddress);
+        return { name, nameAddress, storage };
+      };
+      const invoke = ({ id, windowClass, sentinel }) => {
+        registerClassExAOracleCall = {
+          id,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookWindowClassBefore: null,
+          hookWindowClassAfter: null,
+        };
+        try {
+          const outcome = registerClassExA(windowClass.storage);
+          const atom = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            registerClassExAOracleCall.hookResult === null ||
+            registerClassExAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(
+              "RegisterClassExA oracle did not pass through the hook",
+            );
+          }
+          return {
+            id,
+            name: windowClass.name,
+            windowClassAddress: windowClass.storage.toString(),
+            sentinel,
+            hookResult: registerClassExAOracleCall.hookResult,
+            systemResult: atom,
+            succeeded: atom !== 0,
+            hookLastErrorAfter:
+              registerClassExAOracleCall.hookLastErrorAfter,
+            systemLastError,
+            hookResultMatches:
+              registerClassExAOracleCall.hookResult === atom,
+            hookAndSystemLastErrorMatch:
+              registerClassExAOracleCall.hookLastErrorAfter ===
+              systemLastError,
+            windowClassBefore:
+              registerClassExAOracleCall.hookWindowClassBefore,
+            windowClassAfter:
+              registerClassExAOracleCall.hookWindowClassAfter,
+          };
+        } finally {
+          registerClassExAOracleCall = null;
+        }
+      };
+      const query = ({ id, name }) => {
+        const output = zeroWndClass();
+        output.writeU32(48);
+        const outcome = getClassInfoExA(instance, name, output);
+        return {
+          id,
+          argument: snapshotClassNameA(name),
+          result: Number(outcome.value) >>> 0,
+          lastError: Number(outcome.lastError) >>> 0,
+          windowClass: snapshotWndClassExA(output),
+        };
+      };
+      const unregister = ({ id, name }) => {
+        const outcome = unregisterClassA(name, instance);
+        return {
+          id,
+          argument: snapshotClassNameA(name),
+          result: Number(outcome.value) >>> 0,
+          lastError: Number(outcome.lastError) >>> 0,
+        };
+      };
+
+      const unique = `${Process.id}-${Date.now()}`;
+      const firstClass = createWndClass({
+        name: `VineRegisterClassExA-${unique}`,
+        cbSize: 48,
+      });
+      const invalidClass = createWndClass({
+        name: `VineRegisterClassExAInvalid-${unique}`,
+        cbSize: 47,
+      });
+      const first = invoke({
+        id: "valid-first",
+        windowClass: firstClass,
+        sentinel: 0x11223344,
+      });
+      const duplicate = invoke({
+        id: "duplicate-name-and-module",
+        windowClass: firstClass,
+        sentinel: 0x55667788,
+      });
+      const invalidSize = invoke({
+        id: "invalid-size",
+        windowClass: invalidClass,
+        sentinel: 0x7a6b5c4d,
+      });
+      invalidClass.storage.writeU32(48);
+      const correctedAfterInvalid = invoke({
+        id: "corrected-after-invalid-size",
+        windowClass: invalidClass,
+        sentinel: 0x13572468,
+      });
+      const queryByName = query({
+        id: "query-first-by-name",
+        name: firstClass.nameAddress,
+      });
+      const queryByAtom = query({
+        id: "query-first-by-atom",
+        name: ptr(first.systemResult),
+      });
+      const cleanup = [
+        unregister({
+          id: "unregister-first",
+          name: firstClass.nameAddress,
+        }),
+        unregister({
+          id: "unregister-corrected",
+          name: invalidClass.nameAddress,
+        }),
+      ];
+      const queryAfterCleanup = query({
+        id: "query-first-after-cleanup",
+        name: firstClass.nameAddress,
+      });
+      const calls = [first, duplicate, invalidSize, correctedAfterInvalid];
+      registerClassExAOracleEvidence = {
+        profile: "x86-register-class-ex-a-identity-lifetime-v1",
+        mainModule: {
+          name: Process.mainModule.name,
+          base: Process.mainModule.base.toString(),
+        },
+        wndProc: snapshotAddressIdentity(defWindowProcAddress),
+        calls,
+        queryByName,
+        queryByAtom,
+        cleanup,
+        queryAfterCleanup,
+        validCallsSucceeded:
+          first.succeeded && correctedAfterInvalid.succeeded,
+        validAtomsDistinct:
+          first.systemResult !== correctedAfterInvalid.systemResult,
+        duplicateRejected: !duplicate.succeeded,
+        invalidSizeRejected: !invalidSize.succeeded,
+        invalidSizeDidNotReserveIdentity:
+          !invalidSize.succeeded && correctedAfterInvalid.succeeded,
+        successLastErrorsPreserved:
+          first.systemLastError === first.sentinel &&
+          correctedAfterInvalid.systemLastError ===
+            correctedAfterInvalid.sentinel,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+        allInputsPreserved: calls.every(
+          (call) =>
+            JSON.stringify(call.windowClassBefore?.raw?.bytes ?? null) ===
+            JSON.stringify(call.windowClassAfter?.raw?.bytes ?? null),
+        ),
+        bothQueriesSucceeded:
+          queryByName.result !== 0 && queryByAtom.result !== 0,
+        cleanupSucceeded: cleanup.every((call) => call.result !== 0),
+        queryAfterCleanupRejected: queryAfterCleanup.result === 0,
+      };
+      registerClassExAOracleComplete = true;
+      emit("register-class-ex-a-oracle", registerClassExAOracleEvidence);
+      maybeCompleteRegisterClassExAObservation();
+    } catch (error) {
+      emit("register-class-ex-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function maybeCompleteGetVersionExAObservation() {
   if (
     getVersionExACompletionRecorded ||
@@ -9286,6 +9760,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "LoadCursorA",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("register-class-ex-a")
+    ) {
+      try {
+        attachRegisterClassExAHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "RegisterClassExA",
           error: error.message,
         });
       }

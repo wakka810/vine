@@ -15,7 +15,7 @@ use vine_core::{
     RuntimeSystemCursorKind, RuntimeThreadId, StackCleanup, User32CompatibilityPolicy,
     build_pe32_load_plan, dispatch_user32_api_with_policy, enum_display_monitors_contract,
     load_cursor_a_contract, load_icon_a_contract, materialize_pe32_image,
-    swap_mouse_button_contract,
+    register_class_ex_a_contract, swap_mouse_button_contract,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -33,6 +33,8 @@ const SWAP_SECOND_STACK_POINTER: u32 = STACK_POINTER + 0x20;
 const ICON_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0bf0);
 const CURSOR_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0f30);
 const CURSOR_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7d09);
+const CLASS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0be0);
+const CLASS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7d28);
 const ICON_IMAGE_BASE: u32 = 0x0040_0000;
 const ICON_MODULE_HANDLE: u32 = 0x4d01_000f;
 const ICON_FIXTURE_SHA256: &str =
@@ -40,6 +42,9 @@ const ICON_FIXTURE_SHA256: &str =
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
 const INITIAL_LAST_ERROR: u32 = 0x1234_5678;
+const CLASS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 8);
+const CLASS_STRUCT_BASE: u32 = MEMORY_BASE.0 + 0x2300;
+const CLASS_NAME_BASE: u32 = MEMORY_BASE.0 + 0x2700;
 
 struct EnumFixture {
     memory: GuestMemory,
@@ -104,7 +109,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v4();
+        let policy = User32CompatibilityPolicy::controlled_v5();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -195,7 +200,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v4();
+        let mut policy = User32CompatibilityPolicy::controlled_v5();
         policy
             .swap_mouse_button
             .as_mut()
@@ -378,7 +383,7 @@ impl IconFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v4(),
+            policy: User32CompatibilityPolicy::controlled_v5(),
         }
     }
 
@@ -473,7 +478,7 @@ impl CursorFixture {
             runtime: controlled_runtime(),
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v4(),
+            policy: User32CompatibilityPolicy::controlled_v5(),
         }
     }
 
@@ -485,6 +490,322 @@ impl CursorFixture {
             ApiOwnedTrap {
                 endpoint_id: self.endpoint.id,
                 endpoint_address: self.endpoint.address,
+                stack_pointer,
+                return_address,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_user32_api_with_policy(
+                    &self.policy,
+                    CALLBACK_SENTINEL,
+                    contract,
+                    frame,
+                    session,
+                )
+            },
+        )
+    }
+}
+
+struct RegisterClassFixture {
+    memory: GuestMemory,
+    runtime: RuntimeState,
+    dispatcher: ApiDispatcher,
+    icon_endpoint: ApiEndpointIdentity,
+    cursor_endpoint: ApiEndpointIdentity,
+    class_endpoint: ApiEndpointIdentity,
+    policy: User32CompatibilityPolicy,
+}
+
+impl RegisterClassFixture {
+    fn new() -> Self {
+        let bytes = icon_fixture_bytes();
+        let mut memory = GuestMemory::new(MemoryLimits {
+            max_physical_pages: 9,
+            max_regions: 2,
+            max_owners: 2,
+            max_access_bytes: 0x1_0000,
+        })
+        .expect("class fixture memory");
+        let runtime_owner = memory
+            .create_owner(MemoryOwnerKind::Runtime)
+            .expect("runtime owner");
+        let runtime_range = memory
+            .reserve_fixed(
+                runtime_owner,
+                MemoryRegionKind::Runtime,
+                MEMORY_BASE,
+                0x3000,
+            )
+            .expect("runtime range");
+        memory
+            .commit(
+                runtime_owner,
+                runtime_range,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .expect("commit runtime range");
+
+        let limits = Pe32Limits::default();
+        let snapshot = ModuleSnapshot::from_bytes(bytes, &limits).expect("class fixture snapshot");
+        snapshot
+            .verify_expected_sha256(ICON_FIXTURE_SHA256)
+            .expect("class fixture fingerprint");
+        let loader = build_pe32_load_plan(&snapshot, limits).expect("class fixture load plan");
+        let materialization = materialize_pe32_image(
+            &mut memory,
+            &snapshot,
+            &loader,
+            GuestAddress(ICON_IMAGE_BASE),
+        )
+        .expect("materialize class fixture");
+        let window_procedure = materialization.entry_point_address.0;
+
+        let icon_iat = IAT_ADDRESS;
+        let cursor_iat = GuestAddress(IAT_ADDRESS.0 + 4);
+        for (address, endpoint) in [
+            (icon_iat, ICON_ENDPOINT_ADDRESS),
+            (cursor_iat, CURSOR_ENDPOINT_ADDRESS),
+            (CLASS_IAT_ADDRESS, CLASS_ENDPOINT_ADDRESS),
+        ] {
+            memory
+                .write_initialization(runtime_owner, address, &endpoint.0.to_le_bytes())
+                .expect("initialize class fixture IAT");
+        }
+        write_words(
+            &mut memory,
+            runtime_owner,
+            GuestAddress(STACK_POINTER),
+            &[RETURN_ADDRESS.0, ICON_IMAGE_BASE, 101],
+        );
+        write_words(
+            &mut memory,
+            runtime_owner,
+            GuestAddress(STACK_POINTER + 0x20),
+            &[CURSOR_RETURN_ADDRESS.0, 0, 0x7f00],
+        );
+
+        let class_names: [&[u8]; 11] = [
+            b"Vine Main Class\0",
+            b"Vine Child Class\0",
+            b"Vine Main Class\0",
+            b"Invalid Size Class\0",
+            b"Wrong Module Class\0",
+            b"Non Executable Class\0",
+            b"Wrong Icon Class\0",
+            b"Wrong Cursor Class\0",
+            b"Unsupported Style Class\0",
+            &[0x82, 0xa0, 0],
+            b"Unsupported Optional Class\0",
+        ];
+        for (index, name) in class_names.into_iter().enumerate() {
+            memory
+                .write_initialization(
+                    runtime_owner,
+                    GuestAddress(CLASS_NAME_BASE + u32::try_from(index).unwrap() * 0x40),
+                    name,
+                )
+                .expect("initialize class name");
+        }
+        memory
+            .write_initialization(
+                runtime_owner,
+                GuestAddress(CLASS_NAME_BASE + 11 * 0x40),
+                &[b'A'; 64],
+            )
+            .expect("initialize unterminated bounded class name");
+
+        let class_words = |index: u32| {
+            let mut words = [
+                48,
+                if index == 1 { 0x3020 } else { 0x28 },
+                window_procedure,
+                0,
+                0,
+                ICON_IMAGE_BASE,
+                0x4901_0001,
+                0x4301_0001,
+                0,
+                0,
+                CLASS_NAME_BASE + index * 0x40,
+                0,
+            ];
+            match index {
+                2 => words[10] = CLASS_NAME_BASE,
+                3 => words[0] = 47,
+                4 => words[5] = ICON_IMAGE_BASE + 0x1000,
+                5 => words[2] = CLASS_NAME_BASE,
+                6 => words[6] = 0x4901_ffff,
+                7 => words[7] = 0x4301_ffff,
+                8 => words[1] = 1,
+                10 => words[8] = 1,
+                _ => {}
+            }
+            words
+        };
+        for index in 0..12_u32 {
+            let class_address = CLASS_STRUCT_BASE + index * 0x40;
+            write_words(
+                &mut memory,
+                runtime_owner,
+                GuestAddress(class_address),
+                &class_words(index),
+            );
+            write_words(
+                &mut memory,
+                runtime_owner,
+                GuestAddress(STACK_POINTER + (index + 2) * 0x20),
+                &[CLASS_RETURN_ADDRESS.0 + index, class_address],
+            );
+        }
+        write_words(
+            &mut memory,
+            runtime_owner,
+            GuestAddress(STACK_POINTER + 14 * 0x20),
+            &[CLASS_RETURN_ADDRESS.0 + 12, MEMORY_BASE.0 + 0x3000],
+        );
+
+        memory
+            .seal_owner(materialization.layout.owner)
+            .expect("seal class image owner");
+        memory
+            .seal_owner(runtime_owner)
+            .expect("seal class runtime owner");
+        let reflection = memory.pending_reflection().expect("class reflection");
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .expect("acknowledge class reflection");
+
+        let mut runtime = controlled_runtime();
+        runtime
+            .register_main_module(RuntimeModule {
+                owner: "user32-class-test".to_owned(),
+                variant_id: "mapped-class-fixture".to_owned(),
+                namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+                handle: ICON_MODULE_HANDLE,
+                requested_name: "icon-resource.exe".to_owned(),
+                canonical_name: "icon-resource.exe".to_owned(),
+                runtime_system_module: false,
+            })
+            .expect("register class main module");
+        ExecutionSession::new(&mut memory, &mut runtime)
+            .register_module_image(ICON_MODULE_HANDLE, &loader, &materialization)
+            .expect("register class module image");
+
+        let icon_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(192),
+            address: ICON_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_13d8),
+            iat_address: icon_iat,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "LoadIconA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let cursor_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(244),
+            address: CURSOR_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_14a8),
+            iat_address: cursor_iat,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "LoadCursorA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let class_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(191),
+            address: CLASS_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_13d4),
+            iat_address: CLASS_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "RegisterClassExA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let dispatcher = ApiDispatcher::new(
+            [
+                icon_endpoint.clone(),
+                cursor_endpoint.clone(),
+                class_endpoint.clone(),
+            ],
+            [
+                load_icon_a_contract(icon_endpoint.clone()).expect("icon contract"),
+                load_cursor_a_contract(cursor_endpoint.clone()).expect("cursor contract"),
+                register_class_ex_a_contract(class_endpoint.clone()).expect("class contract"),
+            ],
+        )
+        .expect("class dispatcher");
+        Self {
+            memory,
+            runtime,
+            dispatcher,
+            icon_endpoint,
+            cursor_endpoint,
+            class_endpoint,
+            policy: User32CompatibilityPolicy::controlled_v5(),
+        }
+    }
+
+    fn prepare_resources(&mut self) {
+        let icon_endpoint = self.icon_endpoint.clone();
+        let icon =
+            self.dispatch_endpoint(icon_endpoint, GuestAddress(STACK_POINTER), RETURN_ADDRESS);
+        assert!(matches!(
+            icon,
+            DispatchOutcome::Immediate(ref completion)
+                if completion.eax == RegisterUpdate::Set(0x4901_0001)
+        ));
+        let cursor_endpoint = self.cursor_endpoint.clone();
+        let cursor = self.dispatch_endpoint(
+            cursor_endpoint,
+            GuestAddress(STACK_POINTER + 0x20),
+            CURSOR_RETURN_ADDRESS,
+        );
+        assert!(matches!(
+            cursor,
+            DispatchOutcome::Immediate(ref completion)
+                if completion.eax == RegisterUpdate::Set(0x4301_0001)
+        ));
+    }
+
+    fn dispatch_class(&mut self, index: u32) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.class_endpoint.clone(),
+            GuestAddress(STACK_POINTER + (index + 2) * 0x20),
+            GuestAddress(CLASS_RETURN_ADDRESS.0 + index),
+        )
+    }
+
+    fn dispatch_endpoint(
+        &mut self,
+        endpoint: ApiEndpointIdentity,
+        stack_pointer: GuestAddress,
+        return_address: GuestAddress,
+    ) -> DispatchOutcome {
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        self.dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: endpoint.id,
+                endpoint_address: endpoint.address,
                 stack_pointer,
                 return_address,
             },
@@ -608,6 +929,34 @@ fn load_cursor_a_contract_is_bounded_stdcall_with_handler_last_error() {
     assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
     assert_eq!(contract.abi.arguments.len(), 2);
     assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn register_class_ex_a_contract_is_one_struct_stdcall_with_u16_result() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(191),
+        address: CLASS_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_13d4),
+        iat_address: CLASS_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "RegisterClassExA".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = register_class_ex_a_contract(endpoint).expect("RegisterClassExA contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U16);
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
@@ -865,6 +1214,188 @@ fn load_cursor_a_negative_variants_are_failure_atomic() {
     assert_eq!(fault.class, ApiFaultClass::Unsupported);
     assert_eq!(fault.code, "load-cursor-a-policy-disabled");
     assert!(disabled.runtime.cursors().is_empty());
+}
+
+#[test]
+fn register_class_ex_a_copies_two_local_classes_and_rejects_duplicate_name() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture.prepare_resources();
+    let class_bytes = fixture
+        .memory
+        .read(GuestAddress(CLASS_STRUCT_BASE), 48)
+        .expect("main class bytes");
+    let memory_generation = fixture.memory.stats().generation;
+
+    fixture
+        .runtime
+        .set_current_last_error(0x1122_3344)
+        .expect("seed class LastError");
+    let main = match fixture.dispatch_class(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected main class completion, got {other:?}"),
+    };
+    assert_eq!(main.eax, RegisterUpdate::Set(0xc000));
+    assert_eq!(main.stack_pointer, GuestAddress(STACK_POINTER + 0x48));
+    assert_eq!(main.instruction_pointer, CLASS_RETURN_ADDRESS);
+    assert_eq!(main.last_error, 0x1122_3344);
+    assert!(main.guest_writes.is_empty());
+    assert_eq!(fixture.memory.stats().generation, memory_generation);
+    assert_eq!(
+        fixture
+            .memory
+            .read(GuestAddress(CLASS_STRUCT_BASE), 48)
+            .unwrap(),
+        class_bytes
+    );
+
+    let main_class = fixture
+        .runtime
+        .window_class(0xc000)
+        .expect("main logical class")
+        .clone();
+    assert_eq!(main_class.id.0, 1);
+    assert_eq!(
+        main_class.atom_namespace,
+        "vine.logical-window-class-atom.v1"
+    );
+    assert!(main_class.local);
+    assert_eq!(main_class.registration.style, 0x28);
+    assert_eq!(main_class.registration.class_name.value, "Vine Main Class");
+    assert_eq!(
+        main_class.registration.class_name.encoding,
+        "windows-932-v1"
+    );
+    assert_eq!(
+        main_class.registration.module.load_base,
+        GuestAddress(ICON_IMAGE_BASE)
+    );
+    assert_eq!(
+        main_class.registration.module.source_sha256,
+        ICON_FIXTURE_SHA256
+    );
+    assert_eq!(main_class.registration.window_procedure.argument_bytes, 16);
+    assert_eq!(main_class.registration.icon.unwrap().handle, 0x4901_0001);
+    assert_eq!(main_class.registration.cursor.unwrap().handle, 0x4301_0001);
+    assert_eq!(
+        fixture
+            .runtime
+            .window_class_by_name(main_class.registration.module.module_id, "vine MAIN class",)
+            .unwrap()
+            .id,
+        main_class.id
+    );
+
+    fixture
+        .runtime
+        .set_current_last_error(0x5566_7788)
+        .expect("seed child LastError");
+    let child = match fixture.dispatch_class(1) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected child class completion, got {other:?}"),
+    };
+    assert_eq!(child.eax, RegisterUpdate::Set(0xc001));
+    assert_eq!(child.last_error, 0x5566_7788);
+    assert_eq!(fixture.runtime.window_classes().len(), 2);
+    assert_eq!(
+        fixture
+            .runtime
+            .window_class(0xc001)
+            .unwrap()
+            .registration
+            .style,
+        0x3020
+    );
+
+    let duplicate = match fixture.dispatch_class(2) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected duplicate class failure, got {other:?}"),
+    };
+    assert_eq!(duplicate.eax, RegisterUpdate::Set(0));
+    assert_eq!(duplicate.last_error, 1410);
+    assert!(duplicate.guest_writes.is_empty());
+    assert_eq!(fixture.runtime.window_classes().len(), 2);
+    assert_eq!(fixture.memory.stats().generation, memory_generation);
+
+    fixture
+        .runtime
+        .terminate_current_process(0)
+        .expect("terminate class process");
+    assert!(fixture.runtime.window_classes().is_empty());
+    assert!(fixture.runtime.icons().is_empty());
+    assert!(fixture.runtime.cursors().is_empty());
+    assert_eq!(
+        fixture
+            .runtime
+            .window_class(0xc000)
+            .expect_err("process teardown retires class ATOM")
+            .code,
+        "window-class-atom-unknown"
+    );
+}
+
+#[test]
+fn register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom() {
+    for index in [3_u32, 4, 5, 6, 7] {
+        let mut fixture = RegisterClassFixture::new();
+        fixture.prepare_resources();
+        let generation = fixture.memory.stats().generation;
+        let completion = match fixture.dispatch_class(index) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected invalid class completion for {index}, got {other:?}"),
+        };
+        assert_eq!(completion.eax, RegisterUpdate::Set(0));
+        assert_eq!(completion.last_error, 87);
+        assert!(completion.guest_writes.is_empty());
+        assert!(fixture.runtime.window_classes().is_empty());
+        assert_eq!(fixture.memory.stats().generation, generation);
+        let valid = match fixture.dispatch_class(0) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected valid class retry after {index}, got {other:?}"),
+        };
+        assert_eq!(valid.eax, RegisterUpdate::Set(0xc000));
+    }
+
+    for (index, expected_code) in [
+        (8_u32, "register-class-ex-a-style-unsupported"),
+        (9, "register-class-ex-a-non-ascii-name-unsupported"),
+        (10, "register-class-ex-a-optional-field-unsupported"),
+        (11, "register-class-ex-a-name-bound-exceeded"),
+    ] {
+        let mut fixture = RegisterClassFixture::new();
+        fixture.prepare_resources();
+        let generation = fixture.memory.stats().generation;
+        let fault = match fixture.dispatch_class(index) {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected unsupported class fault for {index}, got {other:?}"),
+        };
+        assert_eq!(fault.class, ApiFaultClass::Unsupported);
+        assert_eq!(fault.code, expected_code);
+        assert!(fixture.runtime.window_classes().is_empty());
+        assert_eq!(fixture.memory.stats().generation, generation);
+    }
+
+    let mut invalid_pointer = RegisterClassFixture::new();
+    invalid_pointer.prepare_resources();
+    let generation = invalid_pointer.memory.stats().generation;
+    let fault = match invalid_pointer.dispatch_class(12) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected invalid WNDCLASSEXA pointer fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(fault.code, "guest-page-fault");
+    assert!(invalid_pointer.runtime.window_classes().is_empty());
+    assert_eq!(invalid_pointer.memory.stats().generation, generation);
+
+    let mut disabled = RegisterClassFixture::new();
+    disabled.prepare_resources();
+    disabled.policy.register_class_ex_a = None;
+    let fault = match disabled.dispatch_class(0) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled class policy fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "register-class-ex-a-policy-disabled");
+    assert!(disabled.runtime.window_classes().is_empty());
 }
 
 #[test]

@@ -150,6 +150,7 @@ enum GenericRuntimeCapability {
     CreateWaitableTimerA,
     LoadIconA,
     LoadCursorA,
+    RegisterClassExA,
 }
 
 struct GenericRuntimeProcess {
@@ -327,6 +328,8 @@ struct GenericRuntimeCompletion {
     icon: Option<vine_core::RuntimeIcon>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cursor: Option<vine_core::RuntimeCursor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    window_class: Option<vine_core::RuntimeWindowClass>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2741,12 +2744,14 @@ fn run_v86_generic_runtime_session(
 ) -> Result<(), LoaderError> {
     let requested_capability = enabled_capability;
     let endpoint_capability = match enabled_capability {
-        Some(GenericRuntimeCapability::LoadIconA | GenericRuntimeCapability::LoadCursorA) => {
-            Some(GenericRuntimeCapability::CreateWaitableTimerA)
-        }
+        Some(
+            GenericRuntimeCapability::LoadIconA
+            | GenericRuntimeCapability::LoadCursorA
+            | GenericRuntimeCapability::RegisterClassExA,
+        ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let user32_policy = User32CompatibilityPolicy::controlled_v4();
+    let user32_policy = User32CompatibilityPolicy::controlled_v5();
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
@@ -3214,6 +3219,7 @@ fn run_v86_generic_runtime_session(
                             waitable_timer: None,
                             icon: None,
                             cursor: None,
+                            window_class: None,
                             thread_affinity: None,
                             tick_count: None,
                             com_apartment: None,
@@ -3577,6 +3583,32 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let window_class =
+                            if completion.implementation_id == "user32.register-class-ex-a.v1" {
+                                let RegisterUpdate::Set(atom) = completion.eax else {
+                                    return Err(LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "register-class-atom-result-invalid",
+                                        "RegisterClassExA completion did not set a logical ATOM",
+                                    ));
+                                };
+                                let atom = u16::try_from(atom).map_err(|_| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "register-class-atom-result-invalid",
+                                        "RegisterClassExA completion returned an out-of-range ATOM",
+                                    )
+                                })?;
+                                Some(
+                                    session
+                                        .runtime()
+                                        .window_class(atom)
+                                        .map_err(runtime_state_error)?
+                                        .clone(),
+                                )
+                            } else {
+                                None
+                            };
                         let thread_affinity = if completion.implementation_id
                             == "kernel32.set-thread-affinity-mask.v1"
                         {
@@ -3655,6 +3687,7 @@ fn run_v86_generic_runtime_session(
                                 waitable_timer,
                                 icon,
                                 cursor,
+                                window_class,
                                 thread_affinity,
                                 tick_count,
                                 com_apartment,
@@ -3818,6 +3851,7 @@ fn run_v86_generic_runtime_session(
                                 waitable_timer: None,
                                 icon: None,
                                 cursor: None,
+                                window_class: None,
                                 thread_affinity: None,
                                 tick_count: None,
                                 com_apartment: None,
@@ -3861,7 +3895,10 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let load_cursor_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::LoadCursorA));
+    let register_class_ex_a_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::RegisterClassExA));
+    let load_cursor_a_enabled = register_class_ex_a_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::LoadCursorA));
     let load_icon_a_enabled =
         load_cursor_a_enabled || matches!(enabled, Some(GenericRuntimeCapability::LoadIconA));
     let enabled = if load_icon_a_enabled {
@@ -4305,6 +4342,7 @@ fn runtime_capability_enables_endpoint(
         "CreateWaitableTimerA" => create_waitable_timer_a_enabled,
         "LoadIconA" => load_icon_a_enabled,
         "LoadCursorA" => load_cursor_a_enabled,
+        "RegisterClassExA" => register_class_ex_a_enabled,
         _ => true,
     }
 }
@@ -4315,7 +4353,11 @@ fn runtime_capability_enables_dynamic_endpoint(
 ) -> bool {
     let enabled = if matches!(
         enabled,
-        Some(GenericRuntimeCapability::LoadIconA | GenericRuntimeCapability::LoadCursorA)
+        Some(
+            GenericRuntimeCapability::LoadIconA
+                | GenericRuntimeCapability::LoadCursorA
+                | GenericRuntimeCapability::RegisterClassExA
+        )
     ) {
         Some(GenericRuntimeCapability::CreateWaitableTimerA)
     } else {
@@ -9819,6 +9861,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "user32-load-icon-a" => GenericRuntimeCapability::LoadIconA,
                 "user32-load-cursor-a" => GenericRuntimeCapability::LoadCursorA,
+                "user32-register-class-ex-a" => GenericRuntimeCapability::RegisterClassExA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

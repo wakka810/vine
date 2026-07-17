@@ -589,7 +589,7 @@ Node／Chrome same icon snapshot／memory／`LoadCursorA` stop、clean cancel／
 詳細は[bgi-load-icon-a.md](bgi-load-icon-a.md)を正とする。
 
 Reached `LoadCursorA`のrepresentative contractはtwo-argument x86 stdcall、U32 HCURSOR、
-handler-owned LastError、guest write zeroを固定する。Version-4 User32 policyは
+handler-owned LastError、guest write zeroを固定する。Version-5 User32 policyは
 `NULL,IDC_ARROW`だけを許可し、success LastError preserve、missing ID 65,535のNULL／1,814を
 検査する。Other predefined、module、string、disabled variantsはmutation前にstructured faultとなる。
 
@@ -601,6 +601,22 @@ four callsitesとfirst `WNDCLASSEXA.hCursor` consumer、Node／Chrome same curso
 `RegisterClassExA` stop、clean cancel／watchdogを要求する。User32 lifetimeとWorker payload変更後の
 3分benchmarkは17 thresholds全通過を要求する。詳細は
 [bgi-load-cursor-a.md](bgi-load-cursor-a.md)を正とする。
+
+Reached `RegisterClassExA`のgateway contractはrequired 48-byte `WNDCLASSEXA*`一引数、x86
+stdcall、U16 zero-extended return、handler-owned LastError、guest write zeroを固定する。Policyは
+64-byte以内のNUL終端ASCII name、styles `0x28`／`0x3020`、zero extras、NULL brush／menu／small
+icon、mapped local module、same-module executable WndProc、live logical HICON／HCURSORだけを許可する。
+SuccessはLastError preserve、duplicate module/nameはzero／1,410、bad `cbSize`はzero／87とする。
+
+Owner model testはmonotonic class ID／ATOM `0xC000`、case-folded module/name index、ATOM index、
+copy-owned record、non-owning icon/cursor reference、stale／duplicate plan、invalid reference／metadata、
+ATOM exhaustion、class-first process teardownを検査する。Dispatcher fixtureはbad structure pointer／
+size、wrong module、non-executable WndProc、unknown icon／cursor、unsupported field／style／name、disabled
+policyのfailure atomicityと、failure後もfirst ATOMを消費しないことを固定する。Primary evidenceはtwo
+balanced native traces、guarded identity/lifetime oracle、BGI main／child registrations、Node／Chrome
+same immutable class snapshot／memory／`GetSystemMetrics` stop、clean cancel／watchdogを要求する。
+Worker payloadとstateful lifetime変更後の3分benchmarkは既存17 thresholds全通過を要求する。詳細は
+[bgi-register-class-ex-a.md](bgi-register-class-ex-a.md)を正とする。
 
 Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
 implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、

@@ -4,18 +4,18 @@
 
 - Status: threshold passed
 - Date: 2026-07-17
-- Workload: current 1,340-call `user32-load-cursor-a` private BGI generic session
-- Observation status: `current-system-arrow-cursor-boundary-rerun`
+- Workload: current 1,344-call `user32-register-class-ex-a` private BGI generic session
+- Observation status: `current-window-class-registration-boundary-rerun`
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-v1.json`](../fixtures/benchmarks/bgi-browser-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This current observation repeats the complete `user32-load-cursor-a` BGI
+This current observation repeats the complete `user32-register-class-ex-a` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
 runtime and v86 mirror, dispatches
-1,340 ordered calls over 49,957 guest instructions, performs 6,411 Rust/Wasm bridge
+1,344 ordered calls over 49,990 guest instructions, performs 6,420 Rust/Wasm bridge
 operations, applies four initial-thread stack-growth commits, and reaches the
-same `RegisterClassExA(0x006FFB08)` contract-missing stop after CP_ACP
+same `GetSystemMetrics(7)` contract-missing stop after CP_ACP
 conversion, the process-owned current-directory update, named mutex creation,
 its immediate LastError／heap continuation, and `GetCurrentThread` pseudo-handle
 resolution. The workload additionally commits current-thread logical affinity
@@ -34,13 +34,15 @@ configuration. It writes the bounded ANSI OS-version structure, creates the
 Rust-owned unnamed manual-reset waitable timer, and verifies its typed handle,
 timer ID, object ID, and initial nonsignaled state. It then selects the mapped
 module's exact 32-pixel DIB icon and records the Rust-owned shared logical HICON
-and loads the Rust-owned shared logical system-arrow HCURSOR before reaching
-the stop.
+and loads the Rust-owned shared logical system-arrow HCURSOR. It registers the
+main and child process-local window classes with Rust-owned identities and
+logical ATOMs `0xC000`／`0xC001`; the intervening second icon／cursor loads reuse
+their existing identities before the stop.
 Every repetition checks the call count, instruction count, crossing count,
 memory digest, next structured stop, and zero pending work before its compact
 summary is retained.
 
-The system-cursor checkpoint changes User32 process lifetime and the Worker
+The window-class gateway changes User32 process lifetime and the Worker
 completion payload, so this workload was rerun against the exact current
 Rust/Wasm and Worker artifacts. The active Node／Chrome semantic gate remains
 separately required in [`current-checkpoint.json`](current-checkpoint.json).
@@ -68,31 +70,31 @@ required sample is a failure. Report schema version 2 also stores a structured
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 376 sessions with no
+The authoritative clean-profile Chrome run completed 363 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 376 |
+| Completed sessions | >= 120 | 363 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 3,000 ms | 491.795 ms |
-| Maximum slice p99 | <= 10 ms | 2.290 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.020 ms |
-| Main heartbeat gap maximum | <= 250 ms | 20.630 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 8,787,972 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | -125,574.29 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 28,462,188 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 3,370,770.80 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 60,293,120 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 34,580,100 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 4,865,391.38 bytes/min |
+| Session latency p95 | <= 3,000 ms | 539.585 ms |
+| Maximum slice p99 | <= 10 ms | 1.770 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.030 ms |
+| Main heartbeat gap maximum | <= 250 ms | 18.810 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 10,210,808 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 344,309.74 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 27,903,344 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 641,072.77 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 59,244,544 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 33,694,212 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 460,207.13 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,027,008 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 1,072,091 bytes with SHA-256
-`4795b50b1561aac01c5fe08fb0442e6c46521f5d9576c8fd2b1090c7a73a3c4e`.
+The exact report is 1,067,375 bytes with SHA-256
+`04a470934c28677e899841004317fe6c637bc80abfaa3a5826ee2dddb05f13c1`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -128,7 +130,7 @@ loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
 storage below the unchanged limit. That correction remains part of the loader
-contract; this current benchmark observes 34,580,100
+contract; this current benchmark observes 33,694,212
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -142,7 +144,7 @@ bytes and retains bounded p95 latency without changing any threshold.
 | Chrome | `150.0.7871.127` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `b3d7eab64a0a1eb31cd225e3ac2dea35acb267d6`
+The report records base implementation commit `2cd33b1c8e102e9a9d92820f801fc25679d21098`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -151,9 +153,9 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 2,461,281 | `1731911cc13c5b2749fbdc4c71af27a6e23e4fb449a69b5a84b2775d6b0149c7` |
+| Rust runtime core Wasm | 2,516,544 | `56cbc4b04d570c623548795b7f9a9cddbac7f7eb198f24f7f85bb3b89745f292` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
-| Runtime Worker bundle | 121,889 | `3ee6730692f1369d08c6af72f0878e977c7dd6c850dabe09f73525acec57af9b` |
+| Runtime Worker bundle | 122,207 | `49eb66e1c8ed2e6aa6dfa335deba66385b8d774898a60f4082ea3b091fdafe36` |
 | BGI benchmark bundle | 9,286 | `33be6c16928ebee490f9c5f75680923898ea9b9f66dc6546bb5b87d2b0a6eebb` |
 | Execution-engine profile | 545 | `792980bc78b58d8aae491c72b9ea13f39176206306321069a4f2bcb2989e7250` |
 | Version 1 configuration | 967 | `0862c59c00adc8d1b0218283b57ffdb2e87393624b6461c873b035fc4b2d98ef` |
@@ -187,7 +189,9 @@ profile plus a loopback-only server and DevTools endpoint.
   Waitable-timer coverage is limited to creation and initial nonsignaled
   lifetime; no due-time, period, signal, or cancellation workload is measured.
   Icon coverage is limited to logical module-resource selection and identity;
-  cursor coverage is limited to shared `IDC_ARROW` identity. No bitmap／cursor
+  cursor coverage is limited to shared `IDC_ARROW` identity. Window-class
+  coverage is limited to two process-local registrations and logical ATOM／
+  metadata lifetime. No window creation, WndProc dispatch, bitmap／cursor
   rendering, hotspot, active cursor, or browser resource is measured.
 - A passing slope threshold does not prove that V8 heap capacity has reached a
   permanent plateau; longer scenario-specific gates remain required.

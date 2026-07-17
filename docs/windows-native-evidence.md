@@ -2693,3 +2693,33 @@ Memory SHA-256は
 `8c580b84b365739f602e1e2c2307b87ecbd605d8bf28a52590e844f203af728f`である。User32 lifetimeと
 Worker payload変更後の3分gateは376 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-load-cursor-a.md](bgi-load-cursor-a.md)を正とする。
+
+## 99. BGI process-local window class registration
+
+Focused `register-class-ex-a` capturesは326,543 bytes／804 lines／SHA-256
+`003cfc9d9c9de92f9b0dad3421393d757fc7641a5c2661b27898c28122df7a97`と
+327,416 bytes／805 lines／SHA-256
+`0cd19660c72f5ec35a83ed25f59486f814ca908783a412c5d13af14e8951345b`
+である。各366 API pairsはbalancedでdiagnosticsはzeroである。
+
+Guarded x86 oracleはvalid 48-byte inputのsuccess／seeded LastError preserve、same module/nameの
+zero／`ERROR_CLASS_ALREADY_EXISTS` 1,410、`cbSize=47`のzero／`ERROR_INVALID_PARAMETER` 87を
+固定する。Invalid sizeを48へ修正した後のregistrationは成功し、failureがidentityを予約しない。
+Successful ATOMはdistinctで、name／ATOM双方の`GetClassInfoExA`が成功する。二classを
+`UnregisterClassA`した後のqueryは1,411で失敗する。全callで48 input bytesは不変であり、hookと
+direct system result／LastErrorは一致する。Native ATOM値はopaque artifact identityである。
+
+BGIはreturn RVA `0x67D28`／`0x67DAB`でmain／child classを登録する。両inputは48 bytes、mainは
+style `0x28`／WndProc RVA `0x92550`／name `BGI - Main window`、childはstyle `0x3020`／WndProc
+RVA `0x2E6E0`／name `BGI - Child window`である。HINSTANCEはmain module、HICON／HCURSORは同じ
+shared identities、extrasはzero、brush／menu／small iconはNULLで、両callはnonzero／LastError 0、
+input preservedとなる。
+
+Nodeは62 contracts／1,344 calls、1,350 writebacks／2,547 dirty pages／9,236 changed bytes、85 host
+deltas、generation 1,464を通す。Logical ATOMは`0xC000`／`0xC001`で、intervening second icon／cursor
+loadsはidentity 1をreuseする。Chromeもsame ordered immutable class metadata／memory digestを再現し、
+6,855 slices、5,505 yields、6,420 Wasm crossings、final generation 3,618、terminal pending work 0を
+通す。Instruction 49,990でID 203／`USER32.dll!GetSystemMetrics(7)`へstructured stopする。Memory
+SHA-256は`1aa4139c9a3a70a3f2090a6381212846a3171f40cfb93954867a2dc7efe6011c`である。Stateful User32
+lifetimeとWorker payload変更後の3分gateは363 sessions／failure 0で17 thresholdsを通した。詳細は
+[bgi-register-class-ex-a.md](bgi-register-class-ex-a.md)を正とする。

@@ -94,6 +94,34 @@ export interface RuntimeCursorSnapshot {
   };
 }
 
+export interface RuntimeWindowClassSnapshot {
+  id: number;
+  atom: number;
+  atomNamespace: string;
+  local: boolean;
+  module: {
+    moduleId: number;
+    loadBase: number;
+    sourceSha256: string;
+  };
+  style: number;
+  windowProcedure: {
+    moduleId: number;
+    address: number;
+    rva: number;
+    callingConvention: "stdcall";
+    argumentBytes: number;
+  };
+  classExtraBytes: number;
+  windowExtraBytes: number;
+  icon?: { iconId: number; handle: number };
+  cursor?: { cursorId: number; handle: number };
+  backgroundBrush: number;
+  menuName?: { value: string; encoding: string };
+  className: { value: string; encoding: string };
+  smallIcon?: { iconId: number; handle: number };
+}
+
 export interface RuntimeComApartmentSnapshot {
   model: "single-threaded" | "multi-threaded";
   initializationCount: number;
@@ -247,6 +275,7 @@ export interface SessionReport {
     waitableTimer?: RuntimeWaitableTimerSnapshot;
     icon?: RuntimeIconSnapshot;
     cursor?: RuntimeCursorSnapshot;
+    windowClass?: RuntimeWindowClassSnapshot;
     comApartment?: RuntimeComApartmentSnapshot;
   }>;
   firstUnsupported: {

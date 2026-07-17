@@ -8,24 +8,32 @@ use crate::api::{
     GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest, LastErrorPolicy,
     ReentrancyPolicy, StackCleanup,
 };
-use crate::memory::{GuestAddress, MemoryAccess};
+use crate::memory::{GuestAddress, GuestMemory, MemoryAccess};
 use crate::pe32::{ResourceDataEntryPlan, ResourceIdentifier};
 use crate::runtime::{
-    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RuntimeCursorSource, RuntimeDisplayProfile,
-    RuntimeIconResource, RuntimeInputProfile, RuntimeRect, RuntimeSystemCursorKind,
+    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
+    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
+    RuntimeCursorSource, RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile,
+    RuntimeRect, RuntimeSystemCursorKind, RuntimeWindowClassCursorReference,
+    RuntimeWindowClassIconReference, RuntimeWindowClassModule, RuntimeWindowClassNameA,
+    RuntimeWindowClassRegistration, RuntimeWindowProcedure,
+    RuntimeWindowProcedureCallingConvention,
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 4;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 5;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
+pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 
 const RT_ICON: u32 = 3;
 const RT_GROUP_ICON: u32 = 14;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_HANDLE: u32 = 6;
+const ERROR_INVALID_PARAMETER: u32 = 87;
+const ERROR_CLASS_ALREADY_EXISTS: u32 = 1410;
 const ERROR_RESOURCE_DATA_NOT_FOUND: u32 = 1812;
 const ERROR_RESOURCE_TYPE_NOT_FOUND: u32 = 1813;
 const ERROR_RESOURCE_NAME_NOT_FOUND: u32 = 1814;
@@ -49,6 +57,22 @@ pub struct User32LoadCursorAPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct User32RegisterClassExAPolicy {
+    pub profile_id: String,
+    pub structure_byte_length: u32,
+    pub maximum_class_name_bytes: u32,
+    pub allowed_styles: Vec<u32>,
+    pub require_zero_class_extra_bytes: bool,
+    pub require_zero_window_extra_bytes: bool,
+    pub require_live_icon: bool,
+    pub require_live_cursor: bool,
+    pub require_null_background_brush: bool,
+    pub require_null_menu_name: bool,
+    pub require_null_small_icon: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct User32CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -57,14 +81,15 @@ pub struct User32CompatibilityPolicy {
     pub swap_mouse_button: Option<RuntimeInputProfile>,
     pub load_icon_a: Option<User32LoadIconAPolicy>,
     pub load_cursor_a: Option<User32LoadCursorAPolicy>,
+    pub register_class_ex_a: Option<User32RegisterClassExAPolicy>,
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v4() -> Self {
+    pub fn controlled_v5() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-icon-cursor-v4".to_owned(),
+            id: "user32-single-monitor-normal-mouse-icon-cursor-class-v5".to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
                 primary_monitor_rect: RuntimeRect {
@@ -87,6 +112,19 @@ impl User32CompatibilityPolicy {
             load_cursor_a: Some(User32LoadCursorAPolicy {
                 profile_id: "system-arrow-shared-cursor-v1".to_owned(),
                 arrow_resource_id: RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
+            }),
+            register_class_ex_a: Some(User32RegisterClassExAPolicy {
+                profile_id: "local-ascii-module-class-v1".to_owned(),
+                structure_byte_length: 48,
+                maximum_class_name_bytes: 64,
+                allowed_styles: vec![0x28, 0x3020],
+                require_zero_class_extra_bytes: true,
+                require_zero_window_extra_bytes: true,
+                require_live_icon: true,
+                require_live_cursor: true,
+                require_null_background_brush: true,
+                require_null_menu_name: true,
+                require_null_small_icon: true,
             }),
         }
     }
@@ -162,6 +200,34 @@ impl User32CompatibilityPolicy {
                 "User32 system cursor profile requires the predefined arrow identity",
             ));
         }
+        if let Some(profile) = self.register_class_ex_a.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.structure_byte_length != 48
+                || profile.maximum_class_name_bytes == 0
+                || profile.maximum_class_name_bytes
+                    > u32::try_from(RUNTIME_WINDOW_CLASS_NAME_A_LIMIT)
+                        .expect("window class name limit fits u32")
+                || profile.allowed_styles.is_empty()
+                || profile.allowed_styles.len() > 16
+                || profile.allowed_styles.contains(&0)
+                || profile
+                    .allowed_styles
+                    .windows(2)
+                    .any(|pair| pair[0] >= pair[1])
+                || !profile.require_zero_class_extra_bytes
+                || !profile.require_zero_window_extra_bytes
+                || !profile.require_live_icon
+                || !profile.require_live_cursor
+                || !profile.require_null_background_brush
+                || !profile.require_null_menu_name
+                || !profile.require_null_small_icon)
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-register-class-ex-a-profile-invalid",
+                "User32 class registration profile requires the bounded reached local class variants",
+            ));
+        }
         Ok(())
     }
 
@@ -200,6 +266,12 @@ pub fn dispatch_user32_api_with_policy(
         },
         LOAD_CURSOR_A_IMPLEMENTATION => {
             match handle_load_cursor_a(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        REGISTER_CLASS_EX_A_IMPLEMENTATION => {
+            match handle_register_class_ex_a(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
@@ -464,6 +536,273 @@ fn handle_load_cursor_a(
     Ok(ApiImmediate::new(ApiReturnValue::U32(result.handle)).with_last_error(preserved_last_error))
 }
 
+fn handle_register_class_ex_a(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let class_policy = policy.register_class_ex_a.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-window-classes",
+            "register-class-ex-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable local class registration",
+                policy.id
+            ),
+        )
+    })?;
+    let class_address = GuestAddress(required_argument(
+        contract,
+        frame,
+        0,
+        "WNDCLASSEXA pointer",
+    )?);
+    let class_bytes = session
+        .memory()
+        .read(
+            class_address,
+            usize::try_from(class_policy.structure_byte_length).map_err(|_| {
+                ApiFault::runtime_defect(
+                    "user32-window-classes",
+                    "register-class-ex-a-structure-size-invalid",
+                    "validated class policy structure length does not fit host accounting",
+                )
+            })?,
+        )
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let field = |offset| {
+        read_u32(&class_bytes, offset).expect("validated WNDCLASSEXA contains every x86 field")
+    };
+    let cb_size = field(0);
+    if cb_size != class_policy.structure_byte_length {
+        return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+    }
+
+    let style = field(4);
+    let window_procedure_address = GuestAddress(field(8));
+    let class_extra_bytes = field(12);
+    let window_extra_bytes = field(16);
+    let instance = GuestAddress(field(20));
+    let icon_handle = field(24);
+    let cursor_handle = field(28);
+    let background_brush = field(32);
+    let menu_name_address = field(36);
+    let class_name_address = field(40);
+    let small_icon_handle = field(44);
+
+    if !class_policy.allowed_styles.contains(&style) {
+        return Err(ApiFault::unsupported(
+            "user32-window-classes",
+            "register-class-ex-a-style-unsupported",
+            "RegisterClassExA style is outside the reached controlled profile",
+        ));
+    }
+    if (class_policy.require_zero_class_extra_bytes && class_extra_bytes != 0)
+        || (class_policy.require_zero_window_extra_bytes && window_extra_bytes != 0)
+    {
+        return Err(ApiFault::unsupported(
+            "user32-window-classes",
+            "register-class-ex-a-extra-bytes-unsupported",
+            "RegisterClassExA currently supports zero class and window extra bytes",
+        ));
+    }
+    if (class_policy.require_live_icon && icon_handle == 0)
+        || (class_policy.require_live_cursor && cursor_handle == 0)
+    {
+        return Err(ApiFault::unsupported(
+            "user32-window-classes",
+            "register-class-ex-a-null-resource-unsupported",
+            "RegisterClassExA reached profile requires live logical icon and cursor identities",
+        ));
+    }
+    if (class_policy.require_null_background_brush && background_brush != 0)
+        || (class_policy.require_null_menu_name && menu_name_address != 0)
+        || (class_policy.require_null_small_icon && small_icon_handle != 0)
+    {
+        return Err(ApiFault::unsupported(
+            "user32-window-classes",
+            "register-class-ex-a-optional-field-unsupported",
+            "RegisterClassExA currently supports NULL brush, menu name, and small icon",
+        ));
+    }
+    if instance.0 == 0 || window_procedure_address.0 == 0 {
+        return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+    }
+    if class_name_address == 0 {
+        return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+    }
+    if class_name_address <= u32::from(u16::MAX) {
+        return Err(ApiFault::unsupported(
+            "user32-window-classes",
+            "register-class-ex-a-integer-name-unsupported",
+            "RegisterClassExA currently supports copied local ASCII names, not integer atoms",
+        ));
+    }
+    let class_name = read_bounded_ascii_nul(
+        session.memory(),
+        GuestAddress(class_name_address),
+        usize::try_from(class_policy.maximum_class_name_bytes).map_err(|_| {
+            ApiFault::runtime_defect(
+                "user32-window-classes",
+                "register-class-ex-a-name-limit-invalid",
+                "validated class name limit does not fit host accounting",
+            )
+        })?,
+        contract,
+    )?;
+    if class_name.is_empty() {
+        return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+    }
+
+    let module = match session.runtime().module_image_by_load_base(instance) {
+        Ok(image) => {
+            let procedure = u64::from(window_procedure_address.0);
+            if procedure < u64::from(image.image_range.start().0)
+                || procedure >= image.image_range.end()
+            {
+                return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+            }
+            let Some(procedure_rva) = window_procedure_address.0.checked_sub(image.load_base.0)
+            else {
+                return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+            };
+            (
+                RuntimeWindowClassModule {
+                    module_id: image.module_id,
+                    load_base: image.load_base,
+                    source_sha256: image.source.sha256.clone(),
+                },
+                procedure_rva,
+            )
+        }
+        Err(error) if error.code == "module-image-load-base-unknown" => {
+            return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+        }
+        Err(error) => {
+            return Err(ApiFault::runtime_defect(
+                "user32-window-classes",
+                error.code,
+                error.message,
+            ));
+        }
+    };
+    if session
+        .memory()
+        .validate_access(window_procedure_address, 1, MemoryAccess::Execute)
+        .is_err()
+    {
+        return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+    }
+    let icon = match session.runtime().icon(icon_handle) {
+        Ok(icon) => RuntimeWindowClassIconReference {
+            icon_id: icon.id,
+            handle: icon.handle,
+        },
+        Err(error) if error.code == "icon-handle-unknown" => {
+            return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let cursor = match session.runtime().cursor(cursor_handle) {
+        Ok(cursor) => RuntimeWindowClassCursorReference {
+            cursor_id: cursor.id,
+            handle: cursor.handle,
+        },
+        Err(error) if error.code == "cursor-handle-unknown" => {
+            return Ok(register_class_failure(ERROR_INVALID_PARAMETER));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let registration = RuntimeWindowClassRegistration {
+        module: module.0.clone(),
+        style,
+        window_procedure: RuntimeWindowProcedure {
+            module_id: module.0.module_id,
+            address: window_procedure_address,
+            rva: crate::pe32::Rva(module.1),
+            calling_convention: RuntimeWindowProcedureCallingConvention::Stdcall,
+            argument_bytes: RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
+        },
+        class_extra_bytes,
+        window_extra_bytes,
+        icon: Some(icon),
+        cursor: Some(cursor),
+        background_brush,
+        menu_name: None,
+        class_name: RuntimeWindowClassNameA {
+            value: class_name,
+            encoding: RUNTIME_WINDOW_CLASS_NAME_A_ENCODING.to_owned(),
+        },
+        small_icon: None,
+    };
+    let result = session
+        .runtime_mut()
+        .register_window_class(registration)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if result.already_registered {
+        return Ok(register_class_failure(ERROR_CLASS_ALREADY_EXISTS));
+    }
+    Ok(ApiImmediate::new(ApiReturnValue::U16(result.atom)).with_last_error(preserved_last_error))
+}
+
+fn read_bounded_ascii_nul(
+    memory: &GuestMemory,
+    address: GuestAddress,
+    maximum_bytes: usize,
+    contract: &ApiContract,
+) -> Result<String, ApiFault> {
+    let mut bytes = Vec::with_capacity(maximum_bytes);
+    for offset in 0..maximum_bytes {
+        let offset = u32::try_from(offset).map_err(|_| {
+            ApiFault::runtime_defect(
+                "user32-window-classes",
+                "register-class-ex-a-name-offset-invalid",
+                "validated class name bound does not fit x86 accounting",
+            )
+        })?;
+        let byte_address = address
+            .0
+            .checked_add(offset)
+            .map(GuestAddress)
+            .ok_or_else(|| {
+                ApiFault::invalid_call(
+                    "user32-window-classes",
+                    "register-class-ex-a-name-address-overflow",
+                    "class name read overflowed x86 address accounting",
+                )
+            })?;
+        let byte = memory
+            .read(byte_address, 1)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+        if byte == 0 {
+            return String::from_utf8(bytes).map_err(|_| {
+                ApiFault::runtime_defect(
+                    "user32-window-classes",
+                    "register-class-ex-a-name-decoding-defect",
+                    "validated ASCII class name failed UTF-8 decoding",
+                )
+            });
+        }
+        if !byte.is_ascii() {
+            return Err(ApiFault::unsupported(
+                "user32-window-classes",
+                "register-class-ex-a-non-ascii-name-unsupported",
+                "RegisterClassExA currently supports the reached ASCII subset of Windows-932",
+            ));
+        }
+        bytes.push(byte);
+    }
+    Err(ApiFault::unsupported(
+        "user32-window-classes",
+        "register-class-ex-a-name-bound-exceeded",
+        "RegisterClassExA class name is not NUL-terminated within the controlled bound",
+    ))
+}
+
 fn integer_language_id(entry: &ResourceDataEntryPlan) -> Option<u32> {
     match &entry.language {
         ResourceIdentifier::Id { id } => Some(*id),
@@ -572,6 +911,10 @@ fn load_icon_failure(last_error: u32) -> ApiImmediate {
 
 fn load_cursor_failure(last_error: u32) -> ApiImmediate {
     ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(last_error)
+}
+
+fn register_class_failure(last_error: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::U16(0)).with_last_error(last_error)
 }
 
 fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {
@@ -684,6 +1027,7 @@ pub fn user32_contract_for_endpoint(
         "SwapMouseButton" => Ok(Some(swap_mouse_button_contract(endpoint)?)),
         "LoadIconA" => Ok(Some(load_icon_a_contract(endpoint)?)),
         "LoadCursorA" => Ok(Some(load_cursor_a_contract(endpoint)?)),
+        "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         _ => Ok(None),
     }
 }
@@ -764,6 +1108,25 @@ pub fn load_cursor_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContra
     })
 }
 
+pub fn register_class_ex_a_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![required_in_struct("windowClass", "WNDCLASSEXA", 48)],
+            return_value: ApiReturnSchema::U16,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: REGISTER_CLASS_EX_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
 fn required_argument(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -823,13 +1186,31 @@ fn optional_in_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumen
     }
 }
 
+fn required_in_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::In,
+        value: ApiValueSchema::Pointer {
+            constraint: ApiPointerConstraint {
+                nullable: false,
+                alignment: 4,
+                byte_length,
+                pointee: ApiPointeeSchema::Struct {
+                    type_id: type_id.to_owned(),
+                },
+                write_requirement: ApiWriteRequirement::None,
+            },
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v4();
+        let policy = User32CompatibilityPolicy::controlled_v5();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -847,14 +1228,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v4();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v5();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v4();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v5();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -865,7 +1246,7 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v4();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v5();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -874,6 +1255,18 @@ mod tests {
         assert_eq!(
             invalid_cursor.validate().unwrap_err().code,
             "user32-load-cursor-profile-invalid"
+        );
+
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v5();
+        invalid_class
+            .register_class_ex_a
+            .as_mut()
+            .unwrap()
+            .allowed_styles
+            .reverse();
+        assert_eq!(
+            invalid_class.validate().unwrap_err().code,
+            "user32-register-class-ex-a-profile-invalid"
         );
     }
 }

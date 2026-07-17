@@ -15,6 +15,7 @@ import {
   type RuntimeWaitableTimerSnapshot,
   type RuntimeIconSnapshot,
   type RuntimeCursorSnapshot,
+  type RuntimeWindowClassSnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -118,6 +119,7 @@ interface CompletionMetadata {
   waitableTimer?: RuntimeWaitableTimerSnapshot;
   icon?: RuntimeIconSnapshot;
   cursor?: RuntimeCursorSnapshot;
+  windowClass?: RuntimeWindowClassSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
 }
 
@@ -159,6 +161,7 @@ interface CallbackCompletionMetadata {
   waitableTimer?: RuntimeWaitableTimerSnapshot;
   icon?: RuntimeIconSnapshot;
   cursor?: RuntimeCursorSnapshot;
+  windowClass?: RuntimeWindowClassSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
 }
 
@@ -777,6 +780,12 @@ class BrowserRuntimeSession {
       isLoadCursor === (metadata.cursor !== undefined),
       "BGI cursor completion metadata mismatch",
     );
+    const isRegisterClass =
+      completion.implementationId === "user32.register-class-ex-a.v1";
+    invariant(
+      isRegisterClass === (metadata.windowClass !== undefined),
+      "BGI window class completion metadata mismatch",
+    );
     const isCoInitialize = completion.implementationId === "ole32.co-initialize.v1";
     invariant(
       isCoInitialize === (metadata.comApartment !== undefined),
@@ -811,6 +820,9 @@ class BrowserRuntimeSession {
         : { waitableTimer: metadata.waitableTimer }),
       ...(metadata.icon === undefined ? {} : { icon: metadata.icon }),
       ...(metadata.cursor === undefined ? {} : { cursor: metadata.cursor }),
+      ...(metadata.windowClass === undefined
+        ? {}
+        : { windowClass: metadata.windowClass }),
       ...(metadata.comApartment === undefined
         ? {}
         : { comApartment: metadata.comApartment }),

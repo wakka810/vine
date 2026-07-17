@@ -557,7 +557,17 @@ teardownを一つのstale-checked lifecycle planでretireする。Cursor kind se
 CSS cursor／DOM input／browser bitmapとのassociationは明示的なnon-owning adapter stateとし、native
 HCURSORやbrowser resource IDをguest-visible identityへimportしない。
 
-- Runtime Worker が window tree、z-order、focus、capture、invalid region を所有する
+Process-local window classも`RuntimeUser32`の別identity domainとする。Class collection、ASCII
+case-foldした`(module ID, name)` index、logical ATOM index、monotonic allocator、generation、
+process teardownをprivateに所有する。Class recordはmapped module hash／base、same-module executable
+WndProcのRVA／x86 stdcall descriptor、copied name／styleと、logical HICON／HCURSORへのnon-owning
+identity pairを保持し、guestのstructure／string pointerを保持しない。登録は全field、module、memory
+execute access、resource lifetime、capacityをpreflightした後にtargeted commitする。TypeScriptへ渡す
+class metadataはimmutable completion snapshotであり、DOM class、native ATOM、callback lifetimeの第二の
+正本にはしない。
+
+- Rust User32／window subsystemがlogical window tree、z-order、focus、capture、invalid regionを所有する
+- Runtime WorkerはCanvas／DOM等のbrowser resourceと明示的なnon-owning associationだけを所有する
 - Main thread は DOM event を timestamp 付きで normalized input event にする
 - User32 layer が virtual key、scan code、mouse coordinate、message sequence へ変換する
 - synchronous send と asynchronous post を scheduler 上で区別する

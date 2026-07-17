@@ -380,7 +380,7 @@ impl BrowserRuntime {
         let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
         let mut process =
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v4();
+        let user32_policy = User32CompatibilityPolicy::controlled_v5();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -989,6 +989,16 @@ impl BrowserRuntime {
                         {
                             metadata["cursor"] =
                                 json!(self.runtime.cursor(handle).map_err(error_string)?);
+                        }
+                        if completion.implementation_id == "user32.register-class-ex-a.v1"
+                            && let RegisterUpdate::Set(atom) = completion.eax
+                        {
+                            let atom = u16::try_from(atom).map_err(|_| {
+                                "RegisterClassExA completion returned an out-of-range ATOM"
+                                    .to_owned()
+                            })?;
+                            metadata["windowClass"] =
+                                json!(self.runtime.window_class(atom).map_err(error_string)?);
                         }
                         if completion.implementation_id == "ole32.co-initialize.v1" {
                             metadata["comApartment"] = json!(

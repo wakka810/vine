@@ -107,6 +107,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-create-waitable-timer-a",
         "user32-load-icon-a",
         "user32-load-cursor-a",
+        "user32-register-class-ex-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -133,6 +134,7 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
+    genericRuntimeCapability === "user32-register-class-ex-a" ||
     genericRuntimeCapability === "user32-load-cursor-a" ||
     genericRuntimeCapability === "user32-load-icon-a" ||
     genericRuntimeCapability === "kernel32-create-waitable-timer-a"
@@ -248,7 +250,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const loadCursorAEnabled = genericRuntimeCapability === "user32-load-cursor-a";
+const registerClassExAEnabled =
+  genericRuntimeCapability === "user32-register-class-ex-a";
+const loadCursorAEnabled =
+  registerClassExAEnabled || genericRuntimeCapability === "user32-load-cursor-a";
 const loadIconAEnabled =
   loadCursorAEnabled || genericRuntimeCapability === "user32-load-icon-a";
 const createWaitableTimerAEnabled =
@@ -397,7 +402,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? loadCursorAEnabled
+      ? registerClassExAEnabled
+        ? "v86-bgi-register-class-ex-a"
+      : loadCursorAEnabled
         ? "v86-bgi-load-cursor-a"
       : loadIconAEnabled
         ? "v86-bgi-load-icon-a"
@@ -4293,6 +4300,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (registerClassExAEnabled) {
+        validateRegisterClassExAResult(genericResult);
       } else if (loadCursorAEnabled) {
         validateLoadCursorAResult(genericResult);
       } else if (loadIconAEnabled) {
@@ -4406,6 +4415,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : registerClassExAEnabled
+            ? "bgi RegisterClassExA"
           : loadCursorAEnabled
             ? "bgi LoadCursorA"
           : loadIconAEnabled
@@ -5219,6 +5230,9 @@ function buildGenericCallRecord(
       : { waitableTimer: completionFrame.waitableTimer }),
     ...(completionFrame.icon === undefined ? {} : { icon: completionFrame.icon }),
     ...(completionFrame.cursor === undefined ? {} : { cursor: completionFrame.cursor }),
+    ...(completionFrame.windowClass === undefined
+      ? {}
+      : { windowClass: completionFrame.windowClass }),
     ...(completionFrame.threadAffinity === undefined
       ? {}
       : { threadAffinity: completionFrame.threadAffinity }),
@@ -5256,6 +5270,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : registerClassExAEnabled
+          ? 49
         : loadCursorAEnabled
           ? 48
         : loadIconAEnabled
@@ -5358,7 +5374,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-v4",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-v5",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -9625,6 +9641,158 @@ function validateLoadIconAResult(result) {
   assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 3), [0, 32512]);
 }
 
+function validateRegisterClassExAResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.supportedCalls.length, 1344);
+  assert.equal(result.writebacks.length, 1350);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2547,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    9236,
+  );
+  assert.equal(result.hostDeltas.length, 85);
+  assert.equal(result.finalGeneration, 1464);
+
+  const iconCalls = result.supportedCalls.filter(({ symbol }) => symbol === "LoadIconA");
+  const cursorCalls = result.supportedCalls.filter(({ symbol }) => symbol === "LoadCursorA");
+  assert.equal(iconCalls.length, 2);
+  assert.equal(cursorCalls.length, 2);
+  assert.equal(iconCalls[0].icon.id, iconCalls[1].icon.id);
+  assert.equal(iconCalls[0].icon.handle, iconCalls[1].icon.handle);
+  assert.equal(cursorCalls[0].cursor.id, cursorCalls[1].cursor.id);
+  assert.equal(cursorCalls[0].cursor.handle, cursorCalls[1].cursor.handle);
+  assert.deepEqual(
+    iconCalls.map(({ sequence, occurrence, trapInstructionCount, returnAddress }) => ({
+      sequence,
+      occurrence,
+      trapInstructionCount,
+      returnAddress,
+    })),
+    [
+      { sequence: 1339, occurrence: 1, trapInstructionCount: 49942, returnAddress: 0x10067cf3 },
+      { sequence: 1342, occurrence: 2, trapInstructionCount: 49970, returnAddress: 0x10067d7c },
+    ],
+  );
+  assert.deepEqual(
+    cursorCalls.map(({ sequence, occurrence, trapInstructionCount, returnAddress }) => ({
+      sequence,
+      occurrence,
+      trapInstructionCount,
+      returnAddress,
+    })),
+    [
+      { sequence: 1340, occurrence: 1, trapInstructionCount: 49949, returnAddress: 0x10067d09 },
+      { sequence: 1343, occurrence: 2, trapInstructionCount: 49976, returnAddress: 0x10067d8c },
+    ],
+  );
+
+  const classCalls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "RegisterClassExA",
+  );
+  assert.equal(classCalls.length, 2);
+  const expectedClasses = [
+    {
+      sequence: 1341,
+      occurrence: 1,
+      instructionCount: 49957,
+      result: 0xc000,
+      returnAddress: 0x10067d28,
+      id: 1,
+      atom: 0xc000,
+      style: 0x28,
+      procedureAddress: 0x10092550,
+      procedureRva: 0x92550,
+      name: "BGI - Main window",
+    },
+    {
+      sequence: 1344,
+      occurrence: 2,
+      instructionCount: 49984,
+      result: 0xc001,
+      returnAddress: 0x10067dab,
+      id: 2,
+      atom: 0xc001,
+      style: 0x3020,
+      procedureAddress: 0x1002e6e0,
+      procedureRva: 0x2e6e0,
+      name: "BGI - Child window",
+    },
+  ];
+  for (const [call, expectedClass] of classCalls.map((call, index) => [call, expectedClasses[index]])) {
+    assert.equal(call.sequence, expectedClass.sequence);
+    assert.equal(call.occurrence, expectedClass.occurrence);
+    assert.equal(call.trapInstructionCount, expectedClass.instructionCount);
+    assert.deepEqual(call.arguments, [0x006ffb08]);
+    assert.deepEqual(call.result, { action: "set", value: expectedClass.result });
+    assert.equal(call.implementationId, "user32.register-class-ex-a.v1");
+    assert.equal(call.returnAddress, expectedClass.returnAddress);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+    assert.deepEqual(call.windowClass, {
+      id: expectedClass.id,
+      atom: expectedClass.atom,
+      atomNamespace: "vine.logical-window-class-atom.v1",
+      local: true,
+      module: {
+        moduleId: 15,
+        loadBase: 0x10000000,
+        sourceSha256: "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+      },
+      style: expectedClass.style,
+      windowProcedure: {
+        moduleId: 15,
+        address: expectedClass.procedureAddress,
+        rva: expectedClass.procedureRva,
+        callingConvention: "stdcall",
+        argumentBytes: 16,
+      },
+      classExtraBytes: 0,
+      windowExtraBytes: 0,
+      icon: { iconId: 1, handle: 0x49010001 },
+      cursor: { cursorId: 1, handle: 0x43010001 },
+      backgroundBrush: 0,
+      className: {
+        value: expectedClass.name,
+        encoding: "windows-932-v1",
+      },
+    });
+  }
+
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 203);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f000ca0);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GetSystemMetrics",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d1404);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "1aa4139c9a3a70a3f2090a6381212846a3171f40cfb93954867a2dc7efe6011c",
+  );
+  assert.equal(result.terminal.instructionCount, 49990);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 203);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f000ca0);
+  assert.equal(result.terminal.terminal.thunk.name, "GetSystemMetrics");
+  assert.equal(result.terminal.terminal.returnAddress, 0x10067ddb);
+  assert.equal(result.terminal.terminal.stackWords[1], 7);
+}
+
 function validateLoadCursorAResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
@@ -10727,6 +10895,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : registerClassExAEnabled
+          ? "vine.v86-bgi-register-class-ex-a"
         : loadCursorAEnabled
           ? "vine.v86-bgi-load-cursor-a"
         : loadIconAEnabled

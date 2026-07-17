@@ -704,6 +704,13 @@ loadCursorSelection.find(
 ).selectedObservations = ["load-cursor-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(loadCursorSelection)));
 
+const registerClassSelection = structuredClone(events);
+registerClassSelection[0].arguments.observations = ["register-class-ex-a"];
+registerClassSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["register-class-ex-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(registerClassSelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

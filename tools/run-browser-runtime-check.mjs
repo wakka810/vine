@@ -825,6 +825,7 @@ function normalizeBgiCall(call) {
     waitableTimer: call.waitableTimer ?? null,
     icon: call.icon ?? null,
     cursor: call.cursor ?? null,
+    windowClass: call.windowClass ?? null,
   };
 }
 
