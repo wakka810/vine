@@ -192,8 +192,40 @@ interface InitialThreadStackGrowthMetadata {
   dirtyPages: number;
 }
 
-interface InitialThreadStackGrowthRejectedMetadata {
-  kind: "initial-thread-stack-growth-rejected";
+interface PageFaultResolvedMetadata {
+  kind: "page-fault-resolved";
+  resolution:
+    | {
+        kind: "initial-thread-stack-growth";
+        growth: InitialThreadStackGrowthMetadata["growth"];
+      }
+    | {
+        kind: "private-heap-page-materialization";
+        materialization: {
+          handle: number;
+          allocation: {
+            id: number;
+            address: number;
+            byteLength: number;
+            reservedByteLength: number;
+            initialization: "zeroed" | "deterministic-uninitialized";
+          };
+          memoryOwner: number;
+          addressAllocationId: number;
+          faultAddress: number;
+          pageFaultErrorCode: number;
+          committedPage: { start: number; byteLength: number };
+          materializedPages: number;
+        };
+      };
+  fromGeneration: number;
+  generation: number;
+  mappingOperations: ["commit"];
+  dirtyPages: number;
+}
+
+interface PageFaultRejectedMetadata {
+  kind: "page-fault-rejected";
   faultAddress: number;
   pageFaultErrorCode: number;
   error: { code: string };
@@ -303,6 +335,7 @@ class BrowserRuntimeSession {
     writebackBatches: 0,
     writebackPages: 0,
     stackGrowths: [] as SessionReport["stackGrowths"],
+    heapPageMaterializations: undefined as SessionReport["heapPageMaterializations"],
     mappingDeltas: 0,
     mappingOperations: {
       reserve: 0,
@@ -619,9 +652,10 @@ class BrowserRuntimeSession {
           cause: "guest-page-fault",
           threadId: this.#currentThreadId,
         });
-        if (this.#growInitialThreadStack(slice.stop)) {
+        const pageFaultResolution = this.#servicePageFault(slice.stop);
+        if (pageFaultResolution !== null) {
           this.#execution.transition(sliceState === "running" ? "ready" : "guest-callback", {
-            cause: "initial-stack-growth-complete",
+            cause: `${pageFaultResolution}-complete`,
             threadId: this.#currentThreadId,
           });
           continue;
@@ -866,106 +900,134 @@ class BrowserRuntimeSession {
     });
   }
 
-  #growInitialThreadStack(
+  #servicePageFault(
     stop: Extract<ExecutionStop, { kind: "fault" }>,
-  ): boolean {
-    invariant(stop.fault === "page-fault", "stack growth requires a page fault");
-    invariant(stop.faultAddress !== undefined, "stack growth fault omitted its address");
-    const output = this.#requireBridge().growInitialThreadStack<
-      InitialThreadStackGrowthMetadata | InitialThreadStackGrowthRejectedMetadata
+  ): "initial-stack-growth" | "private-heap-page-materialization" | null {
+    invariant(stop.fault === "page-fault", "page-fault service requires a page fault");
+    invariant(stop.faultAddress !== undefined, "page fault omitted its address");
+    const output = this.#requireBridge().servicePageFault<
+      PageFaultResolvedMetadata | PageFaultRejectedMetadata
     >(stop.faultAddress, stop.errorCode);
     const metadata = output.metadata;
-    if (metadata.kind === "initial-thread-stack-growth-rejected") {
+    if (metadata.kind === "page-fault-rejected") {
       invariant(
         output.control.byteLength === 0 && output.payload.byteLength === 0,
-        "rejected stack growth returned a memory delta",
+        "rejected page fault returned a memory delta",
       );
-      invariant(metadata.faultAddress === stop.faultAddress, "rejected stack fault address changed");
+      invariant(metadata.faultAddress === stop.faultAddress, "rejected fault address changed");
       invariant(
         metadata.pageFaultErrorCode === stop.errorCode,
-        "rejected stack page-fault code changed",
+        "rejected page-fault code changed",
       );
       invariant(
         metadata.memory.generation === Number(this.#generation) &&
           metadata.memory.acknowledgedGeneration === Number(this.#generation),
-        "rejected stack growth changed memory",
+        "rejected page fault changed memory",
       );
-      return false;
+      return null;
     }
 
-    invariant(metadata.growth.faultAddress === stop.faultAddress, "stack fault address changed");
+    const resolution = metadata.resolution;
+    const resolvedFault =
+      resolution.kind === "initial-thread-stack-growth"
+        ? resolution.growth
+        : resolution.materialization;
+    invariant(resolvedFault.faultAddress === stop.faultAddress, "resolved fault address changed");
     invariant(
-      metadata.growth.pageFaultErrorCode === stop.errorCode,
-      "stack page-fault code changed",
+      resolvedFault.pageFaultErrorCode === stop.errorCode,
+      "resolved page-fault code changed",
     );
-    invariant(
-      metadata.growth.threadId === this.#currentThreadId,
-      "stack growth belongs to the wrong runtime thread",
-    );
-    const preparedStack = this.#requirePrepared().initialThreadStack;
-    invariant(preparedStack !== undefined, "prepared stack identity is unavailable");
-    invariant(
-      metadata.growth.addressAllocationId === preparedStack.addressAllocationId &&
-        metadata.growth.memoryOwner === preparedStack.memoryOwner,
-      "stack growth authority identity changed",
-    );
-    invariant(metadata.fromGeneration === Number(this.#generation), "stack delta base changed");
+    invariant(metadata.fromGeneration === Number(this.#generation), "fault delta base changed");
     const delta = decodeHostDelta(output.control, output.payload);
-    invariant(delta.fromGeneration === this.#generation, "stack delta base generation mismatch");
+    invariant(delta.fromGeneration === this.#generation, "fault delta base generation mismatch");
     invariant(
       delta.generation === BigInt(metadata.generation),
-      "stack delta generation metadata mismatch",
+      "fault delta generation metadata mismatch",
     );
     invariant(
       delta.mappingOperations.length === 1 &&
         delta.mappingOperations[0]?.operation === "commit",
-      "stack growth did not contain exactly one commit operation",
+      "page-fault resolution did not contain exactly one commit operation",
     );
     const operation = delta.mappingOperations[0];
-    invariant(operation.operation === "commit", "stack growth mapping is not a commit");
+    invariant(operation.operation === "commit", "page-fault mapping is not a commit");
     invariant(
-      operation.owner === metadata.growth.memoryOwner &&
-        operation.range.base === metadata.growth.committedPage.start &&
-        operation.range.byteLength === metadata.growth.committedPage.byteLength,
-      "stack growth commit identity mismatch",
+      operation.owner === resolvedFault.memoryOwner &&
+        operation.range.base === resolvedFault.committedPage.start &&
+        operation.range.byteLength === resolvedFault.committedPage.byteLength,
+      "page-fault commit identity mismatch",
     );
     invariant(
       operation.protection.read && operation.protection.write && !operation.protection.execute,
-      "stack growth commit protection mismatch",
+      "page-fault commit protection mismatch",
     );
-    invariant(delta.pages.length === 1, "stack growth did not return one zeroed page");
+    invariant(delta.pages.length === 1, "page-fault resolution did not return one page");
     const page = delta.pages[0];
-    invariant(page !== undefined, "stack growth page disappeared after validation");
+    invariant(page !== undefined, "page-fault page disappeared after validation");
     invariant(
       page.address === operation.range.base &&
         page.owner === operation.owner &&
-        page.ownerSealed &&
         page.protection.read &&
         page.protection.write &&
-        !page.protection.execute &&
-        page.bytes.every((byte) => byte === 0),
-      "stack growth page bytes or ownership mismatch",
+        !page.protection.execute,
+      "page-fault page ownership or protection mismatch",
     );
+
+    if (resolution.kind === "initial-thread-stack-growth") {
+      const growth = resolution.growth;
+      invariant(growth.threadId === this.#currentThreadId, "stack growth belongs to the wrong thread");
+      const preparedStack = this.#requirePrepared().initialThreadStack;
+      invariant(preparedStack !== undefined, "prepared stack identity is unavailable");
+      invariant(
+        growth.addressAllocationId === preparedStack.addressAllocationId &&
+          growth.memoryOwner === preparedStack.memoryOwner,
+        "stack growth authority identity changed",
+      );
+      invariant(
+        page.ownerSealed && page.bytes.every((byte) => byte === 0),
+        "stack growth page bytes or sealing mismatch",
+      );
+      this.#report.stackGrowths.push({
+        instructionCount: this.#report.instructions,
+        faultAddress: growth.faultAddress,
+        pageFaultErrorCode: growth.pageFaultErrorCode,
+        addressAllocationId: growth.addressAllocationId,
+        memoryOwner: growth.memoryOwner,
+        committedPage: growth.committedPage,
+        previousGuardPage: growth.previousGuardPage,
+        ...(growth.nextGuardPage === undefined ? {} : { nextGuardPage: growth.nextGuardPage }),
+        committedPages: growth.committedPages,
+        fromGeneration: metadata.fromGeneration,
+        generation: metadata.generation,
+      });
+    } else {
+      const materialization = resolution.materialization;
+      invariant(
+        materialization.allocation.address <= materialization.faultAddress &&
+          materialization.faultAddress <
+            materialization.allocation.address + materialization.allocation.byteLength,
+        "heap materialization fault escaped its allocation",
+      );
+      const expectedFill =
+        materialization.allocation.initialization === "zeroed" ? 0 : 0xa5;
+      invariant(
+        page.bytes.every((byte) => byte === expectedFill),
+        "heap materialization initialization mismatch",
+      );
+      (this.#report.heapPageMaterializations ??= []).push({
+        instructionCount: this.#report.instructions,
+        ...materialization,
+        fromGeneration: metadata.fromGeneration,
+        generation: metadata.generation,
+      });
+    }
     this.#report.mappingDeltas += 1;
     this.#report.mappingOperations.commit += 1;
     this.#report.mappingDirtyPages += 1;
     this.#applyAuthoritativeDelta(delta);
-    this.#report.stackGrowths.push({
-      instructionCount: this.#report.instructions,
-      faultAddress: metadata.growth.faultAddress,
-      pageFaultErrorCode: metadata.growth.pageFaultErrorCode,
-      addressAllocationId: metadata.growth.addressAllocationId,
-      memoryOwner: metadata.growth.memoryOwner,
-      committedPage: metadata.growth.committedPage,
-      previousGuardPage: metadata.growth.previousGuardPage,
-      ...(metadata.growth.nextGuardPage === undefined
-        ? {}
-        : { nextGuardPage: metadata.growth.nextGuardPage }),
-      committedPages: metadata.growth.committedPages,
-      fromGeneration: metadata.fromGeneration,
-      generation: metadata.generation,
-    });
-    return true;
+    return resolution.kind === "initial-thread-stack-growth"
+      ? "initial-stack-growth"
+      : "private-heap-page-materialization";
   }
 
   #completeExecutionStructuredStop(

@@ -231,6 +231,25 @@ export interface SessionReport {
     fromGeneration: number;
     generation: number;
   }>;
+  heapPageMaterializations?: Array<{
+    instructionCount: number;
+    handle: number;
+    allocation: {
+      id: number;
+      address: number;
+      byteLength: number;
+      reservedByteLength: number;
+      initialization: "zeroed" | "deterministic-uninitialized";
+    };
+    memoryOwner: number;
+    addressAllocationId: number;
+    faultAddress: number;
+    pageFaultErrorCode: number;
+    committedPage: { start: number; byteLength: number };
+    materializedPages: number;
+    fromGeneration: number;
+    generation: number;
+  }>;
   mappingDeltas: number;
   mappingOperations: {
     reserve: number;

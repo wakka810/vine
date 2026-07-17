@@ -177,6 +177,10 @@ let heapSizeOracleResult = null;
 let heapSizeOracleLastError = null;
 let heapSizeConsumersRecorded = 0;
 const observedMainModuleHeapAllocations = new Map();
+const largeHeapAccessMinimumBytes = 16 * 1024 * 1024;
+let activeLargeHeapAccessMonitor = null;
+let largeHeapAllocationCompletionCandidate = null;
+let largeHeapAllocationCompletionRecorded = false;
 let getCurrentThreadOracleScheduled = false;
 let setThreadAffinityMaskOracleScheduled = false;
 let setThreadAffinityMaskOracleSentinel = null;
@@ -260,6 +264,224 @@ function snapshotNulTerminatedString(pointer, encoding) {
       maximumBytes,
       error: error.message,
     };
+  }
+}
+
+function compactPageRuns(pageIndexes, requestedBytes) {
+  const pageSize = Process.pageSize;
+  const sorted = [...pageIndexes].sort((left, right) => left - right);
+  const runs = [];
+  let first = null;
+  let last = null;
+  const append = () => {
+    if (first === null || last === null) {
+      return;
+    }
+    runs.push({
+      firstPage: first,
+      lastPage: last,
+      pageCount: last - first + 1,
+      startOffset: first * pageSize,
+      endOffsetExclusive: Math.min(requestedBytes, (last + 1) * pageSize),
+    });
+  };
+  for (const pageIndex of sorted) {
+    if (first === null) {
+      first = pageIndex;
+      last = pageIndex;
+    } else if (pageIndex === last + 1) {
+      last = pageIndex;
+    } else {
+      append();
+      first = pageIndex;
+      last = pageIndex;
+    }
+  }
+  append();
+  return runs;
+}
+
+function describeLargeHeapAccess(access) {
+  if (access === null) {
+    return null;
+  }
+  return {
+    operation: access.operation,
+    allocationOffset: access.allocationOffset,
+    pageIndex: access.pageIndex,
+    address: access.address,
+    source: describeCaller(ptr(access.source)),
+    sourceInstructions: snapshotInstructions(ptr(access.source), 8),
+    timestampMs: access.timestampMs,
+  };
+}
+
+function beginLargeHeapAccessObservation(
+  pointer,
+  requestedBytes,
+  allocationCallId,
+) {
+  if (requestedBytes < largeHeapAccessMinimumBytes) {
+    return null;
+  }
+  if (activeLargeHeapAccessMonitor !== null) {
+    emit("large-heap-access-monitor-error", {
+      error: "a second large allocation overlapped the active observation",
+      activeAllocationCallId: activeLargeHeapAccessMonitor.allocationCallId,
+      overlappingAllocationCallId: allocationCallId,
+    });
+    return {
+      enabled: false,
+      error: "large allocation monitor already active",
+    };
+  }
+  if (typeof MemoryAccessMonitor === "undefined") {
+    emit("large-heap-access-monitor-error", {
+      error: "MemoryAccessMonitor is unavailable",
+      allocationCallId,
+    });
+    return {
+      enabled: false,
+      error: "MemoryAccessMonitor is unavailable",
+    };
+  }
+  const pageSize = Process.pageSize;
+  const pointerValue = pointer.toUInt32();
+  const end = pointerValue + requestedBytes;
+  if (!Number.isSafeInteger(end) || end > 0x1_0000_0000) {
+    emit("large-heap-access-monitor-error", {
+      error: "large allocation range crosses the x86 address limit",
+      allocationCallId,
+      pointer: pointer.toString(),
+      requestedBytes,
+    });
+    return {
+      enabled: false,
+      error: "large allocation range is invalid",
+    };
+  }
+  const monitoredBase = Math.floor(pointerValue / pageSize) * pageSize;
+  const monitoredEnd = Math.ceil(end / pageSize) * pageSize;
+  const state = {
+    allocationCallId,
+    pointer: pointer.toString().toLowerCase(),
+    pointerValue,
+    requestedBytes,
+    requestedPages: Math.ceil(requestedBytes / pageSize),
+    monitoredBase,
+    monitoredBytes: monitoredEnd - monitoredBase,
+    startedAtMs: Date.now(),
+    pages: new Map(),
+    operationCounts: { read: 0, write: 0, execute: 0, other: 0 },
+    firstAccess: null,
+    lastAccess: null,
+  };
+  activeLargeHeapAccessMonitor = state;
+  try {
+    MemoryAccessMonitor.enable(
+      [{ base: ptr(monitoredBase), size: state.monitoredBytes }],
+      {
+        onAccess(details) {
+          const address = details.address.toUInt32();
+          if (address < pointerValue || address >= end) {
+            return;
+          }
+          const allocationOffset = address - pointerValue;
+          const pageIndex = Math.floor(allocationOffset / pageSize);
+          if (state.pages.has(pageIndex)) {
+            return;
+          }
+          const operation = String(details.operation);
+          const operationKey = Object.prototype.hasOwnProperty.call(
+            state.operationCounts,
+            operation,
+          )
+            ? operation
+            : "other";
+          const access = {
+            operation,
+            allocationOffset,
+            pageIndex,
+            address: details.address.toString(),
+            source: details.from.toString(),
+            timestampMs: Date.now(),
+          };
+          state.pages.set(pageIndex, access);
+          state.operationCounts[operationKey] += 1;
+          state.firstAccess ??= access;
+          state.lastAccess = access;
+        },
+      },
+    );
+    return {
+      enabled: true,
+      allocationCallId,
+      pointer: state.pointer,
+      requestedBytes,
+      requestedPages: state.requestedPages,
+      monitoredBase: ptr(monitoredBase).toString(),
+      monitoredBytes: state.monitoredBytes,
+    };
+  } catch (error) {
+    activeLargeHeapAccessMonitor = null;
+    emit("large-heap-access-monitor-error", {
+      error: error.message,
+      allocationCallId,
+      pointer: pointer.toString(),
+      requestedBytes,
+    });
+    return {
+      enabled: false,
+      error: error.message,
+    };
+  }
+}
+
+function finishLargeHeapAccessObservation(pointer, reason) {
+  const state = activeLargeHeapAccessMonitor;
+  if (state === null || state.pointer !== pointer.toLowerCase()) {
+    return null;
+  }
+  MemoryAccessMonitor.disable();
+  activeLargeHeapAccessMonitor = null;
+  const pageIndexes = new Set(state.pages.keys());
+  return {
+    enabled: true,
+    reason,
+    allocationCallId: state.allocationCallId,
+    pointer: state.pointer,
+    requestedBytes: state.requestedBytes,
+    requestedPages: state.requestedPages,
+    monitoredBase: ptr(state.monitoredBase).toString(),
+    monitoredBytes: state.monitoredBytes,
+    lifetimeMilliseconds: Math.max(0, Date.now() - state.startedAtMs),
+    accessedPages: pageIndexes.size,
+    untouchedPages: state.requestedPages - pageIndexes.size,
+    firstAccessOperationCounts: state.operationCounts,
+    accessedPageRuns: compactPageRuns(pageIndexes, state.requestedBytes),
+    firstAccess: describeLargeHeapAccess(state.firstAccess),
+    lastAccess: describeLargeHeapAccess(state.lastAccess),
+  };
+}
+
+function maybeCompleteLargeHeapAllocationObservation() {
+  if (
+    largeHeapAllocationCompletionRecorded ||
+    largeHeapAllocationCompletionCandidate === null
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteLargeHeapAllocationObservation, 10);
+    return;
+  }
+  largeHeapAllocationCompletionRecorded = true;
+  emit(
+    "large-heap-allocation-complete",
+    largeHeapAllocationCompletionCandidate,
+  );
+  if (stopOnEvent === "large-heap-allocation-complete") {
+    recv("vine-trace-stop", () => {}).wait();
   }
 }
 
@@ -3740,6 +3962,7 @@ function attachHook(module, name, decoders) {
               heap: args[0].toString(),
               flags: args[1].toUInt32(),
               requestedBytes: args[2].toUInt32(),
+              lastErrorBefore: Number(this.lastError) >>> 0,
               immediateConsumer: {
                 apiContinuation: snapshotInstructionsFollowingDirectJump(
                   this.returnAddress,
@@ -3761,13 +3984,24 @@ function attachHook(module, name, decoders) {
         heapFreePointer === null
           ? null
           : (observedMainModuleHeapAllocations.get(heapFreePointer) ?? null);
+      const largeHeapAccess =
+        relatedHeapAllocation === null
+          ? null
+          : finishLargeHeapAccessObservation(
+              heapFreePointer,
+              "matching-heap-free-enter",
+            );
       this.traceHeapFree =
         heapFreePointer === null
           ? null
           : {
+              heap: args[0].toString().toLowerCase(),
+              flags: args[1].toUInt32(),
               pointer: heapFreePointer,
               relatedAllocationCallId: relatedHeapAllocation?.callId ?? null,
               requestedBytes: relatedHeapAllocation?.requestedBytes ?? null,
+              relatedAllocation: relatedHeapAllocation,
+              largeHeapAccess,
               bufferBeforeFree:
                 relatedHeapAllocation === null
                   ? null
@@ -4625,10 +4859,13 @@ function attachHook(module, name, decoders) {
           ? {}
           : {
               heapFree: {
+                heap: this.traceHeapFree.heap,
+                flags: this.traceHeapFree.flags,
                 pointer: this.traceHeapFree.pointer,
                 relatedAllocationCallId:
                   this.traceHeapFree.relatedAllocationCallId,
                 requestedBytes: this.traceHeapFree.requestedBytes,
+                largeHeapAccess: this.traceHeapFree.largeHeapAccess,
               },
             }),
         ...(this.traceHeapSize === null
@@ -4985,13 +5222,48 @@ function attachHook(module, name, decoders) {
         }
       }
       if (this.traceHeapAllocation !== null && !result.isNull()) {
-        observedMainModuleHeapAllocations.set(result.toString().toLowerCase(), {
+        const allocationRecord = {
           callId: this.traceFrame.callId,
+          heap: this.traceHeapAllocation.heap.toLowerCase(),
+          flags: this.traceHeapAllocation.flags,
           requestedBytes: this.traceHeapAllocation.requestedBytes,
-        });
+          pointer: result.toString().toLowerCase(),
+          returnAddress: this.returnAddress.toString().toLowerCase(),
+          lastErrorBefore: this.traceHeapAllocation.lastErrorBefore,
+          lastErrorAfter: Number(lastError) >>> 0,
+        };
+        observedMainModuleHeapAllocations.set(
+          allocationRecord.pointer,
+          allocationRecord,
+        );
+        allocationRecord.accessMonitor = beginLargeHeapAccessObservation(
+          result,
+          allocationRecord.requestedBytes,
+          allocationRecord.callId,
+        );
       }
       if (this.traceHeapFree !== null && result.toUInt32() !== 0) {
         observedMainModuleHeapAllocations.delete(this.traceHeapFree.pointer);
+        if (
+          !largeHeapAllocationCompletionRecorded &&
+          this.traceHeapFree.largeHeapAccess !== null
+        ) {
+          largeHeapAllocationCompletionCandidate = {
+            profile: "main-module-large-heap-allocation-lifetime-v1",
+            allocation: this.traceHeapFree.relatedAllocation,
+            free: {
+              callId: this.traceFrame.callId,
+              heap: this.traceHeapFree.heap,
+              flags: this.traceHeapFree.flags,
+              pointer: this.traceHeapFree.pointer,
+              returnAddress: this.returnAddress.toString().toLowerCase(),
+              result: result.toUInt32(),
+              lastError: Number(lastError) >>> 0,
+            },
+            access: this.traceHeapFree.largeHeapAccess,
+          };
+          setImmediate(maybeCompleteLargeHeapAllocationObservation);
+        }
       }
       if (this.traceCreateMutexA !== null && !result.isNull()) {
         trackedMutexHandles.set(result.toString().toLowerCase(), {

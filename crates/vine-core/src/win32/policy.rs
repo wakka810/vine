@@ -4,8 +4,9 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::{
-    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_STANDARD_ERROR_SELECTOR,
-    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_SELECTOR,
+    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE,
+    RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_SELECTOR,
+    RUNTIME_STANDARD_OUTPUT_SELECTOR,
 };
 
 pub const KERNEL32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.kernel32-compatibility-policy";
@@ -96,6 +97,8 @@ pub struct Kernel32HeapAllocationPolicy {
 pub struct Kernel32HeapAllocatorPolicy {
     pub allowed_flags: Vec<u32>,
     pub maximum_allocation_bytes: u32,
+    #[serde(default)]
+    pub large_allocation_bytes: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -555,6 +558,11 @@ impl Kernel32CompatibilityPolicy {
                 .iter()
                 .copied()
                 .collect::<BTreeSet<_>>();
+            let large_allocation_bytes = allocator
+                .large_allocation_bytes
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
             if allocator.allowed_flags.is_empty()
                 || allocator.allowed_flags.len() > MAX_POLICY_ENTRIES
                 || allowed_flags.len() != allocator.allowed_flags.len()
@@ -563,10 +571,15 @@ impl Kernel32CompatibilityPolicy {
                     .any(|flags| !matches!(*flags, 0 | HEAP_ZERO_MEMORY))
                 || !(1..=RUNTIME_PRIVATE_HEAP_ARENA_STRIDE)
                     .contains(&allocator.maximum_allocation_bytes)
+                || allocator.large_allocation_bytes.len() > MAX_POLICY_ENTRIES
+                || large_allocation_bytes.len() != allocator.large_allocation_bytes.len()
+                || large_allocation_bytes
+                    .iter()
+                    .any(|byte_length| *byte_length != RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
             {
                 return Err(policy_error(
                     "kernel32-policy-heap-allocator-invalid",
-                    "heap allocator policy requires unique implemented flags and a nonzero per-heap-bounded maximum allocation size",
+                    "heap allocator policy requires unique implemented flags, a bounded ordinary range, and only explicitly implemented large allocation sizes",
                 ));
             }
         } else {
@@ -737,7 +750,8 @@ impl Kernel32CompatibilityPolicy {
             },
             |allocator| {
                 byte_length != 0
-                    && byte_length <= allocator.maximum_allocation_bytes
+                    && (byte_length <= allocator.maximum_allocation_bytes
+                        || allocator.large_allocation_bytes.contains(&byte_length))
                     && allocator.allowed_flags.contains(&flags)
             },
         )
@@ -885,6 +899,7 @@ mod tests {
         affinity.heap_allocator = Some(Kernel32HeapAllocatorPolicy {
             allowed_flags: vec![0, HEAP_ZERO_MEMORY],
             maximum_allocation_bytes: RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
+            large_allocation_bytes: Vec::new(),
         });
         affinity.system_info = Some(Kernel32SystemInfoPolicy {
             processor_architecture: 0,
@@ -930,15 +945,17 @@ mod tests {
         bounded_heap.heap_allocator = Some(Kernel32HeapAllocatorPolicy {
             allowed_flags: vec![0, HEAP_ZERO_MEMORY],
             maximum_allocation_bytes: RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
+            large_allocation_bytes: vec![RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE],
         });
         bounded_heap.validate().unwrap();
         assert!(bounded_heap.allows_heap_allocation(0, 37));
         assert!(
             bounded_heap
-                .allows_heap_allocation(HEAP_ZERO_MEMORY, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE)
+                .allows_heap_allocation(HEAP_ZERO_MEMORY, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
         );
         assert!(!bounded_heap.allows_heap_allocation(0, 0));
-        assert!(!bounded_heap.allows_heap_allocation(0, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 1));
+        assert!(!bounded_heap.allows_heap_allocation(0, 32 * 1024 * 1024));
+        assert!(!bounded_heap.allows_heap_allocation(0, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE + 1));
         assert!(!bounded_heap.allows_heap_allocation(HEAP_NO_SERIALIZE, 37));
 
         let mut mixed_heap_schema = bounded_heap.clone();
@@ -957,7 +974,7 @@ mod tests {
             duplicate_heap_flags.validate().unwrap_err().code,
             "kernel32-policy-heap-allocator-invalid"
         );
-        let mut oversized_heap_allocation = bounded_heap;
+        let mut oversized_heap_allocation = bounded_heap.clone();
         oversized_heap_allocation
             .heap_allocator
             .as_mut()
@@ -965,6 +982,16 @@ mod tests {
             .maximum_allocation_bytes = RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 1;
         assert_eq!(
             oversized_heap_allocation.validate().unwrap_err().code,
+            "kernel32-policy-heap-allocator-invalid"
+        );
+        let mut unsupported_large_allocation = bounded_heap.clone();
+        unsupported_large_allocation
+            .heap_allocator
+            .as_mut()
+            .unwrap()
+            .large_allocation_bytes = vec![32 * 1024 * 1024];
+        assert_eq!(
+            unsupported_large_allocation.validate().unwrap_err().code,
             "kernel32-policy-heap-allocator-invalid"
         );
 

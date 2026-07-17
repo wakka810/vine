@@ -4,8 +4,8 @@ use crate::memory::{
 };
 use crate::runtime::{
     RUNTIME_PRIVATE_HEAP_FREED_BYTE, RuntimeHeapAllocation, RuntimeHeapAllocationPlan,
-    RuntimeHeapBackingPlan, RuntimeHeapDestructionPlan, RuntimeHeapInitialization,
-    RuntimeHeapTeardown, RuntimeState, RuntimeStateError,
+    RuntimeHeapBackingPlan, RuntimeHeapDestructionPlan, RuntimeHeapFreeBackingPlan,
+    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeState, RuntimeStateError,
 };
 
 pub(crate) fn allocate_private_heap_block(
@@ -18,15 +18,17 @@ pub(crate) fn allocate_private_heap_block(
     let plan = runtime.plan_private_heap_allocation(handle, byte_length, initialization)?;
     let mut transaction = memory.begin_transaction();
     let memory_owner = prepare_allocation_memory(&mut transaction, &plan)?;
-    fill_allocation(
-        &mut transaction,
-        plan.allocation.address,
-        plan.allocation.reserved_byte_length,
-        initialization.fill_byte(),
-    )?;
+    if plan.backing.requires_eager_initialization() {
+        fill_allocation(
+            &mut transaction,
+            plan.allocation.address,
+            plan.allocation.reserved_byte_length,
+            initialization.fill_byte(),
+        )?;
+    }
     let allocation = runtime.commit_private_heap_allocation(
         plan,
-        matches!(plan.backing, RuntimeHeapBackingPlan::New { .. }).then_some(memory_owner),
+        plan.backing.creates_memory_owner().then_some(memory_owner),
     )?;
     transaction.commit_transaction();
     Ok(allocation)
@@ -40,12 +42,22 @@ pub(crate) fn free_private_heap_block(
 ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
     let plan = runtime.plan_private_heap_free(handle, address)?;
     let mut transaction = memory.begin_transaction();
-    fill_allocation(
-        &mut transaction,
-        plan.allocation.address,
-        plan.allocation.reserved_byte_length,
-        RUNTIME_PRIVATE_HEAP_FREED_BYTE,
-    )?;
+    match &plan.backing {
+        RuntimeHeapFreeBackingPlan::Small { .. } => fill_allocation(
+            &mut transaction,
+            plan.allocation.address,
+            plan.allocation.reserved_byte_length,
+            RUNTIME_PRIVATE_HEAP_FREED_BYTE,
+        )?,
+        RuntimeHeapFreeBackingPlan::Large { backing } => {
+            transaction
+                .release_region(backing.memory_owner, backing.range.start())
+                .map_err(RuntimeStateError::from_memory)?;
+            transaction
+                .destroy_owner(backing.memory_owner)
+                .map_err(RuntimeStateError::from_memory)?;
+        }
+    }
     let allocation = runtime.commit_private_heap_free(plan)?;
     transaction.commit_transaction();
     Ok(allocation)
@@ -142,6 +154,31 @@ fn prepare_allocation_memory(
             }
             Ok(memory_owner)
         }
+        RuntimeHeapBackingPlan::LargeNew {
+            address_allocation_id,
+            range,
+        } => {
+            if plan.next_committed_bytes != 0 {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-heap-backing",
+                    "large-heap-eager-commit-plan-invalid",
+                    "large private heap allocation must reserve without eager commit",
+                ));
+            }
+            let owner = memory
+                .create_owner(MemoryOwnerKind::Anonymous)
+                .map_err(RuntimeStateError::from_memory)?;
+            memory
+                .reserve_fixed_for_address_allocation(
+                    address_allocation_id.0,
+                    owner,
+                    MemoryRegionKind::Heap,
+                    range.start(),
+                    range.byte_length(),
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+            Ok(owner)
+        }
     }
 }
 
@@ -172,12 +209,20 @@ fn destroy_planned_heaps(
 ) -> Result<RuntimeHeapTeardown, RuntimeStateError> {
     let mut transaction = memory.begin_transaction();
     for plan in plans {
-        if let Some((_address_allocation_id, owner, range, _)) = plan.backing {
+        if let Some((_address_allocation_id, owner, range, _)) = plan.small_backing {
             transaction
                 .release_region(owner, range.start())
                 .map_err(RuntimeStateError::from_memory)?;
             transaction
                 .destroy_owner(owner)
+                .map_err(RuntimeStateError::from_memory)?;
+        }
+        if let Some(backing) = plan.large_backing.as_ref() {
+            transaction
+                .release_region(backing.memory_owner, backing.range.start())
+                .map_err(RuntimeStateError::from_memory)?;
+            transaction
+                .destroy_owner(backing.memory_owner)
                 .map_err(RuntimeStateError::from_memory)?;
         }
     }

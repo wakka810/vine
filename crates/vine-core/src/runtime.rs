@@ -41,13 +41,16 @@ pub use displays::{
     LOGICAL_MONITOR_HANDLE_NAMESPACE, RUNTIME_PRIMARY_MONITOR_HANDLE, RuntimeDisplayProfile,
     RuntimeLogicalMonitor, RuntimeRect,
 };
+pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{
     LOGICAL_PRIVATE_HEAP_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
+    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE,
     RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationId, RuntimeHeapBacking,
-    RuntimeHeapInitialization, RuntimeHeapTeardown,
+    RuntimeHeapInitialization, RuntimeHeapPageMaterialization, RuntimeHeapTeardown,
+    RuntimeLargeHeapAllocationBacking,
 };
 pub use input::{RuntimeInputProfile, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult};
 pub use kernel::*;

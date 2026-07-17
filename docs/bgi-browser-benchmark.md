@@ -4,51 +4,28 @@
 
 - Status: threshold passed
 - Date: 2026-07-17
-- Workload: retained 1,344-call `user32-register-class-ex-a` private BGI generic session
-- Observation status: `previous-window-class-registration-boundary-observation`
+- Workload: 1,358-call `kernel32-large-heap-allocation` private BGI generic session
+- Observation status: `current-large-heap-lazy-materialization-boundary-observation`
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-v1.json`](../fixtures/benchmarks/bgi-browser-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This retained observation repeats the complete `user32-register-class-ex-a` BGI
+This observation repeats the complete `kernel32-large-heap-allocation` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches
-1,344 ordered calls over 49,990 guest instructions, performs 6,420 Rust/Wasm bridge
-operations, applies four initial-thread stack-growth commits, and reaches the
-same `GetSystemMetrics(7)` contract-missing stop after CP_ACP
-conversion, the process-owned current-directory update, named mutex creation,
-its immediate LastError／heap continuation, and `GetCurrentThread` pseudo-handle
-resolution. The workload additionally commits current-thread logical affinity
-and completes BGI's 1,003-read tick-count calibration loop before restoring the
-virtual mask.
-It then serializes the policy-owned 36-byte x86 `SYSTEM_INFO` profile without
-importing host topology.
-The continuation enumerates the logical monitor, initializes the COM apartment,
-reads the policy LANGID, scans the virtual drive profile, and completes the
-two-call logical mouse-button normalize／restore transaction before later
-LastError／TLS／FLS and critical-section calls. It finally writes the
-policy-owned 8-byte WinMM `TIMECAPS` profile without changing any clock. It
-then records the Rust-owned logical `timeBeginPeriod(1)` request and continues
-through the following heap allocation without changing browser timer or audio
-configuration. It writes the bounded ANSI OS-version structure, creates the
-Rust-owned unnamed manual-reset waitable timer, and verifies its typed handle,
-timer ID, object ID, and initial nonsignaled state. It then selects the mapped
-module's exact 32-pixel DIB icon and records the Rust-owned shared logical HICON
-and loads the Rust-owned shared logical system-arrow HCURSOR. It registers the
-main and child process-local window classes with Rust-owned identities and
-logical ATOMs `0xC000`／`0xC001`; the intervening second icon／cursor loads reuse
-their existing identities before the stop.
-Every repetition checks the call count, instruction count, crossing count,
-memory digest, next structured stop, and zero pending work before its compact
-summary is retained.
+runtime and v86 mirror, dispatches 1,358 ordered calls over 51,614 guest
+instructions, performs 6,603 Rust/Wasm bridge operations, and applies four
+initial-thread stack-growth commits. It then reserves the process-wide exact
+64 MiB heap slot without physical pages, resolves the first write through one
+Rust-owned 4 KiB page materialization, and reaches the same
+`CreateFileA(${TITLE_ROOT}\BGI.gdb)` contract-missing stop.
 
-The window-class gateway changed User32 process lifetime and the Worker
-completion payload, so this workload was rerun against the exact artifacts at
-that checkpoint. Later read-only semantic leaves may retain this observation
-only with an explicit `previous-*` label; their active Node／Chrome semantic gate
-remains separately required in
-[`current-checkpoint.json`](current-checkpoint.json), and this report is not an
-artifact-identity measurement for later Rust/Wasm builds.
+The session includes all earlier process, NLS, heap, synchronization, display,
+COM, WinMM, icon／cursor, window-class, and system-metric contracts. Every
+repetition checks call and instruction counts, crossing count, large-allocation
+identity, materialization identity, memory digest, next structured stop, and
+zero pending work before retaining only a compact scalar summary. The memory
+topology and Worker page-fault boundary changed in this checkpoint, so the
+workload was rerun against the exact current Rust/Wasm and Worker artifacts.
 
 This is title-workload evidence. The synthetic CPU／ABI／audio／background gate
 remains separately versioned in [v86-browser-benchmark.md](v86-browser-benchmark.md);
@@ -73,31 +50,31 @@ required sample is a failure. Report schema version 2 also stores a structured
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 363 sessions with no
+The authoritative clean-profile Chrome run completed 326 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 363 |
+| Completed sessions | >= 120 | 326 |
 | Failed sessions | <= 0 | 0 |
-| Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 3,000 ms | 539.585 ms |
-| Maximum slice p99 | <= 10 ms | 1.770 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.030 ms |
-| Main heartbeat gap maximum | <= 250 ms | 18.810 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 10,210,808 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 344,309.74 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 27,903,344 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 641,072.77 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 59,244,544 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 33,694,212 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 460,207.13 bytes/min |
+| Main／Worker heap samples | >= 30 each | 38 / 36 |
+| Session latency p95 | <= 3,000 ms | 588.515 ms |
+| Maximum slice p99 | <= 10 ms | 1.235 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.325 ms |
+| Main heartbeat gap maximum | <= 250 ms | 23.965 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 9,726,908 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 217,373.16 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 28,348,244 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 2,402,322.90 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 58,982,400 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 31,579,723 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 969,651.36 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,027,008 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 1,067,375 bytes with SHA-256
-`04a470934c28677e899841004317fe6c637bc80abfaa3a5826ee2dddb05f13c1`.
+The exact report is 1,044,729 bytes with SHA-256
+`9c41d51abef831652a48839ea60528831f9bd260f65e10a47330783d36d3cacc`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -133,7 +110,7 @@ loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
 storage below the unchanged limit. That correction remains part of the loader
-contract; this current benchmark observes 33,694,212
+contract; this current benchmark observes 31,579,723
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -147,7 +124,7 @@ bytes and retains bounded p95 latency without changing any threshold.
 | Chrome | `150.0.7871.127` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `2cd33b1c8e102e9a9d92820f801fc25679d21098`
+The report records base implementation commit `bc6cb43f602f288527ca254ce911ec9894d8bfd0`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -156,9 +133,9 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 2,516,544 | `56cbc4b04d570c623548795b7f9a9cddbac7f7eb198f24f7f85bb3b89745f292` |
+| Rust runtime core Wasm | 2,576,621 | `546842f3d392ad3ac8aba86873bf51b16afda61b6b4bb2874f88dfa573dffe67` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
-| Runtime Worker bundle | 122,207 | `49eb66e1c8ed2e6aa6dfa335deba66385b8d774898a60f4082ea3b091fdafe36` |
+| Runtime Worker bundle | 123,620 | `4d3b12c40fc70a53de9db333a9c05bdef5b032d52ed1af96ccd5082b013b10f8` |
 | BGI benchmark bundle | 9,286 | `33be6c16928ebee490f9c5f75680923898ea9b9f66dc6546bb5b87d2b0a6eebb` |
 | Execution-engine profile | 545 | `792980bc78b58d8aae491c72b9ea13f39176206306321069a4f2bcb2989e7250` |
 | Version 1 configuration | 967 | `0862c59c00adc8d1b0218283b57ffdb2e87393624b6461c873b035fc4b2d98ef` |
@@ -194,8 +171,10 @@ profile plus a loopback-only server and DevTools endpoint.
   Icon coverage is limited to logical module-resource selection and identity;
   cursor coverage is limited to shared `IDC_ARROW` identity. Window-class
   coverage is limited to two process-local registrations and logical ATOM／
-  metadata lifetime. The later `GetSystemMetrics` contract and its five metric
-  reads are not part of this retained workload. No window creation, WndProc dispatch, bitmap／cursor
+  metadata lifetime. System-metric coverage is limited to five initial-window
+  reads. Large-heap coverage is one exact 64 MiB reserve and one materialized
+  page; multiple／arbitrary large allocations and long-lived page growth are
+  not measured. No window creation, WndProc dispatch, bitmap／cursor
   rendering, hotspot, active cursor, or browser resource is measured.
 - A passing slope threshold does not prove that V8 heap capacity has reached a
   permanent plateau; longer scenario-specific gates remain required.

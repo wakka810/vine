@@ -27,11 +27,12 @@ use vine_core::{
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
     RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
     RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord,
-    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStandardHandle, RuntimeStartupInfo,
-    RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer,
-    SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
-    UnsupportedPoint, User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
+    RuntimePageFaultResolution, RuntimeProcessId, RuntimeProcessLifecycleState,
+    RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
+    RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack, RuntimeThreadStackGrowth,
+    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, SchedulerThreadState,
+    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, dispatch_kernel32_api,
     dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
     dispatch_winmm_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
@@ -89,6 +90,8 @@ const RUNTIME_FRAME_STACK_GROWTH: u32 = 12;
 const RUNTIME_FRAME_STACK_GROWTH_COMPLETION: u32 = 13;
 const RUNTIME_FRAME_GUEST_CALLBACK: u32 = 14;
 const RUNTIME_FRAME_GUEST_CALLBACK_RETURN: u32 = 15;
+const RUNTIME_FRAME_PAGE_FAULT_SERVICE: u32 = 16;
+const RUNTIME_FRAME_PAGE_FAULT_COMPLETION: u32 = 17;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 4096;
@@ -152,6 +155,7 @@ enum GenericRuntimeCapability {
     LoadCursorA,
     RegisterClassExA,
     GetSystemMetrics,
+    LargeHeapAllocation,
 }
 
 struct GenericRuntimeProcess {
@@ -256,6 +260,25 @@ struct GenericRuntimeStackGrowthCompletion {
     schema: &'static str,
     schema_version: u32,
     growth: RuntimeThreadStackGrowth,
+    memory: MemoryStats,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenericRuntimePageFaultRequest {
+    schema: String,
+    schema_version: u32,
+    generation: u64,
+    fault_address: u32,
+    page_fault_error_code: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimePageFaultCompletion {
+    schema: &'static str,
+    schema_version: u32,
+    resolution: RuntimePageFaultResolution,
     memory: MemoryStats,
 }
 
@@ -2749,7 +2772,8 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::LoadIconA
             | GenericRuntimeCapability::LoadCursorA
             | GenericRuntimeCapability::RegisterClassExA
-            | GenericRuntimeCapability::GetSystemMetrics,
+            | GenericRuntimeCapability::GetSystemMetrics
+            | GenericRuntimeCapability::LargeHeapAllocation,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3246,6 +3270,52 @@ fn run_v86_generic_runtime_session(
                     ));
                 }
             }
+            continue;
+        }
+        if trap_frame.kind == RUNTIME_FRAME_PAGE_FAULT_SERVICE {
+            if !trap_frame.payload.is_empty() {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-page-fault-payload-unexpected",
+                    "generic runtime page-fault frames may not contain a byte payload",
+                ));
+            }
+            let request: GenericRuntimePageFaultRequest =
+                serde_json::from_slice(&trap_frame.control).map_err(|error| {
+                    LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-page-fault-json-invalid",
+                        format!("generic runtime page-fault metadata is invalid: {error}"),
+                    )
+                })?;
+            if request.schema != "vine.v86-generic-runtime-page-fault"
+                || request.schema_version != 1
+                || request.generation != memory.stats().generation
+            {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-page-fault-request-invalid",
+                    "generic runtime page-fault identity or generation is invalid",
+                ));
+            }
+            let resolution = process
+                .runtime
+                .service_page_fault(
+                    memory,
+                    GuestAddress(request.fault_address),
+                    request.page_fault_error_code,
+                )
+                .map_err(runtime_state_error)?;
+            send_pending_runtime_delta(input, memory)?;
+            write_runtime_json_frame(
+                RUNTIME_FRAME_PAGE_FAULT_COMPLETION,
+                &GenericRuntimePageFaultCompletion {
+                    schema: "vine.v86-generic-runtime-page-fault-completion",
+                    schema_version: 1,
+                    resolution,
+                    memory: memory.stats(),
+                },
+            )?;
             continue;
         }
         if trap_frame.kind == RUNTIME_FRAME_STACK_GROWTH {
@@ -3897,8 +3967,13 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let get_system_metrics_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::GetSystemMetrics));
+    let get_system_metrics_enabled = matches!(
+        enabled,
+        Some(
+            GenericRuntimeCapability::GetSystemMetrics
+                | GenericRuntimeCapability::LargeHeapAllocation
+        )
+    );
     let register_class_ex_a_enabled = get_system_metrics_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::RegisterClassExA));
     let load_cursor_a_enabled = register_class_ex_a_enabled
@@ -4363,6 +4438,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::LoadCursorA
                 | GenericRuntimeCapability::RegisterClassExA
                 | GenericRuntimeCapability::GetSystemMetrics
+                | GenericRuntimeCapability::LargeHeapAllocation
         )
     ) {
         Some(GenericRuntimeCapability::CreateWaitableTimerA)
@@ -4538,28 +4614,25 @@ fn generic_runtime_heap_allocation(
             "completed HeapAlloc did not return a guest address",
         ));
     };
-    let backing = session
+    let allocation = session
         .runtime()
-        .heap_backing(heap_handle)
+        .private_heap_allocation(heap_handle, GuestAddress(address))
+        .map_err(runtime_state_error)?;
+    let live_allocations = session
+        .runtime()
+        .heap(heap_handle)
         .map_err(runtime_state_error)?
-        .ok_or_else(|| {
-            LoaderError::runtime_defect(
-                "runtime-reentry",
-                "heap-allocation-backing-missing",
-                "completed HeapAlloc has no materialized private-heap backing",
-            )
-        })?;
-    let allocation = backing.allocations.get(&address).copied().ok_or_else(|| {
-        LoaderError::runtime_defect(
-            "runtime-reentry",
-            "heap-allocation-metadata-missing",
-            "completed HeapAlloc result has no authoritative allocation metadata",
-        )
-    })?;
+        .live_allocations;
     Ok(GenericRuntimeHeapAllocation {
         heap_handle,
         allocation,
-        live_allocations: backing.allocations.len(),
+        live_allocations: usize::try_from(live_allocations).map_err(|_| {
+            LoaderError::runtime_defect(
+                "runtime-reentry",
+                "heap-live-allocation-count-not-representable",
+                "completed HeapAlloc live allocation count does not fit host accounting",
+            )
+        })?,
     })
 }
 
@@ -9869,6 +9942,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-load-cursor-a" => GenericRuntimeCapability::LoadCursorA,
                 "user32-register-class-ex-a" => GenericRuntimeCapability::RegisterClassExA,
                 "user32-get-system-metrics" => GenericRuntimeCapability::GetSystemMetrics,
+                "kernel32-large-heap-allocation" => GenericRuntimeCapability::LargeHeapAllocation,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -109,6 +109,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-load-cursor-a",
         "user32-register-class-ex-a",
         "user32-get-system-metrics",
+        "kernel32-large-heap-allocation",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -135,7 +136,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "user32-get-system-metrics" ||
+    genericRuntimeCapability === "kernel32-large-heap-allocation"
+      ? "kernel32-large-heap-allocation-v1.json"
+      : genericRuntimeCapability === "user32-get-system-metrics" ||
     genericRuntimeCapability === "user32-register-class-ex-a" ||
     genericRuntimeCapability === "user32-load-cursor-a" ||
     genericRuntimeCapability === "user32-load-icon-a" ||
@@ -252,8 +255,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const largeHeapAllocationEnabled =
+  genericRuntimeCapability === "kernel32-large-heap-allocation";
 const getSystemMetricsEnabled =
-  genericRuntimeCapability === "user32-get-system-metrics";
+  largeHeapAllocationEnabled || genericRuntimeCapability === "user32-get-system-metrics";
 const registerClassExAEnabled =
   getSystemMetricsEnabled || genericRuntimeCapability === "user32-register-class-ex-a";
 const loadCursorAEnabled =
@@ -406,7 +411,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getSystemMetricsEnabled
+      ? largeHeapAllocationEnabled
+        ? "v86-bgi-large-heap-allocation"
+      : getSystemMetricsEnabled
         ? "v86-bgi-get-system-metrics"
       : registerClassExAEnabled
         ? "v86-bgi-register-class-ex-a"
@@ -1599,6 +1606,8 @@ const runtimeFrame = {
   stackGrowthCompletion: 13,
   guestCallback: 14,
   guestCallbackReturn: 15,
+  pageFaultService: 16,
+  pageFaultCompletion: 17,
 };
 const writebackFormat = {
   magic: "VINEWB01",
@@ -4306,6 +4315,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (largeHeapAllocationEnabled) {
+        validateLargeHeapAllocationResult(genericResult);
       } else if (getSystemMetricsEnabled) {
         validateGetSystemMetricsResult(genericResult);
       } else if (registerClassExAEnabled) {
@@ -4423,6 +4434,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : largeHeapAllocationEnabled
+            ? "bgi large HeapAlloc"
           : getSystemMetricsEnabled
             ? "bgi GetSystemMetrics"
           : registerClassExAEnabled
@@ -4649,6 +4662,9 @@ async function run() {
         `classification=${historicalReportIdentity.classification}, semantic gate=independent`,
     );
   } catch (error) {
+    if (child.exitCode === null) {
+      await exit;
+    }
     if (stderr.trim() !== "") {
       error.message = `${error.message}\nprobe stderr:\n${stderr.trim()}`;
     }
@@ -4676,6 +4692,7 @@ async function runGenericRuntimeReentry({
   const writebacks = [];
   const hostDeltas = [];
   const stackGrowths = [];
+  const heapPageMaterializations = [];
   const callbackEvents = [];
   const activeCallbacks = [];
   let frozenSemanticCalls = 0;
@@ -4849,6 +4866,119 @@ async function runGenericRuntimeReentry({
     }
 
     if (endpoint === null) {
+      const largeHeapAllocation = [...supportedCalls]
+        .reverse()
+        .find(
+          (call) =>
+            call?.heapAllocation?.allocation?.byteLength >= 16 * 1024 * 1024,
+        )?.heapAllocation?.allocation;
+      const largeHeapFaultCandidate =
+        terminal.kind === "page-fault" &&
+        largeHeapAllocation !== undefined &&
+        terminal.faultAddress >= largeHeapAllocation.address &&
+        terminal.faultAddress <
+          largeHeapAllocation.address + largeHeapAllocation.byteLength &&
+        (terminal.pageFaultErrorCode & 1) === 0;
+      if (largeHeapFaultCandidate) {
+        await writeRuntimeJsonFrame(child.stdin, runtimeFrame.pageFaultService, {
+          schema: "vine.v86-generic-runtime-page-fault",
+          schemaVersion: 1,
+          generation,
+          faultAddress: terminal.faultAddress,
+          pageFaultErrorCode: terminal.pageFaultErrorCode,
+        });
+        const deltaFrame = await readRuntimeFrame(
+          protocolReader,
+          runtimeFrame.hostDelta,
+          "large heap page materialization delta",
+        );
+        const delta = decodeRuntimeHostDelta(deltaFrame.control, deltaFrame.payload);
+        assert.equal(delta.fromGeneration, generation);
+        assert.equal(delta.mappingOperations.length, 1);
+        assert.equal(delta.mappingOperations[0].operation, 2);
+        const committedPage =
+          terminal.faultAddress - (terminal.faultAddress % page.size);
+        assert.equal(delta.mappingOperations[0].address, committedPage);
+        assert.equal(delta.mappingOperations[0].byteLength, page.size);
+        assert.deepEqual(delta.mappingOperations[0].protection, {
+          read: true,
+          write: true,
+          execute: false,
+        });
+        assert.equal(delta.dirtyPages.length, 1);
+        assert.equal(delta.dirtyPages[0].address, committedPage);
+        assert.equal(delta.dirtyPages[0].owner, delta.mappingOperations[0].owner);
+        assert.deepEqual(
+          delta.dirtyPages[0].protection,
+          delta.mappingOperations[0].protection,
+        );
+        const expectedFill =
+          largeHeapAllocation.initialization === "zeroed" ? 0 : 0xa5;
+        assert(
+          delta.dirtyPages[0].bytes.every((byte) => byte === expectedFill),
+        );
+        applyRuntimeHostDelta(context, delta);
+        generation = delta.generation;
+        hostDeltas.push({
+          sequence,
+          source: "private-heap-page-materialization",
+          fromGeneration: delta.fromGeneration,
+          generation: delta.generation,
+          mappingOperations: delta.mappingOperations.length,
+          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+          controlBytes: deltaFrame.control.length,
+          payloadBytes: deltaFrame.payload.length,
+          payloadSha256: sha256(deltaFrame.payload),
+          cacheEffects: delta.cacheEffects,
+        });
+        await writeRuntimeFrame(
+          child.stdin,
+          runtimeFrame.acknowledgement,
+          encodeGeneration(generation),
+          Buffer.alloc(0),
+        );
+        const completionFrame = await readRuntimeFrame(
+          protocolReader,
+          runtimeFrame.pageFaultCompletion,
+          "large heap page materialization completion",
+        );
+        assert.equal(completionFrame.payload.length, 0);
+        const completion = JSON.parse(completionFrame.control.toString("utf8"));
+        assert.equal(
+          completion.schema,
+          "vine.v86-generic-runtime-page-fault-completion",
+        );
+        assert.equal(completion.schemaVersion, 1);
+        assert.equal(
+          completion.resolution.kind,
+          "private-heap-page-materialization",
+        );
+        const materialization = completion.resolution.materialization;
+        assert.deepEqual(materialization.allocation, largeHeapAllocation);
+        assert.equal(materialization.faultAddress, terminal.faultAddress);
+        assert.equal(
+          materialization.pageFaultErrorCode,
+          terminal.pageFaultErrorCode,
+        );
+        assert.equal(materialization.committedPage.start, committedPage);
+        assert.equal(materialization.committedPage.byteLength, page.size);
+        assert.equal(completion.memory.generation, generation);
+        assert.equal(completion.memory.acknowledgedGeneration, generation);
+        assert.equal(completion.memory.pendingInvalidation, undefined);
+        heapPageMaterializations.push({
+          instructionCount: continuation.instructionCount,
+          ...materialization,
+          fromGeneration: delta.fromGeneration,
+          generation: delta.generation,
+          payloadSha256: sha256(deltaFrame.payload),
+        });
+        continuation = executeToNextOwnedTrap(
+          offer,
+          context,
+          continuation.instructionCount,
+        );
+        continue;
+      }
       const stackGrowthCandidate =
         terminal.kind === "page-fault" &&
         terminal.faultAddress - (terminal.faultAddress % page.size) === currentStackGuard &&
@@ -4976,6 +5106,7 @@ async function runGenericRuntimeReentry({
         writebacks,
         hostDeltas,
         stackGrowths,
+        heapPageMaterializations,
         callbackEvents,
         activeCallbackDepth: activeCallbacks.length,
         finalGeneration: generation,
@@ -5123,6 +5254,7 @@ async function runGenericRuntimeReentry({
         writebacks,
         hostDeltas,
         stackGrowths,
+        heapPageMaterializations,
         callbackEvents,
         activeCallbackDepth: activeCallbacks.length,
         finalGeneration: generation,
@@ -5280,6 +5412,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : largeHeapAllocationEnabled
+          ? 50
         : getSystemMetricsEnabled
           ? 50
         : registerClassExAEnabled
@@ -9805,6 +9939,94 @@ function validateRegisterClassExAResult(result) {
   assert.equal(result.terminal.terminal.stackWords[1], 7);
 }
 
+function validateLargeHeapAllocationResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.supportedCalls.length, 1358);
+  assert.equal(result.writebacks.length, 1365);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2569,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    9822,
+  );
+  assert.equal(result.hostDeltas.length, 87);
+  assert.equal(result.finalGeneration, 1481);
+  const call = result.supportedCalls.find(
+    (candidate) =>
+      candidate.symbol === "HeapAlloc" &&
+      candidate.heapAllocation?.allocation?.byteLength === 0x04000000,
+  );
+  assert(call);
+  assert.equal(call.sequence, 1350);
+  assert.equal(call.occurrence, 12);
+  assert.equal(call.trapInstructionCount, 50105);
+  assert.equal(call.module.toLowerCase(), "kernel32.dll");
+  assert.equal(call.symbol, "HeapAlloc");
+  assert.deepEqual(call.arguments, [0x68010001, 0, 0x04000000]);
+  assert.equal(call.result.action, "set");
+  assert.notEqual(call.result.value, 0);
+  assert.equal(call.returnAddress, 0x100a4a33);
+  assert.equal(call.heapAllocation.heapHandle, 0x68010001);
+  assert.equal(call.heapAllocation.allocation.address, call.result.value);
+  assert.equal(call.heapAllocation.allocation.id, 12);
+  assert.equal(call.heapAllocation.allocation.byteLength, 0x04000000);
+  assert.equal(
+    call.heapAllocation.allocation.initialization,
+    "deterministic-uninitialized",
+  );
+  assert.equal(call.heapAllocation.liveAllocations, 10);
+  assert.deepEqual(result.heapPageMaterializations, [
+    {
+      instructionCount: 50123,
+      handle: 0x68010001,
+      allocation: call.heapAllocation.allocation,
+      memoryOwner: 11,
+      addressAllocationId: 37,
+      faultAddress: 0x40000000,
+      pageFaultErrorCode: 6,
+      committedPage: { start: 0x40000000, byteLength: 4096 },
+      materializedPages: 1,
+      fromGeneration: 1470,
+      generation: 1472,
+      payloadSha256: "f600eca824e84a43f0691b267bd620e462c50da165c5b80e17aecb7a924f1fa8",
+    },
+  ]);
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(
+    result.fault.endpoint?.endpoint?.module?.toLowerCase(),
+    "kernel32.dll",
+  );
+  assert.equal(result.fault.endpoint.endpoint.id, 137);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f000880);
+  assert.equal(result.fault.endpoint.endpoint.symbol.name, "CreateFileA");
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d12cc);
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "446095a7512d76adfecf4871533c0c7733b6f84e12df323bd0b800bcde4c9225",
+  );
+  assert.equal(result.terminal.instructionCount, 51614);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1002bc00);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 8), [
+    0x006ff45c,
+    0x80000000,
+    1,
+    0,
+    3,
+    0x08000020,
+    0,
+  ]);
+}
+
 function validateGetSystemMetricsResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
@@ -11026,6 +11248,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : largeHeapAllocationEnabled
+          ? "vine.v86-bgi-large-heap-allocation"
         : getSystemMetricsEnabled
           ? "vine.v86-bgi-get-system-metrics"
         : registerClassExAEnabled
@@ -11182,6 +11406,9 @@ function buildGenericRuntimeReentryReport({
       changedBytes: totalChangedBytes,
       hostDeltaBatches: genericResult.hostDeltas.length,
       stackGrowths: genericResult.stackGrowths,
+      ...(genericResult.heapPageMaterializations.length === 0
+        ? {}
+        : { heapPageMaterializations: genericResult.heapPageMaterializations }),
       callbackEvents: genericResult.callbackEvents,
       activeCallbackDepth: genericResult.activeCallbackDepth,
       finalGeneration: genericResult.finalGeneration,

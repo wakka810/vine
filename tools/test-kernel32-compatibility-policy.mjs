@@ -41,6 +41,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json",
   "fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json",
   "fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json",
+  "fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -64,6 +65,9 @@ for (const relative of policyFiles) {
     assert.equal(policy.heapAllocations, undefined);
     assert.deepEqual(policy.heapAllocator.allowedFlags, [0, 8]);
     assert.equal(policy.heapAllocator.maximumAllocationBytes, 16 * 1024 * 1024);
+    const largeAllocationBytes = policy.heapAllocator.largeAllocationBytes ?? [];
+    assert.equal(new Set(largeAllocationBytes).size, largeAllocationBytes.length);
+    assert(largeAllocationBytes.every((byteLength) => byteLength === 64 * 1024 * 1024));
   }
   const heapFreeFlags = policy.heapFreeFlags ?? [];
   assert.equal(new Set(heapFreeFlags).size, heapFreeFlags.length);
@@ -214,6 +218,10 @@ assert.deepEqual(activePolicy.heapAllocator.allowedFlags, summary.heapAllocator.
 assert.equal(
   activePolicy.heapAllocator.maximumAllocationBytes,
   summary.heapAllocator.maximumAllocationBytes,
+);
+assert.deepEqual(
+  activePolicy.heapAllocator.largeAllocationBytes ?? [],
+  summary.heapAllocator.largeAllocationBytes,
 );
 assert.equal(activePolicy.threadAffinity.processMask, summary.threadAffinityProcessMask);
 assert.equal(activePolicy.tickCount.incrementPerRead, summary.tickCountIncrementPerRead);

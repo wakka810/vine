@@ -3,8 +3,8 @@ use vine_core::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationReleasePolicy,
     ProcessAddressSpaceLayout, RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA,
-    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    install_initial_thread_stack, install_runtime_return_sentinels,
+    RuntimePageFaultResolution, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo,
+    RuntimeState, RuntimeThreadId, install_initial_thread_stack, install_runtime_return_sentinels,
 };
 
 const STACK_TOP: u32 = 0x0070_0000;
@@ -79,9 +79,13 @@ fn initial_thread_stack_reserves_registers_and_grows_one_guard_page_atomically()
         "thread-stack-protection-fault",
     );
 
-    let growth = runtime
-        .grow_initial_thread_stack(&mut memory, INITIAL_GUARD, 4)
-        .unwrap();
+    let growth = match runtime
+        .service_page_fault(&mut memory, INITIAL_GUARD, 4)
+        .unwrap()
+    {
+        RuntimePageFaultResolution::InitialThreadStackGrowth { growth } => growth,
+        other => panic!("unexpected page-fault resolution: {other:?}"),
+    };
     assert_eq!(growth.thread_id, thread_id);
     assert_eq!(growth.address_allocation_id, stack.address_allocation_id);
     assert_eq!(growth.memory_owner, stack.memory_owner);

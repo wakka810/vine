@@ -49,7 +49,8 @@ runtime execution. It contains only target-independent bounded data:
   Windows-932 name scan;
 - opt-in unnamed `CreateWaitableTimerA` reset modes with null security
   attributes;
-- enabled `HeapAlloc` flags and maximum nonzero allocation size, `HeapFree` flags, and `HeapSize` flags;
+- enabled `HeapAlloc` flags, an ordinary maximum nonzero size, and explicit
+  large-size variants; `HeapFree` flags; and `HeapSize` flags;
 - an opt-in x86 `InitializeCriticalSection` raw spin-state field for the measured
   Windows compatibility profile;
 - explicit processor-feature index and presence mappings;
@@ -58,8 +59,9 @@ runtime execution. It contains only target-independent bounded data:
 - an optional bounded deterministic `GetTickCount` increment per read.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Active
-schema v2 accepts `HeapAlloc` only when the flag is `0` or `HEAP_ZERO_MEMORY`
-and the requested size is in the inclusive range `1..=16 MiB`. Per-heap backing
+schema v2 accepts `HeapAlloc` only when the flag is `0` or `HEAP_ZERO_MEMORY`.
+The active policy permits the ordinary inclusive range `1..=16 MiB` plus the
+explicit exact size 64 MiB; 16–64 MiB is not implicitly enabled. Per-heap backing
 capacity、GuestMemory quota、live-allocation count remain independent runtime
 limits and can reject a policy-allowed request atomically. Zero size and other
 flags remain unsupported. Invalid policy data stops the probe before guest
@@ -106,6 +108,7 @@ controlled ANSI OS-version profile:
 | `kernel32-get-drive-type-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + process-image drive only／32 KiB ANSI input bound | same bounded allocation/free/size variants |
 | `kernel32-get-version-ex-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + NT 10.0 build 19045 workstation profile／148- and 156-byte layouts | same bounded allocation/free/size variants |
 | `kernel32-create-waitable-timer-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + unnamed manual-reset waitable timer; auto-reset disabled | same bounded allocation/free/size variants |
+| `kernel32-large-heap-allocation-v1` | stdin, stdout, stderr | preceding schema-v2 options | ordinary nonzero sizes through 16 MiB plus exact 64 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before

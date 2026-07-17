@@ -52,7 +52,8 @@ high-impact unknownだけは、到達前でもbounded spikeを許可する。
 - `GuestMemory`がbyte authorityであり、execution engineはreflection／delta／writebackで同期する
   boundedかつ交換可能なmirrorである。
 - Execution mirrorはRust提供limit内で成長し、released pageを回収し、枯渇をmutation前に拒否する。
-- Heap compatibility policyはflags／rangeベースであり、historical exact-size profileは再現専用である。
+- Heap compatibility policyはflags／ordinary range／explicit large variantsであり、historical
+  exact-size profileは再現専用である。
 - Cooperative Worker schedulerはthreadごとのCPU contextを保存／復元し、owner threadがhost requestで
   待機中に別guest threadを実行できる。General Win32 thread creation／wait coverageは後続gatewayである。
 - Runtimeのcollection／allocatorは各private subsystemが所有し、`RuntimeKernel`はcross-subsystem

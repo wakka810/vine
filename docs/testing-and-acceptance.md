@@ -342,6 +342,19 @@ backingはprivate `RuntimeHeaps`が同時に所有し、aggregateはcollection�
 `HeapAlloc`／`HeapFree`／`HeapDestroy` dispatch、zero-size／realloc、concurrent allocator、LFH、title
 capacity profileの代用ではない。詳細は[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。
 
+Exact 64 MiB private-heap variantの代表Rust contractはprocess-permanent
+`[0x40000000,0x44000000)` address record、reserve-only allocation、one-page
+transactional materialization、flags-zero `0xA5`／zero-memory `0x00`、new IDでの
+slot reuse、free／process teardownを固定する。Second live、duplicate／stale page、outside、
+protection、unsynchronized memory、physical quotaはruntime／memory mutation前にrejectする。
+Native lifetime oracleは16,384 requested pagesのうち先頭30 pagesだけがwrite-firstでaccessされ、
+16,354 pagesがfreeまでuntouchedであることをtwo capturesで再現する。Private BGI Node／Chromeは
+1,358 calls、first materialization instruction 50,123、memory digest、instruction 51,614の
+`CreateFileA` stopで一致する。Changed memory／Worker boundaryの180-second gateは326 sessions、
+failure 0、17 thresholds passedである。これはmultiple／arbitrary large allocations、native pointer／
+fill identity、full-play memory profileの代用ではない。詳細は
+[bgi-large-heap-allocation.md](bgi-large-heap-allocation.md)を正とする。
+
 Reached FLS allocationの代表Rust contractはstatic／dynamic endpoint ID `1`のcoexistence、
 unmapped callback rejection、executable／NULL callback、logical indices `0..127`、capacity
 failure時のstate／memory／LastError不変を固定する。private BGI profileはnative index `9`を
@@ -357,8 +370,9 @@ preserveを固定する。Frozen v1は`0x800`をstate／memory mutation前にrej
 contractだけがfirst blockを保持してsecond blockを作る。Base private BGI profileは
 19 contracts／39 calls、generation `87`まで進み、instruction 644のdynamic
 `FlsSetValue(0,0x20000000)`で停止する。Active schema-v2 regressionは同じhandlerで
-flags `0`／`HEAP_ZERO_MEMORY`とnonzero `1..=16 MiB`を許可し、非列挙size
-`0xBC`のsuccess、上限超過／未対応flagのmutation-free rejectionを固定する。
+flags `0`／`HEAP_ZERO_MEMORY`、ordinary nonzero `1..=16 MiB`、explicit exact 64 MiBを許可し、
+非列挙ordinary size `0xBC`のsuccess、32 MiB gap／64 MiB超過／未対応flagのmutation-free
+rejectionを固定する。
 Zero-size、failure return、other flags、destroy／realloc、FLS value semanticsの代用ではない。詳細は
 [bgi-private-heap-allocation.md](bgi-private-heap-allocation.md)を正とする。
 

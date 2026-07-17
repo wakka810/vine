@@ -24,9 +24,11 @@ Later [bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md) connect
 the reached exact flags-zero `HeapFree` to this same transaction. Guest
 [`bgi-private-heap-size-128.md`](bgi-private-heap-size-128.md) then proves a
 larger zeroed dirty-only allocation without importing native address reuse.
-Active schema-v2 policy now exposes this allocator for nonzero requests through
-16 MiB with flags `0` or `HEAP_ZERO_MEMORY`. `HeapDestroy`／`HeapReAlloc`, other
-allocation flags, zero-size and general failure-return semantics remain unimplemented.
+Active schema-v2 policy exposes flags `0` and `HEAP_ZERO_MEMORY` for ordinary
+nonzero requests through 16 MiB and the separately listed exact 64 MiB large
+variant. It does not treat the 16–64 MiB gap as supported. `HeapDestroy`／
+`HeapReAlloc`, other allocation flags, zero-size and general failure-return
+semantics remain unimplemented.
 
 ## Runtime subsystem ownership
 
@@ -46,13 +48,13 @@ Automatic handle allocationはheap subsystem内で候補slotを探索し、live 
 
 ## Controlled address and memory policy
 
-Version 1 foundationはguest band `[0x20000000, 0x40000000)`を32個の16 MiB slotへ分ける。
+Version 1 ordinary foundationはguest band `[0x20000000, 0x40000000)`を32個の16 MiB slotへ分ける。
 Logical heap handleの16-bit slotをprocess address-space allocatorの同じheap-slot allocation recordへ
 対応させるため、first heap
 `0x68010001`は`0x20000000`、second heap `0x68010002`は`0x21000000`から始まる。
 
 - growable heapのcontrolled capacityは16 MiB／heap
-- fixed maximumは4 KiBへround upし、16 MiBを超える要求をstructured resource limitにする
+- ordinary fixed maximumは4 KiBへround upし、16 MiBを超える通常要求をstructured resource limitにする
 - initial sizeは4 KiBへround upし、first allocation時に必要なtailまでcommitする
 - ownerは`MemoryOwnerKind::Anonymous`、regionは`MemoryRegionKind::Heap`
 - committed pagesはRW／NXであり、`GuestMemory`だけがbytes／mapping authorityを持つ
@@ -66,6 +68,22 @@ handleからbaseを直接再計算しない。Image、stack、runtime arena等�
 
 このbandとcapacityはcontrolled foundation policyであり、full-title memory profileの最終値ではない。
 General module placementとheap workloadを測定した後、process address-space policyとして再評価する。
+
+Active version 2 extends the parent heap band through `0x44000000` and adds one
+permanent child allocation record for `[0x40000000, 0x44000000)`. This record is
+not a second general heap arena. It is the sole exact 64 MiB large slot shared
+by all logical heaps in the process, with at most one live large allocation.
+The ordinary 32 slots, their address identity, and their eager initialization
+remain unchanged.
+
+Large allocation reserves the whole slot under a new anonymous GuestMemory
+owner but commits no physical page. `RuntimeHeaps` co-owns the live allocation,
+per-heap allocation-ID cursor, memory owner／address-allocation relation, and
+materialized-page index. A generic runtime page-fault service distinguishes the
+selected thread's stack guard from the live large allocation and requests one
+4 KiB RW／NX commit. GuestMemory quota／region／generation are preflighted before
+the memory transaction and targeted heap commit. TypeScript and v86 apply the
+normal mapping delta and never own a duplicate page index.
 
 ## Allocation, initialization, and reuse
 
@@ -92,12 +110,21 @@ Initialization policy:
 `0xA5`／`0xDD`はVineのdeterministic diagnostic policyであり、native Windowsが同じbytesを返すという
 主張ではない。`HEAP_ZERO_MEMORY`は`Zeroed`、flags `0`は
 `DeterministicUninitialized`へmapする。Active policyは両flagのnonzero
-`1..=16 MiB`を許可し、他flagとzero-byte allocation semanticsはexplicit unsupportedである。
+ordinary `1..=16 MiB` plus the explicit exact 64 MiB variantを許可し、the
+16–64 MiB gap、他flag、zero-byte allocation semanticsはexplicit unsupportedである。
 
 Freeはexact live baseを要求する。同じfree-block baseのsecond freeは
 `heap-allocation-double-free`、interior／foreign／unknown pointerは
 `heap-allocation-pointer-invalid`となり、metadata／bytesを変えない。Free blockはadjacent rangesを
 coalesceし、次のfirst-fit allocationがlowest addressをreuseする。
+
+Large free releases its complete GuestMemory region and owner rather than
+poisoning 64 MiB. Logical allocation metadata and every materialized page are
+retired in the same planned operation, while the process-permanent address
+record remains. A later exact large allocation therefore reuses guest address
+`0x40000000` with a new monotonic allocation ID. Second-live, duplicate／stale
+page, outside, protection, unsynchronized-memory, and quota failures are
+mutation-free.
 
 ## Heap and process teardown
 
@@ -127,6 +154,7 @@ Representative contract:
 ```powershell
 cargo test -p vine-core --lib runtime::heaps::tests --locked
 cargo test -p vine-core --test runtime_heap_backing --locked
+cargo test -p vine-core --test runtime_large_heap_materialization --locked
 ```
 
 The controlled sequence fixes:
@@ -141,6 +169,26 @@ The controlled sequence fixes:
 - reused allocation ID `3`: `0x20000000`, requested／aligned `0x100`, zeroed
 - explicit destroy: two live allocations discarded, 16 MiB reserved／4 KiB committed released
 - process teardown: one backed and one metadata-only heap, final memory generation／ack `13`
+
+The active large-allocation contract additionally fixes:
+
+- permanent process address record `[0x40000000,0x44000000)` and exact 64 MiB
+  selection, with 32 MiB rejected by compatibility policy;
+- reserve-only allocation with zero physical-page delta, followed by one
+  transactional 4 KiB page commit;
+- flags-zero `0xA5` and `HEAP_ZERO_MEMORY` zero initialization at first touch;
+- mutation-free second-live, duplicate, outside, protection, stale, and quota
+  rejection;
+- free／process teardown release of the region and owner while retaining the
+  address record, and new allocation identity on reuse.
+
+Primary BGI reaches allocation ID 12 at `0x40000000`, materializes one page at
+instruction 50,123, and continues to `CreateFileA` with Node／Chrome memory
+SHA-256
+`446095a7512d76adfecf4871533c0c7733b6f84e12df323bd0b800bcde4c9225`.
+The current 180-second browser gate completes 326 sessions with zero failure
+and all 17 thresholds passed. Detailed native, Node, Chrome, and performance
+evidence is in [bgi-large-heap-allocation.md](bgi-large-heap-allocation.md).
 
 S12 regression preserves the same heap behavior:
 
@@ -158,20 +206,23 @@ regression evidence, not a replacement baseline.
 
 ## Non-claims and next dependency
 
-The active guest policy covers flags `0`／`HEAP_ZERO_MEMORY` and every nonzero
-allocation size through the controlled 16 MiB per-heap ceiling. Historical
+The active guest policy covers flags `0`／`HEAP_ZERO_MEMORY`, every nonzero
+ordinary allocation size through the controlled 16 MiB per-heap ceiling, and
+one exact process-wide 64 MiB large variant. Intermediate large sizes are not
+enabled. Historical
 schema-v1 exact pairs remain readable only for checkpoint reproduction. The
 runtime does not implement other allocation/free flags, failure return／exception
 semantics, zero-size behavior, realloc,
 size／validate／compact／walk, heap lock, LFH,
-serialization, concurrent allocation, corruption termination, guard pages, per-block decommit, or a
+serialization, concurrent allocation, multiple live large blocks, arbitrary
+large sizes, corruption termination, guard pages, per-block decommit, or a
 full-title capacity profile. It is partial evidence for `REQ-MEM-01`／`REQ-API-02` and `P3-WIN-01`,
 not their completion.
 
 Mapped guest-module／export identity and dependency-ordered `DllMain` lifecycle are implemented in
 [runtime-module-images.md](runtime-module-images.md) and
-[runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). Capability expansion remains paused at the saved
-`GetCurrentThread` stop. Module metadata, image, import binding, and runtime export collections now
+[runtime-dll-lifecycle.md](runtime-dll-lifecycle.md). Capability expansion now pauses at the
+`CreateFileA` VFS subsystem gateway. Module metadata, image, import binding, and runtime export collections now
 use the same private ownership and plan／preflight／commit boundary. DLL lifecycle phase and in-flight
 operation state now share that module owner as well. Responsibility checkpoint S13 completes the
 remaining process/kernel aggregate audit and preserves the same serialized compatibility shape.

@@ -36,7 +36,8 @@ use super::displays::{RuntimeDisplayProfile, RuntimeDisplays, RuntimeLogicalMoni
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
     RuntimeHeapCreationPlan, RuntimeHeapDestructionPlan, RuntimeHeapFreePlan,
-    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeHeaps,
+    RuntimeHeapInitialization, RuntimeHeapPageMaterialization, RuntimeHeapTeardown, RuntimeHeaps,
+    RuntimeLargeHeapAllocationBacking,
 };
 use super::input::{
     RuntimeInput, RuntimeInputProfile, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult,
@@ -108,6 +109,17 @@ pub struct RuntimeBootstrap {
     pub initial_current_directory_a: RuntimeCurrentDirectoryA,
     pub encoded_pointer_namespace: String,
     pub encoded_pointer_token_prefix: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RuntimePageFaultResolution {
+    InitialThreadStackGrowth {
+        growth: RuntimeThreadStackGrowth,
+    },
+    PrivateHeapPageMaterialization {
+        materialization: RuntimeHeapPageMaterialization,
+    },
 }
 
 struct RuntimeThreadExitRequestPlan {
@@ -1058,6 +1070,38 @@ impl RuntimeKernel {
         })
     }
 
+    pub fn service_page_fault(
+        &mut self,
+        memory: &mut GuestMemory,
+        fault_address: GuestAddress,
+        page_fault_error_code: u32,
+    ) -> Result<RuntimePageFaultResolution, RuntimeStateError> {
+        let fault_page = GuestAddress(fault_address.0 & !(GUEST_PAGE_SIZE as u32 - 1));
+        let stack_guard_matches = self
+            .current_thread()?
+            .stack
+            .as_ref()
+            .and_then(|stack| stack.guard_page)
+            .is_some_and(|guard| guard.start() == fault_page);
+        if stack_guard_matches {
+            return self
+                .grow_initial_thread_stack(memory, fault_address, page_fault_error_code)
+                .map(|growth| RuntimePageFaultResolution::InitialThreadStackGrowth { growth });
+        }
+        if self.heaps.large_allocation_contains(fault_address) {
+            return self
+                .materialize_private_heap_page(memory, fault_address, page_fault_error_code)
+                .map(|materialization| {
+                    RuntimePageFaultResolution::PrivateHeapPageMaterialization { materialization }
+                });
+        }
+        Err(RuntimeStateError::invalid_input(
+            "runtime-page-fault",
+            "guest-page-fault-unhandled",
+            "page fault does not match a current stack guard or live lazy heap allocation",
+        ))
+    }
+
     pub fn thread_state(
         &self,
         thread_id: RuntimeThreadId,
@@ -1814,6 +1858,10 @@ impl RuntimeKernel {
         Ok(self.heaps.backing(handle))
     }
 
+    pub fn large_heap_allocation_backing(&self) -> Option<&RuntimeLargeHeapAllocationBacking> {
+        self.heaps.large_backing()
+    }
+
     pub fn private_heap_allocation(
         &self,
         handle: u32,
@@ -1870,6 +1918,75 @@ impl RuntimeKernel {
         plan: RuntimeHeapFreePlan,
     ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
         self.heaps.commit_free(plan)
+    }
+
+    pub fn materialize_private_heap_page(
+        &mut self,
+        memory: &mut GuestMemory,
+        fault_address: GuestAddress,
+        page_fault_error_code: u32,
+    ) -> Result<RuntimeHeapPageMaterialization, RuntimeStateError> {
+        self.require_private_heap_operation_state()?;
+        if page_fault_error_code & 1 != 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-heap-backing",
+                "large-heap-protection-fault",
+                "present-page protection faults cannot materialize a lazy heap page",
+            ));
+        }
+        let stats = memory.stats();
+        if stats.generation != stats.acknowledged_generation || stats.pending_invalidation.is_some()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-heap-backing",
+                "large-heap-materialization-memory-unsynchronized",
+                "large heap page materialization requires fully acknowledged guest memory",
+            ));
+        }
+        let plan = self.heaps.plan_page_materialization(
+            &self.address_space_allocator,
+            fault_address,
+            page_fault_error_code,
+        )?;
+        let region_matches = memory.region_snapshots().iter().any(|region| {
+            region.owner == plan.memory_owner
+                && region.kind == MemoryRegionKind::Heap
+                && region.range.start() == plan.allocation.address
+                && region.range.byte_length() == u64::from(plan.allocation.reserved_byte_length)
+        });
+        if !region_matches {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-heap-backing",
+                "large-heap-memory-region-mismatch",
+                "large heap metadata does not match the Rust guest-memory reservation",
+            ));
+        }
+        memory
+            .preflight_growth(0, 0, 1, "runtime-heap-backing")
+            .map_err(RuntimeStateError::from_memory)?;
+
+        let mut transaction = memory.begin_transaction();
+        transaction
+            .commit(
+                plan.memory_owner,
+                plan.committed_page,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        let fill_byte = plan.allocation.initialization.fill_byte();
+        if fill_byte != 0 {
+            let bytes = vec![fill_byte; GUEST_PAGE_SIZE as usize];
+            transaction
+                .write(plan.committed_page.start(), &bytes)
+                .map_err(RuntimeStateError::from_memory)?;
+        }
+        let materialization = self.heaps.commit_page_materialization(plan)?;
+        transaction.commit_transaction();
+        Ok(materialization)
     }
 
     pub(crate) fn plan_private_heap_destruction(

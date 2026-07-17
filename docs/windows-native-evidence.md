@@ -2744,3 +2744,29 @@ sessionを通し、Chromeもsame ordered results、memory digest、next structur
 Read-only semantic leafなので3分gateは再実行せず、manifestはprevious window-class observationを
 current artifactと分離して保持する。詳細は
 [bgi-get-system-metrics.md](bgi-get-system-metrics.md)を正とする。
+
+## 101. BGI 64 MiB private-heap lifetime and sparse access
+
+Focused `large-heap-allocation` capturesは419,374 bytes／204 lines／SHA-256
+`5800d1cbeb3bffffed54e7d3abee1cb9e1262dd468f3190e8354dcf70e9610c3`と
+419,375 bytes／204 lines／SHA-256
+`0d2250f012b5795318c5d86bbd47876555720a2d16d78e8e906384dda540914e`
+である。各75 API pairsはbalanced、diagnosticsはzero、source executable hashは不変である。
+
+両captureでmain-module callerはflags 0／67,108,864 bytesをHeapAllocし、non-NULL pointerを得て
+LastError 0を保持する。Matching HeapFreeはflags 0でBOOL 1／LastError 0となる。Native pointer値は
+runごとに異なるopaque artifact identityであり、runtime address policyへimportしない。
+
+Guarded lifetime monitorは16,384 requested pagesのうち先頭30 pagesだけがfree前にaccessされ、
+16,354 pagesがuntouchedであることを再現する。Accessed runはpage 0..29／122,880 bytesで、各pageの
+first accessはwrite、read／executeはzeroである。First writeはBGI RVA `0x00061AEF`／offset 0、
+最後のnew pageはRVA `0x000A3F37`／offset 122,848である。このevidenceはsparse early useとlifetimeを
+示すが、Windowsのcommit timing、uninitialized bytes、pointer reuseをsemantic oracleにしない。
+
+Runtimeは32 ordinary heap slotsを維持し、`[0x40000000,0x44000000)`のprocess-permanent exact
+64 MiB slotを追加する。Allocationは全rangeをreserveするだけでphysical pageを増やさず、generic
+page-fault serviceがRust `RuntimeHeaps` planとGuestMemory transactionを通して4 KiBずつmaterializeする。
+Primaryではinstruction 50,123のPFEC 6でfirst pageを`0xA5`初期化し、Node／Chromeはsame allocation／
+page identity、memory digest、instruction 51,614の`CreateFileA` stopを再現する。Memory／Worker boundary
+変更後の3分gateは326 sessions／failure 0で17 thresholdsを通した。詳細は
+[bgi-large-heap-allocation.md](bgi-large-heap-allocation.md)を正とする。

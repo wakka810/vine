@@ -72,11 +72,21 @@ effects.
 
 The private BGI path loads the active Kernel32 schema-v2 policy selected by the
 checkpoint manifest. `HeapAlloc` accepts implemented flags `0`／
-`HEAP_ZERO_MEMORY` for every nonzero size through the 16 MiB per-heap ceiling;
+`HEAP_ZERO_MEMORY` for ordinary nonzero sizes through the 16 MiB per-heap
+ceiling and the explicit exact 64 MiB process-wide large variant;
 observed allocation sizes are evidence, not Worker or Rust dispatch branches.
 Decommit and release both produce a code-bearing unmapped-access stop on a stale
 probe. A current full reflection rebuild preserves the CPU context and proves
 the receipt-loss recovery path without changing Rust acknowledgement state.
+
+For the large variant, Rust first emits a reserve-only delta for
+`[0x40000000,0x44000000)`. A later execution fault is sent to one generic Wasm
+page-fault bridge, which may resolve either current-thread stack growth or a
+Rust-owned large-heap page. The Worker validates resolution identity,
+generation, one 4 KiB RW／NX commit, owner, and initialization bytes before
+applying the delta. It records evidence metadata but does not retain a Windows
+allocation or materialized-page authority. Rejected faults return no memory
+delta and resume the existing structured-stop path.
 
 ## Execution engine contract
 

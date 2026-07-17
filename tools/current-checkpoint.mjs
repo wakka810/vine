@@ -349,6 +349,18 @@ export function validateCurrentCheckpoint(manifest) {
     "pendingCallbacksAfterCleanup",
     "nodeOracleReportBytes",
     "browserReportBytes",
+    "largeHeapPageMaterializations",
+    "largeHeapAllocationBytes",
+    "largeHeapAllocationId",
+    "largeHeapAddressAllocationId",
+    "largeHeapMemoryOwner",
+    "largeHeapFirstFaultInstructionCount",
+    "largeHeapFirstPageFaultErrorCode",
+    "largeHeapFirstCommittedPageBytes",
+    "largeHeapNodeMaterializationFromGeneration",
+    "largeHeapNodeMaterializationGeneration",
+    "largeHeapBrowserMaterializationFromGeneration",
+    "largeHeapBrowserMaterializationGeneration",
   ]) {
     requireInteger(
       bgiBrowserEvidence[field],
@@ -378,6 +390,7 @@ export function validateCurrentCheckpoint(manifest) {
     "memoryContentSha256",
     "nodeOracleReportSha256",
     "browserReportSha256",
+    "largeHeapMaterializationPayloadSha256",
   ]) {
     requireSha256(
       bgiBrowserEvidence[field],
@@ -388,12 +401,26 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     bgiBrowserEvidence.nodeRole !== "semantic-oracle-only" ||
     bgiBrowserEvidence.runtimeStateAuthority !== "rust-wasm-in-runtime-worker" ||
-    bgiMappingOperations.reserve !== 1 ||
+    bgiMappingOperations.reserve !== 2 ||
     bgiMappingOperations.commit < 1 ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
-    bgiBrowserEvidence.dllLifecycleAfterCleanup !== "process-detached"
+    bgiBrowserEvidence.dllLifecycleAfterCleanup !== "process-detached" ||
+    bgiBrowserEvidence.largeHeapPageMaterializations !== 1 ||
+    bgiBrowserEvidence.largeHeapAllocationAddress !== "0x40000000" ||
+    bgiBrowserEvidence.largeHeapAllocationBytes !== 64 * 1024 * 1024 ||
+    bgiBrowserEvidence.largeHeapAllocationId !== 12 ||
+    bgiBrowserEvidence.largeHeapAddressAllocationId !== 37 ||
+    bgiBrowserEvidence.largeHeapMemoryOwner !== 11 ||
+    bgiBrowserEvidence.largeHeapFirstFaultInstructionCount !== 50_123 ||
+    bgiBrowserEvidence.largeHeapFirstFaultAddress !== "0x40000000" ||
+    bgiBrowserEvidence.largeHeapFirstPageFaultErrorCode !== 6 ||
+    bgiBrowserEvidence.largeHeapFirstCommittedPageBytes !== 4_096 ||
+    bgiBrowserEvidence.largeHeapNodeMaterializationFromGeneration !== 1_470 ||
+    bgiBrowserEvidence.largeHeapNodeMaterializationGeneration !== 1_472 ||
+    bgiBrowserEvidence.largeHeapBrowserMaterializationFromGeneration !== 3_635 ||
+    bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 3_637
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
   }
@@ -485,9 +512,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 2 ||
     bgiBenchmarkEvidence.configuration !== "fixtures/benchmarks/bgi-browser-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "user32-register-class-ex-a" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "kernel32-large-heap-allocation" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "previous-window-class-registration-boundary-observation" ||
+      "current-large-heap-lazy-materialization-boundary-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
@@ -504,7 +531,9 @@ export function validateCurrentCheckpoint(manifest) {
     (browser.bgiBenchmark === "threshold-passed" && benchmarkFailureIds.length !== 0) ||
     (browser.bgiBenchmark === "threshold-blocked" && benchmarkFailureIds.length === 0) ||
     bgiBenchmarkEvidence.executionEngineLinearMemoryBytes !==
-      bgiBrowserEvidence.executionEngineLinearMemoryBytes
+      bgiBrowserEvidence.executionEngineLinearMemoryBytes ||
+    bgiBenchmarkEvidence.wasmBridgeCallsPerSession !== bgiBrowserEvidence.wasmBridgeCalls ||
+    bgiBenchmarkEvidence.runtimeCoreWasmSha256 !== browser.browserRuntimeCoreWasm?.sha256
   ) {
     errors.push("browser BGI benchmark evidence is invalid or inconsistent");
   }
@@ -653,7 +682,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeSubsystemTests.join(",") !==
       "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_system_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -971,7 +1000,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    heaps.schema !== "vine.runtime-private-heap-backing.v4" ||
+    heaps.schema !== "vine.runtime-private-heap-backing.v5" ||
     heaps.stateOwner !== "runtime/heaps.rs::RuntimeHeaps" ||
     heaps.mutableCollectionVisibility !== "private" ||
     heaps.readInspection !== "immutable-borrow" ||
@@ -984,11 +1013,11 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime-state-borrowed-compatibility-view" ||
     !Array.isArray(heaps.ownedState) ||
     heaps.ownedState.join(",") !==
-      "logical-heap-map,guest-memory-backing-map,private-heap-slot-allocator" ||
+      "logical-heap-map,guest-memory-backing-map,private-heap-slot-allocator,per-heap-allocation-id-allocators,process-large-allocation-backing,large-allocation-materialized-page-index" ||
     heaps.crossSubsystemMutation !==
       "heap-slot-plan-object-memory-preflight-targeted-commit" ||
-    heaps.subsystemTests < 6 ||
-    heaps.crossSubsystemAtomicTests < 2 ||
+    heaps.subsystemTests < 7 ||
+    heaps.crossSubsystemAtomicTests < 3 ||
     heaps.logicalAndBackingCollectionsCoOwned !== true ||
     heaps.directCollectionMutationFromAggregate !== false ||
     heaps.directAllocatorMutationFromAggregate !== false ||
@@ -997,7 +1026,21 @@ export function validateCurrentCheckpoint(manifest) {
     heaps.allocatorExhaustionMutationFree !== true ||
     heaps.failedCreationPreservesSlotAllocator !== true ||
     heaps.runtimeStateDirectScalarAllocators !== 0 ||
-    heaps.wholeRuntimeStateClone !== false
+    heaps.wholeRuntimeStateClone !== false ||
+    heaps.largeSlotBase !== "0x40000000" ||
+    heaps.largeSlotEndExclusive !== "0x44000000" ||
+    heaps.largeSlotBytes !== 64 * 1024 * 1024 ||
+    heaps.largeSlotAddressAllocationPurpose !== "private-heap-large-slot" ||
+    heaps.largeSlotAddressAllocationLifetime !== "process-permanent" ||
+    heaps.largeSlotConcurrentLiveAllocations !== 1 ||
+    heaps.largeAllocationSizePolicy !== "exact-67108864-only" ||
+    heaps.largeAllocationMaterializationStateOwner !==
+      "runtime/heaps.rs::RuntimeHeaps" ||
+    heaps.largeAllocationMemoryAuthority !== "rust-guest-memory" ||
+    heaps.largeAllocationFailuresMutationFree !== true ||
+    heaps.guestHeapAllocOrdinaryMaximumBytes !== 16 * 1024 * 1024 ||
+    heaps.guestHeapAllocLargeExactBytes?.join(",") !== `${64 * 1024 * 1024}` ||
+    heaps.guestHeapAllocIntermediateLargeSizes !== false
   ) {
     errors.push("active runtime heap subsystem boundary is invalid");
   }
@@ -1010,8 +1053,12 @@ export function validateCurrentCheckpoint(manifest) {
     addressSpace.schema !== "vine.process-address-space-allocator.v1" ||
     addressSpace.authority !== "rust-runtime-kernel" ||
     addressSpace.totalAllocationCount !==
-      addressSpace.rootAllocationCount + addressSpace.heapSlotAllocationCount ||
+      addressSpace.rootAllocationCount +
+        addressSpace.heapSlotAllocationCount +
+        addressSpace.largeHeapSlotAllocationCount ||
     addressSpace.heapBackingUsesAllocationId !== true ||
+    addressSpace.largeHeapBackingUsesAllocationId !== true ||
+    addressSpace.largeHeapAddressAllocationPermanent !== true ||
     addressSpace.comBackingUsesAllocationId !== true ||
     addressSpace.comFinalReleaseRetiresAllocation !== true ||
     addressSpace.controlMappingCommitUsesAllocationId !== true ||
@@ -1051,9 +1098,9 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-create-waitable-timer-a-v1" ||
+    kernel32Policy.id !== "kernel32-large-heap-allocation-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json" ||
+      "fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -1111,7 +1158,10 @@ export function validateCurrentCheckpoint(manifest) {
     heapAllocator.allowedFlags.join(",") !== "0,8" ||
     heapAllocator.minimumAllocationBytes !== 1 ||
     heapAllocator.maximumAllocationBytes !== 16 * 1024 * 1024 ||
-    heapAllocator.sizePolicy !== "inclusive-nonzero-range" ||
+    !Array.isArray(heapAllocator.largeAllocationBytes) ||
+    heapAllocator.largeAllocationBytes.join(",") !== `${64 * 1024 * 1024}` ||
+    heapAllocator.sizePolicy !==
+      "ordinary-inclusive-nonzero-range-plus-explicit-large-variants" ||
     kernel32Policy.historicalExactHeapPolicySchemaVersion !== 1 ||
     kernel32Policy.unsupportedBeforeMutation !== true
   ) {
@@ -1365,12 +1415,91 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeRegisterClassExAConfirmationTraceSha256",
     "nativeGetSystemMetricsPrimaryTraceSha256",
     "nativeGetSystemMetricsConfirmationTraceSha256",
+    "nativeLargeHeapPrimaryTraceSha256",
+    "nativeLargeHeapConfirmationTraceSha256",
   ]) {
     requireSha256(
       latestEvidence[field],
       `activeRuntimeCheckpoint.latestEvidence.${field}`,
       errors,
     );
+  }
+  if (
+    latestEvidence.nativeLargeHeapPrimaryTraceBytes !== 419_374 ||
+    latestEvidence.nativeLargeHeapPrimaryTraceLines !== 204 ||
+    latestEvidence.nativeLargeHeapPrimaryBalancedApiPairs !== 75 ||
+    latestEvidence.nativeLargeHeapConfirmationTraceBytes !== 419_375 ||
+    latestEvidence.nativeLargeHeapConfirmationTraceLines !== 204 ||
+    latestEvidence.nativeLargeHeapConfirmationBalancedApiPairs !== 75 ||
+    latestEvidence.nativeLargeHeapTraceDiagnostics !== 0 ||
+    latestEvidence.nativeLargeHeapProfile !==
+      "main-module-large-heap-allocation-lifetime-v1" ||
+    latestEvidence.nativeLargeHeapFlags !== 0 ||
+    latestEvidence.nativeLargeHeapRequestedBytes !== 64 * 1024 * 1024 ||
+    latestEvidence.nativeLargeHeapRequestedPages !== 16_384 ||
+    latestEvidence.nativeLargeHeapAccessedPages !== 30 ||
+    latestEvidence.nativeLargeHeapUntouchedPages !== 16_354 ||
+    latestEvidence.nativeLargeHeapAccessedPageRun?.join(",") !== "0,29" ||
+    latestEvidence.nativeLargeHeapAccessedExtentBytes !== 122_880 ||
+    latestEvidence.nativeLargeHeapFirstAccessOperations?.read !== 0 ||
+    latestEvidence.nativeLargeHeapFirstAccessOperations?.write !== 30 ||
+    latestEvidence.nativeLargeHeapFirstAccessOperations?.execute !== 0 ||
+    latestEvidence.nativeLargeHeapFirstAccessOperations?.other !== 0 ||
+    latestEvidence.nativeLargeHeapFirstAccessRva !== "0x00061aef" ||
+    latestEvidence.nativeLargeHeapLastNewPageAccessRva !== "0x000a3f37" ||
+    latestEvidence.nativeLargeHeapLastNewPageOffset !== 122_848 ||
+    latestEvidence.nativeLargeHeapFreeResult !== 1 ||
+    latestEvidence.nativeLargeHeapLastErrors?.join(",") !== "0,0" ||
+    latestEvidence.nativeLargeHeapPointerClassification !==
+      "opaque-native-artifact-identity" ||
+    latestEvidence.nativeLargeHeapExecutableHashUnchanged !== true
+  ) {
+    errors.push("latest native large-heap lifetime evidence is invalid");
+  }
+  if (
+    latestEvidence.largeHeapAllocImplemented !== true ||
+    latestEvidence.largeHeapAllocSequence !== 1_350 ||
+    latestEvidence.largeHeapAllocOccurrence !== 12 ||
+    latestEvidence.largeHeapAllocInstructionCount !== 50_105 ||
+    latestEvidence.largeHeapAllocArguments?.join(",") !==
+      "0x68010001,0x00000000,0x04000000" ||
+    latestEvidence.largeHeapAllocReturnAddress !== "0x100a4a33" ||
+    latestEvidence.largeHeapAllocResult !== "0x40000000" ||
+    latestEvidence.largeHeapAllocLastError !== 0 ||
+    latestEvidence.largeHeapAllocGuestWrites !== 0 ||
+    latestEvidence.largeHeapAllocImplementationId !== "kernel32.heap-alloc.v2" ||
+    latestEvidence.largeHeapAllocAllocationId !== 12 ||
+    latestEvidence.largeHeapAllocRequestedBytes !== 64 * 1024 * 1024 ||
+    latestEvidence.largeHeapAllocReservedBytes !== 64 * 1024 * 1024 ||
+    latestEvidence.largeHeapAllocInitialization !== "deterministic-uninitialized" ||
+    latestEvidence.largeHeapAllocLiveAllocations !== 10 ||
+    latestEvidence.largeHeapReserveFromGeneration !== 1_469 ||
+    latestEvidence.largeHeapReserveGeneration !== 1_470 ||
+    latestEvidence.largeHeapReserveMappingOperations !== 1 ||
+    latestEvidence.largeHeapReserveDirtyPages !== 0 ||
+    latestEvidence.largeHeapReservePhysicalPageDelta !== 0 ||
+    latestEvidence.largeHeapMaterializationInstructionCount !== 50_123 ||
+    latestEvidence.largeHeapMaterializationFaultAddress !== "0x40000000" ||
+    latestEvidence.largeHeapMaterializationPageFaultErrorCode !== 6 ||
+    latestEvidence.largeHeapMaterializationMemoryOwner !== 11 ||
+    latestEvidence.largeHeapMaterializationAddressAllocationId !== 37 ||
+    latestEvidence.largeHeapMaterializationCommittedPage !== "0x40000000" ||
+    latestEvidence.largeHeapMaterializationCommittedBytes !== 4_096 ||
+    latestEvidence.largeHeapMaterializationFromGeneration !== 1_470 ||
+    latestEvidence.largeHeapMaterializationGeneration !== 1_472 ||
+    latestEvidence.largeHeapMaterializationPayloadSha256 !==
+      "f600eca824e84a43f0691b267bd620e462c50da165c5b80e17aecb7a924f1fa8" ||
+    latestEvidence.largeHeapMaterializationFillByte !== 0xa5 ||
+    latestEvidence.largeHeapMaterializedPages !== 1 ||
+    latestEvidence.largeHeapReservedPagesBefore !== 4_784 ||
+    latestEvidence.largeHeapReservedPagesAfter !== 21_168 ||
+    latestEvidence.largeHeapPhysicalPagesBefore !== 395 ||
+    latestEvidence.largeHeapPhysicalPagesAfter !== 396 ||
+    latestEvidence.largeHeapSecondLiveRejectedBeforeMutation !== true ||
+    latestEvidence.largeHeapDuplicateStaleOutsideProtectionQuotaRejectedBeforeMutation !== true ||
+    latestEvidence.largeHeapAddressRecordPermanentAcrossFree !== true
+  ) {
+    errors.push("latest large-heap allocation and materialization evidence is invalid");
   }
   if (
     latestEvidence.nativeTimeGetDevCapsTraceDiagnostics !== 0 ||
@@ -1447,7 +1576,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-get-system-metrics.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-large-heap-allocation.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||

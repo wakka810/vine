@@ -106,6 +106,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_advance_mapping_fixture(stage: number): number;
   vine_bridge_current_reflection(): number;
   vine_bridge_grow_initial_thread_stack(faultAddress: number, errorCode: number): number;
+  vine_bridge_service_page_fault(faultAddress: number, errorCode: number): number;
   vine_bridge_dispatch(endpoint: number, stackPointer: number, returnAddress: number): number;
   vine_bridge_complete_host(low: number, high: number, result: number): number;
   vine_bridge_schedule_next_thread(): number;
@@ -186,6 +187,15 @@ export class RuntimeBridge {
   ): BridgeOutput<T> {
     return this.#invoke(() =>
       this.#exports.vine_bridge_grow_initial_thread_stack(faultAddress, errorCode),
+    );
+  }
+
+  servicePageFault<T = Record<string, unknown>>(
+    faultAddress: number,
+    errorCode: number,
+  ): BridgeOutput<T> {
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_service_page_fault(faultAddress, errorCode),
     );
   }
 

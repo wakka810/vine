@@ -53,6 +53,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -222,6 +223,25 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(profile.maximum_application_address, 0x7ffe_ffff);
     assert_eq!(profile.processor_type, 586);
     assert_eq!(profile.allocation_granularity, 65_536);
+
+    let large_heap: Kernel32CompatibilityPolicy = serde_json::from_str(policies[33]).unwrap();
+    assert_eq!(
+        large_heap
+            .heap_allocator()
+            .expect("large heap allocator policy")
+            .maximum_allocation_bytes,
+        16 * 1024 * 1024
+    );
+    assert_eq!(
+        large_heap
+            .heap_allocator()
+            .expect("large heap allocator policy")
+            .large_allocation_bytes,
+        [64 * 1024 * 1024]
+    );
+    assert!(large_heap.allows_heap_allocation(0, 64 * 1024 * 1024));
+    assert!(!large_heap.allows_heap_allocation(0, 32 * 1024 * 1024));
+    assert!(!large_heap.allows_heap_allocation(0, 64 * 1024 * 1024 + 1));
     assert_eq!(profile.processor_level, 6);
     assert_eq!(profile.processor_revision, 0);
     assert_eq!(system_info.system_default_lang_id(), None);

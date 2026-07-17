@@ -752,6 +752,48 @@ impl BrowserRuntime {
         Ok((metadata, Some(buffers)))
     }
 
+    fn service_page_fault(
+        &mut self,
+        fault_address: GuestAddress,
+        page_fault_error_code: u32,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        if !matches!(self.target, BrowserRuntimeTarget::Bgi { .. }) {
+            return Err("page-fault service is available only to the BGI runtime".to_owned());
+        }
+        let resolution = match self.runtime.service_page_fault(
+            &mut self.memory,
+            fault_address,
+            page_fault_error_code,
+        ) {
+            Ok(resolution) => resolution,
+            Err(error) => {
+                let stats = self.memory.stats();
+                return Ok((
+                    json!({
+                        "kind": "page-fault-rejected",
+                        "faultAddress": fault_address.0,
+                        "pageFaultErrorCode": page_fault_error_code,
+                        "error": error,
+                        "memory": stats,
+                    }),
+                    None,
+                ));
+            }
+        };
+        let delta = self.memory.pending_delta().map_err(error_string)?;
+        let metadata = json!({
+            "kind": "page-fault-resolved",
+            "resolution": resolution,
+            "fromGeneration": delta.from_generation,
+            "generation": delta.generation,
+            "mappingOperations": delta.mapping_operations.iter().map(mapping_operation_name).collect::<Vec<_>>(),
+            "dirtyPages": delta.dirty_pages.len(),
+            "cacheEffects": delta.cache_effects,
+        });
+        let buffers = delta.encode_binary().map_err(error_string)?;
+        Ok((metadata, Some(buffers)))
+    }
+
     fn mapping_fixture_heap_handle(&self) -> Result<u32, String> {
         self.mapping_fixture
             .heap_handle
@@ -2025,6 +2067,22 @@ pub extern "C" fn vine_bridge_grow_initial_thread_stack(
         let (metadata, delta) = bridge
             .runtime_mut()?
             .grow_initial_thread_stack(GuestAddress(fault_address), page_fault_error_code)?;
+        let (control, payload) = delta
+            .map(|buffers| (buffers.control, buffers.page_bytes))
+            .unwrap_or_default();
+        bridge.set_output(metadata, control, payload)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_service_page_fault(
+    fault_address: u32,
+    page_fault_error_code: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let (metadata, delta) = bridge
+            .runtime_mut()?
+            .service_page_fault(GuestAddress(fault_address), page_fault_error_code)?;
         let (control, payload) = delta
             .map(|buffers| (buffers.control, buffers.page_bytes))
             .unwrap_or_default();
