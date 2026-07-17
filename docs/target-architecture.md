@@ -275,6 +275,16 @@ mutation前に拒否する。Process exitはprocess／thread planとtimer teardo
 tableを一回でretireする。Browser scheduler／audio adapterはこのrequest tableを所有しない。詳細は
 [winmm-compatibility-policy.md](winmm-compatibility-policy.md)を正とする。
 
+Guest-visible OS version is compatibility data, not browser capability
+detection. `Kernel32CompatibilityPolicy` owns one bounded ANSI profile while
+the generic dispatcher owns the size-versioned pointer contract. Accepted
+structures are assembled by merging policy fields into a caller before-image
+and committing one declared span, so native-unwritten padding and failure
+atomicity share the ordinary `GuestMemory` boundary. TypeScript and browser
+reports observe the Rust completion only; they do not import `navigator` or
+host Windows version state. Details are in
+[bgi-get-version-ex-a.md](bgi-get-version-ex-a.md).
+
 ### 5.3 Clock ownership
 
 clock を browser の複数時刻源へ分散させない。

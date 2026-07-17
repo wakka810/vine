@@ -146,6 +146,7 @@ enum GenericRuntimeCapability {
     SwapMouseButton,
     TimeGetDevCaps,
     TimeBeginPeriod,
+    GetVersionExA,
 }
 
 struct GenericRuntimeProcess {
@@ -2736,6 +2737,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA
         )
     ) {
         process
@@ -2754,7 +2756,8 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
-                | GenericRuntimeCapability::TimeBeginPeriod,
+                | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA,
         )
     ) {
         process
@@ -2801,6 +2804,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA
         )
     );
     let get_module_file_name_a_enabled = matches!(
@@ -2827,6 +2831,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -2871,7 +2876,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetDriveTypeA
             | GenericRuntimeCapability::SwapMouseButton
             | GenericRuntimeCapability::TimeGetDevCaps
-            | GenericRuntimeCapability::TimeBeginPeriod,
+            | GenericRuntimeCapability::TimeBeginPeriod
+            | GenericRuntimeCapability::GetVersionExA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -3031,6 +3037,7 @@ fn run_v86_generic_runtime_session(
                         | GenericRuntimeCapability::SwapMouseButton
                         | GenericRuntimeCapability::TimeGetDevCaps
                         | GenericRuntimeCapability::TimeBeginPeriod
+                        | GenericRuntimeCapability::GetVersionExA
                 )
             )
             .then(|| user32_policy.id.clone()),
@@ -3038,7 +3045,8 @@ fn run_v86_generic_runtime_session(
                 endpoint_capability,
                 Some(
                     GenericRuntimeCapability::TimeGetDevCaps
-                        | GenericRuntimeCapability::TimeBeginPeriod,
+                        | GenericRuntimeCapability::TimeBeginPeriod
+                        | GenericRuntimeCapability::GetVersionExA,
                 )
             )
             .then(|| winmm_policy.id.clone()),
@@ -3776,6 +3784,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA
         )
     );
     let interlocked_decrement_enabled = get_module_file_name_a_enabled
@@ -3804,6 +3813,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA
         )
     );
     let set_current_directory_a_enabled = matches!(
@@ -3821,6 +3831,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA
         )
     );
     let create_mutex_a_enabled = matches!(
@@ -3837,6 +3848,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA
         )
     );
     let get_current_thread_enabled = matches!(
@@ -3852,6 +3864,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA
         )
     );
     let set_thread_affinity_mask_enabled = matches!(
@@ -3866,10 +3879,12 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SwapMouseButton
                 | GenericRuntimeCapability::TimeGetDevCaps
                 | GenericRuntimeCapability::TimeBeginPeriod
+                | GenericRuntimeCapability::GetVersionExA
         )
     );
-    let time_begin_period_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::TimeBeginPeriod));
+    let get_version_ex_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetVersionExA));
+    let time_begin_period_enabled = get_version_ex_a_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::TimeBeginPeriod));
     let time_get_dev_caps_enabled = time_begin_period_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::TimeGetDevCaps));
     let swap_mouse_button_enabled = time_get_dev_caps_enabled
@@ -4001,7 +4016,8 @@ fn runtime_capability_enables_endpoint(
             | GenericRuntimeCapability::GetDriveTypeA
             | GenericRuntimeCapability::SwapMouseButton
             | GenericRuntimeCapability::TimeGetDevCaps
-            | GenericRuntimeCapability::TimeBeginPeriod,
+            | GenericRuntimeCapability::TimeBeginPeriod
+            | GenericRuntimeCapability::GetVersionExA,
         ) => Some(GenericRuntimeCapability::SetHandleCount),
         capability => capability,
     };
@@ -4164,6 +4180,7 @@ fn runtime_capability_enables_endpoint(
         "SwapMouseButton" => swap_mouse_button_enabled,
         "timeGetDevCaps" => time_get_dev_caps_enabled,
         "timeBeginPeriod" | "timeEndPeriod" => time_begin_period_enabled,
+        "GetVersionExA" => get_version_ex_a_enabled,
         _ => true,
     }
 }
@@ -4224,7 +4241,8 @@ fn runtime_capability_enables_dynamic_endpoint(
             | GenericRuntimeCapability::GetDriveTypeA
             | GenericRuntimeCapability::SwapMouseButton
             | GenericRuntimeCapability::TimeGetDevCaps
-            | GenericRuntimeCapability::TimeBeginPeriod,
+            | GenericRuntimeCapability::TimeBeginPeriod
+            | GenericRuntimeCapability::GetVersionExA,
         ) => {
             matches!(
                 endpoint.name.as_str(),
@@ -9662,6 +9680,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-swap-mouse-button" => GenericRuntimeCapability::SwapMouseButton,
                 "winmm-time-get-dev-caps" => GenericRuntimeCapability::TimeGetDevCaps,
                 "winmm-time-begin-period" => GenericRuntimeCapability::TimeBeginPeriod,
+                "kernel32-get-version-ex-a" => GenericRuntimeCapability::GetVersionExA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

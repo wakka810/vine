@@ -199,7 +199,7 @@ Representative semantic contracts:
 cargo test -p vine-core --test api_dispatcher --locked
 ```
 
-The semantic tests cover all 33 APIs, the five original shapes, fixed and
+The semantic tests cover all registered APIs, the five original shapes, fixed and
 bounded-dynamic output writes,
 LastError, heap／module／endpoint／TLS state, bounded string lookup, explicit
 ordinal rejection, callback LIFO, host completion events, exact critical-section
@@ -971,6 +971,23 @@ the processor count is its popcount; neither value is copied into a second
 policy field. No semantic branch reads the browser or native host topology.
 Detailed native consumer, Node, Chrome, and benchmark evidence is in
 [bgi-get-system-info.md](bgi-get-system-info.md).
+
+## Size-versioned ANSI OS-information contract
+
+`kernel32.get-version-ex-a.v1` uses a dynamic in/out pointer whose catalog
+constraint preflights the four-byte declared size and bounds any completion at
+156 bytes. The handler accepts exactly the 148-byte base and 156-byte extended
+layouts. It reads the full accepted span, merges policy fields into the caller's
+before-image, and returns one checked write, preserving bytes Windows leaves
+untouched. Invalid sizes produce BOOL FALSE and LastError 122 without a write.
+
+This is not an API-specific memory transport: generic completion still
+validates the write against the pointer contract and `GuestMemory` commits it
+atomically. NULL, read-only, unmapped, and cross-page-invalid targets fail
+before any prefix update. Success preserves the selected Rust thread's
+LastError. Policy owns the virtual NT version; native and browser host identity
+never enter the handler. Detailed evidence is in
+[bgi-get-version-ex-a.md](bgi-get-version-ex-a.md).
 
 ## Typed guest-callback scratch frames
 

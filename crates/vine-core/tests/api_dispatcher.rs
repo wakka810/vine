@@ -8,14 +8,15 @@ use vine_core::{
     ExecutionSession, FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION,
     GET_CP_INFO_IMPLEMENTATION, GET_CURRENT_THREAD_IMPLEMENTATION, GET_DRIVE_TYPE_A_IMPLEMENTATION,
     GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION,
-    GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION, GET_SYSTEM_INFO_IMPLEMENTATION, GUEST_PAGE_SIZE,
-    GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION,
-    HostCompletion, HostRequest, INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION,
-    IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk, ImportThunkDisposition,
-    ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
-    Kernel32CreateMutexAPolicy, Kernel32GetDriveTypeAPolicy, Kernel32GetStringTypeWPolicy,
-    Kernel32HeapAllocationPolicy, Kernel32InitializeCriticalSectionPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
+    GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION, GET_SYSTEM_INFO_IMPLEMENTATION,
+    GET_VERSION_EX_A_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackRequest,
+    GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion, HostRequest,
+    INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
+    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
+    Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32GetDriveTypeAPolicy,
+    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
+    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
     Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
     LC_MAP_STRING_W_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
@@ -1448,6 +1449,260 @@ fn get_system_info_writes_a_coherent_virtual_profile_and_fails_before_mutation()
         memory.read(GuestAddress(SYSTEM_INFO_OUTPUT), 48).unwrap(),
         output_before_rejections
     );
+}
+
+#[test]
+fn get_version_ex_a_honors_declared_layout_and_preserves_unwritten_bytes_atomically() {
+    const BASE_OUTPUT: u32 = OUTPUT_BASE + 0x400;
+    const EXTENDED_OUTPUT: u32 = OUTPUT_BASE + 0x500;
+    const INVALID_SIZE_OUTPUT: u32 = OUTPUT_BASE + 0x600;
+    const CROSS_PAGE_OUTPUT: u32 = MEMORY_BASE.0 + 0x2ff0;
+    const BASE_BYTES: usize = 148;
+    const EXTENDED_BYTES: usize = 156;
+
+    let (mut memory, owner) = initialized_memory();
+    let frames = [
+        (STACK_BASE, vec![0x1000_0590, BASE_OUTPUT]),
+        (STACK_BASE + 0x20, vec![0x1000_0591, EXTENDED_OUTPUT]),
+        (STACK_BASE + 0x40, vec![0x1000_0592, INVALID_SIZE_OUTPUT]),
+        (STACK_BASE + 0x60, vec![0x1000_0593, BASE_OUTPUT]),
+        (STACK_BASE + 0x80, vec![0x1000_0594, 0]),
+        (STACK_BASE + 0xa0, vec![0x1000_0595, CROSS_PAGE_OUTPUT]),
+        (STACK_BASE + 0xc0, vec![0x1000_0596, BASE_OUTPUT]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+
+    let mut base_before = vec![0xa5; BASE_BYTES];
+    base_before[..4].copy_from_slice(&(BASE_BYTES as u32).to_le_bytes());
+    memory
+        .write_initialization(owner, GuestAddress(BASE_OUTPUT), &base_before)
+        .expect("initialize OSVERSIONINFOA output");
+    let mut extended_before = vec![0xa5; EXTENDED_BYTES];
+    extended_before[..4].copy_from_slice(&(EXTENDED_BYTES as u32).to_le_bytes());
+    memory
+        .write_initialization(owner, GuestAddress(EXTENDED_OUTPUT), &extended_before)
+        .expect("initialize OSVERSIONINFOEXA output");
+    let mut invalid_before = vec![0xa5; EXTENDED_BYTES];
+    invalid_before[..4].copy_from_slice(&147_u32.to_le_bytes());
+    memory
+        .write_initialization(owner, GuestAddress(INVALID_SIZE_OUTPUT), &invalid_before)
+        .expect("initialize invalid-size OSVERSIONINFOA output");
+    let mut cross_page_prefix = [0xa5; 16];
+    cross_page_prefix[..4].copy_from_slice(&(BASE_BYTES as u32).to_le_bytes());
+    memory
+        .write_initialization(owner, GuestAddress(CROSS_PAGE_OUTPUT), &cross_page_prefix)
+        .expect("initialize mapped prefix of cross-page OSVERSIONINFOA output");
+
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x64);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize GetVersionExA IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetVersionExA".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented GetVersionExA endpoint");
+    assert_eq!(contract.implementation_id, GET_VERSION_EX_A_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.arguments[0].direction, ApiDirection::InOut);
+    assert!(matches!(
+        contract.abi.arguments[0].value,
+        ApiValueSchema::DynamicPointer { ref constraint }
+            if constraint.minimum_byte_length == 4
+                && constraint.maximum_byte_length == EXTENDED_BYTES as u32
+                && constraint.alignment == 4
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json"
+    ))
+    .expect("parse OS-version policy fixture");
+    policy.validate().expect("valid OS-version policy fixture");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(87).unwrap();
+    let runtime_before_success = runtime.clone();
+
+    let base = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(base.eax, RegisterUpdate::Set(1));
+    assert_eq!(base.stack_pointer, GuestAddress(frames[0].0 + 8));
+    assert_eq!(base.last_error, 87);
+    assert_eq!(base.guest_writes.len(), 1);
+    assert_eq!(base.guest_writes[0].write.bytes.len(), BASE_BYTES);
+    acknowledge_pending_delta(&mut memory);
+    let base_after = memory
+        .read(GuestAddress(BASE_OUTPUT), BASE_BYTES)
+        .expect("OSVERSIONINFOA bytes");
+    assert_eq!(
+        u32::from_le_bytes(base_after[0..4].try_into().unwrap()),
+        148
+    );
+    assert_eq!(u32::from_le_bytes(base_after[4..8].try_into().unwrap()), 10);
+    assert_eq!(u32::from_le_bytes(base_after[8..12].try_into().unwrap()), 0);
+    assert_eq!(
+        u32::from_le_bytes(base_after[12..16].try_into().unwrap()),
+        19_045
+    );
+    assert_eq!(
+        u32::from_le_bytes(base_after[16..20].try_into().unwrap()),
+        2
+    );
+    assert_eq!(base_after[20], 0);
+    assert_eq!(&base_after[21..], &[0xa5; BASE_BYTES - 21]);
+    assert_eq!(runtime, runtime_before_success);
+
+    let extended = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+        &policy,
+    );
+    assert_eq!(extended.eax, RegisterUpdate::Set(1));
+    assert_eq!(extended.last_error, 87);
+    assert_eq!(extended.guest_writes[0].write.bytes.len(), EXTENDED_BYTES);
+    acknowledge_pending_delta(&mut memory);
+    let extended_after = memory
+        .read(GuestAddress(EXTENDED_OUTPUT), EXTENDED_BYTES)
+        .expect("OSVERSIONINFOEXA bytes");
+    assert_eq!(&extended_after[21..148], &[0xa5; 127]);
+    assert_eq!(&extended_after[148..152], &[0, 0, 0, 0]);
+    assert_eq!(&extended_after[152..156], &[0, 1, 1, 0]);
+    assert_eq!(runtime, runtime_before_success);
+
+    let memory_before_invalid_size = memory.stats();
+    let invalid_size = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+        &policy,
+    );
+    assert_eq!(invalid_size.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_size.last_error, 122);
+    assert!(invalid_size.guest_writes.is_empty());
+    assert_eq!(memory.stats(), memory_before_invalid_size);
+    assert_eq!(
+        memory
+            .read(GuestAddress(INVALID_SIZE_OUTPUT), EXTENDED_BYTES)
+            .unwrap(),
+        invalid_before
+    );
+
+    runtime.set_current_last_error(87).unwrap();
+    let runtime_before_faults = runtime.clone();
+    let memory_before_faults = memory.stats();
+    let base_before_faults = memory
+        .read(GuestAddress(BASE_OUTPUT), BASE_BYTES)
+        .unwrap()
+        .to_vec();
+    for (frame, selected_policy, expected_code) in [
+        (
+            &frames[3],
+            &Kernel32CompatibilityPolicy::controlled_v1(),
+            "get-version-ex-a-policy-disabled",
+        ),
+        (&frames[4], &policy, "null-pointer-forbidden"),
+        (&frames[5], &policy, "guest-page-fault"),
+    ] {
+        let rejected = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(&endpoint, frame.0, frame.1[0]),
+                &mut session,
+                |contract, frame, session| {
+                    dispatch_kernel32_api_with_policy(selected_policy, contract, frame, session)
+                },
+            )
+        };
+        assert!(matches!(
+            rejected,
+            DispatchOutcome::Fault(ref fault)
+                if fault.code == expected_code
+                    && matches!(fault.class, ApiFaultClass::Unsupported | ApiFaultClass::InvalidCall)
+        ));
+        assert_eq!(runtime, runtime_before_faults);
+        assert_eq!(memory.stats(), memory_before_faults);
+        assert_eq!(
+            memory.read(GuestAddress(BASE_OUTPUT), BASE_BYTES).unwrap(),
+            base_before_faults
+        );
+        assert_eq!(
+            memory.read(GuestAddress(CROSS_PAGE_OUTPUT), 16).unwrap(),
+            cross_page_prefix
+        );
+    }
+
+    memory
+        .protect(
+            owner,
+            GuestRange::new(GuestAddress(OUTPUT_BASE), GUEST_PAGE_SIZE)
+                .expect("OSVERSIONINFOA output page range"),
+            PageProtection {
+                read: true,
+                write: false,
+                execute: false,
+            },
+        )
+        .expect("make OSVERSIONINFOA output page read-only");
+    acknowledge_pending_delta(&mut memory);
+    let memory_before_read_only = memory.stats();
+    let read_only = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[6].0, frames[6].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        read_only,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall && fault.code == "guest-page-fault"
+    ));
+    assert_eq!(runtime, runtime_before_faults);
+    assert_eq!(memory.stats(), memory_before_read_only);
 }
 
 #[test]

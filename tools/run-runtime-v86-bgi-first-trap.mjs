@@ -103,6 +103,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-swap-mouse-button",
         "winmm-time-get-dev-caps",
         "winmm-time-begin-period",
+        "kernel32-get-version-ex-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -129,7 +130,9 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "winmm-time-begin-period" ||
+    genericRuntimeCapability === "kernel32-get-version-ex-a"
+      ? "kernel32-get-version-ex-a-v1.json"
+      : genericRuntimeCapability === "winmm-time-begin-period" ||
     genericRuntimeCapability === "winmm-time-get-dev-caps" ||
     genericRuntimeCapability === "user32-swap-mouse-button" ||
     genericRuntimeCapability === "kernel32-get-drive-type-a"
@@ -238,8 +241,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getVersionExAEnabled =
+  genericRuntimeCapability === "kernel32-get-version-ex-a";
 const timeBeginPeriodEnabled =
-  genericRuntimeCapability === "winmm-time-begin-period";
+  getVersionExAEnabled || genericRuntimeCapability === "winmm-time-begin-period";
 const timeGetDevCapsEnabled =
   timeBeginPeriodEnabled || genericRuntimeCapability === "winmm-time-get-dev-caps";
 const swapMouseButtonEnabled =
@@ -379,7 +384,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? timeBeginPeriodEnabled
+      ? getVersionExAEnabled
+        ? "v86-bgi-get-version-ex-a"
+      : timeBeginPeriodEnabled
         ? "v86-bgi-time-begin-period"
       : timeGetDevCapsEnabled
         ? "v86-bgi-time-get-dev-caps"
@@ -4267,6 +4274,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getVersionExAEnabled) {
+        validateGetVersionExAResult(genericResult);
       } else if (timeBeginPeriodEnabled) {
         validateTimeBeginPeriodResult(genericResult);
       } else if (timeGetDevCapsEnabled) {
@@ -4372,6 +4381,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : getVersionExAEnabled
+            ? "bgi GetVersionExA"
           : timeBeginPeriodEnabled
             ? "bgi timeBeginPeriod"
           : timeGetDevCapsEnabled
@@ -5209,6 +5220,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : getVersionExAEnabled
+          ? 45
         : timeBeginPeriodEnabled
           ? 44
         : timeGetDevCapsEnabled
@@ -9315,6 +9328,102 @@ function validateTimeGetDevCapsResult(result) {
   assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [1]);
 }
 
+function validateGetVersionExAResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.supportedCalls.length, 1337);
+  assert.equal(result.writebacks.length, 1343);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2537,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    9110,
+  );
+  assert.equal(result.hostDeltas.length, 85);
+  assert.equal(result.finalGeneration, 1457);
+  const call = result.supportedCalls.find(
+    ({ symbol }) => symbol === "GetVersionExA",
+  );
+  assert(call, "GetVersionExA call is missing");
+  assert.equal(call.sequence, 1337);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 49890);
+  assert.deepEqual(call.arguments, [0x006ffe9c]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.implementationId, "kernel32.get-version-ex-a.v1");
+  assert.equal(call.returnAddress, 0x10050526);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, 0x006ffe9c);
+  assert.equal(call.guestWrites[0].bytes.length, 148);
+  assert.deepEqual(call.guestWrites[0].bytes.slice(0, 21), [
+    148, 0, 0, 0,
+    10, 0, 0, 0,
+    0, 0, 0, 0,
+    0x65, 0x4a, 0, 0,
+    2, 0, 0, 0,
+    0,
+  ]);
+  assert(call.guestWrites[0].bytes.slice(21).every((byte) => byte === 0));
+  assert.deepEqual(call.guestWrites[0].result, {
+    bytesWritten: 148,
+    dirtyPages: 1,
+    invalidation: {
+      generation: 1456,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    },
+  });
+
+  const outputDelta = result.hostDeltas.find(({ sequence }) => sequence === 1337);
+  assert(outputDelta, "GetVersionExA output delta is missing");
+  assert.equal(outputDelta.fromGeneration, 1455);
+  assert.equal(outputDelta.generation, 1456);
+  assert.equal(outputDelta.mappingOperations, 0);
+  assert.deepEqual(outputDelta.dirtyPages, [{ address: 0x006ff000, owner: 4 }]);
+  assert.equal(outputDelta.payloadBytes, page.size);
+  assert.equal(
+    outputDelta.payloadSha256,
+    "c5d77359f1995928fdd5e32f1b62753fab61fd3ac16c785b11a1faaf4dfbb92e",
+  );
+
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 116);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f000730);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "CreateWaitableTimerA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d1278);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "6d5a550c0f16b5097465e1af2f3ffe0c97097d9223b8d2991757ba73a87b0280",
+  );
+  assert.equal(result.terminal.instructionCount, 49897);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 116);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f000730);
+  assert.equal(result.terminal.terminal.thunk.name, "CreateWaitableTimerA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005053b);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 4),
+    [0, 1, 0],
+  );
+}
+
 function validateTimeBeginPeriodResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
@@ -10347,6 +10456,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : getVersionExAEnabled
+          ? "vine.v86-bgi-get-version-ex-a"
         : timeBeginPeriodEnabled
           ? "vine.v86-bgi-time-begin-period"
         : timeGetDevCapsEnabled

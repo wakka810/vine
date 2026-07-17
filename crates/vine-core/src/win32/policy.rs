@@ -60,6 +60,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_info: Option<Kernel32SystemInfoPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os_version_info_a: Option<Kernel32OsVersionInfoAPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tick_count: Option<Kernel32TickCountPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heap_allocator: Option<Kernel32HeapAllocatorPolicy>,
@@ -194,6 +196,20 @@ pub struct Kernel32SystemInfoPolicy {
     pub processor_revision: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32OsVersionInfoAPolicy {
+    pub major_version: u32,
+    pub minor_version: u32,
+    pub build_number: u32,
+    pub platform_id: u32,
+    pub service_pack: String,
+    pub service_pack_major: u16,
+    pub service_pack_minor: u16,
+    pub suite_mask: u16,
+    pub product_type: u8,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32TickCountPolicy {
@@ -241,6 +257,7 @@ impl Kernel32CompatibilityPolicy {
             processor_features: Vec::new(),
             thread_affinity: None,
             system_info: None,
+            os_version_info_a: None,
             tick_count: None,
             heap_allocator: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
@@ -486,6 +503,21 @@ impl Kernel32CompatibilityPolicy {
                 "x86 system information requires schema v2, thread affinity, and the bounded PE32 virtual address profile",
             ));
         }
+        if let Some(version) = self.os_version_info_a.as_ref()
+            && (self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || self.system_info.is_none()
+                || version.major_version == 0
+                || version.platform_id != 2
+                || version.service_pack.len() > 127
+                || !version.service_pack.is_ascii()
+                || version.service_pack.as_bytes().contains(&0)
+                || !(1..=3).contains(&version.product_type))
+        {
+            return Err(policy_error(
+                "kernel32-policy-os-version-info-a-invalid",
+                "ANSI OS version information requires schema v2, the x86 system-information layer, an NT platform profile, a bounded ASCII service-pack label, and a valid product type",
+            ));
+        }
         if self
             .tick_count
             .is_some_and(|clock| clock.increment_per_read == 0 || clock.increment_per_read > 1_000)
@@ -663,6 +695,10 @@ impl Kernel32CompatibilityPolicy {
         self.system_info
     }
 
+    pub fn os_version_info_a(&self) -> Option<&Kernel32OsVersionInfoAPolicy> {
+        self.os_version_info_a.as_ref()
+    }
+
     pub fn tick_count_increment_per_read(&self) -> Option<u32> {
         self.tick_count.map(|clock| clock.increment_per_read)
     }
@@ -812,6 +848,7 @@ mod tests {
         assert_eq!(policy.processor_feature_presence(10), None);
         assert_eq!(policy.thread_affinity_process_mask(), None);
         assert_eq!(policy.system_info(), None);
+        assert!(policy.os_version_info_a().is_none());
         assert_eq!(policy.tick_count_increment_per_read(), None);
 
         let mut affinity = policy.clone();

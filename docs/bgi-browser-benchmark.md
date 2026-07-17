@@ -4,13 +4,15 @@
 
 - Status: threshold passed
 - Date: 2026-07-16
-- Workload: current 1,336-call private BGI generic session
+- Workload: retained 1,336-call `winmm-time-begin-period` private BGI generic session
+- Observation status: `retained-semantic-leaf-not-rerun`
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-v1.json`](../fixtures/benchmarks/bgi-browser-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This gate repeats the complete current BGI session in one Chrome Dedicated
-Worker. Each session starts from a new Rust runtime and v86 mirror, dispatches
+This retained observation repeats the complete `winmm-time-begin-period` BGI
+session in one Chrome Dedicated Worker. Each session starts from a new Rust
+runtime and v86 mirror, dispatches
 1,336 ordered calls over 49,890 guest instructions, performs 6,397 Rust/Wasm bridge
 operations, applies four initial-thread stack-growth commits, and reaches the
 same `GetVersionExA(0x006FFE9C)` contract-missing stop after CP_ACP
@@ -32,6 +34,17 @@ configuration.
 Every repetition checks the call count, instruction count, crossing count,
 memory digest, next structured stop, and zero pending work before its compact
 summary is retained.
+
+The active semantic checkpoint is the later 1,337-call
+`kernel32-get-version-ex-a` session, which reaches
+`CreateWaitableTimerA(NULL, TRUE, NULL)` after 49,897 instructions.
+`GetVersionExA` is a semantic leaf that does not change Worker transport,
+scheduler behavior, memory topology, graphics, audio, or lifecycle, so the
+three-minute performance observation was not rerun. The active Node／Chrome
+semantic gate remains required and is recorded separately in
+[`current-checkpoint.json`](current-checkpoint.json); none of its report hashes,
+crossing counts, or Wasm artifact identities are inferred from this historical
+benchmark.
 
 This is title-workload evidence. The synthetic CPU／ABI／audio／background gate
 remains separately versioned in [v86-browser-benchmark.md](v86-browser-benchmark.md);
@@ -116,7 +129,7 @@ loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
 storage below the unchanged limit. That correction remains part of the loader
-contract; the current checkpoint observes 38,365,492
+contract; this retained benchmark observes 38,365,492
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -131,7 +144,7 @@ bytes and retains bounded p95 latency without changing any threshold.
 | Node.js | `v24.18.0` |
 
 The report records base implementation commit `4548fc21bb04ee73e3431387cb665e770bbe3172`
-and `dirty: true` for the checkpoint implementation under test.
+and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
 

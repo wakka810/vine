@@ -2587,3 +2587,31 @@ deltas、generation 1,455を通す。Chromeもsame timer snapshot／ordered call
 sessions／failure 0で17 thresholdsを通した。Instruction `49890`でID `117`／
 `KERNEL32.dll!GetVersionExA(0x006FFE9C)`へstructured stopする。詳細は
 [bgi-time-begin-period.md](bgi-time-begin-period.md)を正とする。
+
+## 95. BGI ANSI operating-system version
+
+Focused `get-version-ex-a` capturesは287,884 bytes／791 lines／SHA-256
+`ee021e4fb44315a342746bfd5908b36b5a2f319d2cd1c588155e115eed15ddc7`と
+290,851 bytes／800 lines／SHA-256
+`0ae028967ca9e815e15d6ce109310e8b20d57a19bc09fded832a7a2c3a59a90b`
+である。360／364 API pairsはbalanced、agent sequenceはcontiguous、diagnosticsはzeroで、
+BGI call後250 msのquiescenceを通す。
+
+Guarded x86 oracleはdeclared size 0／147をFALSE、LastError 122、output／guard不変とし、
+148／156をTRUE、LastError preserveとする。148-byte形はoffset 4..20、156-byte形はさらに
+148..155だけを変更する。Native host fieldsは10.0 build 26200、platform 2、empty service pack、
+suite `0x0300`、workstation type 1であるが、host identityとしてruntimeへimportしない。
+
+BGIはzeroed 148-byte structureを渡してRVA `0x50526`へreturnし、`dwPlatformId == 2`だけを
+分岐に使う。Rust schema-v2 policyはcontrolled NT 10.0 build 19045／suite `0x0100`／workstationを
+所有する。Handlerはfull declared spanをreadしpolicy fieldsをbefore-imageへmergeしてsingle writeする。
+Invalid sizeはFALSE／122／no write、NULL／truncated／read-only spanはmutation前に停止する。
+
+Nodeは58 contracts／1,337 calls、1,343 writebacks／2,537 dirty pages／9,110 changed bytes、
+85 host deltas、generation `1,457`を通す。Chromeもsame ordered calls／output／stop／memoryを再現し、
+6,842 slices、5,499 yields、6,400 Wasm crossings、final generation `3,605`、terminal pending work 0を
+通す。Instruction `49897`でID `116`／
+`CreateWaitableTimerA(NULL,TRUE,NULL)`を`endpoint-contract-missing`として停止する。Memory
+SHA-256は`6d5a550c0f16b5097465e1af2f3ffe0c97097d9223b8d2991757ba73a87b0280`である。
+Performance gateはsemantic leafのため再実行せず、直前profileの観測を履歴として保持する。詳細は
+[bgi-get-version-ex-a.md](bgi-get-version-ex-a.md)を正とする。

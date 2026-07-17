@@ -114,6 +114,13 @@ let timeGetDevCapsCompletionRecorded = false;
 let timeGetDevCapsDrainCheckScheduled = false;
 const timeGetDevCapsMainModuleCalls = [];
 const timePeriodMainModuleCalls = [];
+let getVersionExAOracleScheduled = false;
+let getVersionExAOracleCall = null;
+let getVersionExAOracleComplete = false;
+let getVersionExAOracleEvidence = null;
+let getVersionExACompletionRecorded = false;
+let getVersionExADrainCheckScheduled = false;
+const getVersionExAMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -605,8 +612,7 @@ function snapshotWordBuffer(pointer, requestedWords) {
   }
 }
 
-function snapshotBoundedRawBytes(pointer, requestedBytes) {
-  const maximumBytes = 64;
+function snapshotBoundedRawBytes(pointer, requestedBytes, maximumBytes = 64) {
   if (pointer.isNull()) {
     return {
       pointer: pointer.toString(),
@@ -756,6 +762,76 @@ function snapshotTimeCaps(pointer) {
       profile: "x86-timecaps-layout-v1",
       measuredBytes,
       raw,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotOsVersionInfoA(pointer) {
+  const profile = "x86-os-version-info-a-layout-v1";
+  const baseBytes = 148;
+  const extendedBytes = 156;
+  if (pointer.isNull()) {
+    return {
+      profile,
+      baseBytes,
+      extendedBytes,
+      error: "null pointer",
+    };
+  }
+  try {
+    const declaredBytes = pointer.readU32();
+    const measuredBytes =
+      declaredBytes >= extendedBytes
+        ? extendedBytes
+        : declaredBytes >= baseBytes
+          ? baseBytes
+          : 4;
+    const raw = snapshotBoundedRawBytes(pointer, measuredBytes, extendedBytes);
+    if (declaredBytes < baseBytes || raw.error !== undefined) {
+      return {
+        profile,
+        baseBytes,
+        extendedBytes,
+        declaredBytes,
+        measuredBytes,
+        raw,
+      };
+    }
+    const servicePackBytes = raw.bytes.slice(20, baseBytes);
+    const terminator = servicePackBytes.indexOf(0);
+    const servicePackBytesWithoutNul =
+      terminator < 0 ? servicePackBytes : servicePackBytes.slice(0, terminator);
+    return {
+      profile,
+      baseBytes,
+      extendedBytes,
+      declaredBytes,
+      measuredBytes,
+      raw,
+      fields: {
+        majorVersion: pointer.add(4).readU32(),
+        minorVersion: pointer.add(8).readU32(),
+        buildNumber: pointer.add(12).readU32(),
+        platformId: pointer.add(16).readU32(),
+        servicePackBytes: servicePackBytesWithoutNul,
+        servicePackTerminated: terminator >= 0,
+        ...(declaredBytes < extendedBytes
+          ? {}
+          : {
+              servicePackMajor: pointer.add(148).readU16(),
+              servicePackMinor: pointer.add(150).readU16(),
+              suiteMask: pointer.add(152).readU16(),
+              productType: pointer.add(154).readU8(),
+              reserved: pointer.add(155).readU8(),
+            }),
+      },
+    };
+  } catch (error) {
+    return {
+      profile,
+      baseBytes,
+      extendedBytes,
       error: error.message,
     };
   }
@@ -2333,6 +2409,107 @@ function attachIdirect3d9(object) {
       error: error.message,
     });
   }
+}
+
+function attachGetVersionExAHook(module) {
+  const name = "GetVersionExA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && getVersionExAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.output = args[0];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = getVersionExAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.outputBefore = snapshotOsVersionInfoA(this.output);
+      this.immediateConsumer = isMainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              64,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              4,
+              16,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.output.toString()],
+          lastErrorBefore: this.lastErrorBefore,
+          getVersionExA: {
+            outputBefore: this.outputBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const rawResult = result.toUInt32();
+      const outputAfter = snapshotOsVersionInfoA(this.output);
+      if (this.oracleCaller) {
+        getVersionExAOracleCall.hookResult = rawResult;
+        getVersionExAOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          getVersionExA: {
+            result: rawResult,
+            outputAfter,
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && getVersionExAMainModuleCalls.length === 0) {
+        getVersionExAMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          outputAddress: this.output.toString(),
+          lastErrorBefore: this.lastErrorBefore,
+          outputBefore: this.outputBefore,
+          outputAfter,
+          result: rawResult,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteGetVersionExAObservation);
+      }
+    },
+  });
 }
 
 function attachHook(module, name, decoders) {
@@ -6417,6 +6594,192 @@ function scheduleTimeGetDevCapsOracle(module) {
   });
 }
 
+function maybeCompleteGetVersionExAObservation() {
+  if (
+    getVersionExACompletionRecorded ||
+    !getVersionExAOracleComplete ||
+    getVersionExAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteGetVersionExAObservation, 10);
+    return;
+  }
+  if (getVersionExADrainCheckScheduled) {
+    return;
+  }
+  getVersionExADrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    getVersionExADrainCheckScheduled = false;
+    if (getVersionExACompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteGetVersionExAObservation();
+      return;
+    }
+    getVersionExACompletionRecorded = true;
+    emit("get-version-ex-a-complete", {
+      profile: "x86-bgi-get-version-ex-a-v1",
+      oracleProfile: getVersionExAOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: getVersionExAMainModuleCalls.map((call) => ({ ...call })),
+    });
+    if (stopOnEvent === "get-version-ex-a-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function scheduleGetVersionExAOracle(module) {
+  if (getVersionExAOracleScheduled) {
+    return;
+  }
+  getVersionExAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetVersionExA");
+      if (address === null) {
+        throw new Error("GetVersionExA export is unavailable");
+      }
+      const getVersionExA = new SystemFunction(
+        address,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = ({ declaredBytes, sentinel }) => {
+        const guardBytes = 16;
+        const outputCapacity = 156;
+        const storageBytes = guardBytes + outputCapacity + guardBytes;
+        const storage = Memory.alloc(storageBytes);
+        storage.writeByteArray(Array(storageBytes).fill(0xa5));
+        const output = storage.add(guardBytes);
+        output.writeU32(declaredBytes);
+        const storageBefore = snapshotBoundedRawBytes(
+          storage,
+          storageBytes,
+          256,
+        );
+        getVersionExAOracleCall = {
+          declaredBytes,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = getVersionExA(output);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getVersionExAOracleCall.hookResult === null ||
+            getVersionExAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("GetVersionExA oracle did not pass through the hook");
+          }
+          const storageAfter = snapshotBoundedRawBytes(
+            storage,
+            storageBytes,
+            256,
+          );
+          const beforeBytes = storageBefore.bytes ?? [];
+          const afterBytes = storageAfter.bytes ?? [];
+          const changedStorageOffsets =
+            beforeBytes.length === storageBytes &&
+            afterBytes.length === storageBytes
+              ? beforeBytes.flatMap((value, index) =>
+                  value === afterBytes[index] ? [] : [index],
+                )
+              : [];
+          const changedOutputOffsets = changedStorageOffsets
+            .filter(
+              (offset) =>
+                offset >= guardBytes &&
+                offset < guardBytes + outputCapacity,
+            )
+            .map((offset) => offset - guardBytes);
+          return {
+            declaredBytes,
+            sentinel,
+            hookResult: getVersionExAOracleCall.hookResult,
+            systemResult,
+            hookLastErrorAfter: getVersionExAOracleCall.hookLastErrorAfter,
+            systemLastError,
+            storageOffset: guardBytes,
+            outputCapacity,
+            storageBefore,
+            storageAfter,
+            outputAfter: snapshotOsVersionInfoA(output),
+            changedOutputOffsets,
+            prefixGuardUnchanged:
+              afterBytes.length === storageBytes &&
+              afterBytes.slice(0, guardBytes).every((value) => value === 0xa5),
+            suffixGuardUnchanged:
+              afterBytes.length === storageBytes &&
+              afterBytes
+                .slice(guardBytes + outputCapacity)
+                .every((value) => value === 0xa5),
+            bytesBeyondDeclaredSizeUnchanged:
+              beforeBytes.length === storageBytes &&
+              afterBytes.length === storageBytes &&
+              beforeBytes
+                .slice(guardBytes + Math.max(4, declaredBytes))
+                .every(
+                  (value, index) =>
+                    value ===
+                    afterBytes[guardBytes + Math.max(4, declaredBytes) + index],
+                ),
+            hookResultMatches:
+              getVersionExAOracleCall.hookResult === systemResult,
+            hookPreservesLastError:
+              getVersionExAOracleCall.hookLastErrorAfter === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          getVersionExAOracleCall = null;
+        }
+      };
+      const calls = [
+        { declaredBytes: 0, sentinel: 0x10203040 },
+        { declaredBytes: 147, sentinel: 0x11223344 },
+        { declaredBytes: 148, sentinel: 0 },
+        { declaredBytes: 148, sentinel: 87 },
+        { declaredBytes: 148, sentinel: 0x12345678 },
+        { declaredBytes: 156, sentinel: 0x76543210 },
+      ].map(invoke);
+      const baseCalls = calls.filter((call) => call.declaredBytes === 148);
+      const referenceFields = baseCalls[0]?.outputAfter.fields ?? null;
+      getVersionExAOracleEvidence = {
+        profile: "x86-get-version-ex-a-size-and-output-v1",
+        baseStructureBytes: 148,
+        extendedStructureBytes: 156,
+        calls,
+        baseSizeSucceeded: baseCalls.every(
+          (call) => call.systemResult !== 0 && call.hookResultMatches,
+        ),
+        baseOutputsStable:
+          referenceFields !== null &&
+          baseCalls.every(
+            (call) =>
+              JSON.stringify(call.outputAfter.fields ?? null) ===
+              JSON.stringify(referenceFields),
+          ),
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allGuardsUnchanged: calls.every(
+          (call) => call.prefixGuardUnchanged && call.suffixGuardUnchanged,
+        ),
+      };
+      getVersionExAOracleComplete = true;
+      emit("get-version-ex-a-oracle", getVersionExAOracleEvidence);
+      maybeCompleteGetVersionExAObservation();
+    } catch (error) {
+      emit("get-version-ex-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleGetCpInfoOracle(module) {
   if (getCpInfoOracleScheduled) {
     return;
@@ -7834,6 +8197,21 @@ Process.attachModuleObserver({
         attachHook(module, name, decoders);
       } catch (error) {
         emit("hook-error", { module: module.name, api: name, error: error.message });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("get-version-ex-a")
+    ) {
+      try {
+        attachGetVersionExAHook(module);
+        scheduleGetVersionExAOracle(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetVersionExA",
+          error: error.message,
+        });
       }
     }
     if (

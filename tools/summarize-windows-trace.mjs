@@ -42,6 +42,7 @@ const supportedObservations = new Set([
   "drive-type",
   "swap-mouse-button",
   "time-get-dev-caps",
+  "get-version-ex-a",
   "get-cp-info",
   "processor-feature",
   "unhandled-exception-filter",

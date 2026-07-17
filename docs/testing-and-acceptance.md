@@ -550,6 +550,17 @@ reached period 1、Node／Chrome timer snapshot／memory equivalence、clean can
 authorityへ昇格させない。詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
 [bgi-time-begin-period.md](bgi-time-begin-period.md)を正とする。
 
+Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
+preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
+BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten
+padding保持、invalid sizeのFALSE／122／無書込み、policy-disabled、NULL、cross-page truncation、
+read-only outputを検査する。Policy testはnon-NT platformとoverlong service-pack labelを拒否する。
+Primary evidenceはtwo balanced guarded native traces、BGIのplatform-ID consumer、Node／Chrome same
+output／memory／next stop、clean cancel／watchdogを要求する。Host build／browser OSをpolicyへimportしない。
+Worker transport、scheduler、memory topology、graphics、audio、lifecycleを変えないsemantic leafなので
+performance gateは再実行せず、直前の`winmm-time-begin-period`観測をprofile付き履歴として保持する。
+詳細は[bgi-get-version-ex-a.md](bgi-get-version-ex-a.md)を正とする。
+
 Private primary targetのcheckpoint gateは`npm run check:private-target`を正とする。Exact
 implementation commit／tree、全dirty path、固定source fingerprint、current profile schema、
 Node／Chrome semantic outcome、Rust／LLVM／v86 identity、next structured stop、memory digest、

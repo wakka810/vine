@@ -3,7 +3,7 @@
 ## Status
 
 - Status: implemented controlled policy boundary
-- Date: 2026-07-16
+- Date: 2026-07-17
 - Semantic authority: Rust `vine-core::win32`／`vine-core::user32`
 - Policy schemas: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）、`vine.user32-compatibility-policy` version `2`
 - Evidence selection: `docs/current-checkpoint.json`
@@ -22,7 +22,7 @@ Compatibility policy
   versioned selectors, file types, bounded HeapAlloc allocator／HeapFree／HeapSize variants, process-view/code-page/current-directory/mutex enablement
   measured InitializeCriticalSection raw spin-state field
   explicit processor-feature presence
-  virtual process affinity mask and deterministic tick-count read progression
+  virtual process affinity mask, deterministic tick-count progression, and ANSI OS-version profile
   bounded validation and mutation-free unsupported result
                          |
                          v
@@ -52,6 +52,7 @@ runtime execution. It contains only target-independent bounded data:
   Windows compatibility profile;
 - explicit processor-feature index and presence mappings;
 - an optional nonzero virtual process affinity mask;
+- an optional size-versioned ANSI OS-version profile;
 - an optional bounded deterministic `GetTickCount` increment per read.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Active
@@ -65,7 +66,8 @@ execution.
 Twenty-seven schema-v1 files remain immutable historical reproduction policies
 with exact flag／size pairs. Schema v2 removes those sizes from runtime
 selection; the active profile extends the preceding bounded-heap checkpoint
-with x86 virtual system information and an explicit system-default LANGID:
+with x86 virtual system information, an explicit system-default LANGID, and a
+controlled ANSI OS-version profile:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -100,6 +102,7 @@ with x86 virtual system information and an explicit system-default LANGID:
 | `kernel32-get-system-info-v1` | stdin, stdout, stderr | preceding schema-v2 options + bounded PE32 address／processor profile; active mask and count derive from affinity | same bounded allocation/free/size variants |
 | `kernel32-get-system-default-lang-id-v1` | stdin, stdout, stderr | preceding schema-v2 options + explicit Japanese system-default LANGID `0x0411` | same bounded allocation/free/size variants |
 | `kernel32-get-drive-type-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + process-image drive only／32 KiB ANSI input bound | same bounded allocation/free/size variants |
+| `kernel32-get-version-ex-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + NT 10.0 build 19045 workstation profile／148- and 156-byte layouts | same bounded allocation/free/size variants |
 
 Unlisted selectors and file classifications remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -373,6 +376,18 @@ topology. Public tests use a synthetic multi-bit mask and distinct processor
 level／revision, then cover NULL, read-only, and cross-page output rejection
 without partial writes.
 
+`GetVersionExA` uses one BOOL one-argument semantic handler with a dynamic
+in/out contract bounded from the four-byte size field through the 156-byte
+extended layout. Exact sizes 148 and 156 read the full caller span, merge the
+policy fields into that before-image, and commit once; native-unwritten
+service-pack padding is retained. Other sizes return FALSE with
+`ERROR_INSUFFICIENT_BUFFER` and no guest write. Success preserves LastError.
+The active profile is NT 10.0 build 19045, empty service-pack text, suite mask
+`0x0100`, and workstation product type. Neither native host build 26200 nor
+browser OS identity is imported. NULL, unmapped, read-only, and cross-page
+invalid buffers fail before mutation. Detailed evidence is in
+[bgi-get-version-ex-a.md](bgi-get-version-ex-a.md).
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -406,6 +421,9 @@ not a general timer, wait-deadline, sleep, or real-time clock implementation.
 The system-information profile is the bounded PE32 view required by the active
 runtime; it does not expose host CPU count, NUMA groups, x64 architecture,
 process-affinity APIs, or dynamic topology changes.
+The ANSI OS-version profile does not implement host detection, manifest-based
+version lies, compatibility mode, `VerifyVersionInfo`, or unobserved structure
+sizes and service-pack encodings.
 The policy-independent top-level filter record does not implement SEH dispatch,
 filter invocation, exception records／contexts, vectored handlers, or host
 exception bridging.

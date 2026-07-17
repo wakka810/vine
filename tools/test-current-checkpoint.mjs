@@ -128,8 +128,16 @@ assert.deepEqual(validateCurrentCheckpoint(structuredBenchmarkBlocker), []);
 
 const mismatchedBenchmarkCrossings = structuredClone(manifest);
 mismatchedBenchmarkCrossings.browserCheckpoint.bgiBenchmarkEvidence.wasmBridgeCallsPerSession -= 1;
+assert.deepEqual(
+  validateCurrentCheckpoint(mismatchedBenchmarkCrossings),
+  [],
+  "retained performance evidence must not be coupled to a later semantic leaf",
+);
+
+const unlabeledRetainedBenchmark = structuredClone(manifest);
+unlabeledRetainedBenchmark.browserCheckpoint.bgiBenchmarkEvidence.observationStatus = "current";
 assert.ok(
-  validateCurrentCheckpoint(mismatchedBenchmarkCrossings).some((error) =>
+  validateCurrentCheckpoint(unlabeledRetainedBenchmark).some((error) =>
     error.includes("benchmark evidence"),
   ),
 );
@@ -482,6 +490,33 @@ derivedSystemDefaultLangId.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.s
 assert.ok(
   validateCurrentCheckpoint(derivedSystemDefaultLangId).some((error) =>
     error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const hostShapedOsVersionPolicy = structuredClone(manifest);
+hostShapedOsVersionPolicy.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.osVersionInfoA.buildNumber =
+  26200;
+assert.ok(
+  validateCurrentCheckpoint(hostShapedOsVersionPolicy).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const browserOwnedOsVersionPolicy = structuredClone(manifest);
+browserOwnedOsVersionPolicy.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.osVersionInfoABrowserVersionImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedOsVersionPolicy).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const hostOwnedOsVersionEvidence = structuredClone(manifest);
+hostOwnedOsVersionEvidence.activeRuntimeCheckpoint.latestEvidence.getVersionExAHostVersionImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(hostOwnedOsVersionEvidence).some((error) =>
+    error.includes("ANSI OS-version evidence"),
   ),
 );
 

@@ -746,6 +746,13 @@ timeGetDevCapsSelection.find(
 ).selectedObservations = ["time-get-dev-caps"];
 assert.doesNotThrow(() => summarizeTrace(encode(timeGetDevCapsSelection)));
 
+const getVersionExASelection = structuredClone(events);
+getVersionExASelection[0].arguments.observations = ["get-version-ex-a"];
+getVersionExASelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["get-version-ex-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(getVersionExASelection)));
+
 const getCpInfoSelection = structuredClone(events);
 getCpInfoSelection[0].arguments.observations = ["get-cp-info"];
 getCpInfoSelection.find(

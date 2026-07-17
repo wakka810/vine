@@ -39,6 +39,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-get-system-info-v1.json",
   "fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json",
   "fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json",
+  "fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -113,6 +114,22 @@ for (const relative of policyFiles) {
         tickCount.incrementPerRead >= 1 &&
         tickCount.incrementPerRead <= 1000,
     );
+  }
+  const osVersionInfoA = policy.osVersionInfoA ?? null;
+  if (osVersionInfoA !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert(systemInfo !== null);
+    assert.deepEqual(osVersionInfoA, {
+      majorVersion: 10,
+      minorVersion: 0,
+      buildNumber: 19045,
+      platformId: 2,
+      servicePack: "",
+      servicePackMajor: 0,
+      servicePackMinor: 0,
+      suiteMask: 0x0100,
+      productType: 1,
+    });
   }
   const systemDefaultLangId = policy.systemDefaultLangId ?? null;
   if (systemDefaultLangId !== null) {
@@ -193,6 +210,7 @@ assert.equal(activePolicy.threadAffinity.processMask, summary.threadAffinityProc
 assert.equal(activePolicy.tickCount.incrementPerRead, summary.tickCountIncrementPerRead);
 assert.deepEqual(activePolicy.systemInfo ?? null, summary.systemInfo ?? null);
 assert.equal(activePolicy.systemDefaultLangId, summary.systemDefaultLangId);
+assert.deepEqual(activePolicy.osVersionInfoA, summary.osVersionInfoA);
 
 const implementation = fs.readFileSync(
   path.join(root, "crates", "vine-core", "src", "win32.rs"),

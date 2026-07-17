@@ -27,9 +27,10 @@ pub use policy::{
     Kernel32CreateMutexAPolicy, Kernel32GetDriveTypeAPolicy, Kernel32GetModuleFileNameAPolicy,
     Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
-    Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
-    Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
+    Kernel32ProcessorFeaturePolicy, Kernel32SetCurrentDirectoryAPolicy,
+    Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy,
+    Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -39,6 +40,7 @@ pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thr
 pub const GET_CURRENT_THREAD_IMPLEMENTATION: &str = "kernel32.get-current-thread.v1";
 pub const SET_THREAD_AFFINITY_MASK_IMPLEMENTATION: &str = "kernel32.set-thread-affinity-mask.v1";
 pub const GET_SYSTEM_INFO_IMPLEMENTATION: &str = "kernel32.get-system-info.v1";
+pub const GET_VERSION_EX_A_IMPLEMENTATION: &str = "kernel32.get-version-ex-a.v1";
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
 pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
 pub const GET_ACP_IMPLEMENTATION: &str = "kernel32.get-acp.v1";
@@ -103,6 +105,8 @@ const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const ERROR_INVALID_NAME: u32 = 123;
 const ERROR_ALREADY_EXISTS: u32 = 183;
+const X86_OS_VERSION_INFO_A_BASE_BYTES: u32 = 148;
+const X86_OS_VERSION_INFO_EX_A_BYTES: u32 = 156;
 
 pub fn dispatch_kernel32_api(
     contract: &ApiContract,
@@ -141,6 +145,9 @@ pub fn dispatch_kernel32_api_with_policy(
             handle_set_thread_affinity_mask(policy, contract, frame, session)
         }
         GET_SYSTEM_INFO_IMPLEMENTATION => handle_get_system_info(policy, contract, frame),
+        GET_VERSION_EX_A_IMPLEMENTATION => {
+            handle_get_version_ex_a(policy, contract, frame, session)
+        }
         GET_LAST_ERROR_IMPLEMENTATION => handle_get_last_error(contract, session),
         SET_LAST_ERROR_IMPLEMENTATION => handle_set_last_error(contract, frame),
         GET_ACP_IMPLEMENTATION => handle_get_acp(policy),
@@ -250,6 +257,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentThread" => get_current_thread_contract(endpoint)?,
         "SetThreadAffinityMask" => set_thread_affinity_mask_contract(endpoint)?,
         "GetSystemInfo" => get_system_info_contract(endpoint)?,
+        "GetVersionExA" => get_version_ex_a_contract(endpoint)?,
         "GetLastError" => get_last_error_contract(endpoint)?,
         "SetLastError" => set_last_error_contract(endpoint)?,
         "GetACP" => get_acp_contract(endpoint)?,
@@ -428,6 +436,76 @@ fn x86_system_info_bytes(info: &Kernel32SystemInfoPolicy, active_processor_mask:
     bytes.extend_from_slice(&info.processor_level.to_le_bytes());
     bytes.extend_from_slice(&info.processor_revision.to_le_bytes());
     bytes
+}
+
+fn handle_get_version_ex_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = GuestAddress(required_argument(
+        contract,
+        frame,
+        0,
+        "OSVERSIONINFOA output",
+    )?);
+    let version = policy.os_version_info_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-os-version",
+            "get-version-ex-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable ANSI OS version information",
+                policy.id
+            ),
+        )
+    })?;
+    let declared_size_bytes = session
+        .memory()
+        .read(output, size_of::<u32>())
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let declared_size = u32::from_le_bytes(
+        declared_size_bytes
+            .try_into()
+            .expect("checked OSVERSIONINFOA size field has DWORD width"),
+    );
+    if !matches!(
+        declared_size,
+        X86_OS_VERSION_INFO_A_BASE_BYTES | X86_OS_VERSION_INFO_EX_A_BYTES
+    ) {
+        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+            .with_last_error(ERROR_INSUFFICIENT_BUFFER));
+    }
+
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let mut bytes = session
+        .memory()
+        .read(output, declared_size as usize)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?
+        .to_vec();
+    merge_os_version_info_a(&mut bytes, version);
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_guest_write(output, bytes)
+        .with_last_error(preserved_last_error))
+}
+
+fn merge_os_version_info_a(bytes: &mut [u8], version: &Kernel32OsVersionInfoAPolicy) {
+    bytes[4..8].copy_from_slice(&version.major_version.to_le_bytes());
+    bytes[8..12].copy_from_slice(&version.minor_version.to_le_bytes());
+    bytes[12..16].copy_from_slice(&version.build_number.to_le_bytes());
+    bytes[16..20].copy_from_slice(&version.platform_id.to_le_bytes());
+    let service_pack = version.service_pack.as_bytes();
+    bytes[20..20 + service_pack.len()].copy_from_slice(service_pack);
+    bytes[20 + service_pack.len()] = 0;
+    if bytes.len() == X86_OS_VERSION_INFO_EX_A_BYTES as usize {
+        bytes[148..150].copy_from_slice(&version.service_pack_major.to_le_bytes());
+        bytes[150..152].copy_from_slice(&version.service_pack_minor.to_le_bytes());
+        bytes[152..154].copy_from_slice(&version.suite_mask.to_le_bytes());
+        bytes[154] = version.product_type;
+        bytes[155] = 0;
+    }
 }
 
 fn handle_get_last_error(
@@ -2819,6 +2897,23 @@ pub fn get_system_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
     )
 }
 
+pub fn get_version_ex_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "GetVersionExA",
+        vec![dynamic_inout_struct(
+            "versionInformation",
+            "OSVERSIONINFOA/OSVERSIONINFOEXA.size-versioned",
+            size_of::<u32>() as u32,
+            X86_OS_VERSION_INFO_EX_A_BYTES,
+        )],
+        ApiReturnSchema::Bool32,
+        GET_VERSION_EX_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
 pub fn get_last_error_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
     kernel32_contract(
         endpoint,
@@ -3630,6 +3725,30 @@ fn dynamic_in_bytes(
                 maximum_byte_length,
                 pointee: ApiPointeeSchema::Bytes,
                 write_requirement: ApiWriteRequirement::None,
+            },
+        },
+    }
+}
+
+fn dynamic_inout_struct(
+    name: &str,
+    type_id: &str,
+    minimum_byte_length: u32,
+    maximum_byte_length: u32,
+) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::InOut,
+        value: ApiValueSchema::DynamicPointer {
+            constraint: ApiDynamicPointerConstraint {
+                nullable: false,
+                alignment: 4,
+                minimum_byte_length,
+                maximum_byte_length,
+                pointee: ApiPointeeSchema::Struct {
+                    type_id: type_id.to_owned(),
+                },
+                write_requirement: ApiWriteRequirement::Optional,
             },
         },
     }

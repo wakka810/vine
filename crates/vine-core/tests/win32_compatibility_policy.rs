@@ -51,6 +51,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
             "../../../fixtures/runtime-policies/kernel32-get-system-default-lang-id-v1.json"
         ),
         include_str!("../../../fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -238,6 +239,43 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         .expect("process-image drive profile");
     assert!(drive_profile.process_image_drive_only);
     assert_eq!(drive_profile.maximum_path_bytes, 32_768);
+    assert!(drive_type.os_version_info_a().is_none());
+
+    let os_version: Kernel32CompatibilityPolicy = serde_json::from_str(policies[31]).unwrap();
+    let version_profile = os_version
+        .os_version_info_a()
+        .expect("ANSI OS-version profile");
+    assert_eq!(version_profile.major_version, 10);
+    assert_eq!(version_profile.minor_version, 0);
+    assert_eq!(version_profile.build_number, 19_045);
+    assert_eq!(version_profile.platform_id, 2);
+    assert_eq!(version_profile.service_pack, "");
+    assert_eq!(version_profile.service_pack_major, 0);
+    assert_eq!(version_profile.service_pack_minor, 0);
+    assert_eq!(version_profile.suite_mask, 0x0100);
+    assert_eq!(version_profile.product_type, 1);
+
+    let mut unsupported_os_version = os_version.clone();
+    unsupported_os_version
+        .os_version_info_a
+        .as_mut()
+        .unwrap()
+        .platform_id = 1;
+    assert_eq!(
+        unsupported_os_version.validate().unwrap_err().code,
+        "kernel32-policy-os-version-info-a-invalid"
+    );
+
+    let mut oversized_service_pack = os_version;
+    oversized_service_pack
+        .os_version_info_a
+        .as_mut()
+        .unwrap()
+        .service_pack = "x".repeat(128);
+    assert_eq!(
+        oversized_service_pack.validate().unwrap_err().code,
+        "kernel32-policy-os-version-info-a-invalid"
+    );
 
     let mut unsupported_drive_profile = drive_type.clone();
     unsupported_drive_profile

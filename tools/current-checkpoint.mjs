@@ -400,6 +400,8 @@ export function validateCurrentCheckpoint(manifest) {
     "performanceClassification",
     "decisionStatus",
     "decisionReason",
+    "runtimeProfile",
+    "observationStatus",
   ]) {
     requireString(
       bgiBenchmarkEvidence[field],
@@ -472,6 +474,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 2 ||
     bgiBenchmarkEvidence.configuration !== "fixtures/benchmarks/bgi-browser-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "winmm-time-begin-period" ||
+    bgiBenchmarkEvidence.observationStatus !==
+      "retained-semantic-leaf-not-rerun" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
@@ -487,10 +492,8 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.thresholdFailures !== benchmarkFailureIds.length ||
     (browser.bgiBenchmark === "threshold-passed" && benchmarkFailureIds.length !== 0) ||
     (browser.bgiBenchmark === "threshold-blocked" && benchmarkFailureIds.length === 0) ||
-    bgiBenchmarkEvidence.wasmBridgeCallsPerSession !== bgiBrowserEvidence.wasmBridgeCalls ||
     bgiBenchmarkEvidence.executionEngineLinearMemoryBytes !==
-      bgiBrowserEvidence.executionEngineLinearMemoryBytes ||
-    bgiBenchmarkEvidence.runtimeCoreWasmSha256 !== browser.browserRuntimeCoreWasm?.sha256
+      bgiBrowserEvidence.executionEngineLinearMemoryBytes
   ) {
     errors.push("browser BGI benchmark evidence is invalid or inconsistent");
   }
@@ -1017,12 +1020,17 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.systemInfo",
     errors,
   );
+  const osVersionInfoA = requireRecord(
+    kernel32Policy.osVersionInfoA,
+    "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.osVersionInfoA",
+    errors,
+  );
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-get-drive-type-a-v1" ||
+    kernel32Policy.id !== "kernel32-get-version-ex-a-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-get-drive-type-a-v1.json" ||
+      "fixtures/runtime-policies/kernel32-get-version-ex-a-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -1058,6 +1066,20 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.systemDefaultLangIdSource !== "explicit-policy-field" ||
     kernel32Policy.systemDefaultLangIdDerivedFromAllowedLocales !== false ||
     kernel32Policy.hostLocaleImported !== false ||
+    osVersionInfoA.majorVersion !== 10 ||
+    osVersionInfoA.minorVersion !== 0 ||
+    osVersionInfoA.buildNumber !== 19045 ||
+    osVersionInfoA.platformId !== 2 ||
+    osVersionInfoA.servicePack !== "" ||
+    osVersionInfoA.servicePackMajor !== 0 ||
+    osVersionInfoA.servicePackMinor !== 0 ||
+    osVersionInfoA.suiteMask !== 0x0100 ||
+    osVersionInfoA.productType !== 1 ||
+    kernel32Policy.osVersionInfoAAuthority !==
+      "Kernel32CompatibilityPolicy.os_version_info_a" ||
+    kernel32Policy.osVersionInfoASupportedDeclaredSizes?.join(",") !== "148,156" ||
+    kernel32Policy.osVersionInfoAHostVersionImported !== false ||
+    kernel32Policy.osVersionInfoABrowserVersionImported !== false ||
     kernel32Policy.tickCountIncrementPerRead !== 1 ||
     !Array.isArray(heapAllocator.allowedFlags) ||
     heapAllocator.allowedFlags.join(",") !== "0,8" ||
@@ -1203,6 +1225,8 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeTimeGetDevCapsConfirmationTraceSha256",
     "nativeTimePeriodPrimaryTraceSha256",
     "nativeTimePeriodConfirmationTraceSha256",
+    "nativeGetVersionExAPrimaryTraceSha256",
+    "nativeGetVersionExAConfirmationTraceSha256",
   ]) {
     requireSha256(
       latestEvidence[field],
@@ -1257,6 +1281,32 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.timerResolutionProcessExitTeardown !== true
   ) {
     errors.push("latest WinMM timer-resolution evidence is invalid");
+  }
+  if (
+    latestEvidence.nativeGetVersionExATraceDiagnostics !== 0 ||
+    latestEvidence.nativeGetVersionExAOracleProfile !==
+      "x86-get-version-ex-a-size-and-output-v1" ||
+    latestEvidence.nativeGetVersionExABaseStructureBytes !== 148 ||
+    latestEvidence.nativeGetVersionExAExtendedStructureBytes !== 156 ||
+    latestEvidence.nativeGetVersionExAInvalidSizeResult !== 0 ||
+    latestEvidence.nativeGetVersionExAInvalidSizeLastError !== 122 ||
+    latestEvidence.nativeGetVersionExAInvalidSizeMutation !== false ||
+    latestEvidence.nativeGetVersionExASuccessPreservesLastError !== true ||
+    latestEvidence.nativeGetVersionExABgiDeclaredSize !== 148 ||
+    latestEvidence.nativeGetVersionExABgiResult !== 1 ||
+    latestEvidence.nativeGetVersionExABgiConsumer !==
+      "compare-platform-id-with-ver-platform-win32-nt" ||
+    latestEvidence.getVersionExAImplemented !== true ||
+    latestEvidence.getVersionExASequence !== 1337 ||
+    latestEvidence.getVersionExAInstructionCount !== 49890 ||
+    latestEvidence.getVersionExAResult !== 1 ||
+    latestEvidence.getVersionExALastError !== 0 ||
+    latestEvidence.getVersionExAGuestWriteBytes !== 148 ||
+    latestEvidence.getVersionExAPlatformId !== 2 ||
+    latestEvidence.getVersionExAHostVersionImported !== false ||
+    latestEvidence.getVersionExABrowserVersionImported !== false
+  ) {
+    errors.push("latest ANSI OS-version evidence is invalid");
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,
