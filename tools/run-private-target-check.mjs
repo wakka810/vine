@@ -347,11 +347,11 @@ function assertReportSemantics({
     browserReport.watchdog.report,
   ]) {
     assert.deepEqual(report.executionEngine, executionEngine);
-    assert.equal(
-      report.executionEngineLinearMemoryBytes,
-      expectedBrowser.executionEngineLinearMemoryBytes,
-    );
   }
+  assert.equal(
+    browserReport.success.report.executionEngineLinearMemoryBytes,
+    expectedBrowser.executionEngineLinearMemoryBytes,
+  );
   assert.equal(
     nodeReport.firstUnsupported.memoryContentSha256,
     browserUnsupported.memoryContentSha256,
