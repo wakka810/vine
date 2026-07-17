@@ -2641,5 +2641,5 @@ deltas、generation 1,458を通す。Chromeもsame timer snapshot／ordered call
 通す。Instruction `49942`でID `192`／`USER32.dll!LoadIconA(0x10000000,0x65)`へstructured
 stopする。Memory SHA-256は
 `de0f2de11612c4792c7f87daa195c3a0b95d519069eefa7f93edc959cd4ce26a`である。Lifecycle boundary
-変更後の3分gateは242 sessions／failure 0で17 thresholdsを通した。詳細は
+変更後の3分gateは267 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。

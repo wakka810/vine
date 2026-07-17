@@ -106,17 +106,17 @@ Chrome Runtime Worker reproduces the same ordered calls, timer snapshot,
 memory digest, and next stop with 6,848 slices, 5,504 yields, 4,975 writeback
 batches／6,725 pages, 85 mapping deltas, final generation 3,611, and 6,407
 Wasm crossings. Cancel and watchdog cleanup leave no pending host call,
-callback, or request record. The 805,876-byte browser report has SHA-256
-`115cf4aff30144c4677b865d994507fa20bc637c73b81258b6c979e716721e63`.
-Runtime-core Wasm is 2,361,390 bytes with SHA-256
-`d1a50c42133196121431c16e6936c65dadc7360ded9dac4e743ebbe553b07bf5`.
+callback, or request record. The 805,891-byte browser report has SHA-256
+`e98501b2dac103f6067246e70d15fdc47337c7d6f3cb0c9e934c9714bcaf9c77`.
+Runtime-core Wasm is 2,361,392 bytes with SHA-256
+`03a9dc99bdd6b592c71e3d9fd344e9ed29402a0faf82a4c02a73b8410eec722b`.
 
 Because this checkpoint expands object lifetime and process teardown, the
-three-minute browser workload gate was rerun. It completed 242 sessions with
-zero failure and passed all 17 versioned thresholds. Session p95 was 821.185
-ms, slice p99 was 3.110 ms, heartbeat p99 was 15.550 ms, and the maximum
-heartbeat gap was 27.105 ms. The 959,089-byte report has SHA-256
-`eb91ee718a3028843aeeaff94b44f2fde96ad025d25577f2da8e0ba559e5eea2`.
+three-minute browser workload gate was rerun. It completed 267 sessions with
+zero failure and passed all 17 versioned thresholds. Session p95 was 745.900
+ms, slice p99 was 2.325 ms, heartbeat p99 was 15.865 ms, and the maximum
+heartbeat gap was 25.020 ms. The 969,997-byte report has SHA-256
+`77a52398ef6db6618715a42fc3d0354be60d4215737f3984d8071a2f24657e74`.
 
 ## Non-claims
 

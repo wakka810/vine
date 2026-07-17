@@ -15,7 +15,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active runtime | `bgi-create-waitable-timer-a`: 1338 calls across 59 API contracts, memory generation 1458 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (242 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (267 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `USER32.dll!LoadIconA(0x10000000, 0x00000065)` at instruction 49942: `endpoint-contract-missing` |
 

@@ -65,31 +65,31 @@ required sample is a failure. Report schema version 2 also stores a structured
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 242 sessions with no
+The authoritative clean-profile Chrome run completed 267 sessions with no
 failure. All version 1 thresholds were fixed after a separate 60-second
 calibration and before this run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 120 | 242 |
+| Completed sessions | >= 120 | 267 |
 | Failed sessions | <= 0 | 0 |
-| Main／Worker heap samples | >= 30 each | 38 / 36 |
-| Session latency p95 | <= 3,000 ms | 821.185 ms |
-| Maximum slice p99 | <= 10 ms | 3.110 ms |
-| Main heartbeat gap p99 | <= 25 ms | 15.550 ms |
-| Main heartbeat gap maximum | <= 250 ms | 27.105 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,854,124 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 35,866.49 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 28,328,604 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 647,018.90 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 58,982,400 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 32,816,600 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | -138,890.15 bytes/min |
+| Main／Worker heap samples | >= 30 each | 38 / 37 |
+| Session latency p95 | <= 3,000 ms | 745.900 ms |
+| Maximum slice p99 | <= 10 ms | 2.325 ms |
+| Main heartbeat gap p99 | <= 25 ms | 15.865 ms |
+| Main heartbeat gap maximum | <= 250 ms | 25.020 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 4,031,108 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | -2,154.46 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 28,004,540 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 3,657,094.03 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 59,244,544 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 34,005,400 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 2,523,829.48 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,027,008 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 11,796,480 bytes |
 
-The exact report is 959,089 bytes with SHA-256
-`eb91ee718a3028843aeeaff94b44f2fde96ad025d25577f2da8e0ba559e5eea2`.
+The exact report is 969,997 bytes with SHA-256
+`77a52398ef6db6618715a42fc3d0354be60d4215737f3984d8071a2f24657e74`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -125,7 +125,7 @@ loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
 storage below the unchanged limit. That correction remains part of the loader
-contract; this current benchmark observes 32,816,600
+contract; this current benchmark observes 34,005,400
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -139,7 +139,7 @@ bytes and retains bounded p95 latency without changing any threshold.
 | Chrome | `150.0.7871.115` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `0df6b546c44c850d720ab2a77ecbc7b74e02fc64`
+The report records base implementation commit `76ae792326a1460550ba2507d2cbfa96e42f9405`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -148,7 +148,7 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 2,361,390 | `d1a50c42133196121431c16e6936c65dadc7360ded9dac4e743ebbe553b07bf5` |
+| Rust runtime core Wasm | 2,361,392 | `03a9dc99bdd6b592c71e3d9fd344e9ed29402a0faf82a4c02a73b8410eec722b` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
 | Runtime Worker bundle | 121,345 | `d2d0b27a680312bcd5300bb4d0e65d35dedcc57b52447b92d1bf039528f42f4b` |
 | BGI benchmark bundle | 9,286 | `33be6c16928ebee490f9c5f75680923898ea9b9f66dc6546bb5b87d2b0a6eebb` |
