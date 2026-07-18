@@ -129,8 +129,8 @@
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {
     "imports": 0,
-    "bytes": 2889863,
-    "sha256": "9a9018ba2bc5c1835bf4a3abd8ae0ea5811273326f9144f05675b754d346776b"
+    "bytes": 2889709,
+    "sha256": "084af803e6f677f5bba7fa9208ab51878690a7c084e8a0589b0441daf1ccd167"
   },
   "browserRuntimeFixture": {
     "bytes": 2560,
@@ -357,12 +357,12 @@
     "setCurrentDirectoryGeneration": 1,
     "wasmBridgeCalls": 47700,
     "executionEngineLinearMemoryBytes": 13893632,
-    "maximumSliceMilliseconds": 2.550000011920929,
-    "elapsedMilliseconds": 5509.904999986291,
-    "heartbeatSamples": 1103,
-    "maximumHeartbeatGapMilliseconds": 21.100000008940697,
+    "maximumSliceMilliseconds": 2.459999993443489,
+    "elapsedMilliseconds": 5489.890000000596,
+    "heartbeatSamples": 1099,
+    "maximumHeartbeatGapMilliseconds": 12.870000004768372,
     "usedJsHeapBytesBefore": 628740,
-    "usedJsHeapBytesAfter": 2842148,
+    "usedJsHeapBytesAfter": 2811804,
     "cancelInstructions": 19,
     "watchdogInstructions": 4,
     "pendingHostCallsAfterCleanup": 0,
@@ -374,8 +374,8 @@
     "sourceReadPendingAfterCleanup": 0,
     "nodeOracleReportBytes": 10324486,
     "nodeOracleReportSha256": "557d13289a61d194d4a6e94cea0c460ee9e2c0d268b63c68d4f22234e11eed4d",
-    "browserReportBytes": 6301709,
-    "browserReportSha256": "516c7bf8e5b4143b835bd749d88a92d39f42902dc3982fc954529685fde20296"
+    "browserReportBytes": 6301700,
+    "browserReportSha256": "f8b849eeb3b99e23af0ba5d6bb6f62f348179a2ce0a3553e97684218a55041aa"
   },
   "bgiBenchmarkEvidence": {
     "schema": "vine.browser-bgi-benchmark-report",
