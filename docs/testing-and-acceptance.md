@@ -752,6 +752,17 @@ preflight failure、callback rejection、stale replacementはwindow identity、a
 nonzero HWND consumerを比較するが、native HWND数値、一般menu、visibility、queued message、DOM window、
 rendererをgoldenまたは実装済みとしない。
 
+Primary synchronous-message contractは、このcreation gatewayで`created`になったsame-thread HWNDだけを
+対象に、`SendMessageA(WM_SETICON, ICON_SMALL, shared 16x16 HICON)`をregistered class WndProcへstdcall
+4-argument callbackとして再入する。Focused Rust contractはcallback target／frame／callee cleanup、
+LastError preserve、WndProcのu32 `LRESULT`返却、nested `DefWindowProcA`の0 resultを固定する。Wrong／stale
+HWND、creating lifecycle、wrong owner thread、other message／`WPARAM`、NULL／wrong-type／stale／wrong-size
+HICON、callback memory preflight failureではwindow／class／icon、callback allocator、guest memoryを変更しない。
+Native oracleはWndProcがSendのdirect child／same threadで4 argumentsをそのまま受け、result 0とLastError
+preserveを返し、callerが`LRESULT`を読まずwindow-position setupへ進むことを比較する。これはwindow icon
+mutation、cross-thread／queued send、arbitrary message、general reentrancy／depth、timeout、DOM dispatchを
+実装済みまたはgoldenとしない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、immutable source range read、pending cancel、watchdog、thread／process return sentinelを通す。Source fixtureはRust-owned manifest／handle／cursorとsame-origin title／snapshot／object adapterを通り、二つのrange payloadとexit codeをguest自身とrunnerの両方で検証する。protocol version 6は`thread-switch`／`thread-exit`を含むclosed execution-state graphとper-thread opaque CPU contextに加え、callback completionから同depthのreplacement callbackへのtransitionとRust-owned logical window completion metadataを持つ。initial threadのhost wait中にsecond guest threadがmarker write／exitし、その後initial contextへ復帰すること、replacement時にretired frame identityを照合することを要求する。State contractはillegal transitionのmutation前拒否、wrong-thread／duplicate／cancelled-late completion、nested sync APIとcallback-resuming async policy、全terminal pathの`stopped`／pending request record zero、watchdogのthread／request／last-transition contextを検査する。Engine contractはactual WasmでCPU contextのmutation-free生成／保存／復元、structured stop、mapping operation、owner-tagged changed batch、cache effect、pinned revision／ABI／artifact mismatchを検査し、Runtime Worker sourceにPTE／private offset／v86 reasonがないことを固定する。Current measurementは[current-checkpoint.json](current-checkpoint.json)だけを正とする。これは`AC-P1-03`～`AC-P1-05`、`AC-P1-07`、`AC-P1-10`とimmutable-source／logical-window ingressへのpartial evidenceであり、general Win32 thread creation、wait-any／wait-all、timeout／fairness、writable persistence、full-play title behaviorを代用しない。

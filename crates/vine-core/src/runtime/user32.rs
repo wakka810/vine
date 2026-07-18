@@ -1518,6 +1518,55 @@ impl RuntimeUser32 {
         })
     }
 
+    pub(super) fn resolve_small_icon_window_procedure(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+        icon_handle: u32,
+        icon_width: u16,
+        icon_height: u16,
+    ) -> Result<RuntimeWindowProcedure, RuntimeStateError> {
+        let window = self.window(window_handle)?;
+        if window.creation.owner_thread_id != owner_thread_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-message-owner-thread-mismatch",
+                "synchronous logical window messages require the selected owner thread",
+            ));
+        }
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-message-lifecycle-state-invalid",
+                "synchronous logical window messages require a created window",
+            ));
+        }
+        self.validate_window_creation_references(&window.creation)?;
+        let class = self
+            .window_classes
+            .get(&window.creation.class.class_id)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-user32",
+                    "window-message-class-identity-missing",
+                    "live logical window class identity disappeared during message resolution",
+                )
+            })?;
+        validate_window_class_registration(&class.registration)?;
+        self.validate_window_class_references(&class.registration)?;
+
+        let icon = self.icon(icon_handle)?;
+        if !icon.shared || icon.resource.width != icon_width || icon.resource.height != icon_height
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "window-message-icon-variant-invalid",
+                "synchronous small-icon message requires a live shared icon of the controlled dimensions",
+            ));
+        }
+        Ok(class.registration.window_procedure.clone())
+    }
+
     pub fn window_by_id(&self, id: RuntimeWindowId) -> Result<&RuntimeWindow, RuntimeStateError> {
         let window = self.windows.get(&id).ok_or_else(|| {
             RuntimeStateError::not_found(

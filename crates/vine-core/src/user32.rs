@@ -25,11 +25,12 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 10;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 11;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
+pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
@@ -42,6 +43,8 @@ const RT_ICON: u32 = 3;
 const RT_GROUP_ICON: u32 = 14;
 const IMAGE_ICON: u32 = 1;
 const LR_SHARED: u32 = 0x0000_8000;
+const WM_SETICON: u32 = 0x0080;
+const ICON_SMALL: u32 = 0;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_INVALID_PARAMETER: u32 = 87;
@@ -71,6 +74,16 @@ pub struct User32LoadImageAPolicy {
     pub target_height: u16,
     pub flags: u32,
     pub maximum_group_entries: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32SendMessageAPolicy {
+    pub profile_id: String,
+    pub message: u32,
+    pub w_param: u32,
+    pub icon_width: u16,
+    pub icon_height: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -145,6 +158,7 @@ pub struct User32CompatibilityPolicy {
     pub swap_mouse_button: Option<RuntimeInputProfile>,
     pub load_icon_a: Option<User32LoadIconAPolicy>,
     pub load_image_a: Option<User32LoadImageAPolicy>,
+    pub send_message_a: Option<User32SendMessageAPolicy>,
     pub load_cursor_a: Option<User32LoadCursorAPolicy>,
     pub register_class_ex_a: Option<User32RegisterClassExAPolicy>,
     pub get_system_metrics: Option<User32GetSystemMetricsPolicy>,
@@ -153,11 +167,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v10() -> Self {
+    pub fn controlled_v11() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-image-v10"
+            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-message-v11"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
@@ -185,6 +199,13 @@ impl User32CompatibilityPolicy {
                 target_height: 16,
                 flags: LR_SHARED,
                 maximum_group_entries: 64,
+            }),
+            send_message_a: Some(User32SendMessageAPolicy {
+                profile_id: "same-thread-wm-seticon-small-v1".to_owned(),
+                message: WM_SETICON,
+                w_param: ICON_SMALL,
+                icon_width: 16,
+                icon_height: 16,
             }),
             load_cursor_a: Some(User32LoadCursorAPolicy {
                 profile_id: "system-arrow-shared-cursor-v1".to_owned(),
@@ -316,6 +337,21 @@ impl User32CompatibilityPolicy {
                 "User32 LoadImageA profile requires the reached shared 16x16 module icon and matching system metrics",
             ));
         }
+        if let Some(profile) = self.send_message_a.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.message != WM_SETICON
+                || profile.w_param != ICON_SMALL
+                || profile.icon_width == 0
+                || profile.icon_height == 0
+                || self.create_window_ex_a.is_none()
+                || self.load_image_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-send-message-a-profile-invalid",
+                "User32 SendMessageA profile requires the reached same-thread WM_SETICON small-icon window callback",
+            ));
+        }
         if let Some(profile) = self.load_cursor_a.as_ref()
             && (!valid_profile_id(&profile.profile_id)
                 || profile.arrow_resource_id != RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID)
@@ -392,6 +428,18 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-load-image-profile-invalid",
                 "User32 LoadImageA dimensions must match the controlled small-icon system metrics",
+            ));
+        }
+        if let Some(profile) = self.send_message_a.as_ref()
+            && self.load_image_a.as_ref().is_none_or(|image| {
+                profile.icon_width != image.target_width
+                    || profile.icon_height != image.target_height
+            })
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-send-message-a-profile-invalid",
+                "User32 SendMessageA icon dimensions must match the controlled LoadImageA profile",
             ));
         }
         if let Some(profile) = self.create_window_ex_a.as_ref() {
@@ -492,6 +540,13 @@ pub fn dispatch_user32_api_with_policy(
         LOAD_IMAGE_A_IMPLEMENTATION => {
             match handle_load_image_a(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        SEND_MESSAGE_A_IMPLEMENTATION => {
+            match handle_send_message_a(policy, callback_return_sentinel, contract, frame, session)
+            {
+                Ok(result) => result,
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
@@ -882,6 +937,71 @@ fn handle_load_image_a(
         contract,
         session,
     )
+}
+
+fn handle_send_message_a(
+    policy: &User32CompatibilityPolicy,
+    callback_return_sentinel: GuestAddress,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiHandlerResult, ApiFault> {
+    let message_policy = policy.send_message_a.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-windows",
+            "send-message-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable synchronous logical window messages",
+                policy.id
+            ),
+        )
+    })?;
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let message = required_argument(contract, frame, 1, "message")?;
+    let w_param = required_argument(contract, frame, 2, "wParam")?;
+    let l_param = required_argument(contract, frame, 3, "lParam")?;
+    if message != message_policy.message {
+        return Err(ApiFault::unsupported(
+            "user32-windows",
+            "send-message-a-message-unsupported",
+            "SendMessageA currently supports only the reached WM_SETICON message",
+        ));
+    }
+    if w_param != message_policy.w_param {
+        return Err(ApiFault::unsupported(
+            "user32-windows",
+            "send-message-a-wparam-unsupported",
+            "SendMessageA WM_SETICON currently supports only ICON_SMALL",
+        ));
+    }
+    let window_procedure = session
+        .runtime()
+        .resolve_small_icon_window_procedure(
+            window_handle,
+            l_param,
+            message_policy.icon_width,
+            message_policy.icon_height,
+        )
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let request = GuestCallbackRequest {
+        target: window_procedure.address,
+        arguments: vec![
+            GuestCallbackArgument::U32(window_handle),
+            GuestCallbackArgument::U32(message),
+            GuestCallbackArgument::U32(w_param),
+            GuestCallbackArgument::U32(l_param),
+        ],
+        scratch: Vec::new(),
+        scratch_pointer_relocations: Vec::new(),
+        return_sentinel: callback_return_sentinel,
+        completion_policy: GuestCallbackCompletionPolicy::ReturnU32,
+    };
+    session.preflight_guest_callback(&ApiGuestCallbackCall {
+        request: request.clone(),
+        contract: contract.clone(),
+        frame: frame.clone(),
+    })?;
+    Ok(ApiHandlerResult::GuestCallback(request))
 }
 
 fn load_module_shared_icon(
@@ -1615,11 +1735,11 @@ fn handle_def_window_proc_a(
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
-    if policy.create_window_ex_a.is_none() {
+    if policy.create_window_ex_a.is_none() && policy.send_message_a.is_none() {
         return Err(ApiFault::unsupported(
             "user32-windows",
             "def-window-proc-a-policy-disabled",
-            "DefWindowProcA requires the logical window creation profile",
+            "DefWindowProcA requires a logical window callback profile",
         ));
     }
     let handle = required_argument(contract, frame, 0, "window handle")?;
@@ -1639,6 +1759,27 @@ fn handle_def_window_proc_a(
         ));
     }
     match (message, w_param, window.lifecycle) {
+        (WM_SETICON, ICON_SMALL, RuntimeWindowLifecycle::Created)
+            if policy.send_message_a.is_some() =>
+        {
+            let profile = policy.send_message_a.as_ref().ok_or_else(|| {
+                ApiFault::runtime_defect(
+                    "user32-windows",
+                    "def-window-proc-a-message-policy-missing",
+                    "validated WM_SETICON default processing has no message profile",
+                )
+            })?;
+            session
+                .runtime()
+                .resolve_small_icon_window_procedure(
+                    handle,
+                    l_param,
+                    profile.icon_width,
+                    profile.icon_height,
+                )
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            Ok(ApiImmediate::new(ApiReturnValue::U32(0)))
+        }
         (
             0x0081,
             0,
@@ -2295,6 +2436,7 @@ pub fn user32_contract_for_endpoint(
         "SwapMouseButton" => Ok(Some(swap_mouse_button_contract(endpoint)?)),
         "LoadIconA" => Ok(Some(load_icon_a_contract(endpoint)?)),
         "LoadImageA" => Ok(Some(load_image_a_contract(endpoint)?)),
+        "SendMessageA" => Ok(Some(send_message_a_contract(endpoint)?)),
         "LoadCursorA" => Ok(Some(load_cursor_a_contract(endpoint)?)),
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
@@ -2386,6 +2528,28 @@ pub fn load_image_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContrac
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: LOAD_IMAGE_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn send_message_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", false),
+                u32_argument("message"),
+                u32_argument("wParam"),
+                scalar_or_pointer_l_param_argument("lParam"),
+            ],
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Required,
+        implementation_id: SEND_MESSAGE_A_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -2670,7 +2834,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v10();
+        let policy = User32CompatibilityPolicy::controlled_v11();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -2700,14 +2864,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v10();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v11();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v10();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v11();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -2718,14 +2882,21 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v10();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v11();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v10();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v11();
+        invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
+        assert_eq!(
+            invalid_message.validate().unwrap_err().code,
+            "user32-send-message-a-profile-invalid"
+        );
+
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v11();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -2736,7 +2907,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v10();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v11();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -2748,7 +2919,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v10();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v11();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -2759,7 +2930,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v10();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v11();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -2770,7 +2941,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v10();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v11();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -2781,7 +2952,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v10();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v11();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

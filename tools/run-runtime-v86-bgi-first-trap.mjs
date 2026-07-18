@@ -123,6 +123,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-get-system-metrics-small-icon-height",
         "user32-get-system-metrics-small-icon-width",
         "user32-load-image-a-small-icon",
+        "user32-send-message-a-small-icon",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -162,6 +163,7 @@ assert(
       "user32-get-system-metrics-small-icon-height",
       "user32-get-system-metrics-small-icon-width",
       "user32-load-image-a-small-icon",
+      "user32-send-message-a-small-icon",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -174,6 +176,7 @@ if (
     "user32-get-system-metrics-small-icon-height",
     "user32-get-system-metrics-small-icon-width",
     "user32-load-image-a-small-icon",
+    "user32-send-message-a-small-icon",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -192,7 +195,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-create-window-ex-a" ||
     genericRuntimeCapability === "user32-get-system-metrics-small-icon-height" ||
     genericRuntimeCapability === "user32-get-system-metrics-small-icon-width" ||
-    genericRuntimeCapability === "user32-load-image-a-small-icon"
+    genericRuntimeCapability === "user32-load-image-a-small-icon" ||
+    genericRuntimeCapability === "user32-send-message-a-small-icon"
       ? "kernel32-source-file-read-v1.json"
       : genericRuntimeCapability === "kernel32-large-heap-allocation"
       ? "kernel32-large-heap-allocation-v1.json"
@@ -313,7 +317,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const sendMessageASmallIconEnabled =
+  genericRuntimeCapability === "user32-send-message-a-small-icon";
 const loadImageASmallIconEnabled =
+  sendMessageASmallIconEnabled ||
   genericRuntimeCapability === "user32-load-image-a-small-icon";
 const getSystemMetricsSmallIconWidthEnabled =
   loadImageASmallIconEnabled ||
@@ -482,7 +489,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? loadImageASmallIconEnabled
+      ? sendMessageASmallIconEnabled
+        ? "v86-bgi-send-message-a-small-icon"
+      : loadImageASmallIconEnabled
         ? "v86-bgi-load-image-a-small-icon"
       : getSystemMetricsSmallIconWidthEnabled
         ? "v86-bgi-get-system-metrics-small-icon-width"
@@ -4411,6 +4420,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (sendMessageASmallIconEnabled) {
+        validateSendMessageASmallIconResult(genericResult);
       } else if (loadImageASmallIconEnabled) {
         validateLoadImageASmallIconResult(genericResult);
       } else if (getSystemMetricsSmallIconWidthEnabled) {
@@ -4540,6 +4551,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : sendMessageASmallIconEnabled
+            ? "bgi SendMessageA small icon"
           : loadImageASmallIconEnabled
             ? "bgi LoadImageA small icon"
           : getSystemMetricsSmallIconWidthEnabled
@@ -5657,6 +5670,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : sendMessageASmallIconEnabled
+          ? 61
         : loadImageASmallIconEnabled
           ? 60
         : createWindowExAEnabled
@@ -5771,7 +5786,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-image-v10",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-message-v11",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -6354,6 +6369,24 @@ function validateGenericCallbackEntry(entry, endpoint, generation, context) {
         ),
       ),
       [0x4f010001, 0, entry.scratchAddress, 0],
+    );
+  } else if (
+    endpoint.module.toLowerCase() === "user32.dll" &&
+    endpoint.symbol === "SendMessageA"
+  ) {
+    assert.equal(entry.target, 0x1009_2550);
+    assert.equal(entry.argumentCount, 4);
+    assert.equal(entry.scratchAddress, 0);
+    assert.equal(entry.scratchBytes, 0);
+    assert.equal(entry.frameBytes, 20);
+    assert.deepEqual(
+      [1, 2, 3, 4].map((index) =>
+        context.readVirtualU32(
+          entry.stackPointer + index * 4,
+          `SendMessageA callback argument ${index - 1}`,
+        ),
+      ),
+      [0x4801_0001, 0x0080, 0, 0x4901_0002],
     );
   }
 }
@@ -10553,6 +10586,157 @@ function validateLoadImageASmallIconResult(result) {
   ]);
 }
 
+function validateSendMessageASmallIconResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 1401);
+  assert.equal(result.callbackEvents.length, 14);
+  assert.equal(result.finalGeneration, 1653);
+  assert.equal(result.writebacks.length, 1444);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2989,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_450_452,
+  );
+  assert.equal(result.hostDeltas.length, 139);
+  assert.equal(
+    result.supportedCalls.some(({ pendingCallback }) => pendingCallback === true),
+    false,
+    "SendMessageA must complete its synchronous WndProc before the next structured stop",
+  );
+  const calls = result.supportedCalls.filter(
+    ({ module, symbol }) =>
+      module.toLowerCase() === "user32.dll" && symbol === "SendMessageA",
+  );
+  assert.equal(calls.length, 1);
+  const [call] = calls;
+  assert.equal(call.sequence, 1398);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_476_536);
+  assert.deepEqual(call.arguments, [0x4801_0001, 0x0080, 0, 0x4901_0002]);
+  assert.deepEqual(call.result, { action: "set", value: 0 });
+  assert.equal(call.implementationId, "user32.send-message-a.v1");
+  assert.equal(call.returnAddress, 0x1006_7f58);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 20);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(call.callback.frameId, 7);
+  assert.equal(call.callback.target, 0x1009_2550);
+  assert.equal(call.callback.allocationStart, 0x006f_fac8);
+  assert.equal(call.callback.stackPointer, 0x006f_fac8);
+  assert.equal(call.callback.scratchAddress, 0);
+  assert.equal(call.callback.scratchBytes, 0);
+  assert.equal(call.callback.frameBytes, 20);
+  assert.equal(call.callback.returnSentinel, 0x7f01_0000);
+  assert.equal(call.callback.returnInstructionCount, 11_476_589);
+  assert.equal(call.callback.result, 0);
+
+  const nested = result.supportedCalls.find(({ sequence }) => sequence === 1399);
+  assert.equal(nested.module.toLowerCase(), "user32.dll");
+  assert.equal(nested.symbol, "DefWindowProcA");
+  assert.equal(nested.occurrence, 5);
+  assert.equal(nested.trapInstructionCount, 11_476_576);
+  assert.deepEqual(nested.arguments, [0x4801_0001, 0x0080, 0, 0x4901_0002]);
+  assert.deepEqual(nested.result, { action: "set", value: 0 });
+  assert.equal(nested.implementationId, "user32.def-window-proc-a.v1");
+  assert.equal(nested.returnAddress, 0x1009_33bf);
+  assert.equal(nested.stackPointerAfter, nested.stackPointerBefore + 20);
+  assert.equal(nested.lastError, 0);
+  assert.deepEqual(nested.guestWrites, []);
+
+  const metricCalls = result.supportedCalls.slice(-2);
+  assert.deepEqual(
+    metricCalls.map(
+      ({
+        sequence,
+        occurrence,
+        trapInstructionCount,
+        arguments: callArguments,
+        result,
+        returnAddress,
+      }) => ({
+        sequence,
+        occurrence,
+        trapInstructionCount,
+        arguments: callArguments,
+        result,
+        returnAddress,
+      }),
+    ),
+    [
+      {
+        sequence: 1400,
+        occurrence: 8,
+        trapInstructionCount: 11_476_595,
+        arguments: [1],
+        result: { action: "set", value: 1080 },
+        returnAddress: 0x1006_7f65,
+      },
+      {
+        sequence: 1401,
+        occurrence: 9,
+        trapInstructionCount: 11_476_602,
+        arguments: [0],
+        result: { action: "set", value: 1920 },
+        returnAddress: 0x1006_7f70,
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.callbackEvents.slice(-2).map(({ action, sequence, frameId }) => ({
+      action,
+      sequence,
+      frameId,
+    })),
+    [
+      { action: "enter", sequence: 1398, frameId: call.callback.frameId },
+      { action: "return", sequence: 1398, frameId: call.callback.frameId },
+    ],
+  );
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 202);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0c90);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "SetWindowPos",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1400);
+  assert.equal(result.fault.memory.physicalPages, 717);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "0c3a154256959533654179ffed975f89a41ffa983f031a0254c3468514c76b07",
+  );
+  assert.equal(result.terminal.instructionCount, 11_476_612);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 202);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0c90);
+  assert.equal(result.terminal.terminal.thunk.name, "SetWindowPos");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_7f88);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 8), [
+    0x4801_0001,
+    0xffff_fffe,
+    15_360,
+    8_640,
+    0,
+    0,
+    0x0559,
+  ]);
+}
+
 function validateGetSystemMetricsSmallIconWidthResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -12148,6 +12332,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : sendMessageASmallIconEnabled
+          ? "vine.v86-bgi-send-message-a-small-icon"
         : loadImageASmallIconEnabled
           ? "vine.v86-bgi-load-image-a-small-icon"
         : getSystemMetricsSmallIconWidthEnabled

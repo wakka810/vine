@@ -2923,3 +2923,45 @@ structured stopする。
 このcheckpointはbitmap／cursor image、default size、file load、copy/delete icon、arbitrary
 resource／size／flags、DOM icon、一般message dispatchを実装済みとしない。既存resource／identity
 boundary内のsemantic leafなので、3分gateは再実行せず直前の36-session observationを保持する。
+
+## 107. BGI SendMessageA small-icon synchronous callback
+
+Focused `send-message-a` capturesは次のlocal raw artifactsである。Raw JSONL、private absolute path、
+native HWND／HICON値はGitへ追加せずsemantic goldenにも使わない。
+
+| Capture | Bytes／lines | Balanced API pairs | SHA-256 |
+|---|---:|---:|---|
+| primary | 320,348／808 | 367 | `eb88a0376f7863446fadbd9a8d9ab877a90bb966d6ff3b85aee13605479da525` |
+| confirmation | 320,408／806 | 366 | `be2a1bd09d8f2e321d117016b5e1f5bbd1d499a4704d915263a7539be0a7719c` |
+
+両captureはcontiguous sequence、diagnostics zeroである。BGI caller RVA `0x00067F58`は直前の
+shared small HICONを`SendMessageA(hwnd, WM_SETICON, ICON_SMALL, hIcon)`へ渡す。両runでresultは0、
+LastErrorは`0 -> 0`である。Main WndProc RVA `0x00092550`はSend callのdirect childかつsame threadで、
+HWND／message 128／`WPARAM` 0／HICONの4 argumentsがouter callと一致する。WndProcもresult 0、
+LastError `0 -> 0`を返す。Return直後のcallerは`LRESULT`を読まず、flags `0x559`と二つの
+`GetSystemMetrics` resultから次のwindow-position argumentsを組み立てる。Callback後のsecond
+`LoadImageA`は同じshared resourceを再要求し、source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-11 User32 policyでこの一variantだけを有効にする。`RuntimeUser32`はmutation-freeに
+live HWND、`created` lifecycle、selected threadとowner thread、registered class／WndProc、live shared
+16×16 HICONを検証する。既存callback schedulerがscratch 0／20-byte stdcall frameを作り、WndProcの
+u32 resultをouter `LRESULT`へ戻す。WndProc内のreached
+`DefWindowProcA(hwnd, WM_SETICON, ICON_SMALL, hIcon)`は同じidentity relationを再検証して0を返すが、
+logical window iconはまだ変更しない。Wrong／stale identity、wrong lifecycle／thread／variant、callback
+preflight failureはguest memory、window／class／icon state、callback allocatorを部分更新しない。
+
+Nodeは74 contracts／1,401 calls、callback frame 7、active depth 0、1,444 writebacks／2,989 dirty pages／
+1,450,452 changed bytes、139 host deltas、generation 1,653を通す。Reportは10,378,226 bytes／SHA-256
+`1c7a0ee4a0e02830eef104877bdb2bb8c65f684d45744472adc9bf557fbe4b36`、final memory SHA-256は
+`0c3a154256959533654179ffed975f89a41ffa983f031a0254c3468514c76b07`である。Chrome Runtime Workerも
+same 1,401 calls／11,476,612 instructions／memory digestを再現し、generation 46,326、46,119
+writebacks／106,467 pages、139 host deltas、pending work zeroを通す。Browser reportは6,304,008 bytes／
+SHA-256 `0dcd59cd61b1900ba6785382490c7e55462250330e152c4a6ba7ac1db58580b3`である。
+
+Instruction 11,476,612でendpoint 202／
+`SetWindowPos(0x48010001, 0xFFFFFFFE, 15360, 8640, 0, 0, 0x559)`へ
+`endpoint-contract-missing`としてstructured stopする。一般message routing／queue、cross-thread send、
+window icon mutation、arbitrary WndProc reentrancy、timeout／cancel、DOM icon／dispatchは未実装である。
+既存User32 ownerとcallback scheduler内のbounded gatewayなので、3分gateは再実行せず直前の
+36-session observationを保持する。

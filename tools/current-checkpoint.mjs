@@ -495,18 +495,18 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.largeHeapAllocationBytes !== 64 * 1024 * 1024 ||
     bgiBrowserEvidence.largeHeapAllocationId !== 12 ||
     bgiBrowserEvidence.largeHeapAddressAllocationId !== 37 ||
-    bgiBrowserEvidence.largeHeapMemoryOwner !== 11 ||
+    bgiBrowserEvidence.largeHeapMemoryOwner !== 12 ||
     bgiBrowserEvidence.largeHeapFirstFaultInstructionCount !== 50_123 ||
     bgiBrowserEvidence.largeHeapFirstFaultAddress !== "0x40000000" ||
     bgiBrowserEvidence.largeHeapFirstPageFaultErrorCode !== 6 ||
     bgiBrowserEvidence.largeHeapFirstCommittedPageBytes !== 4_096 ||
-    bgiBrowserEvidence.largeHeapNodeMaterializationFromGeneration !== 1_470 ||
-    bgiBrowserEvidence.largeHeapNodeMaterializationGeneration !== 1_472 ||
-    bgiBrowserEvidence.largeHeapBrowserMaterializationFromGeneration !== 1_532 ||
-    bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_534 ||
+    bgiBrowserEvidence.largeHeapNodeMaterializationFromGeneration !== 1_473 ||
+    bgiBrowserEvidence.largeHeapNodeMaterializationGeneration !== 1_475 ||
+    bgiBrowserEvidence.largeHeapBrowserMaterializationFromGeneration !== 1_535 ||
+    bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_537 ||
     bgiBrowserEvidence.sourceReadCompletions !== 2 ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
-    bgiBrowserEvidence.callbackEntries !== 6 ||
+    bgiBrowserEvidence.callbackEntries !== 7 ||
     bgiBrowserEvidence.callbackReplacements !== 4 ||
     bgiBrowserEvidence.maximumCallbackDepth !== 1 ||
     bgiBrowserEvidence.logicalWindowCompletions !== 1 ||
@@ -1339,6 +1339,11 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.loadImageAVariants",
     errors,
   );
+  const sendMessageAVariants = requireStringArray(
+    user32Policy.sendMessageAVariants,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.sendMessageAVariants",
+    errors,
+  );
   const loadCursorVariants = requireStringArray(
     user32Policy.loadCursorVariants,
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.loadCursorVariants",
@@ -1391,11 +1396,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 10 ||
+    user32Policy.schemaVersion !== 11 ||
     user32Policy.id !==
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-image-v10" ||
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-message-v11" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v10" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v11" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
@@ -1441,6 +1446,19 @@ export function validateCurrentCheckpoint(manifest) {
       "mapped-module-integer-resource-image-icon-lr-shared" ||
     user32Policy.loadImageALastErrorPolicy !==
       "handler-success-zero-specific-failure-code" ||
+    user32Policy.sendMessageAProfileId !== "same-thread-wm-seticon-small-v1" ||
+    sendMessageAVariants.join(",") !==
+      "same-thread-created-window-wm-seticon-icon-small-live-shared-icon" ||
+    user32Policy.sendMessageAMessage !== 128 ||
+    user32Policy.sendMessageAWParam !== 0 ||
+    user32Policy.sendMessageAIconWidth !== 16 ||
+    user32Policy.sendMessageAIconHeight !== 16 ||
+    user32Policy.sendMessageACallbackContract !==
+      "registered-class-wndproc-stdcall-four-u32-no-scratch-return-u32" ||
+    user32Policy.sendMessageALastErrorPolicy !== "preserve" ||
+    user32Policy.sendMessageAMutation !==
+      "none-after-authority-and-callback-preflight" ||
+    user32Policy.sendMessageAFailureAtomicity !== true ||
     user32Policy.secondIconHandle !== "0x49010002" ||
     user32Policy.largeAndSmallIconResourcesUseDistinctIdentity !== true ||
     user32Policy.sharedIconMutation !== "owner-plan-stale-check-targeted-commit" ||
@@ -1515,7 +1533,7 @@ export function validateCurrentCheckpoint(manifest) {
     callbackScratchArena.slotBytes !== 4_096 ||
     user32Policy.callbackScratchMutation !==
       "address-memory-stack-and-frame-preflight-transaction" ||
-    defWindowProcAImplementedMessages.join(",") !== "129,131,5,3" ||
+    defWindowProcAImplementedMessages.join(",") !== "129,131,5,3,128" ||
     user32Policy.defWindowProcALparamContract !==
       "bounded-message-dependent-scalar-or-pointer-union" ||
     user32Policy.invalidMenuProfileId !==
@@ -1532,6 +1550,8 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.generalMenuIdentityImplemented !== false ||
     user32Policy.windowVisibilityImplemented !== false ||
     user32Policy.windowMessageQueueIntegrated !== false ||
+    user32Policy.logicalWindowIconMutationImplemented !== false ||
+    user32Policy.browserWindowIconMutationImplemented !== false ||
     user32Policy.getSystemMetricsProfileId !==
       "initial-window-metrics-1920x1080-small-icon-16x16-v3" ||
     getSystemMetricsIndices.join(",") !== "0,1,4,7,8,49,50" ||
@@ -1684,6 +1704,8 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeGetSystemMetricsSmallIconConfirmationTraceSha256",
     "nativeLoadImageAPrimaryTraceSha256",
     "nativeLoadImageAConfirmationTraceSha256",
+    "nativeSendMessageAPrimaryTraceSha256",
+    "nativeSendMessageAConfirmationTraceSha256",
     "nativeLargeHeapPrimaryTraceSha256",
     "nativeLargeHeapConfirmationTraceSha256",
     "nativeCreateWindowExAPrimaryTraceSha256",
@@ -1851,7 +1873,7 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (
     latestEvidence.schema !==
-      "vine.v86-bgi-load-image-a-small-icon.v1" ||
+      "vine.v86-bgi-send-message-a-small-icon.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -2155,17 +2177,17 @@ export function validateCurrentCheckpoint(manifest) {
       "loadimagea-resource-101-image-icon-width-height-lr-shared" ||
     latestEvidence.nativeGetSystemMetricsSmallIconExecutableHashUnchanged !== true ||
     latestEvidence.getSystemMetricsImplemented !== true ||
-    latestEvidence.getSystemMetricsCallCount !== 7 ||
+    latestEvidence.getSystemMetricsCallCount !== 9 ||
     latestEvidence.getSystemMetricsSequences?.join(",") !==
-      "1345,1346,1347,1348,1349,1395,1396" ||
+      "1345,1346,1347,1348,1349,1395,1396,1400,1401" ||
     latestEvidence.getSystemMetricsInstructionCounts?.join(",") !==
-      "49990,49995,50000,50020,50024,11476518,11476522" ||
-    latestEvidence.getSystemMetricsArguments?.join(",") !== "7,8,4,0,1,50,49" ||
+      "49990,49995,50000,50020,50024,11476518,11476522,11476595,11476602" ||
+    latestEvidence.getSystemMetricsArguments?.join(",") !== "7,8,4,0,1,50,49,1,0" ||
     latestEvidence.getSystemMetricsReturnAddresses?.join(",") !==
-      "0x10067ddb,0x10067de6,0x10067dee,0x10067e26,0x10067e2e,0x10067f2d,0x10067f32" ||
+      "0x10067ddb,0x10067de6,0x10067dee,0x10067e26,0x10067e2e,0x10067f2d,0x10067f32,0x10067f65,0x10067f70" ||
     latestEvidence.getSystemMetricsResults?.join(",") !==
-      "3,3,23,1920,1080,16,16" ||
-    latestEvidence.getSystemMetricsLastErrors?.join(",") !== "0,0,0,0,0,0,0" ||
+      "3,3,23,1920,1080,16,16,1080,1920" ||
+    latestEvidence.getSystemMetricsLastErrors?.join(",") !== "0,0,0,0,0,0,0,0,0" ||
     latestEvidence.getSystemMetricsSuccessLastErrorPolicy !== "preserve" ||
     latestEvidence.getSystemMetricsGuestWrites !== 0 ||
     latestEvidence.getSystemMetricsDisplayStateOwner !==
@@ -2253,13 +2275,83 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 1_439 ||
-    latestEvidence.writebackDirtyPages !== 2_984 ||
-    latestEvidence.writebackChangedBytes !== 1_450_383 ||
-    latestEvidence.hostDeltaBatches !== 138 ||
-    latestEvidence.finalMemoryGeneration !== 1_647
+    latestEvidence.writebackBatches !== 1_444 ||
+    latestEvidence.writebackDirtyPages !== 2_989 ||
+    latestEvidence.writebackChangedBytes !== 1_450_452 ||
+    latestEvidence.hostDeltaBatches !== 139 ||
+    latestEvidence.finalMemoryGeneration !== 1_653
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
+  }
+  if (
+    latestEvidence.nativeSendMessageAPrimaryTraceBytes !== 320_348 ||
+    latestEvidence.nativeSendMessageAPrimaryTraceLines !== 808 ||
+    latestEvidence.nativeSendMessageAPrimaryBalancedApiPairs !== 367 ||
+    latestEvidence.nativeSendMessageAConfirmationTraceBytes !== 320_408 ||
+    latestEvidence.nativeSendMessageAConfirmationTraceLines !== 806 ||
+    latestEvidence.nativeSendMessageAConfirmationBalancedApiPairs !== 366 ||
+    latestEvidence.nativeSendMessageATraceDiagnostics !== 0 ||
+    latestEvidence.nativeSendMessageAProfile !==
+      "x86-bgi-send-message-a-wm-seticon-v1" ||
+    latestEvidence.nativeSendMessageACallerReturnRva !== "0x00067f58" ||
+    latestEvidence.nativeSendMessageAMessage !== 128 ||
+    latestEvidence.nativeSendMessageAWParam !== 0 ||
+    latestEvidence.nativeSendMessageAResult !== 0 ||
+    latestEvidence.nativeSendMessageAEntryLastError !== 0 ||
+    latestEvidence.nativeSendMessageAExitLastError !== 0 ||
+    latestEvidence.nativeSendMessageAWindowProcedureProfile !==
+      "bgi-main-window-procedure-rva-00092550-v1" ||
+    latestEvidence.nativeSendMessageAWindowProcedureRva !== "0x00092550" ||
+    latestEvidence.nativeSendMessageAWindowProcedureParentRelation !==
+      "direct-child-same-thread" ||
+    latestEvidence.nativeSendMessageAWindowProcedureArgumentsMatch !== true ||
+    latestEvidence.nativeSendMessageAWindowProcedureResult !== 0 ||
+    latestEvidence.nativeSendMessageAWindowProcedureEntryLastError !== 0 ||
+    latestEvidence.nativeSendMessageAWindowProcedureExitLastError !== 0 ||
+    latestEvidence.nativeSendMessageAConsumer !==
+      "lresult-ignored-before-window-position-argument-setup" ||
+    latestEvidence.nativeSendMessageASecondLoadImageAfterCallback !== true ||
+    latestEvidence.nativeSendMessageAExecutableHashUnchanged !== true ||
+    latestEvidence.sendMessageAImplemented !== true ||
+    latestEvidence.sendMessageASequence !== 1_398 ||
+    latestEvidence.sendMessageAInstructionCount !== 11_476_536 ||
+    latestEvidence.sendMessageAArguments?.join(",") !==
+      "0x48010001,0x00000080,0x00000000,0x49010002" ||
+    latestEvidence.sendMessageAReturnAddress !== "0x10067f58" ||
+    latestEvidence.sendMessageAResult !== "0x00000000" ||
+    latestEvidence.sendMessageALastError !== 0 ||
+    latestEvidence.sendMessageAGuestWrites !== 0 ||
+    latestEvidence.sendMessageAStateOwner !==
+      "runtime/user32.rs::RuntimeUser32" ||
+    latestEvidence.sendMessageAWindowId !== 1 ||
+    latestEvidence.sendMessageAWindowHandle !== "0x48010001" ||
+    latestEvidence.sendMessageAOwnerThreadId !== 8_192 ||
+    latestEvidence.sendMessageAClassId !== 1 ||
+    latestEvidence.sendMessageAIconId !== 2 ||
+    latestEvidence.sendMessageAIconHandle !== "0x49010002" ||
+    latestEvidence.sendMessageACallbackFrameId !== 7 ||
+    latestEvidence.sendMessageACallbackTarget !== "0x10092550" ||
+    latestEvidence.sendMessageACallbackArguments?.join(",") !==
+      "0x48010001,0x00000080,0x00000000,0x49010002" ||
+    latestEvidence.sendMessageACallbackAllocationStart !== "0x006ffac8" ||
+    latestEvidence.sendMessageACallbackStackPointer !== "0x006ffac8" ||
+    latestEvidence.sendMessageACallbackScratchAddress !== "0x00000000" ||
+    latestEvidence.sendMessageACallbackScratchBytes !== 0 ||
+    latestEvidence.sendMessageACallbackFrameBytes !== 20 ||
+    latestEvidence.sendMessageACallbackReturnSentinel !== "0x7f010000" ||
+    latestEvidence.sendMessageACallbackReturnInstructionCount !== 11_476_589 ||
+    latestEvidence.sendMessageACallbackResult !== "0x00000000" ||
+    latestEvidence.sendMessageACallbackDepthAfterReturn !== 0 ||
+    latestEvidence.sendMessageANestedDefWindowProcSequence !== 1_399 ||
+    latestEvidence.sendMessageANestedDefWindowProcInstructionCount !== 11_476_576 ||
+    latestEvidence.sendMessageANestedDefWindowProcResult !== "0x00000000" ||
+    latestEvidence.sendMessageAFailureAtomicity !== true ||
+    latestEvidence.sendMessageAWindowIconMutationImplemented !== false ||
+    latestEvidence.sendMessageAMessageQueueIntegrated !== false ||
+    latestEvidence.sendMessageAHostDispatchImported !== false ||
+    latestEvidence.sendMessageABrowserDispatchImported !== false
+  ) {
+    errors.push("latest synchronous small-icon message evidence is invalid");
   }
   const createWindowExAGeometry = requireRecord(
     latestEvidence.createWindowExAGeometry,
@@ -2312,7 +2404,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "controlled LoadImageA shared 16x16 module icon selection using the existing PE resource catalog and RuntimeUser32 identity owner" ||
+      "bounded same-thread SendMessageA WM_SETICON gateway through the RuntimeUser32 window-class-icon authority and existing callback scheduler" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||
@@ -2354,11 +2446,12 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.callbackScratchAddressAllocationPurpose !== "callback-scratch" ||
     latestEvidence.callbackScratchSeparatedFromDescendingStack !== true ||
     latestEvidence.defWindowProcAImplemented !== true ||
-    latestEvidence.defWindowProcACallCount !== 4 ||
-    latestEvidence.defWindowProcASequences?.join(",") !== "1389,1390,1393,1394" ||
-    latestEvidence.defWindowProcAMessages?.join(",") !== "129,131,5,3" ||
-    latestEvidence.defWindowProcAResults?.join(",") !== "1,0,0,0" ||
-    latestEvidence.defWindowProcALastErrors?.join(",") !== "0,0,1401,1401" ||
+    latestEvidence.defWindowProcACallCount !== 5 ||
+    latestEvidence.defWindowProcASequences?.join(",") !==
+      "1389,1390,1393,1394,1399" ||
+    latestEvidence.defWindowProcAMessages?.join(",") !== "129,131,5,3,128" ||
+    latestEvidence.defWindowProcAResults?.join(",") !== "1,0,0,0,0" ||
+    latestEvidence.defWindowProcALastErrors?.join(",") !== "0,0,1401,1401,0" ||
     latestEvidence.defWindowProcANonClientGuestWriteBytes !== 16 ||
     latestEvidence.defWindowProcAScalarLparamsDereferenced !== false ||
     latestEvidence.getSystemMenuImplemented !== true ||

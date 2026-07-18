@@ -582,6 +582,14 @@ execute access、resource lifetime、capacityをpreflightした後にtargeted co
 class metadataはimmutable completion snapshotであり、DOM class、native ATOM、callback lifetimeの第二の
 正本にはしない。
 
+Reached synchronous messageもlogical HWNDやWndProc identityをWorker側へ複製しない。Current bounded
+`SendMessageA(WM_SETICON, ICON_SMALL)` profileは`RuntimeUser32`のimmutable lookupでlive `created`
+window、selected owner thread、registered class／WndProc、live shared 16×16 HICONを全てpreflightし、
+既存schedulerのstdcall 4-argument callback frameへ渡す。WndProcの`LRESULT`をouter API resultへ戻すまで
+window／class／icon stateを変更せず、nested `DefWindowProcA`も同じidentity relationを再検証して0を返す。
+Logical window icon mutation、cross-thread send、queue integration、timeout／cancel、browser icon associationは
+後続message gatewayで別々のowner／lifetime contractとして扱う。
+
 - Rust User32／window subsystemがlogical window tree、z-order、focus、capture、invalid regionを所有する
 - Runtime WorkerはCanvas／DOM等のbrowser resourceと明示的なnon-owning associationだけを所有する
 - Main thread は DOM event を timestamp 付きで normalized input event にする

@@ -5,20 +5,22 @@ use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiOwnedTrap, ApiReturnSchema,
     ApiValueSchema, CALLBACK_SCRATCH_ARENA_BASE, CallbackPolicy, CallingConvention,
     DispatchOutcome, ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
-    GuestMemory, GuestRange, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
-    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, LoaderIngressReport, MemoryLimits,
-    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, ModuleSnapshot, PageProtection, Pe32Limits,
-    ProcessAddressSpaceLayout, RUNTIME_PRIMARY_MONITOR_HANDLE, ReentrancyPolicy, RegisterUpdate,
-    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA,
-    RuntimeCursorSource, RuntimeDisplayProfile, RuntimeInputProfile, RuntimeModule,
-    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect, RuntimeStartupInfo, RuntimeState,
+    GuestCallbackCompletionPolicy, GuestMemory, GuestRange, ImportTarget, ImportThunk,
+    ImportThunkDisposition, ImportThunkId, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
+    LoaderIngressReport, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
+    ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressSpaceLayout,
+    RUNTIME_PRIMARY_MONITOR_HANDLE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeCursorSource,
+    RuntimeDisplayProfile, RuntimeInputProfile, RuntimeModule, RuntimeProcessId,
+    RuntimeProcessImagePathA, RuntimeRect, RuntimeStartupInfo, RuntimeState,
     RuntimeSystemCursorKind, RuntimeThreadId, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy,
     build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
     dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
     get_system_menu_contract, get_system_metrics_contract, load_cursor_a_contract,
     load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
-    register_class_ex_a_contract, swap_mouse_button_contract, user32_contract_for_endpoint,
+    register_class_ex_a_contract, send_message_a_contract, swap_mouse_button_contract,
+    user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -62,6 +64,12 @@ const CREATE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1800;
 const DEF_WINDOW_PROC_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1900;
 const CREATE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7efa);
 const DEF_WINDOW_PROC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_33bf);
+const SEND_MESSAGE_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e40);
+const WINDOW_IMAGE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 20);
+const SEND_MESSAGE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 24);
+const WINDOW_IMAGE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1c00;
+const SEND_MESSAGE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1d00;
+const SEND_MESSAGE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f58);
 const WINDOW_TITLE_BASE: u32 = MEMORY_BASE.0 + 0x2b00;
 const GET_SYSTEM_MENU_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b10);
 const ENABLE_MENU_ITEM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b20);
@@ -135,7 +143,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v10();
+        let policy = User32CompatibilityPolicy::controlled_v11();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -226,7 +234,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v10();
+        let mut policy = User32CompatibilityPolicy::controlled_v11();
         policy
             .swap_mouse_button
             .as_mut()
@@ -323,7 +331,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v10();
+        let policy = User32CompatibilityPolicy::controlled_v11();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -478,7 +486,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v10(),
+            policy: User32CompatibilityPolicy::controlled_v11(),
         }
     }
 
@@ -724,7 +732,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v10(),
+            policy: User32CompatibilityPolicy::controlled_v11(),
         }
     }
 
@@ -843,7 +851,7 @@ impl CursorFixture {
             runtime: controlled_runtime(),
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v10(),
+            policy: User32CompatibilityPolicy::controlled_v11(),
         }
     }
 
@@ -881,6 +889,9 @@ struct RegisterClassFixture {
     class_endpoint: ApiEndpointIdentity,
     create_endpoint: ApiEndpointIdentity,
     def_window_proc_endpoint: ApiEndpointIdentity,
+    image_endpoint: ApiEndpointIdentity,
+    send_message_endpoint: ApiEndpointIdentity,
+    window_procedure: GuestAddress,
     callback_sentinel: GuestAddress,
     policy: User32CompatibilityPolicy,
 }
@@ -931,8 +942,8 @@ impl RegisterClassFixture {
             GuestAddress(ICON_IMAGE_BASE),
         )
         .expect("materialize class fixture");
-        let window_procedure = materialization.entry_point_address.0;
-        let callback_sentinel = GuestAddress(window_procedure + 0x20);
+        let window_procedure = materialization.entry_point_address;
+        let callback_sentinel = GuestAddress(window_procedure.0 + 0x20);
 
         let icon_iat = IAT_ADDRESS;
         let cursor_iat = GuestAddress(IAT_ADDRESS.0 + 4);
@@ -945,6 +956,8 @@ impl RegisterClassFixture {
                 DEF_WINDOW_PROC_IAT_ADDRESS,
                 DEF_WINDOW_PROC_ENDPOINT_ADDRESS,
             ),
+            (WINDOW_IMAGE_IAT_ADDRESS, IMAGE_ENDPOINT_ADDRESS),
+            (SEND_MESSAGE_IAT_ADDRESS, SEND_MESSAGE_ENDPOINT_ADDRESS),
         ] {
             memory
                 .write_initialization(runtime_owner, address, &endpoint.0.to_le_bytes())
@@ -1019,12 +1032,38 @@ impl RegisterClassFixture {
                 0,
             ],
         );
+        write_words(
+            &mut memory,
+            runtime_owner,
+            GuestAddress(WINDOW_IMAGE_STACK_POINTER),
+            &[
+                IMAGE_RETURN_ADDRESS.0,
+                ICON_IMAGE_BASE,
+                101,
+                1,
+                16,
+                16,
+                0x0000_8000,
+            ],
+        );
+        write_words(
+            &mut memory,
+            runtime_owner,
+            GuestAddress(SEND_MESSAGE_STACK_POINTER),
+            &[
+                SEND_MESSAGE_RETURN_ADDRESS.0,
+                0x4801_0001,
+                0x0080,
+                0,
+                0x4901_0002,
+            ],
+        );
 
         let class_words = |index: u32| {
             let mut words = [
                 48,
                 if index == 1 { 0x3020 } else { 0x28 },
-                window_procedure,
+                window_procedure.0,
                 0,
                 0,
                 ICON_IMAGE_BASE,
@@ -1172,6 +1211,36 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let image_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(193),
+            address: IMAGE_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_13dc),
+            iat_address: WINDOW_IMAGE_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "LoadImageA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let send_message_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(229),
+            address: SEND_MESSAGE_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_146c),
+            iat_address: SEND_MESSAGE_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "SendMessageA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let dispatcher = ApiDispatcher::new(
             [
                 icon_endpoint.clone(),
@@ -1179,6 +1248,8 @@ impl RegisterClassFixture {
                 class_endpoint.clone(),
                 create_endpoint.clone(),
                 def_window_proc_endpoint.clone(),
+                image_endpoint.clone(),
+                send_message_endpoint.clone(),
             ],
             [
                 load_icon_a_contract(icon_endpoint.clone()).expect("icon contract"),
@@ -1187,6 +1258,9 @@ impl RegisterClassFixture {
                 create_window_ex_a_contract(create_endpoint.clone()).expect("window contract"),
                 def_window_proc_a_contract(def_window_proc_endpoint.clone())
                     .expect("default window procedure contract"),
+                load_image_a_contract(image_endpoint.clone()).expect("window image contract"),
+                send_message_a_contract(send_message_endpoint.clone())
+                    .expect("synchronous message contract"),
             ],
         )
         .expect("class dispatcher");
@@ -1199,8 +1273,11 @@ impl RegisterClassFixture {
             class_endpoint,
             create_endpoint,
             def_window_proc_endpoint,
+            image_endpoint,
+            send_message_endpoint,
+            window_procedure,
             callback_sentinel,
-            policy: User32CompatibilityPolicy::controlled_v10(),
+            policy: User32CompatibilityPolicy::controlled_v11(),
         }
     }
 
@@ -1239,6 +1316,121 @@ impl RegisterClassFixture {
             self.create_endpoint.clone(),
             GuestAddress(CREATE_STACK_POINTER),
             CREATE_RETURN_ADDRESS,
+        )
+    }
+
+    fn prepare_created_window_and_small_icon(&mut self) -> (u32, u32) {
+        self.prepare_resources();
+        assert!(matches!(
+            self.dispatch_class(0),
+            DispatchOutcome::Immediate(ref completion)
+                if completion.eax == RegisterUpdate::Set(0xc000)
+        ));
+        let image_endpoint = self.image_endpoint.clone();
+        let small_icon = match self.dispatch_endpoint(
+            image_endpoint,
+            GuestAddress(WINDOW_IMAGE_STACK_POINTER),
+            IMAGE_RETURN_ADDRESS,
+        ) {
+            DispatchOutcome::Immediate(completion) => match completion.eax {
+                RegisterUpdate::Set(handle) => handle,
+                other => panic!("expected small HICON result, got {other:?}"),
+            },
+            other => panic!("expected small icon completion, got {other:?}"),
+        };
+        assert_eq!(small_icon, 0x4901_0002);
+
+        let mut call = match self.dispatch_create() {
+            DispatchOutcome::GuestCallback(call) => call,
+            other => panic!("expected logical window creation callback, got {other:?}"),
+        };
+        let window_handle = self.runtime.windows().values().next().unwrap().handle;
+        let mut frame_id = ExecutionSession::new(&mut self.memory, &mut self.runtime)
+            .begin_guest_callback(&call)
+            .expect("enter first creation callback")
+            .frame_id;
+        self.acknowledge_pending_delta();
+        for (index, result) in [1_u32, 0, 0, 0, 0].into_iter().enumerate() {
+            let completion_policy = call.request.completion_policy;
+            let endpoint = call.frame.endpoint.clone();
+            let outcome = {
+                let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+                self.dispatcher
+                    .complete_guest_callback_result(call.clone(), result, &mut session)
+            };
+            if index < 4 {
+                let next = match outcome {
+                    DispatchOutcome::GuestCallback(next) => next,
+                    other => panic!("expected replacement creation callback, got {other:?}"),
+                };
+                let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+                let prepared = session
+                    .replace_guest_callback(&next, frame_id)
+                    .expect("replace creation callback");
+                assert!(matches!(
+                    session
+                        .commit_guest_callback_semantics(completion_policy, result, &endpoint)
+                        .expect("commit creation callback semantics"),
+                    Some(RuntimeWindowCreationCallbackAction::Continue { .. })
+                ));
+                frame_id = prepared.frame_id;
+                call = next;
+                self.acknowledge_pending_delta();
+            } else {
+                assert!(matches!(
+                    outcome,
+                    DispatchOutcome::Immediate(ref completion)
+                        if completion.eax == RegisterUpdate::Set(window_handle)
+                ));
+                self.runtime
+                    .pop_callback_frame(frame_id)
+                    .expect("retire final creation callback");
+                assert!(matches!(
+                    ExecutionSession::new(&mut self.memory, &mut self.runtime)
+                        .commit_guest_callback_semantics(completion_policy, result, &endpoint,)
+                        .expect("commit final creation callback semantics"),
+                    Some(RuntimeWindowCreationCallbackAction::Created { .. })
+                ));
+            }
+        }
+        assert_eq!(
+            self.runtime.window(window_handle).unwrap().lifecycle,
+            RuntimeWindowLifecycle::Created
+        );
+        (window_handle, small_icon)
+    }
+
+    fn configure_send_message(
+        &mut self,
+        window_handle: u32,
+        message: u32,
+        w_param: u32,
+        l_param: u32,
+    ) {
+        let words = [
+            SEND_MESSAGE_RETURN_ADDRESS.0,
+            window_handle,
+            message,
+            w_param,
+            l_param,
+        ];
+        self.memory
+            .write(
+                GuestAddress(SEND_MESSAGE_STACK_POINTER),
+                &words
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write SendMessageA frame");
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_send_message(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.send_message_endpoint.clone(),
+            GuestAddress(SEND_MESSAGE_STACK_POINTER),
+            SEND_MESSAGE_RETURN_ADDRESS,
         )
     }
 
@@ -1306,6 +1498,36 @@ impl RegisterClassFixture {
             },
         )
     }
+}
+
+fn assert_send_message_fault_is_atomic(
+    fixture: &mut RegisterClassFixture,
+    expected_class: ApiFaultClass,
+    expected_code: &str,
+) {
+    let runtime_before = fixture.runtime.clone();
+    let memory_before = fixture.memory.stats();
+    let memory_hash_before = fixture
+        .memory
+        .current_reflection()
+        .expect("current SendMessageA reflection")
+        .content_sha256;
+    let fault = match fixture.dispatch_send_message() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected SendMessageA fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, expected_class);
+    assert_eq!(fault.code, expected_code);
+    assert_eq!(fixture.runtime, runtime_before);
+    assert_eq!(fixture.memory.stats(), memory_before);
+    assert_eq!(
+        fixture
+            .memory
+            .current_reflection()
+            .expect("unchanged SendMessageA reflection")
+            .content_sha256,
+        memory_hash_before
+    );
 }
 
 #[test]
@@ -1418,6 +1640,38 @@ fn load_image_a_contract_is_six_argument_stdcall_with_handler_last_error() {
     assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
     assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn send_message_a_contract_is_four_argument_stdcall_callback_with_lresult() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(229),
+        address: SEND_MESSAGE_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_146c),
+        iat_address: SEND_MESSAGE_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SendMessageA".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = send_message_a_contract(endpoint).expect("SendMessageA contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 4);
+    assert!(matches!(
+        contract.abi.arguments[3].value,
+        ApiValueSchema::ScalarOrPointer { .. }
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Required);
 }
 
 #[test]
@@ -1806,6 +2060,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
         .expect("metrics policy")
         .small_icon_height = None;
     small_icon_disabled.policy.load_image_a = None;
+    small_icon_disabled.policy.send_message_a = None;
     let generation = small_icon_disabled.memory.stats().generation;
     let last_error = small_icon_disabled
         .runtime
@@ -1834,6 +2089,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
         .expect("metrics policy")
         .small_icon_width = None;
     small_icon_width_disabled.policy.load_image_a = None;
+    small_icon_width_disabled.policy.send_message_a = None;
     let generation = small_icon_width_disabled.memory.stats().generation;
     let last_error = small_icon_width_disabled
         .runtime
@@ -1862,6 +2118,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
     disabled.policy.create_window_ex_a = None;
     disabled.policy.invalid_menu_chain = None;
     disabled.policy.load_image_a = None;
+    disabled.policy.send_message_a = None;
     let fault = match disabled.dispatch(0) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected disabled metrics policy fault, got {other:?}"),
@@ -2000,6 +2257,7 @@ fn load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity() {
     let mut disabled = IconFixture::new();
     disabled.policy.load_icon_a = None;
     disabled.policy.load_image_a = None;
+    disabled.policy.send_message_a = None;
     let fault = match disabled.dispatch(0) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected disabled icon policy fault, got {other:?}"),
@@ -2162,6 +2420,7 @@ fn load_image_a_negative_variants_are_failure_atomic() {
 
     let mut disabled = IconFixture::new();
     disabled.policy.load_image_a = None;
+    disabled.policy.send_message_a = None;
     let fault = match disabled.dispatch_image(0) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected disabled LoadImageA policy fault, got {other:?}"),
@@ -2651,6 +2910,234 @@ fn create_window_ex_a_runs_ordered_callback_replacement_and_default_nonclient_ge
             .unwrap()
             .callback_frames
             .is_empty()
+    );
+}
+
+#[test]
+fn send_message_a_dispatches_same_thread_small_icon_to_registered_window_procedure() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, icon_handle) = fixture.prepare_created_window_and_small_icon();
+    fixture.configure_send_message(window_handle, 0x0080, 0, icon_handle);
+    fixture
+        .runtime
+        .set_current_last_error(0x2468_1357)
+        .expect("seed SendMessageA LastError");
+    let windows_before = fixture.runtime.windows().clone();
+    let icons_before = fixture.runtime.icons().clone();
+    let memory_generation_before = fixture.memory.stats().generation;
+
+    let call = match fixture.dispatch_send_message() {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected SendMessageA window callback, got {other:?}"),
+    };
+    assert_eq!(call.request.target, fixture.window_procedure);
+    assert_eq!(
+        call.request.arguments,
+        [window_handle, 0x0080, 0, icon_handle]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    assert!(call.request.scratch.is_empty());
+    assert!(call.request.scratch_pointer_relocations.is_empty());
+    assert_eq!(call.request.return_sentinel, fixture.callback_sentinel);
+    assert_eq!(
+        call.request.completion_policy,
+        GuestCallbackCompletionPolicy::ReturnU32
+    );
+    assert_eq!(fixture.runtime.windows(), &windows_before);
+    assert_eq!(fixture.runtime.icons(), &icons_before);
+    assert_eq!(fixture.memory.stats().generation, memory_generation_before);
+    assert!(
+        fixture
+            .runtime
+            .current_thread_state()
+            .unwrap()
+            .callback_frames
+            .is_empty()
+    );
+
+    let prepared = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime)
+        .begin_guest_callback(&call)
+        .expect("enter SendMessageA callback");
+    fixture.acknowledge_pending_delta();
+    assert_eq!(prepared.scratch_address, GuestAddress(0));
+    assert_eq!(prepared.scratch_bytes, 0);
+    assert_eq!(prepared.frame_bytes, 20);
+    assert_eq!(
+        prepared.allocation_start,
+        GuestAddress(SEND_MESSAGE_STACK_POINTER - 20)
+    );
+    assert_eq!(prepared.stack_pointer, prepared.allocation_start);
+    let callback_frame = fixture
+        .memory
+        .read(prepared.stack_pointer, 20)
+        .expect("read SendMessageA callback frame");
+    assert_eq!(
+        callback_frame,
+        [
+            fixture.callback_sentinel.0,
+            window_handle,
+            0x0080,
+            0,
+            icon_handle,
+        ]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>()
+    );
+
+    let default_completion =
+        match fixture.dispatch_def_window_proc(window_handle, 0x0080, icon_handle) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected nested WM_SETICON default completion, got {other:?}"),
+        };
+    assert_eq!(default_completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(default_completion.last_error, 0x2468_1357);
+    assert!(default_completion.guest_writes.is_empty());
+
+    let callback_result = 0x89ab_cdef;
+    let completion = {
+        let mut session = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime);
+        match fixture
+            .dispatcher
+            .complete_guest_callback_result(call, callback_result, &mut session)
+        {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected completed SendMessageA, got {other:?}"),
+        }
+    };
+    fixture
+        .runtime
+        .pop_callback_frame(prepared.frame_id)
+        .expect("retire SendMessageA callback frame");
+    assert_eq!(completion.eax, RegisterUpdate::Set(callback_result));
+    assert_eq!(completion.last_error, 0x2468_1357);
+    assert_eq!(completion.instruction_pointer, SEND_MESSAGE_RETURN_ADDRESS);
+    assert_eq!(
+        completion.stack_pointer,
+        GuestAddress(SEND_MESSAGE_STACK_POINTER + 20)
+    );
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(fixture.runtime.windows(), &windows_before);
+    assert_eq!(fixture.runtime.icons(), &icons_before);
+    assert!(
+        fixture
+            .runtime
+            .current_thread_state()
+            .unwrap()
+            .callback_frames
+            .is_empty()
+    );
+}
+
+#[test]
+fn send_message_a_rejects_wrong_identity_lifecycle_thread_and_variant_atomically() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, icon_handle) = fixture.prepare_created_window_and_small_icon();
+
+    for (message, w_param, code) in [
+        (0x0081, 0, "send-message-a-message-unsupported"),
+        (0x0080, 1, "send-message-a-wparam-unsupported"),
+    ] {
+        fixture.configure_send_message(window_handle, message, w_param, icon_handle);
+        assert_send_message_fault_is_atomic(&mut fixture, ApiFaultClass::Unsupported, code);
+    }
+
+    fixture.configure_send_message(0, 0x0080, 0, icon_handle);
+    assert_send_message_fault_is_atomic(
+        &mut fixture,
+        ApiFaultClass::InvalidCall,
+        "null-logical-handle-forbidden",
+    );
+    for invalid_window in [0x4301_0001, 0x4801_ffff] {
+        fixture.configure_send_message(invalid_window, 0x0080, 0, icon_handle);
+        assert_send_message_fault_is_atomic(
+            &mut fixture,
+            ApiFaultClass::InvalidCall,
+            "window-handle-unknown",
+        );
+    }
+
+    fixture.configure_send_message(window_handle, 0x0080, 0, 0x4901_0001);
+    assert_send_message_fault_is_atomic(
+        &mut fixture,
+        ApiFaultClass::InvalidCall,
+        "window-message-icon-variant-invalid",
+    );
+    for invalid_icon in [0, 0x4301_0001, 0x4901_ffff] {
+        fixture.configure_send_message(window_handle, 0x0080, 0, invalid_icon);
+        assert_send_message_fault_is_atomic(
+            &mut fixture,
+            ApiFaultClass::InvalidCall,
+            "icon-handle-unknown",
+        );
+    }
+
+    fixture.policy.send_message_a = None;
+    fixture.configure_send_message(window_handle, 0x0080, 0, icon_handle);
+    assert_send_message_fault_is_atomic(
+        &mut fixture,
+        ApiFaultClass::Unsupported,
+        "send-message-a-policy-disabled",
+    );
+}
+
+#[test]
+fn send_message_a_rejects_creating_cross_thread_and_unexecutable_callback_atomically() {
+    let mut creating = RegisterClassFixture::new();
+    creating.prepare_resources();
+    assert!(matches!(
+        creating.dispatch_class(0),
+        DispatchOutcome::Immediate(_)
+    ));
+    let image_endpoint = creating.image_endpoint.clone();
+    assert!(matches!(
+        creating.dispatch_endpoint(
+            image_endpoint,
+            GuestAddress(WINDOW_IMAGE_STACK_POINTER),
+            IMAGE_RETURN_ADDRESS,
+        ),
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(0x4901_0002)
+    ));
+    assert!(matches!(
+        creating.dispatch_create(),
+        DispatchOutcome::GuestCallback(_)
+    ));
+    let creating_handle = creating.runtime.windows().values().next().unwrap().handle;
+    creating.configure_send_message(creating_handle, 0x0080, 0, 0x4901_0002);
+    assert_send_message_fault_is_atomic(
+        &mut creating,
+        ApiFaultClass::InvalidCall,
+        "window-message-lifecycle-state-invalid",
+    );
+
+    let mut cross_thread = RegisterClassFixture::new();
+    let (window_handle, icon_handle) = cross_thread.prepare_created_window_and_small_icon();
+    cross_thread
+        .runtime
+        .register_thread(RuntimeThreadId(0x2001), 0x1357_2468)
+        .expect("register non-owner thread");
+    cross_thread
+        .runtime
+        .select_thread(RuntimeThreadId(0x2001))
+        .expect("select non-owner thread");
+    cross_thread.configure_send_message(window_handle, 0x0080, 0, icon_handle);
+    assert_send_message_fault_is_atomic(
+        &mut cross_thread,
+        ApiFaultClass::InvalidCall,
+        "window-message-owner-thread-mismatch",
+    );
+
+    let mut callback_preflight = RegisterClassFixture::new();
+    let (window_handle, icon_handle) = callback_preflight.prepare_created_window_and_small_icon();
+    callback_preflight.callback_sentinel = MEMORY_BASE;
+    callback_preflight.configure_send_message(window_handle, 0x0080, 0, icon_handle);
+    assert_send_message_fault_is_atomic(
+        &mut callback_preflight,
+        ApiFaultClass::InvalidCall,
+        "guest-page-fault",
     );
 }
 

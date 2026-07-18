@@ -13,14 +13,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `bgi-load-image-a-small-icon`: 1397 calls across 73 API contracts, memory generation 1647 |
+| Active runtime | `bgi-send-message-a-small-icon`: 1401 calls across 74 API contracts, memory generation 1653 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (36 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `USER32.dll!SendMessageA(0x48010001, 0x00000080, 0x00000000, 0x49010002)` at instruction 11476536: `endpoint-contract-missing` |
+| Next structured stop | `USER32.dll!SetWindowPos(0x48010001, 0xfffffffe, 0x00003c00, 0x000021c0, 0x00000000, 0x00000000, 0x00000559)` at instruction 11476612: `endpoint-contract-missing` |
 
-The active semantic report is 10,324,486 bytes with SHA-256
-`557d13289a61d194d4a6e94cea0c460ee9e2c0d268b63c68d4f22234e11eed4d`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 10,378,226 bytes with SHA-256
+`1c7a0ee4a0e02830eef104877bdb2bb8c65f684d45744472adc9bf557fbe4b36`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
@@ -97,6 +97,7 @@ The active semantic report is 10,324,486 bytes with SHA-256
 - `KERNEL32.dll!SetFilePointer`
 - `KERNEL32.dll!CloseHandle`
 - `USER32.dll!LoadImageA`
+- `USER32.dll!SendMessageA`
 
 ### Reproduce Current Checkpoint
 

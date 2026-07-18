@@ -41,6 +41,7 @@ SUPPORTED_OBSERVATIONS = (
     "create-waitable-timer-a",
     "load-icon-a",
     "load-image-a",
+    "send-message-a",
     "load-cursor-a",
     "register-class-ex-a",
     "create-window-ex-a",

@@ -105,6 +105,7 @@ use super::user32::{
     RuntimeRegisterClassExAResult, RuntimeUser32, RuntimeWindow, RuntimeWindowClass,
     RuntimeWindowClassId, RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowId,
+    RuntimeWindowProcedure,
 };
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
@@ -2969,6 +2970,23 @@ impl RuntimeKernel {
 
     pub fn windows(&self) -> &BTreeMap<RuntimeWindowId, RuntimeWindow> {
         self.user32.windows()
+    }
+
+    pub(crate) fn resolve_small_icon_window_procedure(
+        &self,
+        window_handle: u32,
+        icon_handle: u32,
+        icon_width: u16,
+        icon_height: u16,
+    ) -> Result<RuntimeWindowProcedure, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32.resolve_small_icon_window_procedure(
+            window_handle,
+            self.current_thread_id(),
+            icon_handle,
+            icon_width,
+            icon_height,
+        )
     }
 
     fn validate_window_creation_authority(

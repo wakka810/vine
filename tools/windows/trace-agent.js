@@ -142,6 +142,10 @@ let loadImageAOracleEvidence = null;
 let loadImageACompletionRecorded = false;
 let loadImageADrainCheckScheduled = false;
 const loadImageAMainModuleCalls = [];
+let sendMessageACompletionRecorded = false;
+let sendMessageADrainCheckScheduled = false;
+const sendMessageAMainModuleCalls = [];
+const sendMessageAWindowProcedureCalls = [];
 let loadCursorAOracleScheduled = false;
 let loadCursorAOracleCall = null;
 let loadCursorAOracleComplete = false;
@@ -3448,6 +3452,184 @@ function attachCreateWindowExAHook(module) {
       if (!createWindowExACompletionRecorded) {
         createWindowExAMainModuleCalls.push(completed);
         setImmediate(maybeCompleteCreateWindowExAObservation);
+      }
+    },
+  });
+}
+
+function attachBgiMainWindowProcedureHook() {
+  const procedureRva = 0x00092550;
+  if (procedureRva >= Process.mainModule.size) {
+    throw new Error("BGI main window procedure RVA is outside the main module");
+  }
+  const address = Process.mainModule.base.add(procedureRva);
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      this.message = args[1].toUInt32();
+      if (this.message !== 0x0080) {
+        this.traceFrame = null;
+        return;
+      }
+      this.windowHandle = args[0].toString();
+      this.wParam = args[2].toUInt32();
+      this.lParam = args[3].toUInt32();
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.traceFrame = beginCall(
+        {
+          module: Process.mainModule.name,
+          api: "MainWindowProc",
+          arguments: [
+            this.windowHandle,
+            this.message,
+            this.wParam,
+            this.lParam,
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          windowProcedure: {
+            profile: "bgi-main-window-procedure-rva-00092550-v1",
+            procedureRva,
+            windowHandle: this.windowHandle,
+            message: this.message,
+            wParam: this.wParam,
+            lParam: this.lParam,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      const resultU32 = result.toUInt32();
+      finishCall(
+        this.traceFrame,
+        {
+          module: Process.mainModule.name,
+          api: "MainWindowProc",
+          result: resultValue,
+          windowProcedure: { result: resultValue, resultU32 },
+        },
+        this.lastError,
+      );
+      sendMessageAWindowProcedureCalls.push({
+        callId: this.traceFrame.callId,
+        parentCallId: this.traceFrame.parentCallId,
+        returnAddress: this.returnAddress.toString(),
+        windowHandle: this.windowHandle,
+        message: this.message,
+        wParam: this.wParam,
+        lParam: this.lParam,
+        result: resultValue,
+        resultU32,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+      });
+    },
+  });
+}
+
+function attachSendMessageAHook(module) {
+  const name = "SendMessageA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+  attachBgiMainWindowProcedureHook();
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+        this.traceFrame = null;
+        return;
+      }
+      this.windowHandle = args[0].toString();
+      this.message = args[1].toUInt32();
+      this.wParam = args[2].toUInt32();
+      this.lParam = args[3].toUInt32();
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructionsFollowingDirectJump(
+          this.returnAddress,
+          48,
+        ),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          6,
+          20,
+        ),
+      };
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.windowHandle,
+            this.message,
+            this.wParam,
+            this.lParam,
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          sendMessageA: {
+            windowHandle: this.windowHandle,
+            message: this.message,
+            wParam: this.wParam,
+            lParam: this.lParam,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      const resultU32 = result.toUInt32();
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          sendMessageA: {
+            result: resultValue,
+            resultU32,
+          },
+        },
+        this.lastError,
+      );
+      if (!sendMessageACompletionRecorded) {
+        sendMessageAMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          windowHandle: this.windowHandle,
+          message: this.message,
+          wParam: this.wParam,
+          lParam: this.lParam,
+          result: resultValue,
+          resultU32,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteSendMessageAObservation);
       }
     },
   });
@@ -8539,6 +8721,46 @@ function scheduleCreateWaitableTimerAOracle(module) {
   });
 }
 
+function maybeCompleteSendMessageAObservation() {
+  if (
+    sendMessageACompletionRecorded ||
+    sendMessageAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteSendMessageAObservation, 10);
+    return;
+  }
+  if (sendMessageADrainCheckScheduled) {
+    return;
+  }
+  sendMessageADrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    sendMessageADrainCheckScheduled = false;
+    if (sendMessageACompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteSendMessageAObservation();
+      return;
+    }
+    sendMessageACompletionRecorded = true;
+    emit("send-message-a-complete", {
+      profile: "x86-bgi-send-message-a-wm-seticon-v1",
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: sendMessageAMainModuleCalls.map((call) => ({ ...call })),
+      windowProcedureCalls: sendMessageAWindowProcedureCalls.map((call) => ({
+        ...call,
+      })),
+    });
+    if (stopOnEvent === "send-message-a-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
 function maybeCompleteLoadIconAObservation() {
   if (
     loadIconACompletionRecorded ||
@@ -11407,6 +11629,20 @@ Process.attachModuleObserver({
       selectedObservations.has("get-system-info")
     ) {
       scheduleGetSystemInfoOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("send-message-a")
+    ) {
+      try {
+        attachSendMessageAHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "SendMessageA",
+          error: error.message,
+        });
+      }
     }
     if (
       module.name.toLowerCase() === "user32.dll" &&

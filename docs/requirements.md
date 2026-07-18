@@ -217,8 +217,11 @@ signalによるrunnable wake、already-signaled completion、process-exit cancel
 [runtime-wait-queue.md](runtime-wait-queue.md)を正とする。
 
 controlled message queueはbounded per-thread raw FIFO、opaque payload、empty block、first-message wake、
-ordered dequeue、exit cleanupをRust metadataで通す。window ownership、Post／Send、Peek／Get、filter、
-WM_QUIT、paint、timer、dispatch callback、guest ABIは未実装なので`REQ-UI-02`はpartialのままである。
+ordered dequeue、exit cleanupをRust metadataで通す。別のproduction window profileはlogical top-level
+HWNDと、createdなowner-thread windowへのbounded `SendMessageA(WM_SETICON, ICON_SMALL)`をregistered
+WndProcの同期callbackとして通すが、window icon stateを変更せずqueueにも統合しない。General window
+routing、Post、queued／cross-thread Send、Peek／Get、filter、WM_QUIT、paint、timer、dispatch guest ABIは
+未実装なので`REQ-UI-02`はpartialのままである。
 詳細は[runtime-message-queue.md](runtime-message-queue.md)を正とする。
 
 ### 7.4 Windows userspace compatibility
