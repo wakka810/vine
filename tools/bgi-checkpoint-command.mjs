@@ -18,9 +18,10 @@ export function bgiProfileOutputDirectory(profile) {
     !profile.startsWith("kernel32-") &&
     !profile.startsWith("user32-") &&
     !profile.startsWith("ole32-") &&
-    !profile.startsWith("winmm-")
+    !profile.startsWith("winmm-") &&
+    !profile.startsWith("d3d9-")
   ) {
-    throw new Error(`BGI profile must be baseline or a Win32 capability: ${profile}`);
+    throw new Error(`BGI profile must be baseline or a runtime capability: ${profile}`);
   }
   return `v86-bgi-${profile.replace(/^(?:kernel32|user32|ole32|winmm)-/u, "")}`;
 }

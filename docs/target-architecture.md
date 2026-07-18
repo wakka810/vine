@@ -634,6 +634,18 @@ GDI bitmap と DirectDraw surface が共有できる CPU-visible pixel storage a
 
 GDI semantics と DirectDraw semantics を同一 object に押し込まず、storage と presentation backend だけを共有する。D3D9 の render target、texture、vertex buffer、device state は別 frontend が所有する。
 
+Direct3Dの世代境界もguest-facing stateでは統合しない。D3D8、D3D9と、将来scopeを再開した場合の
+D3D10／11は、それぞれのABI、COM identity、device／resource state、loss semanticsを独立したfrontendが
+所有する。WineD3Dに相当する共有層はWindows interfaceを模倣する層ではなく、frontendが検証済みの
+logical device／resource／commandを渡すRust内部の`RuntimeGraphics` boundaryとする。これは複数frontendの
+共通事実を抽出する場所であり、COM pointer、vtable slot、D3D version固有enumをauthorityとして保持しない。
+
+`RuntimeGraphics`はD3D9 `CreateDevice` gatewayで最初のlogical deviceとpresentation contractが確定した時に
+最小vertical sliceとして導入する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
+graphics stateを作らない。Browser側はさらにその下のrenderer adapterだけを所有し、Rust device/resource IDとの
+関連は別namespaceのnon-owning associationにする。この順序により、未到達D3D8／10／11 frameworkを先行実装せず、
+後からfrontendを追加できるtranslation seamを今のauthority境界で確保する。
+
 ### 13.2 GDI frontend
 
 DC state、selected object、mapping、clip、ROP、font metric を runtime model に保持する。Canvas text の結果を Windows GDI と同一と仮定せず、glyph rasterization と font substitution の選択を ADR にする。

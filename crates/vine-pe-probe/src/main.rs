@@ -13,16 +13,17 @@ use serde::{Deserialize, Serialize};
 use vine_core::{
     ApiContract, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass, ApiGuestCallbackCall,
     ApiImmediateCompletion, ApiOwnedTrap, ApiSymbol, ApiTrap, CONTROLLED_COMMAND_LINE,
-    CallbackReturnSentinel, CpuWritebackReceipt, DispatchOutcome, DynamicExportThunk,
-    ExecutionSession, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestPageReconciliation, GuestWriteResult, ImageMaterialization, ImageMemoryLayout,
-    ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition, InitialProcessEnvironment,
-    InitialThreadStack, Kernel32CompatibilityPolicy, LoaderError, LoaderErrorClass,
-    LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
-    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
-    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
-    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState, RuntimeDllLifecycleAction,
+    CallbackReturnSentinel, ComCallCompletion, ComCallTrap, ComDispatchOutcome, ComFault,
+    CpuWritebackReceipt, DispatchOutcome, DynamicExportThunk, ExecutionSession, GuestAddress,
+    GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation,
+    GuestWriteResult, ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget,
+    ImportThunk, ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
+    Kernel32CompatibilityPolicy, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
+    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
+    ModuleSnapshot, Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
+    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
     RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
     RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
@@ -35,12 +36,13 @@ use vine_core::{
     RuntimeWaitableTimer, SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION,
     TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint, User32CompatibilityPolicy,
     WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, complete_kernel32_source_read, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
+    dispatch_d3d9_api, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
+    dispatch_ole32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
+    encode_pointer_contract, get_current_process_id_contract, get_current_thread_id_contract,
+    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
+    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
+    heap_set_information_contract, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
@@ -169,6 +171,7 @@ enum GenericRuntimeCapability {
     LoadImageASmallIcon,
     SendMessageASmallIcon,
     SetWindowPosInitialPlacement,
+    D3d9RootFactoryAndIdentity,
 }
 
 struct GenericRuntimeProcess {
@@ -195,6 +198,7 @@ struct GenericRuntimeActiveCallback {
 enum GenericRuntimeTrapKind {
     RuntimeSystemExport,
     DynamicExport,
+    ComMethod,
 }
 
 #[derive(Debug, Deserialize)]
@@ -357,6 +361,17 @@ struct GenericRuntimeSessionReady {
 enum GenericRuntimeEndpoint {
     RuntimeSystemExport { endpoint: ApiEndpointIdentity },
     DynamicExport { endpoint: RuntimeDynamicEndpoint },
+    ComMethod { target: RuntimeComMethodTarget },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeComCompletion {
+    schema: &'static str,
+    schema_version: u32,
+    endpoint: GenericRuntimeEndpoint,
+    completion: ComCallCompletion,
+    memory: MemoryStats,
 }
 
 #[derive(Debug, Serialize)]
@@ -484,6 +499,18 @@ struct GenericRuntimeFault {
     capability_cluster: String,
     endpoint: GenericRuntimeEndpoint,
     fault: ApiFault,
+    memory: MemoryStats,
+    memory_content_sha256: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeComFault {
+    schema: &'static str,
+    schema_version: u32,
+    capability_cluster: String,
+    endpoint: GenericRuntimeEndpoint,
+    fault: ComFault,
     memory: MemoryStats,
     memory_content_sha256: String,
 }
@@ -2813,6 +2840,9 @@ fn generic_runtime_contract_for_endpoint(
     if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = d3d9_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
     winmm_contract_for_endpoint(endpoint).map_err(api_fault)
 }
 
@@ -2825,6 +2855,14 @@ fn run_v86_generic_runtime_session(
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
     let requested_capability = enabled_capability;
+    let user32_capability = if matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::D3d9RootFactoryAndIdentity)
+    ) {
+        Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
+    } else {
+        requested_capability
+    };
     let endpoint_capability = match enabled_capability {
         Some(
             GenericRuntimeCapability::LoadIconA
@@ -2838,13 +2876,14 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
             | GenericRuntimeCapability::LoadImageASmallIcon
             | GenericRuntimeCapability::SendMessageASmallIcon
-            | GenericRuntimeCapability::SetWindowPosInitialPlacement,
+            | GenericRuntimeCapability::SetWindowPosInitialPlacement
+            | GenericRuntimeCapability::D3d9RootFactoryAndIdentity,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
     let mut user32_policy = User32CompatibilityPolicy::controlled_v13();
     if !matches!(
-        requested_capability,
+        user32_capability,
         Some(
             GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
@@ -2860,7 +2899,7 @@ fn run_v86_generic_runtime_session(
             .small_icon_height = None;
     }
     if !matches!(
-        requested_capability,
+        user32_capability,
         Some(
             GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
                 | GenericRuntimeCapability::LoadImageASmallIcon
@@ -2875,7 +2914,7 @@ fn run_v86_generic_runtime_session(
             .small_icon_width = None;
     }
     if !matches!(
-        requested_capability,
+        user32_capability,
         Some(
             GenericRuntimeCapability::LoadImageASmallIcon
                 | GenericRuntimeCapability::SendMessageASmallIcon
@@ -2885,7 +2924,7 @@ fn run_v86_generic_runtime_session(
         user32_policy.load_image_a = None;
     }
     if !matches!(
-        requested_capability,
+        user32_capability,
         Some(
             GenericRuntimeCapability::SendMessageASmallIcon
                 | GenericRuntimeCapability::SetWindowPosInitialPlacement
@@ -2894,7 +2933,7 @@ fn run_v86_generic_runtime_session(
         user32_policy.send_message_a = None;
     }
     if !matches!(
-        requested_capability,
+        user32_capability,
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
     ) {
         user32_policy.set_window_pos = None;
@@ -3661,6 +3700,8 @@ fn run_v86_generic_runtime_session(
                             dispatch_ole32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
                             dispatch_winmm_api_with_policy(&winmm_policy, contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("d3d9.dll") {
+                            dispatch_d3d9_api(contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 &kernel32_policy,
@@ -4280,6 +4321,55 @@ fn run_v86_generic_runtime_session(
                     }
                 }
             }
+            GenericRuntimeTrapKind::ComMethod => {
+                if !matches!(
+                    requested_capability,
+                    Some(GenericRuntimeCapability::D3d9RootFactoryAndIdentity)
+                ) || trap.endpoint_id != 0
+                {
+                    return Err(LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "com-runtime-trap-capability-invalid",
+                        "generic COM traps require the active D3D9 root capability and endpoint ID zero",
+                    ));
+                }
+                let endpoint_address = GuestAddress(trap.endpoint_address);
+                let target = process
+                    .runtime
+                    .resolve_com_method(endpoint_address)
+                    .map_err(runtime_state_error)?;
+                let endpoint = GenericRuntimeEndpoint::ComMethod {
+                    target: target.clone(),
+                };
+                let outcome = {
+                    let mut session = ExecutionSession::new(memory, &mut process.runtime);
+                    session.dispatch_com_call(ComCallTrap {
+                        endpoint_address,
+                        stack_pointer: GuestAddress(trap.stack_pointer),
+                        return_address: GuestAddress(trap.return_address),
+                        call_site: GuestAddress(trap.return_address),
+                    })
+                };
+                match outcome {
+                    ComDispatchOutcome::Completed(completion) => {
+                        send_pending_runtime_delta(input, memory)?;
+                        write_runtime_json_frame(
+                            RUNTIME_FRAME_API_COMPLETION,
+                            &GenericRuntimeComCompletion {
+                                schema: "vine.v86-generic-runtime-com-completion",
+                                schema_version: 1,
+                                endpoint,
+                                completion,
+                                memory: memory.stats(),
+                            },
+                        )?;
+                    }
+                    ComDispatchOutcome::Fault(fault) => {
+                        write_generic_runtime_com_fault(memory, endpoint, fault)?;
+                        return Ok(());
+                    }
+                }
+            }
         }
     }
     Err(LoaderError::resource_limit(
@@ -4293,10 +4383,15 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let set_window_pos_enabled = matches!(
+    let d3d9_root_factory_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
+        Some(GenericRuntimeCapability::D3d9RootFactoryAndIdentity)
     );
+    let set_window_pos_enabled = d3d9_root_factory_enabled
+        || matches!(
+            enabled,
+            Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
+        );
     let send_message_a_enabled = set_window_pos_enabled
         || matches!(
             enabled,
@@ -4313,6 +4408,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::LoadImageASmallIcon
                 | GenericRuntimeCapability::SendMessageASmallIcon
                 | GenericRuntimeCapability::SetWindowPosInitialPlacement
+                | GenericRuntimeCapability::D3d9RootFactoryAndIdentity
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -4779,6 +4875,7 @@ fn runtime_capability_enables_endpoint(
         "SendMessageA" => send_message_a_enabled,
         "SetWindowPos" => set_window_pos_enabled,
         "LoadCursorA" => load_cursor_a_enabled,
+        "Direct3DCreate9" => d3d9_root_factory_enabled,
         "RegisterClassExA" => register_class_ex_a_enabled,
         "GetSystemMetrics" => get_system_metrics_enabled,
         "CreateWindowExA" | "DefWindowProcA" | "GetSystemMenu" | "EnableMenuItem" => {
@@ -4795,6 +4892,14 @@ fn runtime_capability_enables_dynamic_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &RuntimeDynamicEndpoint,
 ) -> bool {
+    let enabled = if matches!(
+        enabled,
+        Some(GenericRuntimeCapability::D3d9RootFactoryAndIdentity)
+    ) {
+        Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
+    } else {
+        enabled
+    };
     let enabled = if matches!(
         enabled,
         Some(
@@ -5132,8 +5237,36 @@ fn write_generic_runtime_fault(
     )
 }
 
+fn write_generic_runtime_com_fault(
+    memory: &GuestMemory,
+    endpoint: GenericRuntimeEndpoint,
+    fault: ComFault,
+) -> Result<(), LoaderError> {
+    let capability_cluster = runtime_capability_cluster(&endpoint);
+    let memory_content_sha256 = memory
+        .current_reflection()
+        .map_err(memory_error)?
+        .content_sha256;
+    write_runtime_json_frame(
+        RUNTIME_FRAME_API_FAULT,
+        &GenericRuntimeComFault {
+            schema: "vine.v86-generic-runtime-com-fault",
+            schema_version: 1,
+            capability_cluster,
+            endpoint,
+            fault,
+            memory: memory.stats(),
+            memory_content_sha256,
+        },
+    )
+}
+
 fn runtime_capability_cluster(endpoint: &GenericRuntimeEndpoint) -> String {
     match endpoint {
+        GenericRuntimeEndpoint::ComMethod { target } if target.interface.name == "IDirect3D9" => {
+            "d3d9-idirect3d9-method".to_owned()
+        }
+        GenericRuntimeEndpoint::ComMethod { .. } => "com-method-dispatch".to_owned(),
         GenericRuntimeEndpoint::DynamicExport { endpoint }
             if endpoint.module.eq_ignore_ascii_case("kernel32.dll")
                 && endpoint.name.starts_with("Fls") =>
@@ -10379,6 +10512,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "user32-set-window-pos-initial-placement" => {
                     GenericRuntimeCapability::SetWindowPosInitialPlacement
+                }
+                "d3d9-root-factory-and-identity" => {
+                    GenericRuntimeCapability::D3d9RootFactoryAndIdentity
                 }
                 _ => return Err(usage_error()),
             };

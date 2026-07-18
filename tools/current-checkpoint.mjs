@@ -398,7 +398,7 @@ export function validateCurrentCheckpoint(manifest) {
     sourceEvidence.watchdogSourceReadCompletions !== 0 ||
     sourceEvidence.watchdogPendingHostCallsAfterCleanup !== 0 ||
     sourceEvidence.watchdogPendingCallbacksAfterCleanup !== 0 ||
-    sourceEvidence.reportBytes !== 23_274
+    sourceEvidence.reportBytes !== 23_480
   ) {
     errors.push("browser immutable source-read evidence is invalid");
   }
@@ -484,7 +484,7 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     bgiBrowserEvidence.nodeRole !== "semantic-oracle-only" ||
     bgiBrowserEvidence.runtimeStateAuthority !== "rust-wasm-in-runtime-worker" ||
-    bgiMappingOperations.reserve !== 3 ||
+    bgiMappingOperations.reserve !== 4 ||
     bgiMappingOperations.commit < 1 ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
@@ -775,7 +775,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeSubsystemTests.join(",") !==
       "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::shared_cursor_capacity_failure_preserves_identity_and_allocators,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::user32::tests::small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -837,6 +837,11 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.runtimeComFoundation.faultIdentityFields",
     errors,
   );
+  const concreteComInterfaces = requireStringArray(
+    comFoundation.concreteInterfaces,
+    "activeRuntimeCheckpoint.runtimeComFoundation.concreteInterfaces",
+    errors,
+  );
   if (
     comFoundation.schema !== "vine.runtime-com-foundation.v2" ||
     comFoundation.status !== "implemented-and-verified" ||
@@ -859,7 +864,7 @@ export function validateCurrentCheckpoint(manifest) {
     comMethods.join(",") !== "QueryInterface,AddRef,Release" ||
     comReturnKinds.join(",") !== "hresult,u32" ||
     comFoundation.guestLayout !== "two-page-readonly-data-rx-endpoints" ||
-    comFoundation.endpointInstruction !== "ud2" ||
+    comFoundation.endpointInstruction !== "ud2-vcom-interface-slot-marker" ||
     comFoundation.addressAllocationPurpose !== "com-endpoint" ||
     comFoundation.addressAllocationIdentity !== true ||
     comFoundation.queryInterfaceOutputAndRefcountAtomic !== true ||
@@ -874,16 +879,55 @@ export function validateCurrentCheckpoint(manifest) {
       "browser-resource:<positive-safe-integer>" ||
     comFoundation.browserAssociationOwnsComReference !== false ||
     comFoundation.subsystemTests < 1 ||
-    comFoundation.fixtureTests < 4 ||
-    comFoundation.atomicFailureTests < 3 ||
+    comFoundation.fixtureTests < 6 ||
+    comFoundation.atomicFailureTests < 5 ||
     comFoundation.wholeRuntimeStateClone !== false ||
-    comFoundation.concreteGraphicsOrAudioInterfaces !== false ||
+    comFoundation.concreteGraphicsOrAudioInterfaces !== true ||
+    concreteComInterfaces.join(",") !== "IDirect3D9" ||
     comFoundation.coInitializeApi !== "null-reserved-single-threaded-v1" ||
     comFoundation.coInitializeExApiImplemented !== false ||
     comFoundation.coUninitializeApiImplemented !== false ||
     comFoundation.classFactoryOrAutomationImplemented !== false
   ) {
     errors.push("active runtime COM foundation boundary is invalid");
+  }
+  const d3d9 = requireRecord(
+    active.d3d9Frontend,
+    "activeRuntimeCheckpoint.d3d9Frontend",
+    errors,
+  );
+  const d3d9IUnknownMethods = requireStringArray(
+    d3d9.iunknownMethods,
+    "activeRuntimeCheckpoint.d3d9Frontend.iunknownMethods",
+    errors,
+  );
+  if (
+    d3d9.schema !== "vine.d3d9-frontend.v1" ||
+    d3d9.status !== "root-factory-and-identity-verified" ||
+    d3d9.stateOwner !== "crates/vine-core/src/d3d9.rs" ||
+    d3d9.comAuthority !== "runtime/com.rs::RuntimeCom" ||
+    d3d9.sdkVersion !== 32 ||
+    d3d9.factoryImplementationId !== "d3d9.direct3d-create9.v1" ||
+    d3d9.rootClassIdentity !== "d3d9.idirect3d9-root.v1" ||
+    d3d9.rootInterface !== "IDirect3D9" ||
+    d3d9.rootInterfaceSlots !== 17 ||
+    d3d9.rootInitialReferenceCount !== 1 ||
+    d3d9.invalidSdkReturnsNullBeforeMutation !== true ||
+    d3d9IUnknownMethods.join(",") !== "QueryInterface,AddRef,Release" ||
+    d3d9.backingPages !== 2 ||
+    d3d9.dataPageFinalProtection !== "read-only" ||
+    d3d9.endpointPageFinalProtection !== "read-execute" ||
+    d3d9.workerComResolutionAuthority !== "rust-live-endpoint-index" ||
+    d3d9.browserOwnsComState !== false ||
+    d3d9.versionSpecificFrontendBoundary !== true ||
+    d3d9.sharedGraphicsBoundary !== "RuntimeGraphics-at-CreateDevice-gateway" ||
+    d3d9.runtimeGraphicsCreated !== false ||
+    d3d9.rendererResourceCreated !== false ||
+    d3d9.d3d8Implemented !== false ||
+    d3d9.d3d10Or11Implemented !== false ||
+    d3d9.generalD3d9CompatibilityClaimed !== false
+  ) {
+    errors.push("active D3D9 frontend boundary is invalid");
   }
   const registries = requireRecord(
     active.runtimeRegistries,
@@ -2374,11 +2418,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 17_862 ||
-    latestEvidence.writebackDirtyPages !== 36_000 ||
-    latestEvidence.writebackChangedBytes !== 1_806_863 ||
-    latestEvidence.hostDeltaBatches !== 16_547 ||
-    latestEvidence.finalMemoryGeneration !== 34_481
+    latestEvidence.writebackBatches !== 17_863 ||
+    latestEvidence.writebackDirtyPages !== 36_002 ||
+    latestEvidence.writebackChangedBytes !== 1_806_879 ||
+    latestEvidence.hostDeltaBatches !== 16_548 ||
+    latestEvidence.finalMemoryGeneration !== 34_512
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -2551,6 +2595,37 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("latest SetWindowPos and critical-section capacity evidence is invalid");
   }
+  if (
+    latestEvidence.d3d9RootFactoryImplemented !== true ||
+    latestEvidence.d3d9RootFactorySequence !== 17_816 ||
+    latestEvidence.d3d9RootFactoryInstructionCount !== 11_806_445 ||
+    latestEvidence.d3d9RootFactoryArguments?.join(",") !== "0x00000020" ||
+    latestEvidence.d3d9RootFactoryReturnAddress !== "0x1005b892" ||
+    latestEvidence.d3d9RootFactoryResult !== "0x01000004" ||
+    latestEvidence.d3d9RootFactoryLastError !== 0 ||
+    latestEvidence.d3d9RootFactoryGuestWrites !== 0 ||
+    latestEvidence.d3d9RootFactoryImplementationId !==
+      "d3d9.direct3d-create9.v1" ||
+    latestEvidence.d3d9RootObjectId !== "1" ||
+    latestEvidence.d3d9RootClassIdentity !== "d3d9.idirect3d9-root.v1" ||
+    latestEvidence.d3d9RootReferenceCount !== 1 ||
+    latestEvidence.d3d9RootCanonicalIunknownInterfaceId !== "1" ||
+    latestEvidence.d3d9RootInterfaceId !== "2" ||
+    latestEvidence.d3d9RootInterfaceName !== "IDirect3D9" ||
+    latestEvidence.d3d9RootInterfacePointer !== "0x01000004" ||
+    latestEvidence.d3d9RootInterfaceVtable !== "0x0100001c" ||
+    latestEvidence.d3d9RootInterfaceSlots !== 17 ||
+    latestEvidence.d3d9RootBackingAddressAllocationId !== 41 ||
+    latestEvidence.d3d9RootBackingMemoryOwner !== 13 ||
+    latestEvidence.d3d9RootBackingBase !== "0x01000000" ||
+    latestEvidence.d3d9RootBackingBytes !== 8_192 ||
+    latestEvidence.d3d9RootBackingMappingOperations !== 5 ||
+    latestEvidence.d3d9RootBackingDirtyPages !== 2 ||
+    latestEvidence.d3d9RootBackingFailureAtomicity !== true ||
+    latestEvidence.d3d9RootBrowserOwnsComState !== false
+  ) {
+    errors.push("latest D3D9 root factory evidence is invalid");
+  }
   const createWindowExAGeometry = requireRecord(
     latestEvidence.createWindowExAGeometry,
     "activeRuntimeCheckpoint.latestEvidence.createWindowExAGeometry",
@@ -2602,7 +2677,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "bounded PE group-cursor selection and shared module cursor identity in RuntimeUser32" ||
+      "bounded D3D9 root factory and Rust-owned COM identity" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||
@@ -2685,38 +2760,56 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.canonicalReproductionCommand",
     errors,
   );
+  const currentStop = root.nextStructuredStop ?? {};
+  const currentStopEndpoint =
+    currentStop.kind === "com-method"
+      ? `${currentStop.interface}::${currentStop.method}`
+      : currentStop.api;
   if (
     active.canonicalReproductionCommand !== "npm run check:runtime:bgi-browser" ||
     bgiBrowserEvidence.supportedCalls !== active.genericDispatcherCallOccurrenceCount ||
-    bgiBrowserEvidence.guestInstructions !== root.nextStructuredStop?.instructionCount ||
+    bgiBrowserEvidence.guestInstructions !== currentStop.instructionCount ||
     bgiBrowserEvidence.nodeFinalGeneration !== latestEvidence.finalMemoryGeneration ||
     bgiBrowserEvidence.memoryContentSha256 !== latestEvidence.memoryContentSha256 ||
     bgiBrowserEvidence.nodeOracleReportBytes !== latestEvidence.reportBytes ||
     bgiBrowserEvidence.nodeOracleReportSha256 !== latestEvidence.reportSha256 ||
-    bgiBrowserEvidence.nextCapabilityCluster !== root.nextStructuredStop?.capabilityCluster ||
-    bgiBrowserEvidence.nextEndpoint?.toLowerCase() !==
-      root.nextStructuredStop?.api?.toLowerCase() ||
-    bgiBrowserEvidence.nextFaultCode !== root.nextStructuredStop?.reason ||
-    bgiBrowserEvidence.nextEndpointAddress !== root.nextStructuredStop?.endpointAddress ||
+    bgiBrowserEvidence.nextCapabilityCluster !== currentStop.capabilityCluster ||
+    bgiBrowserEvidence.nextEndpoint?.toLowerCase() !== currentStopEndpoint?.toLowerCase() ||
+    bgiBrowserEvidence.nextFaultCode !== currentStop.reason ||
+    bgiBrowserEvidence.nextEndpointAddress !== currentStop.endpointAddress ||
     bgiBrowserEvidence.nextArguments?.join(",") !==
-      root.nextStructuredStop?.arguments?.join(",") ||
+      currentStop.arguments?.join(",") ||
     latestEvidence.firstStructuredStopInstructionCount !==
-      root.nextStructuredStop?.instructionCount ||
+      currentStop.instructionCount ||
     latestEvidence.firstStructuredStopCapabilityCluster !==
-      root.nextStructuredStop?.capabilityCluster ||
+      currentStop.capabilityCluster ||
     latestEvidence.firstStructuredStopEndpoint?.toLowerCase() !==
-      root.nextStructuredStop?.api?.toLowerCase() ||
-    latestEvidence.firstStructuredStopEndpointKind !== root.nextStructuredStop?.endpointKind ||
-    latestEvidence.firstStructuredStopEndpointId !== root.nextStructuredStop?.endpointId ||
+      currentStopEndpoint?.toLowerCase() ||
+    latestEvidence.firstStructuredStopEndpointKind !== currentStop.endpointKind ||
     latestEvidence.firstStructuredStopEndpointAddress !==
-      root.nextStructuredStop?.endpointAddress ||
+      currentStop.endpointAddress ||
     latestEvidence.firstStructuredStopArguments?.join(",") !==
-      root.nextStructuredStop?.arguments?.join(",") ||
-    latestEvidence.firstStructuredStopIatAddress !== root.nextStructuredStop?.iatAddress ||
-    latestEvidence.firstStructuredStopReturnAddress !== root.nextStructuredStop?.returnAddress ||
-    latestEvidence.firstStructuredStopFault !== root.nextStructuredStop?.reason
+      currentStop.arguments?.join(",") ||
+    latestEvidence.firstStructuredStopReturnAddress !== currentStop.returnAddress ||
+    latestEvidence.firstStructuredStopFault !== currentStop.reason
   ) {
     errors.push("browser BGI evidence must match the active runtime checkpoint");
+  }
+  if (
+    currentStop.kind === "api-endpoint" &&
+    (latestEvidence.firstStructuredStopEndpointId !== currentStop.endpointId ||
+      latestEvidence.firstStructuredStopIatAddress !== currentStop.iatAddress)
+  ) {
+    errors.push("browser BGI API stop identity must match the active runtime checkpoint");
+  }
+  if (
+    currentStop.kind === "com-method" &&
+    (latestEvidence.firstStructuredStopInterface !== currentStop.interface ||
+      latestEvidence.firstStructuredStopVtableSlot !== currentStop.vtableSlot ||
+      latestEvidence.firstStructuredStopMethod !== currentStop.method ||
+      latestEvidence.firstStructuredStopThisPointer !== currentStop.thisPointer)
+  ) {
+    errors.push("browser BGI COM stop identity must match the active runtime checkpoint");
   }
 
   const next = requireRecord(root.nextStructuredStop, "nextStructuredStop", errors);
@@ -2737,6 +2830,20 @@ export function validateCurrentCheckpoint(manifest) {
     }
     if (typeof next.returnAddress !== "string" || !HEX32.test(next.returnAddress)) {
       errors.push("nextStructuredStop.returnAddress must be a 32-bit hex string");
+    }
+  } else if (next.kind === "com-method") {
+    requireString(next.endpointKind, "nextStructuredStop.endpointKind", errors);
+    requireString(next.interface, "nextStructuredStop.interface", errors);
+    requireInteger(next.vtableSlot, "nextStructuredStop.vtableSlot", errors);
+    requireString(next.method, "nextStructuredStop.method", errors);
+    requireOrderedStringArray(next.arguments, "nextStructuredStop.arguments", errors);
+    for (const field of ["thisPointer", "endpointAddress", "returnAddress"]) {
+      if (typeof next[field] !== "string" || !HEX32.test(next[field])) {
+        errors.push(`nextStructuredStop.${field} must be a 32-bit hex string`);
+      }
+    }
+    if (next.endpointKind !== "com-method" || next.vtableSlot < 0) {
+      errors.push("nextStructuredStop COM method identity is inconsistent");
     }
   } else if (next.kind === "execution-fault") {
     if (next.endpoint !== null) {
@@ -2768,7 +2875,9 @@ export function validateCurrentCheckpoint(manifest) {
       errors.push("nextStructuredStop execution fault identity is inconsistent");
     }
   } else {
-    errors.push("nextStructuredStop.kind must be api-endpoint or execution-fault");
+    errors.push(
+      "nextStructuredStop.kind must be api-endpoint, com-method, or execution-fault",
+    );
   }
 
   if (
@@ -2816,6 +2925,9 @@ export function renderReadmeStatus(manifest) {
     next.kind === "execution-fault"
       ? `\`${next.capabilityCluster}\` at instruction ${next.instructionCount}: ` +
         `\`${next.reason}\` at \`${next.fault.faultAddress}\``
+      : next.kind === "com-method"
+        ? `\`${next.interface}::${next.method}(${next.arguments.join(", ")})\` at instruction ` +
+          `${next.instructionCount}: \`${next.reason}\``
       : `\`${next.api}(${next.arguments.join(", ")})\` at instruction ` +
         `${next.instructionCount}: \`${next.reason}\``;
 

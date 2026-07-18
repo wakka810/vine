@@ -522,6 +522,23 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         errors,
       );
     }
+  } else if (checkpoint.nextStructuredStop.kind === "com-method") {
+    for (const field of [
+      "endpointKind",
+      "interface",
+      "vtableSlot",
+      "method",
+      "thisPointer",
+      "endpointAddress",
+      "returnAddress",
+    ]) {
+      checkEqual(
+        next[field],
+        checkpoint.nextStructuredStop[field],
+        `evidence.semantic.nextStructuredStop.${field}`,
+        errors,
+      );
+    }
   } else {
     checkEqual(next.endpoint, null, "evidence.semantic.nextStructuredStop.endpoint", errors);
     const nextFault = requireRecord(

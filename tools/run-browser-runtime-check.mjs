@@ -1063,6 +1063,21 @@ function validateBgiEquivalence(browser, oracle) {
       browserStop.fault.pageFaultErrorCode,
       oracleStop.fault.pageFaultErrorCode,
     );
+  } else if (oracleStop.endpoint.kind === "com-method") {
+    assert.equal(browserStop.endpoint.kind, "com-method");
+    assert.equal(
+      browserStop.endpoint.endpointAddress,
+      oracleStop.endpoint.target.method.endpoint,
+    );
+    assert.deepEqual(browserStop.endpoint.target, oracleStop.fault.target);
+    assert.equal(
+      oracleStop.endpoint.target.interface.id,
+      oracleStop.fault.target.interfaceId,
+    );
+    assert.equal(
+      oracleStop.endpoint.target.object.id,
+      oracleStop.fault.target.objectId,
+    );
   } else {
     assert.equal(browserStop.endpoint.id, oracleStop.endpoint.endpoint.id);
     assert.equal(browserStop.endpoint.address, oracleStop.endpoint.endpoint.address);

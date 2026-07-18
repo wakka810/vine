@@ -41,6 +41,7 @@ import {
 import {
   type ApiCompletion,
   type BridgeOutput,
+  type CpuResume,
   type PreparedMetadata,
   RuntimeBridge,
 } from "./runtime-bridge.js";
@@ -136,6 +137,41 @@ interface ApiFaultMetadata {
     module: string;
     symbol: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
   };
+  capabilityCluster: string;
+  fault: unknown;
+  memory: { generation: number; acknowledgedGeneration: number };
+  memoryContentSha256: string;
+}
+
+interface ComEndpointResolutionMetadata {
+  kind: "com-endpoint-resolution";
+  endpointAddress: number;
+  live: boolean;
+  memory: { generation: number; acknowledgedGeneration: number };
+}
+
+interface ComCompletionMetadata {
+  kind: "com-complete";
+  completion: CpuResume;
+  call: {
+    frame: {
+      endpointAddress: number;
+      callSite: number;
+      stackPointer: number;
+      returnStackPointer: number;
+      returnAddress: number;
+    };
+    returnValue: { kind: "h-result" | "u32"; value: number };
+    referenceCount: number;
+    objectRetired: boolean;
+    guestWrites: unknown[];
+  };
+  memory: { generation: number; acknowledgedGeneration: number };
+}
+
+interface ComFaultMetadata {
+  kind: "com-fault";
+  endpoint: unknown;
   capabilityCluster: string;
   fault: unknown;
   memory: { generation: number; acknowledgedGeneration: number };
@@ -990,7 +1026,35 @@ class BrowserRuntimeSession {
           await this.#completeThread(slice.context.eax);
         }
       } else {
-        throw new Error(`guest reached unowned #UD at 0x${address.toString(16)}`);
+        const resolution = this.#requireBridge().resolveComEndpoint<ComEndpointResolutionMetadata>(
+          address,
+        );
+        invariant(
+          resolution.control.byteLength === 0 && resolution.payload.byteLength === 0,
+          "COM endpoint resolution returned a memory delta",
+        );
+        invariant(
+          resolution.metadata.kind === "com-endpoint-resolution" &&
+            resolution.metadata.endpointAddress === address,
+          "COM endpoint resolution identity mismatch",
+        );
+        invariant(
+          resolution.metadata.memory.generation === Number(this.#generation) &&
+            resolution.metadata.memory.acknowledgedGeneration === Number(this.#generation),
+          "COM endpoint resolution observed unacknowledged memory",
+        );
+        if (!resolution.metadata.live) {
+          throw new Error(`guest reached unowned #UD at 0x${address.toString(16)}`);
+        }
+        this.#threadResumeStates.set(
+          this.#currentThreadId,
+          sliceState === "running" ? "ready" : "guest-callback",
+        );
+        this.#execution.transition("api-trap", {
+          cause: "owned-com-trap",
+          threadId: this.#currentThreadId,
+        });
+        this.#dispatchCom(address, slice.context.esp);
       }
       await yieldToWorkerLoop();
     }
@@ -1057,6 +1121,44 @@ class BrowserRuntimeSession {
         break;
       default:
         throw new Error("runtime bridge returned an unknown dispatch outcome");
+    }
+  }
+
+  #dispatchCom(endpoint: number, stackPointer: number): void {
+    const engine = this.#requireEngine();
+    const returnAddress = engine.readGuestU32(stackPointer);
+    const output = this.#requireBridge().dispatchCom<ComCompletionMetadata | ComFaultMetadata>(
+      endpoint,
+      stackPointer,
+      returnAddress,
+    );
+    const metadata = output.metadata;
+    switch (metadata.kind) {
+      case "com-complete": {
+        const resumeState = this.#takeApiResumeState();
+        invariant(
+          metadata.call.frame.endpointAddress === endpoint &&
+            metadata.call.frame.callSite === returnAddress &&
+            metadata.call.frame.stackPointer === stackPointer &&
+            metadata.call.frame.returnAddress === returnAddress &&
+            metadata.call.frame.returnStackPointer === metadata.completion.stackPointer,
+          "COM completion frame identity mismatch",
+        );
+        this.#applyOptionalDelta(output);
+        engine.applyCpuResume(metadata.completion);
+        this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
+        this.#execution.transition(resumeState, {
+          cause: "synchronous-com-complete",
+          threadId: this.#currentThreadId,
+        });
+        break;
+      }
+      case "com-fault":
+        this.#takeApiResumeState();
+        this.#completeStructuredStop(metadata, output);
+        break;
+      default:
+        throw new Error("runtime bridge returned an unknown COM dispatch outcome");
     }
   }
 
@@ -1170,7 +1272,7 @@ class BrowserRuntimeSession {
   }
 
   #completeStructuredStop(
-    metadata: ApiFaultMetadata,
+    metadata: ApiFaultMetadata | ComFaultMetadata,
     output: Pick<BridgeOutput<unknown>, "control" | "payload">,
   ): void {
     invariant(this.#requirePrepared().workload === "private-bgi", "fixture returned a structured stop");

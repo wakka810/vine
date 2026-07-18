@@ -63,6 +63,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [adr-003-guest-memory.md](adr-003-guest-memory.md) | guest memoryをどこが所有するか | Rust byte authority、v86 execution mirror、slice同期／failure policy |
 | [process-address-space-allocator.md](process-address-space-allocator.md) | process rangeをどこで予約するか | allocation identity、v1 control／heap registry、search reservation、release policy |
 | [com-iunknown-foundation.md](com-iunknown-foundation.md) | x86 COM identity／lifetimeをどこが所有するか | IUnknown ABI、vtable／UD2 thunk、HRESULT、shared refcount、Browser resource分離 |
+| [d3d9-frontend.md](d3d9-frontend.md) | bounded D3D9と将来Direct3D frontendをどこで分けるか | root identity、COM trap routing、version別frontend、CreateDevice時の`RuntimeGraphics` boundary |
 | [win32-compatibility-policy.md](win32-compatibility-policy.md) | Win32 semanticsと到達profileをどう分けるか | single handler ID、versioned bounded policy、evidence-only BGI identity |
 | [winmm-compatibility-policy.md](winmm-compatibility-policy.md) | WinMM capabilityとtimer stateをどう分けるか | policy-owned TIMECAPS、fixed-width output、future resolution-request authority |
 | [runtime-input-state.md](runtime-input-state.md) | guest-visible input stateをどこが所有するか | logical mouse-button mapping、configure-once、stale plan拒否、browser authority分離 |

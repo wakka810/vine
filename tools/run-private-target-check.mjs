@@ -269,6 +269,28 @@ function assertReportSemantics({
       nodeReport.firstUnsupported.fault.pageFaultErrorCode,
       expectedNext.fault.pageFaultErrorCode,
     );
+  } else if (expectedNext.kind === "com-method") {
+    const nodeEndpoint = nodeReport.firstUnsupported.endpoint;
+    const nodeTarget = nodeEndpoint.target;
+    assert.equal(nodeEndpoint.kind, "com-method");
+    assert.equal(nodeTarget.interface.name, expectedNext.interface);
+    assert.equal(nodeTarget.method.slot, expectedNext.vtableSlot);
+    assert.equal(nodeTarget.method.name, expectedNext.method);
+    assert.equal(hex32(nodeTarget.method.endpoint), expectedNext.endpointAddress);
+    assert.equal(
+      hex32(nodeReport.firstUnsupported.terminal.stackWords[1]),
+      expectedNext.thisPointer,
+    );
+    assert.deepEqual(
+      nodeReport.firstUnsupported.terminal.stackWords
+        .slice(2, 2 + expectedNext.arguments.length)
+        .map(hex32),
+      expectedNext.arguments,
+    );
+    assert.equal(
+      hex32(nodeReport.firstUnsupported.terminal.returnAddress),
+      expectedNext.returnAddress,
+    );
   } else {
     const nodeEndpoint = nodeReport.firstUnsupported.endpoint.endpoint;
     assert.equal(nodeReport.firstUnsupported.endpoint.kind, expectedNext.endpointKind);
@@ -320,6 +342,20 @@ function assertReportSemantics({
       browserUnsupported.fault.pageFaultErrorCode,
       expectedNext.fault.pageFaultErrorCode,
     );
+  } else if (expectedNext.kind === "com-method") {
+    assert.equal(browserUnsupported.endpoint.kind, "com-method");
+    assert.equal(
+      hex32(browserUnsupported.endpoint.endpointAddress),
+      expectedNext.endpointAddress,
+    );
+    assert.equal(browserUnsupported.endpoint.target.interface, expectedNext.interface);
+    assert.equal(browserUnsupported.endpoint.target.vtableSlot, expectedNext.vtableSlot);
+    assert.equal(browserUnsupported.endpoint.target.method, expectedNext.method);
+    assert.equal(
+      hex32(browserUnsupported.endpoint.target.endpointAddress),
+      expectedNext.endpointAddress,
+    );
+    assert.equal(hex32(browserUnsupported.fault.callSite), expectedNext.returnAddress);
   } else {
     assert.equal(browserUnsupported.endpoint.id, expectedNext.endpointId);
     assert.equal(hex32(browserUnsupported.endpoint.address), expectedNext.endpointAddress);
@@ -641,7 +677,9 @@ console.log(
     `${
       evidence.semantic.nextStructuredStop.kind === "execution-fault"
         ? evidence.semantic.nextStructuredStop.capabilityCluster
-        : evidence.semantic.nextStructuredStop.api
+        : evidence.semantic.nextStructuredStop.kind === "com-method"
+          ? `${evidence.semantic.nextStructuredStop.interface}::${evidence.semantic.nextStructuredStop.method}`
+          : evidence.semantic.nextStructuredStop.api
     } structured stop; ` +
     `${options.outputRelative} payload ${evidence.payloadSha256}`,
 );

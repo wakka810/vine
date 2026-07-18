@@ -130,6 +130,10 @@ for (const arguments_ of [
 assert.equal(bgiProfileOutputDirectory("user32-message"), "v86-bgi-message");
 assert.equal(bgiProfileOutputDirectory("ole32-com"), "v86-bgi-com");
 assert.equal(bgiProfileOutputDirectory("winmm-audio"), "v86-bgi-audio");
+assert.equal(
+  bgiProfileOutputDirectory("d3d9-root-factory-and-identity"),
+  "v86-bgi-d3d9-root-factory-and-identity",
+);
 assert.throws(() => bgiProfileOutputDirectory("dsound-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

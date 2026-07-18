@@ -8,30 +8,32 @@ use vine_core::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDeferredCall, ApiDirection,
     ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall, ApiHandlerResult,
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
-    CallbackPolicy, CallingConvention, CpuWritebackReceipt, DispatchOutcome, ExecutionSession,
-    ExportTarget, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
-    GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
-    HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
-    MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
-    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
-    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
-    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
+    CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackReceipt,
+    DispatchOutcome, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE, GuestAddress,
+    GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory,
+    GuestRange, HostCompletion, HostRequest, ImportBinding, ImportTarget, InitialThreadStack,
+    Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
+    MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
+    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate,
+    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction,
+    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeHandle, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeSourceReadHostResponse,
+    RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass,
     RuntimeThreadId, SchedulerThreadState, StackCleanup, User32CompatibilityPolicy,
     WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
-    complete_kernel32_source_read, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
-    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
-    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
-    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
-    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    complete_kernel32_source_read, d3d9_contract_for_endpoint, dispatch_d3d9_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, install_controlled_initial_stack,
+    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
+    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
+    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
+    user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const FIXTURE_SHA256: &str = "26a9a1d836c421ef7bf5e5b36ddd9dad83c5cbd4b4150acd85fc6f269bd7d68c";
+const FIXTURE_SHA256: &str = "0f2cf36eea064860266edf93c210cea2f51e92e5283eb79df0a22ff4cf037233";
 const FIXTURE_MODULE: &str = "vine_browser_fixture.dll";
 const SOURCE_READ_FIXTURE_SHA256: &str =
     "292d298cb77a8223cb0f6fb66333457b3fab9b8e4f0c1643cf01936b769a1d63";
@@ -298,17 +300,16 @@ impl BrowserRuntime {
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
-        let catalog = RuntimeExportCatalog::new(
-            [
-                "fixture_deferred_add",
-                "fixture_call_callback",
-                "fixture_commit_outputs",
-            ]
-            .into_iter()
-            .map(|name| RuntimeExport::named(FIXTURE_MODULE, name))
-            .collect(),
-        )
-        .map_err(error_string)?;
+        let mut runtime_exports = [
+            "fixture_deferred_add",
+            "fixture_call_callback",
+            "fixture_commit_outputs",
+        ]
+        .into_iter()
+        .map(|name| RuntimeExport::named(FIXTURE_MODULE, name))
+        .collect::<Vec<_>>();
+        runtime_exports.push(RuntimeExport::named("d3d9.dll", "Direct3DCreate9"));
+        let catalog = RuntimeExportCatalog::new(runtime_exports).map_err(error_string)?;
         let import_allocation =
             control_mapping_allocation(&runtime, ProcessAddressAllocationPurpose::ImportThunks)?;
         let binding = bind_pe32_imports(
@@ -1050,6 +1051,8 @@ impl BrowserRuntime {
                             dispatch_ole32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
                             dispatch_winmm_api_with_policy(winmm_policy, contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("d3d9.dll") {
+                            dispatch_d3d9_api(contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 kernel32_policy,
@@ -1060,67 +1063,74 @@ impl BrowserRuntime {
                         }
                     }
                     BrowserRuntimeTarget::ControlledFixture => {
-                        match contract.implementation_id.as_str() {
-                            DEFERRED_ADD | COMMIT_OUTPUTS => {
-                                let service = if contract.implementation_id == DEFERRED_ADD {
-                                    "browser.deferred-add"
-                                } else {
-                                    "browser.commit-outputs"
-                                };
-                                let request = match session
-                                    .runtime_mut()
-                                    .begin_host_request(service)
-                                {
-                                    Ok(request) => request,
-                                    Err(error) => {
-                                        return ApiHandlerResult::Fault(ApiFault::runtime_defect(
+                        if contract.endpoint.module.eq_ignore_ascii_case("d3d9.dll") {
+                            dispatch_d3d9_api(contract, frame, session)
+                        } else {
+                            match contract.implementation_id.as_str() {
+                                DEFERRED_ADD | COMMIT_OUTPUTS => {
+                                    let service = if contract.implementation_id == DEFERRED_ADD {
+                                        "browser.deferred-add"
+                                    } else {
+                                        "browser.commit-outputs"
+                                    };
+                                    let request =
+                                        match session.runtime_mut().begin_host_request(service) {
+                                            Ok(request) => request,
+                                            Err(error) => {
+                                                return ApiHandlerResult::Fault(
+                                                    ApiFault::runtime_defect(
+                                                        "browser-runtime",
+                                                        "host-request-state-invalid",
+                                                        error.to_string(),
+                                                    ),
+                                                );
+                                            }
+                                        };
+                                    let payload = frame
+                                        .arguments
+                                        .iter()
+                                        .flat_map(|argument| {
+                                            argument
+                                                .words
+                                                .iter()
+                                                .flat_map(|word| word.to_le_bytes())
+                                        })
+                                        .collect();
+                                    ApiHandlerResult::Deferred(HostRequest {
+                                        request_id: request.request_id,
+                                        service: request.service,
+                                        payload,
+                                    })
+                                }
+                                CALL_CALLBACK => {
+                                    let target = frame.argument_u32(0).unwrap_or(0);
+                                    let value = frame.argument_u32(1).unwrap_or(0);
+                                    if let Err(error) = session.memory().validate_access(
+                                        GuestAddress(target),
+                                        1,
+                                        vine_core::MemoryAccess::Execute,
+                                    ) {
+                                        return ApiHandlerResult::Fault(ApiFault::invalid_call(
                                             "browser-runtime",
-                                            "host-request-state-invalid",
+                                            "callback-target-not-executable",
                                             error.to_string(),
                                         ));
                                     }
-                                };
-                                let payload = frame
-                                    .arguments
-                                    .iter()
-                                    .flat_map(|argument| {
-                                        argument.words.iter().flat_map(|word| word.to_le_bytes())
+                                    ApiHandlerResult::GuestCallback(GuestCallbackRequest {
+                                        target: GuestAddress(target),
+                                        arguments: vec![GuestCallbackArgument::U32(value)],
+                                        scratch: Vec::new(),
+                                        scratch_pointer_relocations: Vec::new(),
+                                        return_sentinel: callback_sentinel,
+                                        completion_policy: GuestCallbackCompletionPolicy::ReturnU32,
                                     })
-                                    .collect();
-                                ApiHandlerResult::Deferred(HostRequest {
-                                    request_id: request.request_id,
-                                    service: request.service,
-                                    payload,
-                                })
-                            }
-                            CALL_CALLBACK => {
-                                let target = frame.argument_u32(0).unwrap_or(0);
-                                let value = frame.argument_u32(1).unwrap_or(0);
-                                if let Err(error) = session.memory().validate_access(
-                                    GuestAddress(target),
-                                    1,
-                                    vine_core::MemoryAccess::Execute,
-                                ) {
-                                    return ApiHandlerResult::Fault(ApiFault::invalid_call(
-                                        "browser-runtime",
-                                        "callback-target-not-executable",
-                                        error.to_string(),
-                                    ));
                                 }
-                                ApiHandlerResult::GuestCallback(GuestCallbackRequest {
-                                    target: GuestAddress(target),
-                                    arguments: vec![GuestCallbackArgument::U32(value)],
-                                    scratch: Vec::new(),
-                                    scratch_pointer_relocations: Vec::new(),
-                                    return_sentinel: callback_sentinel,
-                                    completion_policy: GuestCallbackCompletionPolicy::ReturnU32,
-                                })
+                                _ => ApiHandlerResult::Fault(ApiFault::unsupported(
+                                    "browser-runtime",
+                                    "fixture-service-unsupported",
+                                    "browser fixture reached an unknown service",
+                                )),
                             }
-                            _ => ApiHandlerResult::Fault(ApiFault::unsupported(
-                                "browser-runtime",
-                                "fixture-service-unsupported",
-                                "browser fixture reached an unknown service",
-                            )),
                         }
                     }
                     BrowserRuntimeTarget::ControlledSourceRead { kernel32_policy } => {
@@ -1268,6 +1278,86 @@ impl BrowserRuntime {
                     ))
                 }
             },
+        }
+    }
+
+    fn resolve_com_endpoint(&self, endpoint_address: GuestAddress) -> Result<Value, String> {
+        let live = match self.runtime.resolve_com_method(endpoint_address) {
+            Ok(_) => true,
+            Err(error) if error.class == RuntimeStateErrorClass::NotFound => false,
+            Err(error) => return Err(error_string(error)),
+        };
+        Ok(json!({
+            "kind": "com-endpoint-resolution",
+            "endpointAddress": endpoint_address,
+            "live": live,
+            "memory": self.memory.stats(),
+        }))
+    }
+
+    fn dispatch_com(
+        &mut self,
+        endpoint_address: GuestAddress,
+        stack_pointer: GuestAddress,
+        return_address: GuestAddress,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        let outcome = {
+            let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+            session.dispatch_com_call(ComCallTrap {
+                endpoint_address,
+                stack_pointer,
+                return_address,
+                call_site: return_address,
+            })
+        };
+        match outcome {
+            ComDispatchOutcome::Completed(completion) => {
+                let delta = self.pending_delta()?;
+                let cpu_resume = json!({
+                    "instructionPointer": completion.instruction_pointer,
+                    "stackPointer": completion.stack_pointer,
+                    "eax": {"action": "set", "value": completion.return_value.eax()},
+                    "edx": {"action": "preserve"},
+                    "eflags": {"action": "preserve"},
+                });
+                Ok((
+                    json!({
+                        "kind": "com-complete",
+                        "completion": cpu_resume,
+                        "call": completion,
+                        "memory": self.memory.stats(),
+                    }),
+                    delta,
+                ))
+            }
+            ComDispatchOutcome::Fault(fault) => {
+                if !matches!(&self.target, BrowserRuntimeTarget::Bgi { .. }) {
+                    return Err(format!(
+                        "COM dispatch fault {}: {}",
+                        fault.code, fault.message
+                    ));
+                }
+                let capability_cluster = match fault.target.as_ref() {
+                    Some(target) if target.interface == "IDirect3D9" => "d3d9-idirect3d9-method",
+                    _ => "com-method-dispatch",
+                };
+                let reflection = self.memory.current_reflection().map_err(error_string)?;
+                Ok((
+                    json!({
+                        "kind": "com-fault",
+                        "endpoint": {
+                            "kind": "com-method",
+                            "endpointAddress": endpoint_address,
+                            "target": fault.target.clone(),
+                        },
+                        "capabilityCluster": capability_cluster,
+                        "fault": fault,
+                        "memory": self.memory.stats(),
+                        "memoryContentSha256": reflection.content_sha256,
+                    }),
+                    None,
+                ))
+            }
         }
     }
 
@@ -2081,6 +2171,9 @@ fn bgi_contract_for_endpoint(
     if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = d3d9_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
     winmm_contract_for_endpoint(endpoint)
 }
 
@@ -2147,6 +2240,20 @@ fn build_dispatcher(
     let mut contracts = Vec::with_capacity(endpoints.len());
     let mut routes = BTreeMap::new();
     for endpoint in &endpoints {
+        if let Some(contract) =
+            d3d9_contract_for_endpoint(endpoint.clone()).map_err(api_fault_string)?
+        {
+            routes.insert(
+                endpoint.address,
+                EndpointRoute {
+                    id: endpoint.id.0,
+                    argument_bytes: contract.abi.argument_bytes().map_err(api_fault_string)?,
+                    endpoint: endpoint.clone(),
+                },
+            );
+            contracts.push(contract);
+            continue;
+        }
         let name = match &endpoint.symbol {
             vine_core::ApiSymbol::Name { name } => name.as_str(),
             vine_core::ApiSymbol::Ordinal { .. } => {
@@ -2522,6 +2629,35 @@ pub extern "C" fn vine_bridge_dispatch(
 ) -> u32 {
     run_bridge(|bridge| {
         let (metadata, delta) = bridge.runtime_mut()?.dispatch(
+            GuestAddress(endpoint_address),
+            GuestAddress(stack_pointer),
+            GuestAddress(return_address),
+        )?;
+        let (control, payload) = delta
+            .map(|buffers| (buffers.control, buffers.page_bytes))
+            .unwrap_or_default();
+        bridge.set_output(metadata, control, payload)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_resolve_com_endpoint(endpoint_address: u32) -> u32 {
+    run_bridge(|bridge| {
+        let metadata = bridge
+            .runtime_mut()?
+            .resolve_com_endpoint(GuestAddress(endpoint_address))?;
+        bridge.set_output(metadata, Vec::new(), Vec::new())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_dispatch_com(
+    endpoint_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let (metadata, delta) = bridge.runtime_mut()?.dispatch_com(
             GuestAddress(endpoint_address),
             GuestAddress(stack_pointer),
             GuestAddress(return_address),

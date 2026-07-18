@@ -250,6 +250,7 @@ const browserDllObject = path.join(outputDirectory, "browser-fixture-dll.obj");
 const browserExeObject = path.join(outputDirectory, "browser-fixture-exe.obj");
 const browserDllFile = path.join(outputDirectory, "vine_browser_fixture.dll");
 const browserImportLibrary = path.join(outputDirectory, "vine_browser_fixture.lib");
+const browserD3d9ImportLibrary = path.join(outputDirectory, "browser-d3d9.lib");
 const browserExeFile = path.join(outputDirectory, "browser-vertical.exe");
 const sourceReadFixtureDirectory = path.join(root, "fixtures", "pe32", "source-read");
 const sourceReadObject = path.join(outputDirectory, "fixture-source-read.obj");
@@ -444,6 +445,16 @@ run("llvm-dlltool", [
   "i386",
   "-k",
   "-d",
+  path.join(browserFixtureDirectory, "d3d9.def"),
+  "-l",
+  browserD3d9ImportLibrary,
+]);
+
+run("llvm-dlltool", [
+  "-m",
+  "i386",
+  "-k",
+  "-d",
   lifecycleKernel32Definition,
   "-l",
   lifecycleKernel32Library,
@@ -569,6 +580,7 @@ run("lld-link", [
   `/out:${browserExeFile}`,
   browserExeObject,
   browserImportLibrary,
+  browserD3d9ImportLibrary,
 ]);
 
 run("lld-link", [
@@ -827,6 +839,8 @@ for (const expected of [
   "Symbol: fixture_call_callback",
   "Symbol: fixture_commit_outputs",
   "Symbol: fixture_deferred_add",
+  "Name: d3d9.dll",
+  "Symbol: Direct3DCreate9",
   "Name: fixture_thread_entry",
   "Name: fixture_thread_marker",
 ]) {
@@ -1061,6 +1075,7 @@ const report = {
       "fixture_call_callback",
       "fixture_commit_outputs",
       "fixture_deferred_add",
+      "Direct3DCreate9",
     ],
     browserVerticalNativeExitCode,
     sourceReadNativeExitCode,
@@ -1122,6 +1137,7 @@ const report = {
     browserExeFile,
     browserDllFile,
     browserImportLibrary,
+    browserD3d9ImportLibrary,
     sourceReadExe,
     sourceReadKernel32Library,
     lifecycleExe,

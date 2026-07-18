@@ -125,6 +125,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-load-image-a-small-icon",
         "user32-send-message-a-small-icon",
         "user32-set-window-pos-initial-placement",
+        "d3d9-root-factory-and-identity",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -166,6 +167,7 @@ assert(
       "user32-load-image-a-small-icon",
       "user32-send-message-a-small-icon",
       "user32-set-window-pos-initial-placement",
+      "d3d9-root-factory-and-identity",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -180,6 +182,7 @@ if (
     "user32-load-image-a-small-icon",
     "user32-send-message-a-small-icon",
     "user32-set-window-pos-initial-placement",
+    "d3d9-root-factory-and-identity",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -200,7 +203,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-get-system-metrics-small-icon-width" ||
     genericRuntimeCapability === "user32-load-image-a-small-icon" ||
     genericRuntimeCapability === "user32-send-message-a-small-icon" ||
-    genericRuntimeCapability === "user32-set-window-pos-initial-placement"
+    genericRuntimeCapability === "user32-set-window-pos-initial-placement" ||
+    genericRuntimeCapability === "d3d9-root-factory-and-identity"
       ? "kernel32-source-file-read-v1.json"
       : genericRuntimeCapability === "kernel32-large-heap-allocation"
       ? "kernel32-large-heap-allocation-v1.json"
@@ -321,7 +325,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const d3d9RootFactoryEnabled =
+  genericRuntimeCapability === "d3d9-root-factory-and-identity";
 const setWindowPosInitialPlacementEnabled =
+  d3d9RootFactoryEnabled ||
   genericRuntimeCapability === "user32-set-window-pos-initial-placement";
 const sendMessageASmallIconEnabled =
   setWindowPosInitialPlacementEnabled ||
@@ -496,7 +503,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? setWindowPosInitialPlacementEnabled
+      ? d3d9RootFactoryEnabled
+        ? "v86-bgi-d3d9-root-factory-and-identity"
+      : setWindowPosInitialPlacementEnabled
         ? "v86-bgi-set-window-pos-initial-placement"
       : sendMessageASmallIconEnabled
         ? "v86-bgi-send-message-a-small-icon"
@@ -4429,6 +4438,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9RootFactoryEnabled) {
+        validateD3d9RootFactoryResult(genericResult);
       } else if (setWindowPosInitialPlacementEnabled) {
         validateSetWindowPosInitialPlacementResult(genericResult);
       } else if (sendMessageASmallIconEnabled) {
@@ -4562,6 +4573,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9RootFactoryEnabled
+            ? "bgi D3D9 root factory and identity"
           : setWindowPosInitialPlacementEnabled
             ? "bgi SetWindowPos initial placement"
           : sendMessageASmallIconEnabled
@@ -4869,7 +4882,8 @@ async function runGenericRuntimeReentry({
     const terminal = continuation.terminal;
     const ownedTerminal =
       terminal.kind === "owned-import-thunk" ||
-      terminal.kind === "owned-dynamic-export-thunk";
+      terminal.kind === "owned-dynamic-export-thunk" ||
+      terminal.kind === "owned-com-method";
     const callbackReturnTerminal = terminal.kind === "callback-return-sentinel";
     if (!ownedTerminal) {
       assert(
@@ -5334,7 +5348,9 @@ async function runGenericRuntimeReentry({
       kind:
         terminal.kind === "owned-import-thunk"
           ? "runtime-system-export"
-          : "dynamic-export",
+          : terminal.kind === "owned-dynamic-export-thunk"
+            ? "dynamic-export"
+            : "com-method",
       endpointId: endpoint.id,
       endpointAddress: endpoint.address,
       stackPointer: continuation.finalState.esp,
@@ -5440,7 +5456,11 @@ async function runGenericRuntimeReentry({
     if (response.kind === runtimeFrame.apiFault) {
       assert.equal(response.payload.length, 0);
       const fault = JSON.parse(response.control.toString("utf8"));
-      validateGenericRuntimeFault(fault, endpoint, generation);
+      if (endpoint.kind === "com-method") {
+        validateGenericRuntimeComFault(fault, endpoint, generation);
+      } else {
+        validateGenericRuntimeFault(fault, endpoint, generation);
+      }
       if (criticalSectionBytesBefore !== null) {
         assert.deepEqual(
           Buffer.from(
@@ -5472,15 +5492,28 @@ async function runGenericRuntimeReentry({
     assert.equal(response.kind, runtimeFrame.apiCompletion);
     assert.equal(response.payload.length, 0);
     const completionFrame = JSON.parse(response.control.toString("utf8"));
-    validateGenericCompletionFrame(completionFrame, endpoint, generation);
+    if (endpoint.kind === "com-method") {
+      validateGenericComCompletionFrame(completionFrame, endpoint, generation);
+    } else {
+      validateGenericCompletionFrame(completionFrame, endpoint, generation);
+    }
     occurrences.set(occurrenceKey, occurrence);
-    const call = buildGenericCallRecord(
-      sequence,
-      endpoint,
-      occurrence,
-      continuation.instructionCount,
-      completionFrame,
-    );
+    const call =
+      endpoint.kind === "com-method"
+        ? buildGenericComCallRecord(
+            sequence,
+            endpoint,
+            occurrence,
+            continuation.instructionCount,
+            completionFrame,
+          )
+        : buildGenericCallRecord(
+            sequence,
+            endpoint,
+            occurrence,
+            continuation.instructionCount,
+            completionFrame,
+          );
 
     const manifestCheckpoint =
       sequence <= selectedCheckpoint.supportedCallCount
@@ -5502,7 +5535,11 @@ async function runGenericRuntimeReentry({
       frozenSemanticCalls += 1;
     }
     supportedCalls.push(call);
-    restoreGenericApiCompletion(context, continuation.finalState, completionFrame.completion);
+    if (endpoint.kind === "com-method") {
+      restoreGenericComCompletion(context, continuation.finalState, completionFrame.completion);
+    } else {
+      restoreGenericApiCompletion(context, continuation.finalState, completionFrame.completion);
+    }
     let next;
     try {
       next = executeToNextOwnedTrap(offer, context, continuation.instructionCount);
@@ -5665,6 +5702,33 @@ function buildGenericCallRecord(
   };
 }
 
+function buildGenericComCallRecord(
+  sequence,
+  endpoint,
+  occurrence,
+  trapInstructionCount,
+  completionFrame,
+) {
+  const completion = completionFrame.completion;
+  return {
+    sequence,
+    module: endpoint.module,
+    symbol: `${completion.frame.interface}.${completion.frame.method}`,
+    occurrence,
+    trapInstructionCount,
+    interface: completion.frame.interface,
+    vtableSlot: completion.frame.vtableSlot,
+    arguments: [completion.frame.thisPointer, ...completion.frame.explicitArguments],
+    result: completion.returnValue,
+    returnAddress: completion.instructionPointer,
+    stackPointerBefore: completion.frame.stackPointer,
+    stackPointerAfter: completion.stackPointer,
+    referenceCount: completion.referenceCount,
+    objectRetired: completion.objectRetired,
+    guestWrites: completion.guestWrites,
+  };
+}
+
 function validateGenericRuntimeReady(ready, offer) {
   assert.equal(ready.schema, "vine.v86-generic-runtime-session-ready");
   assert.equal(ready.schemaVersion, 1);
@@ -5687,6 +5751,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : d3d9RootFactoryEnabled
+          ? 63
         : setWindowPosInitialPlacementEnabled
           ? 62
         : sendMessageASmallIconEnabled
@@ -5893,6 +5959,18 @@ function genericTerminalEndpoint(terminal) {
       address: terminal.thunk.address,
       module: terminal.thunk.module,
       symbol: terminal.thunk.name ?? `#${terminal.thunk.ordinal}`,
+    };
+  }
+  if (terminal.kind === "owned-com-method") {
+    return {
+      kind: "com-method",
+      id: 0,
+      address: terminal.endpointAddress,
+      module: "<com>",
+      symbol: `interface-${terminal.interfaceIndex}-slot-${terminal.vtableSlot}`,
+      interfaceIndex: terminal.interfaceIndex,
+      vtableSlot: terminal.vtableSlot,
+      returnAddress: terminal.returnAddress,
     };
   }
   assert.equal(terminal.kind, "owned-dynamic-export-thunk");
@@ -6152,6 +6230,31 @@ function applyRuntimeHostDelta(context, delta) {
       0x1_0000_0000,
       "runtime host mapping operation",
     );
+    const callbackScratchOperation =
+      operation.regionKind === 9 &&
+      0x0050_1000 <= operation.address &&
+      end <= 0x0051_1000;
+    const comBackingOperation =
+      operation.regionKind === 9 && !callbackScratchOperation;
+    if (operation.regionKind === 9) {
+      assert(
+        (enumDisplayMonitorsEnabled && callbackScratchOperation) ||
+          (d3d9RootFactoryEnabled && comBackingOperation),
+        "runtime-owned mapping is neither callback scratch nor D3D9 COM backing",
+      );
+      if (comBackingOperation) {
+        assert.equal(operation.address % page.size, 0);
+        assert.equal(operation.byteLength % page.size, 0);
+        assert(operation.byteLength <= page.size * 2);
+        if (operation.operation === 1 || operation.operation === 5) {
+          assert.equal(
+            operation.byteLength,
+            page.size * 2,
+            "D3D9 COM backing reserve/release must cover exactly two pages",
+          );
+        }
+      }
+    }
     if (operation.operation === 1) {
       const callbackScratchReserve =
         operation.regionKind === 9 &&
@@ -6159,8 +6262,9 @@ function applyRuntimeHostDelta(context, delta) {
         operation.byteLength === 0x1_0000;
       assert(
         operation.regionKind === 7 ||
-          (enumDisplayMonitorsEnabled && callbackScratchReserve),
-        "runtime host reserve is neither a heap nor the callback scratch arena",
+          (enumDisplayMonitorsEnabled && callbackScratchReserve) ||
+          (d3d9RootFactoryEnabled && comBackingOperation),
+        "runtime host reserve is neither a heap, callback scratch, nor D3D9 COM backing",
       );
       assert.deepEqual(operation.protection, {
         read: false,
@@ -6216,7 +6320,21 @@ function applyRuntimeHostDelta(context, delta) {
         const dirty = dirtyByAddress.get(address);
         assert(dirty, "committed runtime host page has no bytes");
         assert.equal(dirty.owner, operation.owner);
-        assert.deepEqual(dirty.protection, operation.protection);
+        const finalProtect = delta.mappingOperations
+          .filter(
+            (candidate) =>
+              candidate.operation === 3 &&
+              candidate.owner === operation.owner &&
+              candidate.addressAllocationId === operation.addressAllocationId &&
+              candidate.address <= address &&
+              address < candidate.address + candidate.byteLength,
+          )
+          .at(-1);
+        assert.deepEqual(
+          dirty.protection,
+          finalProtect?.protection ?? operation.protection,
+          "committed runtime page does not describe its final delta protection",
+        );
         context.mapRuntimePage(
           address,
           operation.owner,
@@ -6327,6 +6445,45 @@ function validateGenericCompletionFrame(frame, endpoint, generation) {
   assert.equal(frame.memory.pendingInvalidation, undefined);
 }
 
+function validateGenericComEndpoint(actual, endpoint) {
+  assert.equal(actual.kind, "com-method");
+  const target = actual.target;
+  assert(target, "generic COM endpoint omitted its Rust-owned target");
+  assert.equal(
+    target.object.interfaceIds[endpoint.interfaceIndex],
+    target.interface.id,
+  );
+  assert.equal(target.interface.name, "IDirect3D9");
+  assert.equal(target.method.slot, endpoint.vtableSlot);
+  assert.equal(target.method.endpoint, endpoint.address);
+  assert.equal(target.object.id, target.interface.objectId);
+  assert.equal(target.object.classIdentity, "d3d9.idirect3d9-root.v1");
+}
+
+function validateGenericComCompletionFrame(frame, endpoint, generation) {
+  assert.equal(frame.schema, "vine.v86-generic-runtime-com-completion");
+  assert.equal(frame.schemaVersion, 1);
+  validateGenericComEndpoint(frame.endpoint, endpoint);
+  const completion = frame.completion;
+  assert.equal(completion.frame.endpointAddress, endpoint.address);
+  assert.equal(completion.frame.interfaceId, frame.endpoint.target.interface.id);
+  assert.equal(completion.frame.interface, "IDirect3D9");
+  assert.equal(completion.frame.vtableSlot, endpoint.vtableSlot);
+  assert.equal(completion.frame.method, frame.endpoint.target.method.name);
+  assert.equal(completion.frame.callSite, endpoint.returnAddress);
+  assert.equal(completion.frame.returnAddress, endpoint.returnAddress);
+  assert.equal(completion.instructionPointer, endpoint.returnAddress);
+  assert.equal(completion.stackPointer, completion.frame.returnStackPointer);
+  assert.equal(
+    completion.returnValue.kind,
+    frame.endpoint.target.method.returnKind,
+  );
+  assert.equal(frame.memory.generation, generation);
+  assert.equal(frame.memory.acknowledgedGeneration, generation);
+  assert.equal(frame.memory.dirtyPages, 0);
+  assert.equal(frame.memory.pendingInvalidation, undefined);
+}
+
 function validateGenericRuntimeFault(fault, endpoint, generation) {
   assert.equal(fault.schema, "vine.v86-generic-runtime-fault");
   assert.equal(fault.schemaVersion, 1);
@@ -6346,6 +6503,28 @@ function validateGenericRuntimeFault(fault, endpoint, generation) {
       `generic runtime fault: ${JSON.stringify(fault.fault)}`,
     );
   }
+  assert.equal(fault.memory.generation, generation);
+  assert.equal(fault.memory.acknowledgedGeneration, generation);
+  assert.equal(fault.memory.dirtyPages, 0);
+  assert.equal(fault.memory.pendingInvalidation, undefined);
+  assert.match(fault.memoryContentSha256, /^[0-9a-f]{64}$/u);
+}
+
+function validateGenericRuntimeComFault(fault, endpoint, generation) {
+  assert.equal(fault.schema, "vine.v86-generic-runtime-com-fault");
+  assert.equal(fault.schemaVersion, 1);
+  validateGenericComEndpoint(fault.endpoint, endpoint);
+  assert.equal(fault.capabilityCluster, "d3d9-idirect3d9-method");
+  assert.equal(
+    fault.fault.class,
+    "unsupported",
+    `generic runtime COM fault: ${JSON.stringify(fault.fault)}`,
+  );
+  assert.equal(fault.fault.callSite, endpoint.returnAddress);
+  assert.equal(fault.fault.target.interfaceId, fault.endpoint.target.interface.id);
+  assert.equal(fault.fault.target.interface, "IDirect3D9");
+  assert.equal(fault.fault.target.vtableSlot, endpoint.vtableSlot);
+  assert.equal(fault.fault.target.endpointAddress, endpoint.address);
   assert.equal(fault.memory.generation, generation);
   assert.equal(fault.memory.acknowledgedGeneration, generation);
   assert.equal(fault.memory.dirtyPages, 0);
@@ -6488,6 +6667,28 @@ function restoreGenericApiCompletion(context, trapped, completion) {
   words[stateWord.previousInstructionPointer] = completion.instructionPointer;
   assert.equal(context.wasm.vine_cpu_state_restore(), 0);
   const resumed = captureCpuState(context, 0);
+  assert.equal(resumed.esp, completion.stackPointer);
+  assert.equal(resumed.instructionPointer, completion.instructionPointer);
+  assert.equal(resumed.previousInstructionPointer, completion.instructionPointer);
+}
+
+function restoreGenericComCompletion(context, trapped, completion) {
+  context.wasm.vine_cpu_state_save();
+  const words = new Uint32Array(
+    context.wasm.memory.buffer,
+    context.wasm.vine_cpu_state_ptr(),
+    context.wasm.vine_cpu_state_size() / 4,
+  );
+  assert.equal(words[stateWord.instructionPointer], trapped.instructionPointer);
+  assert.equal(words[stateWord.previousInstructionPointer], trapped.previousInstructionPointer);
+  assert.equal(words[stateWord.esp], trapped.esp);
+  words[stateWord.eax] = completion.returnValue.value >>> 0;
+  words[stateWord.esp] = completion.stackPointer;
+  words[stateWord.instructionPointer] = completion.instructionPointer;
+  words[stateWord.previousInstructionPointer] = completion.instructionPointer;
+  assert.equal(context.wasm.vine_cpu_state_restore(), 0);
+  const resumed = captureCpuState(context, 0);
+  assert.equal(resumed.eax, completion.returnValue.value >>> 0);
   assert.equal(resumed.esp, completion.stackPointer);
   assert.equal(resumed.instructionPointer, completion.instructionPointer);
   assert.equal(resumed.previousInstructionPointer, completion.instructionPointer);
@@ -11035,6 +11236,81 @@ function validateSetWindowPosInitialPlacementSummary(result) {
   assert.equal(result.terminal.terminal.stackWords[1], 32);
 }
 
+function validateD3d9RootFactoryResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_816);
+  assert.equal(result.callbackEvents.length, 22);
+  assert.equal(result.writebacks.length, 17_863);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_002,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_806_879,
+  );
+  assert.equal(result.hostDeltas.length, 16_548);
+  assert.equal(result.finalGeneration, 34_512);
+  const factory = result.supportedCalls.at(-1);
+  assert(factory);
+  assert.equal(factory.sequence, 17_816);
+  assert.equal(factory.occurrence, 1);
+  assert.equal(factory.trapInstructionCount, 11_806_445);
+  assert.equal(factory.module.toLowerCase(), "d3d9.dll");
+  assert.equal(factory.symbol, "Direct3DCreate9");
+  assert.deepEqual(factory.arguments, [32]);
+  assert.equal(factory.implementationId, "d3d9.direct3d-create9.v1");
+  assert.equal(factory.result.action, "set");
+  assert.notEqual(factory.result.value, 0);
+  assert.equal(factory.stackPointerAfter, factory.stackPointerBefore + 8);
+  assert.equal(factory.lastError, 0);
+  assert.deepEqual(factory.guestWrites, []);
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3d9-root.v1");
+  assert.equal(endpoint.target.object.referenceCount, 1);
+  assert.equal(endpoint.target.object.backing.range.byteLength, page.size * 2);
+  assert.equal(endpoint.target.interface.name, "IDirect3D9");
+  assert.equal(endpoint.target.interface.guestPointer, factory.result.value);
+  assert.equal(endpoint.target.interface.methods["8"].name, "GetAdapterDisplayMode");
+  assert.equal(endpoint.target.interface.methods["8"].explicitArgumentWords, 2);
+  assert.equal(endpoint.target.interface.methods["16"].name, "CreateDevice");
+  assert.equal(endpoint.target.interface.methods["16"].explicitArgumentWords, 6);
+  assert.equal(endpoint.target.method.slot, 8);
+  assert.equal(endpoint.target.method.name, "GetAdapterDisplayMode");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 2);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3d9-method");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_b8d6);
+  assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
+  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(result.fault.fault.target.interface, "IDirect3D9");
+  assert.equal(result.fault.fault.target.vtableSlot, 8);
+  assert.equal(result.fault.fault.target.method, "GetAdapterDisplayMode");
+  assert.equal(result.fault.memory.physicalPages, 719);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_806_455);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, endpoint.target.method.endpoint);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 8);
+  assert.equal(terminal.returnAddress, 0x1005_b8d6);
+  assert.equal(terminal.stackWords[1], factory.result.value);
+  assert.equal(terminal.stackWords[2], 0);
+}
+
 function validateSetWindowPosInitialPlacementResult(result) {
   validateSetWindowPosInitialPlacementSummary(result);
 }
@@ -12634,6 +12910,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9RootFactoryEnabled
+          ? "vine.v86-bgi-d3d9-root-factory-and-identity"
         : setWindowPosInitialPlacementEnabled
           ? "vine.v86-bgi-set-window-pos-initial-placement"
         : sendMessageASmallIconEnabled
@@ -18352,9 +18630,9 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
   const instructionBudget = sourceFileReadEnabled ? 256 : guest.instructionBudget;
   const maximumExecuteStops = sourceFileReadEnabled ? 39_063 : guest.maximumExecuteStops;
   const executablePages = new Set(
-    offer.reflection.pages
-      .filter(({ ownerSealed, protection }) => ownerSealed && protection.execute)
-      .map(({ address }) => address),
+    [...context.mappings.entries()]
+      .filter(([, { ownerSealed, protection }]) => ownerSealed && protection.execute)
+      .map(([address]) => address),
   );
   const thunksByAddress = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
   const dynamicExportThunks =
@@ -19465,6 +19743,36 @@ function classifyTerminal(
         returnAddress: stackWords[0],
         stackWords,
       };
+    }
+    if (state.previousInstructionPointer === state.instructionPointer) {
+      const marker = context.readVirtualBytes(
+        state.instructionPointer,
+        10,
+        "runtime COM endpoint marker",
+      );
+      if (
+        marker[0] === 0x0f &&
+        marker[1] === 0x0b &&
+        marker[2] === 0x56 &&
+        marker[3] === 0x43 &&
+        marker[4] === 0x4f &&
+        marker[5] === 0x4d
+      ) {
+        const stackWords = [];
+        for (let index = 0; index < 8; index += 1) {
+          stackWords.push(
+            context.readVirtualU32(state.esp + index * 4, `COM trap stack word ${index}`),
+          );
+        }
+        return {
+          kind: "owned-com-method",
+          endpointAddress: state.instructionPointer,
+          interfaceIndex: marker[6] | (marker[7] << 8),
+          vtableSlot: marker[8] | (marker[9] << 8),
+          returnAddress: stackWords[0],
+          stackWords,
+        };
+      }
     }
     const sentinel = sentinelsByAddress.get(state.instructionPointer);
     if (sentinel !== undefined && state.previousInstructionPointer === state.instructionPointer) {

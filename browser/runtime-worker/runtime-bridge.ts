@@ -5,17 +5,20 @@ export type RegisterUpdate =
   | { action: "preserve" }
   | { action: "set"; value: number };
 
-export interface ApiCompletion {
-  implementationId: string;
-  frame?: {
-    stackPointer: number;
-    arguments: Array<{ words: number[] }>;
-  };
+export interface CpuResume {
   instructionPointer: number;
   stackPointer: number;
   eax: RegisterUpdate;
   edx: RegisterUpdate;
   eflags: RegisterUpdate;
+}
+
+export interface ApiCompletion extends CpuResume {
+  implementationId: string;
+  frame?: {
+    stackPointer: number;
+    arguments: Array<{ words: number[] }>;
+  };
   readonly lastError: number;
   guestWrites?: Array<{
     write: { address: number; bytes: number[] };
@@ -132,6 +135,8 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_grow_initial_thread_stack(faultAddress: number, errorCode: number): number;
   vine_bridge_service_page_fault(faultAddress: number, errorCode: number): number;
   vine_bridge_dispatch(endpoint: number, stackPointer: number, returnAddress: number): number;
+  vine_bridge_resolve_com_endpoint(endpoint: number): number;
+  vine_bridge_dispatch_com(endpoint: number, stackPointer: number, returnAddress: number): number;
   vine_bridge_complete_host(low: number, high: number, result: number): number;
   vine_bridge_complete_source_read(
     low: number,
@@ -256,6 +261,20 @@ export class RuntimeBridge {
   ): BridgeOutput<T> {
     return this.#invoke(() =>
       this.#exports.vine_bridge_dispatch(endpoint, stackPointer, returnAddress),
+    );
+  }
+
+  resolveComEndpoint<T = Record<string, unknown>>(endpoint: number): BridgeOutput<T> {
+    return this.#invoke(() => this.#exports.vine_bridge_resolve_com_endpoint(endpoint));
+  }
+
+  dispatchCom<T = Record<string, unknown>>(
+    endpoint: number,
+    stackPointer: number,
+    returnAddress: number,
+  ): BridgeOutput<T> {
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_dispatch_com(endpoint, stackPointer, returnAddress),
     );
   }
 
