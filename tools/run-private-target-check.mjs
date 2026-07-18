@@ -166,7 +166,7 @@ function firstLine(command, arguments_ = []) {
 
 function hex32(value) {
   assert(Number.isSafeInteger(value) && value >= 0 && value <= 0xffff_ffff);
-  return `0x${value.toString(16)}`;
+  return `0x${value.toString(16).padStart(8, "0")}`;
 }
 
 function optionalHex32(value) {
