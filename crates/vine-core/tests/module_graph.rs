@@ -196,6 +196,66 @@ fn module_graph_orders_dependencies_and_owns_reference_lifecycle() {
     );
 }
 
+#[test]
+fn callback_free_runtime_system_module_attaches_after_the_live_process_graph() {
+    let mut graph = RuntimeModuleGraph::default();
+    let kernel32 = register(
+        &mut graph,
+        0x4d01_0001,
+        "kernel32.dll",
+        RuntimeModuleClass::RuntimeSystemModule,
+    );
+    let main = register(
+        &mut graph,
+        0x4d01_0002,
+        "fixture.exe",
+        RuntimeModuleClass::MainExecutable,
+    );
+    graph.add_dependency(main, kernel32).unwrap();
+    graph.mark_ready(kernel32).unwrap();
+    graph.mark_ready(main).unwrap();
+    assert_eq!(graph.attach_all().unwrap(), [kernel32, main]);
+
+    let d3dx = register(
+        &mut graph,
+        0x4d01_0003,
+        "d3dx9_43.dll",
+        RuntimeModuleClass::RuntimeSystemModule,
+    );
+    graph.add_dynamic_reference(d3dx, 8192).unwrap();
+    graph.mark_ready(d3dx).unwrap();
+    assert_eq!(graph.attach_ready_runtime_system_module(d3dx).unwrap(), 3);
+    assert_eq!(
+        graph.module(d3dx).unwrap().state,
+        RuntimeModuleLoadState::ProcessAttached { sequence: 3 }
+    );
+    assert_eq!(
+        graph
+            .module(d3dx)
+            .unwrap()
+            .reference_count_for(&RuntimeModuleReferenceOwner::DynamicLoad { thread_id: 8192 }),
+        1
+    );
+
+    let guest = register(
+        &mut graph,
+        0x4d01_0004,
+        "guest.dll",
+        RuntimeModuleClass::GuestDynamicLibrary,
+    );
+    graph.add_dynamic_reference(guest, 8192).unwrap();
+    graph.mark_ready(guest).unwrap();
+    let before = graph.clone();
+    assert_eq!(
+        graph
+            .attach_ready_runtime_system_module(guest)
+            .unwrap_err()
+            .code,
+        "runtime-system-module-attach-state-invalid"
+    );
+    assert_eq!(graph, before);
+}
+
 fn register(
     graph: &mut RuntimeModuleGraph,
     handle: u32,

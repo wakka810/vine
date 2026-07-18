@@ -54,11 +54,13 @@ use super::input::{
 };
 use super::messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessages};
 use super::messages::{RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage};
+#[cfg(test)]
+use super::modules::LOGICAL_LOADED_MODULE_NAMESPACE;
 use super::modules::{
     RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDllLifecyclePlan,
     RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportBindingPlan, RuntimeModule,
     RuntimeModuleDependencyEdge, RuntimeModuleRecords, RuntimeModules, RuntimeSystemExportTable,
-    runtime_module_image_error, runtime_module_image_state_error,
+    RuntimeSystemModuleLoad, runtime_module_image_error, runtime_module_image_state_error,
 };
 use super::objects::{
     RuntimeCloseHandleObjectMutationPlan, RuntimeHandle, RuntimeHandleEntry, RuntimeObjectId,
@@ -2389,6 +2391,44 @@ impl RuntimeKernel {
         self.register_module_record(module, RuntimeModuleClass::MainExecutable)
     }
 
+    pub fn load_current_thread_runtime_system_module(
+        &mut self,
+        requested_name: String,
+        canonical_name: String,
+    ) -> Result<RuntimeSystemModuleLoad, RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-module-loader",
+                "runtime-system-module-load-thread-state-invalid",
+                "dynamic runtime-system loading requires a running process and current thread",
+            ));
+        }
+        let plan = self.modules.plan_runtime_system_module_load(
+            &self.module_records,
+            requested_name,
+            canonical_name,
+            self.current_thread_id().0,
+        )?;
+        self.modules
+            .validate_runtime_system_module_load_plan(&self.module_records, &plan)?;
+        if let Some(handle) = plan.new_module_handle() {
+            self.objects.register_object_with_handle(
+                RuntimeObjectKey::Module { handle },
+                RuntimeHandle(handle),
+            )?;
+        } else {
+            self.objects.object_for_handle(
+                RuntimeHandle(plan.result_handle()),
+                RuntimeObjectKind::Module,
+            )?;
+        }
+        Ok(self
+            .modules
+            .commit_runtime_system_module_load(&mut self.module_records, plan))
+    }
+
     fn register_module_record(
         &mut self,
         module: RuntimeModule,
@@ -4509,6 +4549,91 @@ mod tests {
 
         assert_eq!(error.code, "runtime-handle-slot-live");
         assert_eq!(runtime, before, "failed creation must not consume a slot");
+    }
+
+    #[test]
+    fn failed_runtime_system_module_object_registration_preserves_the_load_plan() {
+        let mut runtime = RuntimeKernel::new(RuntimeBootstrap {
+            process_id: RuntimeProcessId(0x1000),
+            initial_thread_id: RuntimeThreadId(0x2000),
+            initial_last_error: 0,
+            address_space: ProcessAddressSpaceLayout::vine_v1(),
+            clock: RuntimeClockState {
+                wall_clock_file_time: 134_282_016_000_000_000,
+                tick_count: 3_600_000,
+                performance_counter: 12_345_678_901,
+            },
+            startup_info: RuntimeStartupInfo {
+                profile_id: "runtime-system-module-object-atomicity-test".to_owned(),
+                bytes: vec![0; X86_STARTUP_INFO_W_BYTE_LENGTH],
+            },
+            process_image_path_a: RuntimeProcessImagePathA {
+                source_authority: "runtime-system-module-object-atomicity-test".to_owned(),
+                bytes_with_nul: b"C:\\Vine\\fixture.exe\0".to_vec(),
+                encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+            },
+            initial_current_directory_a: RuntimeCurrentDirectoryA {
+                source_authority: "runtime-system-module-object-atomicity-test".to_owned(),
+                bytes_with_nul: b"C:\\Vine\0".to_vec(),
+                encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+            },
+            encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
+            encoded_pointer_token_prefix: 0xec01_0000,
+        })
+        .unwrap();
+        runtime.start_initial_thread().unwrap();
+        for (handle, name, main) in [
+            (0x4d01_0001, "kernel32.dll", false),
+            (0x4d01_0002, "fixture.exe", true),
+        ] {
+            let module = RuntimeModule {
+                owner: "runtime-system-module-object-atomicity-test".to_owned(),
+                variant_id: format!("controlled-{name}"),
+                namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+                handle,
+                requested_name: name.to_owned(),
+                canonical_name: name.to_owned(),
+                runtime_system_module: !main,
+            };
+            if main {
+                runtime.register_main_module(module).unwrap();
+            } else {
+                runtime.load_module(module).unwrap();
+            }
+        }
+        runtime
+            .add_module_dependency(0x4d01_0002, 0x4d01_0001)
+            .unwrap();
+        runtime.mark_module_ready(0x4d01_0001).unwrap();
+        runtime.mark_module_ready(0x4d01_0002).unwrap();
+        runtime.attach_modules().unwrap();
+
+        let collided_handle = 0x4d01_0003;
+        runtime
+            .objects
+            .register_object_with_handle(
+                RuntimeObjectKey::Module {
+                    handle: collided_handle,
+                },
+                RuntimeHandle(collided_handle),
+            )
+            .unwrap();
+        let before = runtime.clone();
+        assert_eq!(
+            runtime
+                .load_current_thread_runtime_system_module(
+                    "d3dx9_43.dll".to_owned(),
+                    "d3dx9_43.dll".to_owned(),
+                )
+                .unwrap_err()
+                .code,
+            "runtime-handle-slot-live"
+        );
+        assert_eq!(runtime, before);
+        assert_eq!(
+            runtime.module_by_name("d3dx9_43.dll").unwrap_err().code,
+            "module-name-unknown"
+        );
     }
 
     #[test]

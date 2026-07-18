@@ -43,6 +43,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json",
   "fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json",
   "fixtures/runtime-policies/kernel32-source-file-read-v1.json",
+  "fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -193,6 +194,26 @@ for (const relative of policyFiles) {
     assert.equal(typeof waitableTimer.allowAutoReset, "boolean");
     assert.equal(waitableTimer.allowUnnamed, true);
     assert(waitableTimer.allowManualReset || waitableTimer.allowAutoReset);
+  }
+  const loadLibraryA = policy.loadLibraryA ?? null;
+  if (loadLibraryA !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert(
+      Number.isInteger(loadLibraryA.maximumModuleNameBytes) &&
+        loadLibraryA.maximumModuleNameBytes >= 1 &&
+        loadLibraryA.maximumModuleNameBytes <= 260,
+    );
+    assert(loadLibraryA.runtimeSystemModules.length > 0);
+    assert.equal(
+      new Set(loadLibraryA.runtimeSystemModules.map(({ canonicalName }) => canonicalName.toLowerCase())).size,
+      loadLibraryA.runtimeSystemModules.length,
+    );
+    for (const module of loadLibraryA.runtimeSystemModules) {
+      assert.equal(module.canonicalName, module.canonicalName.toLowerCase());
+      assert.match(module.canonicalName, /^[\x21-\x7e]+\.dll$/u);
+      assert(module.exports.length > 0);
+      assert.equal(new Set(module.exports).size, module.exports.length);
+    }
   }
 }
 

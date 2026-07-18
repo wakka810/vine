@@ -18,17 +18,17 @@ use vine_core::{
     ExecutionSession, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
     GuestPageReconciliation, GuestWriteResult, ImageMaterialization, ImageMemoryLayout,
     ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition, InitialProcessEnvironment,
-    InitialThreadStack, Kernel32CompatibilityPolicy, LoaderError, LoaderErrorClass,
-    LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
-    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    InitialThreadStack, Kernel32CompatibilityPolicy, LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError,
+    LoaderErrorClass, LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits,
+    MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
     ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
     RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget,
     RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport,
     RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle,
     RuntimeHeapAllocation, RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId,
-    RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind,
-    RuntimeObjectRecord, RuntimePageFaultResolution, RuntimeProcessId,
+    RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex,
+    RuntimeObjectKind, RuntimeObjectRecord, RuntimePageFaultResolution, RuntimeProcessId,
     RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceReadCompletion,
     RuntimeSourceReadHostResponse, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
     RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
@@ -177,6 +177,7 @@ enum GenericRuntimeCapability {
     D3d9GetDeviceCaps,
     D3d9CheckDeviceType,
     D3d9CheckDeviceFormat,
+    LoadLibraryA,
 }
 
 struct GenericRuntimeProcess {
@@ -422,7 +423,17 @@ struct GenericRuntimeCompletion {
     timer_resolution: Option<RuntimeTimerResolutionState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_read: Option<RuntimeSourceReadCompletion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_module: Option<GenericRuntimeModuleLoad>,
     memory: MemoryStats,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeModuleLoad {
+    module: RuntimeModule,
+    graph_node: RuntimeModuleNode,
+    object_record: RuntimeObjectRecord,
 }
 
 #[derive(Debug, Serialize)]
@@ -2240,7 +2251,36 @@ fn run_v86_reflection_session(
             None
         }
     };
-    let dynamic_export_thunks = if generic_runtime_reentry || get_proc_address_occurrences >= 4 {
+    let dynamic_export_thunks = if generic_runtime_reentry {
+        let mut exports = vec![
+            ("kernel32.dll", "FlsAlloc"),
+            ("kernel32.dll", "FlsGetValue"),
+            ("kernel32.dll", "FlsSetValue"),
+            ("kernel32.dll", "FlsFree"),
+        ];
+        if matches!(
+            generic_runtime_capability,
+            Some(GenericRuntimeCapability::LoadLibraryA)
+        ) {
+            let loader = kernel32_policy
+                .as_ref()
+                .and_then(Kernel32CompatibilityPolicy::load_library_a)
+                .ok_or_else(|| {
+                    LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "load-library-a-policy-missing",
+                        "LoadLibraryA capability requires a runtime-system module policy",
+                    )
+                })?;
+            for module in &loader.runtime_system_modules {
+                for export in &module.exports {
+                    exports.push((module.canonical_name.as_str(), export.as_str()));
+                }
+            }
+        }
+        install_dynamic_export_thunks(&mut memory, &dynamic_export_allocation, &exports)
+            .map_err(memory_error)?
+    } else if get_proc_address_occurrences >= 4 {
         install_dynamic_export_thunks(
             &mut memory,
             &dynamic_export_allocation,
@@ -2869,6 +2909,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                 | GenericRuntimeCapability::D3d9CheckDeviceType
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
+                | GenericRuntimeCapability::LoadLibraryA
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -2894,7 +2935,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9GetAdapterIdentifier
             | GenericRuntimeCapability::D3d9GetDeviceCaps
             | GenericRuntimeCapability::D3d9CheckDeviceType
-            | GenericRuntimeCapability::D3d9CheckDeviceFormat,
+            | GenericRuntimeCapability::D3d9CheckDeviceFormat
+            | GenericRuntimeCapability::LoadLibraryA,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3229,6 +3271,28 @@ fn run_v86_generic_runtime_session(
         dispatcher_endpoints.push(endpoint);
         contracts.push(contract);
     }
+    if matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::LoadLibraryA)
+    ) {
+        let loader = kernel32_policy.load_library_a().ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "runtime-reentry",
+                "load-library-a-policy-missing",
+                "active LoadLibraryA capability has no runtime-system module policy",
+            )
+        })?;
+        for module in &loader.runtime_system_modules {
+            for export in &module.exports {
+                dispatcher_endpoints.push(ApiEndpointIdentity::from_dynamic_endpoint(
+                    process
+                        .runtime
+                        .dynamic_endpoint_by_name(&module.canonical_name, export)
+                        .map_err(runtime_state_error)?,
+                ));
+            }
+        }
+    }
     let dispatcher =
         ApiDispatcher::new(dispatcher_endpoints, contracts.clone()).map_err(api_fault)?;
     let mut active_callbacks = Vec::<GenericRuntimeActiveCallback>::new();
@@ -3449,6 +3513,7 @@ fn run_v86_generic_runtime_session(
                             com_apartment: None,
                             timer_resolution: None,
                             source_read: None,
+                            runtime_module: None,
                             memory: memory.stats(),
                         },
                     )?;
@@ -3998,6 +4063,44 @@ fn run_v86_generic_runtime_session(
                         )
                         .then(|| session.runtime().timer_resolution_state())
                         .flatten();
+                        let runtime_module = if completion.implementation_id
+                            == LOAD_LIBRARY_A_IMPLEMENTATION
+                        {
+                            let handle = set_eax_result(
+                                &completion,
+                                "load-library-a-return-register-invalid",
+                                "LoadLibraryA dispatcher did not set EAX",
+                            )?;
+                            let module = session
+                                .runtime()
+                                .module(handle)
+                                .map_err(runtime_state_error)?
+                                .clone();
+                            let graph_node = session
+                                .runtime()
+                                .module_graph()
+                                .module_by_handle(handle)
+                                .map_err(|error| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        error.code,
+                                        error.message,
+                                    )
+                                })?
+                                .clone();
+                            let object_record = session
+                                .runtime()
+                                .object_for_handle(RuntimeHandle(handle), RuntimeObjectKind::Module)
+                                .map_err(runtime_state_error)?
+                                .clone();
+                            Some(GenericRuntimeModuleLoad {
+                                module,
+                                graph_node,
+                                object_record,
+                            })
+                        } else {
+                            None
+                        };
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -4024,6 +4127,7 @@ fn run_v86_generic_runtime_session(
                                 com_apartment,
                                 timer_resolution,
                                 source_read: None,
+                                runtime_module,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -4216,6 +4320,7 @@ fn run_v86_generic_runtime_session(
                                 com_apartment: None,
                                 timer_resolution: None,
                                 source_read: Some(source_read),
+                                runtime_module: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -4314,6 +4419,7 @@ fn run_v86_generic_runtime_session(
                                 com_apartment: None,
                                 timer_resolution: None,
                                 source_read: None,
+                                runtime_module: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -4350,6 +4456,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9GetDeviceCaps
                             | GenericRuntimeCapability::D3d9CheckDeviceType
                             | GenericRuntimeCapability::D3d9CheckDeviceFormat
+                            | GenericRuntimeCapability::LoadLibraryA
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4383,6 +4490,7 @@ fn run_v86_generic_runtime_session(
                                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                                 | GenericRuntimeCapability::D3d9CheckDeviceType
                                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
+                                | GenericRuntimeCapability::LoadLibraryA
                         )
                     ) {
                         dispatch_d3d9_com_call(&d3d9_policy, trap, &mut session)
@@ -4423,6 +4531,7 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
+    let load_library_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::LoadLibraryA));
     let d3d9_root_factory_enabled = matches!(
         enabled,
         Some(
@@ -4432,6 +4541,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                 | GenericRuntimeCapability::D3d9CheckDeviceType
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
+                | GenericRuntimeCapability::LoadLibraryA
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4461,6 +4571,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                 | GenericRuntimeCapability::D3d9CheckDeviceType
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
+                | GenericRuntimeCapability::LoadLibraryA
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -4936,6 +5047,7 @@ fn runtime_capability_enables_endpoint(
         "CreateFileA" | "GetFileSize" | "ReadFile" | "SetFilePointer" | "CloseHandle" => {
             source_file_read_enabled
         }
+        "LoadLibraryA" => load_library_a_enabled,
         _ => true,
     }
 }
@@ -4953,6 +5065,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                 | GenericRuntimeCapability::D3d9CheckDeviceType
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
+                | GenericRuntimeCapability::LoadLibraryA
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -10582,6 +10695,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-get-device-caps" => GenericRuntimeCapability::D3d9GetDeviceCaps,
                 "d3d9-check-device-type" => GenericRuntimeCapability::D3d9CheckDeviceType,
                 "d3d9-check-device-format" => GenericRuntimeCapability::D3d9CheckDeviceFormat,
+                "kernel32-load-library-a" => GenericRuntimeCapability::LoadLibraryA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

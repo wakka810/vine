@@ -19,6 +19,7 @@ const HEAP_NO_SERIALIZE: u32 = 0x0000_0001;
 const CRITICAL_SECTION_DYNAMIC_SPIN_STATE: u32 = 0x0200_0000;
 const MAX_POLICY_ID_BYTES: usize = 128;
 const MAX_POLICY_ENTRIES: usize = 32;
+const MAX_RUNTIME_SYSTEM_EXPORT_NAME_BYTES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -41,6 +42,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_current_directory_a: Option<Kernel32SetCurrentDirectoryAPolicy>,
     pub source_files: Option<Kernel32SourceFilePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load_library_a: Option<Kernel32LoadLibraryAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_drive_type_a: Option<Kernel32GetDriveTypeAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -140,6 +143,20 @@ pub struct Kernel32SourceFilePolicy {
     pub allowed_flags_and_attributes: Vec<u32>,
     pub maximum_path_bytes: u32,
     pub maximum_read_bytes: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32LoadLibraryAPolicy {
+    pub maximum_module_name_bytes: u32,
+    pub runtime_system_modules: Vec<Kernel32RuntimeSystemModulePolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32RuntimeSystemModulePolicy {
+    pub canonical_name: String,
+    pub exports: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -273,6 +290,7 @@ impl Kernel32CompatibilityPolicy {
             multi_byte_to_wide_char: None,
             set_current_directory_a: None,
             source_files: None,
+            load_library_a: None,
             get_drive_type_a: None,
             create_mutex_a: None,
             create_waitable_timer_a: None,
@@ -480,6 +498,14 @@ impl Kernel32CompatibilityPolicy {
                     "source file policy requires the bounded reached read-only open and read variants",
                 ));
             }
+        }
+        if let Some(loader) = self.load_library_a.as_ref()
+            && !valid_load_library_a_policy(loader, self.schema_version)
+        {
+            return Err(policy_error(
+                "kernel32-policy-load-library-a-invalid",
+                "LoadLibraryA policy requires schema v2 and unique bounded ASCII runtime-system module and export identities",
+            ));
         }
         if let Some(drive) = self.get_drive_type_a
             && (!drive.process_image_drive_only
@@ -756,6 +782,10 @@ impl Kernel32CompatibilityPolicy {
         self.source_files.as_ref()
     }
 
+    pub fn load_library_a(&self) -> Option<&Kernel32LoadLibraryAPolicy> {
+        self.load_library_a.as_ref()
+    }
+
     pub fn get_drive_type_a(&self) -> Option<Kernel32GetDriveTypeAPolicy> {
         self.get_drive_type_a
     }
@@ -835,6 +865,48 @@ impl Kernel32CompatibilityPolicy {
         self.initialize_critical_section
             .map(|initialization| initialization.spin_count_field)
     }
+}
+
+fn valid_load_library_a_policy(policy: &Kernel32LoadLibraryAPolicy, schema_version: u32) -> bool {
+    if schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+        || !(1..=260).contains(&policy.maximum_module_name_bytes)
+        || policy.runtime_system_modules.is_empty()
+        || policy.runtime_system_modules.len() > MAX_POLICY_ENTRIES
+    {
+        return false;
+    }
+    let mut canonical_names = BTreeSet::new();
+    for module in &policy.runtime_system_modules {
+        let canonical = module.canonical_name.to_ascii_lowercase();
+        if module.canonical_name != canonical
+            || module.canonical_name.is_empty()
+            || module.canonical_name.len() > policy.maximum_module_name_bytes as usize
+            || !module.canonical_name.is_ascii()
+            || !module.canonical_name.ends_with(".dll")
+            || module
+                .canonical_name
+                .bytes()
+                .any(|byte| byte.is_ascii_control() || matches!(byte, b'/' | b'\\' | b':'))
+            || !canonical_names.insert(canonical)
+            || module.exports.is_empty()
+            || module.exports.len() > MAX_POLICY_ENTRIES
+        {
+            return false;
+        }
+        let mut exports = BTreeSet::new();
+        if module.exports.iter().any(|export| {
+            export.is_empty()
+                || export.len() > MAX_RUNTIME_SYSTEM_EXPORT_NAME_BYTES
+                || !export.is_ascii()
+                || export
+                    .bytes()
+                    .any(|byte| byte.is_ascii_control() || byte == b' ')
+                || !exports.insert(export.as_str())
+        }) {
+            return false;
+        }
+    }
+    true
 }
 
 fn valid_lead_byte_ranges(bytes: &[u8; 12]) -> bool {

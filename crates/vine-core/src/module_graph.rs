@@ -84,6 +84,55 @@ impl RuntimeModuleNode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeSystemModuleGraphLoad {
+    pub module_id: RuntimeModuleId,
+    pub handle: u32,
+    pub newly_registered: bool,
+    pub thread_reference_count: u32,
+    pub attach_sequence: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeSystemModuleGraphLoadPlan {
+    expected_mutation_generation: u64,
+    next_mutation_generation: u64,
+    expected_node_count: usize,
+    expected_main_module: Option<RuntimeModuleId>,
+    mutation: RuntimeSystemModuleGraphLoadMutation,
+    result: RuntimeSystemModuleGraphLoad,
+}
+
+impl RuntimeSystemModuleGraphLoadPlan {
+    pub(crate) fn result(&self) -> RuntimeSystemModuleGraphLoad {
+        self.result
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeSystemModuleGraphLoadMutation {
+    Existing {
+        expected: RuntimeModuleNode,
+        next: RuntimeModuleNode,
+    },
+    New {
+        registration: RuntimeModuleGraphRegistrationPlan,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeModuleGraphRegistrationPlan {
+    expected_mutation_generation: u64,
+    next_mutation_generation: u64,
+    expected_node_count: usize,
+    expected_main_module: Option<RuntimeModuleId>,
+    expected_next_module_id: u32,
+    expected_next_discovery_sequence: u32,
+    next_module_id: u32,
+    next_discovery_sequence: u32,
+    node: RuntimeModuleNode,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeModuleGraph {
@@ -93,6 +142,8 @@ pub struct RuntimeModuleGraph {
     main_module: Option<RuntimeModuleId>,
     next_module_id: u32,
     next_discovery_sequence: u32,
+    #[serde(skip)]
+    mutation_generation: u64,
 }
 
 impl Default for RuntimeModuleGraph {
@@ -103,6 +154,7 @@ impl Default for RuntimeModuleGraph {
             main_module: None,
             next_module_id: 1,
             next_discovery_sequence: 1,
+            mutation_generation: 0,
         }
     }
 }
@@ -112,6 +164,16 @@ impl RuntimeModuleGraph {
         &mut self,
         registration: RuntimeModuleRegistration,
     ) -> Result<RuntimeModuleId, RuntimeModuleGraphError> {
+        let plan = self.plan_registration(registration)?;
+        let id = plan.node.id;
+        self.commit_registration(plan);
+        Ok(id)
+    }
+
+    fn plan_registration(
+        &self,
+        registration: RuntimeModuleRegistration,
+    ) -> Result<RuntimeModuleGraphRegistrationPlan, RuntimeModuleGraphError> {
         let canonical_name =
             canonical_module_name(&registration.canonical_name, registration.class)?;
         if registration.handle == 0
@@ -181,18 +243,50 @@ impl RuntimeModuleGraph {
         match registration.class {
             RuntimeModuleClass::MainExecutable => {
                 add_reference_to_node(&mut node, RuntimeModuleReferenceOwner::ProcessRoot)?;
-                self.main_module = Some(id);
             }
             RuntimeModuleClass::RuntimeSystemModule => {
                 add_reference_to_node(&mut node, RuntimeModuleReferenceOwner::RuntimeService)?;
             }
             RuntimeModuleClass::GuestDynamicLibrary => {}
         }
-        self.next_module_id = next_module_id;
-        self.next_discovery_sequence = next_discovery_sequence;
-        self.canonical_index.insert(canonical_name, id);
-        self.nodes.insert(id, node);
-        Ok(id)
+        let next_mutation_generation = self.next_mutation_generation()?;
+        Ok(RuntimeModuleGraphRegistrationPlan {
+            expected_mutation_generation: self.mutation_generation,
+            next_mutation_generation,
+            expected_node_count: self.nodes.len(),
+            expected_main_module: self.main_module,
+            expected_next_module_id: self.next_module_id,
+            expected_next_discovery_sequence: self.next_discovery_sequence,
+            next_module_id,
+            next_discovery_sequence,
+            node,
+        })
+    }
+
+    fn registration_plan_is_current(&self, plan: &RuntimeModuleGraphRegistrationPlan) -> bool {
+        self.mutation_generation == plan.expected_mutation_generation
+            && self.nodes.len() == plan.expected_node_count
+            && self.main_module == plan.expected_main_module
+            && self.next_module_id == plan.expected_next_module_id
+            && self.next_discovery_sequence == plan.expected_next_discovery_sequence
+            && !self.canonical_index.contains_key(&plan.node.canonical_name)
+            && !self
+                .nodes
+                .values()
+                .any(|node| node.handle == plan.node.handle)
+    }
+
+    fn commit_registration(&mut self, plan: RuntimeModuleGraphRegistrationPlan) {
+        debug_assert!(self.registration_plan_is_current(&plan));
+        if plan.node.class == RuntimeModuleClass::MainExecutable {
+            self.main_module = Some(plan.node.id);
+        }
+        self.next_module_id = plan.next_module_id;
+        self.next_discovery_sequence = plan.next_discovery_sequence;
+        self.mutation_generation = plan.next_mutation_generation;
+        self.canonical_index
+            .insert(plan.node.canonical_name.clone(), plan.node.id);
+        self.nodes.insert(plan.node.id, plan.node);
     }
 
     pub fn rollback_registration(
@@ -218,6 +312,7 @@ impl RuntimeModuleGraph {
                 "only the latest unlinked registered module can be rolled back",
             ));
         }
+        let next_mutation_generation = self.next_mutation_generation()?;
         let node = self.nodes.remove(&id).ok_or_else(|| {
             RuntimeModuleGraphError::runtime_defect(
                 "module-node-missing",
@@ -230,6 +325,7 @@ impl RuntimeModuleGraph {
         }
         self.next_module_id = id.0;
         self.next_discovery_sequence = node.discovery_sequence;
+        self.mutation_generation = next_mutation_generation;
         Ok(node)
     }
 
@@ -274,8 +370,10 @@ impl RuntimeModuleGraph {
         next_requester.dependencies.insert(dependency);
         next_dependency.dependents.insert(requester);
         add_reference_to_node(&mut next_dependency, owner)?;
+        let next_mutation_generation = self.next_mutation_generation()?;
         self.nodes.insert(requester, next_requester);
         self.nodes.insert(dependency, next_dependency);
+        self.mutation_generation = next_mutation_generation;
         Ok(())
     }
 
@@ -291,9 +389,12 @@ impl RuntimeModuleGraph {
             ));
         }
         let owner = RuntimeModuleReferenceOwner::DynamicLoad { thread_id };
+        let next_mutation_generation = self.next_mutation_generation()?;
         let node = self.module_mut(module)?;
         add_reference_to_node(node, owner.clone())?;
-        Ok(node.reference_count_for(&owner))
+        let count = node.reference_count_for(&owner);
+        self.mutation_generation = next_mutation_generation;
+        Ok(count)
     }
 
     pub fn release_dynamic_reference(
@@ -308,6 +409,7 @@ impl RuntimeModuleGraph {
             ));
         }
         let owner = RuntimeModuleReferenceOwner::DynamicLoad { thread_id };
+        let next_mutation_generation = self.next_mutation_generation()?;
         let node = self.module_mut(module)?;
         let index = node
             .references
@@ -330,18 +432,20 @@ impl RuntimeModuleGraph {
         } else {
             node.references[index].count = remaining;
         }
+        self.mutation_generation = next_mutation_generation;
         Ok(remaining)
     }
 
     pub fn mark_ready(&mut self, module: RuntimeModuleId) -> Result<(), RuntimeModuleGraphError> {
-        let node = self.module_mut(module)?;
-        if node.state != RuntimeModuleLoadState::Registered {
+        if self.module(module)?.state != RuntimeModuleLoadState::Registered {
             return Err(RuntimeModuleGraphError::conflict(
                 "module-ready-transition-invalid",
                 "only a registered module can become ready",
             ));
         }
-        node.state = RuntimeModuleLoadState::Ready;
+        let next_mutation_generation = self.next_mutation_generation()?;
+        self.module_mut(module)?.state = RuntimeModuleLoadState::Ready;
+        self.mutation_generation = next_mutation_generation;
         Ok(())
     }
 
@@ -362,8 +466,200 @@ impl RuntimeModuleGraph {
             .collect::<Result<Vec<_>, RuntimeModuleGraphError>>()?;
         let mut next_nodes = self.nodes.clone();
         apply_state_transitions(&mut next_nodes, &transitions)?;
+        let next_mutation_generation = self.next_mutation_generation()?;
         self.nodes = next_nodes;
+        self.mutation_generation = next_mutation_generation;
         Ok(order)
+    }
+
+    pub fn attach_ready_runtime_system_module(
+        &mut self,
+        module: RuntimeModuleId,
+    ) -> Result<u32, RuntimeModuleGraphError> {
+        let target = self.module(module)?;
+        if target.class != RuntimeModuleClass::RuntimeSystemModule
+            || target.state != RuntimeModuleLoadState::Ready
+            || !target.dependencies.is_empty()
+            || !target.dependents.is_empty()
+            || target.reference_count() == 0
+        {
+            return Err(RuntimeModuleGraphError::conflict(
+                "runtime-system-module-attach-state-invalid",
+                "dynamic runtime-system attachment requires one ready, referenced, callback-free module",
+            ));
+        }
+        if self.main_module.is_none() {
+            return Err(RuntimeModuleGraphError::conflict(
+                "main-module-missing",
+                "dynamic runtime-system attachment requires an attached main executable",
+            ));
+        }
+
+        let mut sequences = BTreeSet::new();
+        let mut maximum_sequence = 0_u32;
+        for node in self.nodes.values().filter(|node| node.id != module) {
+            let RuntimeModuleLoadState::ProcessAttached { sequence } = node.state else {
+                return Err(RuntimeModuleGraphError::conflict(
+                    "runtime-system-module-attach-process-state-invalid",
+                    "all existing modules must remain process-attached during a dynamic runtime-system load",
+                ));
+            };
+            if sequence == 0 || !sequences.insert(sequence) {
+                return Err(RuntimeModuleGraphError::runtime_defect(
+                    "module-attach-sequence-invalid",
+                    "attached module graph contains a zero or duplicate process-attach sequence",
+                ));
+            }
+            maximum_sequence = maximum_sequence.max(sequence);
+        }
+        let sequence = maximum_sequence.checked_add(1).ok_or_else(|| {
+            RuntimeModuleGraphError::resource_limit(
+                "module-attach-sequence-overflow",
+                "dynamic runtime-system attach sequence is exhausted",
+            )
+        })?;
+        let next_mutation_generation = self.next_mutation_generation()?;
+        self.module_mut(module)?.state = RuntimeModuleLoadState::ProcessAttached { sequence };
+        self.mutation_generation = next_mutation_generation;
+        Ok(sequence)
+    }
+
+    pub(crate) fn plan_existing_runtime_system_module_load(
+        &self,
+        module: RuntimeModuleId,
+        thread_id: u32,
+    ) -> Result<RuntimeSystemModuleGraphLoadPlan, RuntimeModuleGraphError> {
+        if thread_id == 0 {
+            return Err(RuntimeModuleGraphError::invalid_input(
+                "module-reference-thread-invalid",
+                "dynamic module reference requires a nonzero thread ID",
+            ));
+        }
+        let expected = self.module(module)?.clone();
+        let RuntimeModuleLoadState::ProcessAttached { sequence } = expected.state else {
+            return Err(RuntimeModuleGraphError::conflict(
+                "runtime-system-module-existing-state-invalid",
+                "an existing dynamic runtime-system module must remain process-attached",
+            ));
+        };
+        if expected.class != RuntimeModuleClass::RuntimeSystemModule
+            || !expected.dependencies.is_empty()
+            || !expected.dependents.is_empty()
+        {
+            return Err(RuntimeModuleGraphError::conflict(
+                "runtime-system-module-existing-class-invalid",
+                "an existing dynamic runtime-system module must remain callback-free and dependency-free",
+            ));
+        }
+        self.next_runtime_system_module_attach_sequence()?;
+        let owner = RuntimeModuleReferenceOwner::DynamicLoad { thread_id };
+        let mut next = expected.clone();
+        add_reference_to_node(&mut next, owner.clone())?;
+        let thread_reference_count = next.reference_count_for(&owner);
+        let next_mutation_generation = self.next_mutation_generation()?;
+        Ok(RuntimeSystemModuleGraphLoadPlan {
+            expected_mutation_generation: self.mutation_generation,
+            next_mutation_generation,
+            expected_node_count: self.nodes.len(),
+            expected_main_module: self.main_module,
+            mutation: RuntimeSystemModuleGraphLoadMutation::Existing { expected, next },
+            result: RuntimeSystemModuleGraphLoad {
+                module_id: module,
+                handle: self.module(module)?.handle,
+                newly_registered: false,
+                thread_reference_count,
+                attach_sequence: sequence,
+            },
+        })
+    }
+
+    pub(crate) fn plan_new_runtime_system_module_load(
+        &self,
+        registration: RuntimeModuleRegistration,
+        thread_id: u32,
+    ) -> Result<RuntimeSystemModuleGraphLoadPlan, RuntimeModuleGraphError> {
+        if thread_id == 0 {
+            return Err(RuntimeModuleGraphError::invalid_input(
+                "module-reference-thread-invalid",
+                "dynamic module reference requires a nonzero thread ID",
+            ));
+        }
+        if registration.class != RuntimeModuleClass::RuntimeSystemModule {
+            return Err(RuntimeModuleGraphError::invalid_input(
+                "runtime-system-module-registration-class-invalid",
+                "dynamic runtime-system load planning requires a runtime-system module registration",
+            ));
+        }
+        let attach_sequence = self.next_runtime_system_module_attach_sequence()?;
+        let mut registration = self.plan_registration(registration)?;
+        let owner = RuntimeModuleReferenceOwner::DynamicLoad { thread_id };
+        add_reference_to_node(&mut registration.node, owner.clone())?;
+        registration.node.state = RuntimeModuleLoadState::ProcessAttached {
+            sequence: attach_sequence,
+        };
+        let result = RuntimeSystemModuleGraphLoad {
+            module_id: registration.node.id,
+            handle: registration.node.handle,
+            newly_registered: true,
+            thread_reference_count: registration.node.reference_count_for(&owner),
+            attach_sequence,
+        };
+        Ok(RuntimeSystemModuleGraphLoadPlan {
+            expected_mutation_generation: registration.expected_mutation_generation,
+            next_mutation_generation: registration.next_mutation_generation,
+            expected_node_count: self.nodes.len(),
+            expected_main_module: self.main_module,
+            mutation: RuntimeSystemModuleGraphLoadMutation::New { registration },
+            result,
+        })
+    }
+
+    pub(crate) fn validate_runtime_system_module_load_plan(
+        &self,
+        plan: &RuntimeSystemModuleGraphLoadPlan,
+    ) -> Result<(), RuntimeModuleGraphError> {
+        let current = self.mutation_generation == plan.expected_mutation_generation
+            && self.nodes.len() == plan.expected_node_count
+            && self.main_module == plan.expected_main_module
+            && self
+                .next_runtime_system_module_attach_sequence()
+                .is_ok_and(|sequence| {
+                    !plan.result.newly_registered || sequence == plan.result.attach_sequence
+                })
+            && match &plan.mutation {
+                RuntimeSystemModuleGraphLoadMutation::Existing { expected, .. } => {
+                    self.nodes.get(&expected.id) == Some(expected)
+                }
+                RuntimeSystemModuleGraphLoadMutation::New { registration } => {
+                    self.registration_plan_is_current(registration)
+                }
+            };
+        if !current {
+            return Err(RuntimeModuleGraphError::conflict(
+                "runtime-system-module-load-plan-stale",
+                "runtime module graph changed after dynamic system-module load planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_runtime_system_module_load(
+        &mut self,
+        plan: RuntimeSystemModuleGraphLoadPlan,
+    ) -> RuntimeSystemModuleGraphLoad {
+        debug_assert!(self.validate_runtime_system_module_load_plan(&plan).is_ok());
+        let result = plan.result;
+        let next_mutation_generation = plan.next_mutation_generation;
+        match plan.mutation {
+            RuntimeSystemModuleGraphLoadMutation::Existing { next, .. } => {
+                self.nodes.insert(next.id, next);
+                self.mutation_generation = next_mutation_generation;
+            }
+            RuntimeSystemModuleGraphLoadMutation::New { registration } => {
+                self.commit_registration(registration);
+            }
+        }
+        result
     }
 
     pub fn planned_attach_order(&self) -> Result<Vec<RuntimeModuleId>, RuntimeModuleGraphError> {
@@ -407,7 +703,9 @@ impl RuntimeModuleGraph {
             .collect::<Result<Vec<_>, RuntimeModuleGraphError>>()?;
         let mut next_nodes = self.nodes.clone();
         apply_state_transitions(&mut next_nodes, &transitions)?;
+        let next_mutation_generation = self.next_mutation_generation()?;
         self.nodes = next_nodes;
+        self.mutation_generation = next_mutation_generation;
         Ok(order)
     }
 
@@ -474,6 +772,47 @@ impl RuntimeModuleGraph {
 
     pub fn nodes(&self) -> &BTreeMap<RuntimeModuleId, RuntimeModuleNode> {
         &self.nodes
+    }
+
+    fn next_mutation_generation(&self) -> Result<u64, RuntimeModuleGraphError> {
+        self.mutation_generation.checked_add(1).ok_or_else(|| {
+            RuntimeModuleGraphError::resource_limit(
+                "module-graph-mutation-generation-overflow",
+                "runtime module graph mutation generation is exhausted",
+            )
+        })
+    }
+
+    fn next_runtime_system_module_attach_sequence(&self) -> Result<u32, RuntimeModuleGraphError> {
+        if self.main_module.is_none() {
+            return Err(RuntimeModuleGraphError::conflict(
+                "main-module-missing",
+                "dynamic runtime-system attachment requires an attached main executable",
+            ));
+        }
+        let mut sequences = BTreeSet::new();
+        let mut maximum_sequence = 0_u32;
+        for node in self.nodes.values() {
+            let RuntimeModuleLoadState::ProcessAttached { sequence } = node.state else {
+                return Err(RuntimeModuleGraphError::conflict(
+                    "runtime-system-module-attach-process-state-invalid",
+                    "all existing modules must remain process-attached during a dynamic runtime-system load",
+                ));
+            };
+            if sequence == 0 || !sequences.insert(sequence) {
+                return Err(RuntimeModuleGraphError::runtime_defect(
+                    "module-attach-sequence-invalid",
+                    "attached module graph contains a zero or duplicate process-attach sequence",
+                ));
+            }
+            maximum_sequence = maximum_sequence.max(sequence);
+        }
+        maximum_sequence.checked_add(1).ok_or_else(|| {
+            RuntimeModuleGraphError::resource_limit(
+                "module-attach-sequence-overflow",
+                "dynamic runtime-system attach sequence is exhausted",
+            )
+        })
     }
 
     fn module_mut(

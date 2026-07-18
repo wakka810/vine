@@ -20,7 +20,8 @@ use vine_core::{
     Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
     Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
-    LC_MAP_STRING_W_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
+    LC_MAP_STRING_W_IMPLEMENTATION, LOAD_LIBRARY_A_IMPLEMENTATION,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
@@ -31,13 +32,14 @@ use vine_core::{
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, ReentrancyPolicy,
     RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap,
-    RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeModule, RuntimeObjectKind,
-    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeTlsValue, RuntimeWaitState, RuntimeWaitableTimerId, Rva,
-    SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
-    SET_THREAD_AFFINITY_MASK_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
-    SchedulerThreadState, StackCleanup, TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
+    RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleLoadState,
+    RuntimeModuleReferenceOwner, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, RuntimeWaitState,
+    RuntimeWaitableTimerId, Rva, SET_CURRENT_DIRECTORY_A_IMPLEMENTATION,
+    SET_LAST_ERROR_IMPLEMENTATION, SET_THREAD_AFFINITY_MASK_IMPLEMENTATION,
+    SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
+    TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
+    kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -7657,6 +7659,250 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
             if fault.class == ApiFaultClass::Unsupported
                 && fault.code == "get-proc-address-ordinal-unsupported"
     ));
+}
+
+#[test]
+fn load_library_a_registers_one_attached_runtime_module_before_returning_its_handle() {
+    const D3DX_NAME: u32 = OUTPUT_BASE + 0x400;
+    const EMPTY_NAME: u32 = OUTPUT_BASE + 0x440;
+    const MISSING_NAME: u32 = OUTPUT_BASE + 0x450;
+    const PATH_NAME: u32 = OUTPUT_BASE + 0x470;
+    const NON_ASCII_NAME: u32 = OUTPUT_BASE + 0x4a0;
+
+    let (mut memory, owner) = initialized_memory();
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x180);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .unwrap();
+    for (address, bytes) in [
+        (D3DX_NAME, b"D3DX9_43.DLL\0".as_slice()),
+        (EMPTY_NAME, b"\0".as_slice()),
+        (MISSING_NAME, b"missing.dll\0".as_slice()),
+        (PATH_NAME, b"C:\\Windows\\d3dx9_43.dll\0".as_slice()),
+        (NON_ASCII_NAME, &[0x82, 0xa0, 0]),
+    ] {
+        memory
+            .write_initialization(owner, GuestAddress(address), bytes)
+            .unwrap();
+    }
+    let frames = [
+        (STACK_BASE, vec![0x1000_0a01, 0]),
+        (STACK_BASE + 0x20, vec![0x1000_0a02, EMPTY_NAME]),
+        (STACK_BASE + 0x40, vec![0x1000_0a03, MISSING_NAME]),
+        (STACK_BASE + 0x60, vec![0x1000_0a04, PATH_NAME]),
+        (STACK_BASE + 0x80, vec![0x1000_0a05, NON_ASCII_NAME]),
+        (STACK_BASE + 0xa0, vec![0x1000_0a06, D3DX_NAME]),
+        (STACK_BASE + 0xc0, vec![0x1000_0a07, D3DX_NAME]),
+    ];
+    for (address, words) in &frames {
+        write_frame(&mut memory, owner, GuestAddress(*address), words);
+    }
+    memory.seal_owner(owner).unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(148),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "LoadLibraryA".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .unwrap()
+        .expect("LoadLibraryA contract");
+    assert_eq!(contract.implementation_id, LOAD_LIBRARY_A_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(
+        contract.abi.return_value,
+        ApiReturnSchema::LogicalHandle {
+            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            nullable: true,
+        }
+    );
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).unwrap();
+    let policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json"
+    ))
+    .unwrap();
+
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime
+        .load_module(RuntimeModule {
+            owner: "load-library-a-test".to_owned(),
+            variant_id: "runtime-kernel32".to_owned(),
+            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            handle: 0x4d01_0001,
+            requested_name: "kernel32.dll".to_owned(),
+            canonical_name: "kernel32.dll".to_owned(),
+            runtime_system_module: true,
+        })
+        .unwrap();
+    runtime
+        .register_main_module(RuntimeModule {
+            owner: "load-library-a-test".to_owned(),
+            variant_id: "controlled-main".to_owned(),
+            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            handle: 0x4d01_0002,
+            requested_name: "fixture.exe".to_owned(),
+            canonical_name: "fixture.exe".to_owned(),
+            runtime_system_module: false,
+        })
+        .unwrap();
+    runtime
+        .add_module_dependency(0x4d01_0002, 0x4d01_0001)
+        .unwrap();
+    runtime.mark_module_ready(0x4d01_0001).unwrap();
+    runtime.mark_module_ready(0x4d01_0002).unwrap();
+    runtime.attach_modules().unwrap();
+    let runtime_without_endpoint = runtime.clone();
+    runtime
+        .register_dynamic_endpoint(RuntimeDynamicEndpoint {
+            namespace: DYNAMIC_EXPORT_ENDPOINT_NAMESPACE.to_owned(),
+            id: 5,
+            address: GuestAddress(0x7f02_0040),
+            module: "d3dx9_43.dll".to_owned(),
+            name: "D3DXCreateEffect".to_owned(),
+            lifetime: "process-runtime".to_owned(),
+        })
+        .unwrap();
+
+    for (index, expected_error) in [(0, 87), (1, 87), (2, 126)] {
+        let modules_before = runtime.modules().clone();
+        let graph_before = runtime.module_graph().clone();
+        let objects_before = runtime.objects().clone();
+        let completion = dispatch_owned_with_policy(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoint,
+            frames[index].0,
+            frames[index].1[0],
+            &policy,
+        );
+        assert_eq!(completion.eax, RegisterUpdate::Set(0));
+        assert_eq!(completion.last_error, expected_error);
+        assert!(completion.guest_writes.is_empty());
+        assert_eq!(runtime.modules(), &modules_before);
+        assert_eq!(runtime.module_graph(), &graph_before);
+        assert_eq!(runtime.objects(), &objects_before);
+    }
+
+    for (index, expected_code) in [
+        (3, "load-library-a-search-variant-unsupported"),
+        (4, "load-library-a-encoding-unsupported"),
+    ] {
+        let runtime_before = runtime.clone();
+        let memory_before = memory.stats();
+        let outcome = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatcher.dispatch_owned(
+                owned_trap(&endpoint, frames[index].0, frames[index].1[0]),
+                &mut session,
+                |contract, frame, session| {
+                    dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+                },
+            )
+        };
+        assert!(matches!(
+            outcome,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == ApiFaultClass::Unsupported && fault.code == expected_code
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    runtime.set_current_last_error(INITIAL_LAST_ERROR).unwrap();
+    let memory_before_success = memory.stats();
+    let first = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[5].0,
+        frames[5].1[0],
+        &policy,
+    );
+    assert_eq!(first.eax, RegisterUpdate::Set(0x4d01_0003));
+    assert_eq!(first.last_error, INITIAL_LAST_ERROR);
+    assert!(first.guest_writes.is_empty());
+    assert_eq!(memory.stats(), memory_before_success);
+    let loaded = runtime.module_by_name("d3dx9_43.dll").unwrap();
+    assert_eq!(loaded.handle, 0x4d01_0003);
+    let node = runtime
+        .module_graph()
+        .module_by_handle(loaded.handle)
+        .unwrap();
+    assert_eq!(
+        node.state,
+        RuntimeModuleLoadState::ProcessAttached { sequence: 3 }
+    );
+    assert_eq!(
+        node.reference_count_for(&RuntimeModuleReferenceOwner::DynamicLoad {
+            thread_id: THREAD_ID,
+        }),
+        1
+    );
+
+    let object_count = runtime.objects().objects().len();
+    let second = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[6].0,
+        frames[6].1[0],
+        &policy,
+    );
+    assert_eq!(second.eax, RegisterUpdate::Set(0x4d01_0003));
+    assert_eq!(runtime.objects().objects().len(), object_count);
+    assert_eq!(
+        runtime
+            .module_graph()
+            .module_by_handle(0x4d01_0003)
+            .unwrap()
+            .reference_count_for(&RuntimeModuleReferenceOwner::DynamicLoad {
+                thread_id: THREAD_ID,
+            }),
+        2
+    );
+
+    let mut missing_endpoint_runtime = runtime_without_endpoint;
+    let before = missing_endpoint_runtime.clone();
+    let missing_endpoint = {
+        let mut session = ExecutionSession::new(&mut memory, &mut missing_endpoint_runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, frames[5].0, frames[5].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        missing_endpoint,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::RuntimeDefect
+                && fault.code == "load-library-a-runtime-export-missing"
+    ));
+    assert_eq!(missing_endpoint_runtime, before);
 }
 
 #[test]

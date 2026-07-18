@@ -73,7 +73,7 @@ pub use modules::{
     RuntimeDllCallbackRequest, RuntimeDllLifecycleAction, RuntimeDllLifecycleCompletion,
     RuntimeDllLifecyclePhase, RuntimeGuestImport, RuntimeGuestImportBinding,
     RuntimeGuestImportResolution, RuntimeModule, RuntimeModuleDependencyEdge,
-    RuntimeSystemExportEndpoint, RuntimeSystemExportTable,
+    RuntimeSystemExportEndpoint, RuntimeSystemExportTable, RuntimeSystemModuleLoad,
 };
 pub use objects::{
     RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PROCESS_OBJECT_NAMESPACE,

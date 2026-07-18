@@ -746,6 +746,59 @@ unsupported device typeは`D3DERR_INVALIDCALL`、requested usageでformatが不�
 type／usage、dynamic DLL load、D3DX effect、`CreateDevice`、renderer／shader成立を主張しない。Source
 executableのsize／SHA-256は既存fingerprintのまま不変だった。
 
+### 10.6 LoadLibraryA runtime-system module and D3DX export
+
+The title directory does not contain `d3dx9_43.dll`. The x86 system artifact
+used by native Windows is `SysWOW64\d3dx9_43.dll`, 1,998,168 bytes with SHA-256
+`0b28546be22c71834501f7d7185ede5d79742457331c7ee09efc14490dd64f5f`.
+PE inspection shows entry-point RVA `0x001BEC0D` and imports from
+`msvcrt.dll`, `GDI32.dll`, `KERNEL32.dll`, and `ADVAPI32.dll`. Those properties
+are feasibility evidence for rejecting host-image mapping: importing this file
+would also require native dependency loading, entry-point／rollback semantics,
+host ABI coupling, and distribution authority.
+
+Native BGI calls `LoadLibraryA("d3dx9_43.dll")` and receives a non-NULL result
+while preserving LastError `0`. It immediately stores that opaque HMODULE,
+tests it for zero, and passes it with `"D3DXCreateEffect"` to
+`GetProcAddress`. That lookup is also non-NULL and preserves LastError, after
+which the function pointer is stored globally. Immutable PE disassembly fixes
+the return RVAs at `0x0005BAB0` and `0x0005BAC5`; the pointer is not invoked in
+the interval before the next reached User32 call. Independent failure probes
+return LastError 87 for NULL／empty input and 126 for a missing bare DLL name.
+Native pointer values are discarded.
+
+Vine therefore supplies a callback-free logical `runtime-system-module` rather
+than mapping the Windows binary. Policy predeclares only
+`d3dx9_43.dll!D3DXCreateEffect`. Rust preflights that dynamic endpoint, then
+atomically publishes module handle `0x4D010010`, graph module ID 16,
+process-attach sequence 16, object ID 23, one runtime-service reference, and one
+dynamic reference owned by thread 8192. These numbers identify this artifact;
+the tested semantics are same-handle reuse, reference ownership, attached
+state, and failure atomicity. The export resolves to logical endpoint ID 5／
+`0x7F020040`; no D3DX implementation is claimed or invoked.
+
+Node completes `LoadLibraryA`／`GetProcAddress` as calls 17,823／17,824 and stops
+at instruction 11,806,582 on
+`USER32.dll!GetClientRect(0x48010001,0x006FFDC4)`. It records 17,871
+writeback batches／36,014 dirty pages／1,807,003 changed bytes, generation
+34,523, final memory SHA-256
+`6769882742b0dd41d61c577cb4e1c042ea987706e165b795d65323983f24deba`,
+and a 207,128,649-byte report with SHA-256
+`1dfe9dc9dc5e2b514fd6c7e36b2765ecbc16135ee66a5e5d5c972e79aa00e09a`.
+Chrome reproduces the same calls／stop／memory digest with 40,270 slices,
+40,264 writebacks／87,871 pages, generation 56,917, 74,701 Wasm crossings,
+and clean cancel／watchdog teardown. Its 24,188,713-byte report SHA-256 is
+`ca7ea29ad003856955c475fcc62aa1e5cfad9bb75eda93ce6c9234179c276616`.
+
+Because module lifecycle and Worker crossings changed, a new unchanged-threshold
+180-second workload ran 29 sessions with zero failures and passed all 17
+versioned gates. Session p95 was 6,383.355 ms and slice p99 was 2.615 ms; the
+930,534-byte report SHA-256 is
+`a81b99df457675c7855cc86e3551371e89b5277e3767f53b0e7c53a19eb26063`.
+General DLL search, path／Windows-932 variants, native or guest DLL mapping,
+dependency loading, `DllMain`／TLS callbacks, unload, and D3DX effect semantics
+remain unsupported.
+
 ## 11. W7 PE32 load-plan ingress
 
 Rust `vine-core`は、owned immutable bytesとimport-time SHA-256からversion 1のchecked header／section／import／base-relocation planを作る。representative `abi-smoke.exe` contractは4 sections、1 module／2 named imports、1 relocation block／6 wordsを検査し、BGI.exeには同じboundaryを次のcommandで適用した。

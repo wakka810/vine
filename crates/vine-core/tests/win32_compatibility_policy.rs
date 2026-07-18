@@ -55,6 +55,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-create-waitable-timer-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-source-file-read-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -261,6 +262,43 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(
         unsupported_source_files.validate().unwrap_err().code,
         "kernel32-policy-source-files-invalid"
+    );
+    let d3dx: Kernel32CompatibilityPolicy = serde_json::from_str(policies[35]).unwrap();
+    let loader = d3dx
+        .load_library_a()
+        .expect("bounded runtime-system loader policy");
+    assert_eq!(loader.maximum_module_name_bytes, 260);
+    assert_eq!(loader.runtime_system_modules.len(), 1);
+    assert_eq!(
+        loader.runtime_system_modules[0].canonical_name,
+        "d3dx9_43.dll"
+    );
+    assert_eq!(
+        loader.runtime_system_modules[0].exports,
+        ["D3DXCreateEffect"]
+    );
+    let mut duplicate_module = d3dx.clone();
+    duplicate_module
+        .load_library_a
+        .as_mut()
+        .unwrap()
+        .runtime_system_modules
+        .push(loader.runtime_system_modules[0].clone());
+    assert_eq!(
+        duplicate_module.validate().unwrap_err().code,
+        "kernel32-policy-load-library-a-invalid"
+    );
+    let mut duplicate_export = d3dx;
+    duplicate_export
+        .load_library_a
+        .as_mut()
+        .unwrap()
+        .runtime_system_modules[0]
+        .exports
+        .push("D3DXCreateEffect".to_owned());
+    assert_eq!(
+        duplicate_export.validate().unwrap_err().code,
+        "kernel32-policy-load-library-a-invalid"
     );
     assert_eq!(profile.processor_level, 6);
     assert_eq!(profile.processor_revision, 0);

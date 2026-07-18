@@ -314,7 +314,8 @@ Invalid identityは`D3DERR_INVALIDCALL`、format band外は`D3DERR_NOTAVAILABLE`
 `D3DERR_INVALIDCALL`、`D3DENUM_WHQL_LEVEL`はcertificate discoveryを行わずtyped unsupportedとなる。
 Public PE fixtureはnativeのnonempty NUL-terminated identity／required capsとVineのexact virtual
 identity／capsを分けてself-checkし、device-type両modeとdynamic texture formatも共通に確認する。
-Private Node／Chrome gateは同じ3 predicate completionsと次の`LoadLibraryA` stopを比較する。Native
+Historical D3D9 Node／Chrome profileは同じ3 predicate completionsと次の`LoadLibraryA` stopを比較し、
+active profileはさらにlogical module load／export lookupを完了して`GetClientRect`へ進む。Native
 traceはdisplay mode 4 calls、identifier 1 call、device caps 1 call、device type 5 calls、device format
 13 callsを各2 runで再現する。Device typeのBGI direct 2／internal 3 calls、device formatのBGI direct
 1／`CreateDevice` parented 3／その他internal 9 callsをidentityで分ける。Identifier consumerがHRESULT
@@ -322,6 +323,19 @@ signだけを読みhost GPU fieldを消費しないこと、caps consumerがHRES
 読むこと、両predicate callerがHRESULT signを検査することを固定する。
 `RuntimeGraphics`／renderer resourceを生成しないこともroot query leavesのnon-claimとして固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
+
+Reached `LoadLibraryA`のrepresentative contractsはone-word x86 stdcall、nullable logical module
+handle、LastError from-handler、bounded ASCII basename readを固定する。Policy fixtureは
+`d3dx9_43.dll!D3DXCreateEffect`だけをenableし、NULL／empty 87、missing basename 126、path／
+non-ASCII typed unsupportedを独立に検査する。Rust subsystem／aggregate testsはfirst loadのmodule
+record／graph／runtime-service and thread references／callback-free attach／typed object publication、repeat
+identity、stale plan、object collision、export preflight failureを固定し、失敗時のgraph／allocator／object／
+memory不変を検証する。Node／Chromeはsame `0x4D010010` return relationと続くlogical endpoint lookup、
+same `GetClientRect` stop／memory digest、clean lifecycle teardownを比較する。Public Worker fixtureと
+180-second repeated gateもcore boundaryのregressionとして実行する。Native image mapping、general search、
+`DllMain`／TLS callback、unload、D3DX method semanticsはacceptance claimに含めない。詳細は
+[runtime-module-graph.md](runtime-module-graph.md)と
+[win32-compatibility-policy.md](win32-compatibility-policy.md)を正とする。
 
 Reached COM initialization contractは別fixtureでone-argument x86 stdcall、typed HRESULT、
 `S_OK`／`S_FALSE`／`RPC_E_CHANGED_MODE`、LastError preserve、NULL-only reserved policyを固定する。
@@ -1029,7 +1043,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P2-11`: サクラノ詩の local load checkpoint を実行し、最初の import／bootstrap blocker と architecture assumption の見直し結果を evidence に残す。title の起動成功自体は合格条件にしない
 
 <!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
-現在のimport-binding／BGI firstからseventeenth-call ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。BGI requesting entry chainから17 frozen API returnとfour dynamic endpoint identitiesを保持し、separate generic dispatcherはreached heap／TLS／FLS／LastError／NLS／standard-handle／interlocked／filter／critical-section／current-directory／named-mutex operationsを46 contracts／284 callsまで処理する。One-argument `InitializeCriticalSection`はmeasured raw stateをversioned policyから受け、process-owned stateへchecked writeし、initial stackはPE reserve／commitとmovable guardをRust authorityで持つ。CP_ACP NUL終端変換はpolicy-owned Windows-932へ解決する。`SetCurrentDirectoryA`はprivate `RuntimeProcessDirectories`のnormalized identity／generationをplan／lifecycle preflight／commitする。`CreateMutexA`はprivate `RuntimeSynchronization`のname／owner／recursionとgeneric object／handle lifetimeをtwo-subsystem transactionで接続し、BrowserはRust-owned metadataを観測するだけである。Synchronization subsystem unit／aggregate testsとGuestMemory dispatcher testはplan-before-commit、caller-copy lifetime、distinct-handle shared identity、recursive wait／release、last close／process teardown、contention rejection、serialized field compatibilityを固定する。ただしadditional-thread stack／overflow、broad heap／critical-section／mutex blocking・abandonment・guest consumer APIs、SEH dispatch／filter invocation、general relative-path／VFS state、explicit-module path lookup、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
+現在のimport-binding／BGI ingressは`AC-P2-01`、`AC-P2-06`、`AC-P2-11`へのpartial evidenceである。Frozen startup semanticsとprocess-owned dynamic endpoint identitiesを保持し、generic dispatcherは到達済みheap／TLS／FLS／LastError／NLS／handle／synchronization／file／window／COM／D3D9 operationsを同じRust authorityへ接続する。`LoadLibraryA`はその境界へpolicy-bounded callback-free runtime-system moduleを追加し、logical module identity、typed object、thread reference、attach state、export lookupを一つのpreflight／commit pathで処理する。Browserはordered completion metadataを観測するだけで、Windows module stateを所有しない。ただしadditional-thread stack／overflow、broad heap／critical-section／mutex blocking・abandonment・guest consumer APIs、SEH dispatch／filter invocation、general relative-path／VFS state、general DLL search／guest image load／unload、broad API coverage、ordinal fixture、full export／forwarder／DLL graph、general bootstrap／executionを欠くため各criterionと`AC-P2`全体は未完了である。
 <!-- END FROZEN HISTORICAL EVIDENCE -->
 
 ### AC-P3: Win32 substrate and persistence complete

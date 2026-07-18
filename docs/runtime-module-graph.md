@@ -7,7 +7,7 @@ version 1 `RuntimeModuleGraph`を導入した。loader、static import、dynamic
 lifecycleが別々のmodule identity、reference count、load orderを持たず、process-owned
 graphを共有するためのmetadata contractである。
 
-このcheckpointはguest DLLをmapせず、export／forwarderを解決せず、`DllMain`を呼ばない。
+Original foundation checkpointはguest DLLをmapせず、export／forwarderを解決せず、`DllMain`を呼ばない。
 ordered state transitionまでをRust authorityへ置き、image／callback lifecycleは後続へ残す。
 
 Architecture refactor checkpoint S6では、process module recordsをprivate
@@ -96,6 +96,45 @@ parallel scanせず、graph canonical indexをauthorityとしてhandleへ解決�
 detach methodsを公開する。これらはobject tableでlive typed module handleを検証してから
 graph IDへ変換する。
 
+## Callback-free dynamic runtime-system modules
+
+Reached `LoadLibraryA` now has a bounded path for Vine-provided logical system
+DLLs. Policy selects an ASCII DLL basename and the exports that must already be
+present in the process-owned dynamic endpoint registry. The semantic handler
+preflights every configured export before asking `RuntimeModules` to plan a
+load, so a missing endpoint cannot publish a module identity.
+
+The load plan carries only the target node／registration, scalar record
+preconditions, and the graph's nonserialized mutation generation. It does not
+clone or replace the graph root. Every graph mutation advances that generation;
+stale or duplicate plans are rejected before the targeted node／index commit.
+
+For a first load, the module owner plans one `runtime-system-module` node, a
+typed module handle／process record, a `runtime-service` reference, one
+`dynamic-load { thread }` reference, `ready`, and a callback-free
+`process-attached` transition. The attach sequence is the checked successor of
+the existing unique attach sequences. `RuntimeKernel` then preflights the typed
+object-table insertion and commits the private module records／graph only after
+that succeeds. Object collision, capacity exhaustion, stale plan, invalid
+process／thread／DLL lifecycle, or export mismatch leaves records, graph,
+references, allocators, object table, and guest memory unchanged.
+
+A repeated case-insensitive load returns the same logical handle and increments
+only the selected thread's dynamic reference count. It does not allocate a
+second object or rerun attach. The primary evidence resolves
+`d3dx9_43.dll!D3DXCreateEffect`, but the numeric handle, module ID, object ID,
+and endpoint address are artifact identities rather than portable Win32
+values.
+
+This path is analogous to a Wine builtin DLL, not native image loading. Vine
+does not map the host `d3dx9_43.dll`, resolve its import graph, execute its
+entry point, or redistribute it. It also does not make TypeScript a module
+authority. The logical DLL／export boundary is separate from the WineD3D-like
+graphics translation boundary: D3D8, D3D9, and any future D3D10／11 frontends
+keep distinct guest ABI／COM identities, while validated graphics operations
+may later converge below them in the Rust-owned `RuntimeGraphics` layer and
+browser renderer adapter.
+
 ## Contract and regression
 
 Representative contracts:
@@ -104,6 +143,8 @@ Representative contracts:
 cargo test -p vine-core --lib runtime::modules::tests --locked
 cargo test -p vine-core --test module_graph --locked
 cargo test -p vine-core --test runtime_objects --locked
+cargo test -p vine-core --test runtime_system_module_load --locked
+cargo test -p vine-core --test api_dispatcher --locked
 ```
 
 The subsystem contract fixes mutation-free registration planning, stable `process.modules`／

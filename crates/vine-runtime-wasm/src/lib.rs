@@ -533,17 +533,22 @@ impl BrowserRuntime {
             &process.runtime,
             ProcessAddressAllocationPurpose::DynamicExports,
         )?;
-        let dynamic_thunks = install_dynamic_export_thunks(
-            &mut memory,
-            &dynamic_allocation,
-            &[
-                ("kernel32.dll", "FlsAlloc"),
-                ("kernel32.dll", "FlsGetValue"),
-                ("kernel32.dll", "FlsSetValue"),
-                ("kernel32.dll", "FlsFree"),
-            ],
-        )
-        .map_err(error_string)?;
+        let mut dynamic_exports = vec![
+            ("kernel32.dll", "FlsAlloc"),
+            ("kernel32.dll", "FlsGetValue"),
+            ("kernel32.dll", "FlsSetValue"),
+            ("kernel32.dll", "FlsFree"),
+        ];
+        if let Some(loader) = kernel32_policy.load_library_a() {
+            for module in &loader.runtime_system_modules {
+                for export in &module.exports {
+                    dynamic_exports.push((module.canonical_name.as_str(), export.as_str()));
+                }
+            }
+        }
+        let dynamic_thunks =
+            install_dynamic_export_thunks(&mut memory, &dynamic_allocation, &dynamic_exports)
+                .map_err(error_string)?;
         finalize_bgi_runtime_process(
             &mut process,
             &dynamic_thunks,
@@ -2140,6 +2145,7 @@ fn build_bgi_dispatcher(
                 "GetStringTypeW" => kernel32_policy.get_string_type_w().is_some(),
                 "LCMapStringW" => kernel32_policy.lc_map_string_w().is_some(),
                 "GetCPInfo" => kernel32_policy.active_code_page_info().is_some(),
+                "LoadLibraryA" => kernel32_policy.load_library_a().is_some(),
                 _ => true,
             }
         })
@@ -2160,6 +2166,18 @@ fn build_bgi_dispatcher(
             contracts.push(contract);
         }
         endpoints.push(endpoint);
+    }
+    if let Some(loader) = kernel32_policy.load_library_a() {
+        for module in &loader.runtime_system_modules {
+            for export in &module.exports {
+                endpoints.push(ApiEndpointIdentity::from_dynamic_endpoint(
+                    process
+                        .runtime
+                        .dynamic_endpoint_by_name(&module.canonical_name, export)
+                        .map_err(error_string)?,
+                ));
+            }
+        }
     }
     let mut routes = BTreeMap::new();
     for endpoint in &endpoints {

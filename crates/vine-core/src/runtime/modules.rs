@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use serde::Serialize;
 
 use super::{
-    RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeHandle, RuntimeObjectKind,
+    RuntimeStateError, RuntimeStateErrorClass,
 };
 use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
 use crate::imports::{ImportThunkArena, ImportThunkId, RuntimeExport};
@@ -12,6 +13,7 @@ use crate::memory::{GuestAddress, GuestMemory, MemoryInvalidation, MemoryOwnerId
 use crate::module_graph::{
     RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleGraphError, RuntimeModuleGraphErrorClass,
     RuntimeModuleId, RuntimeModuleLoadState, RuntimeModuleRegistration,
+    RuntimeSystemModuleGraphLoadPlan,
 };
 use crate::module_images::{
     RuntimeModuleImage, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
@@ -25,6 +27,10 @@ pub const DLL_PROCESS_DETACH: u32 = 0;
 pub const DLL_PROCESS_ATTACH: u32 = 1;
 pub const DLL_PROCESS_STATIC_RESERVED: u32 = 1;
 
+const RUNTIME_SYSTEM_MODULE_LOAD_OWNER: &str = "runtime-system-module-loader";
+const RUNTIME_SYSTEM_MODULE_LOAD_VARIANT: &str = "callback-free-runtime-system-module-v1";
+const RUNTIME_MODULE_HANDLE_GENERATION: u8 = 1;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeModule {
@@ -35,6 +41,16 @@ pub struct RuntimeModule {
     pub requested_name: String,
     pub canonical_name: String,
     pub runtime_system_module: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSystemModuleLoad {
+    pub handle: u32,
+    pub module_id: RuntimeModuleId,
+    pub newly_registered: bool,
+    pub thread_reference_count: u32,
+    pub attach_sequence: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -219,6 +235,26 @@ pub(super) struct RuntimeModuleRegistrationPlan {
     module: RuntimeModule,
     previous_graph: RuntimeModuleGraph,
     next_graph: RuntimeModuleGraph,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeSystemModuleLoadPlan {
+    graph_plan: RuntimeSystemModuleGraphLoadPlan,
+    expected_lifecycle_phase: RuntimeDllLifecyclePhase,
+    previous_record_count: usize,
+    expected_existing_module: Option<RuntimeModule>,
+    module_to_insert: Option<RuntimeModule>,
+    result: RuntimeSystemModuleLoad,
+}
+
+impl RuntimeSystemModuleLoadPlan {
+    pub(super) fn new_module_handle(&self) -> Option<u32> {
+        self.module_to_insert.as_ref().map(|module| module.handle)
+    }
+
+    pub(super) fn result_handle(&self) -> u32 {
+        self.result.handle
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -847,6 +883,183 @@ impl RuntimeModules {
         records.commit_registration(plan.module)
     }
 
+    pub(super) fn plan_runtime_system_module_load(
+        &self,
+        records: &RuntimeModuleRecords,
+        requested_name: String,
+        canonical_name: String,
+        thread_id: u32,
+    ) -> Result<RuntimeSystemModuleLoadPlan, RuntimeStateError> {
+        self.require_graph_mutation_allowed()?;
+        if !matches!(
+            self.dll_lifecycle.phase,
+            RuntimeDllLifecyclePhase::Idle | RuntimeDllLifecyclePhase::ProcessAttached
+        ) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-module-loader",
+                "runtime-system-module-load-lifecycle-invalid",
+                "dynamic runtime-system module loading requires a process-attached module graph",
+            ));
+        }
+
+        self.module_graph.planned_detach_order().map_err(|_| {
+            RuntimeStateError::conflict(
+                "runtime-module-loader",
+                "runtime-system-module-load-graph-state-invalid",
+                "dynamic runtime-system module loading requires every existing module to be process-attached",
+            )
+        })?;
+        let expected_lifecycle_phase = self.dll_lifecycle.phase;
+        let previous_record_count = records.modules().len();
+        match self.module_graph.module_by_name(&canonical_name) {
+            Ok(node) => {
+                let node_id = node.id;
+                let handle = node.handle;
+                let node_class = node.class;
+                let node_canonical_name = node.canonical_name.clone();
+                let record = records.module(handle)?.clone();
+                if node_class != RuntimeModuleClass::RuntimeSystemModule
+                    || !record.runtime_system_module
+                    || !record
+                        .canonical_name
+                        .eq_ignore_ascii_case(&node_canonical_name)
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-module-loader",
+                        "runtime-system-module-existing-class-invalid",
+                        "the requested module identity is owned by a non-runtime module class",
+                    ));
+                }
+                let graph_plan = self
+                    .module_graph
+                    .plan_existing_runtime_system_module_load(node_id, thread_id)
+                    .map_err(runtime_module_graph_error)?;
+                let graph_result = graph_plan.result();
+                Ok(RuntimeSystemModuleLoadPlan {
+                    graph_plan,
+                    expected_lifecycle_phase,
+                    previous_record_count,
+                    expected_existing_module: Some(record),
+                    module_to_insert: None,
+                    result: RuntimeSystemModuleLoad {
+                        handle: graph_result.handle,
+                        module_id: graph_result.module_id,
+                        newly_registered: graph_result.newly_registered,
+                        thread_reference_count: graph_result.thread_reference_count,
+                        attach_sequence: graph_result.attach_sequence,
+                    },
+                })
+            }
+            Err(error) if error.code == "module-name-unknown" => {
+                let handle = next_runtime_module_handle(records)?;
+                let module = RuntimeModule {
+                    owner: RUNTIME_SYSTEM_MODULE_LOAD_OWNER.to_owned(),
+                    variant_id: RUNTIME_SYSTEM_MODULE_LOAD_VARIANT.to_owned(),
+                    namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+                    handle,
+                    requested_name,
+                    canonical_name,
+                    runtime_system_module: true,
+                };
+                records.validate_registration(&module)?;
+                let graph_plan = self
+                    .module_graph
+                    .plan_new_runtime_system_module_load(
+                        RuntimeModuleRegistration {
+                            handle,
+                            requested_name: module.requested_name.clone(),
+                            canonical_name: module.canonical_name.clone(),
+                            class: RuntimeModuleClass::RuntimeSystemModule,
+                        },
+                        thread_id,
+                    )
+                    .map_err(runtime_module_graph_error)?;
+                let graph_result = graph_plan.result();
+                Ok(RuntimeSystemModuleLoadPlan {
+                    graph_plan,
+                    expected_lifecycle_phase,
+                    previous_record_count,
+                    expected_existing_module: None,
+                    module_to_insert: Some(module),
+                    result: RuntimeSystemModuleLoad {
+                        handle: graph_result.handle,
+                        module_id: graph_result.module_id,
+                        newly_registered: graph_result.newly_registered,
+                        thread_reference_count: graph_result.thread_reference_count,
+                        attach_sequence: graph_result.attach_sequence,
+                    },
+                })
+            }
+            Err(error) => Err(runtime_module_graph_error(error)),
+        }
+    }
+
+    pub(super) fn validate_runtime_system_module_load_plan(
+        &self,
+        records: &RuntimeModuleRecords,
+        plan: &RuntimeSystemModuleLoadPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let record_matches = match (
+            plan.expected_existing_module.as_ref(),
+            plan.module_to_insert.as_ref(),
+        ) {
+            (Some(expected), None) => records
+                .modules()
+                .get(&expected.handle)
+                .is_some_and(|current| current == expected),
+            (None, Some(module)) => records.validate_registration(module).is_ok(),
+            _ => false,
+        };
+        if self
+            .module_graph
+            .validate_runtime_system_module_load_plan(&plan.graph_plan)
+            .is_err()
+            || self.dll_lifecycle.phase != plan.expected_lifecycle_phase
+            || self.dll_lifecycle.operation.is_some()
+            || records.modules().len() != plan.previous_record_count
+            || !record_matches
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-module-loader",
+                "runtime-system-module-load-plan-stale",
+                "runtime module state changed after dynamic system-module load planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_runtime_system_module_load(
+        &mut self,
+        records: &mut RuntimeModuleRecords,
+        plan: RuntimeSystemModuleLoadPlan,
+    ) -> RuntimeSystemModuleLoad {
+        debug_assert!(
+            self.validate_runtime_system_module_load_plan(records, &plan)
+                .is_ok()
+        );
+        let RuntimeSystemModuleLoadPlan {
+            graph_plan,
+            module_to_insert,
+            result,
+            ..
+        } = plan;
+        let graph_result = self
+            .module_graph
+            .commit_runtime_system_module_load(graph_plan);
+        debug_assert_eq!(graph_result.handle, result.handle);
+        debug_assert_eq!(graph_result.module_id, result.module_id);
+        debug_assert_eq!(graph_result.newly_registered, result.newly_registered);
+        debug_assert_eq!(
+            graph_result.thread_reference_count,
+            result.thread_reference_count
+        );
+        debug_assert_eq!(graph_result.attach_sequence, result.attach_sequence);
+        if let Some(module) = module_to_insert {
+            records.commit_registration(module);
+        }
+        result
+    }
+
     pub(super) fn module_by_name_handle(&self, name: &str) -> Result<u32, RuntimeStateError> {
         self.module_graph
             .module_by_name(name)
@@ -1244,6 +1457,34 @@ fn runtime_export_matches_import(
     }
 }
 
+fn next_runtime_module_handle(records: &RuntimeModuleRecords) -> Result<u32, RuntimeStateError> {
+    let mut maximum_slot = 0_u16;
+    for module in records.modules().values() {
+        let handle = RuntimeHandle(module.handle);
+        if handle.kind()? != RuntimeObjectKind::Module || handle.slot() == 0 {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-module-loader",
+                "runtime-module-handle-record-invalid",
+                "registered module records contain a non-module or zero-slot logical handle",
+            ));
+        }
+        maximum_slot = maximum_slot.max(handle.slot());
+    }
+    let slot = maximum_slot.checked_add(1).ok_or_else(|| {
+        RuntimeStateError::resource_limit(
+            "runtime-module-loader",
+            "runtime-module-handle-space-exhausted",
+            "logical runtime module handle slots are exhausted",
+        )
+    })?;
+    RuntimeHandle::from_parts(
+        RuntimeObjectKind::Module,
+        RUNTIME_MODULE_HANDLE_GENERATION,
+        slot,
+    )
+    .map(|handle| handle.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1494,5 +1735,116 @@ mod tests {
             "dll-lifecycle-plan-stale"
         );
         assert_eq!(modules, before);
+    }
+
+    #[test]
+    fn runtime_system_load_plan_reuses_identity_and_separates_thread_references() {
+        let (mut records, mut modules) = attached_module_owner();
+        let first = modules
+            .plan_runtime_system_module_load(
+                &records,
+                "D3DX9_43.DLL".to_owned(),
+                "d3dx9_43.dll".to_owned(),
+                8192,
+            )
+            .unwrap();
+        assert_eq!(first.new_module_handle(), Some(0x4d01_0003));
+        modules
+            .validate_runtime_system_module_load_plan(&records, &first)
+            .unwrap();
+        let first = modules.commit_runtime_system_module_load(&mut records, first);
+        assert!(first.newly_registered);
+        assert_eq!(first.thread_reference_count, 1);
+
+        let second = modules
+            .plan_runtime_system_module_load(
+                &records,
+                "d3dx9_43.dll".to_owned(),
+                "d3dx9_43.dll".to_owned(),
+                8193,
+            )
+            .unwrap();
+        assert_eq!(second.new_module_handle(), None);
+        let second = modules.commit_runtime_system_module_load(&mut records, second);
+        assert_eq!(second.handle, first.handle);
+        assert!(!second.newly_registered);
+        assert_eq!(second.thread_reference_count, 1);
+        let node = modules.module_graph.module(first.module_id).unwrap();
+        assert_eq!(
+            node.reference_count_for(
+                &crate::module_graph::RuntimeModuleReferenceOwner::DynamicLoad { thread_id: 8192 }
+            ),
+            1
+        );
+        assert_eq!(
+            node.reference_count_for(
+                &crate::module_graph::RuntimeModuleReferenceOwner::DynamicLoad { thread_id: 8193 }
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn stale_runtime_system_load_plan_is_rejected_without_target_commit() {
+        let (records, mut modules) = attached_module_owner();
+        let plan = modules
+            .plan_runtime_system_module_load(
+                &records,
+                "d3dx9_43.dll".to_owned(),
+                "d3dx9_43.dll".to_owned(),
+                8192,
+            )
+            .unwrap();
+        let kernel32 = modules
+            .module_graph
+            .module_by_name("kernel32.dll")
+            .unwrap()
+            .id;
+        modules
+            .module_graph
+            .add_dynamic_reference(kernel32, 8192)
+            .unwrap();
+        let before = modules.clone();
+        assert_eq!(
+            modules
+                .validate_runtime_system_module_load_plan(&records, &plan)
+                .unwrap_err()
+                .code,
+            "runtime-system-module-load-plan-stale"
+        );
+        assert_eq!(modules, before);
+        assert!(
+            records
+                .modules()
+                .values()
+                .all(|module| module.canonical_name != "d3dx9_43.dll")
+        );
+    }
+
+    fn attached_module_owner() -> (RuntimeModuleRecords, RuntimeModules) {
+        let mut records = RuntimeModuleRecords::default();
+        let mut modules = RuntimeModules::default();
+        for (record, class) in [
+            (
+                module(MAIN_HANDLE, "fixture.exe"),
+                RuntimeModuleClass::MainExecutable,
+            ),
+            (
+                RuntimeModule {
+                    runtime_system_module: true,
+                    ..module(DLL_HANDLE, "kernel32.dll")
+                },
+                RuntimeModuleClass::RuntimeSystemModule,
+            ),
+        ] {
+            let plan = modules.plan_registration(&records, record, class).unwrap();
+            modules.commit_registration(&mut records, plan);
+        }
+        modules.add_dependency(MAIN_HANDLE, DLL_HANDLE).unwrap();
+        modules.mark_ready(MAIN_HANDLE).unwrap();
+        modules.mark_ready(DLL_HANDLE).unwrap();
+        modules.attach_all().unwrap();
+        modules.dll_lifecycle.phase = RuntimeDllLifecyclePhase::ProcessAttached;
+        (records, modules)
     }
 }

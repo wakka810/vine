@@ -31,10 +31,11 @@ pub use policy::{
     Kernel32CreateMutexAPolicy, Kernel32CreateWaitableTimerAPolicy, Kernel32GetDriveTypeAPolicy,
     Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
     Kernel32HeapAllocatorPolicy, Kernel32InitializeCriticalSectionPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
-    Kernel32ProcessorFeaturePolicy, Kernel32SetCurrentDirectoryAPolicy, Kernel32SourceFilePolicy,
-    Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy,
-    Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
+    Kernel32LcMapStringWPolicy, Kernel32LoadLibraryAPolicy, Kernel32MultiByteToWideCharPolicy,
+    Kernel32OsVersionInfoAPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
+    Kernel32SourceFilePolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
+    Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -84,6 +85,7 @@ pub const HEAP_CREATE_IMPLEMENTATION: &str = "kernel32.heap-create.v1";
 pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v2";
 pub const HEAP_FREE_IMPLEMENTATION: &str = "kernel32.heap-free.v1";
 pub const HEAP_SIZE_IMPLEMENTATION: &str = "kernel32.heap-size.v1";
+pub const LOAD_LIBRARY_A_IMPLEMENTATION: &str = "kernel32.load-library-a.runtime-system.v1";
 pub const GET_MODULE_HANDLE_W_IMPLEMENTATION: &str = "kernel32.get-module-handle-w.v1";
 pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1";
 pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
@@ -106,6 +108,7 @@ pub const LEAVE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.leave-critical
 const HEAP_ENABLE_TERMINATION_ON_CORRUPTION: u32 = 1;
 const HEAP_ZERO_MEMORY: u32 = 0x0000_0008;
 const MAX_MODULE_NAME_CODE_UNITS: usize = 64;
+const MAX_LOAD_LIBRARY_MODULE_NAME_BYTES: usize = 260;
 const MAX_EXPORT_NAME_BYTES: usize = 64;
 const CP_ACP: u32 = 0;
 const WINDOWS_932_CODE_PAGE: u32 = 932;
@@ -116,6 +119,7 @@ const ERROR_SHARING_VIOLATION: u32 = 32;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const ERROR_INVALID_NAME: u32 = 123;
+const ERROR_MOD_NOT_FOUND: u32 = 126;
 const ERROR_ALREADY_EXISTS: u32 = 183;
 const ERROR_NEGATIVE_SEEK: u32 = 131;
 const INVALID_HANDLE_VALUE: u32 = u32::MAX;
@@ -227,6 +231,7 @@ pub fn dispatch_kernel32_api_with_policy(
         HEAP_ALLOC_IMPLEMENTATION => handle_heap_alloc(policy, contract, frame, session),
         HEAP_FREE_IMPLEMENTATION => handle_heap_free(policy, contract, frame, session),
         HEAP_SIZE_IMPLEMENTATION => handle_heap_size(policy, contract, frame, session),
+        LOAD_LIBRARY_A_IMPLEMENTATION => handle_load_library_a(policy, contract, frame, session),
         GET_MODULE_HANDLE_W_IMPLEMENTATION => handle_get_module_handle_w(contract, frame, session),
         GET_PROC_ADDRESS_IMPLEMENTATION => handle_get_proc_address(contract, frame, session),
         TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
@@ -319,6 +324,7 @@ pub fn kernel32_contract_for_endpoint(
         "HeapAlloc" => heap_alloc_contract(endpoint)?,
         "HeapFree" => heap_free_contract(endpoint)?,
         "HeapSize" => heap_size_contract(endpoint)?,
+        "LoadLibraryA" => load_library_a_contract(endpoint)?,
         "GetModuleHandleW" => get_module_handle_w_contract(endpoint)?,
         "GetProcAddress" => get_proc_address_contract(endpoint)?,
         "TlsAlloc" => tls_alloc_contract(endpoint)?,
@@ -2767,6 +2773,94 @@ fn handle_heap_size(
     Ok(ApiImmediate::new(ApiReturnValue::U32(allocation.byte_length)).with_last_error(last_error))
 }
 
+fn handle_load_library_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let loader = policy.load_library_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-module-loader",
+            "load-library-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable runtime-system module loading",
+                policy.id
+            ),
+        )
+    })?;
+    let name_address = required_argument(contract, frame, 0, "module name")?;
+    if name_address == 0 {
+        return Ok(load_library_a_failure(ERROR_INVALID_PARAMETER));
+    }
+    let requested_name = read_load_library_a_name(
+        contract,
+        session,
+        GuestAddress(name_address),
+        loader.maximum_module_name_bytes as usize,
+    )?;
+    if requested_name.is_empty() {
+        return Ok(load_library_a_failure(ERROR_INVALID_PARAMETER));
+    }
+    if !requested_name.to_ascii_lowercase().ends_with(".dll")
+        || requested_name
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || matches!(byte, b'/' | b'\\' | b':'))
+    {
+        return Err(ApiFault::unsupported(
+            "win32-module-loader",
+            "load-library-a-search-variant-unsupported",
+            "LoadLibraryA currently accepts only an explicit ASCII DLL basename",
+        ));
+    }
+    let Some(module_policy) = loader
+        .runtime_system_modules
+        .iter()
+        .find(|module| module.canonical_name.eq_ignore_ascii_case(&requested_name))
+    else {
+        return Ok(load_library_a_failure(ERROR_MOD_NOT_FOUND));
+    };
+    for export in &module_policy.exports {
+        if session
+            .runtime()
+            .dynamic_endpoint_by_name(&module_policy.canonical_name, export)
+            .is_err()
+        {
+            return Err(ApiFault::runtime_defect(
+                "win32-module-loader",
+                "load-library-a-runtime-export-missing",
+                format!(
+                    "runtime-system module {} is missing its configured export {export}",
+                    module_policy.canonical_name
+                ),
+            ));
+        }
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let loaded = session
+        .runtime_mut()
+        .load_current_thread_runtime_system_module(
+            requested_name,
+            module_policy.canonical_name.clone(),
+        )
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+        value: loaded.handle,
+    })
+    .with_last_error(preserved_last_error))
+}
+
+fn load_library_a_failure(last_error: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+        value: 0,
+    })
+    .with_last_error(last_error)
+}
+
 fn handle_get_module_handle_w(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -3199,6 +3293,44 @@ fn read_ascii_nul(
         "win32-string",
         "guest-ascii-string-unterminated",
         "guest export name exceeds its bounded read",
+    ))
+}
+
+fn read_load_library_a_name(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+    address: GuestAddress,
+    maximum_bytes: usize,
+) -> Result<String, ApiFault> {
+    let mut bytes = Vec::new();
+    for offset in 0..maximum_bytes {
+        let current = add_guest_offset(contract, address, offset)?;
+        let byte = session
+            .memory()
+            .read(current, 1)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+        if byte == 0 {
+            return String::from_utf8(bytes).map_err(|_| {
+                ApiFault::unsupported(
+                    "win32-module-loader",
+                    "load-library-a-encoding-unsupported",
+                    "LoadLibraryA currently accepts only ASCII module names",
+                )
+            });
+        }
+        if !byte.is_ascii() {
+            return Err(ApiFault::unsupported(
+                "win32-module-loader",
+                "load-library-a-encoding-unsupported",
+                "LoadLibraryA currently accepts only ASCII module names",
+            ));
+        }
+        bytes.push(byte);
+    }
+    Err(ApiFault::invalid_call(
+        "win32-module-loader",
+        "load-library-a-name-unterminated",
+        "LoadLibraryA module name exceeds its bounded read",
     ))
 }
 
@@ -3872,6 +4004,27 @@ pub fn heap_size_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, 
     Ok(contract)
 }
 
+pub fn load_library_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "LoadLibraryA",
+        vec![nullable_input_string(
+            "moduleName",
+            ApiStringEncoding::Windows932,
+            1,
+            1,
+            MAX_LOAD_LIBRARY_MODULE_NAME_BYTES as u32,
+        )],
+        ApiReturnSchema::LogicalHandle {
+            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            nullable: true,
+        },
+        LOAD_LIBRARY_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
 pub fn get_module_handle_w_contract(
     endpoint: ApiEndpointIdentity,
 ) -> Result<ApiContract, ApiFault> {
@@ -4193,6 +4346,27 @@ fn input_string(
             },
         },
     }
+}
+
+fn nullable_input_string(
+    name: &str,
+    encoding: ApiStringEncoding,
+    alignment: u32,
+    minimum_byte_length: u32,
+    maximum_code_units: u32,
+) -> ApiArgumentSchema {
+    let mut argument = input_string(
+        name,
+        encoding,
+        alignment,
+        minimum_byte_length,
+        maximum_code_units,
+    );
+    let ApiValueSchema::Pointer { constraint } = &mut argument.value else {
+        unreachable!("input string helper did not create a pointer schema");
+    };
+    constraint.nullable = true;
+    argument
 }
 
 fn out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {

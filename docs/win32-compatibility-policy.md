@@ -5,7 +5,7 @@
 - Status: implemented controlled policy boundary
 - Date: 2026-07-18
 - Semantic authority: Rust `vine-core::win32`／`vine-core::user32`
-- Policy schemas: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）、`vine.user32-compatibility-policy` version `6`
+- Policy schemas: `vine.kernel32-compatibility-policy` version `2`（version `1` read compatibilityあり）、`vine.user32-compatibility-policy` version `13`
 - Evidence selection: `docs/current-checkpoint.json`
 
 This checkpoint separates Win32 ABI and state effects from the bounded variants
@@ -19,7 +19,7 @@ Win32 semantics
                          |
                          v
 Compatibility policy
-  versioned selectors, file types, bounded HeapAlloc allocator／HeapFree／HeapSize variants, process-view/code-page/current-directory/mutex/waitable-timer enablement
+  versioned selectors, file types, bounded HeapAlloc allocator／HeapFree／HeapSize variants, process-view/code-page/current-directory/mutex/waitable-timer/runtime-system-module enablement
   measured InitializeCriticalSection raw spin-state field
   explicit processor-feature presence
   virtual process affinity mask, deterministic tick-count progression, and ANSI OS-version profile
@@ -50,6 +50,8 @@ runtime execution. It contains only target-independent bounded data:
 - opt-in unnamed `CreateWaitableTimerA` reset modes with null security
   attributes;
 - opt-in immutable source files with duplicate-free exact desired-access／share／creation／flags variants, bounded Windows-932 path scan, and bounded read length;
+- opt-in callback-free runtime-system DLL basenames, bounded ASCII scan, and
+  required logical export names;
 - enabled `HeapAlloc` flags, an ordinary maximum nonzero size, and explicit
   large-size variants; `HeapFree` flags; and `HeapSize` flags;
 - an opt-in x86 `InitializeCriticalSection` raw spin-state field for the measured
@@ -72,7 +74,8 @@ Twenty-seven schema-v1 files remain immutable historical reproduction policies
 with exact flag／size pairs. Schema v2 removes those sizes from runtime
 selection; the active profile extends the preceding bounded-heap checkpoint
 with x86 virtual system information, an explicit system-default LANGID, a
-controlled ANSI OS-version profile, and the bounded immutable-source open／read band:
+controlled ANSI OS-version profile, the bounded immutable-source open／read
+band, and one callback-free runtime-system module catalog:
 
 | Policy | Standard handles | File types / process option | Heap allocations |
 |---|---|---|---|
@@ -111,6 +114,7 @@ controlled ANSI OS-version profile, and the bounded immutable-source open／read
 | `kernel32-create-waitable-timer-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + unnamed manual-reset waitable timer; auto-reset disabled | same bounded allocation/free/size variants |
 | `kernel32-large-heap-allocation-v1` | stdin, stdout, stderr | preceding schema-v2 options | ordinary nonzero sizes through 16 MiB plus exact 64 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 | `kernel32-source-file-read-v1` | stdin, stdout, stderr | preceding schema-v2 options + exact read-only `OPEN_EXISTING`／share-read／measured flags, 32 KiB path and 1 MiB read bounds | ordinary nonzero sizes through 16 MiB plus exact 64 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
+| `kernel32-d3dx-runtime-module-v1` | stdin, stdout, stderr | preceding schema-v2 options + `d3dx9_43.dll` logical runtime-system module／`D3DXCreateEffect` export, 260-byte ASCII basename bound | same bounded allocation/free/size variants |
 
 Unlisted selectors, file classifications, file access／share／creation／flags, overlapped reads, and high-DWORD size／seek variants remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -120,7 +124,7 @@ runtime or memory mutation.
 
 `User32CompatibilityPolicy` is a distinct versioned policy because logical
 display, input, and User32 resource selection do not belong to Kernel32 process
-policy. Version 6 composes display profile `single-monitor-1920x1080-v1`, input
+policy. Version 13 composes display profile `single-monitor-1920x1080-v1`, input
 profile `normal-mouse-buttons-v1`, bounded icon／cursor／class variants, and the
 initial-window metrics profile. `runtime/displays.rs::RuntimeDisplays` owns the
 configured monitor; `runtime/input.rs::RuntimeInput` separately owns initial／
@@ -421,6 +425,32 @@ capacity failure, initial nonsignaled state, last close, and process teardown
 without loading BGI evidence. Detailed evidence is in
 [bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md).
 
+`LoadLibraryA` uses one policy-backed one-argument semantic handler for
+Vine-provided runtime-system modules. The policy contains only a bounded ASCII
+DLL basename catalog, a 260-byte scan limit, and the exports each logical
+module must expose; it contains no guest pointer, callsite, native HMODULE,
+logical handle, endpoint address, call ordering, or next stop. The current
+catalog has `d3dx9_43.dll` with `D3DXCreateEffect`.
+
+NULL or an empty name returns NULL with LastError 87, while an unknown valid
+DLL basename returns NULL with LastError 126. A path-bearing, extensionless,
+or non-ASCII search variant stops as typed unsupported before mutation rather
+than silently emulating Windows search rules. On success the handler preserves
+LastError, preflights all catalogued dynamic endpoints, and asks the private
+`RuntimeModules` owner to plan module identity, thread reference, ready／attach
+state, and typed object registration. Repeated loads reuse the same handle and
+increment only the current thread's dynamic reference count. Public tests cover
+NULL／empty／missing, path and Windows-932 variants, missing export, stale plan,
+object collision, repeated identity, and unchanged guest memory／runtime state
+on every failure boundary.
+
+The policy explicitly selects a synthetic logical module. It does not authorize
+mapping or redistributing the Windows D3DX image, running its entry point,
+importing host module state into TypeScript, or claiming that the returned D3DX
+export is implemented. The dynamic endpoint remains a separate frontend entry;
+graphics translation belongs below version-specific D3D／D3DX semantics in the
+Rust-owned logical graphics layer.
+
 Policy JSON parsing and validation is covered independently:
 
 ```powershell
@@ -476,6 +506,10 @@ cross-thread blocking／wake, or guest wait／release／close API coverage.
 The waitable-timer policy does not implement security descriptors, inheritance,
 names, auto reset, due time, period, signaling, cancellation, host／browser
 timer import, or guest wait／timer／close API coverage.
+The runtime-system module policy does not implement Windows DLL search order,
+paths, implicit extension addition, Windows-932 module names, guest／native DLL
+mapping, dependency discovery, TLS／`DllMain` callbacks, `FreeLibrary`, module
+retirement, or arbitrary D3DX behavior.
 Adding a policy entry is valid only when
 the semantic handler already implements that input domain and a public semantic
 fixture covers it.
