@@ -53,7 +53,13 @@ typedef struct fixture_idirect3d9_vtable {
                                     unsigned int adapter_format,
                                     unsigned int back_buffer_format,
                                     int windowed);
-  void *check_device_format;
+  int(__stdcall *check_device_format)(fixture_idirect3d9 *self,
+                                      unsigned int adapter,
+                                      unsigned int device_type,
+                                      unsigned int adapter_format,
+                                      unsigned int usage,
+                                      unsigned int resource_type,
+                                      unsigned int check_format);
   void *check_device_multi_sample_type;
   void *check_depth_stencil_match;
   void *check_device_format_conversion;
@@ -222,16 +228,19 @@ int __cdecl fixture_entry(void) {
   if (direct3d->vtable->check_device_type(direct3d, 0, 1, 22, 22, 0) != 0) {
     return fixture_d3d9_failure(direct3d, 12);
   }
-  if (direct3d->vtable->add_ref(direct3d) != 2) {
-    return 13;
+  if (direct3d->vtable->check_device_format(direct3d, 0, 1, 22, 0x200, 3, 22) != 0) {
+    return fixture_d3d9_failure(direct3d, 13);
   }
-  if (direct3d->vtable->release(direct3d) != 1) {
+  if (direct3d->vtable->add_ref(direct3d) != 2) {
     return 14;
   }
-  if (direct3d->vtable->release(direct3d) != 0) {
+  if (direct3d->vtable->release(direct3d) != 1) {
     return 15;
+  }
+  if (direct3d->vtable->release(direct3d) != 0) {
+    return 16;
   }
 
   fixture_commit_result = fixture_commit_outputs(0xff0000ffu, 880u, 0x5au);
-  return fixture_commit_result == 1 ? 0 : 16;
+  return fixture_commit_result == 1 ? 0 : 17;
 }

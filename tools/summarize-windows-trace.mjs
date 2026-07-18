@@ -548,16 +548,16 @@ const normalizeD3d9DeviceCapsSnapshot = (snapshot, sequence, phase) => {
   };
 };
 
-const normalizeD3d9U32Argument = (value, sequence, index) => {
+const normalizeD3d9U32Argument = (value, sequence, index, method) => {
   if (typeof value !== "string" || !/^0x[0-9a-f]+$/iu.test(value)) {
     throw new Error(
-      `api-enter sequence ${sequence} has invalid CheckDeviceType argument ${index}`,
+      `api-enter sequence ${sequence} has invalid ${method} argument ${index}`,
     );
   }
   const parsed = BigInt(value);
   if (parsed > 0xffff_ffffn) {
     throw new Error(
-      `api-enter sequence ${sequence} has invalid CheckDeviceType argument ${index}`,
+      `api-enter sequence ${sequence} has invalid ${method} argument ${index}`,
     );
   }
   return Number(parsed);
@@ -1036,7 +1036,12 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       }
       const [adapter, deviceType, adapterFormat, backBufferFormat, windowedRaw] =
         pair.enter.arguments.map((argument, index) =>
-          normalizeD3d9U32Argument(argument, pair.enter.sequence, index),
+          normalizeD3d9U32Argument(
+            argument,
+            pair.enter.sequence,
+            index,
+            "CheckDeviceType",
+          ),
         );
       return {
         sequence: pair.enter.sequence,
@@ -1052,6 +1057,55 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         backBufferFormat,
         windowedRaw,
         windowed: windowedRaw !== 0,
+        result: pair.leave.result,
+        lastError: pair.leave.lastError ?? null,
+      };
+    });
+
+  const deviceFormatChecks = apiPairing.pairs
+    .filter(
+      (pair) =>
+        pair.enter.interface === "IDirect3D9" &&
+        pair.enter.vtableSlot === 10 &&
+        pair.enter.api === "CheckDeviceFormat",
+    )
+    .map((pair) => {
+      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 6) {
+        throw new Error(
+          `api-enter sequence ${pair.enter.sequence} has invalid CheckDeviceFormat arguments`,
+        );
+      }
+      if (
+        typeof pair.leave.result !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(pair.leave.result)
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has invalid CheckDeviceFormat result`,
+        );
+      }
+      const [adapter, deviceType, adapterFormat, usage, resourceType, checkFormat] =
+        pair.enter.arguments.map((argument, index) =>
+          normalizeD3d9U32Argument(
+            argument,
+            pair.enter.sequence,
+            index,
+            "CheckDeviceFormat",
+          ),
+        );
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId ?? null,
+        parentCallId: pair.enter.parentCallId ?? null,
+        caller:
+          pair.enter.caller === undefined
+            ? null
+            : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+        adapter,
+        deviceType,
+        adapterFormat,
+        usage,
+        resourceType,
+        checkFormat,
         result: pair.leave.result,
         lastError: pair.leave.lastError ?? null,
       };
@@ -1189,6 +1243,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       adapterIdentifiers,
       adapterDisplayModes,
       deviceTypeChecks,
+      deviceFormatChecks,
       deviceCaps,
     },
     categories,

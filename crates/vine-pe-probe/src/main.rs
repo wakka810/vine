@@ -176,6 +176,7 @@ enum GenericRuntimeCapability {
     D3d9GetAdapterIdentifier,
     D3d9GetDeviceCaps,
     D3d9CheckDeviceType,
+    D3d9CheckDeviceFormat,
 }
 
 struct GenericRuntimeProcess {
@@ -2867,6 +2868,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                 | GenericRuntimeCapability::D3d9CheckDeviceType
+                | GenericRuntimeCapability::D3d9CheckDeviceFormat
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -2891,7 +2893,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
             | GenericRuntimeCapability::D3d9GetAdapterIdentifier
             | GenericRuntimeCapability::D3d9GetDeviceCaps
-            | GenericRuntimeCapability::D3d9CheckDeviceType,
+            | GenericRuntimeCapability::D3d9CheckDeviceType
+            | GenericRuntimeCapability::D3d9CheckDeviceFormat,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -2955,7 +2958,7 @@ fn run_v86_generic_runtime_session(
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let d3d9_policy = D3d9CompatibilityPolicy::controlled_v4();
+    let d3d9_policy = D3d9CompatibilityPolicy::controlled_v5();
     d3d9_policy.validate().map_err(api_fault)?;
     if matches!(
         endpoint_capability,
@@ -4346,6 +4349,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9GetAdapterIdentifier
                             | GenericRuntimeCapability::D3d9GetDeviceCaps
                             | GenericRuntimeCapability::D3d9CheckDeviceType
+                            | GenericRuntimeCapability::D3d9CheckDeviceFormat
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4378,6 +4382,7 @@ fn run_v86_generic_runtime_session(
                                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
                                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                                 | GenericRuntimeCapability::D3d9CheckDeviceType
+                                | GenericRuntimeCapability::D3d9CheckDeviceFormat
                         )
                     ) {
                         dispatch_d3d9_com_call(&d3d9_policy, trap, &mut session)
@@ -4426,6 +4431,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                 | GenericRuntimeCapability::D3d9CheckDeviceType
+                | GenericRuntimeCapability::D3d9CheckDeviceFormat
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4454,6 +4460,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                 | GenericRuntimeCapability::D3d9CheckDeviceType
+                | GenericRuntimeCapability::D3d9CheckDeviceFormat
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -4945,6 +4952,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
                 | GenericRuntimeCapability::D3d9GetDeviceCaps
                 | GenericRuntimeCapability::D3d9CheckDeviceType
+                | GenericRuntimeCapability::D3d9CheckDeviceFormat
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -10573,6 +10581,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-get-adapter-identifier" => GenericRuntimeCapability::D3d9GetAdapterIdentifier,
                 "d3d9-get-device-caps" => GenericRuntimeCapability::D3d9GetDeviceCaps,
                 "d3d9-check-device-type" => GenericRuntimeCapability::D3d9CheckDeviceType,
+                "d3d9-check-device-format" => GenericRuntimeCapability::D3d9CheckDeviceFormat,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

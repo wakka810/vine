@@ -713,6 +713,39 @@ primary callsとpublic PE self-oracleは到達したformat `22→22`のwindowed�
 conversion、別adapter／device、`CheckDeviceFormat`、`CreateDevice`、renderer／shader成立を主張しない。
 Source executableのsize／SHA-256は既存fingerprintのまま不変だった。
 
+### 10.5 CheckDeviceFormat texture predicates and caller evidence
+
+10.3／10.4と同じe／f raw captureから`CheckDeviceFormat`の6 typed arguments、call／parent
+identity、HRESULTを抽出した。2026-07-19にsummarizer contractを追加して再生成したsummaryは、eが
+`164,638` bytes／SHA-256
+`27cecfe4c1b476da563ebc43abd331e0038af3bbeff04e86347c432e992b1027`、fが`164,636`
+bytes／SHA-256 `a0ff5bf1b896e2510c20c7553bdf3b6893d63606a1c70ca7275d8f5b5278724a`である。
+Raw trace identityは10.3と同じであり、別captureとして数えない。
+
+```powershell
+node tools/summarize-windows-trace.mjs `
+  --input .work\windows-traces\bgi-d3d9-device-caps-20260719-012335-e.jsonl `
+  --output .work\windows-traces\bgi-d3d9-device-caps-20260719-012335-e-summary.json `
+  --force
+
+llvm-objdump -d --x86-asm-syntax=intel `
+  --start-address=0x45ba4d --stop-address=0x45bab5 `
+  "V:\softs\サクラノ詩\BGI.exe"
+```
+
+両runは各13 callsで一致した。全callがAdapter `0`、DeviceType `1`、AdapterFormat `22`、
+RType `3` (`D3DRTYPE_TEXTURE`)である。CheckFormat `22`はUsage `0`で6 calls、Usage `0x200`
+(`D3DUSAGE_DYNAMIC`)で4 callsが`S_OK`となった。CheckFormat `118`／Usage `0`の3 callsは
+`D3DERR_NOTAVAILABLE`で、いずれも`CreateDevice` parentに属する。BGI direct callはRVA `0x5BA69`
+のdynamic format `22` 1 callだけで、残り9 non-parented callsは`d3d9.dll`内部callerである。
+
+Immutable PEはdirect return直後に`test eax,eax`／`jns`を行う。失敗時は初期化を中断し、成功時は
+`LoadLibraryA("d3dx9_43.dll")`へ進む。Microsoftの`CheckDeviceFormat` contractどおり、adapter範囲外／
+unsupported device typeは`D3DERR_INVALIDCALL`、requested usageでformatが不適合なら
+`D3DERR_NOTAVAILABLE`としてmodel testへ固定した。このevidenceは一般format conversion、別resource
+type／usage、dynamic DLL load、D3DX effect、`CreateDevice`、renderer／shader成立を主張しない。Source
+executableのsize／SHA-256は既存fingerprintのまま不変だった。
+
 ## 11. W7 PE32 load-plan ingress
 
 Rust `vine-core`は、owned immutable bytesとimport-time SHA-256からversion 1のchecked header／section／import／base-relocation planを作る。representative `abi-smoke.exe` contractは4 sections、1 module／2 named imports、1 relocation block／6 wordsを検査し、BGI.exeには同じboundaryを次のcommandで適用した。

@@ -342,9 +342,9 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     browserRuntimeCoreWasm.imports !== 0 ||
-    browserRuntimeCoreWasm.bytes !== 3_179_474 ||
+    browserRuntimeCoreWasm.bytes !== 3_180_887 ||
     browserRuntimeCoreWasm.sha256 !==
-      "f44132e691a67886f9802761928e5f3f197956486e02e93f09da263de81f682b"
+      "196bc4b3dc999fe0395e0c5055b150d7e420d3275dda31cf2902ea2ac6fcc794"
   ) {
     errors.push("browser runtime core Wasm must remain import-free");
   }
@@ -361,26 +361,26 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     browserRuntimeFixture.bytes !== 3_584 ||
     browserRuntimeFixture.sha256 !==
-      "6ca3155702bc9db044a4e6becf6cbf28c106b51f353706af5dd5edae6c0c7a67" ||
+      "4697069e54b3f061b2c6c91fe0066741032a1d3963995cd052c716f7685be73b" ||
     browserRuntimeFixture.nativeExitCode !== 0
   ) {
     errors.push("browser runtime fixture identity is invalid");
   }
   if (
-    browserEvidence.guestInstructions !== 1_912 ||
-    browserEvidence.cpuSlices !== 248 ||
-    browserEvidence.budgetYields !== 230 ||
+    browserEvidence.guestInstructions !== 1_923 ||
+    browserEvidence.cpuSlices !== 250 ||
+    browserEvidence.budgetYields !== 231 ||
     browserEvidence.hostRequests !== 2 ||
     browserEvidence.rustSchedulerTransitions !== 2 ||
     browserEvidence.callbackEntries !== 2 ||
     browserEvidence.maximumCallbackDepth !== 2 ||
-    browserEvidence.writebackBatches !== 60 ||
-    browserEvidence.writebackPages !== 62 ||
+    browserEvidence.writebackBatches !== 62 ||
+    browserEvidence.writebackPages !== 64 ||
     browserEvidence.initialGeneration !== 15 ||
-    browserEvidence.finalGeneration !== 120 ||
+    browserEvidence.finalGeneration !== 122 ||
     browserEvidence.runtimeCoreLinearMemoryBytes !== 1_572_864 ||
     browserEvidence.executionEngineLinearMemoryBytes !== 9_830_400 ||
-    browserEvidence.executionStateMachine?.success?.transitionCount !== 748 ||
+    browserEvidence.executionStateMachine?.success?.transitionCount !== 754 ||
     browserEvidence.executionStateMachine?.cancellation?.transitionCount !== 12 ||
     browserEvidence.executionStateMachine?.watchdog?.transitionCount !== 12 ||
     browserEvidence.exitCode !== 0 ||
@@ -510,6 +510,10 @@ export function validateCurrentCheckpoint(manifest) {
     "d3d9CheckDeviceTypeCompletions",
     "d3d9CheckDeviceTypeReferenceCount",
     "d3d9CheckDeviceTypeGuestWriteBytes",
+    "d3d9CheckDeviceFormatCompletions",
+    "d3d9CheckDeviceFormatSequence",
+    "d3d9CheckDeviceFormatReferenceCount",
+    "d3d9CheckDeviceFormatGuestWriteBytes",
   ]) {
     requireInteger(
       bgiBrowserEvidence[field],
@@ -632,7 +636,16 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.d3d9CheckDeviceTypeReferenceCount !== 1 ||
     bgiBrowserEvidence.d3d9CheckDeviceTypeObjectRetired !== false ||
     bgiBrowserEvidence.d3d9CheckDeviceTypeGuestWriteBytes !== 0 ||
-    bgiBrowserEvidence.d3d9CheckDeviceTypeOrderedSemanticsMatched !== true
+    bgiBrowserEvidence.d3d9CheckDeviceTypeOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.d3d9CheckDeviceFormatCompletions !== 1 ||
+    bgiBrowserEvidence.d3d9CheckDeviceFormatSequence !== 17_822 ||
+    bgiBrowserEvidence.d3d9CheckDeviceFormatArguments?.join(",") !==
+      "0x01000004,0x00000000,0x00000001,0x00000016,0x00000200,0x00000003,0x00000016" ||
+    bgiBrowserEvidence.d3d9CheckDeviceFormatResult !== "0x00000000" ||
+    bgiBrowserEvidence.d3d9CheckDeviceFormatReferenceCount !== 1 ||
+    bgiBrowserEvidence.d3d9CheckDeviceFormatObjectRetired !== false ||
+    bgiBrowserEvidence.d3d9CheckDeviceFormatGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.d3d9CheckDeviceFormatOrderedSemanticsMatched !== true
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
   }
@@ -894,7 +907,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeSubsystemTests.join(",") !==
       "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::shared_cursor_capacity_failure_preserves_identity_and_allocators,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::user32::tests::small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -1181,6 +1194,47 @@ export function validateCurrentCheckpoint(manifest) {
   ]) {
     requireSha256(value, `activeRuntimeCheckpoint.d3d9Frontend.${label}`, errors);
   }
+  const d3d9CheckDeviceFormat = requireRecord(
+    d3d9.checkDeviceFormat,
+    "activeRuntimeCheckpoint.d3d9Frontend.checkDeviceFormat",
+    errors,
+  );
+  const d3d9CheckDeviceFormatSupportedUsages = requireIntegerArray(
+    d3d9CheckDeviceFormat.supportedUsages,
+    "activeRuntimeCheckpoint.d3d9Frontend.checkDeviceFormat.supportedUsages",
+    errors,
+  );
+  const d3d9CheckDeviceFormatSupportedUsageNames = requireStringArray(
+    d3d9CheckDeviceFormat.supportedUsageNames,
+    "activeRuntimeCheckpoint.d3d9Frontend.checkDeviceFormat.supportedUsageNames",
+    errors,
+  );
+  const d3d9NativeDeviceFormat = requireRecord(
+    d3d9.nativeDeviceFormatEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeDeviceFormatEvidence",
+    errors,
+  );
+  const d3d9NativeDeviceFormatSupportedUsages = requireIntegerArray(
+    d3d9NativeDeviceFormat.supportedUsages,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeDeviceFormatEvidence.supportedUsages",
+    errors,
+  );
+  const d3d9PrivateDeviceFormat = requireRecord(
+    d3d9.privateRuntimeDeviceFormatEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeDeviceFormatEvidence",
+    errors,
+  );
+  const d3d9PrivateDeviceFormatArguments = requireOrderedStringArray(
+    d3d9PrivateDeviceFormat.arguments,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeDeviceFormatEvidence.arguments",
+    errors,
+  );
+  for (const [value, label] of [
+    [d3d9NativeDeviceFormat.primaryTraceSha256, "nativeDeviceFormatEvidence.primaryTraceSha256"],
+    [d3d9NativeDeviceFormat.confirmationTraceSha256, "nativeDeviceFormatEvidence.confirmationTraceSha256"],
+  ]) {
+    requireSha256(value, `activeRuntimeCheckpoint.d3d9Frontend.${label}`, errors);
+  }
   if (
     d3d9.schema !== "vine.d3d9-frontend.v1" ||
     d3d9.status !== "root-query-band-verified" ||
@@ -1195,7 +1249,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.invalidSdkReturnsNullBeforeMutation !== true ||
     d3d9IUnknownMethods.join(",") !== "QueryInterface,AddRef,Release" ||
     d3d9ImplementedRootMethods.join(",") !==
-      "QueryInterface,AddRef,Release,GetAdapterIdentifier,GetAdapterDisplayMode,GetDeviceCaps,CheckDeviceType" ||
+      "QueryInterface,AddRef,Release,GetAdapterIdentifier,GetAdapterDisplayMode,GetDeviceCaps,CheckDeviceType,CheckDeviceFormat" ||
     d3d9.backingPages !== 2 ||
     d3d9.dataPageFinalProtection !== "read-only" ||
     d3d9.endpointPageFinalProtection !== "read-execute" ||
@@ -1205,8 +1259,8 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.frontendDispatchBoundary !==
       "version-neutral-com-gateway-to-versioned-d3d9-handler" ||
     d3d9CompatibilityPolicy.schema !== "vine.d3d9-compatibility-policy" ||
-    d3d9CompatibilityPolicy.schemaVersion !== 4 ||
-    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v4" ||
+    d3d9CompatibilityPolicy.schemaVersion !== 5 ||
+    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v5" ||
     d3d9CompatibilityPolicy.displayProfileId !==
       "single-monitor-1920x1080-v1" ||
     d3d9DisplayMode.slot !== 8 ||
@@ -1469,6 +1523,76 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9PrivateDeviceType.guestWriteBytes !== 0 ||
     d3d9PrivateDeviceType.referenceCount !== 1 ||
     d3d9PrivateDeviceType.nodeChromeOrderedSemanticsMatched !== true ||
+    d3d9CheckDeviceFormat.slot !== 10 ||
+    d3d9CheckDeviceFormat.explicitArgumentWords !== 6 ||
+    d3d9CheckDeviceFormat.returnKind !== "h-result" ||
+    d3d9CheckDeviceFormat.adapter !== 0 ||
+    d3d9CheckDeviceFormat.deviceType !== 1 ||
+    d3d9CheckDeviceFormat.deviceTypeName !== "D3DDEVTYPE_HAL" ||
+    d3d9CheckDeviceFormat.adapterFormat !== 22 ||
+    d3d9CheckDeviceFormat.adapterFormatName !== "D3DFMT_X8R8G8B8" ||
+    d3d9CheckDeviceFormatSupportedUsages.join(",") !== "0,512" ||
+    d3d9CheckDeviceFormatSupportedUsageNames.join(",") !==
+      "none,D3DUSAGE_DYNAMIC" ||
+    d3d9CheckDeviceFormat.resourceType !== 3 ||
+    d3d9CheckDeviceFormat.resourceTypeName !== "D3DRTYPE_TEXTURE" ||
+    d3d9CheckDeviceFormat.checkFormat !== 22 ||
+    d3d9CheckDeviceFormat.checkFormatName !== "D3DFMT_X8R8G8B8" ||
+    d3d9CheckDeviceFormat.capabilityAuthority !==
+      "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
+    d3d9CheckDeviceFormat.displayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    d3d9CheckDeviceFormat.profileId !==
+      "primary-hal-x8r8g8b8-texture-basic-dynamic-v1" ||
+    d3d9CheckDeviceFormat.invalidAdapterOrDeviceTypeResult !== "0x8876086c" ||
+    d3d9CheckDeviceFormat.unsupportedCombinationResult !== "0x8876086a" ||
+    d3d9CheckDeviceFormat.guestWriteBytes !== 0 ||
+    d3d9CheckDeviceFormat.referenceCountMutation !== false ||
+    d3d9CheckDeviceFormat.lastErrorPolicy !== "preserve" ||
+    d3d9NativeDeviceFormat.traceSchema !== "vine.win32-trace.v2" ||
+    d3d9NativeDeviceFormat.primaryTraceBytes !== 2_274_737 ||
+    d3d9NativeDeviceFormat.primaryTraceLines !== 7_066 ||
+    d3d9NativeDeviceFormat.primaryTraceSha256 !==
+      "69655d319b4cd31f814690094a9c108f18b59ca92e1d31e6095cc7344f87d361" ||
+    d3d9NativeDeviceFormat.primaryBalancedApiPairs !== 3_495 ||
+    d3d9NativeDeviceFormat.confirmationTraceBytes !== 2_282_110 ||
+    d3d9NativeDeviceFormat.confirmationTraceLines !== 7_068 ||
+    d3d9NativeDeviceFormat.confirmationTraceSha256 !==
+      "56379b0c6267fa8e919a89b11222b547d21f374d634ed59138c78a3612ffb09f" ||
+    d3d9NativeDeviceFormat.confirmationBalancedApiPairs !== 3_496 ||
+    d3d9NativeDeviceFormat.diagnostics !== 0 ||
+    d3d9NativeDeviceFormat.callsPerTrace !== 13 ||
+    d3d9NativeDeviceFormat.directCallsPerTrace !== 1 ||
+    d3d9NativeDeviceFormat.createDeviceParentedCallsPerTrace !== 3 ||
+    d3d9NativeDeviceFormat.otherInternalCallsPerTrace !== 9 ||
+    d3d9NativeDeviceFormat.directCallerRva !== "0x0005ba69" ||
+    d3d9NativeDeviceFormat.adapter !== 0 ||
+    d3d9NativeDeviceFormat.deviceType !== 1 ||
+    d3d9NativeDeviceFormat.adapterFormat !== 22 ||
+    d3d9NativeDeviceFormat.resourceType !== 3 ||
+    d3d9NativeDeviceFormatSupportedUsages.join(",") !== "0,512" ||
+    d3d9NativeDeviceFormat.supportedCheckFormat !== 22 ||
+    d3d9NativeDeviceFormat.basicUsageSuccessCallsPerTrace !== 6 ||
+    d3d9NativeDeviceFormat.dynamicUsageSuccessCallsPerTrace !== 4 ||
+    d3d9NativeDeviceFormat.unsupportedCheckFormat !== 118 ||
+    d3d9NativeDeviceFormat.unsupportedCallsPerTrace !== 3 ||
+    d3d9NativeDeviceFormat.unsupportedResult !== "0x8876086a" ||
+    d3d9NativeDeviceFormat.directUsage !== 512 ||
+    d3d9NativeDeviceFormat.directCheckFormat !== 22 ||
+    d3d9NativeDeviceFormat.directResult !== "0x00000000" ||
+    d3d9NativeDeviceFormat.hresultSignConsumed !== true ||
+    d3d9NativeDeviceFormat.consumerOracle !== "immutable-pe-disassembly" ||
+    d3d9NativeDeviceFormat.sourceExecutableHashUnchanged !== true ||
+    d3d9PrivateDeviceFormat.nodeSequence !== 17_822 ||
+    d3d9PrivateDeviceFormat.nodeInstructionCount !== 11_806_524 ||
+    d3d9PrivateDeviceFormat.chromeSequence !== 17_822 ||
+    d3d9PrivateDeviceFormatArguments.join(",") !==
+      "0x01000004,0x00000000,0x00000001,0x00000016,0x00000200,0x00000003,0x00000016" ||
+    d3d9PrivateDeviceFormat.returnAddress !== "0x1005ba69" ||
+    d3d9PrivateDeviceFormat.result !== "0x00000000" ||
+    d3d9PrivateDeviceFormat.guestWriteBytes !== 0 ||
+    d3d9PrivateDeviceFormat.referenceCount !== 1 ||
+    d3d9PrivateDeviceFormat.nodeChromeOrderedSemanticsMatched !== true ||
     d3d9.sharedGraphicsBoundary !== "RuntimeGraphics-at-CreateDevice-gateway" ||
     d3d9.runtimeGraphicsCreated !== false ||
     d3d9.rendererResourceCreated !== false ||
@@ -2967,11 +3091,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 17_868 ||
-    latestEvidence.writebackDirtyPages !== 36_008 ||
-    latestEvidence.writebackChangedBytes !== 1_806_934 ||
+    latestEvidence.writebackBatches !== 17_869 ||
+    latestEvidence.writebackDirtyPages !== 36_010 ||
+    latestEvidence.writebackChangedBytes !== 1_806_945 ||
     latestEvidence.hostDeltaBatches !== 16_551 ||
-    latestEvidence.finalMemoryGeneration !== 34_520
+    latestEvidence.finalMemoryGeneration !== 34_521
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -3237,9 +3361,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterDisplayModeFormat !== 22 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 4 ||
+    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 5 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicyId !==
-      "d3d9-primary-virtual-adapter-v4" ||
+      "d3d9-primary-virtual-adapter-v5" ||
     latestEvidence.d3d9GetAdapterDisplayModeProfileId !==
       "primary-adapter-1920x1080-60-x8r8g8b8-v1" ||
     latestEvidence.d3d9GetAdapterDisplayModeDisplayProfileId !==
@@ -3329,9 +3453,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterIdentifierWhqlLevel !== 0 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 4 ||
+    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 5 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicyId !==
-      "d3d9-primary-virtual-adapter-v4" ||
+      "d3d9-primary-virtual-adapter-v5" ||
     latestEvidence.d3d9GetAdapterIdentifierProfileId !==
       "primary-virtual-adapter-identifier-v1" ||
     latestEvidence.d3d9GetAdapterIdentifierDisplayProfileId !==
@@ -3435,9 +3559,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetDeviceCapsOtherFieldsZero !== true ||
     latestEvidence.d3d9GetDeviceCapsPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 4 ||
+    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 5 ||
     latestEvidence.d3d9GetDeviceCapsPolicyId !==
-      "d3d9-primary-virtual-adapter-v4" ||
+      "d3d9-primary-virtual-adapter-v5" ||
     latestEvidence.d3d9GetDeviceCapsProfileId !==
       "primary-hal-readscanline-dynamic-textures-ps3-v1" ||
     latestEvidence.d3d9GetDeviceCapsDisplayProfileId !==
@@ -3546,9 +3670,9 @@ export function validateCurrentCheckpoint(manifest) {
       "zero-fullscreen-nonzero-windowed" ||
     latestEvidence.d3d9CheckDeviceTypePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 4 ||
+    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 5 ||
     latestEvidence.d3d9CheckDeviceTypePolicyId !==
-      "d3d9-primary-virtual-adapter-v4" ||
+      "d3d9-primary-virtual-adapter-v5" ||
     latestEvidence.d3d9CheckDeviceTypeProfileId !==
       "primary-hal-x8r8g8b8-windowed-fullscreen-v1" ||
     latestEvidence.d3d9CheckDeviceTypeDisplayProfileId !==
@@ -3568,6 +3692,104 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CheckDeviceTypeNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest D3D9 device-type evidence is invalid");
+  }
+  for (const field of [
+    "nativeD3d9CheckDeviceFormatPrimaryTraceSha256",
+    "nativeD3d9CheckDeviceFormatConfirmationTraceSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  const nativeD3d9CheckDeviceFormatSupportedUsages = requireIntegerArray(
+    latestEvidence.nativeD3d9CheckDeviceFormatSupportedUsages,
+    "activeRuntimeCheckpoint.latestEvidence.nativeD3d9CheckDeviceFormatSupportedUsages",
+    errors,
+  );
+  const latestD3d9CheckDeviceFormatSupportedUsages = requireIntegerArray(
+    latestEvidence.d3d9CheckDeviceFormatSupportedUsages,
+    "activeRuntimeCheckpoint.latestEvidence.d3d9CheckDeviceFormatSupportedUsages",
+    errors,
+  );
+  if (
+    latestEvidence.nativeD3d9CheckDeviceFormatPrimaryTraceBytes !== 2_274_737 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatPrimaryTraceLines !== 7_066 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatPrimaryTraceSha256 !==
+      "69655d319b4cd31f814690094a9c108f18b59ca92e1d31e6095cc7344f87d361" ||
+    latestEvidence.nativeD3d9CheckDeviceFormatPrimaryBalancedApiPairs !== 3_495 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatConfirmationTraceBytes !== 2_282_110 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatConfirmationTraceLines !== 7_068 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatConfirmationTraceSha256 !==
+      "56379b0c6267fa8e919a89b11222b547d21f374d634ed59138c78a3612ffb09f" ||
+    latestEvidence.nativeD3d9CheckDeviceFormatConfirmationBalancedApiPairs !== 3_496 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatTraceDiagnostics !== 0 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatCallsPerTrace !== 13 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatDirectCallsPerTrace !== 1 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatCreateDeviceParentedCallsPerTrace !== 3 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatOtherInternalCallsPerTrace !== 9 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatDirectCallerRva !== "0x0005ba69" ||
+    latestEvidence.nativeD3d9CheckDeviceFormatAdapter !== 0 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatDeviceType !== 1 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatAdapterFormat !== 22 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatResourceType !== 3 ||
+    nativeD3d9CheckDeviceFormatSupportedUsages.join(",") !== "0,512" ||
+    latestEvidence.nativeD3d9CheckDeviceFormatSupportedCheckFormat !== 22 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatBasicUsageSuccessCallsPerTrace !== 6 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatDynamicUsageSuccessCallsPerTrace !== 4 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatUnsupportedCheckFormat !== 118 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatUnsupportedCallsPerTrace !== 3 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatUnsupportedResult !== "0x8876086a" ||
+    latestEvidence.nativeD3d9CheckDeviceFormatDirectUsage !== 512 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatDirectCheckFormat !== 22 ||
+    latestEvidence.nativeD3d9CheckDeviceFormatDirectResult !== "0x00000000" ||
+    latestEvidence.nativeD3d9CheckDeviceFormatHresultSignConsumed !== true ||
+    latestEvidence.nativeD3d9CheckDeviceFormatConsumerOracle !==
+      "immutable-pe-disassembly" ||
+    latestEvidence.nativeD3d9CheckDeviceFormatExecutableHashUnchanged !== true ||
+    latestEvidence.d3d9CheckDeviceFormatImplemented !== true ||
+    latestEvidence.d3d9CheckDeviceFormatSequence !== 17_822 ||
+    latestEvidence.d3d9CheckDeviceFormatInstructionCount !== 11_806_524 ||
+    latestEvidence.d3d9CheckDeviceFormatArguments?.join(",") !==
+      "0x01000004,0x00000000,0x00000001,0x00000016,0x00000200,0x00000003,0x00000016" ||
+    latestEvidence.d3d9CheckDeviceFormatReturnAddress !== "0x1005ba69" ||
+    latestEvidence.d3d9CheckDeviceFormatResult !== "0x00000000" ||
+    latestEvidence.d3d9CheckDeviceFormatLastError !== 0 ||
+    latestEvidence.d3d9CheckDeviceFormatGuestWriteBytes !== 0 ||
+    latestEvidence.d3d9CheckDeviceFormatAdapter !== 0 ||
+    latestEvidence.d3d9CheckDeviceFormatDeviceType !== 1 ||
+    latestEvidence.d3d9CheckDeviceFormatAdapterFormat !== 22 ||
+    latestEvidence.d3d9CheckDeviceFormatUsage !== 512 ||
+    latestEvidence.d3d9CheckDeviceFormatResourceType !== 3 ||
+    latestEvidence.d3d9CheckDeviceFormatCheckFormat !== 22 ||
+    latestD3d9CheckDeviceFormatSupportedUsages.join(",") !== "0,512" ||
+    latestEvidence.d3d9CheckDeviceFormatInvalidCallResult !== "0x8876086c" ||
+    latestEvidence.d3d9CheckDeviceFormatNotAvailableResult !== "0x8876086a" ||
+    latestEvidence.d3d9CheckDeviceFormatPolicySchema !==
+      "vine.d3d9-compatibility-policy" ||
+    latestEvidence.d3d9CheckDeviceFormatPolicyVersion !== 5 ||
+    latestEvidence.d3d9CheckDeviceFormatPolicyId !==
+      "d3d9-primary-virtual-adapter-v5" ||
+    latestEvidence.d3d9CheckDeviceFormatProfileId !==
+      "primary-hal-x8r8g8b8-texture-basic-dynamic-v1" ||
+    latestEvidence.d3d9CheckDeviceFormatDisplayProfileId !==
+      "single-monitor-1920x1080-v1" ||
+    latestEvidence.d3d9CheckDeviceFormatCapabilityAuthority !==
+      "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
+    latestEvidence.d3d9CheckDeviceFormatDisplayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    latestEvidence.d3d9CheckDeviceFormatReferenceCount !== 1 ||
+    latestEvidence.d3d9CheckDeviceFormatReferenceCountMutation !== false ||
+    latestEvidence.d3d9CheckDeviceFormatFailureAtomicity !== true ||
+    latestEvidence.d3d9CheckDeviceFormatBrowserOwnsComState !== false ||
+    latestEvidence.d3d9CheckDeviceFormatRuntimeGraphicsCreated !== false ||
+    latestEvidence.d3d9CheckDeviceFormatRendererResourceCreated !== false ||
+    latestEvidence.d3d9CheckDeviceFormatNodeCompletions !== 1 ||
+    latestEvidence.d3d9CheckDeviceFormatChromeCompletions !== 1 ||
+    latestEvidence.d3d9CheckDeviceFormatNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest D3D9 device-format evidence is invalid");
   }
   const createWindowExAGeometry = requireRecord(
     latestEvidence.createWindowExAGeometry,
@@ -3620,7 +3842,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "bounded D3D9 CheckDeviceType with policy-owned format predicate" ||
+      "bounded D3D9 CheckDeviceFormat with policy-owned texture usage predicate" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

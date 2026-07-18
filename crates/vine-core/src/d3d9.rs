@@ -18,7 +18,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 4;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 5;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -27,6 +27,8 @@ pub const D3D9_D3DCAPS_READ_SCANLINE: u32 = 0x0002_0000;
 pub const D3D9_D3DCAPS2_DYNAMICTEXTURES: u32 = 0x2000_0000;
 pub const D3D9_D3DPS_VERSION_3_0: u32 = 0xffff_0300;
 pub const D3D9_D3DFMT_X8R8G8B8: u32 = 22;
+pub const D3D9_D3DRTYPE_TEXTURE: u32 = 3;
+pub const D3D9_D3DUSAGE_DYNAMIC: u32 = 0x0000_0200;
 pub const D3D9_D3DENUM_WHQL_LEVEL: u32 = 0x0000_0002;
 pub const D3D9_D3DERR_NOTAVAILABLE: ComHResult = ComHResult(0x8876_086a_u32 as i32);
 pub const D3D9_D3DERR_INVALIDCALL: ComHResult = ComHResult(0x8876_086c_u32 as i32);
@@ -98,6 +100,19 @@ pub struct D3d9CheckDeviceTypePolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9CheckDeviceFormatPolicy {
+    pub profile_id: String,
+    pub display_profile_id: String,
+    pub adapter: u32,
+    pub device_type: u32,
+    pub adapter_format: u32,
+    pub resource_type: u32,
+    pub check_format: u32,
+    pub supported_usages: [u32; 2],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -106,14 +121,15 @@ pub struct D3d9CompatibilityPolicy {
     pub get_adapter_identifier: Option<D3d9AdapterIdentifierPolicy>,
     pub get_device_caps: Option<D3d9DeviceCapsPolicy>,
     pub check_device_type: Option<D3d9CheckDeviceTypePolicy>,
+    pub check_device_format: Option<D3d9CheckDeviceFormatPolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v4() -> Self {
+    pub fn controlled_v5() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v4".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v5".to_owned(),
             get_adapter_display_mode: Some(D3d9AdapterDisplayModePolicy {
                 profile_id: "primary-adapter-1920x1080-60-x8r8g8b8-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
@@ -156,6 +172,16 @@ impl D3d9CompatibilityPolicy {
                 back_buffer_format: D3D9_D3DFMT_X8R8G8B8,
                 windowed_supported: true,
                 fullscreen_supported: true,
+            }),
+            check_device_format: Some(D3d9CheckDeviceFormatPolicy {
+                profile_id: "primary-hal-x8r8g8b8-texture-basic-dynamic-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                adapter: 0,
+                device_type: D3D9_D3DDEVTYPE_HAL,
+                adapter_format: D3D9_D3DFMT_X8R8G8B8,
+                resource_type: D3D9_D3DRTYPE_TEXTURE,
+                check_format: D3D9_D3DFMT_X8R8G8B8,
+                supported_usages: [0, D3D9_D3DUSAGE_DYNAMIC],
             }),
         }
     }
@@ -240,6 +266,22 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 device-type check must describe the bounded primary HAL format band",
             ));
         }
+        if let Some(check) = self.check_device_format.as_ref()
+            && (!valid_policy_id(&check.profile_id)
+                || !valid_policy_id(&check.display_profile_id)
+                || check.adapter != 0
+                || check.device_type != D3D9_D3DDEVTYPE_HAL
+                || check.adapter_format != D3D9_D3DFMT_X8R8G8B8
+                || check.resource_type != D3D9_D3DRTYPE_TEXTURE
+                || check.check_format != D3D9_D3DFMT_X8R8G8B8
+                || check.supported_usages != [0, D3D9_D3DUSAGE_DYNAMIC])
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-check-device-format-profile-invalid",
+                "D3D9 device-format check must describe the bounded primary HAL texture band",
+            ));
+        }
         let coherent_profiles = [
             self.get_adapter_display_mode
                 .as_ref()
@@ -253,6 +295,9 @@ impl D3d9CompatibilityPolicy {
             self.check_device_type
                 .as_ref()
                 .map(|profile| (profile.adapter, profile.display_profile_id.as_str())),
+            self.check_device_format
+                .as_ref()
+                .map(|profile| (profile.adapter, profile.display_profile_id.as_str())),
         ];
         let mut coherent_profiles = coherent_profiles.into_iter().flatten();
         if let Some(primary) = coherent_profiles.next()
@@ -264,15 +309,25 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 root query profiles must select one coherent logical primary adapter",
             ));
         }
-        if let (Some(mode), Some(check)) = (
-            self.get_adapter_display_mode.as_ref(),
-            self.check_device_type.as_ref(),
-        ) && mode.format != check.adapter_format
+        let coherent_adapter_formats = [
+            self.get_adapter_display_mode
+                .as_ref()
+                .map(|profile| profile.format),
+            self.check_device_type
+                .as_ref()
+                .map(|profile| profile.adapter_format),
+            self.check_device_format
+                .as_ref()
+                .map(|profile| profile.adapter_format),
+        ];
+        let mut coherent_adapter_formats = coherent_adapter_formats.into_iter().flatten();
+        if let Some(primary) = coherent_adapter_formats.next()
+            && coherent_adapter_formats.any(|format| format != primary)
         {
             return Err(ApiFault::runtime_defect(
                 "d3d9-compatibility-policy",
                 "d3d9-primary-adapter-format-profile-mismatch",
-                "D3D9 display mode and device-type check must select the same adapter format",
+                "D3D9 root query profiles must select one coherent adapter format",
             ));
         }
         Ok(())
@@ -440,6 +495,7 @@ fn dispatch_d3d9_frontend_call(
         (5, "GetAdapterIdentifier") => 3,
         (8, "GetAdapterDisplayMode") => 2,
         (9, "CheckDeviceType") => 5,
+        (10, "CheckDeviceFormat") => 6,
         (14, "GetDeviceCaps") => 3,
         _ => {
             return call.fault(
@@ -473,9 +529,54 @@ fn dispatch_d3d9_frontend_call(
         5 => dispatch_get_adapter_identifier(policy, call),
         8 => dispatch_get_adapter_display_mode(policy, call),
         9 => dispatch_check_device_type(policy, call),
+        10 => dispatch_check_device_format(policy, call),
         14 => dispatch_get_device_caps(policy, call),
         _ => unreachable!(),
     }
+}
+
+fn dispatch_check_device_format(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(check_policy) = policy.check_device_format.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-device-format",
+            "check-device-format-policy-disabled",
+            "D3D9 compatibility policy does not enable CheckDeviceFormat",
+        );
+    };
+    let adapter = call.frame().explicit_arguments[0];
+    let device_type = call.frame().explicit_arguments[1];
+    let adapter_format = call.frame().explicit_arguments[2];
+    let usage = call.frame().explicit_arguments[3];
+    let resource_type = call.frame().explicit_arguments[4];
+    let check_format = call.frame().explicit_arguments[5];
+    if adapter != check_policy.adapter || device_type != check_policy.device_type {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    if let Some((code, message)) =
+        primary_display_authority_fault(&call, &check_policy.display_profile_id)
+    {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-device-format",
+            code,
+            message,
+        );
+    }
+
+    let result = if adapter_format == check_policy.adapter_format
+        && resource_type == check_policy.resource_type
+        && check_format == check_policy.check_format
+        && check_policy.supported_usages.contains(&usage)
+    {
+        COM_S_OK
+    } else {
+        D3D9_D3DERR_NOTAVAILABLE
+    };
+    call.complete(ComReturnValue::HResult(result), Vec::new())
 }
 
 fn dispatch_check_device_type(
@@ -813,7 +914,7 @@ pub fn direct3d9_object_spec() -> ComObjectSpec {
                     ComMethodSpec::unsupported_hresult("EnumAdapterModes", 4),
                     ComMethodSpec::frontend_hresult("GetAdapterDisplayMode", 2),
                     ComMethodSpec::frontend_hresult("CheckDeviceType", 5),
-                    ComMethodSpec::unsupported_hresult("CheckDeviceFormat", 6),
+                    ComMethodSpec::frontend_hresult("CheckDeviceFormat", 6),
                     ComMethodSpec::unsupported_hresult("CheckDeviceMultiSampleType", 6),
                     ComMethodSpec::unsupported_hresult("CheckDepthStencilMatch", 5),
                     ComMethodSpec::unsupported_hresult("CheckDeviceFormatConversion", 4),

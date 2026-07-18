@@ -9,9 +9,10 @@ interface. A different SDK version returns NULL before memory, identity,
 allocator, or generation mutation. QueryInterface, AddRef, Release, and final
 backing retirement use the generic COM plan／commit path.
 `GetAdapterIdentifier` at slot 5, `GetAdapterDisplayMode` at slot 8,
-`CheckDeviceType` at slot 9, and `GetDeviceCaps` at slot 14 delegate through a
-version-neutral COM gateway to the D3D9 semantic handler. Other unreached slots
-return a typed fault with interface, slot, method, endpoint, and call site.
+`CheckDeviceType` at slot 9, `CheckDeviceFormat` at slot 10, and `GetDeviceCaps`
+at slot 14 delegate through a version-neutral COM gateway to the D3D9 semantic
+handler. Other unreached slots return a typed fault with interface, slot,
+method, endpoint, and call site.
 
 The two-page COM backing is Rust-owned guest memory. Its data page finishes
 read-only and its endpoint page finishes read／execute. The endpoint bytes are
@@ -28,7 +29,7 @@ relations for the private workload.
 
 ## Bounded adapter display mode
 
-Version 4 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
+Version 5 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
 Its display-mode profile is `primary-adapter-1920x1080-60-x8r8g8b8-v1`.
 Width and height are derived from the primary monitor owned by
 `RuntimeDisplays`; refresh rate `60` and format `22` (`D3DFMT_X8R8G8B8`)
@@ -61,7 +62,7 @@ checkpoint manifest.
 
 ## Bounded virtual adapter identity
 
-The same version 4 policy enables adapter `0`, flags `0`, and profile
+The same version 5 policy enables adapter `0`, flags `0`, and profile
 `primary-virtual-adapter-identifier-v1`. It serializes one zero-filled,
 1,100-byte `D3DADAPTER_IDENTIFIER9` from policy-owned virtual identity:
 
@@ -95,7 +96,7 @@ fixture. Raw native captures remain ignored under `.work/`.
 
 ## Bounded virtual device capabilities
 
-Version 4 also enables adapter `0`, `D3DDEVTYPE_HAL`, and profile
+Version 5 also enables adapter `0`, `D3DDEVTYPE_HAL`, and profile
 `primary-hal-readscanline-dynamic-textures-ps3-v1`. The handler zero-fills one
 304-byte, 4-byte-aligned x86 `D3DCAPS9` and publishes only these nonzero words:
 
@@ -131,7 +132,7 @@ guest-memory transaction.
 
 ## Bounded device-type predicate
 
-Version 4 adds profile `primary-hal-x8r8g8b8-windowed-fullscreen-v1` for
+Version 5 retains profile `primary-hal-x8r8g8b8-windowed-fullscreen-v1` for
 `IDirect3D9::CheckDeviceType`. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
 `D3DFMT_X8R8G8B8` adapter／back-buffer formats, and both windowed and
 full-screen mode. The x86 `BOOL` follows the Windows convention: zero means
@@ -152,6 +153,31 @@ identity from an unavailable format band. Vine therefore returns
 policy or mismatched display authority produces a typed fault before
 completion. Every path preserves LastError, COM reference count, guest memory,
 `RuntimeGraphics`, and browser renderer resources.
+
+## Bounded device-format predicate
+
+Version 5 adds profile `primary-hal-x8r8g8b8-texture-basic-dynamic-v1` for
+`IDirect3D9::CheckDeviceFormat`. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
+adapter／checked format `D3DFMT_X8R8G8B8`, resource type `D3DRTYPE_TEXTURE`,
+and either Usage `0` or `D3DUSAGE_DYNAMIC` (`0x200`). The predicate is
+policy-owned and checked against the same `RuntimeDisplays` profile as the
+other root queries.
+
+Two independent native traces each contain 13 calls. Six basic-usage format
+`22` calls and four dynamic-usage format `22` calls return `S_OK`; the latter
+include the one BGI direct call from RVA `0x5BA69`. Three `CreateDevice`-
+parented basic-usage checks for format `118` return `D3DERR_NOTAVAILABLE`.
+The remaining nine non-parented internal calls come from `d3d9.dll`. The BGI
+caller tests the HRESULT sign immediately and, on success, proceeds to
+`LoadLibraryA("d3dx9_43.dll")`.
+
+The Microsoft contract returns `D3DERR_INVALIDCALL` for an out-of-range adapter
+or unsupported device type and `D3DERR_NOTAVAILABLE` when the format is not
+acceptable for the requested usage. Vine preserves that distinction: another
+adapter／device type is invalid, while any format, usage, or resource-type
+combination outside the bounded profile is unavailable. All paths preserve
+LastError, COM reference count, guest memory, `RuntimeGraphics`, and browser
+renderer resources.
 
 ## Versioned frontend and shared graphics boundary
 
@@ -174,7 +200,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-check-device-type
+npm run check:runtime:bgi -- --profile d3d9-check-device-format
 ```
 
 The controlled PE fixture verifies invalid-SDK NULL, non-NULL factory identity,
@@ -183,17 +209,19 @@ native or exact Vine device-capability band, AddRef 2, Release 1, and final
 Release 0 with retirement. Its Windows self-oracle accepts native nonempty
 NUL-terminated identity strings and required caps, while the Vine branch checks
 the exact virtual identity and zero-bounded 304-byte caps. It also verifies the
-windowed and full-screen device-type predicates. Rust tests separately fix
-every output byte and the invalid adapter／flags／device type／format／NULL／
-unwritable／policy／display-authority paths. The private Node and Chrome profiles
-record the same two mutation-free completions and stop next at
-`IDirect3D9::CheckDeviceFormat`.
+windowed／full-screen device-type predicates and the reached dynamic texture
+format predicate. Rust tests separately fix every output byte and the invalid
+adapter／flags／device type／format／usage／resource type／NULL／unwritable／policy／
+display-authority paths. The private Node and Chrome profiles record the same
+three mutation-free predicate completions and stop next at
+`KERNEL32.dll!LoadLibraryA`.
 
 ## Non-claims
 
 - Only the bounded current display-mode, virtual adapter-identifier, virtual
-  device-capability, and exact device-type predicate queries are implemented.
-  Adapter count, mode enumeration, general device／format checks,
+  device-capability, exact device-type predicate, and exact texture-format
+  predicate queries are implemented. Adapter count, mode enumeration, general
+  device／format／usage checks,
   `CreateDevice`, device/resource state, draw, Present, Reset, and renderer
   output remain unsupported.
 - The current root object does not create a `RuntimeGraphics` device or browser

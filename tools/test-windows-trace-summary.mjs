@@ -408,6 +408,30 @@ const events = [
   },
   {
     schema,
+    sequence: 28,
+    threadId: 10,
+    kind: "api-enter",
+    module: "d3d9.dll",
+    api: "CheckDeviceFormat",
+    interface: "IDirect3D9",
+    vtableSlot: 10,
+    object: "0x330000",
+    arguments: ["0x0", "0x1", "0x16", "0x200", "0x3", "0x16"],
+  },
+  {
+    schema,
+    sequence: 29,
+    threadId: 10,
+    kind: "api-leave",
+    module: "d3d9.dll",
+    api: "CheckDeviceFormat",
+    interface: "IDirect3D9",
+    vtableSlot: 10,
+    object: "0x330000",
+    result: "0x0",
+  },
+  {
+    schema,
     kind: "trace-stop",
     timestamp: "2026-07-10T00:00:01.250Z",
     reason: "timeout-kill",
@@ -551,6 +575,19 @@ for (const call of [
     durationMs: 0,
     lastError: 0,
   },
+  {
+    callId: 13,
+    parentCallId: null,
+    enterSequence: 28,
+    leaveSequence: 29,
+    caller: {
+      address: "0x0045ba69",
+      module: "abi-smoke.exe",
+      rva: 0x5ba69,
+    },
+    durationMs: 0,
+    lastError: 0,
+  },
 ]) {
   const enter = events.find((event) => event.sequence === call.enterSequence);
   const leave = events.find((event) => event.sequence === call.leaveSequence);
@@ -595,21 +632,21 @@ assert.deepEqual(summary.trace.captureArguments, {
 });
 assert.deepEqual(summary.trace.selectedVtables, ["idirect3d9"]);
 assert.deepEqual(summary.trace.sequence, {
-  events: 28,
+  events: 30,
   first: 0,
-  last: 27,
+  last: 29,
   contiguous: true,
 });
 assert.deepEqual(summary.trace.apiPairing, {
   contract: "call-id-v1",
-  enters: 12,
-  leaves: 12,
-  pairs: 12,
+  enters: 13,
+  leaves: 13,
+  pairs: 13,
   maxDepth: 2,
   balanced: true,
 });
 assert.equal(summary.modules.length, 2);
-assert.equal(summary.apis.length, 11);
+assert.equal(summary.apis.length, 12);
 assert.deepEqual(summary.apis[0], {
   module: "KERNEL32.DLL",
   api: "CreateFileA",
@@ -779,6 +816,22 @@ assert.deepEqual(summary.d3d9.deviceTypeChecks, [
     backBufferFormat: 22,
     windowedRaw: 1,
     windowed: true,
+    result: "0x0",
+    lastError: 0,
+  },
+]);
+assert.deepEqual(summary.d3d9.deviceFormatChecks, [
+  {
+    sequence: 28,
+    callId: 13,
+    parentCallId: null,
+    caller: { module: "abi-smoke.exe", rva: 0x5ba69 },
+    adapter: 0,
+    deviceType: 1,
+    adapterFormat: 22,
+    usage: 0x200,
+    resourceType: 3,
+    checkFormat: 22,
     result: "0x0",
     lastError: 0,
   },
@@ -1000,6 +1053,23 @@ overflowingDeviceTypeArgument.find((event) => event.sequence === 20).arguments[0
 assert.throws(
   () => summarizeTrace(encode(overflowingDeviceTypeArgument)),
   /invalid CheckDeviceType argument 0/,
+);
+
+const truncatedDeviceFormatArguments = structuredClone(events);
+truncatedDeviceFormatArguments
+  .find((event) => event.sequence === 28)
+  .arguments.pop();
+assert.throws(
+  () => summarizeTrace(encode(truncatedDeviceFormatArguments)),
+  /invalid CheckDeviceFormat arguments/,
+);
+
+const overflowingDeviceFormatArgument = structuredClone(events);
+overflowingDeviceFormatArgument.find((event) => event.sequence === 28).arguments[3] =
+  "0x100000000";
+assert.throws(
+  () => summarizeTrace(encode(overflowingDeviceFormatArgument)),
+  /invalid CheckDeviceFormat argument 3/,
 );
 
 const wrongObservationSelection = structuredClone(events);

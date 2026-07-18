@@ -305,18 +305,21 @@ Slot 5は3-word／HRESULT ABI、policy-owned virtual identity、zero-filled 1,10
 `D3DADAPTER_IDENTIFIER9`のfull overwriteを検証する。Slot 14は3-word／HRESULT ABI、304-byte
 x86 `D3DCAPS9` layout、policy-owned `READ_SCANLINE`／`DYNAMICTEXTURES`／PS 3.0 bandと残りzeroを
 検証する。Slot 9は5-word／HRESULT ABIと、adapter `0`／HAL／format `22→22`に対するwindowed／
-full-screen両predicateを検証し、zero／nonzero `BOOL`を正規化する。四queryともLastError／reference
-count不変で、invalid adapter、device type、format、NULL、read-only output、disabled／malformed
+full-screen両predicateを検証し、zero／nonzero `BOOL`を正規化する。Slot 10は6-word／HRESULT ABIと、
+adapter `0`／HAL／adapter format `22`／texture format `22`の
+Usage `0`／`0x200` predicateを検証する。五queryともLastError／reference count不変で、invalid
+adapter、device type、format、usage、resource type、NULL、read-only output、disabled／malformed
 policy、missing／mismatched display authorityはguest memoryとruntime stateをpartial mutationしない。
 Invalid identityは`D3DERR_INVALIDCALL`、format band外は`D3DERR_NOTAVAILABLE`となる。Identifierのunknown flagsは
 `D3DERR_INVALIDCALL`、`D3DENUM_WHQL_LEVEL`はcertificate discoveryを行わずtyped unsupportedとなる。
 Public PE fixtureはnativeのnonempty NUL-terminated identity／required capsとVineのexact virtual
-identity／capsを分けてself-checkし、device-type両modeも共通に確認する。Private Node／Chrome gateは
-同じ2 completionsと次の`CheckDeviceFormat` stopを比較する。Native traceはdisplay mode 4 calls、
-identifier 1 call、device caps 1 call、device type 5 callsを各2 runで再現する。Device typeのうち
-BGI direct 2 callsとD3D9内部3 callsをparent identityで分ける。Identifier consumerがHRESULT signだけを
-読みhost GPU fieldを消費しないこと、caps consumerがHRESULT signとoffset 8／12／204だけを読むこと、
-device-type callerが両HRESULTのsignを検査することを固定する。
+identity／capsを分けてself-checkし、device-type両modeとdynamic texture formatも共通に確認する。
+Private Node／Chrome gateは同じ3 predicate completionsと次の`LoadLibraryA` stopを比較する。Native
+traceはdisplay mode 4 calls、identifier 1 call、device caps 1 call、device type 5 calls、device format
+13 callsを各2 runで再現する。Device typeのBGI direct 2／internal 3 calls、device formatのBGI direct
+1／`CreateDevice` parented 3／その他internal 9 callsをidentityで分ける。Identifier consumerがHRESULT
+signだけを読みhost GPU fieldを消費しないこと、caps consumerがHRESULT signとoffset 8／12／204だけを
+読むこと、両predicate callerがHRESULT signを検査することを固定する。
 `RuntimeGraphics`／renderer resourceを生成しないこともroot query leavesのnon-claimとして固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
