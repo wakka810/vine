@@ -129,6 +129,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-get-adapter-display-mode",
         "d3d9-get-adapter-identifier",
         "d3d9-get-device-caps",
+        "d3d9-check-device-type",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -174,6 +175,7 @@ assert(
       "d3d9-get-adapter-display-mode",
       "d3d9-get-adapter-identifier",
       "d3d9-get-device-caps",
+      "d3d9-check-device-type",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -192,6 +194,7 @@ if (
     "d3d9-get-adapter-display-mode",
     "d3d9-get-adapter-identifier",
     "d3d9-get-device-caps",
+    "d3d9-check-device-type",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -216,7 +219,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-root-factory-and-identity" ||
     genericRuntimeCapability === "d3d9-get-adapter-display-mode" ||
     genericRuntimeCapability === "d3d9-get-adapter-identifier" ||
-    genericRuntimeCapability === "d3d9-get-device-caps"
+    genericRuntimeCapability === "d3d9-get-device-caps" ||
+    genericRuntimeCapability === "d3d9-check-device-type"
       ? "kernel32-source-file-read-v1.json"
       : genericRuntimeCapability === "kernel32-large-heap-allocation"
       ? "kernel32-large-heap-allocation-v1.json"
@@ -337,7 +341,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const d3d9CheckDeviceTypeEnabled =
+  genericRuntimeCapability === "d3d9-check-device-type";
 const d3d9GetDeviceCapsEnabled =
+  d3d9CheckDeviceTypeEnabled ||
   genericRuntimeCapability === "d3d9-get-device-caps";
 const d3d9GetAdapterIdentifierEnabled =
   d3d9GetDeviceCapsEnabled ||
@@ -524,7 +531,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9GetDeviceCapsEnabled
+      ? d3d9CheckDeviceTypeEnabled
+        ? "v86-bgi-d3d9-check-device-type"
+      : d3d9GetDeviceCapsEnabled
         ? "v86-bgi-d3d9-get-device-caps"
       : d3d9GetAdapterIdentifierEnabled
         ? "v86-bgi-d3d9-get-adapter-identifier"
@@ -4465,6 +4474,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9CheckDeviceTypeEnabled) {
+        validateD3d9CheckDeviceTypeResult(genericResult);
       } else if (d3d9GetDeviceCapsEnabled) {
         validateD3d9GetDeviceCapsResult(genericResult);
       } else if (d3d9GetAdapterIdentifierEnabled) {
@@ -4606,6 +4617,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9CheckDeviceTypeEnabled
+            ? "bgi D3D9 CheckDeviceType"
           : d3d9GetDeviceCapsEnabled
             ? "bgi D3D9 GetDeviceCaps"
           : d3d9GetAdapterIdentifierEnabled
@@ -11589,6 +11602,90 @@ function validateD3d9GetDeviceCapsResult(result) {
   ]);
 }
 
+function validateD3d9CheckDeviceTypeResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_821);
+  assert.equal(result.callbackEvents.length, 22);
+  assert.equal(result.writebacks.length, 17_868);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_008,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_806_934,
+  );
+  assert.equal(result.hostDeltas.length, 16_551);
+  assert.equal(result.hostDeltas.at(-1).sequence, 17_819);
+  assert.equal(result.finalGeneration, 34_520);
+
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "IDirect3D9.CheckDeviceType",
+  );
+  assert.equal(calls.length, 2);
+  for (const [index, call] of calls.entries()) {
+    assert.equal(call.sequence, 17_820 + index);
+    assert.equal(call.occurrence, 1 + index);
+    assert.equal(call.trapInstructionCount, [11_806_497, 11_806_510][index]);
+    assert.equal(call.module, "<com>");
+    assert.equal(call.symbol, "IDirect3D9.CheckDeviceType");
+    assert.equal(call.interface, "IDirect3D9");
+    assert.equal(call.vtableSlot, 9);
+    assert.deepEqual(call.arguments, [0x0100_0004, 0, 1, 22, 22, 1 - index]);
+    assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+    assert.equal(call.returnAddress, [0x1005_b9d6, 0x1005_ba1d][index]);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 28);
+    assert.equal(call.referenceCount, 1);
+    assert.equal(call.objectRetired, false);
+    assert.deepEqual(call.guestWrites, []);
+  }
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.referenceCount, 1);
+  assert.equal(endpoint.target.interface.name, "IDirect3D9");
+  assert.equal(endpoint.target.method.slot, 10);
+  assert.equal(endpoint.target.method.name, "CheckDeviceFormat");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 6);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3d9-method");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_ba69);
+  assert.equal(result.fault.fault.target.vtableSlot, 10);
+  assert.equal(result.fault.fault.target.method, "CheckDeviceFormat");
+  assert.equal(result.fault.memory.physicalPages, 719);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "1ac16b2a8cda3de15b668c7f722c367267ef9f05acad08d7ddde5368af836f0f",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_806_524);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, 0x0100_10d0);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 10);
+  assert.equal(terminal.returnAddress, 0x1005_ba69);
+  assert.deepEqual(terminal.stackWords.slice(1, 8), [
+    0x0100_0004,
+    0,
+    1,
+    22,
+    0x200,
+    3,
+    22,
+  ]);
+}
+
 function validateD3d9GetAdapterIdentifierResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -13288,6 +13385,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9CheckDeviceTypeEnabled
+          ? "vine.v86-bgi-d3d9-check-device-type"
         : d3d9GetDeviceCapsEnabled
           ? "vine.v86-bgi-d3d9-get-device-caps"
         : d3d9GetAdapterIdentifierEnabled

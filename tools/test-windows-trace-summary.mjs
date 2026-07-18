@@ -267,11 +267,11 @@ const events = [
     threadId: 10,
     kind: "api-enter",
     module: "d3d9.dll",
-    api: "CreateDevice",
+    api: "CheckDeviceType",
     interface: "IDirect3D9",
-    vtableSlot: 16,
+    vtableSlot: 9,
     object: "0x330000",
-    arguments: ["0x0", "0x1", "0x44", "0x44", "0x340000", "0x350000"],
+    arguments: ["0x0", "0x1", "0x16", "0x16", "0x1"],
   },
   {
     schema,
@@ -279,9 +279,9 @@ const events = [
     threadId: 10,
     kind: "api-leave",
     module: "d3d9.dll",
-    api: "CreateDevice",
+    api: "CheckDeviceType",
     interface: "IDirect3D9",
-    vtableSlot: 16,
+    vtableSlot: 9,
     object: "0x330000",
     result: "0x0",
   },
@@ -504,7 +504,11 @@ for (const call of [
     parentCallId: null,
     enterSequence: 20,
     leaveSequence: 21,
-    caller: mainCaller,
+    caller: {
+      address: "0x0045b9d6",
+      module: "abi-smoke.exe",
+      rva: 0x5b9d6,
+    },
     durationMs: 12,
     lastError: 0,
   },
@@ -763,6 +767,22 @@ assert.deepEqual(summary.d3d9.adapterIdentifiers, [
     immediateConsumer: null,
   },
 ]);
+assert.deepEqual(summary.d3d9.deviceTypeChecks, [
+  {
+    sequence: 20,
+    callId: 9,
+    parentCallId: null,
+    caller: { module: "abi-smoke.exe", rva: 0x5b9d6 },
+    adapter: 0,
+    deviceType: 1,
+    adapterFormat: 22,
+    backBufferFormat: 22,
+    windowedRaw: 1,
+    windowed: true,
+    result: "0x0",
+    lastError: 0,
+  },
+]);
 assert.equal(summary.d3d9.deviceCaps.length, 1);
 const [deviceCaps] = summary.d3d9.deviceCaps;
 assert.equal(deviceCaps.sequence, 26);
@@ -963,6 +983,23 @@ changedDeviceCapsPointer.find(
 assert.throws(
   () => summarizeTrace(encode(changedDeviceCapsPointer)),
   /changed its D3DCAPS9 output pointer/,
+);
+
+const truncatedDeviceTypeArguments = structuredClone(events);
+truncatedDeviceTypeArguments
+  .find((event) => event.sequence === 20)
+  .arguments.pop();
+assert.throws(
+  () => summarizeTrace(encode(truncatedDeviceTypeArguments)),
+  /invalid CheckDeviceType arguments/,
+);
+
+const overflowingDeviceTypeArgument = structuredClone(events);
+overflowingDeviceTypeArgument.find((event) => event.sequence === 20).arguments[0] =
+  "0x100000000";
+assert.throws(
+  () => summarizeTrace(encode(overflowingDeviceTypeArgument)),
+  /invalid CheckDeviceType argument 0/,
 );
 
 const wrongObservationSelection = structuredClone(events);

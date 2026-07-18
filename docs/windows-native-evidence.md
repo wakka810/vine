@@ -681,6 +681,38 @@ Invalid adapter／device type／NULL、unwritable range、`CreateDevice`、devic
 semanticsはmodel testまたは後続gatewayで別に判定する。Source executableのsize／SHA-256は既存
 fingerprintのまま不変だった。
 
+### 10.4 CheckDeviceType predicates and caller evidence
+
+`GetDeviceCaps`の最終e／f captureには後続`CheckDeviceType`も完全なcall ID／parent ID付きで含まれる。
+2026-07-19にsummarizerへ5つのtyped arguments、raw／normalized Windowed値、HRESULTを追加し、同じraw
+artifactからsummaryを再生成した。Raw identityは10.3と同一であり、新しいcaptureを別のoracleとして
+水増ししない。
+
+```powershell
+node tools/summarize-windows-trace.mjs `
+  --input .work\windows-traces\bgi-d3d9-device-caps-20260719-012335-e.jsonl `
+  --output .work\windows-traces\bgi-d3d9-device-caps-20260719-012335-e-summary.json `
+  --force
+
+llvm-objdump -d --x86-asm-syntax=intel `
+  --start-address=0x45b9af --stop-address=0x45ba70 `
+  "V:\softs\サクラノ詩\BGI.exe"
+```
+
+両traceは5 callsすべてAdapter `0`、DeviceType `1`、AdapterFormat／BackBufferFormat `22`、HRESULT
+`0`で一致した。BGI direct callsはRVA `0x5B9D6`のWindowed `1`とRVA `0x5BA1D`のWindowed `0`で、
+parent callはNULLである。残り3 callsはWindowed `1`で、`d3d9.dll`内部RVAから`CreateDevice` parentへ
+帰属する。Immutable PEのdisassemblyと既存device-caps consumer snapshotはいずれも、各direct return
+直後の`test eax,eax`／`jns`を示す。最初が成功するとfull-screen queryへ進み、二つ目が成功すると
+`CheckDeviceFormat`へ進む。
+
+MicrosoftのD3D9 contractでは、adapter範囲外または存在しないdevice typeは`D3DERR_INVALIDCALL`、
+requested back-buffer format／hardware acceleration band不成立は`D3DERR_NOTAVAILABLE`である。Native
+primary callsとpublic PE self-oracleは到達したformat `22→22`のwindowed／full-screenを`S_OK`として
+固定し、Rust model testはこのfailure分類とnonzero `BOOL`正規化を固定する。このevidenceは一般format
+conversion、別adapter／device、`CheckDeviceFormat`、`CreateDevice`、renderer／shader成立を主張しない。
+Source executableのsize／SHA-256は既存fingerprintのまま不変だった。
+
 ## 11. W7 PE32 load-plan ingress
 
 Rust `vine-core`は、owned immutable bytesとimport-time SHA-256からversion 1のchecked header／section／import／base-relocation planを作る。representative `abi-smoke.exe` contractは4 sections、1 module／2 named imports、1 relocation block／6 wordsを検査し、BGI.exeには同じboundaryを次のcommandで適用した。

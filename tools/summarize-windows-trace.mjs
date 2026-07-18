@@ -548,6 +548,21 @@ const normalizeD3d9DeviceCapsSnapshot = (snapshot, sequence, phase) => {
   };
 };
 
+const normalizeD3d9U32Argument = (value, sequence, index) => {
+  if (typeof value !== "string" || !/^0x[0-9a-f]+$/iu.test(value)) {
+    throw new Error(
+      `api-enter sequence ${sequence} has invalid CheckDeviceType argument ${index}`,
+    );
+  }
+  const parsed = BigInt(value);
+  if (parsed > 0xffff_ffffn) {
+    throw new Error(
+      `api-enter sequence ${sequence} has invalid CheckDeviceType argument ${index}`,
+    );
+  }
+  return Number(parsed);
+};
+
 export const summarizeTrace = (buffer, sourcePath = null) => {
   const text = buffer.toString("utf8");
   const lines = text.split(/\r?\n/);
@@ -998,6 +1013,50 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       };
     });
 
+  const deviceTypeChecks = apiPairing.pairs
+    .filter(
+      (pair) =>
+        pair.enter.interface === "IDirect3D9" &&
+        pair.enter.vtableSlot === 9 &&
+        pair.enter.api === "CheckDeviceType",
+    )
+    .map((pair) => {
+      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 5) {
+        throw new Error(
+          `api-enter sequence ${pair.enter.sequence} has invalid CheckDeviceType arguments`,
+        );
+      }
+      if (
+        typeof pair.leave.result !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(pair.leave.result)
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has invalid CheckDeviceType result`,
+        );
+      }
+      const [adapter, deviceType, adapterFormat, backBufferFormat, windowedRaw] =
+        pair.enter.arguments.map((argument, index) =>
+          normalizeD3d9U32Argument(argument, pair.enter.sequence, index),
+        );
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId ?? null,
+        parentCallId: pair.enter.parentCallId ?? null,
+        caller:
+          pair.enter.caller === undefined
+            ? null
+            : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+        adapter,
+        deviceType,
+        adapterFormat,
+        backBufferFormat,
+        windowedRaw,
+        windowed: windowedRaw !== 0,
+        result: pair.leave.result,
+        lastError: pair.leave.lastError ?? null,
+      };
+    });
+
   const deviceCaps = apiPairing.pairs
     .filter(
       (pair) =>
@@ -1129,6 +1188,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     d3d9: {
       adapterIdentifiers,
       adapterDisplayModes,
+      deviceTypeChecks,
       deviceCaps,
     },
     categories,

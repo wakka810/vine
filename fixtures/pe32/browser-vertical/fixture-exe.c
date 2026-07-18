@@ -47,7 +47,12 @@ typedef struct fixture_idirect3d9_vtable {
   int(__stdcall *get_adapter_display_mode)(fixture_idirect3d9 *self,
                                             unsigned int adapter,
                                             fixture_d3d_display_mode *mode);
-  void *check_device_type;
+  int(__stdcall *check_device_type)(fixture_idirect3d9 *self,
+                                    unsigned int adapter,
+                                    unsigned int device_type,
+                                    unsigned int adapter_format,
+                                    unsigned int back_buffer_format,
+                                    int windowed);
   void *check_device_format;
   void *check_device_multi_sample_type;
   void *check_depth_stencil_match;
@@ -211,16 +216,22 @@ int __cdecl fixture_entry(void) {
   if (!has_vine_caps && !has_native_required_caps) {
     return fixture_d3d9_failure(direct3d, 10);
   }
+  if (direct3d->vtable->check_device_type(direct3d, 0, 1, 22, 22, 1) != 0) {
+    return fixture_d3d9_failure(direct3d, 11);
+  }
+  if (direct3d->vtable->check_device_type(direct3d, 0, 1, 22, 22, 0) != 0) {
+    return fixture_d3d9_failure(direct3d, 12);
+  }
   if (direct3d->vtable->add_ref(direct3d) != 2) {
-    return 11;
+    return 13;
   }
   if (direct3d->vtable->release(direct3d) != 1) {
-    return 12;
+    return 14;
   }
   if (direct3d->vtable->release(direct3d) != 0) {
-    return 13;
+    return 15;
   }
 
   fixture_commit_result = fixture_commit_outputs(0xff0000ffu, 880u, 0x5au);
-  return fixture_commit_result == 1 ? 0 : 14;
+  return fixture_commit_result == 1 ? 0 : 16;
 }
