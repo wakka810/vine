@@ -342,9 +342,9 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     browserRuntimeCoreWasm.imports !== 0 ||
-    browserRuntimeCoreWasm.bytes !== 3_171_447 ||
+    browserRuntimeCoreWasm.bytes !== 3_178_770 ||
     browserRuntimeCoreWasm.sha256 !==
-      "a38c674e6d970f43b805f2aff058e8e567f9d93ed82b371e977b3845fbe96c5c"
+      "f9865e08f2f4790518f2098de25d5c18a2b199aa8604daa3d39a092c9c8926e7"
   ) {
     errors.push("browser runtime core Wasm must remain import-free");
   }
@@ -359,34 +359,34 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    browserRuntimeFixture.bytes !== 2_560 ||
+    browserRuntimeFixture.bytes !== 3_072 ||
     browserRuntimeFixture.sha256 !==
-      "a8c1024048a0acb0bba22efb9c148e39cf4f1bbcbf7eb0a3f2fcd1db1ae90733" ||
+      "d128e0d8b484c1c4c3eb61b4976a21037c319171fbcb5797566feaf2fc81861a" ||
     browserRuntimeFixture.nativeExitCode !== 0
   ) {
     errors.push("browser runtime fixture identity is invalid");
   }
   if (
-    browserEvidence.guestInstructions !== 114 ||
-    browserEvidence.cpuSlices !== 21 ||
-    browserEvidence.budgetYields !== 7 ||
+    browserEvidence.guestInstructions !== 586 ||
+    browserEvidence.cpuSlices !== 81 ||
+    browserEvidence.budgetYields !== 66 ||
     browserEvidence.hostRequests !== 2 ||
     browserEvidence.rustSchedulerTransitions !== 2 ||
     browserEvidence.callbackEntries !== 2 ||
     browserEvidence.maximumCallbackDepth !== 2 ||
-    browserEvidence.writebackBatches !== 14 ||
-    browserEvidence.writebackPages !== 16 ||
+    browserEvidence.writebackBatches !== 16 ||
+    browserEvidence.writebackPages !== 18 ||
     browserEvidence.initialGeneration !== 15 ||
-    browserEvidence.finalGeneration !== 72 ||
+    browserEvidence.finalGeneration !== 75 ||
     browserEvidence.runtimeCoreLinearMemoryBytes !== 1_572_864 ||
     browserEvidence.executionEngineLinearMemoryBytes !== 9_830_400 ||
-    browserEvidence.executionStateMachine?.success?.transitionCount !== 67 ||
+    browserEvidence.executionStateMachine?.success?.transitionCount !== 247 ||
     browserEvidence.exitCode !== 0 ||
-    browserEvidence.cancelInstructions !== 10 ||
+    browserEvidence.cancelInstructions !== 13 ||
     browserEvidence.cancelPendingHostRequests !== 1 ||
     browserEvidence.cancelPendingHostCallsAfterCleanup !== 0 ||
     browserEvidence.cancelPendingCallbacksAfterCleanup !== 0 ||
-    browserEvidence.watchdogInstructions !== 10 ||
+    browserEvidence.watchdogInstructions !== 13 ||
     browserEvidence.watchdogPendingHostCallsAfterCleanup !== 0 ||
     browserEvidence.watchdogPendingCallbacksAfterCleanup !== 0
   ) {
@@ -447,9 +447,9 @@ export function validateCurrentCheckpoint(manifest) {
     sourceEvidence.watchdogSourceReadCompletions !== 0 ||
     sourceEvidence.watchdogPendingHostCallsAfterCleanup !== 0 ||
     sourceEvidence.watchdogPendingCallbacksAfterCleanup !== 0 ||
-    sourceEvidence.reportBytes !== 23_469 ||
+    sourceEvidence.reportBytes !== 23_505 ||
     sourceEvidence.reportSha256 !==
-      "0ef1596051035208d09418b529f70390a95bea3dcf45a6f2c9a0524cb5f66b62"
+      "a8a5aba21b10092fa616ac7c128c5985e464976200c1dc8d1bf4735aa6bda4ab"
   ) {
     errors.push("browser immutable source-read evidence is invalid");
   }
@@ -497,6 +497,10 @@ export function validateCurrentCheckpoint(manifest) {
     "d3d9GetAdapterDisplayModeCompletions",
     "d3d9GetAdapterDisplayModeSequence",
     "d3d9GetAdapterDisplayModeReferenceCount",
+    "d3d9GetAdapterIdentifierCompletions",
+    "d3d9GetAdapterIdentifierSequence",
+    "d3d9GetAdapterIdentifierOutputBytes",
+    "d3d9GetAdapterIdentifierReferenceCount",
   ]) {
     requireInteger(
       bgiBrowserEvidence[field],
@@ -528,6 +532,7 @@ export function validateCurrentCheckpoint(manifest) {
     "browserReportSha256",
     "largeHeapMaterializationPayloadSha256",
     "sourceReadPayloadSha256",
+    "d3d9GetAdapterIdentifierOutputSha256",
   ]) {
     requireSha256(
       bgiBrowserEvidence[field],
@@ -577,7 +582,18 @@ export function validateCurrentCheckpoint(manifest) {
       "80070000380400003c00000016000000" ||
     bgiBrowserEvidence.d3d9GetAdapterDisplayModeReferenceCount !== 1 ||
     bgiBrowserEvidence.d3d9GetAdapterDisplayModeObjectRetired !== false ||
-    bgiBrowserEvidence.d3d9GetAdapterDisplayModeOrderedSemanticsMatched !== true
+    bgiBrowserEvidence.d3d9GetAdapterDisplayModeOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.d3d9GetAdapterIdentifierCompletions !== 1 ||
+    bgiBrowserEvidence.d3d9GetAdapterIdentifierSequence !== 17_818 ||
+    bgiBrowserEvidence.d3d9GetAdapterIdentifierArguments?.join(",") !==
+      "0x01000004,0x00000000,0x00000000,0x10103410" ||
+    bgiBrowserEvidence.d3d9GetAdapterIdentifierResult !== "0x00000000" ||
+    bgiBrowserEvidence.d3d9GetAdapterIdentifierOutputBytes !== 1_100 ||
+    bgiBrowserEvidence.d3d9GetAdapterIdentifierOutputSha256 !==
+      "84221a6160034deedbe815da29fafb40676dc23879aca0c585ff40ec2e4f11a4" ||
+    bgiBrowserEvidence.d3d9GetAdapterIdentifierReferenceCount !== 1 ||
+    bgiBrowserEvidence.d3d9GetAdapterIdentifierObjectRetired !== false ||
+    bgiBrowserEvidence.d3d9GetAdapterIdentifierOrderedSemanticsMatched !== true
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
   }
@@ -839,7 +855,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeSubsystemTests.join(",") !==
       "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::shared_cursor_capacity_failure_preserves_identity_and_allocators,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::user32::tests::small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -970,9 +986,9 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.d3d9Frontend.implementedRootMethods",
     errors,
   );
-  const d3d9DisplayModePolicy = requireRecord(
-    d3d9.displayModePolicy,
-    "activeRuntimeCheckpoint.d3d9Frontend.displayModePolicy",
+  const d3d9CompatibilityPolicy = requireRecord(
+    d3d9.compatibilityPolicy,
+    "activeRuntimeCheckpoint.d3d9Frontend.compatibilityPolicy",
     errors,
   );
   const d3d9DisplayMode = requireRecord(
@@ -1000,9 +1016,46 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeDisplayModeEvidence.arguments",
     errors,
   );
+  const d3d9AdapterIdentifier = requireRecord(
+    d3d9.getAdapterIdentifier,
+    "activeRuntimeCheckpoint.d3d9Frontend.getAdapterIdentifier",
+    errors,
+  );
+  const d3d9NativeAdapterIdentifier = requireRecord(
+    d3d9.nativeAdapterIdentifierEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeAdapterIdentifierEvidence",
+    errors,
+  );
+  const d3d9PrivateAdapterIdentifier = requireRecord(
+    d3d9.privateRuntimeAdapterIdentifierEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeAdapterIdentifierEvidence",
+    errors,
+  );
+  const d3d9PrivateAdapterIdentifierArguments = requireOrderedStringArray(
+    d3d9PrivateAdapterIdentifier.arguments,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeAdapterIdentifierEvidence.arguments",
+    errors,
+  );
+  for (const field of [
+    "primaryTraceSha256",
+    "confirmationTraceSha256",
+    "inputSha256",
+    "outputSha256",
+  ]) {
+    requireSha256(
+      d3d9NativeAdapterIdentifier[field],
+      `activeRuntimeCheckpoint.d3d9Frontend.nativeAdapterIdentifierEvidence.${field}`,
+      errors,
+    );
+  }
+  requireSha256(
+    d3d9PrivateAdapterIdentifier.outputSha256,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeAdapterIdentifierEvidence.outputSha256",
+    errors,
+  );
   if (
     d3d9.schema !== "vine.d3d9-frontend.v1" ||
-    d3d9.status !== "root-and-get-adapter-display-mode-verified" ||
+    d3d9.status !== "root-display-mode-and-adapter-identifier-verified" ||
     d3d9.stateOwner !== "crates/vine-core/src/d3d9.rs" ||
     d3d9.comAuthority !== "runtime/com.rs::RuntimeCom" ||
     d3d9.sdkVersion !== 32 ||
@@ -1014,7 +1067,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.invalidSdkReturnsNullBeforeMutation !== true ||
     d3d9IUnknownMethods.join(",") !== "QueryInterface,AddRef,Release" ||
     d3d9ImplementedRootMethods.join(",") !==
-      "QueryInterface,AddRef,Release,GetAdapterDisplayMode" ||
+      "QueryInterface,AddRef,Release,GetAdapterIdentifier,GetAdapterDisplayMode" ||
     d3d9.backingPages !== 2 ||
     d3d9.dataPageFinalProtection !== "read-only" ||
     d3d9.endpointPageFinalProtection !== "read-execute" ||
@@ -1023,12 +1076,10 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.versionSpecificFrontendBoundary !== true ||
     d3d9.frontendDispatchBoundary !==
       "version-neutral-com-gateway-to-versioned-d3d9-handler" ||
-    d3d9DisplayModePolicy.schema !== "vine.d3d9-compatibility-policy" ||
-    d3d9DisplayModePolicy.schemaVersion !== 1 ||
-    d3d9DisplayModePolicy.id !== "d3d9-primary-adapter-display-mode-v1" ||
-    d3d9DisplayModePolicy.profileId !==
-      "primary-adapter-1920x1080-60-x8r8g8b8-v1" ||
-    d3d9DisplayModePolicy.displayProfileId !==
+    d3d9CompatibilityPolicy.schema !== "vine.d3d9-compatibility-policy" ||
+    d3d9CompatibilityPolicy.schemaVersion !== 2 ||
+    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v2" ||
+    d3d9CompatibilityPolicy.displayProfileId !==
       "single-monitor-1920x1080-v1" ||
     d3d9DisplayMode.slot !== 8 ||
     d3d9DisplayMode.explicitArgumentWords !== 2 ||
@@ -1086,6 +1137,77 @@ export function validateCurrentCheckpoint(manifest) {
       "80070000380400003c00000016000000" ||
     d3d9PrivateDisplayMode.referenceCount !== 1 ||
     d3d9PrivateDisplayMode.nodeChromeOrderedSemanticsMatched !== true ||
+    d3d9AdapterIdentifier.slot !== 5 ||
+    d3d9AdapterIdentifier.explicitArgumentWords !== 3 ||
+    d3d9AdapterIdentifier.returnKind !== "h-result" ||
+    d3d9AdapterIdentifier.adapter !== 0 ||
+    d3d9AdapterIdentifier.flags !== 0 ||
+    d3d9AdapterIdentifier.identityAuthority !==
+      "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
+    d3d9AdapterIdentifier.displayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    d3d9AdapterIdentifier.profileId !== "primary-virtual-adapter-identifier-v1" ||
+    d3d9AdapterIdentifier.driver !== "vine-d3d9.dll" ||
+    d3d9AdapterIdentifier.description !== "Vine Virtual Direct3D9 Adapter" ||
+    d3d9AdapterIdentifier.deviceName !== "\\\\.\\DISPLAY1" ||
+    d3d9AdapterIdentifier.driverVersion !== "0x0001000000000000" ||
+    d3d9AdapterIdentifier.vendorId !== 0 ||
+    d3d9AdapterIdentifier.deviceId !== 0 ||
+    d3d9AdapterIdentifier.subSysId !== 0 ||
+    d3d9AdapterIdentifier.revision !== 0 ||
+    d3d9AdapterIdentifier.deviceIdentifier !==
+      "56494e45-4433-4439-8000-000000000001" ||
+    d3d9AdapterIdentifier.whqlLevel !== 0 ||
+    d3d9AdapterIdentifier.outputStructure !== "D3DADAPTER_IDENTIFIER9" ||
+    d3d9AdapterIdentifier.outputBytes !== 1_100 ||
+    d3d9AdapterIdentifier.fullOutputOverwrite !== true ||
+    d3d9AdapterIdentifier.invalidAdapterFlagsOrNullOutputResult !== "0x8876086c" ||
+    d3d9AdapterIdentifier.whqlEnumerationPolicy !==
+      "typed-unsupported-before-mutation" ||
+    d3d9AdapterIdentifier.unwritableOutputFaultsBeforeMutation !== true ||
+    d3d9AdapterIdentifier.referenceCountMutation !== false ||
+    d3d9AdapterIdentifier.hostGpuIdentityImported !== false ||
+    d3d9AdapterIdentifier.lastErrorPolicy !== "preserve" ||
+    d3d9NativeAdapterIdentifier.traceSchema !== "vine.win32-trace.v2" ||
+    d3d9NativeAdapterIdentifier.primaryTraceBytes !== 2_207_106 ||
+    d3d9NativeAdapterIdentifier.primaryTraceLines !== 6_888 ||
+    d3d9NativeAdapterIdentifier.primaryTraceSha256 !==
+      "c635bde508a727e5c42dd0d17b75d3e82e30d62f77ad06bf497133cb4f8bd7d3" ||
+    d3d9NativeAdapterIdentifier.primaryBalancedApiPairs !== 3_406 ||
+    d3d9NativeAdapterIdentifier.confirmationTraceBytes !== 2_263_088 ||
+    d3d9NativeAdapterIdentifier.confirmationTraceLines !== 7_068 ||
+    d3d9NativeAdapterIdentifier.confirmationTraceSha256 !==
+      "d13217c0bc87789d61da46af87339e63bb0a92ac11dd406698a6b75982574da5" ||
+    d3d9NativeAdapterIdentifier.confirmationBalancedApiPairs !== 3_496 ||
+    d3d9NativeAdapterIdentifier.diagnostics !== 0 ||
+    d3d9NativeAdapterIdentifier.successfulCallsPerTrace !== 1 ||
+    d3d9NativeAdapterIdentifier.callerRva !== "0x0005b91c" ||
+    d3d9NativeAdapterIdentifier.adapter !== 0 ||
+    d3d9NativeAdapterIdentifier.flags !== 0 ||
+    d3d9NativeAdapterIdentifier.result !== "0x00000000" ||
+    d3d9NativeAdapterIdentifier.inputZeroed !== true ||
+    d3d9NativeAdapterIdentifier.inputSha256 !==
+      "a805fd6f7ad225e289321ba6e2b079e92c3accc1675a7ba6626101da38f727f2" ||
+    d3d9NativeAdapterIdentifier.outputSha256 !==
+      "773a5d417dceeab588a8724b951f9926543e39b42fad71b58d1ba6efb6a8497c" ||
+    d3d9NativeAdapterIdentifier.changedBytes !== 169 ||
+    d3d9NativeAdapterIdentifier.hresultSignConsumed !== true ||
+    d3d9NativeAdapterIdentifier.outputFieldsConsumed !== false ||
+    d3d9NativeAdapterIdentifier.hostGpuIdentityImported !== false ||
+    d3d9NativeAdapterIdentifier.sourceExecutableHashUnchanged !== true ||
+    d3d9PrivateAdapterIdentifier.nodeSequence !== 17_818 ||
+    d3d9PrivateAdapterIdentifier.nodeInstructionCount !== 11_806_466 ||
+    d3d9PrivateAdapterIdentifier.chromeSequence !== 17_818 ||
+    d3d9PrivateAdapterIdentifierArguments.join(",") !==
+      "0x01000004,0x00000000,0x00000000,0x10103410" ||
+    d3d9PrivateAdapterIdentifier.returnAddress !== "0x1005b91c" ||
+    d3d9PrivateAdapterIdentifier.result !== "0x00000000" ||
+    d3d9PrivateAdapterIdentifier.outputAddress !== "0x10103410" ||
+    d3d9PrivateAdapterIdentifier.outputBytes !== 1_100 ||
+    d3d9PrivateAdapterIdentifier.outputSha256 !==
+      "84221a6160034deedbe815da29fafb40676dc23879aca0c585ff40ec2e4f11a4" ||
+    d3d9PrivateAdapterIdentifier.referenceCount !== 1 ||
+    d3d9PrivateAdapterIdentifier.nodeChromeOrderedSemanticsMatched !== true ||
     d3d9.sharedGraphicsBoundary !== "RuntimeGraphics-at-CreateDevice-gateway" ||
     d3d9.runtimeGraphicsCreated !== false ||
     d3d9.rendererResourceCreated !== false ||
@@ -2584,11 +2706,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 17_864 ||
-    latestEvidence.writebackDirtyPages !== 36_003 ||
-    latestEvidence.writebackChangedBytes !== 1_806_891 ||
-    latestEvidence.hostDeltaBatches !== 16_549 ||
-    latestEvidence.finalMemoryGeneration !== 34_514
+    latestEvidence.writebackBatches !== 17_865 ||
+    latestEvidence.writebackDirtyPages !== 36_004 ||
+    latestEvidence.writebackChangedBytes !== 1_806_897 ||
+    latestEvidence.hostDeltaBatches !== 16_550 ||
+    latestEvidence.finalMemoryGeneration !== 34_516
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -2854,9 +2976,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterDisplayModeFormat !== 22 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 1 ||
+    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 2 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicyId !==
-      "d3d9-primary-adapter-display-mode-v1" ||
+      "d3d9-primary-virtual-adapter-v2" ||
     latestEvidence.d3d9GetAdapterDisplayModeProfileId !==
       "primary-adapter-1920x1080-60-x8r8g8b8-v1" ||
     latestEvidence.d3d9GetAdapterDisplayModeDisplayProfileId !==
@@ -2874,6 +2996,101 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterDisplayModeNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest D3D9 display-mode evidence is invalid");
+  }
+  for (const field of [
+    "nativeD3d9AdapterIdentifierPrimaryTraceSha256",
+    "nativeD3d9AdapterIdentifierConfirmationTraceSha256",
+    "nativeD3d9AdapterIdentifierInputSha256",
+    "nativeD3d9AdapterIdentifierOutputSha256",
+    "d3d9GetAdapterIdentifierOutputSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  const d3d9GetAdapterIdentifierArguments = requireOrderedStringArray(
+    latestEvidence.d3d9GetAdapterIdentifierArguments,
+    "activeRuntimeCheckpoint.latestEvidence.d3d9GetAdapterIdentifierArguments",
+    errors,
+  );
+  if (
+    latestEvidence.nativeD3d9AdapterIdentifierPrimaryTraceBytes !== 2_207_106 ||
+    latestEvidence.nativeD3d9AdapterIdentifierPrimaryTraceLines !== 6_888 ||
+    latestEvidence.nativeD3d9AdapterIdentifierPrimaryTraceSha256 !==
+      "c635bde508a727e5c42dd0d17b75d3e82e30d62f77ad06bf497133cb4f8bd7d3" ||
+    latestEvidence.nativeD3d9AdapterIdentifierPrimaryBalancedApiPairs !== 3_406 ||
+    latestEvidence.nativeD3d9AdapterIdentifierConfirmationTraceBytes !== 2_263_088 ||
+    latestEvidence.nativeD3d9AdapterIdentifierConfirmationTraceLines !== 7_068 ||
+    latestEvidence.nativeD3d9AdapterIdentifierConfirmationTraceSha256 !==
+      "d13217c0bc87789d61da46af87339e63bb0a92ac11dd406698a6b75982574da5" ||
+    latestEvidence.nativeD3d9AdapterIdentifierConfirmationBalancedApiPairs !== 3_496 ||
+    latestEvidence.nativeD3d9AdapterIdentifierTraceDiagnostics !== 0 ||
+    latestEvidence.nativeD3d9AdapterIdentifierCallsPerTrace !== 1 ||
+    latestEvidence.nativeD3d9AdapterIdentifierCallerRva !== "0x0005b91c" ||
+    latestEvidence.nativeD3d9AdapterIdentifierAdapter !== 0 ||
+    latestEvidence.nativeD3d9AdapterIdentifierFlags !== 0 ||
+    latestEvidence.nativeD3d9AdapterIdentifierResult !== "0x00000000" ||
+    latestEvidence.nativeD3d9AdapterIdentifierInputZeroed !== true ||
+    latestEvidence.nativeD3d9AdapterIdentifierInputSha256 !==
+      "a805fd6f7ad225e289321ba6e2b079e92c3accc1675a7ba6626101da38f727f2" ||
+    latestEvidence.nativeD3d9AdapterIdentifierOutputSha256 !==
+      "773a5d417dceeab588a8724b951f9926543e39b42fad71b58d1ba6efb6a8497c" ||
+    latestEvidence.nativeD3d9AdapterIdentifierChangedBytes !== 169 ||
+    latestEvidence.nativeD3d9AdapterIdentifierHresultSignConsumed !== true ||
+    latestEvidence.nativeD3d9AdapterIdentifierOutputFieldsConsumed !== false ||
+    latestEvidence.nativeD3d9AdapterIdentifierHostGpuIdentityImported !== false ||
+    latestEvidence.nativeD3d9AdapterIdentifierExecutableHashUnchanged !== true ||
+    latestEvidence.d3d9GetAdapterIdentifierImplemented !== true ||
+    latestEvidence.d3d9GetAdapterIdentifierSequence !== 17_818 ||
+    latestEvidence.d3d9GetAdapterIdentifierInstructionCount !== 11_806_466 ||
+    d3d9GetAdapterIdentifierArguments.join(",") !==
+      "0x01000004,0x00000000,0x00000000,0x10103410" ||
+    latestEvidence.d3d9GetAdapterIdentifierReturnAddress !== "0x1005b91c" ||
+    latestEvidence.d3d9GetAdapterIdentifierResult !== "0x00000000" ||
+    latestEvidence.d3d9GetAdapterIdentifierLastError !== 0 ||
+    latestEvidence.d3d9GetAdapterIdentifierGuestWriteBytes !== 1_100 ||
+    latestEvidence.d3d9GetAdapterIdentifierOutputSha256 !==
+      "84221a6160034deedbe815da29fafb40676dc23879aca0c585ff40ec2e4f11a4" ||
+    latestEvidence.d3d9GetAdapterIdentifierDriver !== "vine-d3d9.dll" ||
+    latestEvidence.d3d9GetAdapterIdentifierDescription !==
+      "Vine Virtual Direct3D9 Adapter" ||
+    latestEvidence.d3d9GetAdapterIdentifierDeviceName !== "\\\\.\\DISPLAY1" ||
+    latestEvidence.d3d9GetAdapterIdentifierDriverVersion !==
+      "0x0001000000000000" ||
+    latestEvidence.d3d9GetAdapterIdentifierVendorId !== 0 ||
+    latestEvidence.d3d9GetAdapterIdentifierDeviceId !== 0 ||
+    latestEvidence.d3d9GetAdapterIdentifierSubSysId !== 0 ||
+    latestEvidence.d3d9GetAdapterIdentifierRevision !== 0 ||
+    latestEvidence.d3d9GetAdapterIdentifierDeviceIdentifier !==
+      "56494e45-4433-4439-8000-000000000001" ||
+    latestEvidence.d3d9GetAdapterIdentifierWhqlLevel !== 0 ||
+    latestEvidence.d3d9GetAdapterIdentifierPolicySchema !==
+      "vine.d3d9-compatibility-policy" ||
+    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 2 ||
+    latestEvidence.d3d9GetAdapterIdentifierPolicyId !==
+      "d3d9-primary-virtual-adapter-v2" ||
+    latestEvidence.d3d9GetAdapterIdentifierProfileId !==
+      "primary-virtual-adapter-identifier-v1" ||
+    latestEvidence.d3d9GetAdapterIdentifierDisplayProfileId !==
+      "single-monitor-1920x1080-v1" ||
+    latestEvidence.d3d9GetAdapterIdentifierIdentityAuthority !==
+      "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
+    latestEvidence.d3d9GetAdapterIdentifierDisplayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    latestEvidence.d3d9GetAdapterIdentifierReferenceCount !== 1 ||
+    latestEvidence.d3d9GetAdapterIdentifierReferenceCountMutation !== false ||
+    latestEvidence.d3d9GetAdapterIdentifierFailureAtomicity !== true ||
+    latestEvidence.d3d9GetAdapterIdentifierBrowserOwnsComState !== false ||
+    latestEvidence.d3d9GetAdapterIdentifierRuntimeGraphicsCreated !== false ||
+    latestEvidence.d3d9GetAdapterIdentifierRendererResourceCreated !== false ||
+    latestEvidence.d3d9GetAdapterIdentifierHostGpuIdentityImported !== false ||
+    latestEvidence.d3d9GetAdapterIdentifierNodeCompletions !== 1 ||
+    latestEvidence.d3d9GetAdapterIdentifierChromeCompletions !== 1 ||
+    latestEvidence.d3d9GetAdapterIdentifierNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest D3D9 adapter-identifier evidence is invalid");
   }
   const createWindowExAGeometry = requireRecord(
     latestEvidence.createWindowExAGeometry,
@@ -2926,7 +3143,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "bounded D3D9 GetAdapterDisplayMode with Rust-owned logical display authority" ||
+      "bounded D3D9 GetAdapterIdentifier with policy-owned virtual adapter identity" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

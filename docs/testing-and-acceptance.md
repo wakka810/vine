@@ -299,14 +299,18 @@ association、local releaseがRust refcountを変更しないことを固定す�
 [com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
 
 Bounded D3D9 frontendのrepresentative fixtureは、version-neutral COM gatewayからversioned
-D3D9 handlerへのdelegation、slot 8の2-word／HRESULT ABI、`RuntimeDisplays`由来の
-1920×1080 geometry、policy由来の60 Hz／`D3DFMT_X8R8G8B8`、16-byte full overwrite、
-LastError／reference count不変を固定する。invalid adapter、NULL、read-only output、disabled／
-malformed policy、missing／mismatched display authorityはguest memoryとruntime stateをpartial
-mutationしない。Public PE fixtureは同じ4 fieldをChrome Worker内で検査し、private Node／Chrome
-gateは同じCOM completionと次の`GetAdapterIdentifier` stopを比較する。2本のnative traceは4 calls、
-caller RVA、zeroed first outputの全域上書きを再現する。`RuntimeGraphics`／renderer resourceを
-生成しないこともこのleafのnon-claimとして固定する。詳細は
+D3D9 handlerへのdelegationを固定する。Slot 8は2-word／HRESULT ABI、`RuntimeDisplays`由来の
+1920×1080 geometry、policy由来の60 Hz／`D3DFMT_X8R8G8B8`、16-byte full overwriteを検証する。
+Slot 5は3-word／HRESULT ABI、policy-owned virtual identity、zero-filled 1,100-byte
+`D3DADAPTER_IDENTIFIER9`のfull overwriteを検証する。両方ともLastError／reference count不変で、
+invalid adapter、NULL、read-only output、disabled／malformed policy、missing／mismatched display
+authorityはguest memoryとruntime stateをpartial mutationしない。Identifierのunknown flagsは
+`D3DERR_INVALIDCALL`、`D3DENUM_WHQL_LEVEL`はcertificate discoveryを行わずtyped unsupportedとなる。
+Public PE fixtureはnativeのnonempty NUL-terminated identityとVineのexact virtual identityを分けて
+self-checkし、private Node／Chrome gateは同じ1,100-byte completionと次の`GetDeviceCaps` stopを
+比較する。Native traceはdisplay mode 4 callsとidentifier 1 callを各2 runで再現し、identifier
+consumerがHRESULT signだけを読みhost GPU fieldを消費しないことを固定する。
+`RuntimeGraphics`／renderer resourceを生成しないことも両leafのnon-claimとして固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
 Reached COM initialization contractは別fixtureでone-argument x86 stdcall、typed HRESULT、

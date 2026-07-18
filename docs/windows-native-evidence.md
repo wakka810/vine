@@ -591,6 +591,52 @@ node tools/summarize-windows-trace.mjs `
 
 これはbounded primary display profileを選ぶoracleであり、host display topologyをbrowserへimportする要求ではない。複数adapter、mode enumeration、fullscreen切替、format一般化、`CreateDevice`、renderer resourceを確定しない。source executable SHA-256は既存fingerprint `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のまま不変だった。
 
+### 10.2 GetAdapterIdentifier output and consumer evidence
+
+2026-07-18に同じprimary fingerprintへselected vtable captureを再実行し、trace
+agent／summarizerが`D3DADAPTER_IDENTIFIER9`のcall前後1,100 bytes、decoded fields、hash、
+pointer relationを検証した。最終evidenceはr3／r4で、raw traceとsummaryは
+`.work/windows-traces/`に置きGitへ含めない。
+
+```powershell
+py tools/windows/trace.py `
+  --exe "V:\softs\サクラノ詩\BGI.exe" `
+  --output .work\windows-traces\bgi-d3d9-adapter-identifier-20260718-r3.jsonl `
+  --seconds 5 `
+  --kill-after `
+  --vtable idirect3d9
+
+node tools/summarize-windows-trace.mjs `
+  --input .work\windows-traces\bgi-d3d9-adapter-identifier-20260718-r3.jsonl `
+  --output .work\windows-traces\bgi-d3d9-adapter-identifier-20260718-r3.jsonl.summary.json
+```
+
+| Field | Primary r3 | Confirmation r4 |
+|---|---:|---:|
+| Raw bytes／lines | `2,207,106`／`6,888` | `2,263,088`／`7,068` |
+| Raw SHA-256 | `c635bde508a727e5c42dd0d17b75d3e82e30d62f77ad06bf497133cb4f8bd7d3` | `d13217c0bc87789d61da46af87339e63bb0a92ac11dd406698a6b75982574da5` |
+| Balanced API pairs | `3,406` | `3,496` |
+| Diagnostics | `0` | `0` |
+| Successful `GetAdapterIdentifier` calls | `1` | `1` |
+
+両captureはcaller RVA `0x5B91C`、Adapter `0`、Flags `0`、HRESULT `0`で一致する。
+Call前は1,100 zero bytes／SHA-256
+`a805fd6f7ad225e289321ba6e2b079e92c3accc1675a7ba6626101da38f727f2`、native
+call後はSHA-256
+`773a5d417dceeab588a8724b951f9926543e39b42fad71b58d1ba6efb6a8497c`で、169 bytesが
+変化した。128-instruction consumer captureはHRESULTのsignだけを検査して
+`GetDeviceCaps`へ進み、output fieldを読まない。BGI image内のidentifier保存先参照もcall／failure
+logging相当の2箇所だけだった。
+
+Native outputはcapture hostのAMD identityであり、guest-visible semantic goldenではない。Vineは
+host GPU値をimportせず、同じlogical primary displayへ結び付いたversioned virtual identityを返す。
+Ignoredのbounded x64 oracleではinvalid adapterとunknown flagsが
+`D3DERR_INVALIDCALL`かつsentinel不変だった。NULL outputはこのhostでaccess violationとなったが、
+Vineはguest memory safetyを優先し、NULLをmutation-free `D3DERR_INVALIDCALL`、unwritable rangeを
+typed memory faultとして扱う。`D3DENUM_WHQL_LEVEL`、certificate discovery、adapter enumeration、
+capability、device／renderer stateはこのevidenceから確定しない。Source executableのsize／SHA-256は
+既存fingerprintのまま不変だった。
+
 ## 11. W7 PE32 load-plan ingress
 
 Rust `vine-core`は、owned immutable bytesとimport-time SHA-256からversion 1のchecked header／section／import／base-relocation planを作る。representative `abi-smoke.exe` contractは4 sections、1 module／2 named imports、1 relocation block／6 wordsを検査し、BGI.exeには同じboundaryを次のcommandで適用した。

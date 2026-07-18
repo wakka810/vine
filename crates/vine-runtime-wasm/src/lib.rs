@@ -33,7 +33,7 @@ use vine_core::{
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const FIXTURE_SHA256: &str = "a8c1024048a0acb0bba22efb9c148e39cf4f1bbcbf7eb0a3f2fcd1db1ae90733";
+const FIXTURE_SHA256: &str = "d128e0d8b484c1c4c3eb61b4976a21037c319171fbcb5797566feaf2fc81861a";
 const FIXTURE_MODULE: &str = "vine_browser_fixture.dll";
 const SOURCE_READ_FIXTURE_SHA256: &str =
     "292d298cb77a8223cb0f6fb66333457b3fab9b8e4f0c1643cf01936b769a1d63";
@@ -310,7 +310,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v1();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v2();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -472,7 +472,7 @@ impl BrowserRuntime {
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v1();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v2();
         d3d9_policy.validate().map_err(api_fault_string)?;
         process
             .runtime

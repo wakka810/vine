@@ -345,6 +345,79 @@ const normalizeD3d9DisplayModeSnapshot = (snapshot, sequence, phase) => {
   };
 };
 
+const decodeD3d9IdentifierString = (bytes, offset, size) => {
+  const field = bytes.slice(offset, offset + size);
+  const terminator = field.indexOf(0);
+  const content = terminator < 0 ? field : field.slice(0, terminator);
+  return {
+    text: terminator < 0 ? null : Buffer.from(content).toString("latin1"),
+    byteLength: content.length,
+    nulTerminated: terminator >= 0,
+    zeroPadded:
+      terminator >= 0 && field.slice(terminator).every((byte) => byte === 0),
+  };
+};
+
+const formatD3d9IdentifierGuid = (view, bytes) => {
+  const data1 = view.getUint32(1080, true).toString(16).padStart(8, "0");
+  const data2 = view.getUint16(1084, true).toString(16).padStart(4, "0");
+  const data3 = view.getUint16(1086, true).toString(16).padStart(4, "0");
+  const data4 = Array.from(bytes.slice(1088, 1096), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  );
+  return `${data1}-${data2}-${data3}-${data4.slice(0, 2).join("")}-${data4
+    .slice(2)
+    .join("")}`;
+};
+
+const normalizeD3d9AdapterIdentifierSnapshot = (snapshot, sequence, phase) => {
+  if (
+    snapshot === null ||
+    typeof snapshot !== "object" ||
+    typeof snapshot.pointer !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(snapshot.pointer) ||
+    snapshot.size !== 1100 ||
+    !Array.isArray(snapshot.bytes) ||
+    snapshot.bytes.length !== 1100 ||
+    !snapshot.bytes.every(
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+    )
+  ) {
+    throw new Error(
+      `api-leave sequence ${sequence} has invalid D3DADAPTER_IDENTIFIER9 ${phase} snapshot`,
+    );
+  }
+  const bytes = Uint8Array.from(snapshot.bytes);
+  const view = new DataView(bytes.buffer);
+  const lowPart = view.getUint32(1056, true);
+  const highPart = view.getUint32(1060, true);
+  return {
+    pointer: snapshot.pointer,
+    size: snapshot.size,
+    bytesSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    zeroByteCount: bytes.reduce(
+      (count, byte) => count + (byte === 0 ? 1 : 0),
+      0,
+    ),
+    driver: decodeD3d9IdentifierString(bytes, 0, 512),
+    description: decodeD3d9IdentifierString(bytes, 512, 512),
+    deviceName: decodeD3d9IdentifierString(bytes, 1024, 32),
+    driverVersion: {
+      lowPart,
+      highPart,
+      hex: `0x${highPart.toString(16).padStart(8, "0")}${lowPart
+        .toString(16)
+        .padStart(8, "0")}`,
+    },
+    vendorId: view.getUint32(1064, true),
+    deviceId: view.getUint32(1068, true),
+    subSysId: view.getUint32(1072, true),
+    revision: view.getUint32(1076, true),
+    deviceIdentifier: formatD3d9IdentifierGuid(view, bytes),
+    whqlLevel: view.getUint32(1096, true),
+  };
+};
+
 export const summarizeTrace = (buffer, sourcePath = null) => {
   const text = buffer.toString("utf8");
   const lines = text.split(/\r?\n/);
@@ -729,6 +802,72 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       };
     });
 
+  const adapterIdentifiers = apiPairing.pairs
+    .filter(
+      (pair) =>
+        pair.enter.interface === "IDirect3D9" &&
+        pair.enter.vtableSlot === 5 &&
+        pair.enter.api === "GetAdapterIdentifier" &&
+        pair.leave.d3d9AdapterIdentifier !== undefined,
+    )
+    .map((pair) => {
+      const observation = pair.leave.d3d9AdapterIdentifier;
+      if (
+        observation === null ||
+        typeof observation !== "object" ||
+        !Number.isInteger(observation.adapter) ||
+        observation.adapter < 0 ||
+        observation.adapter > 0xffffffff ||
+        !Number.isInteger(observation.flags) ||
+        observation.flags < 0 ||
+        observation.flags > 0xffffffff
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has invalid D3DADAPTER_IDENTIFIER9 observation`,
+        );
+      }
+      const before = normalizeD3d9AdapterIdentifierSnapshot(
+        observation.before,
+        pair.leave.sequence,
+        "before",
+      );
+      const after = normalizeD3d9AdapterIdentifierSnapshot(
+        observation.after,
+        pair.leave.sequence,
+        "after",
+      );
+      if (
+        before.pointer.toLowerCase() !== after.pointer.toLowerCase() ||
+        after.pointer.toLowerCase() !==
+          String(pair.enter.arguments?.[2] ?? "").toLowerCase()
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} changed its D3DADAPTER_IDENTIFIER9 output pointer`,
+        );
+      }
+      const changedBytes = observation.before.bytes.reduce(
+        (count, byte, index) =>
+          count + (byte === observation.after.bytes[index] ? 0 : 1),
+        0,
+      );
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId ?? null,
+        caller:
+          pair.enter.caller === undefined
+            ? null
+            : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+        adapter: observation.adapter,
+        flags: observation.flags,
+        result: pair.leave.result,
+        lastError: pair.leave.lastError ?? null,
+        changedBytes,
+        before,
+        after,
+        immediateConsumer: observation.immediateConsumer ?? null,
+      };
+    });
+
   return {
     schema: summarySchema,
     source: {
@@ -779,6 +918,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     apis,
     vtables,
     d3d9: {
+      adapterIdentifiers,
       adapterDisplayModes,
     },
     categories,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,27 @@ import { fileURLToPath } from "node:url";
 import { summarizeTrace } from "./summarize-windows-trace.mjs";
 
 const schema = "vine.win32-trace.v2";
+const adapterIdentifierBefore = Array(1100).fill(0xcc);
+const adapterIdentifierBytes = new Uint8Array(1100);
+const adapterIdentifierView = new DataView(adapterIdentifierBytes.buffer);
+const writeIdentifierString = (offset, value) => {
+  adapterIdentifierBytes.set(Buffer.from(value, "ascii"), offset);
+};
+writeIdentifierString(0, "fixture.dll");
+writeIdentifierString(512, "Fixture Adapter");
+writeIdentifierString(1024, "\\\\.\\DISPLAY1");
+adapterIdentifierView.setUint32(1056, 0x0004_0003, true);
+adapterIdentifierView.setUint32(1060, 0x0002_0001, true);
+adapterIdentifierView.setUint32(1064, 0x10de, true);
+adapterIdentifierView.setUint32(1068, 0x1c82, true);
+adapterIdentifierView.setUint32(1072, 0x11aa_22bb, true);
+adapterIdentifierView.setUint32(1076, 0xa1, true);
+adapterIdentifierBytes.set(
+  [0x44, 0x33, 0x22, 0x11, 0x66, 0x55, 0x88, 0x77, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00],
+  1080,
+);
+adapterIdentifierView.setUint32(1096, 1, true);
+const adapterIdentifierAfter = [...adapterIdentifierBytes];
 const events = [
   {
     schema,
@@ -297,6 +319,44 @@ const events = [
   },
   {
     schema,
+    sequence: 24,
+    threadId: 10,
+    kind: "api-enter",
+    module: "d3d9.dll",
+    api: "GetAdapterIdentifier",
+    interface: "IDirect3D9",
+    vtableSlot: 5,
+    object: "0x330000",
+    arguments: ["0x0", "0x0", "0x370000"],
+  },
+  {
+    schema,
+    sequence: 25,
+    threadId: 10,
+    kind: "api-leave",
+    module: "d3d9.dll",
+    api: "GetAdapterIdentifier",
+    interface: "IDirect3D9",
+    vtableSlot: 5,
+    object: "0x330000",
+    result: "0x0",
+    d3d9AdapterIdentifier: {
+      adapter: 0,
+      flags: 0,
+      before: {
+        pointer: "0x370000",
+        size: 1100,
+        bytes: adapterIdentifierBefore,
+      },
+      after: {
+        pointer: "0x370000",
+        size: 1100,
+        bytes: adapterIdentifierAfter,
+      },
+    },
+  },
+  {
+    schema,
     kind: "trace-stop",
     timestamp: "2026-07-10T00:00:01.250Z",
     reason: "timeout-kill",
@@ -410,6 +470,19 @@ for (const call of [
     durationMs: 0,
     lastError: 0,
   },
+  {
+    callId: 11,
+    parentCallId: null,
+    enterSequence: 24,
+    leaveSequence: 25,
+    caller: {
+      address: "0x0045b91c",
+      module: "abi-smoke.exe",
+      rva: 0x5b91c,
+    },
+    durationMs: 0,
+    lastError: 0,
+  },
 ]) {
   const enter = events.find((event) => event.sequence === call.enterSequence);
   const leave = events.find((event) => event.sequence === call.leaveSequence);
@@ -454,21 +527,21 @@ assert.deepEqual(summary.trace.captureArguments, {
 });
 assert.deepEqual(summary.trace.selectedVtables, ["idirect3d9"]);
 assert.deepEqual(summary.trace.sequence, {
-  events: 24,
+  events: 26,
   first: 0,
-  last: 23,
+  last: 25,
   contiguous: true,
 });
 assert.deepEqual(summary.trace.apiPairing, {
   contract: "call-id-v1",
-  enters: 10,
-  leaves: 10,
-  pairs: 10,
+  enters: 11,
+  leaves: 11,
+  pairs: 11,
   maxDepth: 2,
   balanced: true,
 });
 assert.equal(summary.modules.length, 2);
-assert.equal(summary.apis.length, 9);
+assert.equal(summary.apis.length, 10);
 assert.deepEqual(summary.apis[0], {
   module: "KERNEL32.DLL",
   api: "CreateFileA",
@@ -533,6 +606,99 @@ assert.deepEqual(summary.d3d9.adapterDisplayModes, [
     },
   },
 ]);
+assert.deepEqual(summary.d3d9.adapterIdentifiers, [
+  {
+    sequence: 24,
+    callId: 11,
+    caller: { module: "abi-smoke.exe", rva: 0x5b91c },
+    adapter: 0,
+    flags: 0,
+    result: "0x0",
+    lastError: 0,
+    changedBytes: adapterIdentifierBefore.reduce(
+      (count, byte, index) =>
+        count + (byte === adapterIdentifierAfter[index] ? 0 : 1),
+      0,
+    ),
+    before: {
+      pointer: "0x370000",
+      size: 1100,
+      bytesSha256: crypto
+        .createHash("sha256")
+        .update(Uint8Array.from(adapterIdentifierBefore))
+        .digest("hex"),
+      zeroByteCount: 0,
+      driver: {
+        text: null,
+        byteLength: 512,
+        nulTerminated: false,
+        zeroPadded: false,
+      },
+      description: {
+        text: null,
+        byteLength: 512,
+        nulTerminated: false,
+        zeroPadded: false,
+      },
+      deviceName: {
+        text: null,
+        byteLength: 32,
+        nulTerminated: false,
+        zeroPadded: false,
+      },
+      driverVersion: {
+        lowPart: 0xcccccccc,
+        highPart: 0xcccccccc,
+        hex: "0xcccccccccccccccc",
+      },
+      vendorId: 0xcccccccc,
+      deviceId: 0xcccccccc,
+      subSysId: 0xcccccccc,
+      revision: 0xcccccccc,
+      deviceIdentifier: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+      whqlLevel: 0xcccccccc,
+    },
+    after: {
+      pointer: "0x370000",
+      size: 1100,
+      bytesSha256: crypto
+        .createHash("sha256")
+        .update(adapterIdentifierBytes)
+        .digest("hex"),
+      zeroByteCount: adapterIdentifierAfter.filter((byte) => byte === 0).length,
+      driver: {
+        text: "fixture.dll",
+        byteLength: 11,
+        nulTerminated: true,
+        zeroPadded: true,
+      },
+      description: {
+        text: "Fixture Adapter",
+        byteLength: 15,
+        nulTerminated: true,
+        zeroPadded: true,
+      },
+      deviceName: {
+        text: "\\\\.\\DISPLAY1",
+        byteLength: 12,
+        nulTerminated: true,
+        zeroPadded: true,
+      },
+      driverVersion: {
+        lowPart: 0x0004_0003,
+        highPart: 0x0002_0001,
+        hex: "0x0002000100040003",
+      },
+      vendorId: 0x10de,
+      deviceId: 0x1c82,
+      subSysId: 0x11aa_22bb,
+      revision: 0xa1,
+      deviceIdentifier: "11223344-5566-7788-99aa-bbccddeeff00",
+      whqlLevel: 1,
+    },
+    immediateConsumer: null,
+  },
+]);
 assert.equal(summary.categories.file.calls, 3);
 assert.equal(summary.categories.window.first.api, "CreateWindowExA");
 assert.equal(summary.categories.graphics.first.api, "Direct3DCreate9");
@@ -573,7 +739,7 @@ assert.throws(
 const stopBeforeTail = [
   ...events.slice(0, -1),
   events.at(-1),
-  { schema, sequence: 24, kind: "module-load", module: "late.dll", path: "late.dll" },
+  { schema, sequence: 26, kind: "module-load", module: "late.dll", path: "late.dll" },
 ];
 assert.throws(
   () => summarizeTrace(encode(stopBeforeTail)),
@@ -644,6 +810,24 @@ changedDisplayModePointer.find(
 assert.throws(
   () => summarizeTrace(encode(changedDisplayModePointer)),
   /changed its D3DDISPLAYMODE output pointer/,
+);
+
+const truncatedAdapterIdentifier = structuredClone(events);
+truncatedAdapterIdentifier
+  .find((event) => event.sequence === 25)
+  .d3d9AdapterIdentifier.after.bytes.pop();
+assert.throws(
+  () => summarizeTrace(encode(truncatedAdapterIdentifier)),
+  /invalid D3DADAPTER_IDENTIFIER9 after snapshot/,
+);
+
+const changedAdapterIdentifierPointer = structuredClone(events);
+changedAdapterIdentifierPointer.find(
+  (event) => event.sequence === 25,
+).d3d9AdapterIdentifier.after.pointer = "0x370010";
+assert.throws(
+  () => summarizeTrace(encode(changedAdapterIdentifierPointer)),
+  /changed its D3DADAPTER_IDENTIFIER9 output pointer/,
 );
 
 const wrongObservationSelection = structuredClone(events);

@@ -127,6 +127,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-set-window-pos-initial-placement",
         "d3d9-root-factory-and-identity",
         "d3d9-get-adapter-display-mode",
+        "d3d9-get-adapter-identifier",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -170,6 +171,7 @@ assert(
       "user32-set-window-pos-initial-placement",
       "d3d9-root-factory-and-identity",
       "d3d9-get-adapter-display-mode",
+      "d3d9-get-adapter-identifier",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -186,6 +188,7 @@ if (
     "user32-set-window-pos-initial-placement",
     "d3d9-root-factory-and-identity",
     "d3d9-get-adapter-display-mode",
+    "d3d9-get-adapter-identifier",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -208,7 +211,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-send-message-a-small-icon" ||
     genericRuntimeCapability === "user32-set-window-pos-initial-placement" ||
     genericRuntimeCapability === "d3d9-root-factory-and-identity" ||
-    genericRuntimeCapability === "d3d9-get-adapter-display-mode"
+    genericRuntimeCapability === "d3d9-get-adapter-display-mode" ||
+    genericRuntimeCapability === "d3d9-get-adapter-identifier"
       ? "kernel32-source-file-read-v1.json"
       : genericRuntimeCapability === "kernel32-large-heap-allocation"
       ? "kernel32-large-heap-allocation-v1.json"
@@ -329,7 +333,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const d3d9GetAdapterIdentifierEnabled =
+  genericRuntimeCapability === "d3d9-get-adapter-identifier";
 const d3d9GetAdapterDisplayModeEnabled =
+  d3d9GetAdapterIdentifierEnabled ||
   genericRuntimeCapability === "d3d9-get-adapter-display-mode";
 const d3d9RootFactoryEnabled =
   d3d9GetAdapterDisplayModeEnabled ||
@@ -510,7 +517,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9GetAdapterDisplayModeEnabled
+      ? d3d9GetAdapterIdentifierEnabled
+        ? "v86-bgi-d3d9-get-adapter-identifier"
+      : d3d9GetAdapterDisplayModeEnabled
         ? "v86-bgi-d3d9-get-adapter-display-mode"
       : d3d9RootFactoryEnabled
         ? "v86-bgi-d3d9-root-factory-and-identity"
@@ -4447,6 +4456,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9GetAdapterIdentifierEnabled) {
+        validateD3d9GetAdapterIdentifierResult(genericResult);
       } else if (d3d9GetAdapterDisplayModeEnabled) {
         validateD3d9GetAdapterDisplayModeResult(genericResult);
       } else if (d3d9RootFactoryEnabled) {
@@ -4584,6 +4595,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9GetAdapterIdentifierEnabled
+            ? "bgi D3D9 GetAdapterIdentifier"
           : d3d9GetAdapterDisplayModeEnabled
             ? "bgi D3D9 GetAdapterDisplayMode"
           : d3d9RootFactoryEnabled
@@ -11432,6 +11445,119 @@ function validateD3d9GetAdapterDisplayModeResult(result) {
   ]);
 }
 
+function expectedD3d9AdapterIdentifierBytes() {
+  const bytes = Buffer.alloc(1_100);
+  bytes.write("vine-d3d9.dll", 0, "ascii");
+  bytes.write("Vine Virtual Direct3D9 Adapter", 512, "ascii");
+  bytes.write("\\\\.\\DISPLAY1", 1_024, "ascii");
+  bytes.writeBigUInt64LE(0x0001_0000_0000_0000n, 1_056);
+  Buffer.from([
+    0x45, 0x4e, 0x49, 0x56, 0x33, 0x44, 0x39, 0x44,
+    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+  ]).copy(bytes, 1_080);
+  return [...bytes];
+}
+
+function validateD3d9GetAdapterIdentifierResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_818);
+  assert.equal(result.callbackEvents.length, 22);
+  assert.equal(result.writebacks.length, 17_865);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_004,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_806_897,
+  );
+  assert.equal(result.hostDeltas.length, 16_550);
+  assert.equal(result.finalGeneration, 34_516);
+  const call = result.supportedCalls.at(-1);
+  assert(call, "GetAdapterIdentifier completion is missing");
+  assert.equal(call.sequence, 17_818);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_806_466);
+  assert.equal(call.module, "<com>");
+  assert.equal(call.symbol, "IDirect3D9.GetAdapterIdentifier");
+  assert.equal(call.interface, "IDirect3D9");
+  assert.equal(call.vtableSlot, 5);
+  assert.deepEqual(call.arguments, [0x0100_0004, 0, 0, 0x1010_3410]);
+  assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+  assert.equal(call.returnAddress, 0x1005_b91c);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 20);
+  assert.equal(call.referenceCount, 1);
+  assert.equal(call.objectRetired, false);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, 0x1010_3410);
+  assert.deepEqual(call.guestWrites[0].bytes, expectedD3d9AdapterIdentifierBytes());
+  assert.deepEqual(call.guestWrites[0].result, {
+    bytesWritten: 1_100,
+    dirtyPages: 1,
+    invalidation: {
+      generation: 34_515,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    },
+  });
+
+  const outputDelta = result.hostDeltas.at(-1);
+  assert.equal(outputDelta.sequence, 17_818);
+  assert.equal(outputDelta.fromGeneration, 34_514);
+  assert.equal(outputDelta.generation, 34_515);
+  assert.equal(outputDelta.mappingOperations, 0);
+  assert.deepEqual(outputDelta.dirtyPages, [
+    { address: 0x1010_3000, owner: 1 },
+  ]);
+  assert.equal(
+    outputDelta.payloadSha256,
+    "86981128ee9bdc789532b162d43191e2a607d4faa6dbc0dd3b2567ab9c968d01",
+  );
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.referenceCount, 1);
+  assert.equal(endpoint.target.interface.name, "IDirect3D9");
+  assert.equal(endpoint.target.method.slot, 14);
+  assert.equal(endpoint.target.method.name, "GetDeviceCaps");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 3);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3d9-method");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_b949);
+  assert.equal(result.fault.fault.target.vtableSlot, 14);
+  assert.equal(result.fault.fault.target.method, "GetDeviceCaps");
+  assert.equal(result.fault.memory.physicalPages, 719);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "14518071c9c2bfde9cd2906afb3a3eb503c7f001bbc213632f621d36d70cb2ea",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_806_478);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, 0x0100_1110);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 14);
+  assert.equal(terminal.returnAddress, 0x1005_b949);
+  assert.deepEqual(terminal.stackWords.slice(1, 5), [
+    0x0100_0004,
+    0,
+    1,
+    0x006f_fe18,
+  ]);
+}
+
 function validateSetWindowPosInitialPlacementResult(result) {
   validateSetWindowPosInitialPlacementSummary(result);
 }
@@ -13031,6 +13157,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9GetAdapterIdentifierEnabled
+          ? "vine.v86-bgi-d3d9-get-adapter-identifier"
         : d3d9GetAdapterDisplayModeEnabled
           ? "vine.v86-bgi-d3d9-get-adapter-display-mode"
         : d3d9RootFactoryEnabled

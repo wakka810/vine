@@ -2240,6 +2240,30 @@ function snapshotD3d9DisplayMode(pointer) {
   }
 }
 
+function snapshotD3d9AdapterIdentifier(pointer) {
+  const size = 1100;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 D3DADAPTER_IDENTIFIER9 observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
 function snapshotLong(pointer) {
   const size = 4;
   if (pointer.isNull()) {
@@ -2746,6 +2770,21 @@ function attachIdirect3d9(object) {
                   before: snapshotD3d9DisplayMode(this.traceD3d9DisplayModeOutput),
                   immediateConsumer: snapshotInstructions(this.returnAddress, 8),
                 };
+          this.traceD3d9AdapterIdentifierOutput = slot === 5 ? args[3] : null;
+          this.traceD3d9AdapterIdentifier =
+            this.traceD3d9AdapterIdentifierOutput === null
+              ? null
+              : {
+                  adapter: args[1].toUInt32(),
+                  flags: args[2].toUInt32(),
+                  before: snapshotD3d9AdapterIdentifier(
+                    this.traceD3d9AdapterIdentifierOutput,
+                  ),
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    128,
+                  ),
+                };
           this.traceFrame = beginCall(
             {
               module: implementationModule?.name ?? "<unknown>",
@@ -2767,6 +2806,15 @@ function attachIdirect3d9(object) {
                   ...this.traceD3d9DisplayMode,
                   after: snapshotD3d9DisplayMode(this.traceD3d9DisplayModeOutput),
                 };
+          const d3d9AdapterIdentifier =
+            this.traceD3d9AdapterIdentifier === null
+              ? null
+              : {
+                  ...this.traceD3d9AdapterIdentifier,
+                  after: snapshotD3d9AdapterIdentifier(
+                    this.traceD3d9AdapterIdentifierOutput,
+                  ),
+                };
           finishCall(
             this.traceFrame,
             {
@@ -2777,6 +2825,9 @@ function attachIdirect3d9(object) {
               object: this.traceObject,
               result: result.toString(),
               ...(d3d9DisplayMode === null ? {} : { d3d9DisplayMode }),
+              ...(d3d9AdapterIdentifier === null
+                ? {}
+                : { d3d9AdapterIdentifier }),
             },
             lastError,
           );
