@@ -186,6 +186,20 @@ const buildIconFile = () => {
   return Buffer.concat([directory, ...images.map(({ bytes }) => bytes)]);
 };
 
+const buildCursorFile = () => {
+  const image = buildDibIcon(32, [0x33, 0x77, 0xbb]);
+  const directory = Buffer.alloc(22);
+  directory.writeUInt16LE(2, 2);
+  directory.writeUInt16LE(1, 4);
+  directory[6] = 32;
+  directory[7] = 32;
+  directory.writeUInt16LE(3, 10);
+  directory.writeUInt16LE(4, 12);
+  directory.writeUInt32LE(image.length, 14);
+  directory.writeUInt32LE(directory.length, 18);
+  return Buffer.concat([directory, image]);
+};
+
 fs.rmSync(outputDirectory, { recursive: true, force: true });
 fs.mkdirSync(outputDirectory, { recursive: true });
 
@@ -279,6 +293,7 @@ const iconFixtureDirectory = path.join(
 );
 const iconObject = path.join(outputDirectory, "fixture-icon.obj");
 const iconFile = path.join(outputDirectory, "icon-resource.ico");
+const cursorFile = path.join(outputDirectory, "cursor-resource.cur");
 const iconResourceScript = path.join(outputDirectory, "icon-resource.rc");
 const iconResource = path.join(outputDirectory, "icon-resource.res");
 const iconExe = path.join(outputDirectory, "icon-resource.exe");
@@ -583,12 +598,16 @@ run("lld-link", [
 ]);
 
 fs.writeFileSync(iconFile, buildIconFile());
+fs.writeFileSync(cursorFile, buildCursorFile());
 const iconFileForResourceScript = path
   .relative(root, iconFile)
   .replaceAll("\\", "/");
+const cursorFileForResourceScript = path
+  .relative(root, cursorFile)
+  .replaceAll("\\", "/");
 fs.writeFileSync(
   iconResourceScript,
-  `LANGUAGE 0x11, 0x1\n101 ICON "${iconFileForResourceScript}"\n`,
+  `LANGUAGE 0x11, 0x1\n101 ICON "${iconFileForResourceScript}"\n106 CURSOR "${cursorFileForResourceScript}"\n`,
 );
 run("llvm-rc", ["/nologo", `/fo${iconResource}`, iconResourceScript]);
 run("lld-link", [
@@ -911,8 +930,10 @@ for (const expected of [
 for (const expected of [
   "Format: COFF-i386",
   "Machine: IMAGE_FILE_MACHINE_I386",
-  "Total Number of Resources: 4",
+  "Total Number of Resources: 6",
+  "Type: CURSOR (ID 1)",
   "Type: ICON (ID 3)",
+  "Type: GROUP_CURSOR (ID 12)",
   "Type: GROUP_ICON (ID 14)",
   "Name: (ID 101)",
   "Language: (ID 1041)",
@@ -1057,6 +1078,10 @@ const report = {
     iconResourceGroupId: 101,
     iconResourceLanguageId: 1041,
     iconResourceDimensions: [48, 32, 16],
+    cursorResourceGroupId: 106,
+    cursorResourceLanguageId: 1041,
+    cursorResourceDimensions: [32, 32],
+    cursorResourceHotspot: [3, 4],
     highMemoryFormat: "PE32/i386",
     highMemoryImageBase: "0xf1000000",
     highMemoryNativeExecution: "not-run",

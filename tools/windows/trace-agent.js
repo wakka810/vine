@@ -9644,14 +9644,14 @@ function scheduleLoadCursorAOracle(module) {
         ["int32"],
         "stdcall",
       );
-      const invoke = ({ id, resourceId, sentinel }) => {
+      const invoke = ({ id, instance, resourceId, sentinel }) => {
         loadCursorAOracleCall = {
           sentinel,
           hookResult: null,
           hookLastErrorAfter: null,
         };
         try {
-          const outcome = loadCursorA(ptr(0), ptr(resourceId));
+          const outcome = loadCursorA(instance, ptr(resourceId));
           const handle = outcome.value;
           const systemLastError = Number(outcome.lastError) >>> 0;
           if (
@@ -9662,7 +9662,7 @@ function scheduleLoadCursorAOracle(module) {
           }
           return {
             id,
-            instance: "0x0",
+            instance: instance.toString(),
             resourceId,
             sentinel,
             hookResult: loadCursorAOracleCall.hookResult,
@@ -9682,26 +9682,57 @@ function scheduleLoadCursorAOracle(module) {
       const calls = [
         {
           id: "arrow-first",
+          instance: ptr(0),
           resourceId: 0x7f00,
           sentinel: 0x11223344,
         },
         {
           id: "arrow-repeated",
+          instance: ptr(0),
           resourceId: 0x7f00,
           sentinel: 0x55667788,
         },
         {
           id: "missing-predefined",
+          instance: ptr(0),
           resourceId: 0xffff,
           sentinel: 0x7a6b5c4d,
+        },
+        {
+          id: "module-cursor-first",
+          instance: Process.mainModule.base,
+          resourceId: 106,
+          sentinel: 0x13572468,
+        },
+        {
+          id: "module-cursor-repeated",
+          instance: Process.mainModule.base,
+          resourceId: 106,
+          sentinel: 0x24681357,
+        },
+        {
+          id: "module-missing-name",
+          instance: Process.mainModule.base,
+          resourceId: 0xffff,
+          sentinel: 0x31415926,
+        },
+        {
+          id: "module-wrong-type",
+          instance: Process.mainModule.base,
+          resourceId: 101,
+          sentinel: 0x27182818,
         },
       ].map(invoke);
       const validCalls = calls.slice(0, 2);
       const missingCall = calls[2];
+      const moduleValidCalls = calls.slice(3, 5);
+      const moduleMissingCall = calls[5];
+      const moduleWrongTypeCall = calls[6];
       const mainResult = loadCursorAMainModuleCalls[0].result;
       loadCursorAOracleEvidence = {
-        profile: "x86-system-arrow-cursor-shared-identity-v1",
+        profile: "x86-system-arrow-and-module-cursor-shared-identity-v2",
         predefinedResourceId: 0x7f00,
+        moduleResourceId: 106,
         systemMetrics: {
           cursorWidth: getSystemMetrics(13),
           cursorHeight: getSystemMetrics(14),
@@ -9714,6 +9745,13 @@ function scheduleLoadCursorAOracle(module) {
           (call) => call.systemResult === mainResult,
         ),
         missingPredefinedRejected: !missingCall.resultNonNull,
+        moduleValidCallsSucceeded: moduleValidCalls.every(
+          (call) => call.resultNonNull,
+        ),
+        moduleRepeatedIdentityShared:
+          moduleValidCalls[0].systemResult === moduleValidCalls[1].systemResult,
+        moduleMissingNameRejected: !moduleMissingCall.resultNonNull,
+        moduleWrongTypeRejected: !moduleWrongTypeCall.resultNonNull,
         allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
         allLastErrorsMatchHooks: calls.every(
           (call) => call.hookAndSystemLastErrorMatch,

@@ -591,7 +591,7 @@ process teardown boundaryを変更するため3分benchmarkを再実行し、17 
 詳細は[bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。
 
 Reached `LoadIconA`のrepresentative loader contractはSHA-256固定のpublic PE32 fixtureから
-type／name／language resource treeとfour leavesをbounded parseし、UTF-16 name、malformed offset／
+type／name／language resource treeとsix icon/cursor leavesをbounded parseし、UTF-16 name、malformed offset／
 directory band／duplicate identity／count limitを検査する。Mapped-module contractはload-base lookup、
 catalog leaf range、duplicate registration、failure atomicityを固定する。
 
@@ -603,17 +603,20 @@ Node／Chrome same icon snapshot／memory／`LoadCursorA` stop、clean cancel／
 詳細は[bgi-load-icon-a.md](bgi-load-icon-a.md)を正とする。
 
 Reached `LoadCursorA`のrepresentative contractはtwo-argument x86 stdcall、U32 HCURSOR、
-handler-owned LastError、guest write zeroを固定する。Version-6 User32 policyは
-`NULL,IDC_ARROW`だけを許可し、success LastError preserve、missing ID 65,535のNULL／1,814を
-検査する。Other predefined、module、string、disabled variantsはmutation前にstructured faultとなる。
+handler-owned LastError、guest write zeroを固定する。Version-13 User32 policyは
+`NULL,IDC_ARROW`とexact 32×32 bounded module resourceを許可する。System successはLastError preserve、
+missing ID 65,535はNULL／1,814とする。Module successはLastError 0、missing／wrong-typeはNULL／1,813、
+malformed dataはNULL／1,812、invalid moduleはNULL／6とする。Other predefined、string、disabled、
+unmatched-size、PNG variantsはidentity mutation前にstructured faultとなる。
 
-Owner model testはcursor ID／logical handle／source index、repeat identity、icon commit後のstale cursor
-plan、capacity、allocator、combined process teardownを検査する。Dispatcher fixtureはlogical
-`0x43010001`、system-arrow metadata、LastError preserve、memory generation不変、teardown後のstale
-handleを固定する。Primary evidenceはtwo balanced native traces、same native shared identity、BGIの
-four callsitesとfirst `WNDCLASSEXA.hCursor` consumer、Node／Chrome same cursor snapshot／memory／
-`RegisterClassExA` stop、clean cancel／watchdogを要求する。User32 lifetimeとWorker payload変更後の
-3分benchmarkは17 thresholds全通過を要求する。詳細は
+Owner model testはcursor ID／logical handle／source index、system／module repeat identity、icon commit後の
+stale cursor plan、exact capacity、allocator、combined process teardownを検査する。Controlled PE fixtureは
+group cursor／payload catalog relation、DIB dimensions、hotspot、malformed group／size／hotspotを固定する。
+Dispatcher fixtureはlogical `0x43010001`／`0x43010002`、module metadata、二つのLastError policy、memory
+generation不変、teardown後のstale handleを検査する。Primary evidenceはtwo balanced native traces、
+system／module shared identity、BGIのfour callsitesとconsumer、Node／Chrome same cursor snapshot／memory／
+`Direct3DCreate9` stop、clean cancel／watchdogを要求する。Worker protocol、transport、performance boundaryを
+変更した場合だけ3分benchmarkを更新する。詳細は
 [bgi-load-cursor-a.md](bgi-load-cursor-a.md)を正とする。
 
 Reached `RegisterClassExA`のgateway contractはrequired 48-byte `WNDCLASSEXA*`一引数、x86

@@ -2842,7 +2842,7 @@ fn run_v86_generic_runtime_session(
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v12();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v13();
     if !matches!(
         requested_capability,
         Some(

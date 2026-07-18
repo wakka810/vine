@@ -50,7 +50,7 @@ const METRICS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7ddb);
 const ICON_IMAGE_BASE: u32 = 0x0040_0000;
 const ICON_MODULE_HANDLE: u32 = 0x4d01_000f;
 const ICON_FIXTURE_SHA256: &str =
-    "52587db69f1ea9f39f8604bf7ccb8c50ee783f7378228cf5f20229ac54803dac";
+    "2ddcca724644e16405cc03d71e3b0d5460ddb72ac60072a1781f128fd5e4da4c";
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
 const INITIAL_LAST_ERROR: u32 = 0x1234_5678;
@@ -149,7 +149,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v12();
+        let policy = User32CompatibilityPolicy::controlled_v13();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -240,7 +240,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v12();
+        let mut policy = User32CompatibilityPolicy::controlled_v13();
         policy
             .swap_mouse_button
             .as_mut()
@@ -337,7 +337,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v12();
+        let policy = User32CompatibilityPolicy::controlled_v13();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -492,7 +492,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v12(),
+            policy: User32CompatibilityPolicy::controlled_v13(),
         }
     }
 
@@ -562,7 +562,7 @@ impl IconFixture {
 
     fn from_bytes(bytes: Vec<u8>) -> Self {
         let mut memory = GuestMemory::new(MemoryLimits {
-            max_physical_pages: 9,
+            max_physical_pages: 10,
             max_regions: 2,
             max_owners: 2,
             max_access_bytes: 0x1_0000,
@@ -738,7 +738,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v12(),
+            policy: User32CompatibilityPolicy::controlled_v13(),
         }
     }
 
@@ -801,11 +801,49 @@ struct CursorFixture {
 
 impl CursorFixture {
     fn new() -> Self {
-        let (mut memory, owner) = initialized_memory();
+        let bytes = icon_fixture_bytes();
+        let limits = Pe32Limits::default();
+        ModuleSnapshot::from_bytes(bytes.clone(), &limits)
+            .expect("fixed cursor fixture snapshot")
+            .verify_expected_sha256(ICON_FIXTURE_SHA256)
+            .expect("fixed cursor fixture fingerprint");
+        Self::from_bytes(bytes)
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        let mut memory = GuestMemory::new(MemoryLimits {
+            max_physical_pages: 10,
+            max_regions: 2,
+            max_owners: 2,
+            max_access_bytes: 0x1_0000,
+        })
+        .expect("cursor fixture memory");
+        let runtime_owner = memory
+            .create_owner(MemoryOwnerKind::Runtime)
+            .expect("runtime owner");
+        let runtime_range = memory
+            .reserve_fixed(
+                runtime_owner,
+                MemoryRegionKind::Runtime,
+                MEMORY_BASE,
+                0x3000,
+            )
+            .expect("runtime range");
+        memory
+            .commit(
+                runtime_owner,
+                runtime_range,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .expect("commit runtime range");
         let thunk = ImportThunk {
             id: ImportThunkId(244),
             address: CURSOR_ENDPOINT_ADDRESS,
-            requester_owner: owner,
+            requester_owner: runtime_owner,
             module: "USER32.dll".to_owned(),
             iat_rva: vine_core::Rva(0x0d_14a8),
             iat_address: IAT_ADDRESS,
@@ -818,7 +856,11 @@ impl CursorFixture {
             },
         };
         memory
-            .write_initialization(owner, IAT_ADDRESS, &CURSOR_ENDPOINT_ADDRESS.0.to_le_bytes())
+            .write_initialization(
+                runtime_owner,
+                IAT_ADDRESS,
+                &CURSOR_ENDPOINT_ADDRESS.0.to_le_bytes(),
+            )
             .expect("initialize LoadCursorA IAT");
         for (index, (instance, cursor_name)) in [
             (0_u32, 0x7f00_u32),
@@ -827,13 +869,18 @@ impl CursorFixture {
             (0, 0x7f01),
             (ICON_IMAGE_BASE, 106),
             (0, MEMORY_BASE.0),
+            (ICON_IMAGE_BASE, 106),
+            (ICON_IMAGE_BASE, 0xffff),
+            (ICON_IMAGE_BASE, 101),
+            (ICON_IMAGE_BASE + 0x1000, 106),
+            (ICON_IMAGE_BASE, MEMORY_BASE.0),
         ]
         .into_iter()
         .enumerate()
         {
             write_words(
                 &mut memory,
-                owner,
+                runtime_owner,
                 GuestAddress(STACK_POINTER + index as u32 * 0x20),
                 &[
                     CURSOR_RETURN_ADDRESS.0 + index as u32,
@@ -842,11 +889,46 @@ impl CursorFixture {
                 ],
             );
         }
-        memory.seal_owner(owner).expect("seal cursor fixture owner");
-        let reflection = memory.pending_reflection().expect("cursor reflection");
+
+        let limits = Pe32Limits::default();
+        let snapshot = ModuleSnapshot::from_bytes(bytes, &limits).expect("cursor fixture snapshot");
+        let loader = build_pe32_load_plan(&snapshot, limits).expect("cursor fixture load plan");
+        assert_eq!(loader.load_plan.image.preferred_image_base, ICON_IMAGE_BASE);
+        let materialization = materialize_pe32_image(
+            &mut memory,
+            &snapshot,
+            &loader,
+            GuestAddress(ICON_IMAGE_BASE),
+        )
+        .expect("materialize cursor fixture");
+        memory
+            .seal_owner(materialization.layout.owner)
+            .expect("seal cursor image owner");
+        memory
+            .seal_owner(runtime_owner)
+            .expect("seal cursor runtime owner");
+        let reflection = memory
+            .pending_reflection()
+            .expect("cursor initial reflection");
         memory
             .acknowledge_delta(reflection.invalidation.generation)
-            .expect("acknowledge cursor reflection");
+            .expect("acknowledge cursor initial reflection");
+
+        let mut runtime = controlled_runtime();
+        runtime
+            .register_main_module(RuntimeModule {
+                owner: "user32-cursor-test".to_owned(),
+                variant_id: "mapped-cursor-resource-fixture".to_owned(),
+                namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+                handle: ICON_MODULE_HANDLE,
+                requested_name: "icon-resource.exe".to_owned(),
+                canonical_name: "icon-resource.exe".to_owned(),
+                runtime_system_module: false,
+            })
+            .expect("register cursor main module");
+        ExecutionSession::new(&mut memory, &mut runtime)
+            .register_module_image(ICON_MODULE_HANDLE, &loader, &materialization)
+            .expect("register cursor module image");
 
         let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
         let contract = load_cursor_a_contract(endpoint.clone()).expect("LoadCursorA contract");
@@ -854,10 +936,10 @@ impl CursorFixture {
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("LoadCursorA dispatcher");
         Self {
             memory,
-            runtime: controlled_runtime(),
+            runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v12(),
+            policy: User32CompatibilityPolicy::controlled_v13(),
         }
     }
 
@@ -915,7 +997,7 @@ impl RegisterClassFixture {
     fn with_display(configure_display: bool) -> Self {
         let bytes = icon_fixture_bytes();
         let mut memory = GuestMemory::new(MemoryLimits {
-            max_physical_pages: 10,
+            max_physical_pages: 11,
             max_regions: 3,
             max_owners: 3,
             max_access_bytes: 0x1_0000,
@@ -1313,7 +1395,7 @@ impl RegisterClassFixture {
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v12();
+        let policy = User32CompatibilityPolicy::controlled_v13();
         if configure_display {
             runtime
                 .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -2646,6 +2728,56 @@ fn load_cursor_a_preserves_last_error_and_reuses_shared_arrow_identity() {
 
     fixture
         .runtime
+        .set_current_last_error(0x8765_4321)
+        .expect("seed module cursor LastError");
+    let module = match fixture.dispatch(4) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected module LoadCursorA completion, got {other:?}"),
+    };
+    assert_eq!(module.eax, RegisterUpdate::Set(0x4301_0002));
+    assert_eq!(module.last_error, 0);
+    assert!(module.guest_writes.is_empty());
+    assert_eq!(fixture.memory.stats().generation, memory_generation);
+    assert_eq!(fixture.runtime.cursors().len(), 2);
+    let module_cursor = fixture
+        .runtime
+        .cursor(0x4301_0002)
+        .expect("logical module cursor")
+        .clone();
+    let RuntimeCursorSource::ModuleResource { resource } = &module_cursor.source else {
+        panic!("expected module resource cursor source");
+    };
+    assert_eq!(resource.module_id.0, 1);
+    assert_eq!(resource.module_load_base, GuestAddress(ICON_IMAGE_BASE));
+    assert_eq!(resource.module_source_sha256, ICON_FIXTURE_SHA256);
+    assert_eq!(resource.group_resource_id, 106);
+    assert_eq!(resource.language_id, 1041);
+    assert_eq!(resource.cursor_resource_id, 4);
+    assert_eq!(resource.group_data_rva.0, 0x6d28);
+    assert_eq!(resource.group_data_size, 20);
+    assert_eq!(resource.cursor_data_rva.0, 0x5c78);
+    assert_eq!(resource.cursor_data_size, 4_268);
+    assert_eq!((resource.width, resource.height), (32, 32));
+    assert_eq!((resource.planes, resource.bits_per_pixel), (1, 32));
+    assert_eq!((resource.hotspot_x, resource.hotspot_y), (3, 4));
+
+    let repeated_module = match fixture.dispatch(6) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated module LoadCursorA completion, got {other:?}"),
+    };
+    assert_eq!(
+        repeated_module.eax,
+        RegisterUpdate::Set(module_cursor.handle)
+    );
+    assert_eq!(repeated_module.last_error, 0);
+    assert_eq!(fixture.runtime.cursors().len(), 2);
+    assert_eq!(
+        fixture.runtime.cursor(module_cursor.handle).unwrap(),
+        &module_cursor
+    );
+
+    fixture
+        .runtime
         .terminate_current_process(0)
         .expect("terminate cursor process");
     assert!(fixture.runtime.cursors().is_empty());
@@ -2679,8 +2811,8 @@ fn load_cursor_a_negative_variants_are_failure_atomic() {
 
     for (index, expected_code) in [
         (3, "load-cursor-a-predefined-variant-unsupported"),
-        (4, "load-cursor-a-module-resource-unsupported"),
         (5, "load-cursor-a-string-resource-unsupported"),
+        (10, "load-cursor-a-string-resource-unsupported"),
     ] {
         let mut fixture = CursorFixture::new();
         let fault = match fixture.dispatch(index) {
@@ -2692,6 +2824,19 @@ fn load_cursor_a_negative_variants_are_failure_atomic() {
         assert!(fixture.runtime.cursors().is_empty());
     }
 
+    for (index, last_error) in [(7, 1813), (8, 1813), (9, 6)] {
+        let mut fixture = CursorFixture::new();
+        let generation = fixture.memory.stats().generation;
+        let completion = match fixture.dispatch(index) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected module cursor failure completion, got {other:?}"),
+        };
+        assert_eq!(completion.eax, RegisterUpdate::Set(0));
+        assert_eq!(completion.last_error, last_error);
+        assert!(fixture.runtime.cursors().is_empty());
+        assert_eq!(fixture.memory.stats().generation, generation);
+    }
+
     let mut disabled = CursorFixture::new();
     disabled.policy.load_cursor_a = None;
     let fault = match disabled.dispatch(0) {
@@ -2701,6 +2846,45 @@ fn load_cursor_a_negative_variants_are_failure_atomic() {
     assert_eq!(fault.class, ApiFaultClass::Unsupported);
     assert_eq!(fault.code, "load-cursor-a-policy-disabled");
     assert!(disabled.runtime.cursors().is_empty());
+}
+
+#[test]
+fn load_cursor_a_rejects_malformed_module_resources_before_identity_mutation() {
+    let mut malformed_group = CursorFixture::from_bytes(malformed_group_cursor_bytes());
+    let generation = malformed_group.memory.stats().generation;
+    let completion = match malformed_group.dispatch(4) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected malformed group cursor completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, 1812);
+    assert!(malformed_group.runtime.cursors().is_empty());
+    assert_eq!(malformed_group.memory.stats().generation, generation);
+
+    let mut wrong_size = CursorFixture::from_bytes(wrong_size_group_cursor_bytes());
+    let generation = wrong_size.memory.stats().generation;
+    let fault = match wrong_size.dispatch(4) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected unsupported cursor size fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(
+        fault.code,
+        "load-cursor-a-module-size-selection-unsupported"
+    );
+    assert!(wrong_size.runtime.cursors().is_empty());
+    assert_eq!(wrong_size.memory.stats().generation, generation);
+
+    let mut invalid_hotspot = CursorFixture::from_bytes(invalid_cursor_hotspot_bytes());
+    let generation = invalid_hotspot.memory.stats().generation;
+    let completion = match invalid_hotspot.dispatch(4) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid cursor hotspot completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, 1812);
+    assert!(invalid_hotspot.runtime.cursors().is_empty());
+    assert_eq!(invalid_hotspot.memory.stats().generation, generation);
 }
 
 #[test]
@@ -4683,6 +4867,60 @@ fn png_selected_icon_bytes() -> Vec<u8> {
         .0;
     let offset = rva_file_offset(&loader, icon_rva).expect("selected icon file offset");
     bytes[offset..offset + 8].copy_from_slice(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]);
+    bytes
+}
+
+fn malformed_group_cursor_bytes() -> Vec<u8> {
+    let mut bytes = icon_fixture_bytes();
+    let limits = Pe32Limits::default();
+    let snapshot = ModuleSnapshot::from_bytes(bytes.clone(), &limits).unwrap();
+    let loader = build_pe32_load_plan(&snapshot, limits).unwrap();
+    let group_rva = loader
+        .load_plan
+        .resources
+        .as_ref()
+        .and_then(|resources| resources.integer_entries(12, 106).next())
+        .expect("group cursor resource")
+        .data_rva
+        .0;
+    let offset = rva_file_offset(&loader, group_rva).expect("group cursor file offset");
+    bytes[offset + 2..offset + 4].copy_from_slice(&1_u16.to_le_bytes());
+    bytes
+}
+
+fn wrong_size_group_cursor_bytes() -> Vec<u8> {
+    let mut bytes = icon_fixture_bytes();
+    let limits = Pe32Limits::default();
+    let snapshot = ModuleSnapshot::from_bytes(bytes.clone(), &limits).unwrap();
+    let loader = build_pe32_load_plan(&snapshot, limits).unwrap();
+    let group_rva = loader
+        .load_plan
+        .resources
+        .as_ref()
+        .and_then(|resources| resources.integer_entries(12, 106).next())
+        .expect("group cursor resource")
+        .data_rva
+        .0;
+    let offset = rva_file_offset(&loader, group_rva).expect("group cursor file offset");
+    bytes[offset + 6..offset + 8].copy_from_slice(&16_u16.to_le_bytes());
+    bytes
+}
+
+fn invalid_cursor_hotspot_bytes() -> Vec<u8> {
+    let mut bytes = icon_fixture_bytes();
+    let limits = Pe32Limits::default();
+    let snapshot = ModuleSnapshot::from_bytes(bytes.clone(), &limits).unwrap();
+    let loader = build_pe32_load_plan(&snapshot, limits).unwrap();
+    let cursor_rva = loader
+        .load_plan
+        .resources
+        .as_ref()
+        .and_then(|resources| resources.integer_entries(1, 4).next())
+        .expect("cursor resource")
+        .data_rva
+        .0;
+    let offset = rva_file_offset(&loader, cursor_rva).expect("cursor file offset");
+    bytes[offset..offset + 2].copy_from_slice(&32_u16.to_le_bytes());
     bytes
 }
 

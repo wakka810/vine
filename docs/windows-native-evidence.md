@@ -3034,26 +3034,34 @@ Primary 10-second captureは`InitializeCriticalSectionAndSpinCount` 17件、plai
 primary startupに不十分であり、native最大値を上回る次のpower-of-two 32,768をbounded ceilingとする。
 これはtitle callsiteで分岐するpolicyでも、unbounded host allocationでもない。
 
-`RuntimeSynchronization`は32,768件目までowner-local plan／commitで受理し、次のplanを
-`critical-section-limit-exceeded`としてmutation前に拒否するexact-capacity testを持つ。Node primary
-continuationはspin-count 17件とplain 16,391件、合計16,408 liveを通し、capacity残量16,360件のまま
-17,814 calls／17,861 writebacks／35,998 dirty pages／1,806,846 changed bytes／16,547 host deltas、
-generation 34,480へ進む。Reportは206,994,427 bytes／SHA-256
-`f8a89a0e744104321600a691eda3a3f254727bef750b972c981683c916cd966f`、final memory SHA-256は
-`dbc0d1b8d9dbe8ca4a49d470bf0414a11405099def22bc1b9b758919303146be`である。
+続くmodule-cursor oracle v2はsystem arrowのLastError preserve／missing 1,814に加え、main-module
+resource 106のrepeat shared identity、success LastError 0、missing ID 65,535とwrong-type ID 101の
+NULL／1,813を二つのbalanced captureで再現した。Primaryは336,703 bytes／812 lines／370 pairs／
+SHA-256 `db9b2bbb24723939dfff8f86ce65c8c784a81b108df459c75007a86014321c5a`、confirmationは
+338,341 bytes／815 lines／371 pairs／SHA-256
+`f7855d7240e4523b77d65571a0926e28cc4ee63f421a6840c71f86f6c5940ae7`で、diagnosticは0である。
+Immutable resource catalogは`RT_GROUP_CURSOR(12)` 106／lang 1,041／RVA `0x0016E9F4`／20 bytesから
+`RT_CURSOR(1)` 5／RVA `0x00154F88`／2,220 bytesを選び、32×32／1 plane／8 bpp／hotspot (0,0)を示す。
 
-Chrome protocol v7のfull evidenceもsame ordered 17,814 calls／11,806,421 instructions／memory digestを
-再現する。512-instruction budgetで40,260 slices、22,399 budget yields、40,254 writebacks／87,855
-pages、generation 56,874、74,671 Wasm crossings、terminal pending work zeroを通す。Browser reportは
-24,154,595 bytes／SHA-256
-`0c4f19fe58baa6460627dc9821c88ab2f3b5d5424ee63e3aff113c6a443594cb`である。Repeated benchmarkは
-summary evidence levelを使うが、sequence uniqueness、call count、source reads、memory digest、next stop、
-teardownを省略しない。Unchanged 17 thresholdsの180秒gateは30 sessions／failure 0、p95 6,380.765 ms、
-slice p99 2.665 msで17/17を通し、reportは954,872 bytes／SHA-256
-`cf1759c4501e8a30f757c2f1b6256208af9b199b67d16855690e9920a3da608a`である。
+Rustはmodule source metadataを`RuntimeCursorSource`へcopyし、module registry catalogとgroup／payload
+leafをpreflightした後、logical cursor ID 2／HCURSOR `0x43010002`をtargeted commitする。System cursor、
+module cursor、iconは別identityで、repeat、stale plan、capacity 256、malformed resource、process teardownの
+failure atomicityをmodel／controlled PE testが固定する。
 
-次stopはinstruction 11,806,421、endpoint 244／`USER32.dll!LoadCursorA(0x10000000,106)`で、
-module resource cursorが未実装なため`load-cursor-a-module-resource-unsupported`を返す。これは既存
-User32／PE resource boundary内のsemantic leafとして次checkpointへ送る。Capacity checkpointは
-critical-section delete、blocking contention、abandonment、native debug structure、module cursor semantics、
-cursor bitmap／hotspot／DOM presentationを実装済みとしない。
+Node primary continuationは17,815 calls／17,862 writebacks／36,000 dirty pages／1,806,863 changed bytes／
+16,547 host deltas、generation 34,481へ進む。Reportは207,005,816 bytes／SHA-256
+`015528f1469aebec9959f7eba37c7c0593443fbbf3e1daf33da1dac174aa0731`、final memory SHA-256は
+`a99b92dda8434553d23213a18d4e468ce784d02da969917c47529ece24e7c71f`である。
+
+Chrome protocol v7のfull evidenceもsame ordered calls／11,806,445 instructions／memory digestを再現する。
+512-instruction budgetで40,261 slices、22,399 budget yields、40,255 writebacks／87,857 pages、generation
+56,875、74,673 Wasm crossings、terminal pending work zeroを通す。Browser reportは24,156,023 bytes／
+SHA-256 `87710b68c70f96b621bb4b8e3bd57dc9a5daa92dd2bd15c0bb9cd83b512b8dc8`である。Cursor leafは
+Worker protocol／performance boundaryを変えないため、直前の180秒critical-section gate（30 sessions、
+failure 0、17/17 thresholds）を性能正本として保持する。
+
+次stopはinstruction 11,806,445、endpoint 1／`d3d9.dll!Direct3DCreate9(32)`／IAT `0x100D14F4`で、
+typed D3D9 frontendがないため`endpoint-contract-missing`を返す。これはroot／device COM identity、capability
+query、presentation parameters、logical graphics resource、browser rendererを導入するsubsystem gatewayで
+あり、factory returnだけのstubでは閉じない。Cursor checkpointはdecoded bitmap、CSS／DOM cursor、
+animation、active cursor selection、cursor destructionを実装済みとしない。

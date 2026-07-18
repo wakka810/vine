@@ -5805,7 +5805,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-v12",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-v13",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -10767,23 +10767,23 @@ function validateSendMessageASmallIconResult(result) {
 function validateSetWindowPosInitialPlacementSummary(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
-  assert.equal(result.supportedCalls.length, 17_814);
+  assert.equal(result.supportedCalls.length, 17_815);
   assert.equal(result.callbackEvents.length, 22);
-  assert.equal(result.finalGeneration, 34_480);
-  assert.equal(result.writebacks.length, 17_861);
+  assert.equal(result.finalGeneration, 34_481);
+  assert.equal(result.writebacks.length, 17_862);
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.dirtyPages.length,
       0,
     ),
-    35_998,
+    36_000,
   );
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.receipt.changedBytes,
       0,
     ),
-    1_806_846,
+    1_806_863,
   );
   assert.equal(result.hostDeltas.length, 16_547);
   assert.equal(
@@ -10964,34 +10964,75 @@ function validateSetWindowPosInitialPlacementSummary(result) {
   assert.equal(criticalSections.at(-1).trapInstructionCount, 11_805_823);
   assert.deepEqual(criticalSections.at(-1).arguments, [0x2012_2afc]);
 
+  const cursorCalls = result.supportedCalls.filter(
+    ({ module, symbol }) =>
+      module.toLowerCase() === "user32.dll" && symbol === "LoadCursorA",
+  );
+  assert.equal(cursorCalls.length, 4);
+  const moduleCursor = cursorCalls.at(-1);
+  assert.equal(moduleCursor.sequence, 17_815);
+  assert.equal(moduleCursor.occurrence, 4);
+  assert.equal(moduleCursor.trapInstructionCount, 11_806_421);
+  assert.deepEqual(moduleCursor.arguments, [0x1000_0000, 106]);
+  assert.deepEqual(moduleCursor.result, { action: "set", value: 0x4301_0002 });
+  assert.equal(moduleCursor.implementationId, "user32.load-cursor-a.v1");
+  assert.equal(moduleCursor.returnAddress, 0x1006_7fe1);
+  assert.equal(moduleCursor.stackPointerAfter, moduleCursor.stackPointerBefore + 12);
+  assert.equal(moduleCursor.lastError, 0);
+  assert.deepEqual(moduleCursor.guestWrites, []);
+  assert.deepEqual(moduleCursor.cursor, {
+    id: 2,
+    handle: 0x4301_0002,
+    namespace: "vine.logical-cursor.v1",
+    shared: true,
+    source: {
+      kind: "module-resource",
+      resource: {
+        moduleId: 15,
+        moduleLoadBase: 0x1000_0000,
+        moduleSourceSha256: "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+        groupResourceId: 106,
+        languageId: 1041,
+        cursorResourceId: 5,
+        groupDataRva: 0x0016_e9f4,
+        groupDataSize: 20,
+        cursorDataRva: 0x0015_4f88,
+        cursorDataSize: 2220,
+        width: 32,
+        height: 32,
+        planes: 1,
+        bitsPerPixel: 8,
+        hotspotX: 0,
+        hotspotY: 0,
+      },
+    },
+  });
+
   assert.equal(result.fault.fault.class, "unsupported");
-  assert.equal(result.fault.fault.stage, "user32-cursors");
-  assert.equal(result.fault.fault.code, "load-cursor-a-module-resource-unsupported");
-  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "d3d9-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
-  assert.equal(result.fault.endpoint.endpoint.id, 244);
-  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0f30);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(result.fault.endpoint.endpoint.id, 1);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0000);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "d3d9.dll");
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
-    name: "LoadCursorA",
+    name: "Direct3DCreate9",
   });
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_14a8);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_14f4);
   assert.equal(result.fault.memory.physicalPages, 717);
   assert.equal(
     result.fault.memoryContentSha256,
-    "dbc0d1b8d9dbe8ca4a49d470bf0414a11405099def22bc1b9b758919303146be",
+    "a99b92dda8434553d23213a18d4e468ce784d02da969917c47529ece24e7c71f",
   );
-  assert.equal(result.terminal.instructionCount, 11_806_421);
+  assert.equal(result.terminal.instructionCount, 11_806_445);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.thunk.id, 244);
-  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0f30);
-  assert.equal(result.terminal.terminal.thunk.name, "LoadCursorA");
-  assert.equal(result.terminal.terminal.returnAddress, 0x1006_7fe1);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 3), [
-    0x1000_0000,
-    106,
-  ]);
+  assert.equal(result.terminal.terminal.thunk.id, 1);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0000);
+  assert.equal(result.terminal.terminal.thunk.name, "Direct3DCreate9");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_b892);
+  assert.equal(result.terminal.terminal.stackWords[1], 32);
 }
 
 function validateSetWindowPosInitialPlacementResult(result) {

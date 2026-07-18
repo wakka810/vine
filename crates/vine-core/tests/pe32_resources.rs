@@ -5,10 +5,10 @@ use vine_core::{
     LoaderErrorClass, ModuleSnapshot, Pe32Limits, ResourceIdentifier, Rva, build_pe32_load_plan,
 };
 
-const FIXTURE_SHA256: &str = "52587db69f1ea9f39f8604bf7ccb8c50ee783f7378228cf5f20229ac54803dac";
+const FIXTURE_SHA256: &str = "2ddcca724644e16405cc03d71e3b0d5460ddb72ac60072a1781f128fd5e4da4c";
 
 #[test]
-fn plans_bounded_integer_icon_resources_from_the_immutable_pe() {
+fn plans_bounded_integer_icon_and_cursor_resources_from_the_immutable_pe() {
     let bytes = fixture_bytes();
     let limits = Pe32Limits::default();
     let snapshot = ModuleSnapshot::from_bytes(bytes.clone(), &limits).expect("fixture snapshot");
@@ -22,17 +22,17 @@ fn plans_bounded_integer_icon_resources_from_the_immutable_pe() {
         .as_ref()
         .expect("resource directory");
     assert_eq!(resources.directory_rva, Rva(0x2000));
-    assert_eq!(resources.directory_size, 15_336);
-    assert_eq!(resources.directory_count, 7);
-    assert_eq!(resources.entry_count, 10);
-    assert_eq!(resources.entries.len(), 4);
+    assert_eq!(resources.directory_size, 19_776);
+    assert_eq!(resources.directory_count, 11);
+    assert_eq!(resources.entry_count, 16);
+    assert_eq!(resources.entries.len(), 6);
 
     let group = resources
         .integer_entries(14, 101)
         .next()
         .expect("group icon 101");
     assert_eq!(group.language, ResourceIdentifier::Id { id: 1041 });
-    assert_eq!(group.data_rva, Rva(0x5bb8));
+    assert_eq!(group.data_rva, Rva(0x5c48));
     assert_eq!(group.size, 48);
 
     let icons = resources
@@ -48,24 +48,39 @@ fn plans_bounded_integer_icon_resources_from_the_immutable_pe() {
     assert_eq!(icons[2].name, ResourceIdentifier::Id { id: 3 });
     assert_eq!(icons[2].size, 1_128);
 
+    let cursor_group = resources
+        .integer_entries(12, 106)
+        .next()
+        .expect("group cursor 106");
+    assert_eq!(cursor_group.language, ResourceIdentifier::Id { id: 1041 });
+    assert_eq!(cursor_group.data_rva, Rva(0x6d28));
+    assert_eq!(cursor_group.size, 20);
+    let cursor = resources
+        .integer_entries(1, 4)
+        .next()
+        .expect("cursor payload 4");
+    assert_eq!(cursor.language, ResourceIdentifier::Id { id: 1041 });
+    assert_eq!(cursor.data_rva, Rva(0x5c78));
+    assert_eq!(cursor.size, 4_268);
+
     let first = serde_json::to_vec(&report).expect("serialize resource plan");
     let second = serde_json::to_vec(&report).expect("serialize resource plan again");
     assert_eq!(first, second, "resource plan must be deterministic");
 
     let mut data_limited = limits;
-    data_limited.max_resource_data_entries = 3;
+    data_limited.max_resource_data_entries = 5;
     let snapshot = ModuleSnapshot::from_bytes(bytes.clone(), &data_limited).unwrap();
     let error = build_pe32_load_plan(&snapshot, data_limited)
-        .expect_err("resource data-entry bound must reject the fourth leaf");
+        .expect_err("resource data-entry bound must reject the sixth leaf");
     assert_eq!(error.class, LoaderErrorClass::ResourceLimit);
     assert_eq!(error.stage, "resources");
     assert_eq!(error.code, "resource-data-entry-limit-exceeded");
 
     let mut directory_limited = limits;
-    directory_limited.max_resource_directories = 6;
+    directory_limited.max_resource_directories = 10;
     let snapshot = ModuleSnapshot::from_bytes(bytes, &directory_limited).unwrap();
     let error = build_pe32_load_plan(&snapshot, directory_limited)
-        .expect_err("resource directory bound must reject the seventh directory");
+        .expect_err("resource directory bound must reject the eleventh directory");
     assert_eq!(error.class, LoaderErrorClass::ResourceLimit);
     assert_eq!(error.code, "resource-directory-limit-exceeded");
 }

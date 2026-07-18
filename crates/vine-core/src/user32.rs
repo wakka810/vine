@@ -15,19 +15,20 @@ use crate::runtime::{
     LOGICAL_WINDOW_HANDLE_NAMESPACE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
     RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
     RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
-    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeCursorSource, RuntimeDisplayProfile,
-    RuntimeIconResource, RuntimeInputProfile, RuntimeRect, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
-    RuntimeSetWindowPosVariant, RuntimeSystemCursorKind, RuntimeWindow,
-    RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
-    RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
+    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeCursorResource, RuntimeCursorSource,
+    RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile, RuntimeRect,
+    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
+    RuntimeSystemCursorKind, RuntimeWindow, RuntimeWindowClassCursorReference,
+    RuntimeWindowClassIconReference, RuntimeWindowClassModule, RuntimeWindowClassNameA,
+    RuntimeWindowClassReference, RuntimeWindowClassRegistration,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
     RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowLifecycle,
     RuntimeWindowNameA, RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention,
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 12;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 13;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
@@ -43,6 +44,8 @@ pub const GET_SYSTEM_MENU_IMPLEMENTATION: &str = "user32.get-system-menu.invalid
 pub const ENABLE_MENU_ITEM_IMPLEMENTATION: &str = "user32.enable-menu-item.invalid-menu.v1";
 
 const RT_ICON: u32 = 3;
+const RT_CURSOR: u32 = 1;
+const RT_GROUP_CURSOR: u32 = 12;
 const RT_GROUP_ICON: u32 = 14;
 const IMAGE_ICON: u32 = 1;
 const LR_SHARED: u32 = 0x0000_8000;
@@ -112,6 +115,9 @@ pub struct User32SetWindowPosPolicy {
 pub struct User32LoadCursorAPolicy {
     pub profile_id: String,
     pub arrow_resource_id: u32,
+    pub target_width: u16,
+    pub target_height: u16,
+    pub maximum_group_entries: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -189,11 +195,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v12() -> Self {
+    pub fn controlled_v13() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-v12"
+            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-v13"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
@@ -240,8 +246,11 @@ impl User32CompatibilityPolicy {
                 get_icon_w_param: ICON_SMALL2,
             }),
             load_cursor_a: Some(User32LoadCursorAPolicy {
-                profile_id: "system-arrow-shared-cursor-v1".to_owned(),
+                profile_id: "system-arrow-and-module-shared-cursor-v2".to_owned(),
                 arrow_resource_id: RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
+                target_width: 32,
+                target_height: 32,
+                maximum_group_entries: 64,
             }),
             register_class_ex_a: Some(User32RegisterClassExAPolicy {
                 profile_id: "local-ascii-module-class-v1".to_owned(),
@@ -407,12 +416,18 @@ impl User32CompatibilityPolicy {
         }
         if let Some(profile) = self.load_cursor_a.as_ref()
             && (!valid_profile_id(&profile.profile_id)
-                || profile.arrow_resource_id != RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID)
+                || profile.arrow_resource_id != RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID
+                || profile.target_width == 0
+                || profile.target_width > 256
+                || profile.target_height == 0
+                || profile.target_height > 256
+                || profile.maximum_group_entries == 0
+                || profile.maximum_group_entries > 256)
         {
             return Err(ApiFault::runtime_defect(
                 "user32-compatibility-policy",
                 "user32-load-cursor-profile-invalid",
-                "User32 system cursor profile requires the predefined arrow identity",
+                "User32 cursor profile requires the predefined arrow and bounded module resource dimensions",
             ));
         }
         if let Some(profile) = self.register_class_ex_a.as_ref()
@@ -903,6 +918,29 @@ enum GroupIconSelectionError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ModuleIconSelectionProfile {
+    target_width: u16,
+    target_height: u16,
+    maximum_group_entries: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SelectedGroupCursor {
+    resource_id: u32,
+    bytes_in_resource: u32,
+    width: u16,
+    height: u16,
+    planes: u16,
+    bits_per_pixel: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GroupCursorSelectionError {
+    Malformed,
+    ExactSizeUnavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ModuleCursorSelectionProfile {
     target_width: u16,
     target_height: u16,
     maximum_group_entries: u16,
@@ -1472,7 +1510,12 @@ fn load_module_shared_icon(
     if group_resource.size > group_limit {
         return Ok(load_icon_failure(ERROR_RESOURCE_DATA_NOT_FOUND));
     }
-    let group_address = resource_address(instance, group_resource.data_rva.0, contract)?;
+    let group_address = resource_address(
+        "user32-icons",
+        instance,
+        group_resource.data_rva.0,
+        contract,
+    )?;
     let group_bytes = session
         .memory()
         .read(group_address, group_resource.size as usize)
@@ -1504,7 +1547,8 @@ fn load_module_shared_icon(
     if icon_resource.size != selected.bytes_in_resource || icon_resource.size < 40 {
         return Ok(load_icon_failure(ERROR_RESOURCE_DATA_NOT_FOUND));
     }
-    let icon_address = resource_address(instance, icon_resource.data_rva.0, contract)?;
+    let icon_address =
+        resource_address("user32-icons", instance, icon_resource.data_rva.0, contract)?;
     let icon_header = session
         .memory()
         .read(icon_address, 40)
@@ -1543,6 +1587,137 @@ fn load_module_shared_icon(
     Ok(ApiImmediate::new(ApiReturnValue::U32(result.handle)).with_last_error(ERROR_SUCCESS))
 }
 
+fn load_module_shared_cursor(
+    selection_profile: ModuleCursorSelectionProfile,
+    instance: u32,
+    cursor_name: u32,
+    contract: &ApiContract,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let image = match session
+        .runtime()
+        .module_image_by_load_base(GuestAddress(instance))
+    {
+        Ok(image) => image,
+        Err(error) if error.code == "module-image-load-base-unknown" => {
+            return Ok(load_cursor_failure(ERROR_INVALID_HANDLE));
+        }
+        Err(error) => {
+            return Err(ApiFault::runtime_defect(
+                "user32-cursors",
+                error.code,
+                error.message,
+            ));
+        }
+    };
+    let Some(resources) = image.resources.as_ref() else {
+        return Ok(load_cursor_failure(ERROR_RESOURCE_TYPE_NOT_FOUND));
+    };
+    let group_candidates = resources
+        .integer_entries(RT_GROUP_CURSOR, cursor_name)
+        .filter_map(|entry| integer_language_id(entry).map(|language| (entry, language)))
+        .collect::<Vec<_>>();
+    let [(group_resource, language_id)] = group_candidates.as_slice() else {
+        return Ok(load_cursor_failure(if group_candidates.is_empty() {
+            ERROR_RESOURCE_TYPE_NOT_FOUND
+        } else {
+            ERROR_RESOURCE_LANG_NOT_FOUND
+        }));
+    };
+    let group_limit = 6_u32 + 14_u32 * u32::from(selection_profile.maximum_group_entries);
+    if group_resource.size > group_limit {
+        return Ok(load_cursor_failure(ERROR_RESOURCE_DATA_NOT_FOUND));
+    }
+    let group_address = resource_address(
+        "user32-cursors",
+        instance,
+        group_resource.data_rva.0,
+        contract,
+    )?;
+    let group_bytes = session
+        .memory()
+        .read(group_address, group_resource.size as usize)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let selected = match select_group_cursor(&group_bytes, selection_profile) {
+        Ok(selected) => selected,
+        Err(GroupCursorSelectionError::Malformed) => {
+            return Ok(load_cursor_failure(ERROR_RESOURCE_DATA_NOT_FOUND));
+        }
+        Err(GroupCursorSelectionError::ExactSizeUnavailable) => {
+            return Err(ApiFault::unsupported(
+                "user32-cursors",
+                "load-cursor-a-module-size-selection-unsupported",
+                "module group cursor has no exact entry for the controlled dimensions",
+            ));
+        }
+    };
+    let cursor_candidates = resources
+        .integer_entries(RT_CURSOR, selected.resource_id)
+        .filter(|entry| integer_language_id(entry) == Some(*language_id))
+        .collect::<Vec<_>>();
+    let [cursor_resource] = cursor_candidates.as_slice() else {
+        return Ok(load_cursor_failure(if cursor_candidates.is_empty() {
+            ERROR_RESOURCE_TYPE_NOT_FOUND
+        } else {
+            ERROR_RESOURCE_LANG_NOT_FOUND
+        }));
+    };
+    if cursor_resource.size != selected.bytes_in_resource || cursor_resource.size < 44 {
+        return Ok(load_cursor_failure(ERROR_RESOURCE_DATA_NOT_FOUND));
+    }
+    let cursor_address = resource_address(
+        "user32-cursors",
+        instance,
+        cursor_resource.data_rva.0,
+        contract,
+    )?;
+    let cursor_header = session
+        .memory()
+        .read(cursor_address, 44)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    if cursor_header[4..].starts_with(&[0x89, b'P', b'N', b'G']) {
+        return Err(ApiFault::unsupported(
+            "user32-cursors",
+            "load-cursor-a-module-png-unsupported",
+            "selected module cursor uses PNG payload; the reached slice validates DIB cursors",
+        ));
+    }
+    let hotspot_x = read_u16(&cursor_header, 0).expect("cursor hotspot prefix");
+    let hotspot_y = read_u16(&cursor_header, 2).expect("cursor hotspot prefix");
+    if hotspot_x >= selected.width
+        || hotspot_y >= selected.height
+        || !validate_selected_cursor_dib(&cursor_header[4..], &selected, cursor_resource.size - 4)
+    {
+        return Ok(load_cursor_failure(ERROR_RESOURCE_DATA_NOT_FOUND));
+    }
+
+    let source = RuntimeCursorSource::ModuleResource {
+        resource: RuntimeCursorResource {
+            module_id: image.module_id,
+            module_load_base: image.load_base,
+            module_source_sha256: image.source.sha256.clone(),
+            group_resource_id: cursor_name,
+            language_id: *language_id,
+            cursor_resource_id: selected.resource_id,
+            group_data_rva: group_resource.data_rva,
+            group_data_size: group_resource.size,
+            cursor_data_rva: cursor_resource.data_rva,
+            cursor_data_size: cursor_resource.size,
+            width: selected.width,
+            height: selected.height,
+            planes: selected.planes,
+            bits_per_pixel: selected.bits_per_pixel,
+            hotspot_x,
+            hotspot_y,
+        },
+    };
+    let result = session
+        .runtime_mut()
+        .load_shared_cursor(source)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(result.handle)).with_last_error(ERROR_SUCCESS))
+}
+
 fn handle_load_cursor_a(
     policy: &User32CompatibilityPolicy,
     contract: &ApiContract,
@@ -1561,19 +1736,25 @@ fn handle_load_cursor_a(
     })?;
     let instance = required_argument(contract, frame, 0, "module instance")?;
     let cursor_name = required_argument(contract, frame, 1, "cursor resource name")?;
-    if instance != 0 {
-        return Err(ApiFault::unsupported(
-            "user32-cursors",
-            "load-cursor-a-module-resource-unsupported",
-            "LoadCursorA currently supports the predefined system arrow, not module cursors",
-        ));
-    }
     if cursor_name > u32::from(u16::MAX) {
         return Err(ApiFault::unsupported(
             "user32-cursors",
             "load-cursor-a-string-resource-unsupported",
-            "LoadCursorA currently supports only a predefined integer system cursor",
+            "LoadCursorA currently supports only integer system and module cursor identifiers",
         ));
+    }
+    if instance != 0 {
+        return load_module_shared_cursor(
+            ModuleCursorSelectionProfile {
+                target_width: cursor_policy.target_width,
+                target_height: cursor_policy.target_height,
+                maximum_group_entries: cursor_policy.maximum_group_entries,
+            },
+            instance,
+            cursor_name,
+            contract,
+            session,
+        );
     }
     if cursor_name != cursor_policy.arrow_resource_id {
         if cursor_name == u32::from(u16::MAX) {
@@ -1591,7 +1772,7 @@ fn handle_load_cursor_a(
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     let result = session
         .runtime_mut()
-        .load_shared_system_cursor(RuntimeCursorSource::SystemPredefined {
+        .load_shared_cursor(RuntimeCursorSource::SystemPredefined {
             resource_id: cursor_name,
             cursor: RuntimeSystemCursorKind::Arrow,
         })
@@ -2929,13 +3110,14 @@ fn integer_language_id(entry: &ResourceDataEntryPlan) -> Option<u32> {
 }
 
 fn resource_address(
+    subsystem: &'static str,
     load_base: u32,
     rva: u32,
     _contract: &ApiContract,
 ) -> Result<GuestAddress, ApiFault> {
     load_base.checked_add(rva).map(GuestAddress).ok_or_else(|| {
         ApiFault::runtime_defect(
-            "user32-icons",
+            subsystem,
             "module-resource-address-overflow",
             "registered module load base plus resource RVA overflowed x86 accounting",
         )
@@ -3005,7 +3187,95 @@ fn select_group_icon(
     selected.ok_or(GroupIconSelectionError::ExactSizeUnavailable)
 }
 
+fn select_group_cursor(
+    bytes: &[u8],
+    policy: ModuleCursorSelectionProfile,
+) -> Result<SelectedGroupCursor, GroupCursorSelectionError> {
+    if bytes.len() < 6 || read_u16(bytes, 0) != Some(0) || read_u16(bytes, 2) != Some(2) {
+        return Err(GroupCursorSelectionError::Malformed);
+    }
+    let count = read_u16(bytes, 4).ok_or(GroupCursorSelectionError::Malformed)?;
+    if count == 0 || count > policy.maximum_group_entries {
+        return Err(GroupCursorSelectionError::Malformed);
+    }
+    let expected_size = 6_usize
+        .checked_add(usize::from(count) * 14)
+        .ok_or(GroupCursorSelectionError::Malformed)?;
+    if bytes.len() != expected_size {
+        return Err(GroupCursorSelectionError::Malformed);
+    }
+    let mut selected = None;
+    for index in 0..usize::from(count) {
+        let offset = 6 + index * 14;
+        let width = read_u16(bytes, offset).ok_or(GroupCursorSelectionError::Malformed)?;
+        let stored_height =
+            read_u16(bytes, offset + 2).ok_or(GroupCursorSelectionError::Malformed)?;
+        let planes = read_u16(bytes, offset + 4).ok_or(GroupCursorSelectionError::Malformed)?;
+        let bits_per_pixel =
+            read_u16(bytes, offset + 6).ok_or(GroupCursorSelectionError::Malformed)?;
+        let bytes_in_resource =
+            read_u32(bytes, offset + 8).ok_or(GroupCursorSelectionError::Malformed)?;
+        let resource_id =
+            u32::from(read_u16(bytes, offset + 12).ok_or(GroupCursorSelectionError::Malformed)?);
+        if width == 0
+            || width > 256
+            || stored_height == 0
+            || !stored_height.is_multiple_of(2)
+            || stored_height / 2 > 256
+            || planes == 0
+            || bits_per_pixel == 0
+            || bytes_in_resource < 44
+            || resource_id == 0
+        {
+            return Err(GroupCursorSelectionError::Malformed);
+        }
+        let height = stored_height / 2;
+        if width != policy.target_width || height != policy.target_height {
+            continue;
+        }
+        let candidate = SelectedGroupCursor {
+            resource_id,
+            bytes_in_resource,
+            width,
+            height,
+            planes,
+            bits_per_pixel,
+        };
+        if selected
+            .as_ref()
+            .is_none_or(|current: &SelectedGroupCursor| {
+                candidate.bits_per_pixel > current.bits_per_pixel
+            })
+        {
+            selected = Some(candidate);
+        }
+    }
+    selected.ok_or(GroupCursorSelectionError::ExactSizeUnavailable)
+}
+
 fn validate_selected_icon_dib(header: &[u8], selected: &SelectedGroupIcon, data_size: u32) -> bool {
+    let Some(header_size) = read_u32(header, 0) else {
+        return false;
+    };
+    let Some(width) = read_i32(header, 4) else {
+        return false;
+    };
+    let Some(height) = read_i32(header, 8) else {
+        return false;
+    };
+    header_size >= 40
+        && header_size <= data_size
+        && width == i32::from(selected.width)
+        && height == i32::from(selected.height) * 2
+        && read_u16(header, 12) == Some(selected.planes)
+        && read_u16(header, 14) == Some(selected.bits_per_pixel)
+}
+
+fn validate_selected_cursor_dib(
+    header: &[u8],
+    selected: &SelectedGroupCursor,
+    data_size: u32,
+) -> bool {
     let Some(header_size) = read_u32(header, 0) else {
         return false;
     };
@@ -3570,7 +3840,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v12();
+        let policy = User32CompatibilityPolicy::controlled_v13();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -3600,14 +3870,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v13();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v13();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -3618,21 +3888,21 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v13();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v13();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v13();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -3643,7 +3913,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v13();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -3655,7 +3925,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v13();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -3666,7 +3936,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v13();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -3677,7 +3947,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v13();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -3688,7 +3958,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v12();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v13();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

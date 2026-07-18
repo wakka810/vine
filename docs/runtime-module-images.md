@@ -68,10 +68,11 @@ Registration preflights every resource leaf against the materialized image
 range and rejects duplicate load bases with the other module identities. The
 catalog and load-base index commit together; failure preserves every module,
 name, handle, range, and resource index. The `icon-resource.exe` fixture fixes
-seven directories, ten entries, four leaves, UTF-16 named-entry support, and
-malformed／limit rejection. BGI's catalog resolves group icon 101／language
-1,041 and selected icon 3 without using a title hash or call site in semantic
-lookup.
+11 directories, 16 entries, six icon/cursor leaves, UTF-16 named-entry support,
+and malformed／limit rejection. Its icon group 101 and cursor group 106 exercise
+distinct type／payload relations. BGI's catalog resolves group icon 101／selected
+icon 3 and group cursor 106／selected cursor 5, all at language 1,041, without
+using a title hash or call site in semantic lookup.
 
 ## Export resolution
 

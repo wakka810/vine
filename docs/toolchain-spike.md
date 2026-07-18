@@ -98,7 +98,7 @@ PE32 resource fixtureである。Toolchain scriptがdeterministic ICOとCOFF `.r
 | `high-memory.exe` | 3,072 bytes | `084bca4dbd9c60a178f751e7c6a87e0b2865fd45cdff8d6135468886316a7aa7` |
 | `bootstrap-fs.exe` | 2,560 bytes | `5712377ff8a8bd2be292f8678902d19d3b4b2f1c1919922cce9d373f0696637c` |
 | `bootstrap-params.exe` | 2,560 bytes | `50a5f27f9ce65071f3d8668213eea67f67ccef7b09dc1a72d9192100de4f0c40` |
-| `icon-resource.exe` | 16,896 bytes | `52587db69f1ea9f39f8604bf7ccb8c50ee783f7378228cf5f20229ac54803dac` |
+| `icon-resource.exe` | 21,504 bytes | `2ddcca724644e16405cc03d71e3b0d5460ddb72ac60072a1781f128fd5e4da4c` |
 
 旧文書のWasm値は319 bytes／`6e5218...`だったが、そのraw artifactは保持されておらず差の原因を再検証できない。現在のWindows canonical commandを複数回実行した結果は399 bytes／`d8e2fe...`で安定しているため、本表で旧観測を置き換える。source変化やcompiler regressionが確認できたという意味にはしない。
 
@@ -111,6 +111,7 @@ PE32 resource fixtureである。Toolchain scriptがdeterministic ICOとCOFF `.r
 - Windows native でstdcall WndProc、queued message dispatch、paint、pixel、destroy／quit oracleがexit code `0`になる
 - Windows native でimport-free bootstrap fixtureのTEB self／PEB pointer oracleがexit code `0`になる
 - Windows native でseparate import-free fixtureのprocess-parameters／bounded command-line oracleがexit code `0`になる
+- Resource fixtureへicon group 101に加えてcursor group 106／32×32／hotspot (3,4)を再現生成できる
 - C／C++ x86 engine 候補を freestanding Wasm へ移すための最低限の compiler／linker path がある
 - PE fixture build は production browser frontend の framework 選定と分離できる
 

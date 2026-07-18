@@ -81,10 +81,11 @@ the existing identity without advancing allocators. Process teardown retires
 all icon identities in the same lifecycle transaction. Logical HICONs are not
 Win32 object-table handles or browser resource IDs.
 
-The reproducible public fixture is 16,896-byte `icon-resource.exe`, SHA-256
-`52587db69f1ea9f39f8604bf7ccb8c50ee783f7378228cf5f20229ac54803dac`.
-It contains group 101, language 1,041, and 48／32／16-pixel DIB leaves. Its plan
-has seven directories, ten entries, and four leaves.
+The reproducible public fixture is 21,504-byte `icon-resource.exe`, SHA-256
+`2ddcca724644e16405cc03d71e3b0d5460ddb72ac60072a1781f128fd5e4da4c`.
+It contains group icon 101, language 1,041, and 48／32／16-pixel DIB leaves,
+plus the controlled cursor resource used by the later cursor checkpoint. Its
+plan has 11 directories, 16 entries, and six leaves.
 
 Representative tests:
 

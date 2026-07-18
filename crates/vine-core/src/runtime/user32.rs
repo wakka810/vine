@@ -79,12 +79,36 @@ pub enum RuntimeSystemCursorKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCursorResource {
+    pub module_id: RuntimeModuleId,
+    pub module_load_base: GuestAddress,
+    pub module_source_sha256: String,
+    pub group_resource_id: u32,
+    pub language_id: u32,
+    pub cursor_resource_id: u32,
+    pub group_data_rva: Rva,
+    pub group_data_size: u32,
+    pub cursor_data_rva: Rva,
+    pub cursor_data_size: u32,
+    pub width: u16,
+    pub height: u16,
+    pub planes: u16,
+    pub bits_per_pixel: u16,
+    pub hotspot_x: u16,
+    pub hotspot_y: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum RuntimeCursorSource {
     SystemPredefined {
         #[serde(rename = "resourceId")]
         resource_id: u32,
         cursor: RuntimeSystemCursorKind,
+    },
+    ModuleResource {
+        resource: RuntimeCursorResource,
     },
 }
 
@@ -727,7 +751,7 @@ impl RuntimeUser32 {
         }
     }
 
-    pub(super) fn plan_shared_system_cursor_load(
+    pub(super) fn plan_shared_cursor_load(
         &self,
         source: RuntimeCursorSource,
     ) -> Result<RuntimeCursorLoadPlan, RuntimeStateError> {
@@ -809,7 +833,7 @@ impl RuntimeUser32 {
         })
     }
 
-    pub(super) fn preflight_shared_system_cursor_load(
+    pub(super) fn preflight_shared_cursor_load(
         &self,
         plan: &RuntimeCursorLoadPlan,
     ) -> Result<(), RuntimeStateError> {
@@ -851,11 +875,11 @@ impl RuntimeUser32 {
         Ok(())
     }
 
-    pub(super) fn commit_shared_system_cursor_load(
+    pub(super) fn commit_shared_cursor_load(
         &mut self,
         plan: RuntimeCursorLoadPlan,
     ) -> Result<RuntimeLoadCursorAResult, RuntimeStateError> {
-        self.preflight_shared_system_cursor_load(&plan)?;
+        self.preflight_shared_cursor_load(&plan)?;
         match plan.disposition {
             RuntimeCursorLoadDisposition::Existing(cursor) => Ok(RuntimeLoadCursorAResult {
                 cursor_id: cursor.id,
@@ -2162,7 +2186,41 @@ fn validate_cursor_source(source: &RuntimeCursorSource) -> Result<(), RuntimeSta
             "system-cursor-source-invalid",
             "logical system cursor source does not match its predefined cursor identity",
         )),
+        RuntimeCursorSource::ModuleResource { resource } => validate_cursor_resource(resource),
     }
+}
+
+fn validate_cursor_resource(resource: &RuntimeCursorResource) -> Result<(), RuntimeStateError> {
+    if resource.module_id.0 == 0
+        || resource.module_load_base.0 == 0
+        || resource.module_source_sha256.len() != 64
+        || !resource
+            .module_source_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        || resource.group_resource_id > u32::from(u16::MAX)
+        || resource.language_id > u32::from(u16::MAX)
+        || resource.cursor_resource_id > u32::from(u16::MAX)
+        || resource.group_data_rva.0 == 0
+        || resource.group_data_size == 0
+        || resource.cursor_data_rva.0 == 0
+        || resource.cursor_data_size < 44
+        || resource.width == 0
+        || resource.width > 256
+        || resource.height == 0
+        || resource.height > 256
+        || resource.planes == 0
+        || resource.bits_per_pixel == 0
+        || resource.hotspot_x >= resource.width
+        || resource.hotspot_y >= resource.height
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-user32",
+            "cursor-resource-invalid",
+            "shared cursor resource identity, dimensions, and hotspot must be bounded PE32 metadata",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_window_class_registration(
@@ -2407,11 +2465,9 @@ mod tests {
     }
 
     #[test]
-    fn shared_system_cursor_identity_and_cross_resource_plans_are_atomic() {
+    fn shared_cursor_identity_and_cross_resource_plans_are_atomic() {
         let mut user32 = RuntimeUser32::default();
-        let stale_cursor = user32
-            .plan_shared_system_cursor_load(arrow_cursor())
-            .unwrap();
+        let stale_cursor = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
         let icon_plan = user32
             .plan_shared_icon_load(resource(101, 3, 0x3000))
             .unwrap();
@@ -2419,30 +2475,43 @@ mod tests {
         let before_stale = user32.clone();
         assert_eq!(
             user32
-                .commit_shared_system_cursor_load(stale_cursor)
+                .commit_shared_cursor_load(stale_cursor)
                 .unwrap_err()
                 .code,
             "cursor-load-plan-stale"
         );
         assert_eq!(user32, before_stale);
 
-        let first_plan = user32
-            .plan_shared_system_cursor_load(arrow_cursor())
-            .unwrap();
-        let first = user32.commit_shared_system_cursor_load(first_plan).unwrap();
+        let first_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
+        let first = user32.commit_shared_cursor_load(first_plan).unwrap();
         assert_eq!(first.cursor_id, RuntimeCursorId(1));
         assert_eq!(first.handle, RUNTIME_CURSOR_HANDLE_BASE);
         assert!(!first.already_loaded);
-        let repeated_plan = user32
-            .plan_shared_system_cursor_load(arrow_cursor())
-            .unwrap();
-        let repeated = user32
-            .commit_shared_system_cursor_load(repeated_plan)
-            .unwrap();
+        let repeated_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
+        let repeated = user32.commit_shared_cursor_load(repeated_plan).unwrap();
         assert_eq!(repeated.cursor_id, first.cursor_id);
         assert_eq!(repeated.handle, first.handle);
         assert!(repeated.already_loaded);
         assert_eq!(user32.cursors().len(), 1);
+
+        let module_plan = user32
+            .plan_shared_cursor_load(module_cursor(106, 5, 0x6000))
+            .unwrap();
+        let module = user32.commit_shared_cursor_load(module_plan).unwrap();
+        assert_eq!(module.cursor_id, RuntimeCursorId(2));
+        assert_eq!(module.handle, RUNTIME_CURSOR_HANDLE_BASE + 1);
+        assert!(!module.already_loaded);
+        let repeated_module = user32
+            .commit_shared_cursor_load(
+                user32
+                    .plan_shared_cursor_load(module_cursor(106, 5, 0x6000))
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(repeated_module.cursor_id, module.cursor_id);
+        assert_eq!(repeated_module.handle, module.handle);
+        assert!(repeated_module.already_loaded);
+        assert_eq!(user32.cursors().len(), 2);
 
         let invalid = RuntimeCursorSource::SystemPredefined {
             resource_id: 0x7f01,
@@ -2450,10 +2519,7 @@ mod tests {
         };
         let before_invalid = user32.clone();
         assert_eq!(
-            user32
-                .plan_shared_system_cursor_load(invalid)
-                .unwrap_err()
-                .code,
+            user32.plan_shared_cursor_load(invalid).unwrap_err().code,
             "system-cursor-source-invalid"
         );
         assert_eq!(user32, before_invalid);
@@ -2468,18 +2534,36 @@ mod tests {
     }
 
     #[test]
+    fn shared_cursor_capacity_failure_preserves_identity_and_allocators() {
+        let mut user32 = RuntimeUser32::default();
+        for ordinal in 1..=RUNTIME_SHARED_CURSOR_LIMIT {
+            let ordinal = u32::try_from(ordinal).unwrap();
+            let source = module_cursor(ordinal, ordinal, 0x4000 + ordinal * 0x1000);
+            let plan = user32.plan_shared_cursor_load(source).unwrap();
+            let result = user32.commit_shared_cursor_load(plan).unwrap();
+            assert_eq!(result.cursor_id.0, u64::from(ordinal));
+        }
+        let before = user32.clone();
+        let error = user32
+            .plan_shared_cursor_load(module_cursor(257, 257, 0x0010_5000))
+            .expect_err("shared cursor capacity must be bounded");
+        assert_eq!(
+            error.class,
+            super::super::RuntimeStateErrorClass::ResourceLimit
+        );
+        assert_eq!(error.code, "shared-cursor-limit-exceeded");
+        assert_eq!(user32, before);
+    }
+
+    #[test]
     fn window_class_registration_is_module_scoped_case_folded_and_failure_atomic() {
         let mut user32 = RuntimeUser32::default();
         let icon_plan = user32
             .plan_shared_icon_load(resource(101, 3, 0x3000))
             .unwrap();
         let icon = user32.commit_shared_icon_load(icon_plan).unwrap();
-        let cursor_plan = user32
-            .plan_shared_system_cursor_load(arrow_cursor())
-            .unwrap();
-        let cursor = user32
-            .commit_shared_system_cursor_load(cursor_plan)
-            .unwrap();
+        let cursor_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
+        let cursor = user32.commit_shared_cursor_load(cursor_plan).unwrap();
 
         let main_registration =
             window_class_registration(icon, cursor, "BGI - Main window", 0x28, 0x92550);
@@ -2589,12 +2673,8 @@ mod tests {
             .plan_shared_icon_load(resource(101, 3, 0x3000))
             .unwrap();
         let icon = user32.commit_shared_icon_load(icon_plan).unwrap();
-        let cursor_plan = user32
-            .plan_shared_system_cursor_load(arrow_cursor())
-            .unwrap();
-        let cursor = user32
-            .commit_shared_system_cursor_load(cursor_plan)
-            .unwrap();
+        let cursor_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
+        let cursor = user32.commit_shared_cursor_load(cursor_plan).unwrap();
         let valid = window_class_registration(icon, cursor, "valid class", 0x28, 0x92550);
 
         for (invalid, expected_code) in [
@@ -2636,12 +2716,8 @@ mod tests {
             .plan_shared_icon_load(resource(101, 3, 0x3000))
             .unwrap();
         let icon = user32.commit_shared_icon_load(icon_plan).unwrap();
-        let cursor_plan = user32
-            .plan_shared_system_cursor_load(arrow_cursor())
-            .unwrap();
-        let cursor = user32
-            .commit_shared_system_cursor_load(cursor_plan)
-            .unwrap();
+        let cursor_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
+        let cursor = user32.commit_shared_cursor_load(cursor_plan).unwrap();
         let class_plan = user32
             .plan_window_class_registration(window_class_registration(
                 icon,
@@ -2970,11 +3046,7 @@ mod tests {
             .commit_shared_icon_load(user32.plan_shared_icon_load(small_resource).unwrap())
             .unwrap();
         let cursor = user32
-            .commit_shared_system_cursor_load(
-                user32
-                    .plan_shared_system_cursor_load(arrow_cursor())
-                    .unwrap(),
-            )
+            .commit_shared_cursor_load(user32.plan_shared_cursor_load(arrow_cursor()).unwrap())
             .unwrap();
         let class = user32
             .commit_window_class_registration(
@@ -3025,6 +3097,33 @@ mod tests {
         RuntimeCursorSource::SystemPredefined {
             resource_id: RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
             cursor: RuntimeSystemCursorKind::Arrow,
+        }
+    }
+
+    fn module_cursor(
+        group_resource_id: u32,
+        cursor_resource_id: u32,
+        cursor_data_rva: u32,
+    ) -> RuntimeCursorSource {
+        RuntimeCursorSource::ModuleResource {
+            resource: RuntimeCursorResource {
+                module_id: RuntimeModuleId(1),
+                module_load_base: GuestAddress(0x1000_0000),
+                module_source_sha256: "0".repeat(64),
+                group_resource_id,
+                language_id: 1_041,
+                cursor_resource_id,
+                group_data_rva: Rva(0x2000 + group_resource_id * 0x10),
+                group_data_size: 20,
+                cursor_data_rva: Rva(cursor_data_rva),
+                cursor_data_size: 2_220,
+                width: 32,
+                height: 32,
+                planes: 1,
+                bits_per_pixel: 8,
+                hotspot_x: 0,
+                hotspot_y: 0,
+            },
         }
     }
 

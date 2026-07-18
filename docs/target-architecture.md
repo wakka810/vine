@@ -571,12 +571,15 @@ logical HICON namespace、resource／handle index、generationをprivateに所�
 関連付ける場合もassociationはnon-owningであり、native HICON、GDI handle、DOM image IDをlogical
 HICONとして流用しない。Size／language／format selectionはversioned User32 policyに置く。
 
-System cursorも同じUser32 ownerの別identity namespaceに置く。`RuntimeUser32`はcursor source、
-monotonic cursor ID、logical HCURSOR、source／handle indexをprivateに所有するが、icon ID／handleと
-相互代用しない。Shared predefined cursorのrepeatはidentityを再利用し、icon／cursorを含むprocess
-teardownを一つのstale-checked lifecycle planでretireする。Cursor kind selectionはversioned policy、
-CSS cursor／DOM input／browser bitmapとのassociationは明示的なnon-owning adapter stateとし、native
-HCURSORやbrowser resource IDをguest-visible identityへimportしない。
+Cursorも同じUser32 ownerの別identity namespaceに置く。`RuntimeUser32`はsystem predefinedまたは
+mapped-module resourceから成るsource identity、monotonic cursor ID、logical HCURSOR、source／handle
+indexをprivateに所有するが、icon ID／handleと相互代用しない。Module sourceはregistered module
+ID／base／source hashとgroup／payloadのtype、name、language、RVA、size、dimensions、hotspotを保持し、
+aggregate rootがmodule resource catalogとの一意なrelationをpreflightしてからUser32 planをcommitする。
+Shared system／module cursorのrepeatはidentityを再利用し、icon／cursorを含むprocess teardownを一つの
+stale-checked lifecycle planでretireする。Selection bandはversioned policy、CSS cursor／DOM input／
+browser bitmapとのassociationは明示的なnon-owning adapter stateとし、native HCURSORやbrowser
+resource IDをguest-visible identityへimportしない。
 
 Process-local window classも`RuntimeUser32`の別identity domainとする。Class collection、ASCII
 case-foldした`(module ID, name)` index、logical ATOM index、monotonic allocator、generation、

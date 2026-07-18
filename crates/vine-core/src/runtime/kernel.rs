@@ -2847,13 +2847,84 @@ impl RuntimeKernel {
         self.user32.icons()
     }
 
-    pub(crate) fn load_shared_system_cursor(
+    pub(crate) fn load_shared_cursor(
         &mut self,
         source: RuntimeCursorSource,
     ) -> Result<RuntimeLoadCursorAResult, RuntimeStateError> {
         self.require_user32_operation_state()?;
-        let plan = self.user32.plan_shared_system_cursor_load(source)?;
-        self.user32.commit_shared_system_cursor_load(plan)
+        if let RuntimeCursorSource::ModuleResource { resource } = &source {
+            let image = self
+                .modules
+                .images()
+                .image(resource.module_id)
+                .map_err(runtime_module_image_error)?;
+            if image.load_base != resource.module_load_base
+                || image.source.sha256 != resource.module_source_sha256
+            {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-user32",
+                    "cursor-module-identity-mismatch",
+                    "shared cursor resource does not match its registered module image",
+                ));
+            }
+            let resources = image.resources.as_ref().ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-user32",
+                    "cursor-module-resource-catalog-missing",
+                    "registered module image has no PE resource catalog",
+                )
+            })?;
+            let language_matches =
+                |entry: &&crate::pe32::ResourceDataEntryPlan, type_id, name_id, rva, size| {
+                    matches!(
+                        &entry.resource_type,
+                        ResourceIdentifier::Id { id } if *id == type_id
+                    ) && matches!(&entry.name, ResourceIdentifier::Id { id } if *id == name_id)
+                        && matches!(
+                            &entry.language,
+                            ResourceIdentifier::Id { id } if *id == resource.language_id
+                        )
+                        && entry.data_rva == rva
+                        && entry.size == size
+                };
+            if resources
+                .entries
+                .iter()
+                .filter(|entry| {
+                    language_matches(
+                        entry,
+                        12,
+                        resource.group_resource_id,
+                        resource.group_data_rva,
+                        resource.group_data_size,
+                    )
+                })
+                .count()
+                != 1
+                || resources
+                    .entries
+                    .iter()
+                    .filter(|entry| {
+                        language_matches(
+                            entry,
+                            1,
+                            resource.cursor_resource_id,
+                            resource.cursor_data_rva,
+                            resource.cursor_data_size,
+                        )
+                    })
+                    .count()
+                    != 1
+            {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-user32",
+                    "cursor-resource-catalog-mismatch",
+                    "shared cursor resource does not match unique group-cursor and cursor catalog entries",
+                ));
+            }
+        }
+        let plan = self.user32.plan_shared_cursor_load(source)?;
+        self.user32.commit_shared_cursor_load(plan)
     }
 
     pub fn cursor(&self, handle: u32) -> Result<&RuntimeCursor, RuntimeStateError> {

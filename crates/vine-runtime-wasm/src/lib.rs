@@ -454,7 +454,7 @@ impl BrowserRuntime {
             .runtime
             .register_source_snapshot(source_manifest)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v12();
+        let user32_policy = User32CompatibilityPolicy::controlled_v13();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
