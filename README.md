@@ -13,14 +13,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `bgi-create-window-ex-a`: 1394 calls across 72 API contracts, memory generation 1644 |
+| Active runtime | `bgi-get-system-metrics-small-icon-height`: 1395 calls across 72 API contracts, memory generation 1645 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (36 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `USER32.dll!GetSystemMetrics(0x00000032)` at instruction 11476518: `get-system-metrics-index-unsupported` |
+| Next structured stop | `USER32.dll!GetSystemMetrics(0x00000031)` at instruction 11476522: `get-system-metrics-index-unsupported` |
 
-The active semantic report is 10,292,016 bytes with SHA-256
-`a9e0d34a884a5a72746bf9ec7b462af2d03b5a41d809664fd01b13f19e32ecae`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 10,302,647 bytes with SHA-256
+`23636739eb60925d96a9145cb7439f986bcc6f2d0fd063cf803929d40b953f4a`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 

@@ -2829,3 +2829,32 @@ Private Node profileは1,394 calls、five creation callbacks、active callback d
 `CreateWindowExA`からlogical HWNDを返す。次のstructured stopはinstruction 11,476,518の
 `GetSystemMetrics(50)`である。このcheckpointは一般menu identity／mutation、arbitrary window style／parent／
 child、visibility、message queue、input、DOM surface、renderingを実装済みとしない。
+
+## 104. BGI small-icon height metric
+
+Focused `GetSystemMetrics` capturesは次のlocal raw artifactsである。Raw JSONLとprivate absolute
+pathはGitへ追加しない。
+
+| Capture | Bytes／lines | SHA-256 |
+|---|---:|---|
+| primary | 372,414／865 | `96a6c3b5ae5496a0f01fde57f39cc9213f68718a840e1d0ef9d7aa54d9b6e08f` |
+| confirmation | 372,020／864 | `88b560977c9f07347c638466d5fb8939890119c9d8debcc16cf4c1b16f286dbd` |
+
+両captureでBGIは`SM_CYSMICON`（index 50）と`SM_CXSMICON`（index 49）をこの順に呼び、
+どちらも16を受け取る。Return RVAはそれぞれ`0x00067F2D`／`0x00067F32`で、両resultは
+`LoadImageA(module,101,IMAGE_ICON,width,height,LR_SHARED)`のheight／widthへ渡される。
+Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Nativeの両metric callはentry時点のLastError 1,401を保存する。Vineのindex 50 callは
+LastError 0を保存するが、これは直前のouter `CreateWindowExA` bounded success contractが0へ
+戻すためであり、`GetSystemMetrics` handler自身はentry値を変更しない。Callerはこの区間で
+LastErrorを読まないため、nativeの1,401をpolicyへimportせず、preserve semanticsとconsumerだけを
+oracleにする。
+
+Runtimeはversion-8 User32 policyの`small_icon_height`からindex 50へ16を返し、host／browser
+metricをimportしない。Nodeは1,395 calls、generation 1,645、zero guest writeを通し、Chromeも
+same ordered result、memory digest、instruction 11,476,522のindex 49 stopを再現する。Index 49は
+次checkpointとして未実装のままである。性能／memory／Worker crossingのboundaryを変えない
+read-only semantic leafなので、3分gateは再実行せず直前のlogical-window observationを履歴として
+保持する。

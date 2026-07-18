@@ -120,6 +120,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-large-heap-allocation",
         "kernel32-source-file-read",
         "user32-create-window-ex-a",
+        "user32-get-system-metrics-small-icon-height",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -153,13 +154,21 @@ assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy re
 assert(sourceManifestPath === null || genericRuntimeReentry, "--source-manifest requires --generic-runtime-reentry");
 assert(
   sourceManifestPath === null ||
-    ["kernel32-source-file-read", "user32-create-window-ex-a"].includes(
+    [
+      "kernel32-source-file-read",
+      "user32-create-window-ex-a",
+      "user32-get-system-metrics-small-icon-height",
+    ].includes(
       genericRuntimeCapability,
     ),
   "--source-manifest is reserved for source-reading capabilities",
 );
 if (
-  ["kernel32-source-file-read", "user32-create-window-ex-a"].includes(
+  [
+    "kernel32-source-file-read",
+    "user32-create-window-ex-a",
+    "user32-get-system-metrics-small-icon-height",
+  ].includes(
     genericRuntimeCapability,
   ) &&
   sourceManifestPath === null
@@ -174,7 +183,8 @@ if (
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
     genericRuntimeCapability === "kernel32-source-file-read" ||
-    genericRuntimeCapability === "user32-create-window-ex-a"
+    genericRuntimeCapability === "user32-create-window-ex-a" ||
+    genericRuntimeCapability === "user32-get-system-metrics-small-icon-height"
       ? "kernel32-source-file-read-v1.json"
       : genericRuntimeCapability === "kernel32-large-heap-allocation"
       ? "kernel32-large-heap-allocation-v1.json"
@@ -295,7 +305,11 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const createWindowExAEnabled = genericRuntimeCapability === "user32-create-window-ex-a";
+const getSystemMetricsSmallIconHeightEnabled =
+  genericRuntimeCapability === "user32-get-system-metrics-small-icon-height";
+const createWindowExAEnabled =
+  getSystemMetricsSmallIconHeightEnabled ||
+  genericRuntimeCapability === "user32-create-window-ex-a";
 const sourceFileReadEnabled =
   createWindowExAEnabled || genericRuntimeCapability === "kernel32-source-file-read";
 const largeHeapAllocationEnabled =
@@ -454,7 +468,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? createWindowExAEnabled
+      ? getSystemMetricsSmallIconHeightEnabled
+        ? "v86-bgi-get-system-metrics-small-icon-height"
+      : createWindowExAEnabled
         ? "v86-bgi-create-window-ex-a"
       : sourceFileReadEnabled
         ? "v86-bgi-source-file-read"
@@ -4377,6 +4393,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getSystemMetricsSmallIconHeightEnabled) {
+        validateGetSystemMetricsSmallIconHeightResult(genericResult);
       } else if (createWindowExAEnabled) {
         validateCreateWindowExAResult(genericResult);
       } else if (sourceFileReadEnabled) {
@@ -4500,6 +4518,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : getSystemMetricsSmallIconHeightEnabled
+            ? "bgi GetSystemMetrics small icon height"
           : createWindowExAEnabled
             ? "bgi CreateWindowExA"
           : sourceFileReadEnabled
@@ -5723,7 +5743,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-v7",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-height-v8",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -10411,6 +10431,78 @@ function validateSourceFileReadResult(result) {
   ]);
 }
 
+function validateGetSystemMetricsSmallIconHeightResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 1395);
+  assert.equal(result.callbackEvents.length, 12);
+  assert.equal(result.finalGeneration, 1645);
+  assert.equal(result.writebacks.length, 1437);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2982,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_450_357,
+  );
+  assert.equal(result.hostDeltas.length, 138);
+
+  const createWindow = result.supportedCalls.find(
+    (call) => call.symbol === "CreateWindowExA",
+  );
+  assert(createWindow);
+  assert.deepEqual(createWindow.result, { action: "set", value: 0x4801_0001 });
+  assert.equal(createWindow.window?.lifecycle?.state, "created");
+  assert.equal(createWindow.window?.visible, false);
+
+  const call = result.supportedCalls.at(-1);
+  assert(call);
+  assert.equal(call.sequence, 1395);
+  assert.equal(call.occurrence, 6);
+  assert.equal(call.trapInstructionCount, 11_476_518);
+  assert.equal(call.module.toLowerCase(), "user32.dll");
+  assert.equal(call.symbol, "GetSystemMetrics");
+  assert.deepEqual(call.arguments, [50]);
+  assert.equal(call.implementationId, "user32.get-system-metrics.v1");
+  assert.deepEqual(call.result, { action: "set", value: 16 });
+  assert.equal(call.returnAddress, 0x1006_7f2d);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "user32-display");
+  assert.equal(result.fault.fault.code, "get-system-metrics-index-unsupported");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 203);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0ca0);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1404);
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GetSystemMetrics",
+  });
+  assert.equal(result.fault.memory.physicalPages, 717);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "f016f6c0a4e40dc0460905d2c0fc35dc209c124dde84d07eff806a04aa0b2f2f",
+  );
+  assert.equal(result.terminal.instructionCount, 11_476_522);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 203);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0ca0);
+  assert.equal(result.terminal.terminal.thunk.name, "GetSystemMetrics");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_7f32);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [49]);
+}
+
 function validateCreateWindowExAResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -11863,6 +11955,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : getSystemMetricsSmallIconHeightEnabled
+          ? "vine.v86-bgi-get-system-metrics-small-icon-height"
         : createWindowExAEnabled
           ? "vine.v86-bgi-create-window-ex-a"
         : sourceFileReadEnabled

@@ -163,6 +163,7 @@ enum GenericRuntimeCapability {
     LargeHeapAllocation,
     SourceFileRead,
     CreateWindowExA,
+    GetSystemMetricsSmallIconHeight,
 }
 
 struct GenericRuntimeProcess {
@@ -2827,11 +2828,22 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetSystemMetrics
             | GenericRuntimeCapability::LargeHeapAllocation
             | GenericRuntimeCapability::SourceFileRead
-            | GenericRuntimeCapability::CreateWindowExA,
+            | GenericRuntimeCapability::CreateWindowExA
+            | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let user32_policy = User32CompatibilityPolicy::controlled_v7();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v8();
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::GetSystemMetricsSmallIconHeight)
+    ) {
+        user32_policy
+            .get_system_metrics
+            .as_mut()
+            .expect("controlled User32 policy has system metrics")
+            .small_icon_height = None;
+    }
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
@@ -4209,8 +4221,13 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let create_window_ex_a_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::CreateWindowExA));
+    let create_window_ex_a_enabled = matches!(
+        enabled,
+        Some(
+            GenericRuntimeCapability::CreateWindowExA
+                | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
+        )
+    );
     let source_file_read_enabled = create_window_ex_a_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::SourceFileRead));
     let enabled = if source_file_read_enabled {
@@ -4688,7 +4705,13 @@ fn runtime_capability_enables_dynamic_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &RuntimeDynamicEndpoint,
 ) -> bool {
-    let enabled = if matches!(enabled, Some(GenericRuntimeCapability::CreateWindowExA)) {
+    let enabled = if matches!(
+        enabled,
+        Some(
+            GenericRuntimeCapability::CreateWindowExA
+                | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
+        )
+    ) {
         Some(GenericRuntimeCapability::SourceFileRead)
     } else {
         enabled
@@ -10250,6 +10273,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-large-heap-allocation" => GenericRuntimeCapability::LargeHeapAllocation,
                 "kernel32-source-file-read" => GenericRuntimeCapability::SourceFileRead,
                 "user32-create-window-ex-a" => GenericRuntimeCapability::CreateWindowExA,
+                "user32-get-system-metrics-small-icon-height" => {
+                    GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
