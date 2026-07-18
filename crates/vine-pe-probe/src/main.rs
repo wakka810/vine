@@ -164,6 +164,7 @@ enum GenericRuntimeCapability {
     SourceFileRead,
     CreateWindowExA,
     GetSystemMetricsSmallIconHeight,
+    GetSystemMetricsSmallIconWidth,
 }
 
 struct GenericRuntimeProcess {
@@ -2829,20 +2830,34 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::LargeHeapAllocation
             | GenericRuntimeCapability::SourceFileRead
             | GenericRuntimeCapability::CreateWindowExA
-            | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight,
+            | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
+            | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v8();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v9();
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::GetSystemMetricsSmallIconHeight)
+        Some(
+            GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
+                | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
+        )
     ) {
         user32_policy
             .get_system_metrics
             .as_mut()
             .expect("controlled User32 policy has system metrics")
             .small_icon_height = None;
+    }
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::GetSystemMetricsSmallIconWidth)
+    ) {
+        user32_policy
+            .get_system_metrics
+            .as_mut()
+            .expect("controlled User32 policy has system metrics")
+            .small_icon_width = None;
     }
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -4226,6 +4241,7 @@ fn runtime_capability_enables_endpoint(
         Some(
             GenericRuntimeCapability::CreateWindowExA
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
+                | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -4710,6 +4726,7 @@ fn runtime_capability_enables_dynamic_endpoint(
         Some(
             GenericRuntimeCapability::CreateWindowExA
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
+                | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
         )
     ) {
         Some(GenericRuntimeCapability::SourceFileRead)
@@ -10275,6 +10292,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-create-window-ex-a" => GenericRuntimeCapability::CreateWindowExA,
                 "user32-get-system-metrics-small-icon-height" => {
                     GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
+                }
+                "user32-get-system-metrics-small-icon-width" => {
+                    GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
                 }
                 _ => return Err(usage_error()),
             };

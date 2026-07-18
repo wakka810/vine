@@ -1386,11 +1386,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 8 ||
+    user32Policy.schemaVersion !== 9 ||
     user32Policy.id !==
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-height-v8" ||
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-size-v9" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v8" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v9" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
@@ -1516,11 +1516,12 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.windowVisibilityImplemented !== false ||
     user32Policy.windowMessageQueueIntegrated !== false ||
     user32Policy.getSystemMetricsProfileId !==
-      "initial-window-metrics-1920x1080-small-icon-height-16-v2" ||
-    getSystemMetricsIndices.join(",") !== "0,1,4,7,8,50" ||
+      "initial-window-metrics-1920x1080-small-icon-16x16-v3" ||
+    getSystemMetricsIndices.join(",") !== "0,1,4,7,8,49,50" ||
     user32Policy.getSystemMetricsCaptionHeight !== 23 ||
     user32Policy.getSystemMetricsFixedFrameWidth !== 3 ||
     user32Policy.getSystemMetricsFixedFrameHeight !== 3 ||
+    user32Policy.getSystemMetricsSmallIconWidth !== 16 ||
     user32Policy.getSystemMetricsSmallIconHeight !== 16 ||
     user32Policy.getSystemMetricsScreenDimensionsSource !==
       "runtime-displays-primary-monitor-rect" ||
@@ -1831,7 +1832,7 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (
     latestEvidence.schema !==
-      "vine.v86-bgi-get-system-metrics-small-icon-height.v1" ||
+      "vine.v86-bgi-get-system-metrics-small-icon-width.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -2135,17 +2136,17 @@ export function validateCurrentCheckpoint(manifest) {
       "loadimagea-resource-101-image-icon-width-height-lr-shared" ||
     latestEvidence.nativeGetSystemMetricsSmallIconExecutableHashUnchanged !== true ||
     latestEvidence.getSystemMetricsImplemented !== true ||
-    latestEvidence.getSystemMetricsCallCount !== 6 ||
+    latestEvidence.getSystemMetricsCallCount !== 7 ||
     latestEvidence.getSystemMetricsSequences?.join(",") !==
-      "1345,1346,1347,1348,1349,1395" ||
+      "1345,1346,1347,1348,1349,1395,1396" ||
     latestEvidence.getSystemMetricsInstructionCounts?.join(",") !==
-      "49990,49995,50000,50020,50024,11476518" ||
-    latestEvidence.getSystemMetricsArguments?.join(",") !== "7,8,4,0,1,50" ||
+      "49990,49995,50000,50020,50024,11476518,11476522" ||
+    latestEvidence.getSystemMetricsArguments?.join(",") !== "7,8,4,0,1,50,49" ||
     latestEvidence.getSystemMetricsReturnAddresses?.join(",") !==
-      "0x10067ddb,0x10067de6,0x10067dee,0x10067e26,0x10067e2e,0x10067f2d" ||
+      "0x10067ddb,0x10067de6,0x10067dee,0x10067e26,0x10067e2e,0x10067f2d,0x10067f32" ||
     latestEvidence.getSystemMetricsResults?.join(",") !==
-      "3,3,23,1920,1080,16" ||
-    latestEvidence.getSystemMetricsLastErrors?.join(",") !== "0,0,0,0,0,0" ||
+      "3,3,23,1920,1080,16,16" ||
+    latestEvidence.getSystemMetricsLastErrors?.join(",") !== "0,0,0,0,0,0,0" ||
     latestEvidence.getSystemMetricsSuccessLastErrorPolicy !== "preserve" ||
     latestEvidence.getSystemMetricsGuestWrites !== 0 ||
     latestEvidence.getSystemMetricsDisplayStateOwner !==
@@ -2153,9 +2154,12 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.getSystemMetricsNonclientPolicyOwner !==
       "User32CompatibilityPolicy.get_system_metrics" ||
     latestEvidence.getSystemMetricsProfileId !==
-      "initial-window-metrics-1920x1080-small-icon-height-16-v2" ||
+      "initial-window-metrics-1920x1080-small-icon-16x16-v3" ||
     latestEvidence.getSystemMetricsSupportedIndices?.join(",") !==
-      "0,1,4,7,8,50" ||
+      "0,1,4,7,8,49,50" ||
+    latestEvidence.getSystemMetricsSmallIconWidth !== 16 ||
+    latestEvidence.getSystemMetricsSmallIconWidthConsumer !==
+      "paired-loadimagea-small-icon-width" ||
     latestEvidence.getSystemMetricsSmallIconHeight !== 16 ||
     latestEvidence.getSystemMetricsSmallIconHeightConsumer !==
       "paired-loadimagea-small-icon-height" ||
@@ -2215,7 +2219,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "controlled SM_CYSMICON height 16 leaf after the RuntimeUser32-owned logical window gateway" ||
+      "controlled SM_CXSMICON width 16 leaf completing the policy-owned 16x16 small-icon metrics" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

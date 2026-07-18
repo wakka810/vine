@@ -131,7 +131,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v8();
+        let policy = User32CompatibilityPolicy::controlled_v9();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -222,7 +222,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v8();
+        let mut policy = User32CompatibilityPolicy::controlled_v9();
         policy
             .swap_mouse_button
             .as_mut()
@@ -298,7 +298,7 @@ impl MetricsFixture {
                 &METRICS_ENDPOINT_ADDRESS.0.to_le_bytes(),
             )
             .expect("initialize GetSystemMetrics IAT");
-        for (index, metric) in [7_u32, 8, 4, 0, 1, 50, 49].into_iter().enumerate() {
+        for (index, metric) in [7_u32, 8, 4, 0, 1, 50, 49, 2].into_iter().enumerate() {
             write_words(
                 &mut memory,
                 owner,
@@ -319,7 +319,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v8();
+        let policy = User32CompatibilityPolicy::controlled_v9();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -474,7 +474,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v8(),
+            policy: User32CompatibilityPolicy::controlled_v9(),
         }
     }
 
@@ -662,7 +662,7 @@ impl IconFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v8(),
+            policy: User32CompatibilityPolicy::controlled_v9(),
         }
     }
 
@@ -757,7 +757,7 @@ impl CursorFixture {
             runtime: controlled_runtime(),
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v8(),
+            policy: User32CompatibilityPolicy::controlled_v9(),
         }
     }
 
@@ -1114,7 +1114,7 @@ impl RegisterClassFixture {
             create_endpoint,
             def_window_proc_endpoint,
             callback_sentinel,
-            policy: User32CompatibilityPolicy::controlled_v8(),
+            policy: User32CompatibilityPolicy::controlled_v9(),
         }
     }
 
@@ -1656,13 +1656,27 @@ fn get_system_metrics_reads_only_the_controlled_display_profile() {
     assert_eq!(completion.last_error, sentinel);
     assert!(completion.guest_writes.is_empty());
     assert_eq!(fixture.memory.stats().generation, generation);
+
+    let sentinel = 0x6677_8899;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed small-icon-width LastError");
+    let completion = match fixture.dispatch(6) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected small-icon-width completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(16));
+    assert_eq!(completion.last_error, sentinel);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(fixture.memory.stats().generation, generation);
 }
 
 #[test]
 fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation() {
     let mut unsupported = MetricsFixture::new(true);
     let generation = unsupported.memory.stats().generation;
-    let fault = match unsupported.dispatch(6) {
+    let fault = match unsupported.dispatch(7) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected unsupported system metric fault, got {other:?}"),
     };
@@ -1691,6 +1705,36 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
     assert_eq!(small_icon_disabled.memory.stats().generation, generation);
     assert_eq!(
         small_icon_disabled
+            .runtime
+            .current_last_error()
+            .expect("unchanged LastError"),
+        last_error
+    );
+
+    let mut small_icon_width_disabled = MetricsFixture::new(true);
+    small_icon_width_disabled
+        .policy
+        .get_system_metrics
+        .as_mut()
+        .expect("metrics policy")
+        .small_icon_width = None;
+    let generation = small_icon_width_disabled.memory.stats().generation;
+    let last_error = small_icon_width_disabled
+        .runtime
+        .current_last_error()
+        .expect("entry LastError");
+    let fault = match small_icon_width_disabled.dispatch(6) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled small-icon-width fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "get-system-metrics-index-unsupported");
+    assert_eq!(
+        small_icon_width_disabled.memory.stats().generation,
+        generation
+    );
+    assert_eq!(
+        small_icon_width_disabled
             .runtime
             .current_last_error()
             .expect("unchanged LastError"),

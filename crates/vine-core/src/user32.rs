@@ -25,7 +25,7 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 8;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 9;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
@@ -89,6 +89,7 @@ pub struct User32GetSystemMetricsPolicy {
     pub caption_height: u32,
     pub fixed_frame_width: u32,
     pub fixed_frame_height: u32,
+    pub small_icon_width: Option<u32>,
     pub small_icon_height: Option<u32>,
 }
 
@@ -137,11 +138,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v8() -> Self {
+    pub fn controlled_v9() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-height-v8"
+            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-size-v9"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
@@ -180,11 +181,12 @@ impl User32CompatibilityPolicy {
                 require_null_small_icon: true,
             }),
             get_system_metrics: Some(User32GetSystemMetricsPolicy {
-                profile_id: "initial-window-metrics-1920x1080-small-icon-height-16-v2"
+                profile_id: "initial-window-metrics-1920x1080-small-icon-16x16-v3"
                     .to_owned(),
                 caption_height: 23,
                 fixed_frame_width: 3,
                 fixed_frame_height: 3,
+                small_icon_width: Some(16),
                 small_icon_height: Some(16),
             }),
             create_window_ex_a: Some(User32CreateWindowExAPolicy {
@@ -319,6 +321,9 @@ impl User32CompatibilityPolicy {
                 || profile.fixed_frame_width > 1_024
                 || profile.fixed_frame_height == 0
                 || profile.fixed_frame_height > 1_024
+                || profile
+                    .small_icon_width
+                    .is_some_and(|width| width == 0 || width > 1_024)
                 || profile
                     .small_icon_height
                     .is_some_and(|height| height == 0 || height > 1_024)
@@ -628,6 +633,16 @@ fn handle_get_system_metrics(
         4 => Ok(metrics.caption_height),
         7 => Ok(metrics.fixed_frame_width),
         8 => Ok(metrics.fixed_frame_height),
+        49 => match metrics.small_icon_width {
+            Some(width) => Ok(width),
+            None => {
+                return Err(ApiFault::unsupported(
+                    "user32-display",
+                    "get-system-metrics-index-unsupported",
+                    "GetSystemMetrics index 49 is disabled in the selected controlled profile",
+                ));
+            }
+        },
         50 => match metrics.small_icon_height {
             Some(height) => Ok(height),
             None => {
@@ -2459,11 +2474,15 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v8();
+        let policy = User32CompatibilityPolicy::controlled_v9();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
         assert_eq!(profile.primary_monitor_rect.bottom, 1080);
+        assert_eq!(
+            policy.get_system_metrics.as_ref().unwrap().small_icon_width,
+            Some(16)
+        );
         assert_eq!(
             policy
                 .get_system_metrics
@@ -2485,14 +2504,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v8();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v9();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v8();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v9();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -2503,7 +2522,7 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v8();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v9();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -2514,7 +2533,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v8();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v9();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -2526,7 +2545,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v8();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v9();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -2537,7 +2556,18 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v8();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v9();
+        invalid_small_icon_width
+            .get_system_metrics
+            .as_mut()
+            .unwrap()
+            .small_icon_width = Some(0);
+        assert_eq!(
+            invalid_small_icon_width.validate().unwrap_err().code,
+            "user32-system-metrics-profile-invalid"
+        );
+
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v9();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -2548,7 +2578,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v8();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v9();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

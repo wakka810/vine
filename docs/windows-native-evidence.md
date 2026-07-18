@@ -2858,3 +2858,29 @@ same ordered result、memory digest、instruction 11,476,522のindex 49 stopを�
 次checkpointとして未実装のままである。性能／memory／Worker crossingのboundaryを変えない
 read-only semantic leafなので、3分gateは再実行せず直前のlogical-window observationを履歴として
 保持する。
+
+## 105. BGI small-icon width metric
+
+Section 104のprimary／confirmation capturesは連続するindex 50／49 callsと両consumerを一つの
+区間で記録しているため、width checkpointでも同じraw artifactsをoracleとして再利用する。
+`SM_CXSMICON`（index 49）は両runで16、return RVAは`0x00067F32`、entry LastError 1,401を
+保存し、resultは直後の`LoadImageA`のwidthへ渡る。CallerはLastErrorを読まず、source
+executableのsize／SHA-256も不変である。
+
+Runtimeはversion-9 User32 policyの`small_icon_width`から16を返す。Index 50／49は同じ
+16×16 profileに属するが、各fieldは独立にdisabledにできるため、過去height checkpointのwidth
+stopを再現できる。Handlerはguest memoryとdisplay stateを変更せずentry LastErrorを保存し、
+host／browserのDPIやsystem metricsをimportしない。
+
+Nodeは1,396 calls、1,438 writebacks／2,983 dirty pages／1,450,371 changed bytes、generation
+1,646を通す。Chromeもsame ordered callsとmemory digest
+`e9cedb57025ff173db3692c358ec55b6806a823b9748d88c7f40d83a72886a99`を再現し、46,125
+slices、46,113 writebacks／106,461 pages、generation 46,319、47,698 Wasm crossings、terminal
+pending work zeroを通す。Instruction 11,476,529でendpoint 193／
+`LoadImageA(0x10000000,101,IMAGE_ICON,16,16,LR_SHARED)`へ`endpoint-contract-missing`として
+structured stopする。
+
+このcheckpointはsmall-icon width以外の未到達metric、host theme／DPI、`LoadImageA` semantics、
+任意image type／resource／size／flagsを実装済みとしない。性能／memory／Worker crossingの
+boundaryを変えないread-only semantic leafなので、3分gateは再実行せず直前のlogical-window
+observationを履歴として保持する。
