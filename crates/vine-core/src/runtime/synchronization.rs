@@ -8,7 +8,7 @@ use super::{
     RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeHandle, RuntimeStateError, RuntimeThreadId,
 };
 
-pub const RUNTIME_CRITICAL_SECTION_LIMIT: usize = 4096;
+pub const RUNTIME_CRITICAL_SECTION_LIMIT: usize = 32_768;
 pub const RUNTIME_MUTEX_LIMIT: usize = 4096;
 pub const X86_CRITICAL_SECTION_BYTE_LENGTH: usize = 24;
 
@@ -589,6 +589,44 @@ mod tests {
                 .unwrap_err()
                 .code,
             "critical-section-not-owned-by-current-thread"
+        );
+        assert_eq!(synchronization, before);
+    }
+
+    #[test]
+    fn critical_section_capacity_is_bounded_and_failure_atomic() {
+        let mut synchronization = RuntimeSynchronization::default();
+        for index in 0..RUNTIME_CRITICAL_SECTION_LIMIT {
+            let offset = u32::try_from(index)
+                .unwrap()
+                .checked_mul(u32::try_from(X86_CRITICAL_SECTION_BYTE_LENGTH).unwrap())
+                .unwrap();
+            let address = GuestAddress(0x2000_0000_u32.checked_add(offset).unwrap());
+            let plan = synchronization.plan_initialization(address, 0).unwrap();
+            synchronization.commit(plan);
+        }
+        assert_eq!(
+            synchronization.critical_sections.len(),
+            RUNTIME_CRITICAL_SECTION_LIMIT
+        );
+
+        let before = synchronization.clone();
+        let overflow_address = GuestAddress(
+            0x2000_0000_u32
+                .checked_add(
+                    u32::try_from(RUNTIME_CRITICAL_SECTION_LIMIT)
+                        .unwrap()
+                        .checked_mul(u32::try_from(X86_CRITICAL_SECTION_BYTE_LENGTH).unwrap())
+                        .unwrap(),
+                )
+                .unwrap(),
+        );
+        assert_eq!(
+            synchronization
+                .plan_initialization(overflow_address, 0)
+                .unwrap_err()
+                .code,
+            "critical-section-limit-exceeded"
         );
         assert_eq!(synchronization, before);
     }

@@ -83,6 +83,7 @@ worker.postMessage({
   sessionId,
   configuration: {
     mode,
+    evidenceLevel: "full",
     workload: "controlled-source-read",
     executableUrl: "./source-read.exe",
     policyUrl: "./kernel32-source-file-read-v1.json",

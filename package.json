@@ -18,7 +18,7 @@
     "check:evidence-classification": "node tools/test-evidence-classification.mjs",
     "check:checkpoint-manifest": "node tools/test-runtime-checkpoint-manifest.mjs",
     "check:bgi-command-contract": "node tools/test-bgi-checkpoint-command.mjs",
-    "check:runtime-worker-state-contract": "node tools/test-runtime-worker-execution-state.mjs",
+    "check:runtime-worker-state-contract": "node tools/test-runtime-worker-execution-state.mjs && node tools/test-runtime-worker-evidence-level.mjs",
     "check:com-foundation": "cargo test -p vine-core --test com_iunknown_foundation --locked && cargo test -p vine-core --test ole32_dispatcher --locked && cargo test -p vine-core --lib runtime::thread::tests::com_apartment --locked && npm run typecheck:runtime:browser-worker && node tools/test-browser-resource-identity.mjs",
     "check:execution-engine-contract:prepared": "node tools/test-execution-engine-contract.mjs",
     "check:win32-policy": "node tools/test-kernel32-compatibility-policy.mjs",

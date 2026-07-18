@@ -26,7 +26,7 @@ const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
 const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
-const runtimeProtocol = "vine.browser-runtime-worker.v6";
+const runtimeProtocol = "vine.browser-runtime-worker.v7";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -513,7 +513,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert(evidence.statuses.some(({ phase }) => phase === "running"));
     if (scenario === "success") {
       assert.equal(evidence.report.outcome, "structured-stop");
-      assert(evidence.report.supportedCalls.length > 0);
+      assert(evidence.report.supportedCallCount > 0);
+      assert.equal(
+        evidence.report.supportedCallCount,
+        evidence.report.supportedCalls.length,
+        "full BGI evidence call count differs from its ordered payload",
+      );
       assert(evidence.report.firstUnsupported !== null);
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
@@ -992,6 +997,11 @@ function normalizeHeapPageMaterialization(materialization) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  assert.equal(
+    browser.report.supportedCallCount,
+    oracle.supportedContinuation.length,
+    "Chrome Worker supported-call count differs from the Node oracle",
+  );
   assert.deepEqual(
     normalizeCurrentDirectorySnapshot(browser.report.initialCurrentDirectory),
     normalizeCurrentDirectorySnapshot({
@@ -1482,7 +1492,7 @@ if (serveOnly) {
         const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
         await writeFile(path.join(assetsRoot, "bgi-browser-report.json"), reportBytes);
         console.log(
-          `BGI Chrome Worker equivalence passed: calls=${success.report.supportedCalls.length}, ` +
+          `BGI Chrome Worker equivalence passed: calls=${success.report.supportedCallCount}, ` +
             `instructions=${success.report.instructions}, generation=${success.report.finalGeneration}, ` +
             `cancel/watchdog=clean, Chrome=${version}, reportSha256=${hash(reportBytes)}`,
         );

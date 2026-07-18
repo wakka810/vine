@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 6 as const;
+export const protocolVersion = 7 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
@@ -160,6 +160,7 @@ export interface RuntimeComApartmentSnapshot {
 
 export interface SessionConfiguration {
   mode: SessionMode;
+  evidenceLevel: "full" | "summary";
   workload?: SessionWorkload;
   executableUrl?: string;
   policyUrl?: string;
@@ -310,6 +311,7 @@ export interface SessionReport {
   runtimeCoreLinearMemoryBytes: number;
   executionEngine: ExecutionEngineIdentity | null;
   executionEngineLinearMemoryBytes: number;
+  supportedCallCount: number;
   supportedCalls: Array<{
     sequence: number;
     module: string;

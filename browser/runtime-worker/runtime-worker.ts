@@ -370,6 +370,7 @@ class BrowserRuntimeSession {
   #sourceManifest: SourceManifest | null = null;
   #nextBgiCallSequence = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
+  readonly #completedBgiCallSequences = new Set<number>();
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
   #watchdogTimer: number | null = null;
@@ -410,6 +411,7 @@ class BrowserRuntimeSession {
     initialGeneration: 0,
     initialCurrentDirectory: null as SessionReport["initialCurrentDirectory"],
     maximumSliceMilliseconds: 0,
+    supportedCallCount: 0,
     supportedCalls: [] as SessionReport["supportedCalls"],
     sourceReads: [] as SessionReport["sourceReads"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
@@ -423,6 +425,15 @@ class BrowserRuntimeSession {
   async run(): Promise<void> {
     try {
       const workload = this.#configuration.workload ?? "controlled-fixture";
+      invariant(
+        this.#configuration.evidenceLevel === "full" ||
+          this.#configuration.evidenceLevel === "summary",
+        "runtime evidence level is invalid",
+      );
+      invariant(
+        this.#configuration.evidenceLevel === "full" || workload === "private-bgi",
+        "summary runtime evidence is only supported for the private BGI workload",
+      );
       const sourceBackedWorkload =
         workload === "controlled-source-read" || workload === "private-bgi";
       this.#status("loading", `Loading Rust runtime, execution engine, and ${workload}`);
@@ -1115,9 +1126,14 @@ class BrowserRuntimeSession {
     );
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
     invariant(
-      !this.#report.supportedCalls.some((call) => call.sequence === sequence),
+      !this.#completedBgiCallSequences.has(sequence),
       "BGI call sequence was completed more than once",
     );
+    this.#completedBgiCallSequences.add(sequence);
+    this.#report.supportedCallCount += 1;
+    if (this.#configuration.evidenceLevel === "summary") {
+      return;
+    }
     this.#report.supportedCalls.push({
       sequence,
       module: endpoint.module,
@@ -1151,7 +1167,6 @@ class BrowserRuntimeSession {
         : { comApartment: metadata.comApartment }),
       ...(metadata.sourceRead === undefined ? {} : { sourceRead: metadata.sourceRead }),
     });
-    this.#report.supportedCalls.sort((left, right) => left.sequence - right.sequence);
   }
 
   #completeStructuredStop(
@@ -1995,6 +2010,22 @@ class BrowserRuntimeSession {
       requestId: this.#pendingHostRequests.first()?.requestId ?? null,
     });
     const execution = this.#execution.snapshot();
+    invariant(
+      this.#report.supportedCallCount === this.#completedBgiCallSequences.size,
+      "BGI supported-call evidence count diverged from completed sequence identity",
+    );
+    if (this.#configuration.evidenceLevel === "full") {
+      invariant(
+        this.#report.supportedCalls.length === this.#report.supportedCallCount,
+        "full BGI call evidence omitted a completed sequence",
+      );
+      this.#report.supportedCalls.sort((left, right) => left.sequence - right.sequence);
+    } else {
+      invariant(
+        this.#report.supportedCalls.length === 0,
+        "summary BGI evidence retained detailed call payloads",
+      );
+    }
     this.#terminal = true;
     for (const resolve of this.#runnableResolvers.splice(0)) {
       resolve();
@@ -2113,6 +2144,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             runtimeCoreLinearMemoryBytes: 0,
             executionEngine: null,
             executionEngineLinearMemoryBytes: 0,
+            supportedCallCount: 0,
             supportedCalls: [],
             sourceReads: [],
             firstUnsupported: null,

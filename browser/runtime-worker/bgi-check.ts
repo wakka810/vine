@@ -83,12 +83,13 @@ worker.postMessage({
   sessionId,
   configuration: {
     mode: scenario,
+    evidenceLevel: "full",
     workload: "private-bgi",
     executableUrl: "./private/BGI.exe",
     policyUrl: "./private/kernel32-policy.json",
-    instructionBudget: scenario === "watchdog" ? 4 : 256,
+    instructionBudget: scenario === "watchdog" ? 4 : 512,
     watchdogInstructionLimit: scenario === "watchdog" ? 1 : 20_000_000,
-    watchdogWallMilliseconds: 10_000,
+    watchdogWallMilliseconds: 20_000,
   },
 } satisfies MainToWorkerMessage);
 

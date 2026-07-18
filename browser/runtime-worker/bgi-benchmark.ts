@@ -220,12 +220,13 @@ function runSession(sessionId: number): Promise<SessionReport> {
     sessionId,
     configuration: {
       mode: "success",
+      evidenceLevel: "summary",
       workload: "private-bgi",
       executableUrl: "./private/BGI.exe",
       policyUrl: "./private/kernel32-policy.json",
-      instructionBudget: 256,
+      instructionBudget: 512,
       watchdogInstructionLimit: 20_000_000,
-      watchdogWallMilliseconds: 10_000,
+      watchdogWallMilliseconds: 20_000,
     },
   } satisfies MainToWorkerMessage);
   return new Promise((resolve, reject) => {
@@ -250,7 +251,12 @@ function validateSession(report: SessionReport, expected: any): void {
       report.executionEngine.schemaVersion === 1,
     "BGI execution engine identity is missing",
   );
-  invariant(report.supportedCalls.length === expected.supportedCalls, "BGI call count changed");
+  invariant(report.supportedCallCount === expected.supportedCalls, "BGI call count changed");
+  invariant(report.supportedCalls.length === 0, "BGI benchmark retained detailed call evidence");
+  invariant(
+    report.sourceReads.length === expected.sourceReadCompletions,
+    "BGI source-read completion count changed",
+  );
   invariant(report.instructions === expected.guestInstructions, "BGI instruction count changed");
   invariant(report.wasmBridgeCalls === expected.wasmBridgeCalls, "BGI Wasm crossing count changed");
   if (expected.nextEndpoint === null) {

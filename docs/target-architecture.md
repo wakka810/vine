@@ -52,7 +52,7 @@ scheduler transitionはRustだけが決定する。Rustは`waiting-host`とreque
 TypeScriptはbrowser eventをdeliveryする。completion後の`runnable`または`in-callback`復帰もRustが
 検証してからCPU contextへ適用する。Worker event loopは独自にguest threadをwakeしない。
 
-Worker protocol version 6のstate machineは、Rust scheduler laneを`ready`、`running`、
+Worker protocol version 7のstate machineは、Rust scheduler laneを`ready`、`running`、
 `budget-yield`、`memory-fault`、`api-trap`、`thread-switch`、`thread-exit`、`waiting-host`、
 `host-completion`、`guest-callback`、`callback-return`、`stopping`、`stopped`の閉じたtransition
 graphで駆動する。illegal transitionはstate mutation前に
@@ -60,6 +60,11 @@ graphで駆動する。illegal transitionはstate mutation前に
 policyを持つtableへ置き、wrong-thread、duplicate、cancel後のlate completionを区別して拒否する。
 terminal reportは必ず`stopped`かつpending record zeroとし、watchdogだけが原因thread、active
 request、直前transitionのdiagnostic contextを持つ。
+
+Version 7はsessionごとに`full`／`summary` evidence levelを明示する。`full`はSetでsequence identityを
+検証し、terminal時に一度だけsortしたordered call payloadを公開する。`summary`はprivate BGI benchmarkに
+限定し、sequence uniquenessとcall countを保持しつつ詳細call objectを生成しない。これはobserver payloadの
+所有境界であり、Rust-owned Windows state、guest memory、API validation、terminal digestを省略・複製しない。
 
 Version 6では、同期guest callbackの完了がouter API returnだけでなく、同じdepthで次の
 `guest-callback`へatomic replacementできる。Rustはretireするframe IDと新しいframe ID、thread、
@@ -74,7 +79,7 @@ nondeterministic value、artifact hashへ分類する。schedulerの独立event�
 request-before-completion等のrelationは必須とする。whole-report hashはartifact identityであり、
 historical production ABIにしない。詳細は[evidence-classification.md](evidence-classification.md)を正とする。
 
-protocol version 6のproduction CPU境界はgeneric `ExecutionEngine`とする。上位が扱うのはcaller
+protocol version 7のproduction CPU境界はgeneric `ExecutionEngine`とする。上位が扱うのはcaller
 budget、structured yield／trap／fault／halt、versioned opaque CPU contextの生成／保存／復元、guest mapping operation、
 owner／address付きchanged-page batch、data-TLB／instruction-fetch／generated-code effectだけである。
 現在のsource-v86 implementationはnon-PAE PTE、Dirty bit scan、private offset、native stop reason、

@@ -3015,3 +3015,45 @@ Instruction 11,583,945では4,096件のlive critical sectionを保持した状�
 `InitializeCriticalSection(0x2004A190)`の次occurrenceを`critical-section-limit-exceeded`として
 mutation前に停止する。General z-order／resize／activation、arbitrary flags／insert-after、multiple
 windows／monitors、queued paint、DOM positioningは未実装であり、capacity adequacyは次checkpointで扱う。
+
+## 109. BGI critical-section primary capacity
+
+Primary BGI callerだけを対象にしたcritical-section traceはraw JSONLを`.work/`へ保持し、Gitへ追加しない。
+Source executableは全captureの前後で1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+| Capture | Duration | Bytes／lines | Max／final live | SHA-256 |
+|---|---:|---:|---:|---|
+| primary | 10 s | 66,177,215／116,186 | 16,534／16,534 | `119b818f617206c9abcb63c2777279aaf8596f1b522b094c99b5f65960358b45` |
+| repeat 1 | 2 s | 8,290,676／14,895 | 5,325／5,325 | `92d293cdfc587237fbe7e733111bc69264f1af287c34c1ac65285691c39f4fda` |
+| repeat 2 | 2 s | 8,094,273／14,542 | 5,147／5,147 | `c668e8e6bd831442d4f0f5e3e2937395b7cd2bc003aa96a67b8872417cc53567` |
+
+Primary 10-second captureは`InitializeCriticalSectionAndSpinCount` 17件、plain
+`InitializeCriticalSection` 16,517件、`DeleteCriticalSection` 0件、enter 4,156件、leave 4,066件を
+記録した。最後のinitializeはmain module loadから8,966 ms後である。したがって4,096／8,192は
+primary startupに不十分であり、native最大値を上回る次のpower-of-two 32,768をbounded ceilingとする。
+これはtitle callsiteで分岐するpolicyでも、unbounded host allocationでもない。
+
+`RuntimeSynchronization`は32,768件目までowner-local plan／commitで受理し、次のplanを
+`critical-section-limit-exceeded`としてmutation前に拒否するexact-capacity testを持つ。Node primary
+continuationはspin-count 17件とplain 16,391件、合計16,408 liveを通し、capacity残量16,360件のまま
+17,814 calls／17,861 writebacks／35,998 dirty pages／1,806,846 changed bytes／16,547 host deltas、
+generation 34,480へ進む。Reportは206,994,427 bytes／SHA-256
+`f8a89a0e744104321600a691eda3a3f254727bef750b972c981683c916cd966f`、final memory SHA-256は
+`dbc0d1b8d9dbe8ca4a49d470bf0414a11405099def22bc1b9b758919303146be`である。
+
+Chrome protocol v7のfull evidenceもsame ordered 17,814 calls／11,806,421 instructions／memory digestを
+再現する。512-instruction budgetで40,260 slices、22,399 budget yields、40,254 writebacks／87,855
+pages、generation 56,874、74,671 Wasm crossings、terminal pending work zeroを通す。Browser reportは
+24,154,595 bytes／SHA-256
+`0c4f19fe58baa6460627dc9821c88ab2f3b5d5424ee63e3aff113c6a443594cb`である。Repeated benchmarkは
+summary evidence levelを使うが、sequence uniqueness、call count、source reads、memory digest、next stop、
+teardownを省略しない。Unchanged 17 thresholdsの180秒gateは30 sessions／failure 0、p95 6,380.765 ms、
+slice p99 2.665 msで17/17を通し、reportは954,872 bytes／SHA-256
+`cf1759c4501e8a30f757c2f1b6256208af9b199b67d16855690e9920a3da608a`である。
+
+次stopはinstruction 11,806,421、endpoint 244／`USER32.dll!LoadCursorA(0x10000000,106)`で、
+module resource cursorが未実装なため`load-cursor-a-module-resource-unsupported`を返す。これは既存
+User32／PE resource boundary内のsemantic leafとして次checkpointへ送る。Capacity checkpointは
+critical-section delete、blocking contention、abandonment、native debug structure、module cursor semantics、
+cursor bitmap／hotspot／DOM presentationを実装済みとしない。

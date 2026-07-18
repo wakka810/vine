@@ -145,6 +145,7 @@ async function startSession(mode: SessionMode = "success"): Promise<RuntimeEvide
 
   const configuration = {
     mode,
+    evidenceLevel: "full" as const,
     instructionBudget: 8,
     watchdogInstructionLimit: 100_000,
     watchdogWallMilliseconds: mode === "watchdog" ? 100 : 10_000,

@@ -4860,7 +4860,7 @@ async function runGenericRuntimeReentry({
   let currentStackGuard = runtimeReady.initialThreadStack.guardPage?.start ?? null;
 
   const callLimit = setWindowPosInitialPlacementEnabled
-    ? 16_384
+    ? 32_768
     : initializeCriticalSectionEnabled
       ? 4096
       : 256;
@@ -10767,29 +10767,29 @@ function validateSendMessageASmallIconResult(result) {
 function validateSetWindowPosInitialPlacementSummary(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
-  assert.equal(result.supportedCalls.length, 5500);
+  assert.equal(result.supportedCalls.length, 17_814);
   assert.equal(result.callbackEvents.length, 22);
-  assert.equal(result.finalGeneration, 9853);
-  assert.equal(result.writebacks.length, 5547);
+  assert.equal(result.finalGeneration, 34_480);
+  assert.equal(result.writebacks.length, 17_861);
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.dirtyPages.length,
       0,
     ),
-    11_243,
+    35_998,
   );
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.receipt.changedBytes,
       0,
     ),
-    1_543_704,
+    1_806_846,
   );
-  assert.equal(result.hostDeltas.length, 4234);
+  assert.equal(result.hostDeltas.length, 16_547);
   assert.equal(
     result.supportedCalls.some(({ pendingCallback }) => pendingCallback === true),
     false,
-    "both SetWindowPos calls must complete before the capacity stop",
+    "both SetWindowPos calls must complete before the next structured stop",
   );
 
   const calls = result.supportedCalls.filter(
@@ -10959,36 +10959,39 @@ function validateSetWindowPosInitialPlacementSummary(result) {
   const criticalSections = result.supportedCalls.filter(
     ({ symbol }) => symbol === "InitializeCriticalSection",
   );
-  assert.equal(criticalSections.length, 4079);
-  assert.equal(criticalSections.at(-1).occurrence, 4079);
-  assert.equal(criticalSections.at(-1).trapInstructionCount, 11_583_927);
-  assert.deepEqual(criticalSections.at(-1).arguments, [0x2004_a148]);
+  assert.equal(criticalSections.length, 16_391);
+  assert.equal(criticalSections.at(-1).occurrence, 16_391);
+  assert.equal(criticalSections.at(-1).trapInstructionCount, 11_805_823);
+  assert.deepEqual(criticalSections.at(-1).arguments, [0x2012_2afc]);
 
-  assert.equal(result.fault.fault.class, "resource-limit");
-  assert.equal(result.fault.fault.stage, "runtime-critical-section");
-  assert.equal(result.fault.fault.code, "critical-section-limit-exceeded");
-  assert.equal(result.fault.capabilityCluster, "kernel32-critical-section-synchronization");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "user32-cursors");
+  assert.equal(result.fault.fault.code, "load-cursor-a-module-resource-unsupported");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
-  assert.equal(result.fault.endpoint.endpoint.id, 147);
-  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0920);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.equal(result.fault.endpoint.endpoint.id, 244);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0f30);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
-    name: "InitializeCriticalSection",
+    name: "LoadCursorA",
   });
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_12f4);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_14a8);
   assert.equal(result.fault.memory.physicalPages, 717);
   assert.equal(
     result.fault.memoryContentSha256,
-    "c74cac1c619df0782a3115a399aac990f4416faf2d16b49c06738caca89c4140",
+    "dbc0d1b8d9dbe8ca4a49d470bf0414a11405099def22bc1b9b758919303146be",
   );
-  assert.equal(result.terminal.instructionCount, 11_583_945);
+  assert.equal(result.terminal.instructionCount, 11_806_421);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.thunk.id, 147);
-  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0920);
-  assert.equal(result.terminal.terminal.thunk.name, "InitializeCriticalSection");
-  assert.equal(result.terminal.terminal.returnAddress, 0x1000_72be);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0x2004_a190]);
+  assert.equal(result.terminal.terminal.thunk.id, 244);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0f30);
+  assert.equal(result.terminal.terminal.thunk.name, "LoadCursorA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_7fe1);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 3), [
+    0x1000_0000,
+    106,
+  ]);
 }
 
 function validateSetWindowPosInitialPlacementResult(result) {

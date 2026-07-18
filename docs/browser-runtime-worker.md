@@ -3,10 +3,10 @@
 ## Status
 
 - Status: Verified controlled fixture and private BGI semantic checkpoint
-- Date: 2026-07-13
-- Browser: Chrome `150.0.7871.115`
-- Protocol: `vine.browser-runtime-worker` version `4`
-- Runtime core: Rust/Wasm, zero imports, 2,101,772 bytes
+- Date: 2026-07-18
+- Browser: Chrome `150.0.7871.127`
+- Protocol: `vine.browser-runtime-worker` version `7`
+- Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
 - Evidence: `.work/browser-runtime/browser-report.json`
@@ -90,7 +90,7 @@ delta and resume the existing structured-stop path.
 
 ## Execution engine contract
 
-Protocol version 5 binds the production loop to `ExecutionEngine`, not to v86
+Protocol version 7 binds the production loop to `ExecutionEngine`, not to v86
 exports or numeric stop reasons. The interface owns budgeted execution,
 structured stops, versioned opaque CPU-context creation／save／restore, guest mapping
 operations, owner-tagged changed-page batches, CPU resume／callback entry, and
@@ -134,7 +134,7 @@ without changing the mirror.
 
 ## Execution state contract
 
-Protocol version 5 represents execution through an explicit state machine:
+Protocol version 7 represents execution through an explicit state machine:
 `ready`, `running`, `budget-yield`, `memory-fault`, `api-trap`, `thread-switch`,
 `thread-exit`, `waiting-host`, `host-completion`, `guest-callback`,
 `callback-return`, `stopping`, and `stopped`. Prepared Rust metadata supplies
@@ -166,6 +166,14 @@ thread, current request when one exists, and the last transition observed
 before termination. Pending host calls and callback stacks are keyed by owner
 thread; neither is represented by a global single slot.
 
+Protocol v7 also makes diagnostic retention explicit. Full sessions validate
+sequence identity with a Set and publish their ordered call payload after one
+terminal sort. Repeated BGI benchmark sessions select summary evidence: they
+retain the same sequence uniqueness, call count, source completions, memory
+digest, structured stop, and teardown checks but do not allocate detailed call
+objects. Summary evidence is rejected for other workloads and never replaces
+the standalone full Chrome／Node semantic-equivalence gate.
+
 ## Fixture contract
 
 The reproducible PE32/i386 fixture imports three symbols from
@@ -192,7 +200,7 @@ retired before the initial host completion restores the first context.
 
 Host operations never expose a Promise to the guest stack. `RuntimeState`
 enters `WaitingHost`, records a request ID and resume state, and returns to the
-Worker. Protocol version 5 transports the lossless decimal request ID, owning
+Worker. Protocol version 7 transports the lossless decimal request ID, owning
 thread ID, bounded copied scalar payload, and matching Rust `waiting-host`
 authorization. TypeScript retains a bounded delivery record, not guest stack
 state. A typed

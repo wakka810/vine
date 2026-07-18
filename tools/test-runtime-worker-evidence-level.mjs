@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
+
+const protocol = read("browser/runtime-worker/protocol.ts");
+const worker = read("browser/runtime-worker/runtime-worker.ts");
+const fullProbe = read("browser/runtime-worker/bgi-check.ts");
+const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
+
+assert.match(protocol, /protocolVersion = 7 as const/u);
+assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
+assert.match(protocol, /supportedCallCount: number/u);
+
+assert.match(worker, /readonly #completedBgiCallSequences = new Set<number>\(\)/u);
+assert.doesNotMatch(worker, /supportedCalls\.some\(/u);
+assert.equal(worker.match(/supportedCalls\.sort\(/gu)?.length, 1);
+assert.match(worker, /summary runtime evidence is only supported for the private BGI workload/u);
+assert.match(worker, /summary BGI evidence retained detailed call payloads/u);
+
+assert.match(fullProbe, /evidenceLevel: "full"/u);
+assert.match(fullProbe, /instructionBudget: scenario === "watchdog" \? 4 : 512/u);
+assert.match(benchmark, /evidenceLevel: "summary"/u);
+assert.match(benchmark, /instructionBudget: 512/u);
+assert.match(benchmark, /report\.supportedCallCount === expected\.supportedCalls/u);
+assert.match(benchmark, /report\.supportedCalls\.length === 0/u);
+
+console.log("Runtime Worker evidence-level contract passed");

@@ -36,7 +36,7 @@ refcountを直接mutateせず、object tableはname、owner、recursionを保持
 
 ## Preserved behavior
 
-- maximum live critical sections: `4096`
+- maximum live critical sections: `32768`
 - storage identity: nonzero 4-byte-aligned guest address
 - initialize: unowned、recursion `0`
 - enter: current thread ownership、checked recursive increment
@@ -69,8 +69,15 @@ named identity copy、distinct-handle shared object、recursive mutex wait／rel
 process teardown、serialized field compatibilityを検査する。Dispatcher testsはGuestMemory bytes、
 LastError、ABI、policy rejection、critical-section and mutex ownership behaviorを保持する。
 
-Primary targetはbounded startupの後半で4,096件のlive critical sectionを保持し、次の
-`InitializeCriticalSection`を`critical-section-limit-exceeded`としてmutation前に停止できる。この観測は
-limit enforcementとfailure atomicityのevidenceであり、4,096がprimary scenarioに十分なcapacityであることを
-意味しない。Active occurrence、instruction、artifact identity、次stopは
-[current-checkpoint.json](current-checkpoint.json)だけを正とし、capacity変更は独立checkpointで検証する。
+Primary BGI callerだけへ限定した10秒native traceは、spin-count initialize 17件、plain initialize
+16,517件、delete 0件、maximum／final live 16,534件を観測した。最後のinitializeはmain module loadから
+8,966 ms後であり、その後もenter／leaveが継続する。独立した2秒captureも5,325件と5,147件へ到達したため、
+8,192件はnative evidence上不足する。Runtimeのceilingは、観測最大値を上回る次のpower-of-twoで約2倍の
+headroomを持つ32,768件とした。無制限化、host allocation成功への依存、native raw structureのimportは
+行わない。
+
+Exact-capacity unit testは32,768件をcommitした後の次initializeが
+`critical-section-limit-exceeded`を返し、collectionとallocator stateを変えないことを固定する。Primary
+Node continuationはspin-count 17件とplain 16,391件、合計16,408 liveを通過し、capacity残量16,360件を
+保持したまま次のUser32 module-cursor stopへ進む。Active occurrence、instruction、artifact identity、
+次stopは[current-checkpoint.json](current-checkpoint.json)だけを正とする。

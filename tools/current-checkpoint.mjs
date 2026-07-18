@@ -243,8 +243,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v6") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v6");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v7") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v7");
   }
   if (
     browser.executionEngineProfile !==
@@ -502,8 +502,8 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.largeHeapFirstCommittedPageBytes !== 4_096 ||
     bgiBrowserEvidence.largeHeapNodeMaterializationFromGeneration !== 1_473 ||
     bgiBrowserEvidence.largeHeapNodeMaterializationGeneration !== 1_475 ||
-    bgiBrowserEvidence.largeHeapBrowserMaterializationFromGeneration !== 1_535 ||
-    bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_537 ||
+    bgiBrowserEvidence.largeHeapBrowserMaterializationFromGeneration !== 1_502 ||
+    bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_504 ||
     bgiBrowserEvidence.sourceReadCompletions !== 2 ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
     bgiBrowserEvidence.callbackEntries !== 11 ||
@@ -605,11 +605,11 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 2 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-set-window-pos-v1.json" ||
+      "fixtures/benchmarks/bgi-browser-critical-section-capacity-v1.json" ||
     bgiBenchmarkEvidence.runtimeProfile !==
       "user32-set-window-pos-initial-placement" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-set-window-pos-boundary-observation" ||
+      "current-critical-section-capacity-boundary-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
@@ -1898,7 +1898,7 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (
     latestEvidence.schema !==
-      "vine.v86-bgi-send-message-a-small-icon.v1" ||
+      "vine.v86-bgi-critical-section-primary-capacity.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -2304,11 +2304,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 5_547 ||
-    latestEvidence.writebackDirtyPages !== 11_243 ||
-    latestEvidence.writebackChangedBytes !== 1_543_704 ||
-    latestEvidence.hostDeltaBatches !== 4_234 ||
-    latestEvidence.finalMemoryGeneration !== 9_853
+    latestEvidence.writebackBatches !== 17_861 ||
+    latestEvidence.writebackDirtyPages !== 35_998 ||
+    latestEvidence.writebackChangedBytes !== 1_806_846 ||
+    latestEvidence.hostDeltaBatches !== 16_547 ||
+    latestEvidence.finalMemoryGeneration !== 34_480
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -2452,10 +2452,32 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.setWindowPosSameDepthReplacement !== true ||
     latestEvidence.setWindowPosFailureAtomicity !== true ||
     latestEvidence.setWindowPosBrowserOwnsLogicalWindowState !== false ||
-    latestEvidence.criticalSectionCapacityStopImplementedCount !== 4_096 ||
-    latestEvidence.criticalSectionCapacityStopSpinCountCalls !== 17 ||
-    latestEvidence.criticalSectionCapacityStopPlainCalls !== 4_079 ||
-    latestEvidence.criticalSectionCapacityStopNextOccurrence !== 4_080
+    latestEvidence.nativeCriticalSectionCapacityTraceBytes !== 66_177_215 ||
+    latestEvidence.nativeCriticalSectionCapacityTraceLines !== 116_186 ||
+    latestEvidence.nativeCriticalSectionCapacityTraceSha256 !==
+      "119b818f617206c9abcb63c2777279aaf8596f1b522b094c99b5f65960358b45" ||
+    latestEvidence.nativeCriticalSectionCapacityProfile !==
+      "bgi-main-module-live-critical-section-capacity-v1" ||
+    latestEvidence.nativeCriticalSectionCapacityDurationMilliseconds !== 10_000 ||
+    latestEvidence.nativeCriticalSectionCapacitySpinCountCalls !== 17 ||
+    latestEvidence.nativeCriticalSectionCapacityPlainCalls !== 16_517 ||
+    latestEvidence.nativeCriticalSectionCapacityDeleteCalls !== 0 ||
+    latestEvidence.nativeCriticalSectionCapacityEnterCalls !== 4_156 ||
+    latestEvidence.nativeCriticalSectionCapacityLeaveCalls !== 4_066 ||
+    latestEvidence.nativeCriticalSectionCapacityMaximumLive !== 16_534 ||
+    latestEvidence.nativeCriticalSectionCapacityFinalLive !== 16_534 ||
+    latestEvidence.nativeCriticalSectionCapacityLastInitializeAfterModuleLoadMilliseconds !==
+      8_966 ||
+    latestEvidence.nativeCriticalSectionCapacityRepeatMaximumLive?.join(",") !==
+      "5325,5147" ||
+    latestEvidence.nativeCriticalSectionCapacityExecutableHashUnchanged !== true ||
+    latestEvidence.criticalSectionCapacityLimit !== 32_768 ||
+    latestEvidence.criticalSectionNodeLiveCount !== 16_408 ||
+    latestEvidence.criticalSectionNodeSpinCountCalls !== 17 ||
+    latestEvidence.criticalSectionNodePlainCalls !== 16_391 ||
+    latestEvidence.criticalSectionNodeRemainingCapacity !== 16_360 ||
+    latestEvidence.criticalSectionCapacityBounded !== true ||
+    latestEvidence.criticalSectionCapacityFailureAtomicity !== true
   ) {
     errors.push("latest SetWindowPos and critical-section capacity evidence is invalid");
   }
@@ -2510,7 +2532,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "bounded SetWindowPos initial show-hide gateway through RuntimeUser32 operation plans, nested callback stack, and final callback commit" ||
+      "bounded critical-section capacity expansion in RuntimeSynchronization with exact-limit failure atomicity" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||
