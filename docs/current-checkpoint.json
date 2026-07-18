@@ -129,8 +129,8 @@
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {
     "imports": 0,
-    "bytes": 2967736,
-    "sha256": "54b0c366877379dfd8ef7340ec45c86219e1033c1901a3ab48cc6d6b51ffcba9"
+    "bytes": 2967738,
+    "sha256": "fb88d8ff18ab95d4899d2e8d2023bf51334f251c099f0877f97199e87c82f906"
   },
   "browserRuntimeFixture": {
     "bytes": 2560,
@@ -374,8 +374,8 @@
     "sourceReadPendingAfterCleanup": 0,
     "nodeOracleReportBytes": 207005816,
     "nodeOracleReportSha256": "015528f1469aebec9959f7eba37c7c0593443fbbf3e1daf33da1dac174aa0731",
-    "browserReportBytes": 24156023,
-    "browserReportSha256": "87710b68c70f96b621bb4b8e3bd57dc9a5daa92dd2bd15c0bb9cd83b512b8dc8"
+    "browserReportBytes": 24156024,
+    "browserReportSha256": "e99042a330e1e5ef5b36da4adb5f5558577d41fa8bd663e04a355d55d79cf4ad"
   },
   "bgiBenchmarkEvidence": {
     "schema": "vine.browser-bgi-benchmark-report",
