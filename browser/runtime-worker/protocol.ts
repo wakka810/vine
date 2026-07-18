@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 5 as const;
+export const protocolVersion = 6 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
@@ -120,6 +120,37 @@ export interface RuntimeWindowClassSnapshot {
   menuName?: { value: string; encoding: string };
   className: { value: string; encoding: string };
   smallIcon?: { iconId: number; handle: number };
+}
+
+export interface RuntimeWindowSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  ownerThreadId: number;
+  class: { classId: number; atom: number; moduleId: number };
+  instance: { moduleId: number; loadBase: number; sourceSha256: string };
+  name: { value: string; encoding: string };
+  extendedStyle: number;
+  effectiveExtendedStyle: number;
+  style: number;
+  geometry: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    clientX: number;
+    clientY: number;
+    clientWidth: number;
+    clientHeight: number;
+  };
+  parent: number;
+  menu: number;
+  createParameter: number;
+  entryLastError: number;
+  lifecycle:
+    | { state: "creating"; message: "non-client-create" | "non-client-calculate" | "create" | "size" | "move" }
+    | { state: "created" };
+  visible: boolean;
 }
 
 export interface RuntimeComApartmentSnapshot {
@@ -297,6 +328,7 @@ export interface SessionReport {
     icon?: RuntimeIconSnapshot;
     cursor?: RuntimeCursorSnapshot;
     windowClass?: RuntimeWindowClassSnapshot;
+    window?: RuntimeWindowSnapshot;
     comApartment?: RuntimeComApartmentSnapshot;
     sourceRead?: RuntimeSourceReadSnapshot;
   }>;

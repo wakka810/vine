@@ -243,8 +243,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v5") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v5");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v6") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v6");
   }
   if (
     browser.executionEngineProfile !==
@@ -398,7 +398,7 @@ export function validateCurrentCheckpoint(manifest) {
     sourceEvidence.watchdogSourceReadCompletions !== 0 ||
     sourceEvidence.watchdogPendingHostCallsAfterCleanup !== 0 ||
     sourceEvidence.watchdogPendingCallbacksAfterCleanup !== 0 ||
-    sourceEvidence.reportBytes !== 23_266
+    sourceEvidence.reportBytes !== 23_274
   ) {
     errors.push("browser immutable source-read evidence is invalid");
   }
@@ -441,6 +441,8 @@ export function validateCurrentCheckpoint(manifest) {
     "largeHeapBrowserMaterializationGeneration",
     "sourceReadCompletions",
     "sourceReadPendingAfterCleanup",
+    "callbackReplacements",
+    "logicalWindowCompletions",
   ]) {
     requireInteger(
       bgiBrowserEvidence[field],
@@ -482,7 +484,7 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     bgiBrowserEvidence.nodeRole !== "semantic-oracle-only" ||
     bgiBrowserEvidence.runtimeStateAuthority !== "rust-wasm-in-runtime-worker" ||
-    bgiMappingOperations.reserve !== 2 ||
+    bgiMappingOperations.reserve !== 3 ||
     bgiMappingOperations.commit < 1 ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
@@ -503,7 +505,15 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.largeHeapBrowserMaterializationFromGeneration !== 1_532 ||
     bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_534 ||
     bgiBrowserEvidence.sourceReadCompletions !== 2 ||
-    bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0
+    bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
+    bgiBrowserEvidence.callbackEntries !== 6 ||
+    bgiBrowserEvidence.callbackReplacements !== 4 ||
+    bgiBrowserEvidence.maximumCallbackDepth !== 1 ||
+    bgiBrowserEvidence.logicalWindowCompletions !== 1 ||
+    bgiBrowserEvidence.logicalWindowHandle !== "0x48010001" ||
+    bgiBrowserEvidence.logicalWindowFinalLifecycle !== "created" ||
+    bgiBrowserEvidence.logicalWindowVisible !== false ||
+    bgiBrowserEvidence.browserOwnsLogicalWindowState !== false
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
   }
@@ -595,10 +605,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 2 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-source-read-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "kernel32-source-file-read" ||
+      "fixtures/benchmarks/bgi-browser-create-window-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "user32-create-window-ex-a" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-immutable-source-read-boundary-observation" ||
+      "current-logical-window-creation-boundary-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
@@ -764,9 +774,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernelBoundary.closeHandleObjectPlanVisibility !== "opaque-to-kernel" ||
     kernelBoundary.payloadObjectSubsystemRootCloneOrReplacementFromKernel !== false ||
     representativeSubsystemTests.join(",") !==
-      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_system_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
+      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_system_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeAtomicTests.join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -1346,13 +1356,43 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.getSystemMetricsIndices",
     errors,
   );
+  const createWindowExAVariants = requireStringArray(
+    user32Policy.createWindowExAVariants,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.createWindowExAVariants",
+    errors,
+  );
+  const windowCreationMessages = requireStringArray(
+    user32Policy.windowCreationMessages,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.windowCreationMessages",
+    errors,
+  );
+  const callbackScratchArena = requireRecord(
+    user32Policy.callbackScratchArena,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.callbackScratchArena",
+    errors,
+  );
+  const defWindowProcAImplementedMessages = requireIntegerArray(
+    user32Policy.defWindowProcAImplementedMessages,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.defWindowProcAImplementedMessages",
+    errors,
+  );
+  const getSystemMenuFailure = requireRecord(
+    user32Policy.getSystemMenuFailure,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.getSystemMenuFailure",
+    errors,
+  );
+  const enableMenuItemFailure = requireRecord(
+    user32Policy.enableMenuItemFailure,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.enableMenuItemFailure",
+    errors,
+  );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 6 ||
+    user32Policy.schemaVersion !== 7 ||
     user32Policy.id !==
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-v6" ||
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-v7" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v6" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v7" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
@@ -1441,6 +1481,42 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.integerWindowClassNameImplemented !== false ||
     user32Policy.nonAsciiWindowClassNameImplemented !== false ||
     user32Policy.classQueryOrUnregisterApiImplemented !== false ||
+    user32Policy.logicalWindowAuthority !==
+      "runtime/user32.rs::RuntimeUser32" ||
+    user32Policy.createWindowExAProfileId !==
+      "main-local-window-800x600-v1" ||
+    createWindowExAVariants.join(",") !==
+      "mapped-local-main-class-top-level-null-relations" ||
+    user32Policy.windowHandleNamespace !== "vine.logical-window.v1" ||
+    user32Policy.firstWindowHandle !== "0x48010001" ||
+    user32Policy.windowCreationMutation !==
+      "owner-plan-stale-check-targeted-commit" ||
+    windowCreationMessages.join(",") !==
+      "wm-nccreate,wm-nccalcsize,wm-create,wm-size,wm-move" ||
+    user32Policy.windowCreationCallbackReplacement !==
+      "same-depth-retire-and-enter-after-preflight" ||
+    callbackScratchArena.base !== "0x00501000" ||
+    callbackScratchArena.bytes !== 65_536 ||
+    callbackScratchArena.slotBytes !== 4_096 ||
+    user32Policy.callbackScratchMutation !==
+      "address-memory-stack-and-frame-preflight-transaction" ||
+    defWindowProcAImplementedMessages.join(",") !== "129,131,5,3" ||
+    user32Policy.defWindowProcALparamContract !==
+      "bounded-message-dependent-scalar-or-pointer-union" ||
+    user32Policy.invalidMenuProfileId !==
+      "null-window-system-menu-close-item-v1" ||
+    getSystemMenuFailure.result !== "0x00000000" ||
+    getSystemMenuFailure.lastError !== 1_400 ||
+    enableMenuItemFailure.item !== "0x0000f060" ||
+    enableMenuItemFailure.flags !== 0 ||
+    enableMenuItemFailure.result !== "0xffffffff" ||
+    enableMenuItemFailure.lastError !== 1_401 ||
+    user32Policy.processExitRetiresWindows !== true ||
+    user32Policy.hostWindowImported !== false ||
+    user32Policy.browserWindowImported !== false ||
+    user32Policy.generalMenuIdentityImplemented !== false ||
+    user32Policy.windowVisibilityImplemented !== false ||
+    user32Policy.windowMessageQueueIntegrated !== false ||
     user32Policy.getSystemMetricsProfileId !==
       "initial-window-metrics-1920x1080-v1" ||
     getSystemMetricsIndices.join(",") !== "0,1,4,7,8" ||
@@ -1589,6 +1665,11 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeGetSystemMetricsConfirmationTraceSha256",
     "nativeLargeHeapPrimaryTraceSha256",
     "nativeLargeHeapConfirmationTraceSha256",
+    "nativeCreateWindowExAPrimaryTraceSha256",
+    "nativeCreateWindowExAConfirmationTraceSha256",
+    "nativeCreateWindowExAPayloadTraceSha256",
+    "nativeInvalidMenuTraceSha256",
+    "nativeDefWindowProcTraceSha256",
   ]) {
     requireSha256(
       latestEvidence[field],
@@ -1748,7 +1829,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-source-file-read.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-create-window-ex-a.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -2060,6 +2141,121 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.getSystemMetricsBrowserValuesImported !== false
   ) {
     errors.push("latest controlled system-metrics evidence is invalid");
+  }
+  const createWindowExAGeometry = requireRecord(
+    latestEvidence.createWindowExAGeometry,
+    "activeRuntimeCheckpoint.latestEvidence.createWindowExAGeometry",
+    errors,
+  );
+  if (
+    latestEvidence.nativeCreateWindowExAPrimaryTraceBytes !== 316_971 ||
+    latestEvidence.nativeCreateWindowExAPrimaryTraceLines !== 793 ||
+    latestEvidence.nativeCreateWindowExAConfirmationTraceBytes !== 316_932 ||
+    latestEvidence.nativeCreateWindowExAConfirmationTraceLines !== 791 ||
+    latestEvidence.nativeCreateWindowExAPayloadTraceBytes !== 319_849 ||
+    latestEvidence.nativeCreateWindowExAPayloadTraceLines !== 794 ||
+    latestEvidence.nativeInvalidMenuTraceBytes !== 330_210 ||
+    latestEvidence.nativeInvalidMenuTraceLines !== 794 ||
+    latestEvidence.nativeDefWindowProcTraceBytes !== 342_059 ||
+    latestEvidence.nativeDefWindowProcTraceLines !== 833 ||
+    latestEvidence.nativeCreateWindowExAProfile !==
+      "x86-bgi-create-window-ex-a-v1" ||
+    latestEvidence.nativeCreateWindowExACallerReturnRva !== "0x00067efa" ||
+    latestEvidence.nativeCreateWindowExAArguments?.join(",") !==
+      "0x00040000,BGI - Main window,Ethornell title,0x80ca0000,317,154,806,629,0x00000000,0x00000000,main-module,0x00000000" ||
+    latestEvidence.nativeCreateWindowExAResultNonNull !== true ||
+    latestEvidence.nativeCreateWindowExAConsumer !==
+      "store-global-test-nonzero-and-continue-initialization" ||
+    latestEvidence.nativeCreateWindowExACallbackMessages?.join(",") !==
+      "129,131,1,5,3" ||
+    latestEvidence.nativeCreateWindowExACallbackResults?.join(",") !==
+      "1,0,0,0,0" ||
+    latestEvidence.nativeCreateWindowExANonClientRectBefore?.join(",") !==
+      "317,154,1123,783" ||
+    latestEvidence.nativeCreateWindowExANonClientRectAfter?.join(",") !==
+      "320,180,1120,780" ||
+    latestEvidence.nativeCreateWindowExASizeLparam !== "0x02580320" ||
+    latestEvidence.nativeCreateWindowExAMoveLparam !== "0x00b40140" ||
+    latestEvidence.nativeDefWindowProcCallerRva !== "0x000933bf" ||
+    latestEvidence.nativeDefWindowProcCreationMessages?.join(",") !==
+      "129,131,5,3" ||
+    latestEvidence.nativeDefWindowProcCreationResults?.join(",") !==
+      "1,0,0,0" ||
+    latestEvidence.nativeGetSystemMenuArguments?.join(",") !==
+      "0x00000000,0x00000000" ||
+    latestEvidence.nativeGetSystemMenuResult !== "0x00000000" ||
+    latestEvidence.nativeGetSystemMenuLastError !== 1_400 ||
+    latestEvidence.nativeEnableMenuItemArguments?.join(",") !==
+      "0x00000000,0x0000f060,0x00000000" ||
+    latestEvidence.nativeEnableMenuItemResult !== "0xffffffff" ||
+    latestEvidence.nativeEnableMenuItemLastError !== 1_401 ||
+    latestEvidence.nativeInvalidMenuConsumer !==
+      "result-ignored-global-flag-set-and-continue" ||
+    latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
+    latestEvidence.implementation !==
+      "RuntimeUser32-owned logical top-level window with five synchronous callback replacements, dedicated scratch arena, bounded default processing, and invalid-menu leaves" ||
+    latestEvidence.createWindowExAImplemented !== true ||
+    latestEvidence.createWindowExASequence !== 1_388 ||
+    latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||
+    latestEvidence.createWindowExAArguments?.join(",") !==
+      "0x00040000,0x100fba4c,0x006ffb48,0x80ca0000,317,154,806,629,0x00000000,0x00000000,0x10000000,0x00000000" ||
+    latestEvidence.createWindowExAReturnAddress !== "0x10067efa" ||
+    latestEvidence.createWindowExAResult !== "0x48010001" ||
+    latestEvidence.createWindowExALastError !== 0 ||
+    latestEvidence.createWindowExAGuestWrites !== 0 ||
+    latestEvidence.createWindowExAStateOwner !==
+      "runtime/user32.rs::RuntimeUser32" ||
+    latestEvidence.createWindowExAWindowId !== 1 ||
+    latestEvidence.createWindowExAHandleNamespace !== "vine.logical-window.v1" ||
+    latestEvidence.createWindowExAOwnerThreadId !== 8_192 ||
+    latestEvidence.createWindowExAClassId !== 1 ||
+    latestEvidence.createWindowExAClassAtom !== "0x0000c000" ||
+    latestEvidence.createWindowExANameEncoding !== "windows-932-v1" ||
+    latestEvidence.createWindowExAEffectiveExtendedStyle !== "0x00040100" ||
+    createWindowExAGeometry.x !== 317 ||
+    createWindowExAGeometry.y !== 154 ||
+    createWindowExAGeometry.width !== 806 ||
+    createWindowExAGeometry.height !== 629 ||
+    createWindowExAGeometry.clientX !== 320 ||
+    createWindowExAGeometry.clientY !== 180 ||
+    createWindowExAGeometry.clientWidth !== 800 ||
+    createWindowExAGeometry.clientHeight !== 600 ||
+    latestEvidence.createWindowExAFinalLifecycle !== "created" ||
+    latestEvidence.createWindowExAVisible !== false ||
+    latestEvidence.createWindowExACallbackFrameIds?.join(",") !== "2,3,4,5,6" ||
+    latestEvidence.createWindowExACallbackMessages?.join(",") !==
+      "129,131,1,5,3" ||
+    latestEvidence.createWindowExACallbackResults?.join(",") !== "1,0,0,0,0" ||
+    latestEvidence.createWindowExACallbackReturnInstructionCounts?.join(",") !==
+      "11476289,11476342,11476388,11476458,11476511" ||
+    latestEvidence.createWindowExACallbackDepthAfterReturn !== 0 ||
+    latestEvidence.callbackScratchArenaBase !== "0x00501000" ||
+    latestEvidence.callbackScratchArenaBytes !== 65_536 ||
+    latestEvidence.callbackScratchSlotBytes !== 4_096 ||
+    latestEvidence.callbackScratchAddressAllocationPurpose !== "callback-scratch" ||
+    latestEvidence.callbackScratchSeparatedFromDescendingStack !== true ||
+    latestEvidence.defWindowProcAImplemented !== true ||
+    latestEvidence.defWindowProcACallCount !== 4 ||
+    latestEvidence.defWindowProcASequences?.join(",") !== "1389,1390,1393,1394" ||
+    latestEvidence.defWindowProcAMessages?.join(",") !== "129,131,5,3" ||
+    latestEvidence.defWindowProcAResults?.join(",") !== "1,0,0,0" ||
+    latestEvidence.defWindowProcALastErrors?.join(",") !== "0,0,1401,1401" ||
+    latestEvidence.defWindowProcANonClientGuestWriteBytes !== 16 ||
+    latestEvidence.defWindowProcAScalarLparamsDereferenced !== false ||
+    latestEvidence.getSystemMenuImplemented !== true ||
+    latestEvidence.getSystemMenuSequence !== 1_391 ||
+    latestEvidence.getSystemMenuResult !== "0x00000000" ||
+    latestEvidence.getSystemMenuLastError !== 1_400 ||
+    latestEvidence.enableMenuItemImplemented !== true ||
+    latestEvidence.enableMenuItemSequence !== 1_392 ||
+    latestEvidence.enableMenuItemResult !== "0xffffffff" ||
+    latestEvidence.enableMenuItemLastError !== 1_401 ||
+    latestEvidence.generalMenuIdentityAllocated !== false ||
+    latestEvidence.windowCreationFailureAtomicity !== true ||
+    latestEvidence.windowCallbackReplacementFailureAtomicity !== true ||
+    latestEvidence.browserOwnsLogicalWindowState !== false
+  ) {
+    errors.push("latest logical window creation evidence is invalid");
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,

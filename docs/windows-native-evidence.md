@@ -2782,3 +2782,50 @@ Rust `RuntimeFiles`はmanifest／Windows-932 path／share／typed file payload�
 Private Node evidenceは二つのfile lifetimeで同じassetをoffset 0から全量readし、各payload hashがmanifestと一致する。Source executableは実行前後で1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。Chromeもordered calls、二つのsource completion、guest writes、memory digest、next `CreateWindowExA` stopを再現し、pending cancel／watchdog後にRust／Worker recordを残さない。3分source-read workloadは全versioned thresholdを通した。
 
 このevidenceは一objectのread-only Open／Size／Read／Seek／Closeだけを成立させる。Directory enumeration、write、truncate、mapped file、replacement recovery、large-corpus streaming、writable overlay、save／restart／load、SQLite durabilityは未検証である。Stable contractは[runtime-vfs.md](runtime-vfs.md)、backend decisionは[ADR-006](adr-006-vfs-local-server.md)を正とする。
+
+## 103. BGI synchronous logical-window creation
+
+Focused `CreateWindowExA` capturesは次のlocal raw artifactsである。Raw JSONLとprivate absolute pathは
+Gitへ追加しない。
+
+| Capture | Bytes／lines | SHA-256 |
+|---|---:|---|
+| primary | 316,971／793 | `c9c10d854613ff75f3af31485ac00b496a186c0c4de76193e31a6413c3f5e97e` |
+| confirmation | 316,932／791 | `371643a615a1b45afbdb2e259653519c0c97f3275d6db78efdb7e1901eedc7fe` |
+| callback payload | 319,849／794 | `ee8e544934f6b2c32b91d894bf727d00844abdff9a875fa7b6e6e7b9e09c8be9` |
+| invalid-menu consumer | 330,210／794 | `948d2b703e08b94e657dfdf4c695177936f80419b7a54b4cd78f8d0d5508ce2e` |
+| default-procedure confirmation | 342,059／833 | `8e1804c23f0c092fb489ed6b55d9e587bc98537f2565a7a3cfb460f73ba32863` |
+
+Main-module `CreateWindowExA`はextended style `0x00040000`、class
+`BGI - Main window`、Ethornell title、style `0x80CA0000`、position `(317,154)`、outer size
+`806 x 629`、NULL parent／menu／creation parameterを受ける。Registered WndProcはBGI RVA
+`0x92550`で、同期callbackは次の順とresultを持つ。
+
+| Message | Input／output | Result |
+|---|---|---:|
+| `WM_NCCREATE` (`0x0081`) | 48-byte `CREATESTRUCTA` | `1` |
+| `WM_NCCALCSIZE` (`0x0083`) | RECT `[317,154,1123,783] -> [320,180,1120,780]` | `0` |
+| `WM_CREATE` (`0x0001`) | same creation fields | `0` |
+| `WM_SIZE` (`0x0005`) | packed client `800 x 600`, `LPARAM=0x02580320` | `0` |
+| `WM_MOVE` (`0x0003`) | packed client origin `(320,180)`, `LPARAM=0x00B40140` | `0` |
+
+WndProcの同じcaller RVA `0x933BF`は`WM_NCCREATE`／`WM_NCCALCSIZE`／`WM_SIZE`／`WM_MOVE`で
+`DefWindowProcA`を呼び、結果はそれぞれ`1,0,0,0`である。後二つのpacked `LPARAM`をpointerとして
+derefしない。`WM_SIZE`中のBGI RVA `0x9274C`は`GetSystemMenu(NULL,FALSE)`を呼び、NULLと
+`ERROR_INVALID_WINDOW_HANDLE` 1,400を受ける。その結果をそのまま渡すRVA `0x92753`の
+`EnableMenuItem(NULL,0xF060,0)`は`0xFFFFFFFF`と`ERROR_INVALID_MENU_HANDLE` 1,401を返す。
+Callerはmenu resultをbranchせずglobal flagを1にして進む。Native `CreateWindowExA` resultはnon-NULLとして
+保存／branchされるが、数値identityはgoldenにしない。
+
+Rust `RuntimeUser32`はclass relation、copied title、geometry、owner thread、logical HWND
+`0x48010001`、creation lifecycleを所有する。Callbackはprocess-permanent
+`[0x00501000,0x00511000)`を4 KiB depth slotへ分けたscratch arenaを使い、下降stackと分離する。
+Scratch mapping、relocation、stack bytes、frame replacement、window mutationはpreflight後にcommitし、
+callback rejection／stale replacement／memory failureでwindow identityやallocatorを部分更新しない。
+`DefWindowProcA`の`LPARAM` ABIはhandlerがmessage tagを検証するbounded scalar／pointer unionであり、
+`WM_NCCALCSIZE`だけが16 guest bytesを書き換える。
+
+Private Node profileは1,394 calls、five creation callbacks、active callback depth 0を通し、外側
+`CreateWindowExA`からlogical HWNDを返す。次のstructured stopはinstruction 11,476,518の
+`GetSystemMetrics(50)`である。このcheckpointは一般menu identity／mutation、arbitrary window style／parent／
+child、visibility、message queue、input、DOM surface、renderingを実装済みとしない。

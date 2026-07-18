@@ -16,6 +16,7 @@ import {
   type RuntimeIconSnapshot,
   type RuntimeCursorSnapshot,
   type RuntimeWindowClassSnapshot,
+  type RuntimeWindowSnapshot,
   type RuntimeSourceReadSnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
@@ -94,6 +95,7 @@ interface ThreadExitMetadata {
 interface GuestCallbackMetadata {
   kind: "guest-callback";
   frameId: number;
+  replacedFrameId?: number;
   depth: number;
   target: number;
   allocationStart: number;
@@ -121,6 +123,7 @@ interface CompletionMetadata {
   icon?: RuntimeIconSnapshot;
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
+  window?: RuntimeWindowSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
 }
@@ -152,6 +155,7 @@ interface HostCompletionMetadata {
   icon?: RuntimeIconSnapshot;
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
+  window?: RuntimeWindowSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
 }
@@ -188,6 +192,7 @@ interface CallbackCompletionMetadata {
   icon?: RuntimeIconSnapshot;
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
+  window?: RuntimeWindowSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
 }
@@ -1094,6 +1099,12 @@ class BrowserRuntimeSession {
       isRegisterClass === (metadata.windowClass !== undefined),
       "BGI window class completion metadata mismatch",
     );
+    const isCreateWindow =
+      completion.implementationId === "user32.create-window-ex-a.v1";
+    invariant(
+      isCreateWindow === (metadata.window !== undefined),
+      "BGI logical window completion metadata mismatch",
+    );
     const isCoInitialize = completion.implementationId === "ole32.co-initialize.v1";
     invariant(
       isCoInitialize === (metadata.comApartment !== undefined),
@@ -1131,6 +1142,7 @@ class BrowserRuntimeSession {
       ...(metadata.windowClass === undefined
         ? {}
         : { windowClass: metadata.windowClass }),
+      ...(metadata.window === undefined ? {} : { window: metadata.window }),
       ...(metadata.comApartment === undefined
         ? {}
         : { comApartment: metadata.comApartment }),
@@ -1365,12 +1377,40 @@ class BrowserRuntimeSession {
 
   #completeCallback(result: number): void {
     const prepared = this.#requirePrepared();
-    const output = this.#requireBridge().completeCallback<CallbackCompletionMetadata>(
-      prepared.callbackSentinel,
-      result,
-    );
+    const output = this.#requireBridge().completeCallback<
+      CallbackCompletionMetadata | GuestCallbackMetadata
+    >(prepared.callbackSentinel, result);
     const metadata = output.metadata;
-    invariant(metadata.kind === "callback-complete", "invalid callback completion metadata");
+    if (metadata.kind === "guest-callback") {
+      invariant(
+        metadata.replacedFrameId !== undefined,
+        "replacement callback omitted the retired frame identity",
+      );
+      this.#applyRequiredDelta(output);
+      if (prepared.workload === "private-bgi") {
+        const sequence = this.#bgiCallbackCallSequences.get(metadata.replacedFrameId);
+        invariant(sequence !== undefined, "BGI replacement callback has no reserved call sequence");
+        this.#bgiCallbackCallSequences.delete(metadata.replacedFrameId);
+        invariant(
+          !this.#bgiCallbackCallSequences.has(metadata.frameId),
+          "BGI replacement callback reused a live frame identity",
+        );
+        this.#bgiCallbackCallSequences.set(metadata.frameId, sequence);
+      }
+      this.#report.callbackEntries += 1;
+      this.#report.maximumCallbackDepth = Math.max(
+        this.#report.maximumCallbackDepth,
+        metadata.depth,
+      );
+      this.#requireEngine().enterGuestCallback(metadata.target, metadata.stackPointer);
+      this.#threadExecutionStates.set(this.#currentThreadId, "guest-callback");
+      this.#execution.transition("guest-callback", {
+        cause: "guest-callback-replacement",
+        threadId: this.#currentThreadId,
+      });
+      this.#status("callback", `Guest callback replaced at depth ${metadata.depth}`);
+      return;
+    }
     this.#applyOptionalDelta(output);
     if (prepared.workload === "private-bgi") {
       const sequence = this.#bgiCallbackCallSequences.get(metadata.frameId);

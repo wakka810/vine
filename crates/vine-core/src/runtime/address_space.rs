@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use crate::callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE};
+use crate::callbacks::{
+    CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE, CALLBACK_SCRATCH_ARENA_BASE,
+    CALLBACK_SCRATCH_ARENA_SIZE,
+};
 use crate::dynamic_exports::{DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE};
 use crate::imports::{IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE};
 use crate::memory::{GUEST_PAGE_SIZE, GuestAddress, GuestMemoryError};
@@ -60,6 +63,7 @@ pub struct ProcessAddressSpaceLayout {
     pub import_thunks: RuntimeAddressRange,
     pub callback_returns: RuntimeAddressRange,
     pub dynamic_exports: RuntimeAddressRange,
+    pub callback_scratch: RuntimeAddressRange,
 }
 
 impl ProcessAddressSpaceLayout {
@@ -77,6 +81,10 @@ impl ProcessAddressSpaceLayout {
                 base: DYNAMIC_EXPORT_ARENA_BASE,
                 byte_length: DYNAMIC_EXPORT_ARENA_SIZE,
             },
+            callback_scratch: RuntimeAddressRange {
+                base: CALLBACK_SCRATCH_ARENA_BASE,
+                byte_length: CALLBACK_SCRATCH_ARENA_SIZE,
+            },
         }
     }
 }
@@ -90,6 +98,7 @@ pub struct ProcessAddressAllocationId(pub u64);
 pub enum ProcessAddressAllocationPurpose {
     ImportThunks,
     CallbackReturns,
+    CallbackScratch,
     DynamicExports,
     PrivateHeapBand,
     PrivateHeapSlot { slot: u16 },
@@ -291,6 +300,16 @@ impl ProcessAddressSpaceAllocator {
                     u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE),
                 )?,
                 ProcessAddressAllocationClassification::Heap,
+                false,
+            ),
+        )?;
+        allocator.reserve_fixed(
+            None,
+            fixed_request(
+                ProcessAddressAllocationPurpose::CallbackScratch,
+                "runtime-callback-scratch",
+                layout.callback_scratch,
+                ProcessAddressAllocationClassification::RuntimeControl,
                 false,
             ),
         )?;
@@ -762,11 +781,27 @@ mod tests {
     fn vine_layout_registers_control_arenas_and_heap_slots() {
         let allocator =
             ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1()).unwrap();
-        assert_eq!(allocator.records().len(), 37);
+        assert_eq!(allocator.records().len(), 38);
         let import = allocator
             .allocation_for_purpose(&ProcessAddressAllocationPurpose::ImportThunks)
             .unwrap();
         assert_eq!(import.range.base, IMPORT_THUNK_ARENA_BASE);
+        let callback_scratch = allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::CallbackScratch)
+            .unwrap();
+        assert_eq!(callback_scratch.range.base, CALLBACK_SCRATCH_ARENA_BASE);
+        assert_eq!(
+            callback_scratch.range.byte_length,
+            CALLBACK_SCRATCH_ARENA_SIZE
+        );
+        assert_eq!(
+            callback_scratch.classification,
+            ProcessAddressAllocationClassification::RuntimeControl
+        );
+        assert_eq!(
+            callback_scratch.release_policy,
+            ProcessAddressAllocationReleasePolicy::Permanent
+        );
         let first_heap = allocator
             .allocation_for_purpose(&ProcessAddressAllocationPurpose::PrivateHeapSlot { slot: 1 })
             .unwrap();
@@ -898,6 +933,10 @@ mod tests {
             },
             dynamic_exports: RuntimeAddressRange {
                 base: GuestAddress(0x7f02_0000),
+                byte_length: 0x1_0000,
+            },
+            callback_scratch: RuntimeAddressRange {
+                base: GuestAddress(0x0050_1000),
                 byte_length: 0x1_0000,
             },
         };

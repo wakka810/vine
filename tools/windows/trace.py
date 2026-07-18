@@ -42,6 +42,8 @@ SUPPORTED_OBSERVATIONS = (
     "load-icon-a",
     "load-cursor-a",
     "register-class-ex-a",
+    "create-window-ex-a",
+    "get-system-menu",
     "get-system-metrics",
     "get-string-type-w",
     "lc-map-string-w",

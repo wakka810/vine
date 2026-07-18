@@ -7,6 +7,9 @@ use std::ops::Deref;
 use serde::{Serialize, Serializer};
 
 use crate::bootstrap::InitialThreadStack;
+use crate::callbacks::{
+    CALLBACK_SCRATCH_ARENA_BASE, CALLBACK_SCRATCH_ARENA_SIZE, CALLBACK_SCRATCH_SLOT_SIZE,
+};
 use crate::dynamic_exports::DynamicExportThunk;
 use crate::environment::InitialProcessEnvironment;
 use crate::materialize::ImageMaterialization;
@@ -23,9 +26,10 @@ use crate::snapshot::ModuleIdentity;
 
 use super::address_space::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
-    ProcessAddressAllocationPurpose, ProcessAddressAllocationReleasePolicy,
-    ProcessAddressAllocationRequest, ProcessAddressReservationPlan, ProcessAddressSpaceAllocator,
-    ProcessAddressSpaceLayout, RuntimeAddressRange,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    ProcessAddressAllocationReleasePolicy, ProcessAddressAllocationRequest,
+    ProcessAddressReservationPlan, ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout,
+    RuntimeAddressRange,
 };
 use super::com::{
     RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComInterfaceId, RuntimeComInterfaceRecord,
@@ -83,11 +87,12 @@ use super::synchronization::{
     RuntimeMutexNameA, RuntimeMutexRetirementPlan,
 };
 use super::thread::{
-    RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCallbackFrameIdPlan, RuntimeCancellation,
-    RuntimeComApartmentModel, RuntimeComApartmentState, RuntimeComInitializationOutcome,
-    RuntimeComUninitializationOutcome, RuntimeFlsSlot, RuntimeThreadId,
-    RuntimeThreadLifecycleState, RuntimeThreadMutationPlan, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads, RuntimeTlsValue,
+    RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCallbackFrameIdPlan,
+    RuntimeCallbackScratch, RuntimeCancellation, RuntimeComApartmentModel,
+    RuntimeComApartmentState, RuntimeComInitializationOutcome, RuntimeComUninitializationOutcome,
+    RuntimeFlsSlot, RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMutationPlan,
+    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads,
+    RuntimeTlsValue,
 };
 use super::timers::{
     RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
@@ -95,10 +100,11 @@ use super::timers::{
     RuntimeWaitableTimer, RuntimeWaitableTimerId, RuntimeWaitableTimerRetirementPlan,
 };
 use super::user32::{
-    RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon, RuntimeIconId,
-    RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
-    RuntimeRegisterClassExAResult, RuntimeUser32, RuntimeWindowClass, RuntimeWindowClassId,
-    RuntimeWindowClassRegistration,
+    RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon,
+    RuntimeIconId, RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
+    RuntimeRegisterClassExAResult, RuntimeUser32, RuntimeWindow, RuntimeWindowClass,
+    RuntimeWindowClassId, RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowId,
 };
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
@@ -189,12 +195,18 @@ impl RuntimeSourceReadAggregateCompletionPlan {
     }
 }
 
-struct RuntimeCallbackMutationPlan {
+pub(crate) struct RuntimeCallbackMutationPlan {
     thread: RuntimeThreadMutationPlan,
     scheduler: RuntimeSchedulerLanePlan,
     callback_frame_id: Option<RuntimeCallbackFrameIdPlan>,
     entered: Option<RuntimeCallbackFrame>,
     exited: Option<RuntimeCallbackFrame>,
+}
+
+impl RuntimeCallbackMutationPlan {
+    pub(crate) fn entered_frame(&self) -> Option<RuntimeCallbackFrame> {
+        self.entered
+    }
 }
 
 pub(crate) struct RuntimeComReleasePlan {
@@ -210,6 +222,81 @@ impl RuntimeComReleasePlan {
 }
 
 pub const RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE: u32 = 0xffff_fffe;
+
+fn callback_scratch_for_depth(
+    depth: usize,
+    byte_length: u32,
+) -> Result<Option<RuntimeCallbackScratch>, RuntimeStateError> {
+    if byte_length == 0 {
+        return Ok(None);
+    }
+    if byte_length > CALLBACK_SCRATCH_SLOT_SIZE {
+        return Err(RuntimeStateError::resource_limit(
+            "runtime-callback",
+            "callback-scratch-slot-capacity-exceeded",
+            format!(
+                "callback scratch requires {byte_length} bytes; slot capacity is {CALLBACK_SCRATCH_SLOT_SIZE}"
+            ),
+        ));
+    }
+    let slot = depth.checked_sub(1).ok_or_else(|| {
+        RuntimeStateError::runtime_defect(
+            "runtime-callback",
+            "callback-scratch-depth-zero",
+            "live callback scratch cannot be assigned to depth zero",
+        )
+    })?;
+    let slot_count = usize::try_from(CALLBACK_SCRATCH_ARENA_SIZE)
+        .ok()
+        .and_then(|bytes| bytes.checked_div(CALLBACK_SCRATCH_SLOT_SIZE as usize))
+        .ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-callback",
+                "callback-scratch-arena-layout-invalid",
+                "callback scratch arena does not contain a complete slot",
+            )
+        })?;
+    if slot >= slot_count {
+        return Err(RuntimeStateError::resource_limit(
+            "runtime-callback",
+            "callback-scratch-depth-limit-exceeded",
+            format!("callback scratch depth {depth} exceeds {slot_count} arena slots"),
+        ));
+    }
+    let offset = u32::try_from(slot)
+        .ok()
+        .and_then(|slot| slot.checked_mul(CALLBACK_SCRATCH_SLOT_SIZE))
+        .ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-callback",
+                "callback-scratch-slot-offset-overflow",
+                "validated callback scratch slot offset overflowed x86 accounting",
+            )
+        })?;
+    let address = CALLBACK_SCRATCH_ARENA_BASE
+        .0
+        .checked_add(offset)
+        .map(GuestAddress)
+        .ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-callback",
+                "callback-scratch-slot-address-overflow",
+                "validated callback scratch slot address overflowed x86 accounting",
+            )
+        })?;
+    Ok(Some(RuntimeCallbackScratch {
+        slot: u16::try_from(slot).map_err(|_| {
+            RuntimeStateError::runtime_defect(
+                "runtime-callback",
+                "callback-scratch-slot-unrepresentable",
+                "validated callback scratch slot does not fit its identity type",
+            )
+        })?,
+        address,
+        byte_length,
+        capacity: CALLBACK_SCRATCH_SLOT_SIZE,
+    }))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2439,10 +2526,10 @@ impl RuntimeKernel {
         self.modules.validate_lifecycle_plan(&plan)?;
         let callback_plan = match (completed_frame, plan.callback_entry()) {
             (None, Some((target, return_sentinel))) => {
-                Some(self.plan_callback_push(target, return_sentinel)?)
+                Some(self.plan_callback_push(target, return_sentinel, 0)?)
             }
             (Some(expected), Some((target, return_sentinel))) => {
-                Some(self.plan_callback_replace(expected, target, return_sentinel)?)
+                Some(self.plan_callback_replace(expected, target, return_sentinel, 0)?)
             }
             (Some(expected), None) => Some(self.plan_callback_pop(expected)?),
             (None, None) => None,
@@ -2824,6 +2911,114 @@ impl RuntimeKernel {
         self.user32.window_classes()
     }
 
+    pub(crate) fn preview_window_creation(
+        &self,
+        request: &RuntimeWindowCreationRequest,
+    ) -> Result<RuntimeWindow, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.validate_window_creation_authority(request)?;
+        let plan = self.user32.plan_window_creation(request.clone())?;
+        Ok(self.user32.window_creation_preview(&plan).clone())
+    }
+
+    pub(crate) fn create_window(
+        &mut self,
+        request: RuntimeWindowCreationRequest,
+    ) -> Result<RuntimeCreateWindowExAResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.validate_window_creation_authority(&request)?;
+        let plan = self.user32.plan_window_creation(request)?;
+        self.user32.commit_window_creation(plan)
+    }
+
+    pub(crate) fn preview_window_creation_callback(
+        &self,
+        window_id: RuntimeWindowId,
+        message: RuntimeWindowCreationMessage,
+        result: u32,
+    ) -> Result<RuntimeWindowCreationCallbackAction, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(window_id)?;
+        let plan = self
+            .user32
+            .plan_window_creation_callback(window_id, message, result)?;
+        Ok(self.user32.window_creation_callback_action(&plan).clone())
+    }
+
+    pub(crate) fn complete_window_creation_callback(
+        &mut self,
+        window_id: RuntimeWindowId,
+        message: RuntimeWindowCreationMessage,
+        result: u32,
+    ) -> Result<RuntimeWindowCreationCallbackAction, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(window_id)?;
+        let plan = self
+            .user32
+            .plan_window_creation_callback(window_id, message, result)?;
+        self.user32.commit_window_creation_callback(plan)
+    }
+
+    pub fn window(&self, handle: u32) -> Result<&RuntimeWindow, RuntimeStateError> {
+        self.user32.window(handle)
+    }
+
+    pub fn window_by_id(&self, id: RuntimeWindowId) -> Result<&RuntimeWindow, RuntimeStateError> {
+        self.user32.window_by_id(id)
+    }
+
+    pub fn windows(&self) -> &BTreeMap<RuntimeWindowId, RuntimeWindow> {
+        self.user32.windows()
+    }
+
+    fn validate_window_creation_authority(
+        &self,
+        request: &RuntimeWindowCreationRequest,
+    ) -> Result<(), RuntimeStateError> {
+        if request.owner_thread_id != self.current_thread_id() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "window-owner-thread-mismatch",
+                "logical window owner must be the selected creating guest thread",
+            ));
+        }
+        let image = self
+            .modules
+            .images()
+            .image(request.instance.module_id)
+            .map_err(runtime_module_image_error)?;
+        if image.load_base != request.instance.load_base
+            || image.source.sha256 != request.instance.source_sha256
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "window-module-identity-mismatch",
+                "logical window instance does not match its registered module image",
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_window_owner_thread(
+        &self,
+        window_id: RuntimeWindowId,
+    ) -> Result<(), RuntimeStateError> {
+        if self
+            .user32
+            .window_by_id(window_id)?
+            .creation
+            .owner_thread_id
+            != self.current_thread_id()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-callback-thread-mismatch",
+                "logical window creation callback returned on a different guest thread",
+            ));
+        }
+        Ok(())
+    }
+
     fn require_user32_operation_state(&self) -> Result<(), RuntimeStateError> {
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
@@ -3085,17 +3280,34 @@ impl RuntimeKernel {
         target: GuestAddress,
         return_sentinel: GuestAddress,
     ) -> Result<RuntimeCallbackFrame, RuntimeStateError> {
-        let plan = self.plan_callback_push(target, return_sentinel)?;
+        let plan = self.plan_callback_push(target, return_sentinel, 0)?;
         Ok(self
             .commit_callback_mutation(plan)
             .0
             .expect("callback push plan did not enter a frame"))
     }
 
-    fn plan_callback_push(
+    pub(crate) fn callback_scratch_allocation(
+        &self,
+    ) -> Result<&ProcessAddressAllocationRecord, RuntimeStateError> {
+        self.address_space_allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::CallbackScratch)
+    }
+
+    pub fn validate_callback_frame_entry(
         &self,
         target: GuestAddress,
         return_sentinel: GuestAddress,
+    ) -> Result<(), RuntimeStateError> {
+        self.plan_callback_push(target, return_sentinel, 0)
+            .map(drop)
+    }
+
+    pub(crate) fn plan_callback_push(
+        &self,
+        target: GuestAddress,
+        return_sentinel: GuestAddress,
+        scratch_bytes: u32,
     ) -> Result<RuntimeCallbackMutationPlan, RuntimeStateError> {
         let thread_id = self.current_thread_id();
         let current_depth = self.threads.callback_depth(thread_id)?;
@@ -3111,12 +3323,20 @@ impl RuntimeKernel {
             }
         }
         let callback_frame_id = self.threads.plan_callback_frame_id()?;
+        let depth = current_depth.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-callback",
+                "callback-depth-overflow",
+                "callback depth overflowed host accounting",
+            )
+        })?;
         let frame = RuntimeCallbackFrame {
             id: callback_frame_id.id(),
             thread_id,
             target,
             return_sentinel,
             entry_last_error: self.current_last_error()?,
+            scratch: callback_scratch_for_depth(depth, scratch_bytes)?,
         };
         let (thread_plan, depth) = self.threads.plan_callback_push(thread_id, frame)?;
         let scheduler_plan = self
@@ -3185,11 +3405,12 @@ impl RuntimeKernel {
         })
     }
 
-    fn plan_callback_replace(
+    pub(crate) fn plan_callback_replace(
         &self,
         expected: RuntimeCallbackFrameId,
         target: GuestAddress,
         return_sentinel: GuestAddress,
+        scratch_bytes: u32,
     ) -> Result<RuntimeCallbackMutationPlan, RuntimeStateError> {
         let thread_id = self.current_thread_id();
         let current_depth = self.threads.callback_depth(thread_id)?;
@@ -3211,6 +3432,7 @@ impl RuntimeKernel {
             target,
             return_sentinel,
             entry_last_error: self.current_last_error()?,
+            scratch: callback_scratch_for_depth(current_depth, scratch_bytes)?,
         };
         let (thread_plan, exited, depth) = self
             .threads
@@ -3227,7 +3449,30 @@ impl RuntimeKernel {
         })
     }
 
-    fn commit_callback_mutation(
+    pub fn validate_callback_frame_replacement(
+        &self,
+        expected: RuntimeCallbackFrameId,
+        target: GuestAddress,
+        return_sentinel: GuestAddress,
+    ) -> Result<(), RuntimeStateError> {
+        self.plan_callback_replace(expected, target, return_sentinel, 0)
+            .map(drop)
+    }
+
+    pub fn replace_callback_frame(
+        &mut self,
+        expected: RuntimeCallbackFrameId,
+        target: GuestAddress,
+        return_sentinel: GuestAddress,
+    ) -> Result<RuntimeCallbackFrame, RuntimeStateError> {
+        let plan = self.plan_callback_replace(expected, target, return_sentinel, 0)?;
+        Ok(self
+            .commit_callback_mutation(plan)
+            .0
+            .expect("callback replacement plan did not enter a frame"))
+    }
+
+    pub(crate) fn commit_callback_mutation(
         &mut self,
         plan: RuntimeCallbackMutationPlan,
     ) -> (Option<RuntimeCallbackFrame>, Option<RuntimeCallbackFrame>) {

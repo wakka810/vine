@@ -94,8 +94,8 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 [browser-runtime-worker.md](browser-runtime-worker.md).
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
-source-read workload is pinned by
-[`bgi-browser-source-read-v1.json`](../fixtures/benchmarks/bgi-browser-source-read-v1.json).
+current logical-window workload is pinned by
+[`bgi-browser-create-window-v1.json`](../fixtures/benchmarks/bgi-browser-create-window-v1.json).
 It repeats the complete current session, checks semantics on every repetition, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
 and Wasm-crossing thresholds. Its result and non-claims are recorded in

@@ -119,6 +119,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-get-system-metrics",
         "kernel32-large-heap-allocation",
         "kernel32-source-file-read",
+        "user32-create-window-ex-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -151,10 +152,18 @@ assert(
 assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
 assert(sourceManifestPath === null || genericRuntimeReentry, "--source-manifest requires --generic-runtime-reentry");
 assert(
-  sourceManifestPath === null || genericRuntimeCapability === "kernel32-source-file-read",
-  "--source-manifest is reserved for kernel32-source-file-read",
+  sourceManifestPath === null ||
+    ["kernel32-source-file-read", "user32-create-window-ex-a"].includes(
+      genericRuntimeCapability,
+    ),
+  "--source-manifest is reserved for source-reading capabilities",
 );
-if (genericRuntimeCapability === "kernel32-source-file-read" && sourceManifestPath === null) {
+if (
+  ["kernel32-source-file-read", "user32-create-window-ex-a"].includes(
+    genericRuntimeCapability,
+  ) &&
+  sourceManifestPath === null
+) {
   sourceManifestPath = path.join(
     root,
     "fixtures",
@@ -164,7 +173,8 @@ if (genericRuntimeCapability === "kernel32-source-file-read" && sourceManifestPa
 }
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-source-file-read"
+    genericRuntimeCapability === "kernel32-source-file-read" ||
+    genericRuntimeCapability === "user32-create-window-ex-a"
       ? "kernel32-source-file-read-v1.json"
       : genericRuntimeCapability === "kernel32-large-heap-allocation"
       ? "kernel32-large-heap-allocation-v1.json"
@@ -285,7 +295,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const sourceFileReadEnabled = genericRuntimeCapability === "kernel32-source-file-read";
+const createWindowExAEnabled = genericRuntimeCapability === "user32-create-window-ex-a";
+const sourceFileReadEnabled =
+  createWindowExAEnabled || genericRuntimeCapability === "kernel32-source-file-read";
 const largeHeapAllocationEnabled =
   sourceFileReadEnabled || genericRuntimeCapability === "kernel32-large-heap-allocation";
 const getSystemMetricsEnabled =
@@ -442,7 +454,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? sourceFileReadEnabled
+      ? createWindowExAEnabled
+        ? "v86-bgi-create-window-ex-a"
+      : sourceFileReadEnabled
         ? "v86-bgi-source-file-read"
       : largeHeapAllocationEnabled
         ? "v86-bgi-large-heap-allocation"
@@ -4363,6 +4377,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (createWindowExAEnabled) {
+        validateCreateWindowExAResult(genericResult);
       } else if (sourceFileReadEnabled) {
         validateSourceFileReadResult(genericResult);
       } else if (largeHeapAllocationEnabled) {
@@ -4484,6 +4500,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : createWindowExAEnabled
+            ? "bgi CreateWindowExA"
           : sourceFileReadEnabled
             ? "bgi source file read"
           : largeHeapAllocationEnabled
@@ -4878,6 +4896,34 @@ async function runGenericRuntimeReentry({
           null,
           "generic callback API completion",
         );
+      }
+      if (response.kind === runtimeFrame.guestCallback) {
+        assert.equal(response.payload.length, 0);
+        const entry = JSON.parse(response.control.toString("utf8"));
+        validateGenericCallbackEntry(entry, active.endpoint, generation, context);
+        callbackEvents.push({
+          action: "return",
+          sequence: active.sequence,
+          frameId: active.entry.frameId,
+          instructionCount: continuation.instructionCount,
+          result: callbackResult,
+        });
+        enterGenericGuestCallback(context, continuation.finalState, entry);
+        active.entry = entry;
+        callbackEvents.push({
+          action: "replace",
+          sequence: active.sequence,
+          frameId: entry.frameId,
+          instructionCount: continuation.instructionCount,
+          target: entry.target,
+          stackPointer: entry.stackPointer,
+        });
+        continuation = executeToNextOwnedTrap(
+          offer,
+          context,
+          continuation.instructionCount,
+        );
+        continue;
       }
       assert.equal(response.kind, runtimeFrame.apiCompletion);
       assert.equal(response.payload.length, 0);
@@ -5524,6 +5570,7 @@ function buildGenericCallRecord(
     ...(completionFrame.windowClass === undefined
       ? {}
       : { windowClass: completionFrame.windowClass }),
+    ...(completionFrame.window === undefined ? {} : { window: completionFrame.window }),
     ...(completionFrame.threadAffinity === undefined
       ? {}
       : { threadAffinity: completionFrame.threadAffinity }),
@@ -5564,6 +5611,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : createWindowExAEnabled
+          ? 59
         : sourceFileReadEnabled
           ? 55
         : largeHeapAllocationEnabled
@@ -5674,7 +5723,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-v6",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-v7",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -6022,7 +6071,15 @@ function applyRuntimeHostDelta(context, delta) {
       "runtime host mapping operation",
     );
     if (operation.operation === 1) {
-      assert.equal(operation.regionKind, 7, "runtime host reserve is not a heap region");
+      const callbackScratchReserve =
+        operation.regionKind === 9 &&
+        operation.address === 0x0050_1000 &&
+        operation.byteLength === 0x1_0000;
+      assert(
+        operation.regionKind === 7 ||
+          (enumDisplayMonitorsEnabled && callbackScratchReserve),
+        "runtime host reserve is neither a heap nor the callback scratch arena",
+      );
       assert.deepEqual(operation.protection, {
         read: false,
         write: false,
@@ -6045,6 +6102,18 @@ function applyRuntimeHostDelta(context, delta) {
       continue;
     }
     if (operation.operation === 2) {
+      if (
+        0x0050_1000 <= operation.address &&
+        operation.address < 0x0051_1000
+      ) {
+        assert(enumDisplayMonitorsEnabled);
+        assert.equal(operation.byteLength, page.size);
+        assert.deepEqual(operation.protection, {
+          read: true,
+          write: true,
+          execute: false,
+        });
+      }
       const overlappingReservations = [...context.reservations.values()].filter(
         (reservation) =>
           operation.address < reservation.address + reservation.byteLength &&
@@ -6205,12 +6274,16 @@ function validateGenericCallbackEntry(entry, endpoint, generation, context) {
   assert.equal(entry.memory.acknowledgedGeneration, generation);
   assert.equal(entry.memory.dirtyPages, 0);
   assert.equal(entry.memory.pendingInvalidation, undefined);
-  assert.equal(entry.scratchAddress, entry.allocationStart);
-  assert.equal(entry.stackPointer, entry.allocationStart + ((entry.scratchBytes + 3) & ~3));
-  assert.equal(
-    entry.frameBytes,
-    ((entry.scratchBytes + 3) & ~3) + (entry.argumentCount + 1) * 4,
-  );
+  assert.equal(entry.stackPointer, entry.allocationStart);
+  assert.equal(entry.frameBytes, (entry.argumentCount + 1) * 4);
+  if (entry.scratchBytes === 0) {
+    assert.equal(entry.scratchAddress, 0);
+  } else {
+    assert(entry.scratchBytes <= 0x1000);
+    assert(entry.scratchAddress >= 0x0050_1000);
+    assert(entry.scratchAddress < 0x0051_1000);
+    assert.equal((entry.scratchAddress - 0x0050_1000) % 0x1000, 0);
+  }
   assert.equal(
     context.readVirtualU32(entry.stackPointer, "callback return sentinel"),
     entry.returnSentinel,
@@ -10338,6 +10411,149 @@ function validateSourceFileReadResult(result) {
   ]);
 }
 
+function validateCreateWindowExAResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 1394);
+  assert.equal(result.callbackEvents.length, 12);
+  assert.equal(result.finalGeneration, 1644);
+
+  const createWindow = result.supportedCalls.find(
+    (call) => call.symbol === "CreateWindowExA",
+  );
+  assert(createWindow);
+  assert.deepEqual(createWindow.result, { action: "set", value: 0x4801_0001 });
+  assert.equal(createWindow.lastError, 0);
+  assert.equal(createWindow.callback.frameId, 6);
+  assert.equal(createWindow.callback.result, 0);
+  assert.equal(createWindow.callback.returnInstructionCount, 11_476_511);
+  assert.deepEqual(createWindow.window, {
+    id: 1,
+    handle: 0x4801_0001,
+    namespace: "vine.logical-window.v1",
+    ownerThreadId: 8192,
+    class: { classId: 1, atom: 0xc000, moduleId: 15 },
+    instance: {
+      moduleId: 15,
+      loadBase: 0x1000_0000,
+      sourceSha256: expected.source.sha256,
+    },
+    name: {
+      value:
+        "Ethornell - BURIKO General Interpreter ( Version : 1.614.1 - Compatibility : 1.72 )",
+      encoding: "windows-932-v1",
+    },
+    extendedStyle: 0x0004_0000,
+    effectiveExtendedStyle: 0x0004_0100,
+    style: 0x80ca_0000,
+    geometry: {
+      x: 317,
+      y: 154,
+      width: 806,
+      height: 629,
+      clientX: 320,
+      clientY: 180,
+      clientWidth: 800,
+      clientHeight: 600,
+    },
+    parent: 0,
+    menu: 0,
+    createParameter: 0,
+    entryLastError: 0,
+    lifecycle: { state: "created" },
+    visible: false,
+  });
+
+  assert.deepEqual(
+    result.supportedCalls.slice(-7).map((call) => [
+      call.symbol,
+      call.arguments,
+      call.result,
+      call.lastError,
+    ]),
+    [
+      [
+        "CreateWindowExA",
+        [
+          0x0004_0000,
+          0x100f_ba4c,
+          0x006f_fb48,
+          0x80ca_0000,
+          317,
+          154,
+          806,
+          629,
+          0,
+          0,
+          0x1000_0000,
+          0,
+        ],
+        { action: "set", value: 0x4801_0001 },
+        0,
+      ],
+      [
+        "DefWindowProcA",
+        [0x4801_0001, 0x0081, 0, 0x0050_1000],
+        { action: "set", value: 1 },
+        0,
+      ],
+      [
+        "DefWindowProcA",
+        [0x4801_0001, 0x0083, 0, 0x0050_1000],
+        { action: "set", value: 0 },
+        0,
+      ],
+      [
+        "GetSystemMenu",
+        [0, 0],
+        { action: "set", value: 0 },
+        1400,
+      ],
+      [
+        "EnableMenuItem",
+        [0, 0x0000_f060, 0],
+        { action: "set", value: 0xffff_ffff },
+        1401,
+      ],
+      [
+        "DefWindowProcA",
+        [0x4801_0001, 0x0005, 0, 0x0258_0320],
+        { action: "set", value: 0 },
+        1401,
+      ],
+      [
+        "DefWindowProcA",
+        [0x4801_0001, 0x0003, 0, 0x00b4_0140],
+        { action: "set", value: 0 },
+        1401,
+      ],
+    ],
+  );
+
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "user32-display");
+  assert.equal(result.fault.fault.code, "get-system-metrics-index-unsupported");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 203);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0ca0);
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GetSystemMetrics",
+  });
+  assert.equal(result.fault.memory.physicalPages, 717);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "8bf6b1541dd14d0855f5ee5917f425ecbe205359f3df2e8c233b99012b4ee924",
+  );
+  assert.equal(result.terminal.instructionCount, 11_476_518);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 203);
+  assert.equal(result.terminal.terminal.thunk.name, "GetSystemMetrics");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_7f2d);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [50]);
+}
+
 function validateLargeHeapAllocationResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
@@ -11647,6 +11863,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : createWindowExAEnabled
+          ? "vine.v86-bgi-create-window-ex-a"
         : sourceFileReadEnabled
           ? "vine.v86-bgi-source-file-read"
         : largeHeapAllocationEnabled

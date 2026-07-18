@@ -149,6 +149,13 @@ let registerClassExAOracleEvidence = null;
 let registerClassExACompletionRecorded = false;
 let registerClassExADrainCheckScheduled = false;
 const registerClassExAMainModuleCalls = [];
+let createWindowExACompletionRecorded = false;
+let createWindowExADrainCheckScheduled = false;
+const createWindowExAMainModuleCalls = [];
+const createWindowClassRegistrations = new Map();
+const activeCreateWindowCallsByThread = new Map();
+const attachedCreateWindowClassDiscovery = new Set();
+const attachedCreateWindowProcedures = new Set();
 let getSystemMetricsOracleScheduled = false;
 let getSystemMetricsOracleCall = null;
 let getSystemMetricsOracleComplete = false;
@@ -2301,6 +2308,23 @@ const hooks = {
   ],
 };
 
+if (selectedObservations.has("create-window-ex-a")) {
+  hooks["user32.dll"] = hooks["user32.dll"].filter(
+    ([name]) => name !== "CreateWindowExA",
+  );
+  hooks["user32.dll"].push([
+    "DefWindowProcA",
+    [null, null, null, null],
+  ]);
+}
+
+if (selectedObservations.has("get-system-menu")) {
+  hooks["user32.dll"].push(
+    ["GetSystemMenu", [null, null]],
+    ["EnableMenuItem", [null, null, null]],
+  );
+}
+
 if (selectedObservations.has("startup-info")) {
   hooks["kernel32.dll"].push(["GetStartupInfoW", [null]]);
 }
@@ -3026,6 +3050,400 @@ function snapshotWndClassExA(pointer) {
   } catch (error) {
     return { profile, measuredBytes, raw, error: error.message };
   }
+}
+
+function snapshotCreateStructA(pointer) {
+  const profile = "x86-createstructa-v1";
+  const measuredBytes = 48;
+  const raw = snapshotBoundedRawBytes(pointer, measuredBytes);
+  if (raw.error !== undefined) {
+    return { profile, measuredBytes, raw };
+  }
+  if (Process.pointerSize !== 4) {
+    return {
+      profile,
+      measuredBytes,
+      raw,
+      error: `x86 CREATESTRUCTA observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  try {
+    const createParams = pointer.readPointer();
+    const instance = pointer.add(4).readPointer();
+    const menu = pointer.add(8).readPointer();
+    const parent = pointer.add(12).readPointer();
+    const windowName = pointer.add(36).readPointer();
+    const className = pointer.add(40).readPointer();
+    return {
+      profile,
+      measuredBytes,
+      raw,
+      fields: {
+        createParams: createParams.toString(),
+        instance: snapshotAddressIdentity(instance),
+        menu: menu.toString(),
+        parent: parent.toString(),
+        height: pointer.add(16).readS32(),
+        width: pointer.add(20).readS32(),
+        y: pointer.add(24).readS32(),
+        x: pointer.add(28).readS32(),
+        style: pointer.add(32).readU32(),
+        windowName: snapshotClassNameA(windowName),
+        className: snapshotClassNameA(className),
+        extendedStyle: pointer.add(44).readU32(),
+      },
+    };
+  } catch (error) {
+    return { profile, measuredBytes, raw, error: error.message };
+  }
+}
+
+function createWindowClassIdentity(snapshot) {
+  if (
+    snapshot?.kind !== "string" ||
+    typeof snapshot.value?.string !== "string"
+  ) {
+    return null;
+  }
+  return snapshot.value.string.toLowerCase();
+}
+
+function createWindowMessageName(message) {
+  switch (message) {
+    case 0x0001:
+      return "WM_CREATE";
+    case 0x0003:
+      return "WM_MOVE";
+    case 0x0005:
+      return "WM_SIZE";
+    case 0x0018:
+      return "WM_SHOWWINDOW";
+    case 0x0046:
+      return "WM_WINDOWPOSCHANGING";
+    case 0x0047:
+      return "WM_WINDOWPOSCHANGED";
+    case 0x0081:
+      return "WM_NCCREATE";
+    case 0x0083:
+      return "WM_NCCALCSIZE";
+    case 0x0085:
+      return "WM_NCPAINT";
+    case 0x0086:
+      return "WM_NCACTIVATE";
+    case 0x0129:
+      return "WM_QUERYUISTATE";
+    default:
+      return null;
+  }
+}
+
+function snapshotCreateWindowMessagePayload(message, wParam, lParam) {
+  if (message === 0x0083 && wParam.toUInt32() === 0 && !lParam.isNull()) {
+    const raw = snapshotBoundedRawBytes(lParam, 16);
+    let fields = null;
+    if (raw.error === undefined) {
+      try {
+        fields = {
+          left: lParam.readS32(),
+          top: lParam.add(4).readS32(),
+          right: lParam.add(8).readS32(),
+          bottom: lParam.add(12).readS32(),
+        };
+      } catch {}
+    }
+    return { kind: "rect", profile: "x86-rect-v1", raw, fields };
+  }
+  if (message === 0x0005 || message === 0x0003) {
+    const packed = lParam.toUInt32();
+    const low = packed & 0xffff;
+    const high = (packed >>> 16) & 0xffff;
+    const signed16 = (value) => (value & 0x8000 ? value - 0x10000 : value);
+    return message === 0x0005
+      ? {
+          kind: "size",
+          profile: "x86-wm-size-v1",
+          width: low,
+          height: high,
+        }
+      : {
+          kind: "move",
+          profile: "x86-wm-move-v1",
+          x: signed16(low),
+          y: signed16(high),
+        };
+  }
+  return null;
+}
+
+function attachCreateWindowProcedureObserver(address, registration) {
+  if (address.isNull()) {
+    return;
+  }
+  const key = address.toString();
+  if (attachedCreateWindowProcedures.has(key)) {
+    return;
+  }
+  attachedCreateWindowProcedures.add(key);
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const threadId = Process.getCurrentThreadId();
+      const calls = activeCreateWindowCallsByThread.get(threadId) ?? [];
+      const active = calls.at(-1) ?? null;
+      if (active === null || active.callbacks.length >= 128) {
+        this.callback = null;
+        return;
+      }
+      const message = args[1].toUInt32();
+      const lParam = args[3];
+      const callback = {
+        sequence: active.callbacks.length + 1,
+        threadId,
+        procedure: snapshotAddressIdentity(address),
+        registeredClass: registration,
+        hwnd: args[0].toString(),
+        message,
+        messageName: createWindowMessageName(message),
+        wParam: args[2].toString(),
+        lParam: lParam.toString(),
+        messagePayloadBefore: snapshotCreateWindowMessagePayload(
+          message,
+          args[2],
+          lParam,
+        ),
+        messagePayloadAfter: null,
+        createStruct:
+          (message === 0x0081 || message === 0x0001) && !lParam.isNull()
+            ? snapshotCreateStructA(lParam)
+            : null,
+        result: null,
+        lastError: null,
+      };
+      active.callbacks.push(callback);
+      this.callback = callback;
+    },
+    onLeave(result) {
+      if (this.callback === null) {
+        return;
+      }
+      this.callback.messagePayloadAfter = snapshotCreateWindowMessagePayload(
+        this.callback.message,
+        ptr(this.callback.wParam),
+        ptr(this.callback.lParam),
+      );
+      this.callback.result = result.toString();
+      this.callback.lastError = Number(this.lastError) >>> 0;
+    },
+  });
+}
+
+function attachCreateWindowClassDiscoveryHook(module) {
+  const address = findExport(module, "RegisterClassExA");
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attachedCreateWindowClassDiscovery.has(key)) {
+    return;
+  }
+  attachedCreateWindowClassDiscovery.add(key);
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+        this.registration = null;
+        return;
+      }
+      const windowClassAddress = args[0];
+      const windowClass = snapshotWndClassExA(windowClassAddress);
+      let procedure = null;
+      try {
+        procedure = windowClassAddress.add(8).readPointer();
+      } catch {}
+      this.registration = {
+        returnAddress: this.returnAddress.toString(),
+        windowClassAddress: windowClassAddress.toString(),
+        windowClass,
+        procedure,
+      };
+    },
+    onLeave(result) {
+      if (this.registration === null || result.toUInt32() === 0) {
+        return;
+      }
+      const className = this.registration.windowClass.fields?.className ?? null;
+      const identity = createWindowClassIdentity(className);
+      const registration = {
+        returnAddress: this.registration.returnAddress,
+        atom: result.toUInt32(),
+        windowClass: this.registration.windowClass,
+      };
+      if (identity !== null) {
+        createWindowClassRegistrations.set(identity, registration);
+      }
+      if (this.registration.procedure !== null) {
+        attachCreateWindowProcedureObserver(
+          this.registration.procedure,
+          registration,
+        );
+      }
+      emit("create-window-class-discovered", registration);
+    },
+  });
+}
+
+function attachCreateWindowExAHook(module) {
+  const name = "CreateWindowExA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+        this.traceFrame = null;
+        return;
+      }
+      const className = snapshotClassNameA(args[1]);
+      const windowName = snapshotClassNameA(args[2]);
+      const classIdentity = createWindowClassIdentity(className);
+      const call = {
+        threadId: Process.getCurrentThreadId(),
+        returnAddress: this.returnAddress.toString(),
+        extendedStyle: args[0].toUInt32(),
+        classNameAddress: args[1],
+        className,
+        windowNameAddress: args[2],
+        windowName,
+        style: args[3].toUInt32(),
+        x: signed32(args[4]),
+        y: signed32(args[5]),
+        width: signed32(args[6]),
+        height: signed32(args[7]),
+        parent: args[8].toString(),
+        menu: args[9].toString(),
+        instance: snapshotAddressIdentity(args[10]),
+        createParams: args[11].toString(),
+        registeredClass:
+          classIdentity === null
+            ? null
+            : (createWindowClassRegistrations.get(classIdentity) ?? null),
+        lastErrorBefore: Number(this.lastError) >>> 0,
+        immediateConsumer: {
+          apiContinuation: snapshotInstructionsFollowingDirectJump(
+            this.returnAddress,
+            96,
+          ),
+          frameCallerContinuations: snapshotX86FrameCallerContinuations(
+            this.context,
+            8,
+            24,
+          ),
+        },
+        callbacks: [],
+      };
+      const calls = activeCreateWindowCallsByThread.get(call.threadId) ?? [];
+      calls.push(call);
+      activeCreateWindowCallsByThread.set(call.threadId, calls);
+      this.windowCall = call;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            call.extendedStyle,
+            call.className,
+            call.windowName,
+            call.style,
+            call.x,
+            call.y,
+            call.width,
+            call.height,
+            call.parent,
+            call.menu,
+            call.instance,
+            call.createParams,
+          ],
+          lastErrorBefore: call.lastErrorBefore,
+          createWindowExA: {
+            registeredClass: call.registeredClass,
+            immediateConsumer: call.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const calls = activeCreateWindowCallsByThread.get(this.windowCall.threadId) ?? [];
+      if (calls.at(-1) === this.windowCall) {
+        calls.pop();
+      } else {
+        const index = calls.lastIndexOf(this.windowCall);
+        if (index !== -1) {
+          calls.splice(index, 1);
+        }
+      }
+      if (calls.length === 0) {
+        activeCreateWindowCallsByThread.delete(this.windowCall.threadId);
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const classNameAfter = snapshotClassNameA(this.windowCall.classNameAddress);
+      const windowNameAfter = snapshotClassNameA(this.windowCall.windowNameAddress);
+      const resultValue = result.toString();
+      const completed = {
+        callId: this.traceFrame.callId,
+        returnAddress: this.windowCall.returnAddress,
+        extendedStyle: this.windowCall.extendedStyle,
+        className: this.windowCall.className,
+        classNameAfter,
+        windowName: this.windowCall.windowName,
+        windowNameAfter,
+        style: this.windowCall.style,
+        x: this.windowCall.x,
+        y: this.windowCall.y,
+        width: this.windowCall.width,
+        height: this.windowCall.height,
+        parent: this.windowCall.parent,
+        menu: this.windowCall.menu,
+        instance: this.windowCall.instance,
+        createParams: this.windowCall.createParams,
+        registeredClass: this.windowCall.registeredClass,
+        result: resultValue,
+        resultNonNull: !result.isNull(),
+        lastErrorBefore: this.windowCall.lastErrorBefore,
+        lastError,
+        immediateConsumer: this.windowCall.immediateConsumer,
+        callbacks: this.windowCall.callbacks,
+        inputsPreserved:
+          JSON.stringify(this.windowCall.className) ===
+            JSON.stringify(classNameAfter) &&
+          JSON.stringify(this.windowCall.windowName) ===
+            JSON.stringify(windowNameAfter),
+      };
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          createWindowExA: completed,
+        },
+        this.lastError,
+      );
+      if (!createWindowExACompletionRecorded) {
+        createWindowExAMainModuleCalls.push(completed);
+        setImmediate(maybeCompleteCreateWindowExAObservation);
+      }
+    },
+  });
 }
 
 function attachLoadIconAHook(module) {
@@ -4530,6 +4948,25 @@ function attachHook(module, name, decoders) {
                 caller.module.toLowerCase() === "bgi.exe"
                   ? snapshotInstructions(this.returnAddress, 4)
                   : null,
+            }
+        : name === "GetSystemMenu" && selectedObservations.has("get-system-menu")
+          ? {
+              lastErrorBefore: Number(this.lastError) >>> 0,
+              getSystemMenu: {
+                window: args[0].toString(),
+                revert: args[1].toUInt32(),
+                immediateConsumer: {
+                  apiContinuation: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    24,
+                  ),
+                  frameCallerContinuations: snapshotX86FrameCallerContinuations(
+                    this.context,
+                    8,
+                    12,
+                  ),
+                },
+              },
             }
         : name === "GetACP" && selectedObservations.has("get-acp")
           ? snapshotGetAcpCall(
@@ -8508,6 +8945,52 @@ function scheduleGetSystemMetricsOracle(module) {
   });
 }
 
+function maybeCompleteCreateWindowExAObservation() {
+  if (
+    createWindowExACompletionRecorded ||
+    createWindowExAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (
+    activeCallsByThread.size !== 0 ||
+    activeCreateWindowCallsByThread.size !== 0
+  ) {
+    setTimeout(maybeCompleteCreateWindowExAObservation, 10);
+    return;
+  }
+  if (createWindowExADrainCheckScheduled) {
+    return;
+  }
+  createWindowExADrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    createWindowExADrainCheckScheduled = false;
+    if (createWindowExACompletionRecorded) {
+      return;
+    }
+    if (
+      activeCallsByThread.size !== 0 ||
+      activeCreateWindowCallsByThread.size !== 0 ||
+      nextCallId !== expectedNextCallId
+    ) {
+      maybeCompleteCreateWindowExAObservation();
+      return;
+    }
+    createWindowExACompletionRecorded = true;
+    emit("create-window-ex-a-complete", {
+      profile: "x86-bgi-create-window-ex-a-v1",
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: createWindowExAMainModuleCalls.map((call) => ({
+        ...call,
+      })),
+    });
+    if (stopOnEvent === "create-window-ex-a-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
 function maybeCompleteRegisterClassExAObservation() {
   if (
     registerClassExACompletionRecorded ||
@@ -10557,6 +11040,21 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "RegisterClassExA",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("create-window-ex-a")
+    ) {
+      try {
+        attachCreateWindowClassDiscoveryHook(module);
+        attachCreateWindowExAHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "CreateWindowExA",
           error: error.message,
         });
       }

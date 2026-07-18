@@ -52,7 +52,7 @@ scheduler transitionはRustだけが決定する。Rustは`waiting-host`とreque
 TypeScriptはbrowser eventをdeliveryする。completion後の`runnable`または`in-callback`復帰もRustが
 検証してからCPU contextへ適用する。Worker event loopは独自にguest threadをwakeしない。
 
-Worker protocol version 5のstate machineは、Rust scheduler laneを`ready`、`running`、
+Worker protocol version 6のstate machineは、Rust scheduler laneを`ready`、`running`、
 `budget-yield`、`memory-fault`、`api-trap`、`thread-switch`、`thread-exit`、`waiting-host`、
 `host-completion`、`guest-callback`、`callback-return`、`stopping`、`stopped`の閉じたtransition
 graphで駆動する。illegal transitionはstate mutation前に
@@ -61,12 +61,20 @@ policyを持つtableへ置き、wrong-thread、duplicate、cancel後のlate comp
 terminal reportは必ず`stopped`かつpending record zeroとし、watchdogだけが原因thread、active
 request、直前transitionのdiagnostic contextを持つ。
 
+Version 6では、同期guest callbackの完了がouter API returnだけでなく、同じdepthで次の
+`guest-callback`へatomic replacementできる。Rustはretireするframe IDと新しいframe ID、thread、
+completion policyを検証し、callback stackとlogical Windows stateをcommitしてからWorkerへ次の
+targetを返す。WorkerはCPU contextを新frameへ切り替えるだけで、window lifecycleやcallback identityを
+所有しない。Final completionに付くlogical window snapshotもRust authorityのread-only observationである。
+Callback引数の構造体は下降するx86 stackと分離したprocess-permanent scratch arenaのdepth slotへ置き、
+slot identity、mapping、bytes、stack frame、callback mutationをpreflight後に一つのtransactionで進める。
+
 test／evidenceはguest semantic、required ordering、opaque identity、performance、host
 nondeterministic value、artifact hashへ分類する。schedulerの独立eventはpartial orderを許すが、
 request-before-completion等のrelationは必須とする。whole-report hashはartifact identityであり、
 historical production ABIにしない。詳細は[evidence-classification.md](evidence-classification.md)を正とする。
 
-protocol version 5のproduction CPU境界はgeneric `ExecutionEngine`とする。上位が扱うのはcaller
+protocol version 6のproduction CPU境界はgeneric `ExecutionEngine`とする。上位が扱うのはcaller
 budget、structured yield／trap／fault／halt、versioned opaque CPU contextの生成／保存／復元、guest mapping operation、
 owner／address付きchanged-page batch、data-TLB／instruction-fetch／generated-code effectだけである。
 現在のsource-v86 implementationはnon-PAE PTE、Dirty bit scan、private offset、native stop reason、

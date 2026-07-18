@@ -58,6 +58,15 @@ pub struct RuntimeThreadId(pub u32);
 #[serde(transparent)]
 pub struct RuntimeCallbackFrameId(pub u64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCallbackScratch {
+    pub slot: u16,
+    pub address: GuestAddress,
+    pub byte_length: u32,
+    pub capacity: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum RuntimeTlsValue {
@@ -95,6 +104,8 @@ pub struct RuntimeCallbackFrame {
     pub target: GuestAddress,
     pub return_sentinel: GuestAddress,
     pub entry_last_error: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scratch: Option<RuntimeCallbackScratch>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1348,6 +1359,7 @@ mod tests {
             target: GuestAddress(0x1000_1000),
             return_sentinel: GuestAddress(0x7f01_0000),
             entry_last_error: 7,
+            scratch: None,
         };
         let (push, depth) = threads.plan_callback_push(INITIAL, frame).unwrap();
         assert_eq!(depth, 1);
@@ -1437,6 +1449,7 @@ mod tests {
             target: GuestAddress(0x1000_3000),
             return_sentinel: GuestAddress(0x7f01_0000),
             entry_last_error: 7,
+            scratch: None,
         };
         let (push, depth) = threads.plan_callback_push(INITIAL, frame).unwrap();
         assert_eq!(depth, 1);

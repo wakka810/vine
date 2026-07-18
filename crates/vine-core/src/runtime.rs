@@ -108,11 +108,12 @@ pub use synchronization::{
 };
 pub use thread::{
     FLS_OUT_OF_INDEXES, LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE,
-    RUNTIME_FLS_INDEX_LIMIT, RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCancellation,
-    RuntimeComApartmentModel, RuntimeComApartmentState, RuntimeComInitializationDisposition,
-    RuntimeComInitializationOutcome, RuntimeComUninitializationOutcome, RuntimeFlsSlot,
-    RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadStack, RuntimeThreadStackGrowth,
-    RuntimeThreadState, RuntimeTlsValue, TLS_OUT_OF_INDEXES,
+    RUNTIME_FLS_INDEX_LIMIT, RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCallbackScratch,
+    RuntimeCancellation, RuntimeComApartmentModel, RuntimeComApartmentState,
+    RuntimeComInitializationDisposition, RuntimeComInitializationOutcome,
+    RuntimeComUninitializationOutcome, RuntimeFlsSlot, RuntimeThreadId,
+    RuntimeThreadLifecycleState, RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState,
+    RuntimeTlsValue, TLS_OUT_OF_INDEXES,
 };
 pub(crate) use timers::RUNTIME_TIMER_RESOLUTION_DISTINCT_PERIOD_LIMIT;
 pub use timers::{
@@ -122,16 +123,21 @@ pub use timers::{
 };
 pub use user32::{
     LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE,
-    LOGICAL_WINDOW_CLASS_ATOM_NAMESPACE, RUNTIME_CURSOR_HANDLE_BASE, RUNTIME_ICON_HANDLE_BASE,
-    RUNTIME_SHARED_CURSOR_LIMIT, RUNTIME_SHARED_ICON_LIMIT,
-    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RUNTIME_WINDOW_CLASS_ATOM_BASE,
-    RUNTIME_WINDOW_CLASS_LIMIT, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
-    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeCursor,
-    RuntimeCursorId, RuntimeCursorSource, RuntimeIcon, RuntimeIconId, RuntimeIconResource,
-    RuntimeLoadCursorAResult, RuntimeLoadIconAResult, RuntimeRegisterClassExAResult,
-    RuntimeSystemCursorKind, RuntimeWindowClass, RuntimeWindowClassCursorReference,
-    RuntimeWindowClassIconReference, RuntimeWindowClassId, RuntimeWindowClassModule,
-    RuntimeWindowClassNameA, RuntimeWindowClassRegistration, RuntimeWindowProcedure,
+    LOGICAL_WINDOW_CLASS_ATOM_NAMESPACE, LOGICAL_WINDOW_HANDLE_NAMESPACE,
+    RUNTIME_CURSOR_HANDLE_BASE, RUNTIME_ICON_HANDLE_BASE, RUNTIME_SHARED_CURSOR_LIMIT,
+    RUNTIME_SHARED_ICON_LIMIT, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
+    RUNTIME_WINDOW_CLASS_ATOM_BASE, RUNTIME_WINDOW_CLASS_LIMIT,
+    RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
+    RUNTIME_WINDOW_HANDLE_BASE, RUNTIME_WINDOW_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING,
+    RUNTIME_WINDOW_NAME_A_LIMIT, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
+    RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon,
+    RuntimeIconId, RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
+    RuntimeRegisterClassExAResult, RuntimeSystemCursorKind, RuntimeWindow, RuntimeWindowClass,
+    RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassId,
+    RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
+    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowGeometry,
+    RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
     RuntimeWindowProcedureCallingConvention,
 };
 pub use waits::{

@@ -2967,6 +2967,23 @@ impl GuestMemory {
             .collect()
     }
 
+    pub(crate) fn committed_page(
+        &self,
+        address: GuestAddress,
+    ) -> Result<Option<(MemoryOwnerId, PageProtection)>, GuestMemoryError> {
+        if !address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
+            return Err(GuestMemoryError::invalid_request(
+                "page-table",
+                "page-query-address-not-aligned",
+                "committed page queries require a page-aligned guest address",
+            ));
+        }
+        Ok(self
+            .pages
+            .get(&(address.0 / GUEST_PAGE_SIZE as u32))
+            .map(|page| (page.owner, page.protection)))
+    }
+
     pub fn pending_reflection(&mut self) -> Result<MemoryReflection, GuestMemoryError> {
         if self.initial_reflection_acknowledged {
             return Err(GuestMemoryError::conflict(

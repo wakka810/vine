@@ -7726,6 +7726,7 @@ fn deferred_and_guest_callback_completions_preserve_the_decoded_abi_frame() {
                         frame.argument_u32(1).expect("callback value"),
                     )],
                     scratch: Vec::new(),
+                    scratch_pointer_relocations: Vec::new(),
                     return_sentinel: GuestAddress(0x7f01_0000),
                     completion_policy: vine_core::GuestCallbackCompletionPolicy::ReturnU32,
                 })

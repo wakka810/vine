@@ -16,6 +16,9 @@ pub const CALLBACK_RETURN_ARENA_BASE: GuestAddress = GuestAddress(0x7f01_0000);
 pub const CALLBACK_RETURN_ARENA_SIZE: u64 = 0x1_0000;
 pub const CALLBACK_RETURN_SLOT_SIZE: u32 = 0x10;
 pub const PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS: GuestAddress = GuestAddress(0x7f01_0010);
+pub const CALLBACK_SCRATCH_ARENA_BASE: GuestAddress = GuestAddress(0x0050_1000);
+pub const CALLBACK_SCRATCH_ARENA_SIZE: u64 = 0x1_0000;
+pub const CALLBACK_SCRATCH_SLOT_SIZE: u32 = GUEST_PAGE_SIZE as u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]

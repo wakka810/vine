@@ -1411,6 +1411,7 @@ mod tests {
             target: GuestAddress(0x3000_1000),
             return_sentinel: CALLBACK_RETURN_ARENA_BASE,
             entry_last_error: 0,
+            scratch: None,
         };
         let action = modules.commit_lifecycle_plan(plan, Some(frame));
         let RuntimeDllLifecycleAction::Callback { request } = action else {

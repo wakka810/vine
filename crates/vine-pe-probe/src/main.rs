@@ -162,6 +162,7 @@ enum GenericRuntimeCapability {
     GetSystemMetrics,
     LargeHeapAllocation,
     SourceFileRead,
+    CreateWindowExA,
 }
 
 struct GenericRuntimeProcess {
@@ -383,6 +384,8 @@ struct GenericRuntimeCompletion {
     cursor: Option<vine_core::RuntimeCursor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     window_class: Option<vine_core::RuntimeWindowClass>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    window: Option<vine_core::RuntimeWindow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2823,11 +2826,12 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::RegisterClassExA
             | GenericRuntimeCapability::GetSystemMetrics
             | GenericRuntimeCapability::LargeHeapAllocation
-            | GenericRuntimeCapability::SourceFileRead,
+            | GenericRuntimeCapability::SourceFileRead
+            | GenericRuntimeCapability::CreateWindowExA,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let user32_policy = User32CompatibilityPolicy::controlled_v6();
+    let user32_policy = User32CompatibilityPolicy::controlled_v7();
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
@@ -3261,6 +3265,7 @@ fn run_v86_generic_runtime_session(
             }
             let call = active.call.clone();
             let frame_id = active.frame_id;
+            let completion_policy = call.request.completion_policy;
             process
                 .runtime
                 .validate_callback_frame_return(frame_id)
@@ -3269,10 +3274,23 @@ fn run_v86_generic_runtime_session(
             let mut session = ExecutionSession::new(memory, &mut process.runtime);
             match dispatcher.complete_guest_callback_result(call, request.result, &mut session) {
                 DispatchOutcome::Immediate(completion) => {
-                    process
-                        .runtime
+                    session
+                        .runtime_mut()
                         .pop_callback_frame(frame_id)
                         .map_err(runtime_state_error)?;
+                    let semantic_action = session
+                        .commit_guest_callback_semantics(
+                            completion_policy,
+                            request.result,
+                            &endpoint,
+                        )
+                        .map_err(api_fault)?;
+                    let window = match semantic_action {
+                        Some(vine_core::RuntimeWindowCreationCallbackAction::Created {
+                            window,
+                        }) => Some(window),
+                        _ => None,
+                    };
                     let retired = active_callback
                         .take()
                         .expect("validated active callback disappeared before commit");
@@ -3297,6 +3315,7 @@ fn run_v86_generic_runtime_session(
                             icon: None,
                             cursor: None,
                             window_class: None,
+                            window,
                             thread_affinity: None,
                             tick_count: None,
                             com_apartment: None,
@@ -3306,6 +3325,51 @@ fn run_v86_generic_runtime_session(
                         },
                     )?;
                 }
+                DispatchOutcome::GuestCallback(next) => {
+                    let prepared = session
+                        .replace_guest_callback(&next, frame_id)
+                        .map_err(api_fault)?;
+                    let semantic_action = session
+                        .commit_guest_callback_semantics(
+                            completion_policy,
+                            request.result,
+                            &endpoint,
+                        )
+                        .map_err(api_fault)?;
+                    if !matches!(
+                        semantic_action,
+                        Some(vine_core::RuntimeWindowCreationCallbackAction::Continue { .. })
+                    ) {
+                        return Err(LoaderError::runtime_defect(
+                            "runtime-reentry",
+                            "runtime-callback-continuation-action-mismatch",
+                            "replacement guest callback did not commit a continuation action",
+                        ));
+                    }
+                    send_pending_runtime_delta(input, memory)?;
+                    let callback_entry = GenericRuntimeCallbackEntry {
+                        schema: "vine.v86-generic-runtime-callback",
+                        schema_version: 1,
+                        endpoint: GenericRuntimeEndpoint::RuntimeSystemExport {
+                            endpoint: endpoint.clone(),
+                        },
+                        frame_id: prepared.frame_id.0,
+                        target: next.request.target.0,
+                        argument_count: next.request.arguments.len(),
+                        allocation_start: prepared.allocation_start.0,
+                        stack_pointer: prepared.stack_pointer.0,
+                        scratch_address: prepared.scratch_address.0,
+                        scratch_bytes: prepared.scratch_bytes,
+                        frame_bytes: prepared.frame_bytes,
+                        return_sentinel: next.request.return_sentinel.0,
+                        memory: memory.stats(),
+                    };
+                    active_callback = Some(GenericRuntimeActiveCallback {
+                        call: next,
+                        frame_id: prepared.frame_id,
+                    });
+                    write_runtime_json_frame(RUNTIME_FRAME_GUEST_CALLBACK, &callback_entry)?;
+                }
                 DispatchOutcome::Fault(fault) => {
                     write_generic_runtime_fault(
                         memory,
@@ -3314,11 +3378,11 @@ fn run_v86_generic_runtime_session(
                     )?;
                     return Ok(());
                 }
-                DispatchOutcome::Deferred(_) | DispatchOutcome::GuestCallback(_) => {
+                DispatchOutcome::Deferred(_) => {
                     return Err(LoaderError::runtime_defect(
                         "runtime-reentry",
                         "runtime-callback-completion-suspended",
-                        "completed guest callback produced another suspended API outcome",
+                        "completed guest callback produced a deferred API outcome",
                     ));
                 }
             }
@@ -3812,6 +3876,7 @@ fn run_v86_generic_runtime_session(
                                 icon,
                                 cursor,
                                 window_class,
+                                window: None,
                                 thread_affinity,
                                 tick_count,
                                 com_apartment,
@@ -4001,6 +4066,7 @@ fn run_v86_generic_runtime_session(
                                 icon: None,
                                 cursor: None,
                                 window_class: None,
+                                window: None,
                                 thread_affinity: None,
                                 tick_count: None,
                                 com_apartment: None,
@@ -4098,6 +4164,7 @@ fn run_v86_generic_runtime_session(
                                 icon: None,
                                 cursor: None,
                                 window_class: None,
+                                window: None,
                                 thread_affinity: None,
                                 tick_count: None,
                                 com_apartment: None,
@@ -4142,8 +4209,10 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let source_file_read_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::SourceFileRead));
+    let create_window_ex_a_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::CreateWindowExA));
+    let source_file_read_enabled = create_window_ex_a_enabled
+        || matches!(enabled, Some(GenericRuntimeCapability::SourceFileRead));
     let enabled = if source_file_read_enabled {
         Some(GenericRuntimeCapability::LargeHeapAllocation)
     } else {
@@ -4605,6 +4674,9 @@ fn runtime_capability_enables_endpoint(
         "LoadCursorA" => load_cursor_a_enabled,
         "RegisterClassExA" => register_class_ex_a_enabled,
         "GetSystemMetrics" => get_system_metrics_enabled,
+        "CreateWindowExA" | "DefWindowProcA" | "GetSystemMenu" | "EnableMenuItem" => {
+            create_window_ex_a_enabled
+        }
         "CreateFileA" | "GetFileSize" | "ReadFile" | "SetFilePointer" | "CloseHandle" => {
             source_file_read_enabled
         }
@@ -4616,6 +4688,11 @@ fn runtime_capability_enables_dynamic_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &RuntimeDynamicEndpoint,
 ) -> bool {
+    let enabled = if matches!(enabled, Some(GenericRuntimeCapability::CreateWindowExA)) {
+        Some(GenericRuntimeCapability::SourceFileRead)
+    } else {
+        enabled
+    };
     let enabled = if matches!(enabled, Some(GenericRuntimeCapability::SourceFileRead)) {
         Some(GenericRuntimeCapability::LargeHeapAllocation)
     } else {
@@ -10172,6 +10249,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-get-system-metrics" => GenericRuntimeCapability::GetSystemMetrics,
                 "kernel32-large-heap-allocation" => GenericRuntimeCapability::LargeHeapAllocation,
                 "kernel32-source-file-read" => GenericRuntimeCapability::SourceFileRead,
+                "user32-create-window-ex-a" => GenericRuntimeCapability::CreateWindowExA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

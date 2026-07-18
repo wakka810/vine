@@ -454,7 +454,7 @@ impl BrowserRuntime {
             .runtime
             .register_source_snapshot(source_manifest)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v6();
+        let user32_policy = User32CompatibilityPolicy::controlled_v7();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -1111,6 +1111,7 @@ impl BrowserRuntime {
                                     target: GuestAddress(target),
                                     arguments: vec![GuestCallbackArgument::U32(value)],
                                     scratch: Vec::new(),
+                                    scratch_pointer_relocations: Vec::new(),
                                     return_sentinel: callback_sentinel,
                                     completion_policy: GuestCallbackCompletionPolicy::ReturnU32,
                                 })
@@ -1487,46 +1488,116 @@ impl BrowserRuntime {
             .validate_callback_frame_return(frame_id)
             .map_err(error_string)?;
         let endpoint = call.frame.endpoint.clone();
+        let completion_policy = call.request.completion_policy;
         let dispatcher = &self.dispatcher;
-        let completion = {
+        let outcome = {
             let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
-            match dispatcher.complete_guest_callback_result(call, result, &mut session) {
-                DispatchOutcome::Immediate(completion) => completion,
-                DispatchOutcome::Fault(fault) => return Err(api_fault_string(fault)),
-                _ => {
-                    return Err("callback completion produced another suspended outcome".to_owned());
-                }
-            }
+            dispatcher.complete_guest_callback_result(call, result, &mut session)
         };
-        self.runtime
-            .pop_callback_frame(frame_id)
-            .map_err(error_string)?;
-        let retired = self
-            .callbacks
-            .get_mut(&thread_id)
-            .and_then(Vec::pop)
-            .ok_or_else(|| {
-                "validated callback adapter frame disappeared before commit".to_owned()
-            })?;
-        if retired.frame_id != frame_id {
-            return Err("callback adapter frame changed after return preflight".to_owned());
+        match outcome {
+            DispatchOutcome::Immediate(completion) => {
+                let semantic_action = {
+                    let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+                    session
+                        .runtime_mut()
+                        .pop_callback_frame(frame_id)
+                        .map_err(error_string)?;
+                    session
+                        .commit_guest_callback_semantics(completion_policy, result, &endpoint)
+                        .map_err(api_fault_string)?
+                };
+                let retired = self
+                    .callbacks
+                    .get_mut(&thread_id)
+                    .and_then(Vec::pop)
+                    .ok_or_else(|| {
+                        "validated callback adapter frame disappeared before commit".to_owned()
+                    })?;
+                if retired.frame_id != frame_id {
+                    return Err("callback adapter frame changed after return preflight".to_owned());
+                }
+                if remaining_depth == 0 {
+                    self.callbacks.remove(&thread_id);
+                }
+                let delta = self.pending_delta()?;
+                let mut metadata = json!({
+                    "kind": "callback-complete",
+                    "frameId": frame_id.0,
+                    "callbackStackPointer": callback_stack_pointer.0,
+                    "remainingDepth": remaining_depth,
+                    "endpoint": endpoint,
+                    "completion": completion,
+                    "memory": self.memory.stats(),
+                });
+                if let Some(vine_core::RuntimeWindowCreationCallbackAction::Created { window }) =
+                    semantic_action
+                {
+                    metadata["window"] = json!(window);
+                }
+                Ok((metadata, delta))
+            }
+            DispatchOutcome::GuestCallback(next) => {
+                let (prepared, semantic_action) = {
+                    let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+                    let prepared = session
+                        .replace_guest_callback(&next, frame_id)
+                        .map_err(api_fault_string)?;
+                    let semantic_action = session
+                        .commit_guest_callback_semantics(completion_policy, result, &endpoint)
+                        .map_err(api_fault_string)?;
+                    (prepared, semantic_action)
+                };
+                if !matches!(
+                    semantic_action,
+                    Some(vine_core::RuntimeWindowCreationCallbackAction::Continue { .. })
+                ) {
+                    return Err(
+                        "replacement guest callback did not commit continuation semantics"
+                            .to_owned(),
+                    );
+                }
+                let callbacks = self
+                    .callbacks
+                    .get_mut(&thread_id)
+                    .ok_or_else(|| "callback replacement lost its thread stack".to_owned())?;
+                let depth = callbacks.len();
+                let active = callbacks
+                    .last_mut()
+                    .ok_or_else(|| "callback replacement lost its active frame".to_owned())?;
+                if active.frame_id != frame_id {
+                    return Err("callback adapter frame changed before replacement".to_owned());
+                }
+                *active = ActiveCallback {
+                    call: next.clone(),
+                    frame_id: prepared.frame_id,
+                    stack_pointer: prepared.stack_pointer,
+                };
+                let delta = self.memory.pending_delta().map_err(error_string)?;
+                let generation = delta.generation;
+                let buffers = delta.encode_binary().map_err(error_string)?;
+                Ok((
+                    json!({
+                        "kind": "guest-callback",
+                        "frameId": prepared.frame_id.0,
+                        "replacedFrameId": frame_id.0,
+                        "depth": depth,
+                        "target": next.request.target.0,
+                        "allocationStart": prepared.allocation_start.0,
+                        "stackPointer": prepared.stack_pointer.0,
+                        "scratchAddress": prepared.scratch_address.0,
+                        "scratchBytes": prepared.scratch_bytes,
+                        "frameBytes": prepared.frame_bytes,
+                        "returnSentinel": next.request.return_sentinel.0,
+                        "generation": generation,
+                    }),
+                    Some(buffers),
+                ))
+            }
+            DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
+            DispatchOutcome::Deferred(_) => {
+                Err("callback completion produced a deferred outcome".to_owned())
+            }
         }
-        if remaining_depth == 0 {
-            self.callbacks.remove(&thread_id);
-        }
-        let delta = self.pending_delta()?;
-        Ok((
-            json!({
-                "kind": "callback-complete",
-                "frameId": frame_id.0,
-                "callbackStackPointer": callback_stack_pointer.0,
-                "remainingDepth": remaining_depth,
-                "endpoint": endpoint,
-                "completion": completion,
-                "memory": self.memory.stats(),
-            }),
-            delta,
-        ))
     }
 
     fn schedule_next_thread(&mut self) -> Result<Value, String> {

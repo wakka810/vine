@@ -26,7 +26,7 @@ const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
 const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
-const runtimeProtocol = "vine.browser-runtime-worker.v5";
+const runtimeProtocol = "vine.browser-runtime-worker.v6";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -58,7 +58,7 @@ const bgiBenchmarkConfigurationPath = path.join(
   root,
   "fixtures",
   "benchmarks",
-  "bgi-browser-source-read-v1.json",
+  "bgi-browser-create-window-v1.json",
 );
 
 function optionValue(name) {
@@ -949,6 +949,7 @@ function normalizeBgiCall(call) {
     icon: call.icon ?? null,
     cursor: call.cursor ?? null,
     windowClass: call.windowClass ?? null,
+    window: call.window ?? null,
     sourceRead: call.sourceRead ?? null,
   };
 }
