@@ -4,6 +4,7 @@ mod api;
 mod bootstrap;
 mod callbacks;
 mod com;
+mod d3d9;
 mod dll;
 mod dynamic_exports;
 mod environment;
@@ -54,6 +55,11 @@ pub use com::{
     ComObjectSpec, ComReturnValue, InstalledComObject, RUNTIME_COM_BACKING_BYTES,
     RUNTIME_COM_ENDPOINT_SLOT_SIZE, RUNTIME_COM_MAX_ENDPOINTS_PER_OBJECT, dispatch_com_call,
     install_com_object,
+};
+pub use d3d9::{
+    D3D9_DIRECT3D_CREATE9_IMPLEMENTATION, D3D9_IDIRECT3D9_CLASS_IDENTITY, D3D9_IDIRECT3D9_IID,
+    D3D9_SDK_VERSION, d3d9_contract_for_endpoint, direct3d_create9_contract, direct3d9_object_spec,
+    dispatch_d3d9_api,
 };
 pub use dynamic_exports::{
     DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,

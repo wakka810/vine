@@ -82,6 +82,14 @@ impl ComMethodSpec {
             return_kind: RuntimeComReturnKind::HResult,
         }
     }
+
+    pub fn unsupported_u32(name: impl Into<String>, explicit_argument_words: u16) -> Self {
+        Self {
+            name: name.into(),
+            explicit_argument_words,
+            return_kind: RuntimeComReturnKind::U32,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
