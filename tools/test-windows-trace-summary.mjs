@@ -31,6 +31,18 @@ adapterIdentifierBytes.set(
 );
 adapterIdentifierView.setUint32(1096, 1, true);
 const adapterIdentifierAfter = [...adapterIdentifierBytes];
+const deviceCapsBefore = Array(304).fill(0xcc);
+const deviceCapsBytes = new Uint8Array(304);
+const deviceCapsView = new DataView(deviceCapsBytes.buffer);
+for (let index = 0; index < 76; index += 1) {
+  deviceCapsView.setUint32(index * 4, 0x1000_0000 + index, true);
+}
+deviceCapsView.setUint32(0, 1, true);
+deviceCapsView.setUint32(4, 0, true);
+deviceCapsView.setFloat32(112, 1.0, true);
+deviceCapsView.setFloat32(176, 64.0, true);
+deviceCapsView.setInt32(252, -1, true);
+const deviceCapsAfter = [...deviceCapsBytes];
 const events = [
   {
     schema,
@@ -357,6 +369,45 @@ const events = [
   },
   {
     schema,
+    sequence: 26,
+    threadId: 10,
+    kind: "api-enter",
+    module: "d3d9.dll",
+    api: "GetDeviceCaps",
+    interface: "IDirect3D9",
+    vtableSlot: 14,
+    object: "0x330000",
+    arguments: ["0x0", "0x1", "0x380000"],
+  },
+  {
+    schema,
+    sequence: 27,
+    threadId: 10,
+    kind: "api-leave",
+    module: "d3d9.dll",
+    api: "GetDeviceCaps",
+    interface: "IDirect3D9",
+    vtableSlot: 14,
+    object: "0x330000",
+    result: "0x0",
+    d3d9DeviceCaps: {
+      adapter: 0,
+      deviceType: 1,
+      callerStackPointerAfterReturn: "0x380000",
+      before: {
+        pointer: "0x380000",
+        size: 304,
+        bytes: deviceCapsBefore,
+      },
+      after: {
+        pointer: "0x380000",
+        size: 304,
+        bytes: deviceCapsAfter,
+      },
+    },
+  },
+  {
+    schema,
     kind: "trace-stop",
     timestamp: "2026-07-10T00:00:01.250Z",
     reason: "timeout-kill",
@@ -483,6 +534,19 @@ for (const call of [
     durationMs: 0,
     lastError: 0,
   },
+  {
+    callId: 12,
+    parentCallId: null,
+    enterSequence: 26,
+    leaveSequence: 27,
+    caller: {
+      address: "0x0045b949",
+      module: "abi-smoke.exe",
+      rva: 0x5b949,
+    },
+    durationMs: 0,
+    lastError: 0,
+  },
 ]) {
   const enter = events.find((event) => event.sequence === call.enterSequence);
   const leave = events.find((event) => event.sequence === call.leaveSequence);
@@ -527,21 +591,21 @@ assert.deepEqual(summary.trace.captureArguments, {
 });
 assert.deepEqual(summary.trace.selectedVtables, ["idirect3d9"]);
 assert.deepEqual(summary.trace.sequence, {
-  events: 26,
+  events: 28,
   first: 0,
-  last: 25,
+  last: 27,
   contiguous: true,
 });
 assert.deepEqual(summary.trace.apiPairing, {
   contract: "call-id-v1",
-  enters: 11,
-  leaves: 11,
-  pairs: 11,
+  enters: 12,
+  leaves: 12,
+  pairs: 12,
   maxDepth: 2,
   balanced: true,
 });
 assert.equal(summary.modules.length, 2);
-assert.equal(summary.apis.length, 10);
+assert.equal(summary.apis.length, 11);
 assert.deepEqual(summary.apis[0], {
   module: "KERNEL32.DLL",
   api: "CreateFileA",
@@ -699,6 +763,59 @@ assert.deepEqual(summary.d3d9.adapterIdentifiers, [
     immediateConsumer: null,
   },
 ]);
+assert.equal(summary.d3d9.deviceCaps.length, 1);
+const [deviceCaps] = summary.d3d9.deviceCaps;
+assert.equal(deviceCaps.sequence, 26);
+assert.equal(deviceCaps.callId, 12);
+assert.deepEqual(deviceCaps.caller, {
+  module: "abi-smoke.exe",
+  rva: 0x5b949,
+});
+assert.equal(deviceCaps.adapter, 0);
+assert.equal(deviceCaps.deviceType, 1);
+assert.equal(deviceCaps.callerStackPointerAfterReturn, "0x380000");
+assert.equal(deviceCaps.outputOffsetAfterReturn, 0);
+assert.equal(deviceCaps.result, "0x0");
+assert.equal(deviceCaps.lastError, 0);
+assert.equal(
+  deviceCaps.changedBytes,
+  deviceCapsBefore.reduce(
+    (count, byte, index) =>
+      count + (byte === deviceCapsAfter[index] ? 0 : 1),
+    0,
+  ),
+);
+assert.equal(deviceCaps.before.pointer, "0x380000");
+assert.equal(deviceCaps.before.size, 304);
+assert.equal(deviceCaps.before.zeroByteCount, 0);
+assert.equal(deviceCaps.after.pointer, "0x380000");
+assert.equal(deviceCaps.after.size, 304);
+assert.equal(Object.keys(deviceCaps.after.fields).length, 76);
+assert.deepEqual(deviceCaps.after.fields.deviceType, {
+  offset: 0,
+  type: "u32",
+  raw: 1,
+  value: 1,
+});
+assert.deepEqual(deviceCaps.after.fields.maxVertexW, {
+  offset: 112,
+  type: "f32",
+  raw: 0x3f80_0000,
+  value: 1,
+});
+assert.deepEqual(deviceCaps.after.fields.maxPointSize, {
+  offset: 176,
+  type: "f32",
+  raw: 0x4280_0000,
+  value: 64,
+});
+assert.deepEqual(deviceCaps.after.fields.vs20DynamicFlowControlDepth, {
+  offset: 252,
+  type: "i32",
+  raw: 0xffff_ffff,
+  value: -1,
+});
+assert.equal(deviceCaps.immediateConsumer, null);
 assert.equal(summary.categories.file.calls, 3);
 assert.equal(summary.categories.window.first.api, "CreateWindowExA");
 assert.equal(summary.categories.graphics.first.api, "Direct3DCreate9");
@@ -828,6 +945,24 @@ changedAdapterIdentifierPointer.find(
 assert.throws(
   () => summarizeTrace(encode(changedAdapterIdentifierPointer)),
   /changed its D3DADAPTER_IDENTIFIER9 output pointer/,
+);
+
+const truncatedDeviceCaps = structuredClone(events);
+truncatedDeviceCaps
+  .find((event) => event.sequence === 27)
+  .d3d9DeviceCaps.after.bytes.pop();
+assert.throws(
+  () => summarizeTrace(encode(truncatedDeviceCaps)),
+  /invalid D3DCAPS9 after snapshot/,
+);
+
+const changedDeviceCapsPointer = structuredClone(events);
+changedDeviceCapsPointer.find(
+  (event) => event.sequence === 27,
+).d3d9DeviceCaps.after.pointer = "0x380010";
+assert.throws(
+  () => summarizeTrace(encode(changedDeviceCapsPointer)),
+  /changed its D3DCAPS9 output pointer/,
 );
 
 const wrongObservationSelection = structuredClone(events);

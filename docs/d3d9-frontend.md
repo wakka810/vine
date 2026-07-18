@@ -8,10 +8,10 @@ root object with canonical IUnknown identity and a 17-slot `IDirect3D9`
 interface. A different SDK version returns NULL before memory, identity,
 allocator, or generation mutation. QueryInterface, AddRef, Release, and final
 backing retirement use the generic COM plan／commit path.
-`GetAdapterIdentifier` at slot 5 and `GetAdapterDisplayMode` at slot 8 delegate
-through a version-neutral COM gateway to the D3D9 semantic handler. Other
-unreached slots return a typed fault with interface, slot, method, endpoint, and
-call site.
+`GetAdapterIdentifier` at slot 5, `GetAdapterDisplayMode` at slot 8, and
+`GetDeviceCaps` at slot 14 delegate through a version-neutral COM gateway to
+the D3D9 semantic handler. Other unreached slots return a typed fault with
+interface, slot, method, endpoint, and call site.
 
 The two-page COM backing is Rust-owned guest memory. Its data page finishes
 read-only and its endpoint page finishes read／execute. The endpoint bytes are
@@ -28,7 +28,7 @@ relations for the private workload.
 
 ## Bounded adapter display mode
 
-Version 2 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
+Version 3 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
 Its display-mode profile is `primary-adapter-1920x1080-60-x8r8g8b8-v1`.
 Width and height are derived from the primary monitor owned by
 `RuntimeDisplays`; refresh rate `60` and format `22` (`D3DFMT_X8R8G8B8`)
@@ -61,7 +61,7 @@ checkpoint manifest.
 
 ## Bounded virtual adapter identity
 
-The same version 2 policy enables adapter `0`, flags `0`, and profile
+The same version 3 policy enables adapter `0`, flags `0`, and profile
 `primary-virtual-adapter-identifier-v1`. It serializes one zero-filled,
 1,100-byte `D3DADAPTER_IDENTIFIER9` from policy-owned virtual identity:
 
@@ -93,6 +93,42 @@ the native host GPU values are artifact evidence, not a compatibility golden.
 The stable Vine identity above is fixed by model tests and the public PE ABI
 fixture. Raw native captures remain ignored under `.work/`.
 
+## Bounded virtual device capabilities
+
+Version 3 also enables adapter `0`, `D3DDEVTYPE_HAL`, and profile
+`primary-hal-readscanline-dynamic-textures-ps3-v1`. The handler zero-fills one
+304-byte, 4-byte-aligned x86 `D3DCAPS9` and publishes only these nonzero words:
+
+```text
+DeviceType                1          D3DDEVTYPE_HAL
+Caps                      0x00020000 D3DCAPS_READ_SCANLINE
+Caps2                     0x20000000 D3DCAPS2_DYNAMICTEXTURES
+PixelShaderVersion        0xffff0300 D3DPS_VERSION(3, 0)
+NumberOfAdaptersInGroup   1
+```
+
+`AdapterOrdinal` and every other field are zero. This is a versioned virtual
+capability commitment for the reached primary path, not a copy of host GPU or
+browser caps. It selects the minimum device／translation band that the later
+`CreateDevice` gateway must either implement or reject explicitly; it does not
+make shader translation or renderer state exist at this root query.
+
+Two independent native captures each observed one successful call from RVA
+`0x5B949`, with adapter `0`, device type `1`, and the same 304-byte output hash.
+Clang record layout fixed the structure size at 304 bytes and every field
+offset. The output pointer equals the caller ESP after return. The bounded
+caller consumes the HRESULT sign, `Caps` at offset 8, `Caps2` at offset 12, and
+`PixelShaderVersion` at offset 204. Native values for those fields were
+`0x00020000`, `0xe0010000`, and `0xffff0300`; Vine retains only the reached
+`READ_SCANLINE` and `DYNAMICTEXTURES` bits instead of importing the remaining
+host flags.
+
+Invalid adapter, device type, or NULL output returns `D3DERR_INVALIDCALL`
+without mutation. Disabled／malformed policy, mismatched display authority,
+and unwritable output fault before guest bytes, reference count, or runtime
+state change. Success preserves LastError and commits the full structure in one
+guest-memory transaction.
+
 ## Versioned frontend and shared graphics boundary
 
 D3D8, D3D9, and any future D3D10／11 support remain separate guest-facing
@@ -114,24 +150,25 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-get-adapter-identifier
+npm run check:runtime:bgi -- --profile d3d9-get-device-caps
 ```
 
 The controlled PE fixture verifies invalid-SDK NULL, non-NULL factory identity,
-the four display-mode fields, a populated adapter-identifier ABI, AddRef 2,
-Release 1, and final Release 0 with retirement. Its Windows self-oracle accepts
-native nonempty NUL-terminated identity strings, while the Vine branch checks
-the exact virtual identity. Rust tests separately fix every output byte and the
-invalid adapter／flags／NULL／unwritable／policy／display-authority paths. The
-private Node and Chrome profiles record the same 1,100-byte COM completion and
-stop next at `IDirect3D9::GetDeviceCaps`.
+the four display-mode fields, a populated adapter-identifier ABI, the required
+native or exact Vine device-capability band, AddRef 2, Release 1, and final
+Release 0 with retirement. Its Windows self-oracle accepts native nonempty
+NUL-terminated identity strings and required caps, while the Vine branch checks
+the exact virtual identity and zero-bounded 304-byte caps. Rust tests separately
+fix every output byte and the invalid adapter／flags／device type／NULL／unwritable／
+policy／display-authority paths. The private Node and Chrome profiles record the
+same 304-byte completion and stop next at `IDirect3D9::CheckDeviceType`.
 
 ## Non-claims
 
-- Only the bounded current display-mode and virtual adapter-identifier queries
-  are implemented. Adapter count, mode enumeration, capability queries,
-  `CreateDevice`, device/resource state, draw, Present, Reset, and renderer
-  output remain unsupported.
+- Only the bounded current display-mode, virtual adapter-identifier, and
+  virtual device-capability queries are implemented. Adapter count, mode
+  enumeration, device／format checks, `CreateDevice`, device/resource state,
+  draw, Present, Reset, and renderer output remain unsupported.
 - The current root object does not create a `RuntimeGraphics` device or browser
   resource.
 - D3D8, D3D10／11, DXGI, shader translation, and general D3D9 compatibility are

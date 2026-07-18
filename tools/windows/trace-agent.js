@@ -2264,6 +2264,30 @@ function snapshotD3d9AdapterIdentifier(pointer) {
   }
 }
 
+function snapshotD3d9DeviceCaps(pointer) {
+  const size = 304;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 D3DCAPS9 observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
 function snapshotLong(pointer) {
   const size = 4;
   if (pointer.isNull()) {
@@ -2785,6 +2809,24 @@ function attachIdirect3d9(object) {
                     128,
                   ),
                 };
+          this.traceD3d9DeviceCapsOutput = slot === 14 ? args[3] : null;
+          this.traceD3d9DeviceCaps =
+            this.traceD3d9DeviceCapsOutput === null
+              ? null
+              : {
+                  adapter: args[1].toUInt32(),
+                  deviceType: args[2].toUInt32(),
+                  callerStackPointerAfterReturn: this.context.esp
+                    .add((argumentCount + 2) * Process.pointerSize)
+                    .toString(),
+                  before: snapshotD3d9DeviceCaps(
+                    this.traceD3d9DeviceCapsOutput,
+                  ),
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    256,
+                  ),
+                };
           this.traceFrame = beginCall(
             {
               module: implementationModule?.name ?? "<unknown>",
@@ -2815,6 +2857,15 @@ function attachIdirect3d9(object) {
                     this.traceD3d9AdapterIdentifierOutput,
                   ),
                 };
+          const d3d9DeviceCaps =
+            this.traceD3d9DeviceCaps === null
+              ? null
+              : {
+                  ...this.traceD3d9DeviceCaps,
+                  after: snapshotD3d9DeviceCaps(
+                    this.traceD3d9DeviceCapsOutput,
+                  ),
+                };
           finishCall(
             this.traceFrame,
             {
@@ -2828,6 +2879,7 @@ function attachIdirect3d9(object) {
               ...(d3d9AdapterIdentifier === null
                 ? {}
                 : { d3d9AdapterIdentifier }),
+              ...(d3d9DeviceCaps === null ? {} : { d3d9DeviceCaps }),
             },
             lastError,
           );

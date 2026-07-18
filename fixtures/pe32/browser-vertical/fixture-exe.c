@@ -25,6 +25,13 @@ typedef struct fixture_d3d_display_mode {
   unsigned int format;
 } fixture_d3d_display_mode;
 
+typedef struct fixture_d3d_device_caps {
+  unsigned int words[76];
+} fixture_d3d_device_caps;
+
+typedef char fixture_d3d_device_caps_size[
+    sizeof(fixture_d3d_device_caps) == 304 ? 1 : -1];
+
 typedef struct fixture_idirect3d9_vtable {
   int(__stdcall *query_interface)(fixture_idirect3d9 *self, const void *iid,
                                   void **object);
@@ -40,6 +47,15 @@ typedef struct fixture_idirect3d9_vtable {
   int(__stdcall *get_adapter_display_mode)(fixture_idirect3d9 *self,
                                             unsigned int adapter,
                                             fixture_d3d_display_mode *mode);
+  void *check_device_type;
+  void *check_device_format;
+  void *check_device_multi_sample_type;
+  void *check_depth_stencil_match;
+  void *check_device_format_conversion;
+  int(__stdcall *get_device_caps)(fixture_idirect3d9 *self,
+                                  unsigned int adapter,
+                                  unsigned int device_type,
+                                  fixture_d3d_device_caps *caps);
 } fixture_idirect3d9_vtable;
 
 struct fixture_idirect3d9 {
@@ -168,6 +184,32 @@ int __cdecl fixture_entry(void) {
        !fixture_fixed_string_is_present(identifier.description, 512) ||
        !fixture_fixed_string_is_present(identifier.device_name, 32))) {
     return fixture_d3d9_failure(direct3d, 8);
+  }
+  fixture_d3d_device_caps caps;
+  for (unsigned int index = 0; index < 76; ++index) {
+    caps.words[index] = 0xccccccccu;
+  }
+  if (direct3d->vtable->get_device_caps(direct3d, 0, 1, &caps) != 0) {
+    return fixture_d3d9_failure(direct3d, 9);
+  }
+  int has_vine_caps =
+      caps.words[0] == 1 && caps.words[1] == 0 &&
+      caps.words[2] == 0x00020000u && caps.words[3] == 0x20000000u &&
+      caps.words[51] == 0xffff0300u && caps.words[58] == 1;
+  for (unsigned int index = 0; index < 76; ++index) {
+    if (index != 0 && index != 2 && index != 3 && index != 51 && index != 58 &&
+        caps.words[index] != 0) {
+      has_vine_caps = 0;
+      break;
+    }
+  }
+  const int has_native_required_caps =
+      caps.words[0] == 1 && caps.words[1] == 0 &&
+      (caps.words[2] & 0x00020000u) != 0 &&
+      (caps.words[3] & 0x20000000u) != 0 &&
+      caps.words[51] == 0xffff0300u;
+  if (!has_vine_caps && !has_native_required_caps) {
+    return fixture_d3d9_failure(direct3d, 10);
   }
   if (direct3d->vtable->add_ref(direct3d) != 2) {
     return 11;

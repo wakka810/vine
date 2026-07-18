@@ -637,6 +637,50 @@ typed memory faultとして扱う。`D3DENUM_WHQL_LEVEL`、certificate discovery
 capability、device／renderer stateはこのevidenceから確定しない。Source executableのsize／SHA-256は
 既存fingerprintのまま不変だった。
 
+### 10.3 GetDeviceCaps output and consumer evidence
+
+2026-07-19に同じprimary fingerprintへselected vtable captureを再実行し、trace
+agent／summarizerが`D3DCAPS9`のcall前後304 bytes、全76 field offset／type、hash、caller stack
+relation、256-instruction consumerを検証した。x86 layoutはlocal clang 22の
+`-fdump-record-layouts-complete`でもsize `304`、alignment `4`、末尾field offset `300`として独立に
+確認した。最終evidenceはe／fで、raw traceとsummaryは`.work/windows-traces/`に置きGitへ含めない。
+
+```powershell
+py tools/windows/trace.py `
+  --exe "V:\softs\サクラノ詩\BGI.exe" `
+  --output .work\windows-traces\bgi-d3d9-device-caps-20260719-012335-e.jsonl `
+  --seconds 5 `
+  --kill-after `
+  --vtable idirect3d9
+
+node tools/summarize-windows-trace.mjs `
+  --input .work\windows-traces\bgi-d3d9-device-caps-20260719-012335-e.jsonl `
+  --output .work\windows-traces\bgi-d3d9-device-caps-20260719-012335-e-summary.json
+```
+
+| Field | Primary e | Confirmation f |
+|---|---:|---:|
+| Raw bytes／lines | `2,274,737`／`7,066` | `2,282,110`／`7,068` |
+| Raw SHA-256 | `69655d319b4cd31f814690094a9c108f18b59ca92e1d31e6095cc7344f87d361` | `56379b0c6267fa8e919a89b11222b547d21f374d634ed59138c78a3612ffb09f` |
+| Balanced API pairs | `3,495` | `3,496` |
+| Diagnostics | `0` | `0` |
+| Successful `GetDeviceCaps` calls | `1` | `1` |
+
+両captureはcaller RVA `0x5B949`、Adapter `0`、DeviceType `1`、HRESULT `0`で一致した。Call前の
+stack-local bytes／changed-byte countはrunごとに異なるが、call後304 bytesは同じSHA-256
+`5c48557292c6b254d6e9eb9612e3b24aae72f183bcbbcaf803d7a5ac16b41803`になった。Output pointerは
+callee return後のcaller ESPと同一である。Success pathはHRESULT signを検査し、同じstack baseから
+`Caps` offset `8`、`Caps2` offset `12`、`PixelShaderVersion` offset `204`だけを読む。Native値は順に
+`0x00020000`、`0xe0010000`、`0xffff0300`だった。他のcaps fieldはこのcallerで消費されない。
+
+これはprimary pathが要求するcapability semanticsのoracleであり、capture hostの全GPU capabilityを
+guestへ複製するgoldenではない。Vineは`D3DCAPS_READ_SCANLINE`、
+`D3DCAPS2_DYNAMICTEXTURES`、PS 3.0だけをversioned virtual policyへ採用し、残りfieldをzeroにする。
+このroot queryはdevice／renderer stateを生成せず、shader translationの実装完了も意味しない。
+Invalid adapter／device type／NULL、unwritable range、`CreateDevice`、device loss、resource／draw／Present
+semanticsはmodel testまたは後続gatewayで別に判定する。Source executableのsize／SHA-256は既存
+fingerprintのまま不変だった。
+
 ## 11. W7 PE32 load-plan ingress
 
 Rust `vine-core`は、owned immutable bytesとimport-time SHA-256からversion 1のchecked header／section／import／base-relocation planを作る。representative `abi-smoke.exe` contractは4 sections、1 module／2 named imports、1 relocation block／6 wordsを検査し、BGI.exeには同じboundaryを次のcommandで適用した。

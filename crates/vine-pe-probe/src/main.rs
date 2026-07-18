@@ -174,6 +174,7 @@ enum GenericRuntimeCapability {
     D3d9RootFactoryAndIdentity,
     D3d9GetAdapterDisplayMode,
     D3d9GetAdapterIdentifier,
+    D3d9GetDeviceCaps,
 }
 
 struct GenericRuntimeProcess {
@@ -2863,6 +2864,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::D3d9RootFactoryAndIdentity
                 | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
+                | GenericRuntimeCapability::D3d9GetDeviceCaps
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -2885,7 +2887,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SetWindowPosInitialPlacement
             | GenericRuntimeCapability::D3d9RootFactoryAndIdentity
             | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
-            | GenericRuntimeCapability::D3d9GetAdapterIdentifier,
+            | GenericRuntimeCapability::D3d9GetAdapterIdentifier
+            | GenericRuntimeCapability::D3d9GetDeviceCaps,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -2949,7 +2952,7 @@ fn run_v86_generic_runtime_session(
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let d3d9_policy = D3d9CompatibilityPolicy::controlled_v2();
+    let d3d9_policy = D3d9CompatibilityPolicy::controlled_v3();
     d3d9_policy.validate().map_err(api_fault)?;
     if matches!(
         endpoint_capability,
@@ -4338,6 +4341,7 @@ fn run_v86_generic_runtime_session(
                         GenericRuntimeCapability::D3d9RootFactoryAndIdentity
                             | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
                             | GenericRuntimeCapability::D3d9GetAdapterIdentifier
+                            | GenericRuntimeCapability::D3d9GetDeviceCaps
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4368,6 +4372,7 @@ fn run_v86_generic_runtime_session(
                         Some(
                             GenericRuntimeCapability::D3d9GetAdapterDisplayMode
                                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
+                                | GenericRuntimeCapability::D3d9GetDeviceCaps
                         )
                     ) {
                         dispatch_d3d9_com_call(&d3d9_policy, trap, &mut session)
@@ -4414,6 +4419,7 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::D3d9RootFactoryAndIdentity
                 | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
+                | GenericRuntimeCapability::D3d9GetDeviceCaps
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4440,6 +4446,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9RootFactoryAndIdentity
                 | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
+                | GenericRuntimeCapability::D3d9GetDeviceCaps
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -4929,6 +4936,7 @@ fn runtime_capability_enables_dynamic_endpoint(
             GenericRuntimeCapability::D3d9RootFactoryAndIdentity
                 | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
                 | GenericRuntimeCapability::D3d9GetAdapterIdentifier
+                | GenericRuntimeCapability::D3d9GetDeviceCaps
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -10555,6 +10563,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::D3d9GetAdapterDisplayMode
                 }
                 "d3d9-get-adapter-identifier" => GenericRuntimeCapability::D3d9GetAdapterIdentifier,
+                "d3d9-get-device-caps" => GenericRuntimeCapability::D3d9GetDeviceCaps,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

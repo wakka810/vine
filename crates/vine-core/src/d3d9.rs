@@ -18,9 +18,14 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 2;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 3;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
+pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
+pub const D3D9_D3DDEVTYPE_HAL: u32 = 1;
+pub const D3D9_D3DCAPS_READ_SCANLINE: u32 = 0x0002_0000;
+pub const D3D9_D3DCAPS2_DYNAMICTEXTURES: u32 = 0x2000_0000;
+pub const D3D9_D3DPS_VERSION_3_0: u32 = 0xffff_0300;
 pub const D3D9_D3DFMT_X8R8G8B8: u32 = 22;
 pub const D3D9_D3DENUM_WHQL_LEVEL: u32 = 0x0000_0002;
 pub const D3D9_D3DERR_INVALIDCALL: ComHResult = ComHResult(0x8876_086c_u32 as i32);
@@ -66,20 +71,34 @@ pub struct D3d9AdapterIdentifierPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9DeviceCapsPolicy {
+    pub profile_id: String,
+    pub display_profile_id: String,
+    pub adapter: u32,
+    pub device_type: u32,
+    pub caps: u32,
+    pub caps2: u32,
+    pub pixel_shader_version: u32,
+    pub number_of_adapters_in_group: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
     pub get_adapter_display_mode: Option<D3d9AdapterDisplayModePolicy>,
     pub get_adapter_identifier: Option<D3d9AdapterIdentifierPolicy>,
+    pub get_device_caps: Option<D3d9DeviceCapsPolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v2() -> Self {
+    pub fn controlled_v3() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v2".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v3".to_owned(),
             get_adapter_display_mode: Some(D3d9AdapterDisplayModePolicy {
                 profile_id: "primary-adapter-1920x1080-60-x8r8g8b8-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
@@ -102,6 +121,16 @@ impl D3d9CompatibilityPolicy {
                 revision: 0,
                 device_identifier: D3D9_VIRTUAL_DEVICE_IDENTIFIER_WINDOWS_BYTES,
                 whql_level: 0,
+            }),
+            get_device_caps: Some(D3d9DeviceCapsPolicy {
+                profile_id: "primary-hal-readscanline-dynamic-textures-ps3-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                adapter: 0,
+                device_type: D3D9_D3DDEVTYPE_HAL,
+                caps: D3D9_D3DCAPS_READ_SCANLINE,
+                caps2: D3D9_D3DCAPS2_DYNAMICTEXTURES,
+                pixel_shader_version: D3D9_D3DPS_VERSION_3_0,
+                number_of_adapters_in_group: 1,
             }),
         }
     }
@@ -164,6 +193,45 @@ impl D3d9CompatibilityPolicy {
                 "d3d9-compatibility-policy",
                 "d3d9-primary-adapter-profile-mismatch",
                 "D3D9 display mode and adapter identifier must select the same logical primary adapter",
+            ));
+        }
+        if let Some(caps) = self.get_device_caps.as_ref()
+            && (!valid_policy_id(&caps.profile_id)
+                || !valid_policy_id(&caps.display_profile_id)
+                || caps.adapter != 0
+                || caps.device_type != D3D9_D3DDEVTYPE_HAL
+                || caps.caps != D3D9_D3DCAPS_READ_SCANLINE
+                || caps.caps2 != D3D9_D3DCAPS2_DYNAMICTEXTURES
+                || caps.pixel_shader_version != D3D9_D3DPS_VERSION_3_0
+                || caps.number_of_adapters_in_group != 1)
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-device-caps-profile-invalid",
+                "D3D9 device-caps profile must describe the bounded virtual primary HAL capability band",
+            ));
+        }
+        if let (Some(mode), Some(caps)) = (
+            self.get_adapter_display_mode.as_ref(),
+            self.get_device_caps.as_ref(),
+        ) && (mode.adapter != caps.adapter || mode.display_profile_id != caps.display_profile_id)
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-primary-adapter-caps-profile-mismatch",
+                "D3D9 display mode and device caps must select the same logical primary adapter",
+            ));
+        }
+        if let (Some(identifier), Some(caps)) = (
+            self.get_adapter_identifier.as_ref(),
+            self.get_device_caps.as_ref(),
+        ) && (identifier.adapter != caps.adapter
+            || identifier.display_profile_id != caps.display_profile_id)
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-primary-adapter-identity-caps-profile-mismatch",
+                "D3D9 adapter identifier and device caps must select the same logical primary adapter",
             ));
         }
         Ok(())
@@ -239,6 +307,41 @@ impl D3d9AdapterIdentifier {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9DeviceCaps {
+    pub device_type: u32,
+    pub adapter_ordinal: u32,
+    pub caps: u32,
+    pub caps2: u32,
+    pub pixel_shader_version: u32,
+    pub number_of_adapters_in_group: u32,
+}
+
+impl D3d9DeviceCaps {
+    fn from_policy(policy: &D3d9DeviceCapsPolicy) -> Self {
+        Self {
+            device_type: policy.device_type,
+            adapter_ordinal: policy.adapter,
+            caps: policy.caps,
+            caps2: policy.caps2,
+            pixel_shader_version: policy.pixel_shader_version,
+            number_of_adapters_in_group: policy.number_of_adapters_in_group,
+        }
+    }
+
+    pub fn to_x86_bytes(self) -> Vec<u8> {
+        let mut words = [0_u32; 76];
+        words[0] = self.device_type;
+        words[1] = self.adapter_ordinal;
+        words[2] = self.caps;
+        words[3] = self.caps2;
+        words[51] = self.pixel_shader_version;
+        words[58] = self.number_of_adapters_in_group;
+        words.into_iter().flat_map(u32::to_le_bytes).collect()
+    }
+}
+
 fn valid_policy_id(value: &str) -> bool {
     !value.is_empty() && value.len() <= 128 && value.is_ascii() && !value.as_bytes().contains(&0)
 }
@@ -295,6 +398,7 @@ fn dispatch_d3d9_frontend_call(
     let expected_argument_words = match (call.frame().vtable_slot, call.frame().method.as_str()) {
         (5, "GetAdapterIdentifier") => 3,
         (8, "GetAdapterDisplayMode") => 2,
+        (14, "GetDeviceCaps") => 3,
         _ => {
             return call.fault(
                 ComFaultClass::RuntimeDefect,
@@ -326,8 +430,55 @@ fn dispatch_d3d9_frontend_call(
     match call.frame().vtable_slot {
         5 => dispatch_get_adapter_identifier(policy, call),
         8 => dispatch_get_adapter_display_mode(policy, call),
+        14 => dispatch_get_device_caps(policy, call),
         _ => unreachable!(),
     }
+}
+
+fn dispatch_get_device_caps(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(caps_policy) = policy.get_device_caps.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-device-caps",
+            "get-device-caps-policy-disabled",
+            "D3D9 compatibility policy does not enable GetDeviceCaps",
+        );
+    };
+    let adapter = call.frame().explicit_arguments[0];
+    let device_type = call.frame().explicit_arguments[1];
+    let output_pointer = call.frame().explicit_arguments[2];
+    if adapter != caps_policy.adapter
+        || device_type != caps_policy.device_type
+        || output_pointer == 0
+    {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+
+    let runtime_profile_id = call.runtime().display_profile_id();
+    let monitor = call.runtime().primary_monitor();
+    let Some(monitor) = monitor else {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-device-caps",
+            "logical-primary-monitor-missing",
+            "D3D9 device-caps policy is enabled but RuntimeDisplays has no primary monitor",
+        );
+    };
+    if runtime_profile_id != Some(caps_policy.display_profile_id.as_str()) || !monitor.primary {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-device-caps",
+            "logical-display-profile-mismatch",
+            "Rust display authority does not match the selected D3D9 device-caps profile",
+        );
+    }
+
+    let bytes = D3d9DeviceCaps::from_policy(caps_policy).to_x86_bytes();
+    debug_assert_eq!(bytes.len(), D3D9_D3DCAPS9_BYTE_LENGTH as usize);
+    complete_d3d9_write(call, GuestAddress(output_pointer), bytes)
 }
 
 fn dispatch_get_adapter_identifier(
@@ -583,7 +734,7 @@ pub fn direct3d9_object_spec() -> ComObjectSpec {
                     ComMethodSpec::unsupported_hresult("CheckDeviceMultiSampleType", 6),
                     ComMethodSpec::unsupported_hresult("CheckDepthStencilMatch", 5),
                     ComMethodSpec::unsupported_hresult("CheckDeviceFormatConversion", 4),
-                    ComMethodSpec::unsupported_hresult("GetDeviceCaps", 3),
+                    ComMethodSpec::frontend_hresult("GetDeviceCaps", 3),
                     ComMethodSpec::unsupported_u32("GetAdapterMonitor", 1),
                     ComMethodSpec::unsupported_hresult("CreateDevice", 6),
                 ],

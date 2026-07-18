@@ -75,6 +75,84 @@ const idirect3d9MethodNames = [
   "GetAdapterMonitor",
   "CreateDevice",
 ];
+const d3d9DeviceCapsFieldLayout = [
+  ["deviceType", "u32"],
+  ["adapterOrdinal", "u32"],
+  ["caps", "u32"],
+  ["caps2", "u32"],
+  ["caps3", "u32"],
+  ["presentationIntervals", "u32"],
+  ["cursorCaps", "u32"],
+  ["devCaps", "u32"],
+  ["primitiveMiscCaps", "u32"],
+  ["rasterCaps", "u32"],
+  ["zCmpCaps", "u32"],
+  ["srcBlendCaps", "u32"],
+  ["destBlendCaps", "u32"],
+  ["alphaCmpCaps", "u32"],
+  ["shadeCaps", "u32"],
+  ["textureCaps", "u32"],
+  ["textureFilterCaps", "u32"],
+  ["cubeTextureFilterCaps", "u32"],
+  ["volumeTextureFilterCaps", "u32"],
+  ["textureAddressCaps", "u32"],
+  ["volumeTextureAddressCaps", "u32"],
+  ["lineCaps", "u32"],
+  ["maxTextureWidth", "u32"],
+  ["maxTextureHeight", "u32"],
+  ["maxVolumeExtent", "u32"],
+  ["maxTextureRepeat", "u32"],
+  ["maxTextureAspectRatio", "u32"],
+  ["maxAnisotropy", "u32"],
+  ["maxVertexW", "f32"],
+  ["guardBandLeft", "f32"],
+  ["guardBandTop", "f32"],
+  ["guardBandRight", "f32"],
+  ["guardBandBottom", "f32"],
+  ["extentsAdjust", "f32"],
+  ["stencilCaps", "u32"],
+  ["fvfCaps", "u32"],
+  ["textureOpCaps", "u32"],
+  ["maxTextureBlendStages", "u32"],
+  ["maxSimultaneousTextures", "u32"],
+  ["vertexProcessingCaps", "u32"],
+  ["maxActiveLights", "u32"],
+  ["maxUserClipPlanes", "u32"],
+  ["maxVertexBlendMatrices", "u32"],
+  ["maxVertexBlendMatrixIndex", "u32"],
+  ["maxPointSize", "f32"],
+  ["maxPrimitiveCount", "u32"],
+  ["maxVertexIndex", "u32"],
+  ["maxStreams", "u32"],
+  ["maxStreamStride", "u32"],
+  ["vertexShaderVersion", "u32"],
+  ["maxVertexShaderConst", "u32"],
+  ["pixelShaderVersion", "u32"],
+  ["pixelShader1xMaxValue", "f32"],
+  ["devCaps2", "u32"],
+  ["maxNpatchTessellationLevel", "f32"],
+  ["reserved5", "u32"],
+  ["masterAdapterOrdinal", "u32"],
+  ["adapterOrdinalInGroup", "u32"],
+  ["numberOfAdaptersInGroup", "u32"],
+  ["declTypes", "u32"],
+  ["numSimultaneousRts", "u32"],
+  ["stretchRectFilterCaps", "u32"],
+  ["vs20Caps", "u32"],
+  ["vs20DynamicFlowControlDepth", "i32"],
+  ["vs20NumTemps", "i32"],
+  ["vs20StaticFlowControlDepth", "i32"],
+  ["ps20Caps", "u32"],
+  ["ps20DynamicFlowControlDepth", "i32"],
+  ["ps20NumTemps", "i32"],
+  ["ps20StaticFlowControlDepth", "i32"],
+  ["ps20NumInstructionSlots", "i32"],
+  ["vertexTextureFilterCaps", "u32"],
+  ["maxVShaderInstructionsExecuted", "u32"],
+  ["maxPShaderInstructionsExecuted", "u32"],
+  ["maxVertexShader30InstructionSlots", "u32"],
+  ["maxPixelShader30InstructionSlots", "u32"],
+];
 
 const categoryApis = {
   file: new Set(["CreateFileA", "CreateFileW"]),
@@ -415,6 +493,58 @@ const normalizeD3d9AdapterIdentifierSnapshot = (snapshot, sequence, phase) => {
     revision: view.getUint32(1076, true),
     deviceIdentifier: formatD3d9IdentifierGuid(view, bytes),
     whqlLevel: view.getUint32(1096, true),
+  };
+};
+
+const normalizeD3d9DeviceCapsSnapshot = (snapshot, sequence, phase) => {
+  if (
+    snapshot === null ||
+    typeof snapshot !== "object" ||
+    typeof snapshot.pointer !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(snapshot.pointer) ||
+    snapshot.size !== 304 ||
+    !Array.isArray(snapshot.bytes) ||
+    snapshot.bytes.length !== 304 ||
+    !snapshot.bytes.every(
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+    )
+  ) {
+    throw new Error(
+      `api-leave sequence ${sequence} has invalid D3DCAPS9 ${phase} snapshot`,
+    );
+  }
+  const bytes = Uint8Array.from(snapshot.bytes);
+  const view = new DataView(bytes.buffer);
+  const fields = Object.fromEntries(
+    d3d9DeviceCapsFieldLayout.map(([name, type], index) => {
+      const offset = index * 4;
+      const raw = view.getUint32(offset, true);
+      const value =
+        type === "i32"
+          ? view.getInt32(offset, true)
+          : type === "f32"
+            ? view.getFloat32(offset, true)
+            : raw;
+      return [
+        name,
+        {
+          offset,
+          type,
+          raw,
+          value: Number.isFinite(value) ? value : null,
+        },
+      ];
+    }),
+  );
+  return {
+    pointer: snapshot.pointer,
+    size: snapshot.size,
+    bytesSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    zeroByteCount: bytes.reduce(
+      (count, byte) => count + (byte === 0 ? 1 : 0),
+      0,
+    ),
+    fields,
   };
 };
 
@@ -868,6 +998,85 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       };
     });
 
+  const deviceCaps = apiPairing.pairs
+    .filter(
+      (pair) =>
+        pair.enter.interface === "IDirect3D9" &&
+        pair.enter.vtableSlot === 14 &&
+        pair.enter.api === "GetDeviceCaps" &&
+        pair.leave.d3d9DeviceCaps !== undefined,
+    )
+    .map((pair) => {
+      const observation = pair.leave.d3d9DeviceCaps;
+      if (
+        observation === null ||
+        typeof observation !== "object" ||
+        !Number.isInteger(observation.adapter) ||
+        observation.adapter < 0 ||
+        observation.adapter > 0xffffffff ||
+        !Number.isInteger(observation.deviceType) ||
+        observation.deviceType < 0 ||
+        observation.deviceType > 0xffffffff ||
+        typeof observation.callerStackPointerAfterReturn !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(observation.callerStackPointerAfterReturn)
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has invalid D3DCAPS9 observation`,
+        );
+      }
+      const before = normalizeD3d9DeviceCapsSnapshot(
+        observation.before,
+        pair.leave.sequence,
+        "before",
+      );
+      const after = normalizeD3d9DeviceCapsSnapshot(
+        observation.after,
+        pair.leave.sequence,
+        "after",
+      );
+      if (
+        before.pointer.toLowerCase() !== after.pointer.toLowerCase() ||
+        after.pointer.toLowerCase() !==
+          String(pair.enter.arguments?.[2] ?? "").toLowerCase()
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} changed its D3DCAPS9 output pointer`,
+        );
+      }
+      const changedBytes = observation.before.bytes.reduce(
+        (count, byte, index) =>
+          count + (byte === observation.after.bytes[index] ? 0 : 1),
+        0,
+      );
+      const outputOffsetAfterReturn = Number(
+        BigInt(after.pointer) - BigInt(observation.callerStackPointerAfterReturn),
+      );
+      if (!Number.isSafeInteger(outputOffsetAfterReturn)) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has unsafe D3DCAPS9 stack relation`,
+        );
+      }
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId ?? null,
+        caller:
+          pair.enter.caller === undefined
+            ? null
+            : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+        adapter: observation.adapter,
+        deviceType: observation.deviceType,
+        callerStackPointerAfterReturn:
+          observation.callerStackPointerAfterReturn,
+        outputOffsetAfterReturn,
+        result: pair.leave.result,
+        lastError: pair.leave.lastError ?? null,
+        changedBytes,
+        before,
+        after,
+        immediateConsumer: observation.immediateConsumer ?? null,
+      };
+    });
+
   return {
     schema: summarySchema,
     source: {
@@ -920,6 +1129,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     d3d9: {
       adapterIdentifiers,
       adapterDisplayModes,
+      deviceCaps,
     },
     categories,
     files: {

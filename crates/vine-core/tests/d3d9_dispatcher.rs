@@ -1,13 +1,14 @@
 use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiTrap, COM_S_OK, ComCallCompletion,
     ComCallTrap, ComDispatchOutcome, ComFaultClass, ComReturnValue,
-    D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH, D3D9_D3DDISPLAYMODE_BYTE_LENGTH,
-    D3D9_D3DENUM_WHQL_LEVEL, D3D9_D3DERR_INVALIDCALL, D3D9_D3DFMT_X8R8G8B8,
-    D3D9_IDIRECT3D9_CLASS_IDENTITY, D3D9_IDIRECT3D9_IID, D3D9_SDK_VERSION,
-    D3D9_VIRTUAL_DESCRIPTION, D3D9_VIRTUAL_DEVICE_IDENTIFIER_WINDOWS_BYTES,
-    D3D9_VIRTUAL_DEVICE_NAME, D3D9_VIRTUAL_DRIVER, D3D9_VIRTUAL_DRIVER_VERSION,
-    D3d9CompatibilityPolicy, DispatchOutcome, ExecutionSession, GuestAddress, GuestMemory,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
+    D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH, D3D9_D3DCAPS_READ_SCANLINE,
+    D3D9_D3DCAPS2_DYNAMICTEXTURES, D3D9_D3DCAPS9_BYTE_LENGTH, D3D9_D3DDEVTYPE_HAL,
+    D3D9_D3DDISPLAYMODE_BYTE_LENGTH, D3D9_D3DENUM_WHQL_LEVEL, D3D9_D3DERR_INVALIDCALL,
+    D3D9_D3DFMT_X8R8G8B8, D3D9_D3DPS_VERSION_3_0, D3D9_IDIRECT3D9_CLASS_IDENTITY,
+    D3D9_IDIRECT3D9_IID, D3D9_SDK_VERSION, D3D9_VIRTUAL_DESCRIPTION,
+    D3D9_VIRTUAL_DEVICE_IDENTIFIER_WINDOWS_BYTES, D3D9_VIRTUAL_DEVICE_NAME, D3D9_VIRTUAL_DRIVER,
+    D3D9_VIRTUAL_DRIVER_VERSION, D3d9CompatibilityPolicy, DispatchOutcome, ExecutionSession,
+    GuestAddress, GuestMemory, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
     LOGICAL_ENCODED_POINTER_NAMESPACE, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
     MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout, RegisterUpdate, RuntimeBootstrap,
     RuntimeClockState, RuntimeComMethodImplementation, RuntimeComReturnKind,
@@ -77,6 +78,12 @@ fn direct3d_create9_installs_bounded_root_identity_and_retires_atomically() {
     assert_eq!(
         interface.methods[&5].return_kind,
         RuntimeComReturnKind::HResult
+    );
+    assert_eq!(interface.methods[&14].name, "GetDeviceCaps");
+    assert_eq!(interface.methods[&14].explicit_argument_words, 3);
+    assert_eq!(
+        interface.methods[&14].implementation,
+        RuntimeComMethodImplementation::Frontend
     );
     assert_eq!(
         interface.methods[&5].implementation,
@@ -199,7 +206,7 @@ fn get_adapter_identifier_writes_one_policy_owned_virtual_identity() {
         &[0x1005_b91c, pointer, 0, 0, output.0],
     );
     acknowledge_pending(&mut fixture.memory);
-    let policy = D3d9CompatibilityPolicy::controlled_v2();
+    let policy = D3d9CompatibilityPolicy::controlled_v3();
     assert!(policy.validate().is_ok());
     let before_runtime = fixture.runtime.clone();
     let completion = completed(fixture.dispatch_d3d9_com(&policy, &interface, 5, STACK_COM));
@@ -254,7 +261,7 @@ fn get_adapter_identifier_negative_paths_preserve_memory_and_authority() {
     fixture.acknowledge();
     let output = GuestAddress(MEMORY_BASE.0 + 0x400);
     let output_bytes = D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH as usize;
-    let policy = D3d9CompatibilityPolicy::controlled_v2();
+    let policy = D3d9CompatibilityPolicy::controlled_v3();
 
     for (adapter, flags, output_pointer) in [(1, 0, output.0), (0, 1, output.0), (0, 0, 0)] {
         fixture
@@ -369,6 +376,209 @@ fn get_adapter_identifier_negative_paths_preserve_memory_and_authority() {
 }
 
 #[test]
+fn get_device_caps_writes_one_bounded_virtual_capability_profile() {
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    let factory = fixture.dispatch_factory(STACK_VALID, D3D9_SDK_VERSION);
+    let pointer = match factory.eax {
+        RegisterUpdate::Set(pointer) => pointer,
+        other => panic!("Direct3DCreate9 did not return an interface: {other:?}"),
+    };
+    let interface = fixture
+        .runtime
+        .com_interface_for_pointer(GuestAddress(pointer))
+        .expect("IDirect3D9 interface")
+        .clone();
+    fixture.acknowledge();
+
+    let output = GuestAddress(MEMORY_BASE.0 + 0x800);
+    let output_bytes = D3D9_D3DCAPS9_BYTE_LENGTH as usize;
+    fixture
+        .memory
+        .write(output, &vec![0xcc; output_bytes])
+        .expect("device-caps sentinel");
+    write_words(
+        &mut fixture.memory,
+        STACK_COM,
+        &[0x1005_b949, pointer, 0, D3D9_D3DDEVTYPE_HAL, output.0],
+    );
+    acknowledge_pending(&mut fixture.memory);
+    let policy = D3d9CompatibilityPolicy::controlled_v3();
+    assert!(policy.validate().is_ok());
+    let before_runtime = fixture.runtime.clone();
+    let completion = completed(fixture.dispatch_d3d9_com(&policy, &interface, 14, STACK_COM));
+    assert_eq!(completion.return_value, ComReturnValue::HResult(COM_S_OK));
+    assert_eq!(completion.stack_pointer, GuestAddress(STACK_COM.0 + 20));
+    assert_eq!(completion.reference_count, 1);
+    assert!(!completion.object_retired);
+    assert_eq!(completion.guest_writes.len(), 1);
+    assert_eq!(completion.guest_writes[0].address, output);
+    let bytes = &completion.guest_writes[0].bytes;
+    assert_eq!(bytes.len(), output_bytes);
+    let words = bytes
+        .chunks_exact(4)
+        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(words.len(), 76);
+    assert_eq!(words[0], D3D9_D3DDEVTYPE_HAL);
+    assert_eq!(words[1], 0);
+    assert_eq!(words[2], D3D9_D3DCAPS_READ_SCANLINE);
+    assert_eq!(words[3], D3D9_D3DCAPS2_DYNAMICTEXTURES);
+    assert_eq!(words[51], D3D9_D3DPS_VERSION_3_0);
+    assert_eq!(words[58], 1);
+    for (index, value) in words.into_iter().enumerate() {
+        if ![0, 2, 3, 51, 58].contains(&index) {
+            assert_eq!(value, 0, "unexpected nonzero D3DCAPS9 word {index}");
+        }
+    }
+    fixture.acknowledge();
+    assert_eq!(fixture.memory.read(output, output_bytes).unwrap(), *bytes);
+    assert_eq!(fixture.runtime, before_runtime);
+    assert_eq!(
+        fixture.runtime.current_last_error().unwrap(),
+        LAST_ERROR_SENTINEL
+    );
+}
+
+#[test]
+fn get_device_caps_negative_paths_preserve_memory_and_authority() {
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    let factory = fixture.dispatch_factory(STACK_VALID, D3D9_SDK_VERSION);
+    let pointer = match factory.eax {
+        RegisterUpdate::Set(pointer) => pointer,
+        other => panic!("Direct3DCreate9 did not return an interface: {other:?}"),
+    };
+    let interface = fixture
+        .runtime
+        .com_interface_for_pointer(GuestAddress(pointer))
+        .expect("IDirect3D9 interface")
+        .clone();
+    fixture.acknowledge();
+    let output = GuestAddress(MEMORY_BASE.0 + 0x800);
+    let output_bytes = D3D9_D3DCAPS9_BYTE_LENGTH as usize;
+    let policy = D3d9CompatibilityPolicy::controlled_v3();
+
+    for (adapter, device_type, output_pointer) in [
+        (1, D3D9_D3DDEVTYPE_HAL, output.0),
+        (0, 2, output.0),
+        (0, D3D9_D3DDEVTYPE_HAL, 0),
+    ] {
+        fixture
+            .memory
+            .write(output, &vec![0xcc; output_bytes])
+            .expect("negative device-caps sentinel");
+        write_words(
+            &mut fixture.memory,
+            STACK_COM,
+            &[0x1005_b949, pointer, adapter, device_type, output_pointer],
+        );
+        acknowledge_pending(&mut fixture.memory);
+        let before_memory = fixture.memory.stats();
+        let before_runtime = fixture.runtime.clone();
+        let completion = completed(fixture.dispatch_d3d9_com(&policy, &interface, 14, STACK_COM));
+        assert_eq!(
+            completion.return_value,
+            ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+        );
+        assert!(completion.guest_writes.is_empty());
+        assert_eq!(fixture.memory.stats(), before_memory);
+        assert_eq!(fixture.runtime, before_runtime);
+        assert_eq!(
+            fixture.memory.read(output, output_bytes).unwrap(),
+            vec![0xcc; output_bytes]
+        );
+    }
+
+    write_words(
+        &mut fixture.memory,
+        STACK_COM,
+        &[
+            0x1005_b949,
+            pointer,
+            0,
+            D3D9_D3DDEVTYPE_HAL,
+            interface.guest_pointer.0,
+        ],
+    );
+    acknowledge_pending(&mut fixture.memory);
+    let before_memory = fixture.memory.stats();
+    let before_runtime = fixture.runtime.clone();
+    let unwritable = faulted(fixture.dispatch_d3d9_com(&policy, &interface, 14, STACK_COM));
+    assert_eq!(unwritable.class, ComFaultClass::InvalidCall);
+    assert_eq!(fixture.memory.stats(), before_memory);
+    assert_eq!(fixture.runtime, before_runtime);
+
+    for rejected_policy in {
+        let mut disabled = policy.clone();
+        disabled.get_device_caps = None;
+        let mut mismatched = policy.clone();
+        mismatched
+            .get_device_caps
+            .as_mut()
+            .unwrap()
+            .display_profile_id = "single-monitor-mismatch-v1".to_owned();
+        let mut malformed = policy.clone();
+        malformed.get_device_caps.as_mut().unwrap().caps2 = 0;
+        let mut identity_mismatched = policy.clone();
+        identity_mismatched.get_adapter_display_mode = None;
+        identity_mismatched
+            .get_device_caps
+            .as_mut()
+            .unwrap()
+            .display_profile_id = "single-monitor-mismatch-v1".to_owned();
+        [disabled, mismatched, malformed, identity_mismatched]
+    } {
+        write_words(
+            &mut fixture.memory,
+            STACK_COM,
+            &[0x1005_b949, pointer, 0, D3D9_D3DDEVTYPE_HAL, output.0],
+        );
+        acknowledge_pending(&mut fixture.memory);
+        let before_memory = fixture.memory.stats();
+        let before_runtime = fixture.runtime.clone();
+        let fault = faulted(fixture.dispatch_d3d9_com(&rejected_policy, &interface, 14, STACK_COM));
+        assert!(matches!(
+            fault.class,
+            ComFaultClass::Unsupported | ComFaultClass::RuntimeDefect
+        ));
+        assert_eq!(fixture.memory.stats(), before_memory);
+        assert_eq!(fixture.runtime, before_runtime);
+    }
+
+    let mut missing_display = Fixture::new_without_display(MemoryLimits::default());
+    let factory = missing_display.dispatch_factory(STACK_VALID, D3D9_SDK_VERSION);
+    let missing_pointer = match factory.eax {
+        RegisterUpdate::Set(pointer) => pointer,
+        other => panic!("Direct3DCreate9 did not return an interface: {other:?}"),
+    };
+    let missing_interface = missing_display
+        .runtime
+        .com_interface_for_pointer(GuestAddress(missing_pointer))
+        .unwrap()
+        .clone();
+    missing_display.acknowledge();
+    write_words(
+        &mut missing_display.memory,
+        STACK_COM,
+        &[
+            0x1005_b949,
+            missing_pointer,
+            0,
+            D3D9_D3DDEVTYPE_HAL,
+            output.0,
+        ],
+    );
+    acknowledge_pending(&mut missing_display.memory);
+    let before_memory = missing_display.memory.stats();
+    let before_runtime = missing_display.runtime.clone();
+    let missing =
+        faulted(missing_display.dispatch_d3d9_com(&policy, &missing_interface, 14, STACK_COM));
+    assert_eq!(missing.class, ComFaultClass::RuntimeDefect);
+    assert_eq!(missing.code, "logical-primary-monitor-missing");
+    assert_eq!(missing_display.memory.stats(), before_memory);
+    assert_eq!(missing_display.runtime, before_runtime);
+}
+
+#[test]
 fn get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode() {
     let mut fixture = Fixture::new(MemoryLimits::default());
     let factory = fixture.dispatch_factory(STACK_VALID, D3D9_SDK_VERSION);
@@ -404,7 +614,7 @@ fn get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode() 
         .expect("D3D9 root object")
         .reference_count;
     let completion = completed(fixture.dispatch_d3d9_com(
-        &D3d9CompatibilityPolicy::controlled_v2(),
+        &D3d9CompatibilityPolicy::controlled_v3(),
         &interface,
         8,
         STACK_COM,
@@ -447,7 +657,7 @@ fn get_adapter_display_mode_negative_paths_preserve_memory_and_authority() {
         .clone();
     fixture.acknowledge();
     let output = GuestAddress(MEMORY_BASE.0 + 0x280);
-    let policy = D3d9CompatibilityPolicy::controlled_v2();
+    let policy = D3d9CompatibilityPolicy::controlled_v3();
     assert!(policy.validate().is_ok());
 
     for (adapter, output_pointer) in [(1, output.0), (0, 0)] {

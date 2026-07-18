@@ -302,15 +302,18 @@ Bounded D3D9 frontendのrepresentative fixtureは、version-neutral COM gateway�
 D3D9 handlerへのdelegationを固定する。Slot 8は2-word／HRESULT ABI、`RuntimeDisplays`由来の
 1920×1080 geometry、policy由来の60 Hz／`D3DFMT_X8R8G8B8`、16-byte full overwriteを検証する。
 Slot 5は3-word／HRESULT ABI、policy-owned virtual identity、zero-filled 1,100-byte
-`D3DADAPTER_IDENTIFIER9`のfull overwriteを検証する。両方ともLastError／reference count不変で、
-invalid adapter、NULL、read-only output、disabled／malformed policy、missing／mismatched display
-authorityはguest memoryとruntime stateをpartial mutationしない。Identifierのunknown flagsは
+`D3DADAPTER_IDENTIFIER9`のfull overwriteを検証する。Slot 14は3-word／HRESULT ABI、304-byte
+x86 `D3DCAPS9` layout、policy-owned `READ_SCANLINE`／`DYNAMICTEXTURES`／PS 3.0 bandと残りzeroを
+検証する。三queryともLastError／reference count不変で、invalid adapter、device type、NULL、
+read-only output、disabled／malformed policy、missing／mismatched display authorityはguest memoryと
+runtime stateをpartial mutationしない。Identifierのunknown flagsは
 `D3DERR_INVALIDCALL`、`D3DENUM_WHQL_LEVEL`はcertificate discoveryを行わずtyped unsupportedとなる。
-Public PE fixtureはnativeのnonempty NUL-terminated identityとVineのexact virtual identityを分けて
-self-checkし、private Node／Chrome gateは同じ1,100-byte completionと次の`GetDeviceCaps` stopを
-比較する。Native traceはdisplay mode 4 callsとidentifier 1 callを各2 runで再現し、identifier
-consumerがHRESULT signだけを読みhost GPU fieldを消費しないことを固定する。
-`RuntimeGraphics`／renderer resourceを生成しないことも両leafのnon-claimとして固定する。詳細は
+Public PE fixtureはnativeのnonempty NUL-terminated identity／required capsとVineのexact virtual
+identity／capsを分けてself-checkし、private Node／Chrome gateは同じ304-byte completionと次の
+`CheckDeviceType` stopを比較する。Native traceはdisplay mode 4 calls、identifier 1 call、device caps
+1 callを各2 runで再現する。Identifier consumerがHRESULT signだけを読みhost GPU fieldを消費しない
+こと、caps consumerがHRESULT signとoffset 8／12／204だけを読むことを固定する。
+`RuntimeGraphics`／renderer resourceを生成しないこともroot query leavesのnon-claimとして固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
 Reached COM initialization contractは別fixtureでone-argument x86 stdcall、typed HRESULT、
