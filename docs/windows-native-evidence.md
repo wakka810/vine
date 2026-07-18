@@ -2965,3 +2965,53 @@ Instruction 11,476,612でendpoint 202／
 window icon mutation、arbitrary WndProc reentrancy、timeout／cancel、DOM icon／dispatchは未実装である。
 既存User32 ownerとcallback scheduler内のbounded gatewayなので、3分gateは再実行せず直前の
 36-session observationを保持する。
+
+## 108. BGI SetWindowPos initial placement
+
+Focused `set-window-pos` capturesは次のlocal raw artifactsである。Raw JSONL、private absolute path、
+native HWND／HICON値はGitへ追加せずsemantic goldenにも使わない。
+
+| Capture | Bytes／lines | Balanced API pairs | SHA-256 |
+|---|---:|---:|---|
+| primary | 95,895／132 | 39 | `82c8e13758feb0d498bdf3faa64304d6df9dc36ad50e5661152c3590596eeab7` |
+| confirmation | 95,912／132 | 39 | `3601c319492ae04f485c15a00d43787362fe9b7a1ecc923cca859a857a0a8193` |
+
+両captureはcontiguous sequence、diagnostics zeroである。最初のcaller RVA `0x00067F88`は
+`SetWindowPos(hwnd, HWND_NOTOPMOST, 15360, 8640, 0, 0, 0x559)`を呼び、BOOL 1と
+LastError `0 -> 0`を得る。WndProcは`WM_WINDOWPOSCHANGED`のWINDOWPOS
+`[15360,8640,806,629]`／flags `0x10000D59`、packed `WM_MOVE` LPARAM `0x21DA3C03`、
+`WM_GETICON(ICON_SMALL2)`をこの順で受ける。`WM_GETICON`は直前のshared 16×16
+`LoadImageA`と同じHICON identityを返す。二番目のcaller RVA `0x00067F9F`は
+`SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, 0x59B)`を呼び、BOOL 1、LastError
+`0 -> 0`、WINDOWPOS flags `0x00001D9F`を得る。Callerは両BOOLをbranchに使わず二番目の
+return後も進む。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-12 User32 policyでこのinitial show／hide pairだけを有効にする。先行するnested
+`DefWindowProcA(WM_SETICON)`はwindowのsmall-icon relationをowner-local planでcommitし、previous
+HICONを返す。Show operationはlogical 1,920×1,080 displayとnon-client policyからouter／client geometryを
+planし、`WM_WINDOWPOSCHANGED -> nested WM_MOVE -> same-depth WM_GETICON`を完了してexpected icon
+identityを確認した後だけgeometry、visible、topmostをcommitする。Hideもfinal
+`WM_WINDOWPOSCHANGED`完了後だけvisibleをfalseへし、show geometryを保持する。Wrong owner／lifecycle／
+flags／icon result、callback rejection、stale／duplicate operationではwindow、callback stack、scratch memory、
+allocatorを部分更新しない。Runtime WorkerはCreateWindowとSetWindowPos completionのwindow snapshotを
+read-only metadataとして記録し、logical window stateを所有しない。
+
+Nodeは75 contracts／5,500 calls、5,547 writebacks／11,243 dirty pages／1,543,704 changed bytes、
+4,234 host deltas、generation 9,853を通す。Reportは59,494,402 bytes／SHA-256
+`5950440a334c611d25da9c9f79f50b92202faba1f5aa5971fcda6dc1214f2fb6`、final memory SHA-256は
+`c74cac1c619df0782a3115a399aac990f4416faf2d16b49c06738caca89c4140`である。Chrome Runtime Workerも
+same 5,500 calls／11,583,945 instructions／memory digestを再現し、callback entries 11、replacement 5、
+maximum depth 2、logical-window completions 3、generation 54,651、50,347 writebacks／114,969 pages、
+4,234 mapping deltas、60,137 Wasm crossings、terminal pending work zeroを通す。Browser reportは
+10,793,133 bytes／SHA-256 `f5bb64c3944fc4a0039e0d262abc2eb8b815c6a2e78dff9a647ba9ce3436939b`である。
+
+Workload lengthとcallback／Worker boundaryが変わったため、unchanged 17 thresholdsを持つ新しい
+SetWindowPos version-1 configurationで180秒gateを再実行した。29 sessions／failure 0、session p95
+6,558.045 ms、slice p99 2.770 msで17/17 thresholdsを通す。Benchmark reportは947,246 bytes／
+SHA-256 `18587fccb08508132f74868fc0725755243372174cbafc3ee9891d5887d46e04`である。
+
+Instruction 11,583,945では4,096件のlive critical sectionを保持した状態で、endpoint 147／
+`InitializeCriticalSection(0x2004A190)`の次occurrenceを`critical-section-limit-exceeded`として
+mutation前に停止する。General z-order／resize／activation、arbitrary flags／insert-after、multiple
+windows／monitors、queued paint、DOM positioningは未実装であり、capacity adequacyは次checkpointで扱う。

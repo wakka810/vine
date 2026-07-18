@@ -454,7 +454,7 @@ impl BrowserRuntime {
             .runtime
             .register_source_snapshot(source_manifest)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v11();
+        let user32_policy = User32CompatibilityPolicy::controlled_v12();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -1531,10 +1531,14 @@ impl BrowserRuntime {
                     "completion": completion,
                     "memory": self.memory.stats(),
                 });
-                if let Some(vine_core::RuntimeWindowCreationCallbackAction::Created { window }) =
-                    semantic_action
-                {
-                    metadata["window"] = json!(window);
+                match semantic_action {
+                    Some(vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
+                        vine_core::RuntimeWindowCreationCallbackAction::Created { window },
+                    ))
+                    | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
+                        vine_core::RuntimeSetWindowPosCallbackAction::Completed { window },
+                    )) => metadata["window"] = json!(window),
+                    _ => {}
                 }
                 Ok((metadata, delta))
             }
@@ -1551,7 +1555,13 @@ impl BrowserRuntime {
                 };
                 if !matches!(
                     semantic_action,
-                    Some(vine_core::RuntimeWindowCreationCallbackAction::Continue { .. })
+                    Some(
+                        vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
+                            vine_core::RuntimeWindowCreationCallbackAction::Continue { .. }
+                        )
+                    ) | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
+                        vine_core::RuntimeSetWindowPosCallbackAction::Continue { .. }
+                    ))
                 ) {
                     return Err(
                         "replacement guest callback did not commit continuation semantics"

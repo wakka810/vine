@@ -56,9 +56,7 @@ const bgiOracleReportPath = path.join(
 );
 const bgiBenchmarkConfigurationPath = path.join(
   root,
-  "fixtures",
-  "benchmarks",
-  "bgi-browser-create-window-v1.json",
+  checkpoint.browserCheckpoint.bgiBenchmarkEvidence.configuration,
 );
 
 function optionValue(name) {

@@ -102,8 +102,10 @@ use super::timers::{
 use super::user32::{
     RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon,
     RuntimeIconId, RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
-    RuntimeRegisterClassExAResult, RuntimeUser32, RuntimeWindow, RuntimeWindowClass,
-    RuntimeWindowClassId, RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
+    RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
+    RuntimeUser32, RuntimeWindow, RuntimeWindowClass, RuntimeWindowClassId,
+    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowId,
     RuntimeWindowProcedure,
 };
@@ -2987,6 +2989,70 @@ impl RuntimeKernel {
             icon_width,
             icon_height,
         )
+    }
+
+    pub(crate) fn set_window_small_icon(
+        &mut self,
+        window_handle: u32,
+        icon_handle: u32,
+        icon_width: u16,
+        icon_height: u16,
+    ) -> Result<u32, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self.user32.plan_window_small_icon(
+            window_handle,
+            self.current_thread_id(),
+            icon_handle,
+            icon_width,
+            icon_height,
+        )?;
+        self.user32.commit_window_small_icon(plan)
+    }
+
+    pub(crate) fn resolve_window_procedure(
+        &self,
+        window_handle: u32,
+    ) -> Result<RuntimeWindowProcedure, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .resolve_window_procedure(window_handle, self.current_thread_id())
+    }
+
+    pub(crate) fn preview_set_window_pos(
+        &self,
+        request: RuntimeSetWindowPosRequest,
+    ) -> Result<RuntimeSetWindowPosOperation, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .preview_set_window_pos(self.current_thread_id(), request)
+    }
+
+    pub(crate) fn preview_set_window_pos_callback(
+        &self,
+        operation: RuntimeSetWindowPosOperation,
+        message: RuntimeSetWindowPosCallbackMessage,
+        result: u32,
+    ) -> Result<RuntimeSetWindowPosCallbackAction, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(operation.window_id)?;
+        let plan = self
+            .user32
+            .plan_set_window_pos_callback(operation, message, result)?;
+        Ok(self.user32.set_window_pos_callback_action(&plan).clone())
+    }
+
+    pub(crate) fn complete_set_window_pos_callback(
+        &mut self,
+        operation: RuntimeSetWindowPosOperation,
+        message: RuntimeSetWindowPosCallbackMessage,
+        result: u32,
+    ) -> Result<RuntimeSetWindowPosCallbackAction, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(operation.window_id)?;
+        let plan = self
+            .user32
+            .plan_set_window_pos_callback(operation, message, result)?;
+        self.user32.commit_set_window_pos_callback(plan)
     }
 
     fn validate_window_creation_authority(

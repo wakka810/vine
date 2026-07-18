@@ -69,8 +69,8 @@ named identity copy、distinct-handle shared object、recursive mutex wait／rel
 process teardown、serialized field compatibilityを検査する。Dispatcher testsはGuestMemory bytes、
 LastError、ABI、policy rejection、critical-section and mutex ownership behaviorを保持する。
 
-Current private regressionはNode／Chromeで46 contracts／284 calls、instruction `25,256`、final memory
-SHA-256 `338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add`、four
-initial-stack growths、next `GetCurrentThread` stopを一致させる。新しいRust/Wasm artifactを使う
-180秒gateは435 sessions／failure 0で17 thresholdをすべて通した。詳細は
-[bgi-create-mutex-a.md](bgi-create-mutex-a.md)を正とする。
+Primary targetはbounded startupの後半で4,096件のlive critical sectionを保持し、次の
+`InitializeCriticalSection`を`critical-section-limit-exceeded`としてmutation前に停止できる。この観測は
+limit enforcementとfailure atomicityのevidenceであり、4,096がprimary scenarioに十分なcapacityであることを
+意味しない。Active occurrence、instruction、artifact identity、次stopは
+[current-checkpoint.json](current-checkpoint.json)だけを正とし、capacity変更は独立checkpointで検証する。

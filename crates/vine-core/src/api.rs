@@ -24,7 +24,8 @@ use crate::runtime::{
     ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy, RuntimeCallbackFrameId,
     RuntimeCallbackScratch, RuntimeDynamicEndpoint, RuntimeGuestImport, RuntimeGuestImportBinding,
     RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeHeapInitialization,
-    RuntimeHeapTeardown, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeSetWindowPosOperation, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowId,
 };
 
@@ -582,10 +583,17 @@ pub enum GuestCallbackArgument {
 pub enum GuestCallbackCompletionPolicy {
     ReturnU32,
     ReturnBool32,
+    ReturnConstantU32 {
+        value: u32,
+    },
     CreateWindowExA {
         window_id: RuntimeWindowId,
         window_handle: u32,
         message: RuntimeWindowCreationMessage,
+    },
+    SetWindowPos {
+        operation: RuntimeSetWindowPosOperation,
+        message: RuntimeSetWindowPosCallbackMessage,
     },
 }
 
@@ -593,7 +601,9 @@ impl GuestCallbackCompletionPolicy {
     fn matches_return_schema(self, schema: &ApiReturnSchema) -> bool {
         match (self, schema) {
             (Self::ReturnU32, ApiReturnSchema::U32)
-            | (Self::ReturnBool32, ApiReturnSchema::Bool32) => true,
+            | (Self::ReturnConstantU32 { .. }, ApiReturnSchema::U32)
+            | (Self::ReturnBool32, ApiReturnSchema::Bool32)
+            | (Self::SetWindowPos { .. }, ApiReturnSchema::Bool32) => true,
             (
                 Self::CreateWindowExA { .. },
                 ApiReturnSchema::LogicalHandle {
@@ -609,10 +619,17 @@ impl GuestCallbackCompletionPolicy {
         let value = match self {
             Self::ReturnU32 => ApiReturnValue::U32(result),
             Self::ReturnBool32 => ApiReturnValue::Bool32(result != 0),
-            Self::CreateWindowExA { .. } => return None,
+            Self::ReturnConstantU32 { value } => ApiReturnValue::U32(value),
+            Self::CreateWindowExA { .. } | Self::SetWindowPos { .. } => return None,
         };
         Some(ApiImmediate::new(value))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeGuestCallbackSemanticAction {
+    WindowCreation(RuntimeWindowCreationCallbackAction),
+    SetWindowPos(RuntimeSetWindowPosCallbackAction),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1177,10 +1194,11 @@ impl<'a> ExecutionSession<'a> {
         completion_policy: GuestCallbackCompletionPolicy,
         result: u32,
         endpoint: &ApiEndpointIdentity,
-    ) -> Result<Option<RuntimeWindowCreationCallbackAction>, ApiFault> {
+    ) -> Result<Option<RuntimeGuestCallbackSemanticAction>, ApiFault> {
         match completion_policy {
             GuestCallbackCompletionPolicy::ReturnU32
-            | GuestCallbackCompletionPolicy::ReturnBool32 => Ok(None),
+            | GuestCallbackCompletionPolicy::ReturnBool32
+            | GuestCallbackCompletionPolicy::ReturnConstantU32 { .. } => Ok(None),
             GuestCallbackCompletionPolicy::CreateWindowExA {
                 window_id,
                 window_handle,
@@ -1203,7 +1221,18 @@ impl<'a> ExecutionSession<'a> {
                     )
                     .with_endpoint(endpoint));
                 }
-                Ok(Some(action))
+                Ok(Some(RuntimeGuestCallbackSemanticAction::WindowCreation(
+                    action,
+                )))
+            }
+            GuestCallbackCompletionPolicy::SetWindowPos { operation, message } => {
+                let action = self
+                    .runtime
+                    .complete_set_window_pos_callback(operation, message, result)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                Ok(Some(RuntimeGuestCallbackSemanticAction::SetWindowPos(
+                    action,
+                )))
             }
         }
     }
@@ -1850,8 +1879,23 @@ impl ApiDispatcher {
         if let Some(completion) = call.request.completion_policy.complete_direct(result) {
             return self.complete_guest_callback(call, completion, session);
         }
-        let handler_result =
-            crate::user32::resolve_create_window_ex_a_callback(&call, result, session);
+        let handler_result = match call.request.completion_policy {
+            GuestCallbackCompletionPolicy::CreateWindowExA { .. } => {
+                crate::user32::resolve_create_window_ex_a_callback(&call, result, session)
+            }
+            GuestCallbackCompletionPolicy::SetWindowPos { .. } => {
+                crate::user32::resolve_set_window_pos_callback(&call, result, session)
+            }
+            GuestCallbackCompletionPolicy::ReturnU32
+            | GuestCallbackCompletionPolicy::ReturnBool32
+            | GuestCallbackCompletionPolicy::ReturnConstantU32 { .. } => {
+                ApiHandlerResult::Fault(ApiFault::runtime_defect(
+                    "api-dispatch",
+                    "callback-direct-completion-missing",
+                    "direct callback completion policy did not produce an API result",
+                ))
+            }
+        };
         let endpoint = &call.frame.endpoint;
         match handler_result {
             ApiHandlerResult::Immediate(immediate) => {

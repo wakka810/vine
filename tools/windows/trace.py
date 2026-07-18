@@ -42,6 +42,7 @@ SUPPORTED_OBSERVATIONS = (
     "load-icon-a",
     "load-image-a",
     "send-message-a",
+    "set-window-pos",
     "load-cursor-a",
     "register-class-ex-a",
     "create-window-ex-a",

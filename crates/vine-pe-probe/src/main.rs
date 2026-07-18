@@ -99,7 +99,8 @@ const RUNTIME_FRAME_HOST_REQUEST: u32 = 18;
 const RUNTIME_FRAME_HOST_COMPLETION: u32 = 19;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
-const GENERIC_RUNTIME_TRAP_LIMIT: usize = 4096;
+const GENERIC_RUNTIME_TRAP_LIMIT: usize = 16_384;
+const GENERIC_RUNTIME_CALLBACK_DEPTH_LIMIT: usize = 64;
 const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +168,7 @@ enum GenericRuntimeCapability {
     GetSystemMetricsSmallIconWidth,
     LoadImageASmallIcon,
     SendMessageASmallIcon,
+    SetWindowPosInitialPlacement,
 }
 
 struct GenericRuntimeProcess {
@@ -2835,11 +2837,12 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
             | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
             | GenericRuntimeCapability::LoadImageASmallIcon
-            | GenericRuntimeCapability::SendMessageASmallIcon,
+            | GenericRuntimeCapability::SendMessageASmallIcon
+            | GenericRuntimeCapability::SetWindowPosInitialPlacement,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v11();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v12();
     if !matches!(
         requested_capability,
         Some(
@@ -2847,6 +2850,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
                 | GenericRuntimeCapability::LoadImageASmallIcon
                 | GenericRuntimeCapability::SendMessageASmallIcon
+                | GenericRuntimeCapability::SetWindowPosInitialPlacement
         )
     ) {
         user32_policy
@@ -2861,6 +2865,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
                 | GenericRuntimeCapability::LoadImageASmallIcon
                 | GenericRuntimeCapability::SendMessageASmallIcon
+                | GenericRuntimeCapability::SetWindowPosInitialPlacement
         )
     ) {
         user32_policy
@@ -2874,15 +2879,25 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::LoadImageASmallIcon
                 | GenericRuntimeCapability::SendMessageASmallIcon
+                | GenericRuntimeCapability::SetWindowPosInitialPlacement
         )
     ) {
         user32_policy.load_image_a = None;
     }
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::SendMessageASmallIcon)
+        Some(
+            GenericRuntimeCapability::SendMessageASmallIcon
+                | GenericRuntimeCapability::SetWindowPosInitialPlacement
+        )
     ) {
         user32_policy.send_message_a = None;
+    }
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
+    ) {
+        user32_policy.set_window_pos = None;
     }
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -3158,7 +3173,7 @@ fn run_v86_generic_runtime_session(
     }
     let dispatcher =
         ApiDispatcher::new(dispatcher_endpoints, contracts.clone()).map_err(api_fault)?;
-    let mut active_callback: Option<GenericRuntimeActiveCallback> = None;
+    let mut active_callbacks = Vec::<GenericRuntimeActiveCallback>::new();
     let initial_thread_stack = process
         .runtime
         .thread_stack(process.runtime.current_thread_id())
@@ -3296,7 +3311,7 @@ fn run_v86_generic_runtime_session(
                         format!("generic runtime callback-return metadata is invalid: {error}"),
                     )
                 })?;
-            let active = active_callback.as_ref().ok_or_else(|| {
+            let active = active_callbacks.last().ok_or_else(|| {
                 LoaderError::invalid_input(
                     "runtime-reentry",
                     "runtime-callback-return-unowned",
@@ -3338,13 +3353,16 @@ fn run_v86_generic_runtime_session(
                         )
                         .map_err(api_fault)?;
                     let window = match semantic_action {
-                        Some(vine_core::RuntimeWindowCreationCallbackAction::Created {
-                            window,
-                        }) => Some(window),
+                        Some(vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
+                            vine_core::RuntimeWindowCreationCallbackAction::Created { window },
+                        ))
+                        | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
+                            vine_core::RuntimeSetWindowPosCallbackAction::Completed { window },
+                        )) => Some(window),
                         _ => None,
                     };
-                    let retired = active_callback
-                        .take()
+                    let retired = active_callbacks
+                        .pop()
                         .expect("validated active callback disappeared before commit");
                     debug_assert_eq!(retired.frame_id, frame_id);
                     send_pending_runtime_delta(input, memory)?;
@@ -3390,7 +3408,13 @@ fn run_v86_generic_runtime_session(
                         .map_err(api_fault)?;
                     if !matches!(
                         semantic_action,
-                        Some(vine_core::RuntimeWindowCreationCallbackAction::Continue { .. })
+                        Some(
+                            vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
+                                vine_core::RuntimeWindowCreationCallbackAction::Continue { .. }
+                            )
+                        ) | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
+                            vine_core::RuntimeSetWindowPosCallbackAction::Continue { .. }
+                        ))
                     ) {
                         return Err(LoaderError::runtime_defect(
                             "runtime-reentry",
@@ -3416,10 +3440,13 @@ fn run_v86_generic_runtime_session(
                         return_sentinel: next.request.return_sentinel.0,
                         memory: memory.stats(),
                     };
-                    active_callback = Some(GenericRuntimeActiveCallback {
-                        call: next,
-                        frame_id: prepared.frame_id,
-                    });
+                    *active_callbacks
+                        .last_mut()
+                        .expect("validated active callback disappeared before replacement") =
+                        GenericRuntimeActiveCallback {
+                            call: next,
+                            frame_id: prepared.frame_id,
+                        };
                     write_runtime_json_frame(RUNTIME_FRAME_GUEST_CALLBACK, &callback_entry)?;
                 }
                 DispatchOutcome::Fault(fault) => {
@@ -3950,14 +3977,16 @@ fn run_v86_generic_runtime_session(
                         return Ok(());
                     }
                     DispatchOutcome::GuestCallback(call) => {
-                        if active_callback.is_some() {
+                        if active_callbacks.len() >= GENERIC_RUNTIME_CALLBACK_DEPTH_LIMIT {
                             write_generic_runtime_fault(
                                 memory,
                                 GenericRuntimeEndpoint::RuntimeSystemExport { endpoint },
-                                ApiFault::unsupported(
+                                ApiFault::resource_limit(
                                     "runtime-reentry",
-                                    "nested-runtime-api-callback-unsupported",
-                                    "generic BGI re-entry currently supports one active API callback",
+                                    "runtime-api-callback-depth-limit-exceeded",
+                                    format!(
+                                        "generic BGI re-entry callback depth exceeds {GENERIC_RUNTIME_CALLBACK_DEPTH_LIMIT}"
+                                    ),
                                 ),
                             )?;
                             return Ok(());
@@ -3991,7 +4020,7 @@ fn run_v86_generic_runtime_session(
                             return_sentinel: call.request.return_sentinel.0,
                             memory: memory.stats(),
                         };
-                        active_callback = Some(GenericRuntimeActiveCallback {
+                        active_callbacks.push(GenericRuntimeActiveCallback {
                             call,
                             frame_id: prepared.frame_id,
                         });
@@ -4264,10 +4293,15 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let send_message_a_enabled = matches!(
+    let set_window_pos_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::SendMessageASmallIcon)
+        Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
     );
+    let send_message_a_enabled = set_window_pos_enabled
+        || matches!(
+            enabled,
+            Some(GenericRuntimeCapability::SendMessageASmallIcon)
+        );
     let load_image_a_enabled = send_message_a_enabled
         || matches!(enabled, Some(GenericRuntimeCapability::LoadImageASmallIcon));
     let create_window_ex_a_enabled = matches!(
@@ -4278,6 +4312,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
                 | GenericRuntimeCapability::LoadImageASmallIcon
                 | GenericRuntimeCapability::SendMessageASmallIcon
+                | GenericRuntimeCapability::SetWindowPosInitialPlacement
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -4742,6 +4777,7 @@ fn runtime_capability_enables_endpoint(
         "LoadIconA" => load_icon_a_enabled,
         "LoadImageA" => load_image_a_enabled,
         "SendMessageA" => send_message_a_enabled,
+        "SetWindowPos" => set_window_pos_enabled,
         "LoadCursorA" => load_cursor_a_enabled,
         "RegisterClassExA" => register_class_ex_a_enabled,
         "GetSystemMetrics" => get_system_metrics_enabled,
@@ -4767,6 +4803,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
                 | GenericRuntimeCapability::LoadImageASmallIcon
                 | GenericRuntimeCapability::SendMessageASmallIcon
+                | GenericRuntimeCapability::SetWindowPosInitialPlacement
         )
     ) {
         Some(GenericRuntimeCapability::SourceFileRead)
@@ -10339,6 +10376,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-load-image-a-small-icon" => GenericRuntimeCapability::LoadImageASmallIcon,
                 "user32-send-message-a-small-icon" => {
                     GenericRuntimeCapability::SendMessageASmallIcon
+                }
+                "user32-set-window-pos-initial-placement" => {
+                    GenericRuntimeCapability::SetWindowPosInitialPlacement
                 }
                 _ => return Err(usage_error()),
             };

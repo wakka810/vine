@@ -31,7 +31,8 @@ pub use api::{
     ApiWriteRequirement, CallbackPolicy, CallingConvention, DecodedApiArgument, DispatchOutcome,
     ExecutionSession, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
     GuestCallbackScratchPointerRelocation, HostCompletion, HostRequest, LastErrorPolicy,
-    PreparedGuestCallback, ReentrancyPolicy, RegisterUpdate, StackCleanup,
+    PreparedGuestCallback, ReentrancyPolicy, RegisterUpdate, RuntimeGuestCallbackSemanticAction,
+    StackCleanup,
 };
 
 pub use bootstrap::{
@@ -178,8 +179,10 @@ pub use runtime::{
     RuntimePageFaultResolution, RuntimeProcessCancellation, RuntimeProcessEnvironment,
     RuntimeProcessId, RuntimeProcessImagePathA, RuntimeProcessLifecycleState, RuntimeProcessState,
     RuntimeProcessView, RuntimeRect, RuntimeRegisterClassExAResult, RuntimeRegistries,
-    RuntimeScheduler, RuntimeSchedulerEvent, RuntimeSetCurrentDirectoryAPlan, RuntimeSourceFile,
-    RuntimeSourceFileDescriptor, RuntimeSourceFileId, RuntimeSourceFileManifest,
+    RuntimeScheduler, RuntimeSchedulerEvent, RuntimeSetCurrentDirectoryAPlan,
+    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
+    RuntimeSourceFile, RuntimeSourceFileDescriptor, RuntimeSourceFileId, RuntimeSourceFileManifest,
     RuntimeSourceMountManifest, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
     RuntimeSourceReadRequest, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
     RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
@@ -193,10 +196,11 @@ pub use runtime::{
     RuntimeWindowClassIconReference, RuntimeWindowClassId, RuntimeWindowClassModule,
     RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
-    RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowId, RuntimeWindowLifecycle,
-    RuntimeWindowNameA, RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention,
-    SchedulerThreadState, TLS_OUT_OF_INDEXES, X86_CRITICAL_SECTION_BYTE_LENGTH,
-    X86_STARTUP_INFO_W_BYTE_LENGTH, validate_process_address_mapping_allocation,
+    RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowIconReference,
+    RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
+    RuntimeWindowProcedureCallingConvention, SchedulerThreadState, TLS_OUT_OF_INDEXES,
+    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    validate_process_address_mapping_allocation,
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use user32::{
@@ -205,15 +209,17 @@ pub use user32::{
     GET_SYSTEM_MENU_IMPLEMENTATION, GET_SYSTEM_METRICS_IMPLEMENTATION,
     LOAD_CURSOR_A_IMPLEMENTATION, LOAD_ICON_A_IMPLEMENTATION, LOAD_IMAGE_A_IMPLEMENTATION,
     REGISTER_CLASS_EX_A_IMPLEMENTATION, SEND_MESSAGE_A_IMPLEMENTATION,
-    SWAP_MOUSE_BUTTON_IMPLEMENTATION, USER32_COMPATIBILITY_POLICY_SCHEMA,
-    USER32_COMPATIBILITY_POLICY_VERSION, User32CompatibilityPolicy, User32CreateWindowExAPolicy,
-    User32GetSystemMetricsPolicy, User32InvalidMenuChainPolicy, User32LoadCursorAPolicy,
-    User32LoadIconAPolicy, User32LoadImageAPolicy, User32RegisterClassExAPolicy,
-    User32SendMessageAPolicy, create_window_ex_a_contract, def_window_proc_a_contract,
+    SET_WINDOW_POS_IMPLEMENTATION, SWAP_MOUSE_BUTTON_IMPLEMENTATION,
+    USER32_COMPATIBILITY_POLICY_SCHEMA, USER32_COMPATIBILITY_POLICY_VERSION,
+    User32CompatibilityPolicy, User32CreateWindowExAPolicy, User32GetSystemMetricsPolicy,
+    User32InvalidMenuChainPolicy, User32LoadCursorAPolicy, User32LoadIconAPolicy,
+    User32LoadImageAPolicy, User32RegisterClassExAPolicy, User32SendMessageAPolicy,
+    User32SetWindowPosPolicy, create_window_ex_a_contract, def_window_proc_a_contract,
     dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
     get_system_menu_contract, get_system_metrics_contract, load_cursor_a_contract,
     load_icon_a_contract, load_image_a_contract, register_class_ex_a_contract,
-    send_message_a_contract, swap_mouse_button_contract, user32_contract_for_endpoint,
+    send_message_a_contract, set_window_pos_contract, swap_mouse_button_contract,
+    user32_contract_for_endpoint,
 };
 pub use win32::{
     CLOSE_HANDLE_IMPLEMENTATION, CREATE_FILE_A_IMPLEMENTATION, CREATE_MUTEX_A_IMPLEMENTATION,

@@ -132,13 +132,15 @@ pub use user32::{
     RUNTIME_WINDOW_NAME_A_LIMIT, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
     RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon,
     RuntimeIconId, RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
-    RuntimeRegisterClassExAResult, RuntimeSystemCursorKind, RuntimeWindow, RuntimeWindowClass,
+    RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
+    RuntimeSetWindowPosVariant, RuntimeSystemCursorKind, RuntimeWindow, RuntimeWindowClass,
     RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassId,
     RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
     RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowGeometry,
-    RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
-    RuntimeWindowProcedureCallingConvention,
+    RuntimeWindowIconReference, RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA,
+    RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention,
 };
 pub use waits::{
     RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,

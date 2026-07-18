@@ -4,21 +4,21 @@
 
 - Status: threshold passed
 - Date: 2026-07-18
-- Workload: 1,394-call `user32-create-window-ex-a` private BGI generic session
-- Observation status: `current-logical-window-creation-boundary-observation`
+- Workload: 5,500-call `user32-set-window-pos-initial-placement` private BGI generic session
+- Observation status: `current-set-window-pos-boundary-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-create-window-v1.json`](../fixtures/benchmarks/bgi-browser-create-window-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-set-window-pos-v1.json`](../fixtures/benchmarks/bgi-browser-set-window-pos-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This observation repeats the complete `user32-create-window-ex-a` BGI
+This observation repeats the complete `user32-set-window-pos-initial-placement` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 1,394 ordered calls over 11,476,518 guest
-instructions, performs 47,694 Rust/Wasm bridge operations, and applies four
+runtime and v86 mirror, dispatches 5,500 ordered calls over 11,583,945 guest
+instructions, performs 60,137 Rust/Wasm bridge operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
-five synchronous creation callbacks, and reaches `GetSystemMetrics(50)` after the
-outer `CreateWindowExA` returns a nonzero logical HWND.
+creation, small-icon send, initial show／hide callbacks, and reaches the
+failure-atomic critical-section capacity stop after 4,096 live records.
 
 The session includes all earlier process, NLS, heap, synchronization, display,
 COM, WinMM, icon／cursor, window-class, logical-window, system-metric, large-heap,
@@ -27,9 +27,9 @@ repetition checks call and instruction counts, crossing count, large-allocation
 identity, materialization identity, source completion count, memory digest, next
 structured stop, and zero pending work before retaining only a compact scalar
 summary. Completed report payloads, including source-read records, are released
-after scalar capture. The logical-window／Worker callback boundary changed in
-this checkpoint, so the workload was rerun against the exact current Rust/Wasm
-and Worker artifacts.
+after scalar capture. The logical-window／Worker callback boundary and workload
+length changed in this checkpoint, so the workload was rerun against the exact
+current Rust/Wasm and Worker artifacts without relaxing any threshold.
 
 This is title-workload evidence. The synthetic CPU／ABI／audio／background gate
 remains separately versioned in [v86-browser-benchmark.md](v86-browser-benchmark.md);
@@ -54,33 +54,33 @@ required sample is a failure. Report schema version 2 also stores a structured
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 36 sessions with no
-failure. The create-window version 1 configuration retained all 17 existing
+The authoritative clean-profile Chrome run completed 29 sessions with no
+failure. The SetWindowPos version 1 configuration retained all 17 existing
 threshold values unchanged before this 180-second run. The previous source-read
-and short large-heap workload configurations remain unchanged as historical
+and create-window workload configurations remain unchanged as historical
 evidence; their identities are not applied to this current workload.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 36 |
+| Completed sessions | >= 24 | 29 |
 | Failed sessions | <= 0 | 0 |
-| Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 5,303.035 ms |
-| Maximum slice p99 | <= 10 ms | 5.145 ms |
-| Main heartbeat gap p99 | <= 25 ms | 5.985 ms |
-| Main heartbeat gap maximum | <= 250 ms | 34.565 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,974,799 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 285,960.10 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 27,537,260 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 2,299,177.82 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 60,514,304 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 45,242,538 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 5,166,171.47 bytes/min |
+| Main／Worker heap samples | >= 30 each | 39 / 38 |
+| Session latency p95 | <= 8,000 ms | 6,558.045 ms |
+| Maximum slice p99 | <= 10 ms | 2.770 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.000 ms |
+| Main heartbeat gap maximum | <= 250 ms | 20.310 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 13,134,990 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | -685,429.21 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 28,337,048 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 2,103,920.49 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 62,349,312 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 41,596,440 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 2,638,845.56 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,027,008 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 13,893,632 bytes |
 
-The exact report is 946,575 bytes with SHA-256
-`6e0bf74bb4053ea83f71e8624342a762a0a8cb0d2a7c1c9253582fd9ed61fcd4`.
+The exact report is 947,246 bytes with SHA-256
+`18587fccb08508132f74868fc0725755243372174cbafc3ee9891d5887d46e04`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -116,7 +116,7 @@ loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
 storage below the unchanged limit. That correction remains part of the loader
-contract; this current benchmark observes 39,639,066
+contract; this current benchmark observes 41,596,440
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -130,7 +130,7 @@ bytes and retains bounded p95 latency without changing any threshold.
 | Chrome | `150.0.7871.127` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `3e3b10ef3ea2de65a1ad8218669616a4a6bf5b8c`
+The report records base implementation commit `c8183875eca0fab7755ed699acb11cbbb1b7a4ad`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -139,12 +139,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 2,882,837 | `283540123fcaba317ba1c88db4c630fb1081c222c3bfc08c47076d6fe3482816` |
+| Rust runtime core Wasm | 2,949,668 | `a2887a6c5be8892d2e86b6ac0806f045d2921587341e4d9e0da78d77b4790c03` |
 | v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
-| Runtime Worker bundle | 136,363 | `dc36d2810f657b22ff5b28e875fce56aea6680b32ad82819da2a2504ae2660aa` |
+| Runtime Worker bundle | 136,507 | `b07b9f912a118b043eb22f286efc14e9848cda97798e4696aa3e611c874be4cb` |
 | BGI benchmark bundle | 9,321 | `4f7a02480d745122e19c4cfc73158a56aaf4309bed221e4033470605db55b78f` |
 | Execution-engine profile | 545 | `792980bc78b58d8aae491c72b9ea13f39176206306321069a4f2bcb2989e7250` |
-| Create-window version 1 configuration | 1,169 | `0819ec938e87f838e22ba7a3ca4d45062645610e08521439358b1b824ef9840e` |
+| SetWindowPos version 1 configuration | 1,195 | `fa8605a2e2e83eded0486022707fbff6704c74dc2b3f4e68092f2e4e31b60bf0` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte
@@ -177,16 +177,17 @@ profile plus a loopback-only server and DevTools endpoint.
   input coverage is limited to the logical mouse-button mapping transaction.
   Waitable-timer coverage is limited to creation and initial nonsignaled
   lifetime; no due-time, period, signal, or cancellation workload is measured.
-  Icon coverage is limited to logical module-resource selection and identity;
+  Icon coverage is limited to logical module-resource selection, identity, and
+  one small-icon relation;
   cursor coverage is limited to shared `IDC_ARROW` identity. Window-class
   coverage is limited to two process-local registrations and logical ATOM／
   metadata lifetime. Window coverage is limited to one logical top-level window,
-  five synchronous creation messages, bounded default-procedure results, and the
-  reached invalid-menu chain. System-metric coverage is limited to five initial-window
-  reads. Large-heap coverage is one exact 64 MiB reserve and the pages reached
+  bounded synchronous creation／small-icon／initial show／hide callbacks, default-
+  procedure results, and the reached invalid-menu chain. System-metric coverage is
+  limited to the reached initial-window indices. Large-heap coverage is one exact 64 MiB reserve and the pages reached
   during startup; multiple／arbitrary large allocations and long-lived page growth are
-  not measured. No visibility transition, queued window message, DOM window,
-  bitmap／cursor rendering, hotspot, active cursor, or browser resource is measured.
+  not measured. No general z-order／resize／activation, queued window message, DOM
+  window, bitmap／cursor rendering, hotspot, active cursor, or browser resource is measured.
 - A passing slope threshold does not prove that V8 heap capacity has reached a
   permanent plateau; longer scenario-specific gates remain required.
 - Additional-thread stack lifecycle, stack overflow, and all title output remain

@@ -146,6 +146,11 @@ let sendMessageACompletionRecorded = false;
 let sendMessageADrainCheckScheduled = false;
 const sendMessageAMainModuleCalls = [];
 const sendMessageAWindowProcedureCalls = [];
+let setWindowPosCompletionRecorded = false;
+const setWindowPosMainModuleCalls = [];
+const setWindowPosWindowProcedureCalls = [];
+const setWindowPosDefaultProcedureCalls = [];
+const activeSetWindowPosCallsByThread = new Map();
 let loadCursorAOracleScheduled = false;
 let loadCursorAOracleCall = null;
 let loadCursorAOracleComplete = false;
@@ -3471,14 +3476,25 @@ function attachBgiMainWindowProcedureHook() {
 
   Interceptor.attach(address, {
     onEnter(args) {
+      const threadId = Process.getCurrentThreadId();
       this.message = args[1].toUInt32();
-      if (this.message !== 0x0080) {
+      this.recordSendMessage =
+        selectedObservations.has("send-message-a") && this.message === 0x0080;
+      this.setWindowPosCallId =
+        activeSetWindowPosCallsByThread.get(threadId)?.at(-1) ?? null;
+      this.recordSetWindowPos = this.setWindowPosCallId !== null;
+      if (!this.recordSendMessage && !this.recordSetWindowPos) {
         this.traceFrame = null;
         return;
       }
       this.windowHandle = args[0].toString();
       this.wParam = args[2].toUInt32();
       this.lParam = args[3].toUInt32();
+      this.windowPosition =
+        (this.message === 0x0046 || this.message === 0x0047) &&
+        this.lParam !== 0
+          ? snapshotWindowPosition(ptr(this.lParam))
+          : null;
       this.lastErrorBefore = Number(this.lastError) >>> 0;
       this.traceFrame = beginCall(
         {
@@ -3498,6 +3514,7 @@ function attachBgiMainWindowProcedureHook() {
             message: this.message,
             wParam: this.wParam,
             lParam: this.lParam,
+            windowPosition: this.windowPosition,
           },
         },
         this.returnAddress,
@@ -3520,9 +3537,123 @@ function attachBgiMainWindowProcedureHook() {
         },
         this.lastError,
       );
-      sendMessageAWindowProcedureCalls.push({
+      const completed = {
         callId: this.traceFrame.callId,
         parentCallId: this.traceFrame.parentCallId,
+        returnAddress: this.returnAddress.toString(),
+        windowHandle: this.windowHandle,
+        message: this.message,
+        wParam: this.wParam,
+        lParam: this.lParam,
+        windowPosition: this.windowPosition,
+        result: resultValue,
+        resultU32,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+      };
+      if (this.recordSendMessage) {
+        sendMessageAWindowProcedureCalls.push(completed);
+      }
+      if (this.recordSetWindowPos) {
+        setWindowPosWindowProcedureCalls.push({
+          ...completed,
+          setWindowPosCallId: this.setWindowPosCallId,
+        });
+      }
+    },
+  });
+}
+
+function snapshotWindowPosition(address) {
+  try {
+    return {
+      address: address.toString(),
+      windowHandle: address.readPointer().toString(),
+      insertAfter: address.add(4).readPointer().toString(),
+      x: address.add(8).readS32(),
+      y: address.add(12).readS32(),
+      width: address.add(16).readS32(),
+      height: address.add(20).readS32(),
+      flags: address.add(24).readU32(),
+    };
+  } catch (error) {
+    return { address: address.toString(), error: error.message };
+  }
+}
+
+function attachSetWindowPosDefaultProcedureHook(module) {
+  const name = "DefWindowProcA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const threadId = Process.getCurrentThreadId();
+      this.setWindowPosCallId =
+        activeSetWindowPosCallsByThread.get(threadId)?.at(-1) ?? null;
+      const caller = describeCaller(this.returnAddress);
+      if (
+        this.setWindowPosCallId === null ||
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      this.windowHandle = args[0].toString();
+      this.message = args[1].toUInt32();
+      this.wParam = args[2].toUInt32();
+      this.lParam = args[3].toUInt32();
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.windowHandle,
+            this.message,
+            this.wParam,
+            this.lParam,
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          setWindowPosDefaultProcedure: {
+            setWindowPosCallId: this.setWindowPosCallId,
+            windowHandle: this.windowHandle,
+            message: this.message,
+            wParam: this.wParam,
+            lParam: this.lParam,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      const resultU32 = result.toUInt32();
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          setWindowPosDefaultProcedure: { result: resultValue, resultU32 },
+        },
+        this.lastError,
+      );
+      setWindowPosDefaultProcedureCalls.push({
+        callId: this.traceFrame.callId,
+        parentCallId: this.traceFrame.parentCallId,
+        setWindowPosCallId: this.setWindowPosCallId,
         returnAddress: this.returnAddress.toString(),
         windowHandle: this.windowHandle,
         message: this.message,
@@ -3533,6 +3664,130 @@ function attachBgiMainWindowProcedureHook() {
         lastErrorBefore: this.lastErrorBefore,
         lastError,
       });
+    },
+  });
+}
+
+function attachSetWindowPosHook(module) {
+  const name = "SetWindowPos";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+  attachBgiMainWindowProcedureHook();
+  attachSetWindowPosDefaultProcedureHook(module);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+        this.traceFrame = null;
+        return;
+      }
+      if (caller.rva !== 0x00067f88 && caller.rva !== 0x00067f9f) {
+        this.traceFrame = null;
+        return;
+      }
+      this.callerRva = caller.rva;
+      this.windowHandle = args[0].toString();
+      this.insertAfter = args[1].toString();
+      this.x = signed32(args[2]);
+      this.y = signed32(args[3]);
+      this.width = signed32(args[4]);
+      this.height = signed32(args[5]);
+      this.flags = args[6].toUInt32();
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructionsFollowingDirectJump(
+          this.returnAddress,
+          64,
+        ),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          6,
+          24,
+        ),
+      };
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.windowHandle,
+            this.insertAfter,
+            this.x,
+            this.y,
+            this.width,
+            this.height,
+            this.flags,
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          setWindowPos: {
+            windowHandle: this.windowHandle,
+            insertAfter: this.insertAfter,
+            x: this.x,
+            y: this.y,
+            width: this.width,
+            height: this.height,
+            flags: this.flags,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+      const stack = activeSetWindowPosCallsByThread.get(this.traceFrame.threadId) ?? [];
+      stack.push(this.traceFrame.callId);
+      activeSetWindowPosCallsByThread.set(this.traceFrame.threadId, stack);
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const stack = activeSetWindowPosCallsByThread.get(this.traceFrame.threadId) ?? [];
+      if (stack.at(-1) === this.traceFrame.callId) {
+        stack.pop();
+      }
+      if (stack.length === 0) {
+        activeSetWindowPosCallsByThread.delete(this.traceFrame.threadId);
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      const resultU32 = result.toUInt32();
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          setWindowPos: { result: resultValue, resultU32 },
+        },
+        this.lastError,
+      );
+      if (!setWindowPosCompletionRecorded) {
+        setWindowPosMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.callerRva,
+          windowHandle: this.windowHandle,
+          insertAfter: this.insertAfter,
+          x: this.x,
+          y: this.y,
+          width: this.width,
+          height: this.height,
+          flags: this.flags,
+          result: resultValue,
+          resultU32,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteSetWindowPosObservation);
+      }
     },
   });
 }
@@ -8761,6 +9016,34 @@ function maybeCompleteSendMessageAObservation() {
   }, 250);
 }
 
+function maybeCompleteSetWindowPosObservation() {
+  if (
+    setWindowPosCompletionRecorded ||
+    setWindowPosMainModuleCalls.length < 2
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteSetWindowPosObservation, 10);
+    return;
+  }
+  setWindowPosCompletionRecorded = true;
+  emit("set-window-pos-complete", {
+    profile: "x86-bgi-set-window-pos-initial-placement-v1",
+    quiescenceMilliseconds: 0,
+    mainModuleCalls: setWindowPosMainModuleCalls.map((call) => ({ ...call })),
+    windowProcedureCalls: setWindowPosWindowProcedureCalls.map((call) => ({
+      ...call,
+    })),
+    defaultProcedureCalls: setWindowPosDefaultProcedureCalls.map((call) => ({
+      ...call,
+    })),
+  });
+  if (stopOnEvent === "set-window-pos-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
 function maybeCompleteLoadIconAObservation() {
   if (
     loadIconACompletionRecorded ||
@@ -11640,6 +11923,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "SendMessageA",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("set-window-pos")
+    ) {
+      try {
+        attachSetWindowPosHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "SetWindowPos",
           error: error.message,
         });
       }

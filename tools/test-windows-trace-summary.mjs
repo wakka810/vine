@@ -711,6 +711,13 @@ sendMessageSelection.find(
 ).selectedObservations = ["send-message-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(sendMessageSelection)));
 
+const setWindowPosSelection = structuredClone(events);
+setWindowPosSelection[0].arguments.observations = ["set-window-pos"];
+setWindowPosSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["set-window-pos"];
+assert.doesNotThrow(() => summarizeTrace(encode(setWindowPosSelection)));
+
 const loadCursorSelection = structuredClone(events);
 loadCursorSelection[0].arguments.observations = ["load-cursor-a"];
 loadCursorSelection.find(

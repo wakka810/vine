@@ -245,6 +245,54 @@ pub struct RuntimeWindowGeometry {
     pub client_height: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWindowIconReference {
+    pub icon_id: RuntimeIconId,
+    pub handle: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeSetWindowPosVariant {
+    InitialShow,
+    InitialHide,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeSetWindowPosCallbackMessage {
+    WindowPositionChanged,
+    GetSmallIcon,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeSetWindowPosRequest {
+    pub window_handle: u32,
+    pub variant: RuntimeSetWindowPosVariant,
+    pub next_geometry: RuntimeWindowGeometry,
+    pub next_visible: bool,
+    pub next_topmost: bool,
+    pub callback_flags: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSetWindowPosOperation {
+    pub window_id: RuntimeWindowId,
+    pub window_handle: u32,
+    pub expected_generation: u64,
+    pub variant: RuntimeSetWindowPosVariant,
+    pub previous_geometry: RuntimeWindowGeometry,
+    pub next_geometry: RuntimeWindowGeometry,
+    pub previous_visible: bool,
+    pub next_visible: bool,
+    pub previous_topmost: bool,
+    pub next_topmost: bool,
+    pub callback_flags: u32,
+    pub small_icon_handle: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeWindowCreationRequest {
@@ -272,6 +320,9 @@ pub struct RuntimeWindow {
     pub creation: RuntimeWindowCreationRequest,
     pub lifecycle: RuntimeWindowLifecycle,
     pub visible: bool,
+    pub topmost: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub small_icon: Option<RuntimeWindowIconReference>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -292,6 +343,19 @@ pub enum RuntimeWindowCreationCallbackAction {
         window: RuntimeWindow,
     },
     Aborted {
+        window: RuntimeWindow,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+pub enum RuntimeSetWindowPosCallbackAction {
+    Continue {
+        window: RuntimeWindow,
+        operation: RuntimeSetWindowPosOperation,
+        next_message: RuntimeSetWindowPosCallbackMessage,
+    },
+    Completed {
         window: RuntimeWindow,
     },
 }
@@ -350,13 +414,41 @@ enum RuntimeWindowCreationDisposition {
 enum RuntimeWindowCreationCallbackDisposition {
     Update {
         previous: RuntimeWindow,
-        next: RuntimeWindow,
+        next: Box<RuntimeWindow>,
         action: RuntimeWindowCreationCallbackAction,
         next_generation: u64,
     },
     Remove {
         previous: RuntimeWindow,
         action: RuntimeWindowCreationCallbackAction,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeWindowSmallIconDisposition {
+    Unchanged {
+        window: RuntimeWindow,
+        previous_handle: u32,
+    },
+    Update {
+        previous: RuntimeWindow,
+        next: Box<RuntimeWindow>,
+        previous_handle: u32,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeSetWindowPosCallbackDisposition {
+    Validate {
+        window: RuntimeWindow,
+        action: RuntimeSetWindowPosCallbackAction,
+    },
+    Update {
+        previous: RuntimeWindow,
+        next: Box<RuntimeWindow>,
+        action: RuntimeSetWindowPosCallbackAction,
         next_generation: u64,
     },
 }
@@ -389,6 +481,18 @@ pub(super) struct RuntimeWindowCreationPlan {
 pub(super) struct RuntimeWindowCreationCallbackPlan {
     expected_generation: u64,
     disposition: RuntimeWindowCreationCallbackDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWindowSmallIconPlan {
+    expected_generation: u64,
+    disposition: RuntimeWindowSmallIconDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeSetWindowPosCallbackPlan {
+    expected_generation: u64,
+    disposition: RuntimeSetWindowPosCallbackDisposition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1016,6 +1120,8 @@ impl RuntimeUser32 {
                         message: RuntimeWindowCreationMessage::NonClientCreate,
                     },
                     visible: false,
+                    topmost: false,
+                    small_icon: None,
                 },
                 next_window_id,
                 next_window_handle,
@@ -1174,7 +1280,7 @@ impl RuntimeUser32 {
                         next_message,
                     },
                     previous,
-                    next,
+                    next: Box::new(next),
                     next_generation,
                 }
             } else {
@@ -1184,7 +1290,7 @@ impl RuntimeUser32 {
                         window: next.clone(),
                     },
                     previous,
-                    next,
+                    next: Box::new(next),
                     next_generation,
                 }
             }
@@ -1244,6 +1350,7 @@ impl RuntimeUser32 {
                 next_generation,
                 ..
             } => {
+                let next = *next;
                 self.generation = next_generation;
                 let previous = self.windows.insert(next.id, next);
                 debug_assert!(previous.is_some());
@@ -1567,6 +1674,412 @@ impl RuntimeUser32 {
         Ok(class.registration.window_procedure.clone())
     }
 
+    pub(super) fn resolve_window_procedure(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeWindowProcedure, RuntimeStateError> {
+        let window = self.window(window_handle)?;
+        self.validate_created_window_owner(window, owner_thread_id)?;
+        let class = self
+            .window_classes
+            .get(&window.creation.class.class_id)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-user32",
+                    "window-message-class-identity-missing",
+                    "live logical window class identity disappeared during message resolution",
+                )
+            })?;
+        validate_window_class_registration(&class.registration)?;
+        self.validate_window_class_references(&class.registration)?;
+        Ok(class.registration.window_procedure.clone())
+    }
+
+    pub(super) fn plan_window_small_icon(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+        icon_handle: u32,
+        icon_width: u16,
+        icon_height: u16,
+    ) -> Result<RuntimeWindowSmallIconPlan, RuntimeStateError> {
+        self.resolve_small_icon_window_procedure(
+            window_handle,
+            owner_thread_id,
+            icon_handle,
+            icon_width,
+            icon_height,
+        )?;
+        let previous = self.window(window_handle)?.clone();
+        self.validate_window_icon_reference(previous.small_icon)?;
+        let icon = self.icon(icon_handle)?;
+        let reference = RuntimeWindowIconReference {
+            icon_id: icon.id,
+            handle: icon.handle,
+        };
+        let previous_handle = previous.small_icon.map_or(0, |icon| icon.handle);
+        let disposition = if previous.small_icon == Some(reference) {
+            RuntimeWindowSmallIconDisposition::Unchanged {
+                window: previous,
+                previous_handle,
+            }
+        } else {
+            let mut next = previous.clone();
+            next.small_icon = Some(reference);
+            RuntimeWindowSmallIconDisposition::Update {
+                previous,
+                next: Box::new(next),
+                previous_handle,
+                next_generation: self.next_generation()?,
+            }
+        };
+        Ok(RuntimeWindowSmallIconPlan {
+            expected_generation: self.generation,
+            disposition,
+        })
+    }
+
+    pub(super) fn preflight_window_small_icon(
+        &self,
+        plan: &RuntimeWindowSmallIconPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-small-icon-plan-stale",
+                "User32 state changed after logical window small-icon planning",
+            ));
+        }
+        let (previous, next) = match &plan.disposition {
+            RuntimeWindowSmallIconDisposition::Unchanged { window, .. } => (window, window),
+            RuntimeWindowSmallIconDisposition::Update { previous, next, .. } => {
+                (previous, next.as_ref())
+            }
+        };
+        if self.windows.get(&previous.id) != Some(previous)
+            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-small-icon-plan-stale",
+                "logical window identity changed after small-icon planning",
+            ));
+        }
+        self.validate_window_creation_references(&previous.creation)?;
+        self.validate_window_icon_reference(previous.small_icon)?;
+        self.validate_window_icon_reference(next.small_icon)
+    }
+
+    pub(super) fn commit_window_small_icon(
+        &mut self,
+        plan: RuntimeWindowSmallIconPlan,
+    ) -> Result<u32, RuntimeStateError> {
+        self.preflight_window_small_icon(&plan)?;
+        match plan.disposition {
+            RuntimeWindowSmallIconDisposition::Unchanged {
+                previous_handle, ..
+            } => Ok(previous_handle),
+            RuntimeWindowSmallIconDisposition::Update {
+                next,
+                previous_handle,
+                next_generation,
+                ..
+            } => {
+                let next = *next;
+                self.generation = next_generation;
+                let replaced = self.windows.insert(next.id, next);
+                debug_assert!(replaced.is_some());
+                Ok(previous_handle)
+            }
+        }
+    }
+
+    pub(super) fn preview_set_window_pos(
+        &self,
+        owner_thread_id: RuntimeThreadId,
+        request: RuntimeSetWindowPosRequest,
+    ) -> Result<RuntimeSetWindowPosOperation, RuntimeStateError> {
+        self.resolve_window_procedure(request.window_handle, owner_thread_id)?;
+        let window = self.window(request.window_handle)?;
+        self.validate_window_icon_reference(window.small_icon)?;
+        if request.callback_flags == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "set-window-pos-callback-flags-invalid",
+                "logical window positioning requires nonzero callback flags",
+            ));
+        }
+        let mut next_creation = window.creation.clone();
+        next_creation.geometry = request.next_geometry;
+        validate_window_creation_request(&next_creation)?;
+        validate_position_geometry_transition(window.creation.geometry, request.next_geometry)?;
+        let small_icon_handle = window.small_icon.map_or(0, |icon| icon.handle);
+        match request.variant {
+            RuntimeSetWindowPosVariant::InitialShow
+                if window.visible
+                    || window.topmost
+                    || !request.next_visible
+                    || request.next_topmost
+                    || request.next_geometry == window.creation.geometry
+                    || small_icon_handle == 0 =>
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "set-window-pos-show-state-invalid",
+                    "initial logical window show requires a hidden non-topmost window, moved geometry, and a live small icon",
+                ));
+            }
+            RuntimeSetWindowPosVariant::InitialHide
+                if !window.visible
+                    || window.topmost
+                    || request.next_visible
+                    || request.next_topmost
+                    || request.next_geometry != window.creation.geometry =>
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "set-window-pos-hide-state-invalid",
+                    "initial logical window hide requires a visible non-topmost window with unchanged geometry",
+                ));
+            }
+            _ => {}
+        }
+        Ok(RuntimeSetWindowPosOperation {
+            window_id: window.id,
+            window_handle: window.handle,
+            expected_generation: self.generation,
+            variant: request.variant,
+            previous_geometry: window.creation.geometry,
+            next_geometry: request.next_geometry,
+            previous_visible: window.visible,
+            next_visible: request.next_visible,
+            previous_topmost: window.topmost,
+            next_topmost: request.next_topmost,
+            callback_flags: request.callback_flags,
+            small_icon_handle,
+        })
+    }
+
+    pub(super) fn plan_set_window_pos_callback(
+        &self,
+        operation: RuntimeSetWindowPosOperation,
+        message: RuntimeSetWindowPosCallbackMessage,
+        result: u32,
+    ) -> Result<RuntimeSetWindowPosCallbackPlan, RuntimeStateError> {
+        let previous = self.validate_set_window_pos_operation(operation)?.clone();
+        let disposition = match (operation.variant, message) {
+            (
+                RuntimeSetWindowPosVariant::InitialShow,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+            ) => {
+                if result != 0 {
+                    return Err(RuntimeStateError::invalid_input(
+                        "runtime-user32",
+                        "set-window-pos-window-procedure-result-invalid",
+                        "initial window-position callback must return the observed zero result",
+                    ));
+                }
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: previous,
+                        operation,
+                        next_message: RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
+                    },
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::InitialShow,
+                RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
+            ) => {
+                if result != operation.small_icon_handle {
+                    return Err(RuntimeStateError::invalid_input(
+                        "runtime-user32",
+                        "set-window-pos-small-icon-result-mismatch",
+                        "WM_GETICON callback did not return the window's live small-icon identity",
+                    ));
+                }
+                self.window_position_update_disposition(previous, operation)?
+            }
+            (
+                RuntimeSetWindowPosVariant::InitialHide,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+            ) => {
+                if result != 0 {
+                    return Err(RuntimeStateError::invalid_input(
+                        "runtime-user32",
+                        "set-window-pos-window-procedure-result-invalid",
+                        "initial hide callback must return the observed zero result",
+                    ));
+                }
+                self.window_position_update_disposition(previous, operation)?
+            }
+            (
+                RuntimeSetWindowPosVariant::InitialHide,
+                RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
+            ) => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-user32",
+                    "set-window-pos-callback-order-mismatch",
+                    "initial hide does not query the logical small icon",
+                ));
+            }
+        };
+        Ok(RuntimeSetWindowPosCallbackPlan {
+            expected_generation: operation.expected_generation,
+            disposition,
+        })
+    }
+
+    pub(super) fn set_window_pos_callback_action<'a>(
+        &self,
+        plan: &'a RuntimeSetWindowPosCallbackPlan,
+    ) -> &'a RuntimeSetWindowPosCallbackAction {
+        match &plan.disposition {
+            RuntimeSetWindowPosCallbackDisposition::Validate { action, .. }
+            | RuntimeSetWindowPosCallbackDisposition::Update { action, .. } => action,
+        }
+    }
+
+    pub(super) fn preflight_set_window_pos_callback(
+        &self,
+        plan: &RuntimeSetWindowPosCallbackPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-window-pos-callback-plan-stale",
+                "User32 state changed after window-position callback planning",
+            ));
+        }
+        let previous = match &plan.disposition {
+            RuntimeSetWindowPosCallbackDisposition::Validate { window, .. } => window,
+            RuntimeSetWindowPosCallbackDisposition::Update { previous, .. } => previous,
+        };
+        if self.windows.get(&previous.id) != Some(previous)
+            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-window-pos-callback-plan-stale",
+                "logical window state changed after position callback planning",
+            ));
+        }
+        self.validate_window_creation_references(&previous.creation)?;
+        self.validate_window_icon_reference(previous.small_icon)
+    }
+
+    pub(super) fn commit_set_window_pos_callback(
+        &mut self,
+        plan: RuntimeSetWindowPosCallbackPlan,
+    ) -> Result<RuntimeSetWindowPosCallbackAction, RuntimeStateError> {
+        self.preflight_set_window_pos_callback(&plan)?;
+        match plan.disposition {
+            RuntimeSetWindowPosCallbackDisposition::Validate { action, .. } => Ok(action),
+            RuntimeSetWindowPosCallbackDisposition::Update {
+                next,
+                action,
+                next_generation,
+                ..
+            } => {
+                let next = *next;
+                self.generation = next_generation;
+                let replaced = self.windows.insert(next.id, next);
+                debug_assert!(replaced.is_some());
+                Ok(action)
+            }
+        }
+    }
+
+    fn window_position_update_disposition(
+        &self,
+        previous: RuntimeWindow,
+        operation: RuntimeSetWindowPosOperation,
+    ) -> Result<RuntimeSetWindowPosCallbackDisposition, RuntimeStateError> {
+        let mut next = previous.clone();
+        next.creation.geometry = operation.next_geometry;
+        next.visible = operation.next_visible;
+        next.topmost = operation.next_topmost;
+        Ok(RuntimeSetWindowPosCallbackDisposition::Update {
+            action: RuntimeSetWindowPosCallbackAction::Completed {
+                window: next.clone(),
+            },
+            previous,
+            next: Box::new(next),
+            next_generation: self.next_generation()?,
+        })
+    }
+
+    fn validate_set_window_pos_operation(
+        &self,
+        operation: RuntimeSetWindowPosOperation,
+    ) -> Result<&RuntimeWindow, RuntimeStateError> {
+        if self.generation != operation.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-window-pos-operation-stale",
+                "User32 state changed after window-position callback preparation",
+            ));
+        }
+        let window = self.window_by_id(operation.window_id)?;
+        if window.handle != operation.window_handle
+            || window.creation.geometry != operation.previous_geometry
+            || window.visible != operation.previous_visible
+            || window.topmost != operation.previous_topmost
+            || window.small_icon.map_or(0, |icon| icon.handle) != operation.small_icon_handle
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-window-pos-operation-stale",
+                "logical window state changed after window-position callback preparation",
+            ));
+        }
+        self.validate_created_window_owner(window, window.creation.owner_thread_id)?;
+        self.validate_window_icon_reference(window.small_icon)?;
+        Ok(window)
+    }
+
+    fn validate_created_window_owner(
+        &self,
+        window: &RuntimeWindow,
+        owner_thread_id: RuntimeThreadId,
+    ) -> Result<(), RuntimeStateError> {
+        if window.creation.owner_thread_id != owner_thread_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-message-owner-thread-mismatch",
+                "synchronous logical window messages require the selected owner thread",
+            ));
+        }
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-message-lifecycle-state-invalid",
+                "synchronous logical window messages require a created window",
+            ));
+        }
+        self.validate_window_creation_references(&window.creation)
+    }
+
+    fn validate_window_icon_reference(
+        &self,
+        reference: Option<RuntimeWindowIconReference>,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(reference) = reference else {
+            return Ok(());
+        };
+        let icon = self.icon(reference.handle)?;
+        if icon.id != reference.icon_id {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "window-icon-reference-mismatch",
+                "logical window icon handle and icon identity do not match",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn window_by_id(&self, id: RuntimeWindowId) -> Result<&RuntimeWindow, RuntimeStateError> {
         let window = self.windows.get(&id).ok_or_else(|| {
             RuntimeStateError::not_found(
@@ -1703,6 +2216,30 @@ fn validate_window_class_name(
             "runtime-user32",
             "window-class-name-invalid",
             "window class and menu names require bounded copied Windows-932 ASCII text",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_position_geometry_transition(
+    previous: RuntimeWindowGeometry,
+    next: RuntimeWindowGeometry,
+) -> Result<(), RuntimeStateError> {
+    let previous_client_offset_x = i64::from(previous.client_x) - i64::from(previous.x);
+    let previous_client_offset_y = i64::from(previous.client_y) - i64::from(previous.y);
+    let next_client_offset_x = i64::from(next.client_x) - i64::from(next.x);
+    let next_client_offset_y = i64::from(next.client_y) - i64::from(next.y);
+    if next.width != previous.width
+        || next.height != previous.height
+        || next.client_width != previous.client_width
+        || next.client_height != previous.client_height
+        || next_client_offset_x != previous_client_offset_x
+        || next_client_offset_y != previous_client_offset_y
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-user32",
+            "set-window-pos-geometry-transition-invalid",
+            "bounded no-size positioning must preserve outer/client size and non-client offsets",
         ));
     }
     Ok(())
@@ -2235,6 +2772,164 @@ mod tests {
         assert_eq!(user32.windows().len(), 1);
     }
 
+    #[test]
+    fn small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits() {
+        let (mut user32, window_handle, small_icon_handle) = created_window_with_small_icon();
+        let initial = user32.window(window_handle).unwrap().clone();
+        let repeated_icon = user32
+            .plan_window_small_icon(
+                window_handle,
+                RuntimeThreadId(0x2000),
+                small_icon_handle,
+                16,
+                16,
+            )
+            .unwrap();
+        let before_repeated = user32.clone();
+        assert_eq!(
+            user32.commit_window_small_icon(repeated_icon).unwrap(),
+            small_icon_handle
+        );
+        assert_eq!(user32, before_repeated);
+
+        let show_geometry = RuntimeWindowGeometry {
+            x: 15_360,
+            y: 8_640,
+            width: 806,
+            height: 629,
+            client_x: 15_363,
+            client_y: 8_666,
+            client_width: 800,
+            client_height: 600,
+        };
+        let show = user32
+            .preview_set_window_pos(
+                RuntimeThreadId(0x2000),
+                RuntimeSetWindowPosRequest {
+                    window_handle,
+                    variant: RuntimeSetWindowPosVariant::InitialShow,
+                    next_geometry: show_geometry,
+                    next_visible: true,
+                    next_topmost: false,
+                    callback_flags: 0x1000_0d59,
+                },
+            )
+            .unwrap();
+        let first_callback = user32
+            .plan_set_window_pos_callback(
+                show,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+                0,
+            )
+            .unwrap();
+        assert!(matches!(
+            user32.set_window_pos_callback_action(&first_callback),
+            RuntimeSetWindowPosCallbackAction::Continue {
+                next_message: RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
+                ..
+            }
+        ));
+        let before_first_callback = user32.clone();
+        user32
+            .commit_set_window_pos_callback(first_callback)
+            .unwrap();
+        assert_eq!(
+            user32, before_first_callback,
+            "the first synchronous callback must not publish geometry or visibility"
+        );
+        let final_callback = user32
+            .plan_set_window_pos_callback(
+                show,
+                RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
+                small_icon_handle,
+            )
+            .unwrap();
+        assert_eq!(user32.window(window_handle).unwrap(), &initial);
+        let shown = user32
+            .commit_set_window_pos_callback(final_callback)
+            .unwrap();
+        let RuntimeSetWindowPosCallbackAction::Completed { window: shown } = shown else {
+            panic!("show must complete after the icon relation is validated");
+        };
+        assert_eq!(shown.creation.geometry, show_geometry);
+        assert!(shown.visible);
+        assert_eq!(user32.window(window_handle).unwrap(), &shown);
+
+        let hide = user32
+            .preview_set_window_pos(
+                RuntimeThreadId(0x2000),
+                RuntimeSetWindowPosRequest {
+                    window_handle,
+                    variant: RuntimeSetWindowPosVariant::InitialHide,
+                    next_geometry: show_geometry,
+                    next_visible: false,
+                    next_topmost: false,
+                    callback_flags: 0x0000_1d9f,
+                },
+            )
+            .unwrap();
+        let stale_hide = user32
+            .plan_set_window_pos_callback(
+                hide,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+                0,
+            )
+            .unwrap();
+        let mut intervening_resource = resource(102, 5, 0x5000);
+        intervening_resource.width = 16;
+        intervening_resource.height = 16;
+        intervening_resource.icon_data_size = 1_128;
+        let intervening = user32.plan_shared_icon_load(intervening_resource).unwrap();
+        user32.commit_shared_icon_load(intervening).unwrap();
+        let before_stale = user32.clone();
+        assert_eq!(
+            user32
+                .commit_set_window_pos_callback(stale_hide)
+                .unwrap_err()
+                .code,
+            "set-window-pos-callback-plan-stale"
+        );
+        assert_eq!(user32, before_stale);
+        assert!(user32.window(window_handle).unwrap().visible);
+
+        let fresh_hide = user32
+            .preview_set_window_pos(
+                RuntimeThreadId(0x2000),
+                RuntimeSetWindowPosRequest {
+                    window_handle,
+                    variant: RuntimeSetWindowPosVariant::InitialHide,
+                    next_geometry: show_geometry,
+                    next_visible: false,
+                    next_topmost: false,
+                    callback_flags: 0x0000_1d9f,
+                },
+            )
+            .unwrap();
+        let hide_plan = user32
+            .plan_set_window_pos_callback(
+                fresh_hide,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+                0,
+            )
+            .unwrap();
+        let duplicate = hide_plan.clone();
+        let hidden = user32.commit_set_window_pos_callback(hide_plan).unwrap();
+        assert!(matches!(
+            hidden,
+            RuntimeSetWindowPosCallbackAction::Completed { ref window }
+                if !window.visible && window.creation.geometry == show_geometry
+        ));
+        let before_duplicate = user32.clone();
+        assert_eq!(
+            user32
+                .commit_set_window_pos_callback(duplicate)
+                .unwrap_err()
+                .code,
+            "set-window-pos-callback-plan-stale"
+        );
+        assert_eq!(user32, before_duplicate);
+    }
+
     fn resource(
         group_resource_id: u32,
         icon_resource_id: u32,
@@ -2256,6 +2951,74 @@ mod tests {
             planes: 1,
             bits_per_pixel: 32,
         }
+    }
+
+    fn created_window_with_small_icon() -> (RuntimeUser32, u32, u32) {
+        let mut user32 = RuntimeUser32::default();
+        let large_icon = user32
+            .commit_shared_icon_load(
+                user32
+                    .plan_shared_icon_load(resource(101, 3, 0x3000))
+                    .unwrap(),
+            )
+            .unwrap();
+        let mut small_resource = resource(101, 4, 0x4000);
+        small_resource.width = 16;
+        small_resource.height = 16;
+        small_resource.icon_data_size = 1_128;
+        let small_icon = user32
+            .commit_shared_icon_load(user32.plan_shared_icon_load(small_resource).unwrap())
+            .unwrap();
+        let cursor = user32
+            .commit_shared_system_cursor_load(
+                user32
+                    .plan_shared_system_cursor_load(arrow_cursor())
+                    .unwrap(),
+            )
+            .unwrap();
+        let class = user32
+            .commit_window_class_registration(
+                user32
+                    .plan_window_class_registration(window_class_registration(
+                        large_icon,
+                        cursor,
+                        "BGI - Main window",
+                        0x28,
+                        0x92550,
+                    ))
+                    .unwrap(),
+            )
+            .unwrap();
+        let created = user32
+            .commit_window_creation(
+                user32
+                    .plan_window_creation(window_creation_request(class))
+                    .unwrap(),
+            )
+            .unwrap();
+        for (message, result) in [
+            (RuntimeWindowCreationMessage::NonClientCreate, 1),
+            (RuntimeWindowCreationMessage::NonClientCalculate, 0),
+            (RuntimeWindowCreationMessage::Create, 0),
+            (RuntimeWindowCreationMessage::Size, 0),
+            (RuntimeWindowCreationMessage::Move, 0),
+        ] {
+            let plan = user32
+                .plan_window_creation_callback(created.window_id, message, result)
+                .unwrap();
+            user32.commit_window_creation_callback(plan).unwrap();
+        }
+        let icon_plan = user32
+            .plan_window_small_icon(
+                created.handle,
+                RuntimeThreadId(0x2000),
+                small_icon.handle,
+                16,
+                16,
+            )
+            .unwrap();
+        assert_eq!(user32.commit_window_small_icon(icon_plan).unwrap(), 0);
+        (user32, created.handle, small_icon.handle)
     }
 
     fn arrow_cursor() -> RuntimeCursorSource {

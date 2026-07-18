@@ -1101,10 +1101,11 @@ class BrowserRuntimeSession {
       isRegisterClass === (metadata.windowClass !== undefined),
       "BGI window class completion metadata mismatch",
     );
-    const isCreateWindow =
-      completion.implementationId === "user32.create-window-ex-a.v1";
+    const isLogicalWindowCompletion =
+      completion.implementationId === "user32.create-window-ex-a.v1" ||
+      completion.implementationId === "user32.set-window-pos.v1";
     invariant(
-      isCreateWindow === (metadata.window !== undefined),
+      isLogicalWindowCompletion === (metadata.window !== undefined),
       "BGI logical window completion metadata mismatch",
     );
     const isCoInitialize = completion.implementationId === "ole32.co-initialize.v1";

@@ -172,7 +172,7 @@ Window procedure、timer procedure、enumeration callback 等は host event か�
 
 callback と再入は後付けしない。Phase 1 の vertical slice で実証する。
 
-controlled callback／entry return ingressでは、sentinel kindをcontrol address rangeから推測せず、typed exact ID／address metadataで分類する。frame IDはactive outer thunk、saved ESP／return address、target／value、callback sentinel identityを保持する。outer returnでその1 frameをretireし、process-entry sentinelはframeとは別のcompletion kindとして扱う。これはgeneral frame／lifecycle allocatorではなく、nested callback、reentrant service、callback fault／cancellation、thread／process exit policyは未実装である。
+controlled callback／entry return ingressでは、sentinel kindをcontrol address rangeから推測せず、typed exact ID／address metadataで分類する。frame IDはactive outer thunk、saved ESP／return address、target／value、callback sentinel identityを保持する。outer returnでその1 frameをretireし、process-entry sentinelはframeとは別のcompletion kindとして扱う。Production callback stackはbounded LIFOとしてnested entryとsame-depth replacementを扱うが、arbitrary cross-thread callback、unbounded reentrancy、general callback fault recoveryは実装済みとしない。
 
 ## 5. Browser execution topology
 
@@ -585,10 +585,20 @@ class metadataはimmutable completion snapshotであり、DOM class、native ATO
 Reached synchronous messageもlogical HWNDやWndProc identityをWorker側へ複製しない。Current bounded
 `SendMessageA(WM_SETICON, ICON_SMALL)` profileは`RuntimeUser32`のimmutable lookupでlive `created`
 window、selected owner thread、registered class／WndProc、live shared 16×16 HICONを全てpreflightし、
-既存schedulerのstdcall 4-argument callback frameへ渡す。WndProcの`LRESULT`をouter API resultへ戻すまで
-window／class／icon stateを変更せず、nested `DefWindowProcA`も同じidentity relationを再検証して0を返す。
-Logical window icon mutation、cross-thread send、queue integration、timeout／cancel、browser icon associationは
-後続message gatewayで別々のowner／lifetime contractとして扱う。
+既存schedulerのstdcall 4-argument callback frameへ渡す。Nested `DefWindowProcA`は同じidentity relationを
+再検証し、owner-local mutation planでwindowのsmall-icon relationだけをcommitしてprevious HICONを返す。
+WndProcの`LRESULT`はouter API resultへ戻す。Wrong／stale identity、callback preflight、duplicate／stale
+commitはwindow／icon relationとallocatorを部分更新しない。Cross-thread send、queue integration、
+timeout／cancel、browser icon associationは後続message gatewayで別contractとして扱う。
+
+Reached `SetWindowPos` profileでは、geometry、visibility、topmostとsmall-icon relationのauthorityを同じ
+`RuntimeUser32` window recordへ置く。Show operationはlogical displayとversioned non-client policyから
+off-screen outer／client geometryをplanし、`WM_WINDOWPOSCHANGED`からnested `WM_MOVE`、同depth replacementの
+`WM_GETICON(ICON_SMALL2)`へ進む。Expected icon identityまで確認したfinal callbackだけがgeometry、visible、
+topmostをtargeted commitする。Hide operationも`WM_WINDOWPOSCHANGED`完了後にvisibilityだけをcommitし、
+positionを保持する。Callback scratch、frame stack、operation generation、window lifecycleを全てpreflightし、
+callback result failureやstale operationではguest-visible stateを変更しない。Workerが受け取るCreateWindow／
+SetWindowPos final window snapshotはread-only observationであり、DOM／Canvas側に第二のWindows stateを作らない。
 
 - Rust User32／window subsystemがlogical window tree、z-order、focus、capture、invalid regionを所有する
 - Runtime WorkerはCanvas／DOM等のbrowser resourceと明示的なnon-owning associationだけを所有する

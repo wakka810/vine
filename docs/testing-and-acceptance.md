@@ -755,13 +755,25 @@ rendererをgoldenまたは実装済みとしない。
 Primary synchronous-message contractは、このcreation gatewayで`created`になったsame-thread HWNDだけを
 対象に、`SendMessageA(WM_SETICON, ICON_SMALL, shared 16x16 HICON)`をregistered class WndProcへstdcall
 4-argument callbackとして再入する。Focused Rust contractはcallback target／frame／callee cleanup、
-LastError preserve、WndProcのu32 `LRESULT`返却、nested `DefWindowProcA`の0 resultを固定する。Wrong／stale
-HWND、creating lifecycle、wrong owner thread、other message／`WPARAM`、NULL／wrong-type／stale／wrong-size
-HICON、callback memory preflight failureではwindow／class／icon、callback allocator、guest memoryを変更しない。
-Native oracleはWndProcがSendのdirect child／same threadで4 argumentsをそのまま受け、result 0とLastError
-preserveを返し、callerが`LRESULT`を読まずwindow-position setupへ進むことを比較する。これはwindow icon
-mutation、cross-thread／queued send、arbitrary message、general reentrancy／depth、timeout、DOM dispatchを
-実装済みまたはgoldenとしない。
+LastError preserve、WndProcのu32 `LRESULT`返却を固定する。Nested `DefWindowProcA`はsmall-icon relationを
+owner-local planでcommitし、再設定ではprevious HICONを返す。Wrong／stale HWND、creating lifecycle、wrong
+owner thread、other message／`WPARAM`、NULL／wrong-type／stale／wrong-size HICON、callback memory preflight、
+stale icon planではwindow／class／icon、callback allocator、guest memoryを部分更新しない。Native oracleは
+WndProcがSendのdirect child／same threadで4 argumentsをそのまま受け、result 0とLastError preserveを返し、
+callerが`LRESULT`を読まずwindow-position setupへ進むことを比較する。Cross-thread／queued send、arbitrary
+message、unbounded reentrancy、timeout、DOM dispatchは実装済みまたはgoldenとしない。
+
+Primary window-position contractはversioned initial show／hide profileだけを扱う。Showは
+`SetWindowPos(HWND_NOTOPMOST, 15360, 8640, 0, 0, 0x559)`をlogical display／non-client geometryへ解釈し、
+`WM_WINDOWPOSCHANGED -> nested WM_MOVE -> same-depth WM_GETICON(ICON_SMALL2)`を完了してexpected shared
+small-icon identityを確認した後だけgeometry、visible、topmostをcommitする。Hideはpositionを保持したまま
+`WM_WINDOWPOSCHANGED`完了後だけvisibleをfalseへcommitする。Focused Rust testsはoperation generation、
+callback order／depth／replacement、packed move coordinates、WINDOWPOS scratch、wrong owner／lifecycle／flags／
+icon result、stale／duplicate plan、callback rejectionのfailure atomicityを固定する。Native oracleは二つの
+BOOL success、callback order、WINDOWPOS flags、packed move value、small-icon identity relationとcaller consumerを
+比較し、native HWND／HICON、host desktop positionをgoldenにしない。Node／Chrome equivalenceは三つのfinal
+logical-window snapshots（create、show、hide）をRust authorityのread-only metadataとして比較する。General
+z-order、resize、activation、multiple windows／monitors、queued paint、DOM positioningは未実装である。
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 

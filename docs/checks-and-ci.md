@@ -94,8 +94,8 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 [browser-runtime-worker.md](browser-runtime-worker.md).
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
-current logical-window workload is pinned by
-[`bgi-browser-create-window-v1.json`](../fixtures/benchmarks/bgi-browser-create-window-v1.json).
+current logical-window workload is selected by the checkpoint manifest and pinned by
+[`bgi-browser-set-window-pos-v1.json`](../fixtures/benchmarks/bgi-browser-set-window-pos-v1.json).
 It repeats the complete current session, checks semantics on every repetition, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
 and Wasm-crossing thresholds. Its result and non-claims are recorded in

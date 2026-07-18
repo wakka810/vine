@@ -124,6 +124,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-get-system-metrics-small-icon-width",
         "user32-load-image-a-small-icon",
         "user32-send-message-a-small-icon",
+        "user32-set-window-pos-initial-placement",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -164,6 +165,7 @@ assert(
       "user32-get-system-metrics-small-icon-width",
       "user32-load-image-a-small-icon",
       "user32-send-message-a-small-icon",
+      "user32-set-window-pos-initial-placement",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -177,6 +179,7 @@ if (
     "user32-get-system-metrics-small-icon-width",
     "user32-load-image-a-small-icon",
     "user32-send-message-a-small-icon",
+    "user32-set-window-pos-initial-placement",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -196,7 +199,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-get-system-metrics-small-icon-height" ||
     genericRuntimeCapability === "user32-get-system-metrics-small-icon-width" ||
     genericRuntimeCapability === "user32-load-image-a-small-icon" ||
-    genericRuntimeCapability === "user32-send-message-a-small-icon"
+    genericRuntimeCapability === "user32-send-message-a-small-icon" ||
+    genericRuntimeCapability === "user32-set-window-pos-initial-placement"
       ? "kernel32-source-file-read-v1.json"
       : genericRuntimeCapability === "kernel32-large-heap-allocation"
       ? "kernel32-large-heap-allocation-v1.json"
@@ -317,7 +321,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const setWindowPosInitialPlacementEnabled =
+  genericRuntimeCapability === "user32-set-window-pos-initial-placement";
 const sendMessageASmallIconEnabled =
+  setWindowPosInitialPlacementEnabled ||
   genericRuntimeCapability === "user32-send-message-a-small-icon";
 const loadImageASmallIconEnabled =
   sendMessageASmallIconEnabled ||
@@ -489,7 +496,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? sendMessageASmallIconEnabled
+      ? setWindowPosInitialPlacementEnabled
+        ? "v86-bgi-set-window-pos-initial-placement"
+      : sendMessageASmallIconEnabled
         ? "v86-bgi-send-message-a-small-icon"
       : loadImageASmallIconEnabled
         ? "v86-bgi-load-image-a-small-icon"
@@ -4420,6 +4429,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setWindowPosInitialPlacementEnabled) {
+        validateSetWindowPosInitialPlacementResult(genericResult);
       } else if (sendMessageASmallIconEnabled) {
         validateSendMessageASmallIconResult(genericResult);
       } else if (loadImageASmallIconEnabled) {
@@ -4551,6 +4562,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : setWindowPosInitialPlacementEnabled
+            ? "bgi SetWindowPos initial placement"
           : sendMessageASmallIconEnabled
             ? "bgi SendMessageA small icon"
           : loadImageASmallIconEnabled
@@ -4846,7 +4859,11 @@ async function runGenericRuntimeReentry({
   let frozenSemanticCalls = 0;
   let currentStackGuard = runtimeReady.initialThreadStack.guardPage?.start ?? null;
 
-  const callLimit = initializeCriticalSectionEnabled ? 4096 : 256;
+  const callLimit = setWindowPosInitialPlacementEnabled
+    ? 16_384
+    : initializeCriticalSectionEnabled
+      ? 4096
+      : 256;
   for (let iteration = 1; iteration <= callLimit; iteration += 1) {
     const sequence = supportedCalls.length + 1;
     const terminal = continuation.terminal;
@@ -5670,6 +5687,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : setWindowPosInitialPlacementEnabled
+          ? 62
         : sendMessageASmallIconEnabled
           ? 61
         : loadImageASmallIconEnabled
@@ -5786,7 +5805,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-message-v11",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-v12",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -6314,11 +6333,19 @@ function validateGenericRuntimeFault(fault, endpoint, generation) {
   assert.equal(fault.endpoint.kind, endpoint.kind);
   assert.equal(fault.endpoint.endpoint.id, endpoint.id);
   assert.equal(fault.endpoint.endpoint.address, endpoint.address);
-  assert.equal(
-    fault.fault.class,
-    "unsupported",
-    `generic runtime fault: ${JSON.stringify(fault.fault)}`,
-  );
+  if (
+    !(
+      setWindowPosInitialPlacementEnabled &&
+      fault.fault.class === "resource-limit" &&
+      fault.fault.code === "critical-section-limit-exceeded"
+    )
+  ) {
+    assert.equal(
+      fault.fault.class,
+      "unsupported",
+      `generic runtime fault: ${JSON.stringify(fault.fault)}`,
+    );
+  }
   assert.equal(fault.memory.generation, generation);
   assert.equal(fault.memory.acknowledgedGeneration, generation);
   assert.equal(fault.memory.dirtyPages, 0);
@@ -10737,6 +10764,237 @@ function validateSendMessageASmallIconResult(result) {
   ]);
 }
 
+function validateSetWindowPosInitialPlacementSummary(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 5500);
+  assert.equal(result.callbackEvents.length, 22);
+  assert.equal(result.finalGeneration, 9853);
+  assert.equal(result.writebacks.length, 5547);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    11_243,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_543_704,
+  );
+  assert.equal(result.hostDeltas.length, 4234);
+  assert.equal(
+    result.supportedCalls.some(({ pendingCallback }) => pendingCallback === true),
+    false,
+    "both SetWindowPos calls must complete before the capacity stop",
+  );
+
+  const calls = result.supportedCalls.filter(
+    ({ module, symbol }) =>
+      module.toLowerCase() === "user32.dll" && symbol === "SetWindowPos",
+  );
+  assert.equal(calls.length, 2);
+  const [show, hide] = calls;
+  assert.deepEqual(
+    {
+      sequence: show.sequence,
+      occurrence: show.occurrence,
+      trapInstructionCount: show.trapInstructionCount,
+      arguments: show.arguments,
+      result: show.result,
+      implementationId: show.implementationId,
+      returnAddress: show.returnAddress,
+      stackDelta: show.stackPointerAfter - show.stackPointerBefore,
+      lastError: show.lastError,
+      guestWrites: show.guestWrites,
+    },
+    {
+      sequence: 1402,
+      occurrence: 1,
+      trapInstructionCount: 11_476_612,
+      arguments: [0x4801_0001, 0xffff_fffe, 15_360, 8_640, 0, 0, 0x0559],
+      result: { action: "set", value: 1 },
+      implementationId: "user32.set-window-pos.v1",
+      returnAddress: 0x1006_7f88,
+      stackDelta: 32,
+      lastError: 0,
+      guestWrites: [],
+    },
+  );
+  assert.deepEqual(show.callback, {
+    frameId: 10,
+    target: 0x1009_2550,
+    allocationStart: 0x006f_fabc,
+    stackPointer: 0x006f_fabc,
+    scratchAddress: 0,
+    scratchBytes: 0,
+    frameBytes: 20,
+    returnSentinel: 0x7f01_0000,
+    returnInstructionCount: 11_476_787,
+    result: 0x4901_0002,
+  });
+  assert.deepEqual(show.window.geometry, {
+    x: 15_360,
+    y: 8_640,
+    width: 806,
+    height: 629,
+    clientX: 15_363,
+    clientY: 8_666,
+    clientWidth: 800,
+    clientHeight: 600,
+  });
+  assert.equal(show.window.visible, true);
+  assert.equal(show.window.topmost, false);
+  assert.deepEqual(show.window.smallIcon, {
+    iconId: 2,
+    handle: 0x4901_0002,
+  });
+
+  assert.deepEqual(
+    {
+      sequence: hide.sequence,
+      occurrence: hide.occurrence,
+      trapInstructionCount: hide.trapInstructionCount,
+      arguments: hide.arguments,
+      result: hide.result,
+      implementationId: hide.implementationId,
+      returnAddress: hide.returnAddress,
+      stackDelta: hide.stackPointerAfter - hide.stackPointerBefore,
+      lastError: hide.lastError,
+      guestWrites: hide.guestWrites,
+    },
+    {
+      sequence: 1408,
+      occurrence: 2,
+      trapInstructionCount: 11_476_797,
+      arguments: [0x4801_0001, 0xffff_fffe, 0, 0, 0, 0, 0x059b],
+      result: { action: "set", value: 1 },
+      implementationId: "user32.set-window-pos.v1",
+      returnAddress: 0x1006_7f9f,
+      stackDelta: 32,
+      lastError: 0,
+      guestWrites: [],
+    },
+  );
+  assert.deepEqual(hide.callback, {
+    frameId: 11,
+    target: 0x1009_2550,
+    allocationStart: 0x006f_fabc,
+    stackPointer: 0x006f_fabc,
+    scratchAddress: 0x0050_1000,
+    scratchBytes: 28,
+    frameBytes: 20,
+    returnSentinel: 0x7f01_0000,
+    returnInstructionCount: 11_476_850,
+    result: 0,
+  });
+  assert.deepEqual(hide.window.geometry, show.window.geometry);
+  assert.equal(hide.window.visible, false);
+  assert.equal(hide.window.topmost, false);
+  assert.deepEqual(hide.window.smallIcon, show.window.smallIcon);
+
+  const nestedPosition = result.supportedCalls.find(
+    ({ sequence }) => sequence === 1403,
+  );
+  assert.equal(nestedPosition.symbol, "DefWindowProcA");
+  assert.equal(nestedPosition.occurrence, 6);
+  assert.equal(nestedPosition.trapInstructionCount, 11_476_652);
+  assert.deepEqual(nestedPosition.arguments, [0x4801_0001, 0x0047, 0, 0x0050_1000]);
+  assert.deepEqual(nestedPosition.result, { action: "set", value: 0 });
+  assert.equal(nestedPosition.callback.frameId, 9);
+  assert.equal(nestedPosition.callback.returnInstructionCount, 11_476_705);
+  assert.equal(nestedPosition.callback.result, 0);
+
+  const nestedMove = result.supportedCalls.find(({ sequence }) => sequence === 1404);
+  assert.equal(nestedMove.symbol, "DefWindowProcA");
+  assert.equal(nestedMove.occurrence, 7);
+  assert.equal(nestedMove.trapInstructionCount, 11_476_692);
+  assert.deepEqual(nestedMove.arguments, [0x4801_0001, 0x0003, 0, 0x21da_3c03]);
+  assert.deepEqual(nestedMove.result, { action: "set", value: 0 });
+
+  const hideDefault = result.supportedCalls.find(({ sequence }) => sequence === 1409);
+  assert.equal(hideDefault.symbol, "DefWindowProcA");
+  assert.equal(hideDefault.occurrence, 8);
+  assert.equal(hideDefault.trapInstructionCount, 11_476_837);
+  assert.deepEqual(hideDefault.arguments, [0x4801_0001, 0x0047, 0, 0x0050_1000]);
+  assert.deepEqual(hideDefault.result, { action: "set", value: 0 });
+
+  assert.deepEqual(
+    result.callbackEvents.slice(-8).map(
+      ({ action, sequence, frameId, instructionCount, result: callbackResult }) => ({
+        action,
+        sequence,
+        frameId,
+        instructionCount,
+        ...(callbackResult === undefined ? {} : { result: callbackResult }),
+      }),
+    ),
+    [
+      { action: "enter", sequence: 1402, frameId: 8, instructionCount: 11_476_612 },
+      { action: "enter", sequence: 1403, frameId: 9, instructionCount: 11_476_652 },
+      { action: "return", sequence: 1403, frameId: 9, instructionCount: 11_476_705, result: 0 },
+      { action: "return", sequence: 1402, frameId: 8, instructionCount: 11_476_718, result: 0 },
+      { action: "replace", sequence: 1402, frameId: 10, instructionCount: 11_476_718 },
+      {
+        action: "return",
+        sequence: 1402,
+        frameId: 10,
+        instructionCount: 11_476_787,
+        result: 0x4901_0002,
+      },
+      { action: "enter", sequence: 1408, frameId: 11, instructionCount: 11_476_797 },
+      { action: "return", sequence: 1408, frameId: 11, instructionCount: 11_476_850, result: 0 },
+    ],
+  );
+
+  assert.equal(
+    result.supportedCalls.filter(
+      ({ symbol }) => symbol === "InitializeCriticalSectionAndSpinCount",
+    ).length,
+    17,
+  );
+  const criticalSections = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "InitializeCriticalSection",
+  );
+  assert.equal(criticalSections.length, 4079);
+  assert.equal(criticalSections.at(-1).occurrence, 4079);
+  assert.equal(criticalSections.at(-1).trapInstructionCount, 11_583_927);
+  assert.deepEqual(criticalSections.at(-1).arguments, [0x2004_a148]);
+
+  assert.equal(result.fault.fault.class, "resource-limit");
+  assert.equal(result.fault.fault.stage, "runtime-critical-section");
+  assert.equal(result.fault.fault.code, "critical-section-limit-exceeded");
+  assert.equal(result.fault.capabilityCluster, "kernel32-critical-section-synchronization");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 147);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0920);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "InitializeCriticalSection",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_12f4);
+  assert.equal(result.fault.memory.physicalPages, 717);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "c74cac1c619df0782a3115a399aac990f4416faf2d16b49c06738caca89c4140",
+  );
+  assert.equal(result.terminal.instructionCount, 11_583_945);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 147);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0920);
+  assert.equal(result.terminal.terminal.thunk.name, "InitializeCriticalSection");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1000_72be);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0x2004_a190]);
+}
+
+function validateSetWindowPosInitialPlacementResult(result) {
+  validateSetWindowPosInitialPlacementSummary(result);
+}
+
 function validateGetSystemMetricsSmallIconWidthResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -12332,6 +12590,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : setWindowPosInitialPlacementEnabled
+          ? "vine.v86-bgi-set-window-pos-initial-placement"
         : sendMessageASmallIconEnabled
           ? "vine.v86-bgi-send-message-a-small-icon"
         : loadImageASmallIconEnabled
