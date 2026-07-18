@@ -9,10 +9,10 @@ use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall, ApiHandlerResult,
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
     CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackReceipt,
-    DispatchOutcome, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE, GuestAddress,
-    GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory,
-    GuestRange, HostCompletion, HostRequest, ImportBinding, ImportTarget, InitialThreadStack,
-    Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    D3d9CompatibilityPolicy, DispatchOutcome, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE,
+    GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
+    GuestMemory, GuestRange, HostCompletion, HostRequest, ImportBinding, ImportTarget,
+    InitialThreadStack, Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
     MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate,
@@ -24,16 +24,16 @@ use vine_core::{
     RuntimeThreadId, SchedulerThreadState, StackCleanup, User32CompatibilityPolicy,
     WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
     complete_kernel32_source_read, d3d9_contract_for_endpoint, dispatch_d3d9_api,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, install_controlled_initial_stack,
-    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
-    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
-    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
-    user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    dispatch_d3d9_com_call, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
+    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
+    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
+    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
+    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
+    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const FIXTURE_SHA256: &str = "0f2cf36eea064860266edf93c210cea2f51e92e5283eb79df0a22ff4cf037233";
+const FIXTURE_SHA256: &str = "a8c1024048a0acb0bba22efb9c148e39cf4f1bbcbf7eb0a3f2fcd1db1ae90733";
 const FIXTURE_MODULE: &str = "vine_browser_fixture.dll";
 const SOURCE_READ_FIXTURE_SHA256: &str =
     "292d298cb77a8223cb0f6fb66333457b3fab9b8e4f0c1643cf01936b769a1d63";
@@ -277,6 +277,7 @@ struct BrowserRuntime {
     callbacks: BTreeMap<RuntimeThreadId, Vec<ActiveCallback>>,
     controlled_guest_thread: Option<ControlledGuestThread>,
     mapping_fixture: BrowserMappingFixture,
+    d3d9_policy: Option<Box<D3d9CompatibilityPolicy>>,
     target: BrowserRuntimeTarget,
 }
 
@@ -300,6 +301,17 @@ impl BrowserRuntime {
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
+        let user32_policy = User32CompatibilityPolicy::controlled_v13();
+        user32_policy.validate().map_err(api_fault_string)?;
+        runtime
+            .configure_display_profile(
+                user32_policy
+                    .display_profile()
+                    .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
+            )
+            .map_err(error_string)?;
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v1();
+        d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
             "fixture_call_callback",
@@ -415,6 +427,7 @@ impl BrowserRuntime {
                 callbacks: BTreeMap::new(),
                 controlled_guest_thread: Some(controlled_guest_thread),
                 mapping_fixture: BrowserMappingFixture::default(),
+                d3d9_policy: Some(Box::new(d3d9_policy)),
                 target: BrowserRuntimeTarget::ControlledFixture,
             },
             metadata,
@@ -459,6 +472,8 @@ impl BrowserRuntime {
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v1();
+        d3d9_policy.validate().map_err(api_fault_string)?;
         process
             .runtime
             .configure_display_profile(
@@ -592,6 +607,7 @@ impl BrowserRuntime {
                 callbacks: BTreeMap::new(),
                 controlled_guest_thread: None,
                 mapping_fixture: BrowserMappingFixture::default(),
+                d3d9_policy: Some(Box::new(d3d9_policy)),
                 target: BrowserRuntimeTarget::Bgi {
                     kernel32_policy: Box::new(kernel32_policy),
                     user32_policy: Box::new(user32_policy),
@@ -707,6 +723,7 @@ impl BrowserRuntime {
                 callbacks: BTreeMap::new(),
                 controlled_guest_thread: None,
                 mapping_fixture: BrowserMappingFixture::default(),
+                d3d9_policy: None,
                 target: BrowserRuntimeTarget::ControlledSourceRead {
                     kernel32_policy: Box::new(kernel32_policy),
                 },
@@ -1038,6 +1055,7 @@ impl BrowserRuntime {
                         kernel32_policy,
                         user32_policy,
                         winmm_policy,
+                        ..
                     } => {
                         if contract.endpoint.module.eq_ignore_ascii_case("user32.dll") {
                             dispatch_user32_api_with_policy(
@@ -1301,14 +1319,19 @@ impl BrowserRuntime {
         stack_pointer: GuestAddress,
         return_address: GuestAddress,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        let d3d9_policy = self.d3d9_policy.as_deref();
         let outcome = {
             let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
-            session.dispatch_com_call(ComCallTrap {
+            let trap = ComCallTrap {
                 endpoint_address,
                 stack_pointer,
                 return_address,
                 call_site: return_address,
-            })
+            };
+            match d3d9_policy {
+                Some(policy) => dispatch_d3d9_com_call(policy, trap, &mut session),
+                None => session.dispatch_com_call(trap),
+            }
         };
         match outcome {
             ComDispatchOutcome::Completed(completion) => {

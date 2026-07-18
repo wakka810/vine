@@ -57,9 +57,12 @@ pub use com::{
     install_com_object,
 };
 pub use d3d9::{
+    D3D9_COMPATIBILITY_POLICY_SCHEMA, D3D9_COMPATIBILITY_POLICY_VERSION,
+    D3D9_D3DDISPLAYMODE_BYTE_LENGTH, D3D9_D3DERR_INVALIDCALL, D3D9_D3DFMT_X8R8G8B8,
     D3D9_DIRECT3D_CREATE9_IMPLEMENTATION, D3D9_IDIRECT3D9_CLASS_IDENTITY, D3D9_IDIRECT3D9_IID,
-    D3D9_SDK_VERSION, d3d9_contract_for_endpoint, direct3d_create9_contract, direct3d9_object_spec,
-    dispatch_d3d9_api,
+    D3D9_SDK_VERSION, D3d9AdapterDisplayModePolicy, D3d9CompatibilityPolicy, D3d9DisplayMode,
+    d3d9_contract_for_endpoint, direct3d_create9_contract, direct3d9_object_spec,
+    dispatch_d3d9_api, dispatch_d3d9_com_call,
 };
 pub use dynamic_exports::{
     DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,

@@ -298,6 +298,17 @@ endpoint、callsite付きで停止する。Browser contractは独立IDの非再�
 association、local releaseがRust refcountを変更しないことを固定する。詳細は
 [com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
 
+Bounded D3D9 frontendのrepresentative fixtureは、version-neutral COM gatewayからversioned
+D3D9 handlerへのdelegation、slot 8の2-word／HRESULT ABI、`RuntimeDisplays`由来の
+1920×1080 geometry、policy由来の60 Hz／`D3DFMT_X8R8G8B8`、16-byte full overwrite、
+LastError／reference count不変を固定する。invalid adapter、NULL、read-only output、disabled／
+malformed policy、missing／mismatched display authorityはguest memoryとruntime stateをpartial
+mutationしない。Public PE fixtureは同じ4 fieldをChrome Worker内で検査し、private Node／Chrome
+gateは同じCOM completionと次の`GetAdapterIdentifier` stopを比較する。2本のnative traceは4 calls、
+caller RVA、zeroed first outputの全域上書きを再現する。`RuntimeGraphics`／renderer resourceを
+生成しないこともこのleafのnon-claimとして固定する。詳細は
+[d3d9-frontend.md](d3d9-frontend.md)を正とする。
+
 Reached COM initialization contractは別fixtureでone-argument x86 stdcall、typed HRESULT、
 `S_OK`／`S_FALSE`／`RPC_E_CHANGED_MODE`、LastError preserve、NULL-only reserved policyを固定する。
 Thread subsystem testはsame-model counted initialization、model conflictのno-mutation、per-thread isolation、

@@ -1,11 +1,26 @@
 typedef int(__cdecl *fixture_callback)(int value);
 
 typedef struct fixture_idirect3d9 fixture_idirect3d9;
+typedef struct fixture_d3d_display_mode {
+  unsigned int width;
+  unsigned int height;
+  unsigned int refresh_rate;
+  unsigned int format;
+} fixture_d3d_display_mode;
+
 typedef struct fixture_idirect3d9_vtable {
   int(__stdcall *query_interface)(fixture_idirect3d9 *self, const void *iid,
                                   void **object);
   unsigned int(__stdcall *add_ref)(fixture_idirect3d9 *self);
   unsigned int(__stdcall *release)(fixture_idirect3d9 *self);
+  void *register_software_device;
+  void *get_adapter_count;
+  void *get_adapter_identifier;
+  void *get_adapter_mode_count;
+  void *enum_adapter_modes;
+  int(__stdcall *get_adapter_display_mode)(fixture_idirect3d9 *self,
+                                            unsigned int adapter,
+                                            fixture_d3d_display_mode *mode);
 } fixture_idirect3d9_vtable;
 
 struct fixture_idirect3d9 {
@@ -57,16 +72,25 @@ int __cdecl fixture_entry(void) {
   if (direct3d == 0) {
     return 4;
   }
-  if (direct3d->vtable->add_ref(direct3d) != 2) {
+  fixture_d3d_display_mode mode = {0xccccccccu, 0xccccccccu, 0xccccccccu,
+                                   0xccccccccu};
+  if (direct3d->vtable->get_adapter_display_mode(direct3d, 0, &mode) != 0) {
     return 5;
   }
-  if (direct3d->vtable->release(direct3d) != 1) {
+  if (mode.width != 1920 || mode.height != 1080 || mode.refresh_rate != 60 ||
+      mode.format != 22) {
     return 6;
   }
-  if (direct3d->vtable->release(direct3d) != 0) {
+  if (direct3d->vtable->add_ref(direct3d) != 2) {
     return 7;
+  }
+  if (direct3d->vtable->release(direct3d) != 1) {
+    return 8;
+  }
+  if (direct3d->vtable->release(direct3d) != 0) {
+    return 9;
   }
 
   fixture_commit_result = fixture_commit_outputs(0xff0000ffu, 880u, 0x5au);
-  return fixture_commit_result == 1 ? 0 : 8;
+  return fixture_commit_result == 1 ? 0 : 10;
 }

@@ -65,6 +65,7 @@ pub enum RuntimeComMethodImplementation {
     QueryInterface,
     AddRef,
     Release,
+    Frontend,
     Unsupported,
 }
 
@@ -779,10 +780,13 @@ fn validate_iunknown_slot(method: &RuntimeComMethodRegistration) -> Result<(), R
                 "COM slots 0..2 must use the canonical QueryInterface/AddRef/Release ABI",
             ));
         }
-    } else if method.implementation != RuntimeComMethodImplementation::Unsupported {
+    } else if !matches!(
+        method.implementation,
+        RuntimeComMethodImplementation::Frontend | RuntimeComMethodImplementation::Unsupported
+    ) {
         return Err(com_registration_error(
-            "com-noniunknown-implementation-out-of-scope",
-            "the COM foundation implements only IUnknown methods",
+            "com-noniunknown-implementation-invalid",
+            "non-IUnknown slots must be delegated to a versioned frontend or remain unsupported",
         ));
     }
     Ok(())

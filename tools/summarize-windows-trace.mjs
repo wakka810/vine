@@ -300,6 +300,51 @@ const isSuccessfulFileResult = (value) => {
   return result !== "0xffffffff" && result !== "0xffffffffffffffff";
 };
 
+const normalizeD3d9DisplayModeSnapshot = (snapshot, sequence, phase) => {
+  if (
+    snapshot === null ||
+    typeof snapshot !== "object" ||
+    typeof snapshot.pointer !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(snapshot.pointer) ||
+    snapshot.size !== 16 ||
+    !Array.isArray(snapshot.bytes) ||
+    snapshot.bytes.length !== 16 ||
+    !snapshot.bytes.every(
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+    ) ||
+    snapshot.fields === null ||
+    typeof snapshot.fields !== "object" ||
+    !["width", "height", "refreshRate", "format"].every(
+      (field) =>
+        Number.isInteger(snapshot.fields[field]) &&
+        snapshot.fields[field] >= 0 &&
+        snapshot.fields[field] <= 0xffffffff,
+    )
+  ) {
+    throw new Error(
+      `api-leave sequence ${sequence} has invalid D3DDISPLAYMODE ${phase} snapshot`,
+    );
+  }
+  const view = new DataView(Uint8Array.from(snapshot.bytes).buffer);
+  const decoded = {
+    width: view.getUint32(0, true),
+    height: view.getUint32(4, true),
+    refreshRate: view.getUint32(8, true),
+    format: view.getUint32(12, true),
+  };
+  if (JSON.stringify(decoded) !== JSON.stringify(snapshot.fields)) {
+    throw new Error(
+      `api-leave sequence ${sequence} has inconsistent D3DDISPLAYMODE ${phase} bytes`,
+    );
+  }
+  return {
+    pointer: snapshot.pointer,
+    size: snapshot.size,
+    bytes: [...snapshot.bytes],
+    fields: decoded,
+  };
+};
+
 export const summarizeTrace = (buffer, sourcePath = null) => {
   const text = buffer.toString("utf8");
   const lines = text.split(/\r?\n/);
@@ -629,6 +674,61 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       };
     });
 
+  const adapterDisplayModes = apiPairing.pairs
+    .filter(
+      (pair) =>
+        pair.enter.interface === "IDirect3D9" &&
+        pair.enter.vtableSlot === 8 &&
+        pair.enter.api === "GetAdapterDisplayMode" &&
+        pair.leave.d3d9DisplayMode !== undefined,
+    )
+    .map((pair) => {
+      const observation = pair.leave.d3d9DisplayMode;
+      if (
+        observation === null ||
+        typeof observation !== "object" ||
+        !Number.isInteger(observation.adapter) ||
+        observation.adapter < 0 ||
+        observation.adapter > 0xffffffff
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has invalid D3DDISPLAYMODE observation`,
+        );
+      }
+      const before = normalizeD3d9DisplayModeSnapshot(
+        observation.before,
+        pair.leave.sequence,
+        "before",
+      );
+      const after = normalizeD3d9DisplayModeSnapshot(
+        observation.after,
+        pair.leave.sequence,
+        "after",
+      );
+      if (
+        before.pointer.toLowerCase() !== after.pointer.toLowerCase() ||
+        after.pointer.toLowerCase() !==
+          String(pair.enter.arguments?.[1] ?? "").toLowerCase()
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} changed its D3DDISPLAYMODE output pointer`,
+        );
+      }
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId ?? null,
+        caller:
+          pair.enter.caller === undefined
+            ? null
+            : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+        adapter: observation.adapter,
+        result: pair.leave.result,
+        lastError: pair.leave.lastError ?? null,
+        before,
+        after,
+      };
+    });
+
   return {
     schema: summarySchema,
     source: {
@@ -678,6 +778,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     modules,
     apis,
     vtables,
+    d3d9: {
+      adapterDisplayModes,
+    },
     categories,
     files: {
       hookCalls: categories.file.calls,

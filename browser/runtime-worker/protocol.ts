@@ -317,13 +317,20 @@ export interface SessionReport {
     module: string;
     symbol: string;
     arguments: number[];
-    result: { action: "preserve" } | { action: "set"; value: number };
-    implementationId: string;
+    result:
+      | { action: "preserve" }
+      | { action: "set"; value: number }
+      | { kind: "h-result" | "u32"; value: number };
+    implementationId?: string;
     returnAddress: number;
     stackPointerBefore: number;
     stackPointerAfter: number;
-    lastError: number;
+    lastError?: number;
     guestWrites: Array<{ address: number; bytes: number[] }>;
+    interface?: string;
+    vtableSlot?: number;
+    referenceCount?: number;
+    objectRetired?: boolean;
     currentDirectory?: RuntimeCurrentDirectorySnapshot;
     mutex?: RuntimeMutexSnapshot;
     waitableTimer?: RuntimeWaitableTimerSnapshot;

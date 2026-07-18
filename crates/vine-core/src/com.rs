@@ -48,6 +48,7 @@ pub struct ComMethodSpec {
     pub name: String,
     pub explicit_argument_words: u16,
     pub return_kind: RuntimeComReturnKind,
+    pub implementation: RuntimeComMethodImplementation,
 }
 
 impl ComMethodSpec {
@@ -56,6 +57,7 @@ impl ComMethodSpec {
             name: "QueryInterface".to_owned(),
             explicit_argument_words: 2,
             return_kind: RuntimeComReturnKind::HResult,
+            implementation: RuntimeComMethodImplementation::QueryInterface,
         }
     }
 
@@ -64,6 +66,7 @@ impl ComMethodSpec {
             name: "AddRef".to_owned(),
             explicit_argument_words: 0,
             return_kind: RuntimeComReturnKind::U32,
+            implementation: RuntimeComMethodImplementation::AddRef,
         }
     }
 
@@ -72,6 +75,7 @@ impl ComMethodSpec {
             name: "Release".to_owned(),
             explicit_argument_words: 0,
             return_kind: RuntimeComReturnKind::U32,
+            implementation: RuntimeComMethodImplementation::Release,
         }
     }
 
@@ -80,6 +84,7 @@ impl ComMethodSpec {
             name: name.into(),
             explicit_argument_words,
             return_kind: RuntimeComReturnKind::HResult,
+            implementation: RuntimeComMethodImplementation::Unsupported,
         }
     }
 
@@ -88,6 +93,16 @@ impl ComMethodSpec {
             name: name.into(),
             explicit_argument_words,
             return_kind: RuntimeComReturnKind::U32,
+            implementation: RuntimeComMethodImplementation::Unsupported,
+        }
+    }
+
+    pub fn frontend_hresult(name: impl Into<String>, explicit_argument_words: u16) -> Self {
+        Self {
+            name: name.into(),
+            explicit_argument_words,
+            return_kind: RuntimeComReturnKind::HResult,
+            implementation: RuntimeComMethodImplementation::Frontend,
         }
     }
 }
@@ -229,6 +244,89 @@ pub enum ComDispatchOutcome {
     Fault(ComFault),
 }
 
+pub(crate) struct ComFrontendCall<'a> {
+    memory: &'a mut GuestMemory,
+    runtime: &'a mut RuntimeKernel,
+    trap: ComCallTrap,
+    target: RuntimeComMethodTarget,
+    frame: ComCallFrame,
+}
+
+impl ComFrontendCall<'_> {
+    pub(crate) fn frame(&self) -> &ComCallFrame {
+        &self.frame
+    }
+
+    pub(crate) fn class_identity(&self) -> &str {
+        &self.target.object.class_identity
+    }
+
+    pub(crate) fn explicit_argument_words(&self) -> u16 {
+        self.target.method.explicit_argument_words
+    }
+
+    pub(crate) fn return_kind(&self) -> RuntimeComReturnKind {
+        self.target.method.return_kind
+    }
+
+    pub(crate) fn memory(&self) -> &GuestMemory {
+        self.memory
+    }
+
+    pub(crate) fn memory_mut(&mut self) -> &mut GuestMemory {
+        self.memory
+    }
+
+    pub(crate) fn runtime(&self) -> &RuntimeKernel {
+        self.runtime
+    }
+
+    pub(crate) fn fault(
+        self,
+        class: ComFaultClass,
+        stage: &'static str,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> ComDispatchOutcome {
+        ComDispatchOutcome::Fault(fault(
+            class,
+            stage,
+            code,
+            message,
+            self.trap,
+            Some(&self.target),
+        ))
+    }
+
+    pub(crate) fn memory_fault(self, error: GuestMemoryError) -> ComDispatchOutcome {
+        ComDispatchOutcome::Fault(fault_from_memory(error, self.trap, Some(&self.target)))
+    }
+
+    pub(crate) fn complete(
+        self,
+        return_value: ComReturnValue,
+        guest_writes: Vec<ComGuestWriteReceipt>,
+    ) -> ComDispatchOutcome {
+        if !return_value_matches(self.target.method.return_kind, return_value) {
+            return self.fault(
+                ComFaultClass::RuntimeDefect,
+                "com-frontend-gateway",
+                "com-frontend-return-kind-mismatch",
+                "COM frontend return value does not match its registered x86 ABI",
+            );
+        }
+        let reference_count = self.target.object.reference_count;
+        complete_call(
+            self.target,
+            self.frame,
+            return_value,
+            reference_count,
+            false,
+            guest_writes,
+        )
+    }
+}
+
 struct PlannedComLayout {
     interfaces: Vec<RuntimeComInterfaceRegistration>,
     data_writes: Vec<(GuestAddress, Vec<u8>)>,
@@ -356,6 +454,40 @@ pub fn dispatch_com_call(
         Ok(target) => target,
         Err(error) => return ComDispatchOutcome::Fault(fault_from_runtime(error, trap, None)),
     };
+    if matches!(
+        target.method.implementation,
+        RuntimeComMethodImplementation::Frontend | RuntimeComMethodImplementation::Unsupported
+    ) {
+        return ComDispatchOutcome::Fault(fault(
+            ComFaultClass::Unsupported,
+            "com-dispatch",
+            "com-method-unsupported",
+            format!(
+                "COM interface {} slot {} ({}) is not implemented",
+                target.interface.name, target.method.slot, target.method.name
+            ),
+            trap,
+            Some(&target),
+        ));
+    }
+    dispatch_resolved_com_call(memory, runtime, trap, target, |_| {
+        unreachable!("non-frontend COM dispatch cannot reach a frontend handler")
+    })
+}
+
+pub(crate) fn dispatch_com_call_with_frontend<F>(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeKernel,
+    trap: ComCallTrap,
+    frontend: F,
+) -> ComDispatchOutcome
+where
+    F: FnOnce(ComFrontendCall<'_>) -> ComDispatchOutcome,
+{
+    let target = match runtime.resolve_com_method(trap.endpoint_address) {
+        Ok(target) => target,
+        Err(error) => return ComDispatchOutcome::Fault(fault_from_runtime(error, trap, None)),
+    };
     if target.method.implementation == RuntimeComMethodImplementation::Unsupported {
         return ComDispatchOutcome::Fault(fault(
             ComFaultClass::Unsupported,
@@ -369,6 +501,19 @@ pub fn dispatch_com_call(
             Some(&target),
         ));
     }
+    dispatch_resolved_com_call(memory, runtime, trap, target, frontend)
+}
+
+fn dispatch_resolved_com_call<F>(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeKernel,
+    trap: ComCallTrap,
+    target: RuntimeComMethodTarget,
+    frontend: F,
+) -> ComDispatchOutcome
+where
+    F: FnOnce(ComFrontendCall<'_>) -> ComDispatchOutcome,
+{
     let frame = match decode_frame(memory, &target, trap) {
         Ok(frame) => frame,
         Err(fault) => return ComDispatchOutcome::Fault(*fault),
@@ -407,6 +552,13 @@ pub fn dispatch_com_call(
         RuntimeComMethodImplementation::Release => {
             dispatch_release(memory, runtime, trap, target, frame)
         }
+        RuntimeComMethodImplementation::Frontend => frontend(ComFrontendCall {
+            memory,
+            runtime,
+            trap,
+            target,
+            frame,
+        }),
         RuntimeComMethodImplementation::Unsupported => unreachable!(),
     }
 }
@@ -625,10 +777,9 @@ fn complete_call(
     object_retired: bool,
     guest_writes: Vec<ComGuestWriteReceipt>,
 ) -> ComDispatchOutcome {
-    debug_assert!(matches!(
-        (target.method.return_kind, return_value),
-        (RuntimeComReturnKind::HResult, ComReturnValue::HResult(_))
-            | (RuntimeComReturnKind::U32, ComReturnValue::U32(_))
+    debug_assert!(return_value_matches(
+        target.method.return_kind,
+        return_value
     ));
     ComDispatchOutcome::Completed(ComCallCompletion {
         instruction_pointer: frame.return_address,
@@ -641,6 +792,14 @@ fn complete_call(
     })
 }
 
+fn return_value_matches(kind: RuntimeComReturnKind, value: ComReturnValue) -> bool {
+    matches!(
+        (kind, value),
+        (RuntimeComReturnKind::HResult, ComReturnValue::HResult(_))
+            | (RuntimeComReturnKind::U32, ComReturnValue::U32(_))
+    )
+}
+
 fn preflight_return_kind(
     target: &RuntimeComMethodTarget,
     trap: ComCallTrap,
@@ -650,6 +809,7 @@ fn preflight_return_kind(
         RuntimeComMethodImplementation::AddRef | RuntimeComMethodImplementation::Release => {
             RuntimeComReturnKind::U32
         }
+        RuntimeComMethodImplementation::Frontend => return Ok(()),
         RuntimeComMethodImplementation::Unsupported => return Ok(()),
     };
     if target.method.return_kind != expected {
@@ -784,19 +944,13 @@ fn plan_layout(
             let endpoint = add_address(endpoint_base, endpoint_offset)?;
             endpoint_index += 1;
             vtable_image.extend_from_slice(&endpoint.0.to_le_bytes());
-            let implementation = match slot {
-                0 => RuntimeComMethodImplementation::QueryInterface,
-                1 => RuntimeComMethodImplementation::AddRef,
-                2 => RuntimeComMethodImplementation::Release,
-                _ => RuntimeComMethodImplementation::Unsupported,
-            };
             methods.push(RuntimeComMethodRegistration {
                 slot,
                 name: method.name.clone(),
                 endpoint,
                 explicit_argument_words: method.explicit_argument_words,
                 return_kind: method.return_kind,
-                implementation,
+                implementation: method.implementation,
             });
             endpoint_writes.push((
                 endpoint,

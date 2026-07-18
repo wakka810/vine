@@ -14,35 +14,35 @@ use vine_core::{
     ApiContract, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiFaultClass, ApiGuestCallbackCall,
     ApiImmediateCompletion, ApiOwnedTrap, ApiSymbol, ApiTrap, CONTROLLED_COMMAND_LINE,
     CallbackReturnSentinel, ComCallCompletion, ComCallTrap, ComDispatchOutcome, ComFault,
-    CpuWritebackReceipt, DispatchOutcome, DynamicExportThunk, ExecutionSession, GuestAddress,
-    GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation,
-    GuestWriteResult, ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget,
-    ImportThunk, ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
-    Kernel32CompatibilityPolicy, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
-    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
-    ModuleSnapshot, Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
-    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
-    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
-    RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
-    RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind, RuntimeObjectRecord,
-    RuntimePageFaultResolution, RuntimeProcessId, RuntimeProcessLifecycleState,
-    RuntimeSchedulerEvent, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
-    RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
-    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
-    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeTimerResolutionState, RuntimeTlsValue,
-    RuntimeWaitableTimer, SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION,
-    TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint, User32CompatibilityPolicy,
-    WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
-    dispatch_d3d9_api, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
-    dispatch_ole32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
-    encode_pointer_contract, get_current_process_id_contract, get_current_thread_id_contract,
-    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
-    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
-    heap_set_information_contract, install_callback_return_sentinel,
+    CpuWritebackReceipt, D3d9CompatibilityPolicy, DispatchOutcome, DynamicExportThunk,
+    ExecutionSession, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
+    GuestPageReconciliation, GuestWriteResult, ImageMaterialization, ImageMemoryLayout,
+    ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition, InitialProcessEnvironment,
+    InitialThreadStack, Kernel32CompatibilityPolicy, LoaderError, LoaderErrorClass,
+    LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
+    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
+    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport,
+    RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle,
+    RuntimeHeapAllocation, RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId,
+    RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeMutex, RuntimeObjectKind,
+    RuntimeObjectRecord, RuntimePageFaultResolution, RuntimeProcessId,
+    RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceReadCompletion,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
+    RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
+    RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack, RuntimeThreadStackGrowth,
+    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, SchedulerThreadState,
+    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
+    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
+    d3d9_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
@@ -172,6 +172,7 @@ enum GenericRuntimeCapability {
     SendMessageASmallIcon,
     SetWindowPosInitialPlacement,
     D3d9RootFactoryAndIdentity,
+    D3d9GetAdapterDisplayMode,
 }
 
 struct GenericRuntimeProcess {
@@ -2857,7 +2858,10 @@ fn run_v86_generic_runtime_session(
     let requested_capability = enabled_capability;
     let user32_capability = if matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::D3d9RootFactoryAndIdentity)
+        Some(
+            GenericRuntimeCapability::D3d9RootFactoryAndIdentity
+                | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
+        )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
     } else {
@@ -2877,7 +2881,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::LoadImageASmallIcon
             | GenericRuntimeCapability::SendMessageASmallIcon
             | GenericRuntimeCapability::SetWindowPosInitialPlacement
-            | GenericRuntimeCapability::D3d9RootFactoryAndIdentity,
+            | GenericRuntimeCapability::D3d9RootFactoryAndIdentity
+            | GenericRuntimeCapability::D3d9GetAdapterDisplayMode,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -2941,6 +2946,8 @@ fn run_v86_generic_runtime_session(
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
+    let d3d9_policy = D3d9CompatibilityPolicy::controlled_v1();
+    d3d9_policy.validate().map_err(api_fault)?;
     if matches!(
         endpoint_capability,
         Some(
@@ -4324,7 +4331,10 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeTrapKind::ComMethod => {
                 if !matches!(
                     requested_capability,
-                    Some(GenericRuntimeCapability::D3d9RootFactoryAndIdentity)
+                    Some(
+                        GenericRuntimeCapability::D3d9RootFactoryAndIdentity
+                            | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
+                    )
                 ) || trap.endpoint_id != 0
                 {
                     return Err(LoaderError::invalid_input(
@@ -4343,12 +4353,20 @@ fn run_v86_generic_runtime_session(
                 };
                 let outcome = {
                     let mut session = ExecutionSession::new(memory, &mut process.runtime);
-                    session.dispatch_com_call(ComCallTrap {
+                    let trap = ComCallTrap {
                         endpoint_address,
                         stack_pointer: GuestAddress(trap.stack_pointer),
                         return_address: GuestAddress(trap.return_address),
                         call_site: GuestAddress(trap.return_address),
-                    })
+                    };
+                    if matches!(
+                        requested_capability,
+                        Some(GenericRuntimeCapability::D3d9GetAdapterDisplayMode)
+                    ) {
+                        dispatch_d3d9_com_call(&d3d9_policy, trap, &mut session)
+                    } else {
+                        session.dispatch_com_call(trap)
+                    }
                 };
                 match outcome {
                     ComDispatchOutcome::Completed(completion) => {
@@ -4385,7 +4403,10 @@ fn runtime_capability_enables_endpoint(
 ) -> bool {
     let d3d9_root_factory_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::D3d9RootFactoryAndIdentity)
+        Some(
+            GenericRuntimeCapability::D3d9RootFactoryAndIdentity
+                | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
+        )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
         || matches!(
@@ -4409,6 +4430,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SendMessageASmallIcon
                 | GenericRuntimeCapability::SetWindowPosInitialPlacement
                 | GenericRuntimeCapability::D3d9RootFactoryAndIdentity
+                | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -4894,7 +4916,10 @@ fn runtime_capability_enables_dynamic_endpoint(
 ) -> bool {
     let enabled = if matches!(
         enabled,
-        Some(GenericRuntimeCapability::D3d9RootFactoryAndIdentity)
+        Some(
+            GenericRuntimeCapability::D3d9RootFactoryAndIdentity
+                | GenericRuntimeCapability::D3d9GetAdapterDisplayMode
+        )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
     } else {
@@ -10515,6 +10540,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "d3d9-root-factory-and-identity" => {
                     GenericRuntimeCapability::D3d9RootFactoryAndIdentity
+                }
+                "d3d9-get-adapter-display-mode" => {
+                    GenericRuntimeCapability::D3d9GetAdapterDisplayMode
                 }
                 _ => return Err(usage_error()),
             };

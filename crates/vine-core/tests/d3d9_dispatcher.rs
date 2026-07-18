@@ -1,13 +1,16 @@
 use vine_core::{
-    ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiTrap, ComCallCompletion, ComCallTrap,
-    ComDispatchOutcome, ComFaultClass, ComReturnValue, D3D9_IDIRECT3D9_CLASS_IDENTITY,
-    D3D9_IDIRECT3D9_IID, D3D9_SDK_VERSION, DispatchOutcome, ExecutionSession, GuestAddress,
-    GuestMemory, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
-    MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout, RegisterUpdate, RuntimeBootstrap,
-    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, X86_STARTUP_INFO_W_BYTE_LENGTH,
-    d3d9_contract_for_endpoint, direct3d_create9_contract, dispatch_d3d9_api,
+    ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiTrap, COM_S_OK, ComCallCompletion,
+    ComCallTrap, ComDispatchOutcome, ComFaultClass, ComReturnValue,
+    D3D9_D3DDISPLAYMODE_BYTE_LENGTH, D3D9_D3DERR_INVALIDCALL, D3D9_D3DFMT_X8R8G8B8,
+    D3D9_IDIRECT3D9_CLASS_IDENTITY, D3D9_IDIRECT3D9_IID, D3D9_SDK_VERSION, D3d9CompatibilityPolicy,
+    DispatchOutcome, ExecutionSession, GuestAddress, GuestMemory, ImportTarget, ImportThunk,
+    ImportThunkDisposition, ImportThunkId, LOGICAL_ENCODED_POINTER_NAMESPACE, MemoryLimits,
+    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
+    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeComMethodImplementation,
+    RuntimeComReturnKind, RuntimeCurrentDirectoryA, RuntimeDisplayProfile, RuntimeProcessId,
+    RuntimeProcessImagePathA, RuntimeRect, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    X86_STARTUP_INFO_W_BYTE_LENGTH, d3d9_contract_for_endpoint, direct3d_create9_contract,
+    dispatch_d3d9_api, dispatch_d3d9_com_call,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -67,6 +70,14 @@ fn direct3d_create9_installs_bounded_root_identity_and_retires_atomically() {
     assert_eq!(interface.methods.len(), 17);
     assert_eq!(interface.methods[&8].name, "GetAdapterDisplayMode");
     assert_eq!(interface.methods[&8].explicit_argument_words, 2);
+    assert_eq!(
+        interface.methods[&8].return_kind,
+        RuntimeComReturnKind::HResult
+    );
+    assert_eq!(
+        interface.methods[&8].implementation,
+        RuntimeComMethodImplementation::Frontend
+    );
     assert_eq!(interface.methods[&16].name, "CreateDevice");
     assert_eq!(interface.methods[&16].explicit_argument_words, 6);
     fixture.acknowledge();
@@ -148,6 +159,186 @@ fn direct3d_create9_installs_bounded_root_identity_and_retires_atomically() {
 }
 
 #[test]
+fn get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode() {
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    let factory = fixture.dispatch_factory(STACK_VALID, D3D9_SDK_VERSION);
+    let pointer = match factory.eax {
+        RegisterUpdate::Set(pointer) => pointer,
+        other => panic!("Direct3DCreate9 did not return an interface: {other:?}"),
+    };
+    let interface = fixture
+        .runtime
+        .com_interface_for_pointer(GuestAddress(pointer))
+        .expect("IDirect3D9 interface")
+        .clone();
+    fixture.acknowledge();
+
+    let output = GuestAddress(MEMORY_BASE.0 + 0x280);
+    fixture
+        .memory
+        .write(output, &[0xcc; D3D9_D3DDISPLAYMODE_BYTE_LENGTH as usize])
+        .expect("display-mode sentinel");
+    write_words(
+        &mut fixture.memory,
+        STACK_COM,
+        &[0x1005_b8d6, pointer, 0, output.0],
+    );
+    acknowledge_pending(&mut fixture.memory);
+    let before_runtime = fixture.runtime.clone();
+    let before_reference_count = fixture
+        .runtime
+        .com()
+        .objects()
+        .values()
+        .next()
+        .expect("D3D9 root object")
+        .reference_count;
+    let completion = completed(fixture.dispatch_d3d9_com(
+        &D3d9CompatibilityPolicy::controlled_v1(),
+        &interface,
+        8,
+        STACK_COM,
+    ));
+    let expected = [
+        1920_u32.to_le_bytes(),
+        1080_u32.to_le_bytes(),
+        60_u32.to_le_bytes(),
+        D3D9_D3DFMT_X8R8G8B8.to_le_bytes(),
+    ]
+    .concat();
+    assert_eq!(completion.return_value, ComReturnValue::HResult(COM_S_OK));
+    assert_eq!(completion.stack_pointer, GuestAddress(STACK_COM.0 + 16));
+    assert_eq!(completion.reference_count, before_reference_count);
+    assert!(!completion.object_retired);
+    assert_eq!(completion.guest_writes.len(), 1);
+    assert_eq!(completion.guest_writes[0].address, output);
+    assert_eq!(completion.guest_writes[0].bytes, expected);
+    fixture.acknowledge();
+    assert_eq!(fixture.memory.read(output, 16).unwrap(), expected);
+    assert_eq!(fixture.runtime, before_runtime);
+    assert_eq!(
+        fixture.runtime.current_last_error().unwrap(),
+        LAST_ERROR_SENTINEL
+    );
+}
+
+#[test]
+fn get_adapter_display_mode_negative_paths_preserve_memory_and_authority() {
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    let factory = fixture.dispatch_factory(STACK_VALID, D3D9_SDK_VERSION);
+    let pointer = match factory.eax {
+        RegisterUpdate::Set(pointer) => pointer,
+        other => panic!("Direct3DCreate9 did not return an interface: {other:?}"),
+    };
+    let interface = fixture
+        .runtime
+        .com_interface_for_pointer(GuestAddress(pointer))
+        .expect("IDirect3D9 interface")
+        .clone();
+    fixture.acknowledge();
+    let output = GuestAddress(MEMORY_BASE.0 + 0x280);
+    let policy = D3d9CompatibilityPolicy::controlled_v1();
+    assert!(policy.validate().is_ok());
+
+    for (adapter, output_pointer) in [(1, output.0), (0, 0)] {
+        fixture
+            .memory
+            .write(output, &[0xcc; D3D9_D3DDISPLAYMODE_BYTE_LENGTH as usize])
+            .expect("negative display-mode sentinel");
+        write_words(
+            &mut fixture.memory,
+            STACK_COM,
+            &[0x1005_b8d6, pointer, adapter, output_pointer],
+        );
+        acknowledge_pending(&mut fixture.memory);
+        let before_memory = fixture.memory.stats();
+        let before_runtime = fixture.runtime.clone();
+        let completion = completed(fixture.dispatch_d3d9_com(&policy, &interface, 8, STACK_COM));
+        assert_eq!(
+            completion.return_value,
+            ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+        );
+        assert!(completion.guest_writes.is_empty());
+        assert_eq!(fixture.memory.stats(), before_memory);
+        assert_eq!(fixture.runtime, before_runtime);
+        assert_eq!(
+            fixture.memory.read(output, 16).unwrap(),
+            [0xcc; D3D9_D3DDISPLAYMODE_BYTE_LENGTH as usize]
+        );
+    }
+
+    write_words(
+        &mut fixture.memory,
+        STACK_COM,
+        &[0x1005_b8d6, pointer, 0, interface.guest_pointer.0],
+    );
+    acknowledge_pending(&mut fixture.memory);
+    let before_memory = fixture.memory.stats();
+    let before_runtime = fixture.runtime.clone();
+    let unwritable = faulted(fixture.dispatch_d3d9_com(&policy, &interface, 8, STACK_COM));
+    assert_eq!(unwritable.class, ComFaultClass::InvalidCall);
+    assert_eq!(fixture.memory.stats(), before_memory);
+    assert_eq!(fixture.runtime, before_runtime);
+
+    for rejected_policy in {
+        let mut disabled = policy.clone();
+        disabled.get_adapter_display_mode = None;
+        let mut mismatched = policy.clone();
+        mismatched
+            .get_adapter_display_mode
+            .as_mut()
+            .unwrap()
+            .display_profile_id = "single-monitor-mismatch-v1".to_owned();
+        let mut malformed = policy.clone();
+        malformed.schema_version += 1;
+        [disabled, mismatched, malformed]
+    } {
+        write_words(
+            &mut fixture.memory,
+            STACK_COM,
+            &[0x1005_b8d6, pointer, 0, output.0],
+        );
+        acknowledge_pending(&mut fixture.memory);
+        let before_memory = fixture.memory.stats();
+        let before_runtime = fixture.runtime.clone();
+        let fault = faulted(fixture.dispatch_d3d9_com(&rejected_policy, &interface, 8, STACK_COM));
+        assert!(matches!(
+            fault.class,
+            ComFaultClass::Unsupported | ComFaultClass::RuntimeDefect
+        ));
+        assert_eq!(fixture.memory.stats(), before_memory);
+        assert_eq!(fixture.runtime, before_runtime);
+    }
+
+    let mut missing_display = Fixture::new_without_display(MemoryLimits::default());
+    let factory = missing_display.dispatch_factory(STACK_VALID, D3D9_SDK_VERSION);
+    let missing_pointer = match factory.eax {
+        RegisterUpdate::Set(pointer) => pointer,
+        other => panic!("Direct3DCreate9 did not return an interface: {other:?}"),
+    };
+    let missing_interface = missing_display
+        .runtime
+        .com_interface_for_pointer(GuestAddress(missing_pointer))
+        .unwrap()
+        .clone();
+    missing_display.acknowledge();
+    write_words(
+        &mut missing_display.memory,
+        STACK_COM,
+        &[0x1005_b8d6, missing_pointer, 0, output.0],
+    );
+    acknowledge_pending(&mut missing_display.memory);
+    let before_memory = missing_display.memory.stats();
+    let before_runtime = missing_display.runtime.clone();
+    let missing =
+        faulted(missing_display.dispatch_d3d9_com(&policy, &missing_interface, 8, STACK_COM));
+    assert_eq!(missing.class, ComFaultClass::RuntimeDefect);
+    assert_eq!(missing.code, "logical-primary-monitor-missing");
+    assert_eq!(missing_display.memory.stats(), before_memory);
+    assert_eq!(missing_display.runtime, before_runtime);
+}
+
+#[test]
 fn direct3d_create9_contract_and_resource_exhaustion_fail_before_publication() {
     let endpoint = endpoint(MemoryOwnerId(1));
     let contract = direct3d_create9_contract(endpoint.clone()).expect("D3D9 contract");
@@ -196,6 +387,14 @@ struct Fixture {
 
 impl Fixture {
     fn new(limits: MemoryLimits) -> Self {
+        Self::new_with_display(limits, true)
+    }
+
+    fn new_without_display(limits: MemoryLimits) -> Self {
+        Self::new_with_display(limits, false)
+    }
+
+    fn new_with_display(limits: MemoryLimits, configure_display: bool) -> Self {
         let mut memory = GuestMemory::new(limits).expect("guest memory");
         let owner = memory
             .create_owner(MemoryOwnerKind::Runtime)
@@ -228,7 +427,7 @@ impl Fixture {
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("D3D9 dispatcher");
         Self {
             memory,
-            runtime: controlled_runtime(),
+            runtime: controlled_runtime(configure_display),
             dispatcher,
             endpoint,
         }
@@ -285,6 +484,33 @@ impl Fixture {
             return_address: call_site,
             call_site,
         })
+    }
+
+    fn dispatch_d3d9_com(
+        &mut self,
+        policy: &D3d9CompatibilityPolicy,
+        interface: &vine_core::RuntimeComInterfaceRecord,
+        slot: u16,
+        stack_pointer: GuestAddress,
+    ) -> ComDispatchOutcome {
+        let call_site = GuestAddress(u32::from_le_bytes(
+            self.memory
+                .read(stack_pointer, 4)
+                .expect("COM return address")
+                .try_into()
+                .unwrap(),
+        ));
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        dispatch_d3d9_com_call(
+            policy,
+            ComCallTrap {
+                endpoint_address: interface.methods[&slot].endpoint,
+                stack_pointer,
+                return_address: call_site,
+                call_site,
+            },
+            &mut session,
+        )
     }
 
     fn acknowledge(&mut self) {
@@ -346,7 +572,7 @@ fn acknowledge_pending(memory: &mut GuestMemory) {
     }
 }
 
-fn controlled_runtime() -> RuntimeState {
+fn controlled_runtime(configure_display: bool) -> RuntimeState {
     let mut runtime = RuntimeState::new(RuntimeBootstrap {
         process_id: RuntimeProcessId(PROCESS_ID),
         initial_thread_id: RuntimeThreadId(THREAD_ID),
@@ -378,5 +604,18 @@ fn controlled_runtime() -> RuntimeState {
     runtime
         .start_initial_thread()
         .expect("start D3D9 fixture thread");
+    if configure_display {
+        runtime
+            .configure_display_profile(RuntimeDisplayProfile {
+                id: "single-monitor-1920x1080-v1".to_owned(),
+                primary_monitor_rect: RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 1920,
+                    bottom: 1080,
+                },
+            })
+            .expect("configure D3D9 fixture display");
+    }
     runtime
 }

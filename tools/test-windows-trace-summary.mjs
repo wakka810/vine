@@ -253,6 +253,50 @@ const events = [
   },
   {
     schema,
+    sequence: 22,
+    threadId: 10,
+    kind: "api-enter",
+    module: "d3d9.dll",
+    api: "GetAdapterDisplayMode",
+    interface: "IDirect3D9",
+    vtableSlot: 8,
+    object: "0x330000",
+    arguments: ["0x0", "0x360000"],
+  },
+  {
+    schema,
+    sequence: 23,
+    threadId: 10,
+    kind: "api-leave",
+    module: "d3d9.dll",
+    api: "GetAdapterDisplayMode",
+    interface: "IDirect3D9",
+    vtableSlot: 8,
+    object: "0x330000",
+    result: "0x0",
+    d3d9DisplayMode: {
+      adapter: 0,
+      before: {
+        pointer: "0x360000",
+        size: 16,
+        bytes: Array(16).fill(0xcc),
+        fields: {
+          width: 0xcccccccc,
+          height: 0xcccccccc,
+          refreshRate: 0xcccccccc,
+          format: 0xcccccccc,
+        },
+      },
+      after: {
+        pointer: "0x360000",
+        size: 16,
+        bytes: [128, 7, 0, 0, 56, 4, 0, 0, 60, 0, 0, 0, 22, 0, 0, 0],
+        fields: { width: 1920, height: 1080, refreshRate: 60, format: 22 },
+      },
+    },
+  },
+  {
+    schema,
     kind: "trace-stop",
     timestamp: "2026-07-10T00:00:01.250Z",
     reason: "timeout-kill",
@@ -353,6 +397,19 @@ for (const call of [
     durationMs: 12,
     lastError: 0,
   },
+  {
+    callId: 10,
+    parentCallId: null,
+    enterSequence: 22,
+    leaveSequence: 23,
+    caller: {
+      address: "0x00459da5",
+      module: "abi-smoke.exe",
+      rva: 0x59da5,
+    },
+    durationMs: 0,
+    lastError: 0,
+  },
 ]) {
   const enter = events.find((event) => event.sequence === call.enterSequence);
   const leave = events.find((event) => event.sequence === call.leaveSequence);
@@ -397,21 +454,21 @@ assert.deepEqual(summary.trace.captureArguments, {
 });
 assert.deepEqual(summary.trace.selectedVtables, ["idirect3d9"]);
 assert.deepEqual(summary.trace.sequence, {
-  events: 22,
+  events: 24,
   first: 0,
-  last: 21,
+  last: 23,
   contiguous: true,
 });
 assert.deepEqual(summary.trace.apiPairing, {
   contract: "call-id-v1",
-  enters: 9,
-  leaves: 9,
-  pairs: 9,
+  enters: 10,
+  leaves: 10,
+  pairs: 10,
   maxDepth: 2,
   balanced: true,
 });
 assert.equal(summary.modules.length, 2);
-assert.equal(summary.apis.length, 8);
+assert.equal(summary.apis.length, 9);
 assert.deepEqual(summary.apis[0], {
   module: "KERNEL32.DLL",
   api: "CreateFileA",
@@ -447,6 +504,33 @@ assert.deepEqual(summary.vtables, [
       "GetAdapterMonitor",
       "CreateDevice",
     ].map((name, slot) => ({ slot, name })),
+  },
+]);
+assert.deepEqual(summary.d3d9.adapterDisplayModes, [
+  {
+    sequence: 22,
+    callId: 10,
+    caller: { module: "abi-smoke.exe", rva: 0x59da5 },
+    adapter: 0,
+    result: "0x0",
+    lastError: 0,
+    before: {
+      pointer: "0x360000",
+      size: 16,
+      bytes: Array(16).fill(0xcc),
+      fields: {
+        width: 0xcccccccc,
+        height: 0xcccccccc,
+        refreshRate: 0xcccccccc,
+        format: 0xcccccccc,
+      },
+    },
+    after: {
+      pointer: "0x360000",
+      size: 16,
+      bytes: [128, 7, 0, 0, 56, 4, 0, 0, 60, 0, 0, 0, 22, 0, 0, 0],
+      fields: { width: 1920, height: 1080, refreshRate: 60, format: 22 },
+    },
   },
 ]);
 assert.equal(summary.categories.file.calls, 3);
@@ -489,7 +573,7 @@ assert.throws(
 const stopBeforeTail = [
   ...events.slice(0, -1),
   events.at(-1),
-  { schema, sequence: 22, kind: "module-load", module: "late.dll", path: "late.dll" },
+  { schema, sequence: 24, kind: "module-load", module: "late.dll", path: "late.dll" },
 ];
 assert.throws(
   () => summarizeTrace(encode(stopBeforeTail)),
@@ -542,6 +626,24 @@ invalidLeaveMetadata.find((event) => event.sequence === 8).durationMs = -1;
 assert.throws(
   () => summarizeTrace(encode(invalidLeaveMetadata)),
   /api-leave call 3 has invalid durationMs/,
+);
+
+const inconsistentDisplayMode = structuredClone(events);
+inconsistentDisplayMode.find(
+  (event) => event.sequence === 23,
+).d3d9DisplayMode.after.fields.width = 1919;
+assert.throws(
+  () => summarizeTrace(encode(inconsistentDisplayMode)),
+  /inconsistent D3DDISPLAYMODE after bytes/,
+);
+
+const changedDisplayModePointer = structuredClone(events);
+changedDisplayModePointer.find(
+  (event) => event.sequence === 23,
+).d3d9DisplayMode.after.pointer = "0x360010";
+assert.throws(
+  () => summarizeTrace(encode(changedDisplayModePointer)),
+  /changed its D3DDISPLAYMODE output pointer/,
 );
 
 const wrongObservationSelection = structuredClone(events);

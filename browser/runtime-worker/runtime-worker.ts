@@ -160,11 +160,16 @@ interface ComCompletionMetadata {
       stackPointer: number;
       returnStackPointer: number;
       returnAddress: number;
+      interface: string;
+      method: string;
+      vtableSlot: number;
+      thisPointer: number;
+      explicitArguments: number[];
     };
     returnValue: { kind: "h-result" | "u32"; value: number };
     referenceCount: number;
     objectRetired: boolean;
-    guestWrites: unknown[];
+    guestWrites: Array<{ address: number; bytes: number[] }>;
   };
   memory: { generation: number; acknowledgedGeneration: number };
 }
@@ -1145,6 +1150,9 @@ class BrowserRuntimeSession {
           "COM completion frame identity mismatch",
         );
         this.#applyOptionalDelta(output);
+        if (this.#requirePrepared().workload === "private-bgi") {
+          this.#recordBgiComCompletion(metadata);
+        }
         engine.applyCpuResume(metadata.completion);
         this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
         this.#execution.transition(resumeState, {
@@ -1160,6 +1168,39 @@ class BrowserRuntimeSession {
       default:
         throw new Error("runtime bridge returned an unknown COM dispatch outcome");
     }
+  }
+
+  #recordBgiComCompletion(metadata: ComCompletionMetadata): void {
+    const completion = metadata.call;
+    const frame = completion.frame;
+    const sequence = ++this.#nextBgiCallSequence;
+    invariant(
+      !this.#completedBgiCallSequences.has(sequence),
+      "BGI COM call sequence was completed more than once",
+    );
+    this.#completedBgiCallSequences.add(sequence);
+    this.#report.supportedCallCount += 1;
+    if (this.#configuration.evidenceLevel === "summary") {
+      return;
+    }
+    this.#report.supportedCalls.push({
+      sequence,
+      module: "<com>",
+      symbol: `${frame.interface}.${frame.method}`,
+      interface: frame.interface,
+      vtableSlot: frame.vtableSlot,
+      arguments: [frame.thisPointer, ...frame.explicitArguments],
+      result: completion.returnValue,
+      returnAddress: frame.returnAddress,
+      stackPointerBefore: frame.stackPointer,
+      stackPointerAfter: metadata.completion.stackPointer,
+      referenceCount: completion.referenceCount,
+      objectRetired: completion.objectRetired,
+      guestWrites: completion.guestWrites.map(({ address, bytes }) => ({
+        address,
+        bytes,
+      })),
+    });
   }
 
   #recordBgiCompletion(

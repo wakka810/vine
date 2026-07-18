@@ -7,8 +7,10 @@ for guest-visible identity and lifetime. `Direct3DCreate9(32)` creates a bounded
 root object with canonical IUnknown identity and a 17-slot `IDirect3D9`
 interface. A different SDK version returns NULL before memory, identity,
 allocator, or generation mutation. QueryInterface, AddRef, Release, and final
-backing retirement use the generic COM plan／commit path; unsupported slots
-return a typed fault with interface, slot, method, endpoint, and call site.
+backing retirement use the generic COM plan／commit path.
+`GetAdapterDisplayMode` at slot 8 delegates through a version-neutral COM
+gateway to the D3D9 semantic handler. Other unreached slots return a typed fault
+with interface, slot, method, endpoint, and call site.
 
 The two-page COM backing is Rust-owned guest memory. Its data page finishes
 read-only and its endpoint page finishes read／execute. The endpoint bytes are
@@ -22,6 +24,38 @@ applies the versioned memory delta and CPU resume; it does not retain COM
 objects, pointers, vtables, reference counts, or Windows device state. The Node
 semantic runner uses the same endpoint-resolution, delta, and completion／fault
 relations for the private workload.
+
+## Bounded adapter display mode
+
+The versioned `D3d9CompatibilityPolicy` enables adapter `0` under profile
+`primary-adapter-1920x1080-60-x8r8g8b8-v1`. Width and height are derived from
+the primary monitor owned by `RuntimeDisplays`; refresh rate `60` and format
+`22` (`D3DFMT_X8R8G8B8`) remain D3D9 compatibility policy. The handler writes
+one packed 16-byte `D3DDISPLAYMODE` value:
+
+```text
+Width        1920
+Height       1080
+RefreshRate  60
+Format       22
+bytes        80070000380400003c00000016000000
+```
+
+An invalid adapter or NULL output returns `D3DERR_INVALIDCALL` without mutation.
+Disabled／malformed policy, missing or mismatched logical display authority, and
+unwritable output produce typed faults before guest bytes or runtime state are
+changed. Success preserves LastError and COM reference count. Output preflight
+precedes one guest-memory transaction, so a partial structure is never
+published.
+
+Two independent Windows trace v2 captures each observed four successful calls
+with adapter `0` and the same mode. The first call changed a zeroed 16-byte
+structure completely; direct BGI callers were RVA `0x5B8D6` once and
+`0x59DA5` three times. Caller inspection confirms the HRESULT sign is consumed
+and subsequent code reads all four fields. Raw captures remain ignored under
+`.work/`; their hashes and semantic summary are recorded in
+[windows-native-evidence.md](windows-native-evidence.md) and the current
+checkpoint manifest.
 
 ## Versioned frontend and shared graphics boundary
 
@@ -44,19 +78,22 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-root-factory-and-identity
+npm run check:runtime:bgi -- --profile d3d9-get-adapter-display-mode
 ```
 
 The controlled PE fixture verifies invalid-SDK NULL, non-NULL factory identity,
-AddRef 2, Release 1, and final Release 0 with retirement. The private profile
-also verifies that the first reached unsupported root method stops without
-mutating the COM object or guest memory.
+the four display-mode fields, AddRef 2, Release 1, and final Release 0 with
+retirement. Rust negative cases fix invalid adapter／NULL／unwritable output,
+policy and display-authority rejection, LastError preservation, and failure
+atomicity. The private Node and Chrome profiles record the same successful COM
+completion and stop next at `IDirect3D9::GetAdapterIdentifier`.
 
 ## Non-claims
 
-- Display queries, adapter enumeration, `CreateDevice`, device/resource state,
-  draw, Present, Reset, and renderer output are not implemented by the root
-  checkpoint.
+- Only the bounded current display-mode query is implemented. Adapter count／
+  identifier, mode enumeration, capability queries, `CreateDevice`,
+  device/resource state, draw, Present, Reset, and renderer output remain
+  unsupported.
 - The current root object does not create a `RuntimeGraphics` device or browser
   resource.
 - D3D8, D3D10／11, DXGI, shader translation, and general D3D9 compatibility are

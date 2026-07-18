@@ -13,14 +13,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `d3d9-root-factory-and-identity`: 17816 calls across 76 API contracts, memory generation 34512 |
+| Active runtime | `d3d9-get-adapter-display-mode`: 17817 calls across 76 API contracts, memory generation 34514 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (30 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirect3D9::GetAdapterDisplayMode(0x00000000, 0x101038e0)` at instruction 11806455: `com-method-unsupported` |
+| Next structured stop | `IDirect3D9::GetAdapterIdentifier(0x00000000, 0x00000000, 0x10103410)` at instruction 11806466: `com-method-unsupported` |
 
-The active semantic report is 207,022,551 bytes with SHA-256
-`5624bde38d4815b68be1aba5c388c26124a167c7fa3a3195c961b62aa4c7db37`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 207,034,391 bytes with SHA-256
+`ac6929bbe170bd306de08832d1a083e695dbe5581bbc0a00b687220ae2eb6e75`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 

@@ -2209,6 +2209,37 @@ function snapshotCriticalSection(pointer) {
   }
 }
 
+function snapshotD3d9DisplayMode(pointer) {
+  const size = 16;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 D3DDISPLAYMODE observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    const view = new DataView(buffer);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+      fields: {
+        width: view.getUint32(0, true),
+        height: view.getUint32(4, true),
+        refreshRate: view.getUint32(8, true),
+        format: view.getUint32(12, true),
+      },
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
 function snapshotLong(pointer) {
   const size = 4;
   if (pointer.isNull()) {
@@ -2706,6 +2737,15 @@ function attachIdirect3d9(object) {
             args[index + 1].toString(),
           );
           this.traceObject = objectAddress;
+          this.traceD3d9DisplayModeOutput = slot === 8 ? args[2] : null;
+          this.traceD3d9DisplayMode =
+            this.traceD3d9DisplayModeOutput === null
+              ? null
+              : {
+                  adapter: args[1].toUInt32(),
+                  before: snapshotD3d9DisplayMode(this.traceD3d9DisplayModeOutput),
+                  immediateConsumer: snapshotInstructions(this.returnAddress, 8),
+                };
           this.traceFrame = beginCall(
             {
               module: implementationModule?.name ?? "<unknown>",
@@ -2720,6 +2760,13 @@ function attachIdirect3d9(object) {
         },
         onLeave(result) {
           const lastError = this.lastError;
+          const d3d9DisplayMode =
+            this.traceD3d9DisplayMode === null
+              ? null
+              : {
+                  ...this.traceD3d9DisplayMode,
+                  after: snapshotD3d9DisplayMode(this.traceD3d9DisplayModeOutput),
+                };
           finishCall(
             this.traceFrame,
             {
@@ -2729,6 +2776,7 @@ function attachIdirect3d9(object) {
               vtableSlot: slot,
               object: this.traceObject,
               result: result.toString(),
+              ...(d3d9DisplayMode === null ? {} : { d3d9DisplayMode }),
             },
             lastError,
           );

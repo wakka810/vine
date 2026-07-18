@@ -1555,6 +1555,17 @@ impl<'a> ExecutionSession<'a> {
     pub fn dispatch_com_call(&mut self, trap: ComCallTrap) -> ComDispatchOutcome {
         dispatch_com_call(self.memory, self.runtime, trap)
     }
+
+    pub(crate) fn dispatch_com_call_with_frontend<F>(
+        &mut self,
+        trap: ComCallTrap,
+        frontend: F,
+    ) -> ComDispatchOutcome
+    where
+        F: FnOnce(crate::com::ComFrontendCall<'_>) -> ComDispatchOutcome,
+    {
+        crate::com::dispatch_com_call_with_frontend(self.memory, self.runtime, trap, frontend)
+    }
 }
 
 #[derive(Debug, Clone)]

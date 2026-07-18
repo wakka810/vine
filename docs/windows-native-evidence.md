@@ -562,6 +562,35 @@ factory `Direct3DCreate9`は4 callsで、BGI callerは`0x5AB8C`が3回、`0x5B89
 
 LastErrorはAPIが成功時にclearする保証を意味せず、例えば内部`AddRef` leaveは値`122`を保持した。これをHRESULT／return valueの代わりに成功判定へ使わない。今回のcaptureは`P6D-COR-01`のroot-interface prerequisiteへのpartial evidenceであり、presentation parametersの内容、`IDirect3DDevice9`／resource vtable、format／state／draw／Present／Reset／loss、DirectInput／DirectSound methodを観測または確定しない。
 
+### 10.1 GetAdapterDisplayMode output and consumer evidence
+
+2026-07-18にprimary fingerprintへ同じselected vtable captureを2回実行し、trace agent／summarizerへ追加した`D3DDISPLAYMODE`のcall前後16 bytesを検証した。raw traceとsummaryは`.work/windows-traces/`に置き、Gitへ含めない。
+
+```powershell
+py tools/windows/trace.py `
+  --exe "V:\softs\サクラノ詩\BGI.exe" `
+  --output .work\windows-traces\bgi-d3d9-display-mode-20260718-r1.jsonl `
+  --seconds 5 `
+  --kill-after `
+  --vtable idirect3d9
+
+node tools/summarize-windows-trace.mjs `
+  --input .work\windows-traces\bgi-d3d9-display-mode-20260718-r1.jsonl `
+  --output .work\windows-traces\bgi-d3d9-display-mode-20260718-r1.summary.json
+```
+
+| Field | Primary | Confirmation |
+|---|---:|---:|
+| Raw bytes／lines | `2,192,729`／`6,886` | `2,249,188`／`7,068` |
+| Raw SHA-256 | `6b9bd17809ef235f1817fb08ccd4bfb92f27f3cd424bd0f15500470d73b05208` | `fac93ab62effd0228dc8c8a88b617f3aced5fcff9429c9e90c9347979c660f92` |
+| Balanced API pairs | `3,405` | `3,496` |
+| Diagnostics | `0` | `0` |
+| Successful `GetAdapterDisplayMode` calls | `4` | `4` |
+
+両captureともAdapter `0`、HRESULT `0`で、outputは毎回Width `1920`、Height `1080`、RefreshRate `60`、Format `22`（`D3DFMT_X8R8G8B8`）、bytes `80070000380400003c00000016000000`だった。最初のcallはzeroed 16-byte inputを全域上書きする。BGI direct callerはRVA `0x5B8D6`が1回、`0x59DA5`が3回で再現した。前者の直後はHRESULTのsignを検査し、後続処理はWidth／Height／RefreshRate／Formatの全fieldを読む。
+
+これはbounded primary display profileを選ぶoracleであり、host display topologyをbrowserへimportする要求ではない。複数adapter、mode enumeration、fullscreen切替、format一般化、`CreateDevice`、renderer resourceを確定しない。source executable SHA-256は既存fingerprint `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のまま不変だった。
+
 ## 11. W7 PE32 load-plan ingress
 
 Rust `vine-core`は、owned immutable bytesとimport-time SHA-256からversion 1のchecked header／section／import／base-relocation planを作る。representative `abi-smoke.exe` contractは4 sections、1 module／2 named imports、1 relocation block／6 wordsを検査し、BGI.exeには同じboundaryを次のcommandで適用した。
