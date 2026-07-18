@@ -17,8 +17,8 @@ use vine_core::{
     build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
     dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
     get_system_menu_contract, get_system_metrics_contract, load_cursor_a_contract,
-    load_icon_a_contract, materialize_pe32_image, register_class_ex_a_contract,
-    swap_mouse_button_contract, user32_contract_for_endpoint,
+    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    register_class_ex_a_contract, swap_mouse_button_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -34,6 +34,10 @@ const SWAP_FIRST_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a3b);
 const SWAP_SECOND_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a43);
 const SWAP_SECOND_STACK_POINTER: u32 = STACK_POINTER + 0x20;
 const ICON_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0bf0);
+const IMAGE_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0c00);
+const IMAGE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 4);
+const IMAGE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1200;
+const IMAGE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f43);
 const CURSOR_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0f30);
 const CURSOR_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7d09);
 const CLASS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0be0);
@@ -131,7 +135,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v9();
+        let policy = User32CompatibilityPolicy::controlled_v10();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -222,7 +226,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v9();
+        let mut policy = User32CompatibilityPolicy::controlled_v10();
         policy
             .swap_mouse_button
             .as_mut()
@@ -319,7 +323,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v9();
+        let policy = User32CompatibilityPolicy::controlled_v10();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -474,7 +478,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v9(),
+            policy: User32CompatibilityPolicy::controlled_v10(),
         }
     }
 
@@ -527,6 +531,7 @@ struct IconFixture {
     runtime: RuntimeState,
     dispatcher: ApiDispatcher,
     endpoint: ApiEndpointIdentity,
+    image_endpoint: ApiEndpointIdentity,
     policy: User32CompatibilityPolicy,
 }
 
@@ -578,6 +583,13 @@ impl IconFixture {
                 &ICON_ENDPOINT_ADDRESS.0.to_le_bytes(),
             )
             .expect("initialize LoadIconA IAT");
+        memory
+            .write_initialization(
+                runtime_owner,
+                IMAGE_IAT_ADDRESS,
+                &IMAGE_ENDPOINT_ADDRESS.0.to_le_bytes(),
+            )
+            .expect("initialize LoadImageA IAT");
         for (index, (instance, icon_id)) in [
             (ICON_IMAGE_BASE, 101_u32),
             (ICON_IMAGE_BASE, 101),
@@ -595,6 +607,35 @@ impl IconFixture {
                 runtime_owner,
                 GuestAddress(STACK_POINTER + index as u32 * 0x20),
                 &[RETURN_ADDRESS.0 + index as u32, instance, icon_id],
+            );
+        }
+
+        for (index, (instance, name, image_type, width, height, flags)) in [
+            (ICON_IMAGE_BASE, 101_u32, 1_u32, 16_u32, 16_u32, 0x8000_u32),
+            (ICON_IMAGE_BASE, 101, 1, 16, 16, 0x8000),
+            (ICON_IMAGE_BASE, 0xffff, 1, 16, 16, 0x8000),
+            (ICON_IMAGE_BASE, 101, 2, 16, 16, 0x8000),
+            (ICON_IMAGE_BASE, 101, 1, 32, 16, 0x8000),
+            (ICON_IMAGE_BASE, 101, 1, 16, 16, 0),
+            (ICON_IMAGE_BASE, MEMORY_BASE.0, 1, 16, 16, 0x8000),
+            (ICON_IMAGE_BASE + 0x1000, 101, 1, 16, 16, 0x8000),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            write_words(
+                &mut memory,
+                runtime_owner,
+                GuestAddress(IMAGE_STACK_POINTER + index as u32 * 0x20),
+                &[
+                    IMAGE_RETURN_ADDRESS.0 + index as u32,
+                    instance,
+                    name,
+                    image_type,
+                    width,
+                    height,
+                    flags,
+                ],
             );
         }
 
@@ -654,15 +695,36 @@ impl IconFixture {
             },
         };
         let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
+        let image_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(193),
+            address: IMAGE_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_13dc),
+            iat_address: IMAGE_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "LoadImageA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let contract = load_icon_a_contract(endpoint.clone()).expect("LoadIconA contract");
-        let dispatcher =
-            ApiDispatcher::new([endpoint.clone()], [contract]).expect("LoadIconA dispatcher");
+        let image_contract =
+            load_image_a_contract(image_endpoint.clone()).expect("LoadImageA contract");
+        let dispatcher = ApiDispatcher::new(
+            [endpoint.clone(), image_endpoint.clone()],
+            [contract, image_contract],
+        )
+        .expect("module icon dispatcher");
         Self {
             memory,
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v9(),
+            image_endpoint,
+            policy: User32CompatibilityPolicy::controlled_v10(),
         }
     }
 
@@ -674,6 +736,30 @@ impl IconFixture {
             ApiOwnedTrap {
                 endpoint_id: self.endpoint.id,
                 endpoint_address: self.endpoint.address,
+                stack_pointer,
+                return_address,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_user32_api_with_policy(
+                    &self.policy,
+                    CALLBACK_SENTINEL,
+                    contract,
+                    frame,
+                    session,
+                )
+            },
+        )
+    }
+
+    fn dispatch_image(&mut self, index: u32) -> DispatchOutcome {
+        let stack_pointer = GuestAddress(IMAGE_STACK_POINTER + index * 0x20);
+        let return_address = GuestAddress(IMAGE_RETURN_ADDRESS.0 + index);
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        self.dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: self.image_endpoint.id,
+                endpoint_address: self.image_endpoint.address,
                 stack_pointer,
                 return_address,
             },
@@ -757,7 +843,7 @@ impl CursorFixture {
             runtime: controlled_runtime(),
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v9(),
+            policy: User32CompatibilityPolicy::controlled_v10(),
         }
     }
 
@@ -1114,7 +1200,7 @@ impl RegisterClassFixture {
             create_endpoint,
             def_window_proc_endpoint,
             callback_sentinel,
-            policy: User32CompatibilityPolicy::controlled_v9(),
+            policy: User32CompatibilityPolicy::controlled_v10(),
         }
     }
 
@@ -1299,6 +1385,34 @@ fn load_icon_a_contract_is_bounded_stdcall_with_handler_last_error() {
     let contract = load_icon_a_contract(endpoint).expect("LoadIconA contract");
     assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
     assert_eq!(contract.abi.arguments.len(), 2);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn load_image_a_contract_is_six_argument_stdcall_with_handler_last_error() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(193),
+        address: IMAGE_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_13dc),
+        iat_address: IMAGE_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "LoadImageA".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = load_image_a_contract(endpoint).expect("LoadImageA contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 6);
     assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
@@ -1691,6 +1805,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
         .as_mut()
         .expect("metrics policy")
         .small_icon_height = None;
+    small_icon_disabled.policy.load_image_a = None;
     let generation = small_icon_disabled.memory.stats().generation;
     let last_error = small_icon_disabled
         .runtime
@@ -1718,6 +1833,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
         .as_mut()
         .expect("metrics policy")
         .small_icon_width = None;
+    small_icon_width_disabled.policy.load_image_a = None;
     let generation = small_icon_width_disabled.memory.stats().generation;
     let last_error = small_icon_width_disabled
         .runtime
@@ -1745,6 +1861,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
     disabled.policy.get_system_metrics = None;
     disabled.policy.create_window_ex_a = None;
     disabled.policy.invalid_menu_chain = None;
+    disabled.policy.load_image_a = None;
     let fault = match disabled.dispatch(0) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected disabled metrics policy fault, got {other:?}"),
@@ -1882,6 +1999,7 @@ fn load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity() {
 
     let mut disabled = IconFixture::new();
     disabled.policy.load_icon_a = None;
+    disabled.policy.load_image_a = None;
     let fault = match disabled.dispatch(0) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected disabled icon policy fault, got {other:?}"),
@@ -1932,6 +2050,125 @@ fn load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity() {
     assert_eq!(fault.class, ApiFaultClass::Unsupported);
     assert_eq!(fault.code, "load-icon-a-size-selection-unsupported");
     assert!(alternate_size.runtime.icons().is_empty());
+}
+
+#[test]
+fn load_image_a_selects_small_dib_and_reuses_shared_identity_across_apis() {
+    let mut fixture = IconFixture::new();
+    let memory_generation = fixture.memory.stats().generation;
+    let large = match fixture.dispatch(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected large LoadIconA completion, got {other:?}"),
+    };
+    assert_eq!(large.eax, RegisterUpdate::Set(0x4901_0001));
+
+    let first = match fixture.dispatch_image(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected first LoadImageA completion, got {other:?}"),
+    };
+    assert_eq!(first.eax, RegisterUpdate::Set(0x4901_0002));
+    assert_eq!(first.stack_pointer, GuestAddress(IMAGE_STACK_POINTER + 28));
+    assert_eq!(first.instruction_pointer, IMAGE_RETURN_ADDRESS);
+    assert_eq!(first.last_error, 0);
+    assert!(first.guest_writes.is_empty());
+    assert_eq!(fixture.memory.stats().generation, memory_generation);
+    assert_eq!(fixture.runtime.icons().len(), 2);
+
+    let small = fixture
+        .runtime
+        .icon(0x4901_0002)
+        .expect("logical shared small icon")
+        .clone();
+    assert_eq!(small.id.0, 2);
+    assert_eq!(small.namespace, "vine.logical-icon.v1");
+    assert!(small.shared);
+    assert_eq!(
+        small.resource.module_load_base,
+        GuestAddress(ICON_IMAGE_BASE)
+    );
+    assert_eq!(small.resource.module_source_sha256, ICON_FIXTURE_SHA256);
+    assert_eq!(small.resource.group_resource_id, 101);
+    assert_eq!(small.resource.language_id, 1041);
+    assert_eq!(small.resource.icon_resource_id, 3);
+    assert_eq!(small.resource.group_data_size, 48);
+    assert_eq!(small.resource.icon_data_size, 1_128);
+    assert_eq!(small.resource.width, 16);
+    assert_eq!(small.resource.height, 16);
+    assert_eq!(small.resource.planes, 1);
+    assert_eq!(small.resource.bits_per_pixel, 32);
+
+    let repeated = match fixture.dispatch_image(1) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated LoadImageA completion, got {other:?}"),
+    };
+    assert_eq!(repeated.eax, RegisterUpdate::Set(small.handle));
+    assert_eq!(repeated.last_error, 0);
+    assert_eq!(fixture.runtime.icons().len(), 2);
+    assert_eq!(fixture.runtime.icon(small.handle).unwrap(), &small);
+    assert_eq!(fixture.memory.stats().generation, memory_generation);
+
+    let repeated_large = match fixture.dispatch(1) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated LoadIconA completion, got {other:?}"),
+    };
+    assert_eq!(repeated_large.eax, large.eax);
+    assert_eq!(fixture.runtime.icons().len(), 2);
+}
+
+#[test]
+fn load_image_a_negative_variants_are_failure_atomic() {
+    let mut missing = IconFixture::new();
+    let generation = missing.memory.stats().generation;
+    let completion = match missing.dispatch_image(2) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected missing LoadImageA resource completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, 1813);
+    assert!(missing.runtime.icons().is_empty());
+    assert_eq!(missing.memory.stats().generation, generation);
+    let valid = match missing.dispatch_image(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected valid LoadImageA retry, got {other:?}"),
+    };
+    assert_eq!(valid.eax, RegisterUpdate::Set(0x4901_0001));
+
+    for (index, code) in [
+        (3, "load-image-a-type-unsupported"),
+        (4, "load-image-a-size-unsupported"),
+        (5, "load-image-a-flags-unsupported"),
+        (6, "load-image-a-string-resource-unsupported"),
+    ] {
+        let mut fixture = IconFixture::new();
+        let generation = fixture.memory.stats().generation;
+        let fault = match fixture.dispatch_image(index) {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected LoadImageA variant fault, got {other:?}"),
+        };
+        assert_eq!(fault.class, ApiFaultClass::Unsupported);
+        assert_eq!(fault.code, code);
+        assert!(fixture.runtime.icons().is_empty());
+        assert_eq!(fixture.memory.stats().generation, generation);
+    }
+
+    let mut unknown_module = IconFixture::new();
+    let completion = match unknown_module.dispatch_image(7) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid LoadImageA module completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, 6);
+    assert!(unknown_module.runtime.icons().is_empty());
+
+    let mut disabled = IconFixture::new();
+    disabled.policy.load_image_a = None;
+    let fault = match disabled.dispatch_image(0) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled LoadImageA policy fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "load-image-a-policy-disabled");
+    assert!(disabled.runtime.icons().is_empty());
 }
 
 #[test]

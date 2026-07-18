@@ -25,10 +25,11 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 9;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 10;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
+pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
@@ -39,6 +40,8 @@ pub const ENABLE_MENU_ITEM_IMPLEMENTATION: &str = "user32.enable-menu-item.inval
 
 const RT_ICON: u32 = 3;
 const RT_GROUP_ICON: u32 = 14;
+const IMAGE_ICON: u32 = 1;
+const LR_SHARED: u32 = 0x0000_8000;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_INVALID_PARAMETER: u32 = 87;
@@ -56,6 +59,17 @@ pub struct User32LoadIconAPolicy {
     pub profile_id: String,
     pub target_width: u16,
     pub target_height: u16,
+    pub maximum_group_entries: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32LoadImageAPolicy {
+    pub profile_id: String,
+    pub image_type: u32,
+    pub target_width: u16,
+    pub target_height: u16,
+    pub flags: u32,
     pub maximum_group_entries: u16,
 }
 
@@ -130,6 +144,7 @@ pub struct User32CompatibilityPolicy {
     pub enum_display_monitors: Option<RuntimeDisplayProfile>,
     pub swap_mouse_button: Option<RuntimeInputProfile>,
     pub load_icon_a: Option<User32LoadIconAPolicy>,
+    pub load_image_a: Option<User32LoadImageAPolicy>,
     pub load_cursor_a: Option<User32LoadCursorAPolicy>,
     pub register_class_ex_a: Option<User32RegisterClassExAPolicy>,
     pub get_system_metrics: Option<User32GetSystemMetricsPolicy>,
@@ -138,11 +153,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v9() -> Self {
+    pub fn controlled_v10() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-size-v9"
+            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-image-v10"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
@@ -161,6 +176,14 @@ impl User32CompatibilityPolicy {
                 profile_id: "module-shared-large-icon-32x32-v1".to_owned(),
                 target_width: 32,
                 target_height: 32,
+                maximum_group_entries: 64,
+            }),
+            load_image_a: Some(User32LoadImageAPolicy {
+                profile_id: "module-shared-small-icon-16x16-v1".to_owned(),
+                image_type: IMAGE_ICON,
+                target_width: 16,
+                target_height: 16,
+                flags: LR_SHARED,
                 maximum_group_entries: 64,
             }),
             load_cursor_a: Some(User32LoadCursorAPolicy {
@@ -275,6 +298,24 @@ impl User32CompatibilityPolicy {
                 "User32 module icon profile requires bounded target dimensions and group entries",
             ));
         }
+        if let Some(profile) = self.load_image_a.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.image_type != IMAGE_ICON
+                || profile.target_width == 0
+                || profile.target_width > 256
+                || profile.target_height == 0
+                || profile.target_height > 256
+                || profile.flags != LR_SHARED
+                || profile.maximum_group_entries == 0
+                || profile.maximum_group_entries > 256
+                || self.load_icon_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-load-image-profile-invalid",
+                "User32 LoadImageA profile requires the reached shared 16x16 module icon and matching system metrics",
+            ));
+        }
         if let Some(profile) = self.load_cursor_a.as_ref()
             && (!valid_profile_id(&profile.profile_id)
                 || profile.arrow_resource_id != RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID)
@@ -333,6 +374,24 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-system-metrics-profile-invalid",
                 "User32 system metrics require bounded non-client values and a logical display profile",
+            ));
+        }
+        if let Some(profile) = self.load_image_a.as_ref()
+            && (self
+                .get_system_metrics
+                .as_ref()
+                .and_then(|metrics| metrics.small_icon_width)
+                != Some(u32::from(profile.target_width))
+                || self
+                    .get_system_metrics
+                    .as_ref()
+                    .and_then(|metrics| metrics.small_icon_height)
+                    != Some(u32::from(profile.target_height)))
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-load-image-profile-invalid",
+                "User32 LoadImageA dimensions must match the controlled small-icon system metrics",
             ));
         }
         if let Some(profile) = self.create_window_ex_a.as_ref() {
@@ -430,6 +489,12 @@ pub fn dispatch_user32_api_with_policy(
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
+        LOAD_IMAGE_A_IMPLEMENTATION => {
+            match handle_load_image_a(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
         LOAD_CURSOR_A_IMPLEMENTATION => {
             match handle_load_cursor_a(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
@@ -689,6 +754,13 @@ enum GroupIconSelectionError {
     ExactSizeUnavailable,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ModuleIconSelectionProfile {
+    target_width: u16,
+    target_height: u16,
+    maximum_group_entries: u16,
+}
+
 fn handle_load_icon_a(
     policy: &User32CompatibilityPolicy,
     contract: &ApiContract,
@@ -722,6 +794,105 @@ fn handle_load_icon_a(
         ));
     }
 
+    load_module_shared_icon(
+        "load-icon-a-size-selection-unsupported",
+        "load-icon-a-selected-png-unsupported",
+        ModuleIconSelectionProfile {
+            target_width: icon_policy.target_width,
+            target_height: icon_policy.target_height,
+            maximum_group_entries: icon_policy.maximum_group_entries,
+        },
+        instance,
+        icon_name,
+        contract,
+        session,
+    )
+}
+
+fn handle_load_image_a(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let image_policy = policy.load_image_a.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-icons",
+            "load-image-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable bounded module image loading",
+                policy.id
+            ),
+        )
+    })?;
+    let instance = required_argument(contract, frame, 0, "module instance")?;
+    let name = required_argument(contract, frame, 1, "image resource name")?;
+    let image_type = required_argument(contract, frame, 2, "image type")?;
+    let width = required_argument(contract, frame, 3, "image width")?;
+    let height = required_argument(contract, frame, 4, "image height")?;
+    let flags = required_argument(contract, frame, 5, "image flags")?;
+    if instance == 0 {
+        return Err(ApiFault::unsupported(
+            "user32-icons",
+            "load-image-a-system-resource-unsupported",
+            "LoadImageA currently supports the reached registered module icon, not system images",
+        ));
+    }
+    if name > u32::from(u16::MAX) {
+        return Err(ApiFault::unsupported(
+            "user32-icons",
+            "load-image-a-string-resource-unsupported",
+            "LoadImageA currently supports only integer module resource identifiers",
+        ));
+    }
+    if image_type != image_policy.image_type {
+        return Err(ApiFault::unsupported(
+            "user32-icons",
+            "load-image-a-type-unsupported",
+            "LoadImageA currently supports only the reached IMAGE_ICON variant",
+        ));
+    }
+    if width != u32::from(image_policy.target_width)
+        || height != u32::from(image_policy.target_height)
+    {
+        return Err(ApiFault::unsupported(
+            "user32-icons",
+            "load-image-a-size-unsupported",
+            "LoadImageA dimensions are outside the reached controlled small-icon profile",
+        ));
+    }
+    if flags != image_policy.flags {
+        return Err(ApiFault::unsupported(
+            "user32-icons",
+            "load-image-a-flags-unsupported",
+            "LoadImageA currently supports only the reached LR_SHARED flags",
+        ));
+    }
+
+    load_module_shared_icon(
+        "load-image-a-size-selection-unsupported",
+        "load-image-a-selected-png-unsupported",
+        ModuleIconSelectionProfile {
+            target_width: image_policy.target_width,
+            target_height: image_policy.target_height,
+            maximum_group_entries: image_policy.maximum_group_entries,
+        },
+        instance,
+        name,
+        contract,
+        session,
+    )
+}
+
+fn load_module_shared_icon(
+    size_selection_fault: &'static str,
+    selected_png_fault: &'static str,
+    selection_profile: ModuleIconSelectionProfile,
+    instance: u32,
+    icon_name: u32,
+    contract: &ApiContract,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
     let image = match session
         .runtime()
         .module_image_by_load_base(GuestAddress(instance))
@@ -752,7 +923,7 @@ fn handle_load_icon_a(
             ERROR_RESOURCE_LANG_NOT_FOUND
         }));
     };
-    let group_limit = 6_u32 + 14_u32 * u32::from(icon_policy.maximum_group_entries);
+    let group_limit = 6_u32 + 14_u32 * u32::from(selection_profile.maximum_group_entries);
     if group_resource.size > group_limit {
         return Ok(load_icon_failure(ERROR_RESOURCE_DATA_NOT_FOUND));
     }
@@ -761,7 +932,7 @@ fn handle_load_icon_a(
         .memory()
         .read(group_address, group_resource.size as usize)
         .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    let selected = match select_group_icon(&group_bytes, icon_policy) {
+    let selected = match select_group_icon(&group_bytes, selection_profile) {
         Ok(selected) => selected,
         Err(GroupIconSelectionError::Malformed) => {
             return Ok(load_icon_failure(ERROR_RESOURCE_DATA_NOT_FOUND));
@@ -769,8 +940,8 @@ fn handle_load_icon_a(
         Err(GroupIconSelectionError::ExactSizeUnavailable) => {
             return Err(ApiFault::unsupported(
                 "user32-icons",
-                "load-icon-a-size-selection-unsupported",
-                "module group icon has no exact entry for the controlled logical large-icon size",
+                size_selection_fault,
+                "module group icon has no exact entry for the controlled dimensions",
             ));
         }
     };
@@ -796,8 +967,8 @@ fn handle_load_icon_a(
     if icon_header.starts_with(&[0x89, b'P', b'N', b'G']) {
         return Err(ApiFault::unsupported(
             "user32-icons",
-            "load-icon-a-selected-png-unsupported",
-            "selected module icon uses PNG payload; the reached vertical slice validates DIB icons",
+            selected_png_fault,
+            "selected module icon uses PNG payload; the reached slice validates DIB icons",
         ));
     }
     if !validate_selected_icon_dib(&icon_header, &selected, icon_resource.size) {
@@ -1922,7 +2093,7 @@ fn resource_address(
 
 fn select_group_icon(
     bytes: &[u8],
-    policy: &User32LoadIconAPolicy,
+    policy: ModuleIconSelectionProfile,
 ) -> Result<SelectedGroupIcon, GroupIconSelectionError> {
     if bytes.len() < 6 || read_u16(bytes, 0) != Some(0) || read_u16(bytes, 2) != Some(1) {
         return Err(GroupIconSelectionError::Malformed);
@@ -2123,6 +2294,7 @@ pub fn user32_contract_for_endpoint(
         "EnumDisplayMonitors" => Ok(Some(enum_display_monitors_contract(endpoint)?)),
         "SwapMouseButton" => Ok(Some(swap_mouse_button_contract(endpoint)?)),
         "LoadIconA" => Ok(Some(load_icon_a_contract(endpoint)?)),
+        "LoadImageA" => Ok(Some(load_image_a_contract(endpoint)?)),
         "LoadCursorA" => Ok(Some(load_cursor_a_contract(endpoint)?)),
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
@@ -2190,6 +2362,30 @@ pub fn load_icon_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: LOAD_ICON_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn load_image_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                u32_argument("instance"),
+                u32_argument("name"),
+                u32_argument("type"),
+                u32_argument("width"),
+                u32_argument("height"),
+                u32_argument("flags"),
+            ],
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: LOAD_IMAGE_A_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -2474,7 +2670,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v9();
+        let policy = User32CompatibilityPolicy::controlled_v10();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -2504,14 +2700,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v9();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v10();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v9();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v10();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -2522,7 +2718,14 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v9();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v10();
+        invalid_image.load_image_a.as_mut().unwrap().flags = 0;
+        assert_eq!(
+            invalid_image.validate().unwrap_err().code,
+            "user32-load-image-profile-invalid"
+        );
+
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v10();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -2533,7 +2736,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v9();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v10();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -2545,7 +2748,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v9();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v10();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -2556,7 +2759,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v9();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v10();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -2567,7 +2770,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v9();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v10();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -2578,7 +2781,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v9();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v10();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

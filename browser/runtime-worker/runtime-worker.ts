@@ -1083,9 +1083,11 @@ class BrowserRuntimeSession {
       isCreateWaitableTimer === (metadata.waitableTimer !== undefined),
       "BGI waitable timer completion metadata mismatch",
     );
-    const isLoadIcon = completion.implementationId === "user32.load-icon-a.v1";
+    const isIconLoad =
+      completion.implementationId === "user32.load-icon-a.v1" ||
+      completion.implementationId === "user32.load-image-a.v1";
     invariant(
-      isLoadIcon === (metadata.icon !== undefined),
+      isIconLoad === (metadata.icon !== undefined),
       "BGI icon completion metadata mismatch",
     );
     const isLoadCursor = completion.implementationId === "user32.load-cursor-a.v1";

@@ -454,7 +454,7 @@ impl BrowserRuntime {
             .runtime
             .register_source_snapshot(source_manifest)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v9();
+        let user32_policy = User32CompatibilityPolicy::controlled_v10();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -1213,8 +1213,10 @@ impl BrowserRuntime {
                                 ).map_err(error_string)?,
                             });
                         }
-                        if completion.implementation_id == "user32.load-icon-a.v1"
-                            && let RegisterUpdate::Set(handle) = completion.eax
+                        if matches!(
+                            completion.implementation_id.as_str(),
+                            "user32.load-icon-a.v1" | "user32.load-image-a.v1"
+                        ) && let RegisterUpdate::Set(handle) = completion.eax
                         {
                             metadata["icon"] =
                                 json!(self.runtime.icon(handle).map_err(error_string)?);

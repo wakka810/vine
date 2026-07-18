@@ -135,6 +135,13 @@ let loadIconAOracleEvidence = null;
 let loadIconACompletionRecorded = false;
 let loadIconADrainCheckScheduled = false;
 const loadIconAMainModuleCalls = [];
+let loadImageAOracleScheduled = false;
+let loadImageAOracleCall = null;
+let loadImageAOracleComplete = false;
+let loadImageAOracleEvidence = null;
+let loadImageACompletionRecorded = false;
+let loadImageADrainCheckScheduled = false;
+const loadImageAMainModuleCalls = [];
 let loadCursorAOracleScheduled = false;
 let loadCursorAOracleCall = null;
 let loadCursorAOracleComplete = false;
@@ -3548,6 +3555,132 @@ function attachLoadIconAHook(module) {
         });
         scheduleLoadIconAOracle(module);
         setImmediate(maybeCompleteLoadIconAObservation);
+      }
+    },
+  });
+}
+
+function attachLoadImageAHook(module) {
+  const name = "LoadImageA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && loadImageAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.instance = args[0];
+      this.resourceName = args[1];
+      this.imageType = args[2].toUInt32();
+      this.width = args[3].toUInt32();
+      this.height = args[4].toUInt32();
+      this.flags = args[5].toUInt32();
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = loadImageAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.resource = snapshotResourceNameA(this.resourceName);
+      this.immediateConsumer = isMainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              48,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              6,
+              20,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.instance.toString(),
+            this.resource,
+            this.imageType,
+            this.width,
+            this.height,
+            this.flags,
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          loadImageA: {
+            instance: this.instance.toString(),
+            instanceIsMainModule:
+              this.instance.toString() === Process.mainModule.base.toString(),
+            resource: this.resource,
+            imageType: this.imageType,
+            width: this.width,
+            height: this.height,
+            flags: this.flags,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      if (this.oracleCaller) {
+        loadImageAOracleCall.hookResult = resultValue;
+        loadImageAOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          loadImageA: {
+            result: resultValue,
+            resultNonNull: !result.isNull(),
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !loadImageACompletionRecorded) {
+        loadImageAMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          instance: this.instance.toString(),
+          instanceIsMainModule:
+            this.instance.toString() === Process.mainModule.base.toString(),
+          resource: this.resource,
+          imageType: this.imageType,
+          width: this.width,
+          height: this.height,
+          flags: this.flags,
+          result: resultValue,
+          resultNonNull: !result.isNull(),
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleLoadImageAOracle(module);
+        setImmediate(maybeCompleteLoadImageAObservation);
       }
     },
   });
@@ -8670,6 +8803,279 @@ function scheduleLoadIconAOracle(module) {
   });
 }
 
+function maybeCompleteLoadImageAObservation() {
+  if (
+    loadImageACompletionRecorded ||
+    !loadImageAOracleComplete ||
+    loadImageAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteLoadImageAObservation, 10);
+    return;
+  }
+  if (loadImageADrainCheckScheduled) {
+    return;
+  }
+  loadImageADrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    loadImageADrainCheckScheduled = false;
+    if (loadImageACompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteLoadImageAObservation();
+      return;
+    }
+    loadImageACompletionRecorded = true;
+    emit("load-image-a-complete", {
+      profile: "x86-bgi-load-image-a-small-icon-v1",
+      oracleProfile: loadImageAOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: loadImageAMainModuleCalls.map((call) => ({ ...call })),
+    });
+    if (stopOnEvent === "load-image-a-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function scheduleLoadImageAOracle(module) {
+  if (loadImageAOracleScheduled) {
+    return;
+  }
+  loadImageAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const loadImageAddress = findExport(module, "LoadImageA");
+      const getIconInfoAddress = findExport(module, "GetIconInfo");
+      const gdi32 = Process.getModuleByName("gdi32.dll");
+      const getObjectAddress = findExport(gdi32, "GetObjectW");
+      const deleteObjectAddress = findExport(gdi32, "DeleteObject");
+      if (
+        loadImageAddress === null ||
+        getIconInfoAddress === null ||
+        getObjectAddress === null ||
+        deleteObjectAddress === null
+      ) {
+        throw new Error("LoadImageA oracle exports are unavailable");
+      }
+      const loadImageA = new SystemFunction(
+        loadImageAddress,
+        "pointer",
+        ["pointer", "pointer", "uint32", "int32", "int32", "uint32"],
+        "stdcall",
+      );
+      const getIconInfo = new SystemFunction(
+        getIconInfoAddress,
+        "uint32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const getObjectW = new SystemFunction(
+        getObjectAddress,
+        "int32",
+        ["pointer", "int32", "pointer"],
+        "stdcall",
+      );
+      const deleteObject = new SystemFunction(
+        deleteObjectAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+
+      const snapshotBitmap = (handle) => {
+        if (handle.isNull()) {
+          return { handle: handle.toString(), isNull: true };
+        }
+        const storage = Memory.alloc(24);
+        storage.writeByteArray(Array(24).fill(0xa5));
+        const outcome = getObjectW(handle, 24, storage);
+        const result = Number(outcome.value);
+        const bytes = [...new Uint8Array(storage.readByteArray(24))];
+        const view = new DataView(Uint8Array.from(bytes).buffer);
+        return {
+          handle: handle.toString(),
+          isNull: false,
+          result,
+          lastError: Number(outcome.lastError) >>> 0,
+          fields:
+            result === 0
+              ? null
+              : {
+                  type: view.getInt32(0, true),
+                  width: view.getInt32(4, true),
+                  height: view.getInt32(8, true),
+                  widthBytes: view.getInt32(12, true),
+                  planes: view.getUint16(16, true),
+                  bitsPixel: view.getUint16(18, true),
+                  bits: `0x${view.getUint32(20, true).toString(16)}`,
+                },
+        };
+      };
+
+      const snapshotIcon = (handle) => {
+        const storage = Memory.alloc(20);
+        storage.writeByteArray(Array(20).fill(0xa5));
+        const outcome = getIconInfo(handle, storage);
+        const succeeded = Number(outcome.value) !== 0;
+        if (!succeeded) {
+          return {
+            result: Number(outcome.value) >>> 0,
+            lastError: Number(outcome.lastError) >>> 0,
+          };
+        }
+        const mask = storage.add(12).readPointer();
+        const color = storage.add(16).readPointer();
+        let maskSnapshot = null;
+        let colorSnapshot = null;
+        const deletions = [];
+        try {
+          maskSnapshot = snapshotBitmap(mask);
+          colorSnapshot = snapshotBitmap(color);
+        } finally {
+          for (const [kind, bitmap] of [
+            ["mask", mask],
+            ["color", color],
+          ]) {
+            if (!bitmap.isNull()) {
+              const deletion = deleteObject(bitmap);
+              deletions.push({
+                kind,
+                result: Number(deletion.value) >>> 0,
+                lastError: Number(deletion.lastError) >>> 0,
+              });
+            }
+          }
+        }
+        return {
+          result: Number(outcome.value) >>> 0,
+          lastError: Number(outcome.lastError) >>> 0,
+          fIcon: storage.readU32(),
+          xHotspot: storage.add(4).readU32(),
+          yHotspot: storage.add(8).readU32(),
+          mask: maskSnapshot,
+          color: colorSnapshot,
+          deletions,
+        };
+      };
+
+      const invoke = ({ id, resourceId, sentinel, inspect }) => {
+        loadImageAOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = loadImageA(
+            Process.mainModule.base,
+            ptr(resourceId),
+            1,
+            16,
+            16,
+            0x8000,
+          );
+          const handle = outcome.value;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            loadImageAOracleCall.hookResult === null ||
+            loadImageAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("LoadImageA oracle did not pass through the hook");
+          }
+          return {
+            id,
+            instance: Process.mainModule.base.toString(),
+            resourceId,
+            imageType: 1,
+            width: 16,
+            height: 16,
+            flags: 0x8000,
+            sentinel,
+            hookResult: loadImageAOracleCall.hookResult,
+            systemResult: handle.toString(),
+            resultNonNull: !handle.isNull(),
+            hookLastErrorAfter: loadImageAOracleCall.hookLastErrorAfter,
+            systemLastError,
+            successLastErrorPreserved:
+              !handle.isNull() && systemLastError === sentinel,
+            hookResultMatches:
+              loadImageAOracleCall.hookResult === handle.toString(),
+            hookAndSystemLastErrorMatch:
+              loadImageAOracleCall.hookLastErrorAfter === systemLastError,
+            icon: inspect && !handle.isNull() ? snapshotIcon(handle) : null,
+          };
+        } finally {
+          loadImageAOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "valid-first",
+          resourceId: 101,
+          sentinel: 0x11223344,
+          inspect: true,
+        },
+        {
+          id: "valid-repeated",
+          resourceId: 101,
+          sentinel: 0x55667788,
+          inspect: false,
+        },
+        {
+          id: "missing-resource",
+          resourceId: 0xffff,
+          sentinel: 0x7a6b5c4d,
+          inspect: false,
+        },
+      ].map(invoke);
+      const validCalls = calls.slice(0, 2);
+      const missingCall = calls[2];
+      const mainResult = loadImageAMainModuleCalls[0].result;
+      loadImageAOracleEvidence = {
+        profile: "x86-module-small-icon-load-image-shared-identity-v1",
+        mainModule: {
+          name: Process.mainModule.name,
+          base: Process.mainModule.base.toString(),
+        },
+        calls,
+        validCallsSucceeded: validCalls.every((call) => call.resultNonNull),
+        validSuccessLastErrorsPreserved: validCalls.every(
+          (call) => call.successLastErrorPreserved,
+        ),
+        validSuccessLastErrorsResetToZero: validCalls.every(
+          (call) => call.systemLastError === 0,
+        ),
+        validIconIs16x16Color32:
+          validCalls[0].icon?.result === 1 &&
+          validCalls[0].icon?.fIcon === 1 &&
+          validCalls[0].icon?.color?.fields?.width === 16 &&
+          validCalls[0].icon?.color?.fields?.height === 16 &&
+          validCalls[0].icon?.color?.fields?.planes === 1 &&
+          validCalls[0].icon?.color?.fields?.bitsPixel === 32,
+        repeatedValidIdentityShared:
+          validCalls[0].systemResult === validCalls[1].systemResult,
+        validIdentityMatchesMainCall: validCalls.every(
+          (call) => call.systemResult === mainResult,
+        ),
+        missingResourceRejected: !missingCall.resultNonNull,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      loadImageAOracleComplete = true;
+      emit("load-image-a-oracle", loadImageAOracleEvidence);
+      maybeCompleteLoadImageAObservation();
+    } catch (error) {
+      emit("load-image-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function maybeCompleteLoadCursorAObservation() {
   if (
     loadCursorACompletionRecorded ||
@@ -11012,6 +11418,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "LoadIconA",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("load-image-a")
+    ) {
+      try {
+        attachLoadImageAHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "LoadImageA",
           error: error.message,
         });
       }

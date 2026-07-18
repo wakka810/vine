@@ -122,6 +122,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-create-window-ex-a",
         "user32-get-system-metrics-small-icon-height",
         "user32-get-system-metrics-small-icon-width",
+        "user32-load-image-a-small-icon",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -160,6 +161,7 @@ assert(
       "user32-create-window-ex-a",
       "user32-get-system-metrics-small-icon-height",
       "user32-get-system-metrics-small-icon-width",
+      "user32-load-image-a-small-icon",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -171,6 +173,7 @@ if (
     "user32-create-window-ex-a",
     "user32-get-system-metrics-small-icon-height",
     "user32-get-system-metrics-small-icon-width",
+    "user32-load-image-a-small-icon",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -188,7 +191,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
     genericRuntimeCapability === "user32-get-system-metrics-small-icon-height" ||
-    genericRuntimeCapability === "user32-get-system-metrics-small-icon-width"
+    genericRuntimeCapability === "user32-get-system-metrics-small-icon-width" ||
+    genericRuntimeCapability === "user32-load-image-a-small-icon"
       ? "kernel32-source-file-read-v1.json"
       : genericRuntimeCapability === "kernel32-large-heap-allocation"
       ? "kernel32-large-heap-allocation-v1.json"
@@ -309,7 +313,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const loadImageASmallIconEnabled =
+  genericRuntimeCapability === "user32-load-image-a-small-icon";
 const getSystemMetricsSmallIconWidthEnabled =
+  loadImageASmallIconEnabled ||
   genericRuntimeCapability === "user32-get-system-metrics-small-icon-width";
 const getSystemMetricsSmallIconHeightEnabled =
   getSystemMetricsSmallIconWidthEnabled ||
@@ -475,7 +482,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getSystemMetricsSmallIconWidthEnabled
+      ? loadImageASmallIconEnabled
+        ? "v86-bgi-load-image-a-small-icon"
+      : getSystemMetricsSmallIconWidthEnabled
         ? "v86-bgi-get-system-metrics-small-icon-width"
       : getSystemMetricsSmallIconHeightEnabled
         ? "v86-bgi-get-system-metrics-small-icon-height"
@@ -4402,6 +4411,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (loadImageASmallIconEnabled) {
+        validateLoadImageASmallIconResult(genericResult);
       } else if (getSystemMetricsSmallIconWidthEnabled) {
         validateGetSystemMetricsSmallIconWidthResult(genericResult);
       } else if (getSystemMetricsSmallIconHeightEnabled) {
@@ -4529,6 +4540,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : loadImageASmallIconEnabled
+            ? "bgi LoadImageA small icon"
           : getSystemMetricsSmallIconWidthEnabled
             ? "bgi GetSystemMetrics small icon width"
           : getSystemMetricsSmallIconHeightEnabled
@@ -5644,6 +5657,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : loadImageASmallIconEnabled
+          ? 60
         : createWindowExAEnabled
           ? 59
         : sourceFileReadEnabled
@@ -5756,7 +5771,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-size-v9",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-image-v10",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -10444,6 +10459,100 @@ function validateSourceFileReadResult(result) {
   ]);
 }
 
+function validateLoadImageASmallIconResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 1397);
+  assert.equal(result.callbackEvents.length, 12);
+  assert.equal(result.finalGeneration, 1647);
+  assert.equal(result.writebacks.length, 1439);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    2984,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_450_383,
+  );
+  assert.equal(result.hostDeltas.length, 138);
+
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "LoadImageA",
+  );
+  assert.equal(calls.length, 1);
+  const [call] = calls;
+  assert.equal(call.sequence, 1397);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_476_529);
+  assert.equal(call.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(call.arguments, [0x1000_0000, 101, 1, 16, 16, 0x0000_8000]);
+  assert.deepEqual(call.result, { action: "set", value: 0x4901_0002 });
+  assert.equal(call.implementationId, "user32.load-image-a.v1");
+  assert.equal(call.returnAddress, 0x1006_7f43);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 28);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.icon, {
+    id: 2,
+    handle: 0x4901_0002,
+    namespace: "vine.logical-icon.v1",
+    shared: true,
+    resource: {
+      moduleId: 15,
+      moduleLoadBase: 0x1000_0000,
+      moduleSourceSha256: "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+      groupResourceId: 101,
+      languageId: 1041,
+      iconResourceId: 4,
+      groupDataRva: 0x0016_ea08,
+      groupDataSize: 62,
+      iconDataRva: 0x0016_d004,
+      iconDataSize: 1128,
+      width: 16,
+      height: 16,
+      planes: 1,
+      bitsPerPixel: 32,
+    },
+  });
+
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 229);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0e40);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "SendMessageA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_146c);
+  assert.equal(result.fault.memory.physicalPages, 717);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "4d9e0c04a72d9a598933803bff7cc40b558416a8a089fba6dccc34faaf81e274",
+  );
+  assert.equal(result.terminal.instructionCount, 11_476_536);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 229);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0e40);
+  assert.equal(result.terminal.terminal.thunk.name, "SendMessageA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_7f58);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 5), [
+    0x4801_0001,
+    0x0080,
+    0,
+    0x4901_0002,
+  ]);
+}
+
 function validateGetSystemMetricsSmallIconWidthResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -12039,6 +12148,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : loadImageASmallIconEnabled
+          ? "vine.v86-bgi-load-image-a-small-icon"
         : getSystemMetricsSmallIconWidthEnabled
           ? "vine.v86-bgi-get-system-metrics-small-icon-width"
         : getSystemMetricsSmallIconHeightEnabled

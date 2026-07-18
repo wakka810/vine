@@ -697,6 +697,13 @@ loadIconSelection.find(
 ).selectedObservations = ["load-icon-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(loadIconSelection)));
 
+const loadImageSelection = structuredClone(events);
+loadImageSelection[0].arguments.observations = ["load-image-a"];
+loadImageSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["load-image-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(loadImageSelection)));
+
 const loadCursorSelection = structuredClone(events);
 loadCursorSelection[0].arguments.observations = ["load-cursor-a"];
 loadCursorSelection.find(

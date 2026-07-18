@@ -165,6 +165,7 @@ enum GenericRuntimeCapability {
     CreateWindowExA,
     GetSystemMetricsSmallIconHeight,
     GetSystemMetricsSmallIconWidth,
+    LoadImageASmallIcon,
 }
 
 struct GenericRuntimeProcess {
@@ -2831,16 +2832,18 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SourceFileRead
             | GenericRuntimeCapability::CreateWindowExA
             | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
-            | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth,
+            | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
+            | GenericRuntimeCapability::LoadImageASmallIcon,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v9();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v10();
     if !matches!(
         requested_capability,
         Some(
             GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
+                | GenericRuntimeCapability::LoadImageASmallIcon
         )
     ) {
         user32_policy
@@ -2851,13 +2854,22 @@ fn run_v86_generic_runtime_session(
     }
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::GetSystemMetricsSmallIconWidth)
+        Some(
+            GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
+                | GenericRuntimeCapability::LoadImageASmallIcon
+        )
     ) {
         user32_policy
             .get_system_metrics
             .as_mut()
             .expect("controlled User32 policy has system metrics")
             .small_icon_width = None;
+    }
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::LoadImageASmallIcon)
+    ) {
+        user32_policy.load_image_a = None;
     }
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -3762,12 +3774,15 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
-                        let icon = if completion.implementation_id == "user32.load-icon-a.v1" {
+                        let icon = if matches!(
+                            completion.implementation_id.as_str(),
+                            "user32.load-icon-a.v1" | "user32.load-image-a.v1"
+                        ) {
                             let RegisterUpdate::Set(handle) = completion.eax else {
                                 return Err(LoaderError::runtime_defect(
                                     "runtime-reentry",
                                     "load-icon-handle-result-invalid",
-                                    "LoadIconA completion did not set a logical HICON",
+                                    "icon-loading completion did not set a logical HICON",
                                 ));
                             };
                             Some(
@@ -4236,12 +4251,15 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
+    let load_image_a_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::LoadImageASmallIcon));
     let create_window_ex_a_enabled = matches!(
         enabled,
         Some(
             GenericRuntimeCapability::CreateWindowExA
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
+                | GenericRuntimeCapability::LoadImageASmallIcon
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -4704,6 +4722,7 @@ fn runtime_capability_enables_endpoint(
         "GetVersionExA" => get_version_ex_a_enabled,
         "CreateWaitableTimerA" => create_waitable_timer_a_enabled,
         "LoadIconA" => load_icon_a_enabled,
+        "LoadImageA" => load_image_a_enabled,
         "LoadCursorA" => load_cursor_a_enabled,
         "RegisterClassExA" => register_class_ex_a_enabled,
         "GetSystemMetrics" => get_system_metrics_enabled,
@@ -4727,6 +4746,7 @@ fn runtime_capability_enables_dynamic_endpoint(
             GenericRuntimeCapability::CreateWindowExA
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconHeight
                 | GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
+                | GenericRuntimeCapability::LoadImageASmallIcon
         )
     ) {
         Some(GenericRuntimeCapability::SourceFileRead)
@@ -10296,6 +10316,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-get-system-metrics-small-icon-width" => {
                     GenericRuntimeCapability::GetSystemMetricsSmallIconWidth
                 }
+                "user32-load-image-a-small-icon" => GenericRuntimeCapability::LoadImageASmallIcon,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

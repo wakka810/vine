@@ -2884,3 +2884,42 @@ structured stopする。
 任意image type／resource／size／flagsを実装済みとしない。性能／memory／Worker crossingの
 boundaryを変えないread-only semantic leafなので、3分gateは再実行せず直前のlogical-window
 observationを履歴として保持する。
+
+## 106. BGI LoadImageA small icon
+
+Focused `load-image-a` capturesは次のlocal raw artifactsである。Raw JSONLとprivate absolute
+pathはGitへ追加しない。
+
+| Capture | Bytes／lines | SHA-256 |
+|---|---:|---|
+| primary | 295,589／803 | `c2196488e32c345f2d74f9ab15cd14774810b3988751439c0232a2d705947cf4` |
+| confirmation | 295,572／803 | `239ddf4372885a699af8d8167d6c1eb6af97f320a2b0486697ac1b25a6d253c8` |
+
+両captureは365 balanced API pairs、contiguous sequence、diagnostics zeroである。BGIは
+`LoadImageA(main module,101,IMAGE_ICON,16,16,LR_SHARED)`をreturn RVA
+`0x00067F43`と`0x000929E9`から二回呼び、同じnon-NULL HICONを受け取る。First callは
+LastErrorを1,401から0へし、second callは0を保存する。First resultは直後の
+`SendMessageA(hwnd,WM_SETICON,ICON_SMALL,hIcon)`へ渡り、second resultはNULL-checkされる。
+
+独立oracleは同じmodule resourceから16×16、1 plane、32 bppのcolor DIBを選び、success
+LastError 0とshared identityを再現する。Missing integer resource 65,535はNULL／LastError
+1,813である。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-10 User32 policyで到達済み`IMAGE_ICON`、16×16、`LR_SHARED`だけを許可し、
+既存PE resource catalogと`RuntimeUser32` shared icon ownerからresource ID 4／1,128 bytesを
+選ぶ。32×32 large icon `0x49010001`と16×16 small icon `0x49010002`は別identityであり、同じ
+small resourceの再要求は後者を再利用する。Unknown moduleとmissing resourceは具体的な
+Win32 failure、wrong type／size／flags／string resourceはmutation前のstructured stopになる。
+
+Nodeは1,397 calls、1,439 writebacks／2,984 dirty pages／1,450,383 changed bytes、generation
+1,647を通す。Chromeもsame ordered callsとmemory digest
+`4d9e0c04a72d9a598933803bff7cc40b558416a8a089fba6dccc34faaf81e274`を再現し、46,126
+slices、46,114 writebacks／106,462 pages、generation 46,320、47,700 Wasm crossings、terminal
+pending work zeroを通す。Instruction 11,476,536でendpoint 229／
+`SendMessageA(0x48010001,WM_SETICON,ICON_SMALL,0x49010002)`へ`endpoint-contract-missing`として
+structured stopする。
+
+このcheckpointはbitmap／cursor image、default size、file load、copy/delete icon、arbitrary
+resource／size／flags、DOM icon、一般message dispatchを実装済みとしない。既存resource／identity
+boundary内のsemantic leafなので、3分gateは再実行せず直前の36-session observationを保持する。

@@ -35,6 +35,7 @@ const supportedObservations = new Set([
   "create-mutex-a",
   "create-waitable-timer-a",
   "load-icon-a",
+  "load-image-a",
   "load-cursor-a",
   "register-class-ex-a",
   "get-system-metrics",
