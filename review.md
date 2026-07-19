@@ -315,3 +315,10 @@
 * **変更内容：** Historical evidenceの削除／一括統合や新registryは追加していない。今回の新しいstable contractはVFS、CI／testing、Windows developmentの既存owner文書へ追記し、API occurrenceごとの新文書を作らなかった。
 * **検証結果：** `npm run check:docs`が136 files、233 IDs、link／table／fence／current-value authority、README生成を検査しgreenだった。Current manifest／README drift testもgreenである。
 * **未対応理由：** 91個のfrozen文書はraw traceではなく過去decision／oracle／non-claimで、active queueとして更新されない。削除はevidence provenanceを失い、単一registry生成は独立oracleを自己検証させる。今後も定型statusはmanifestから生成し、新semantics／architecture／oracleがないAPI単位文書は追加しない。
+
+## 最終再検証
+
+* **調査結果：** 上記P0-01〜P0-10、P1-01〜P1-14をP0→P1順に再確認した。各項目は解決済み、またはactive scope・到達証拠・設計不変条件に基づく対応不要として判定されており、未判定項目は残っていない。未到達のfirst present、product audio、実入力、save／restart／load、一般thread／exceptionは、fixtureの成立性と混同せず、current manifestの`not-reached`／`fixture-only`境界を維持した。
+* **変更内容：** `d5ce1b6`でCI fixture依存、PE／Wasm toolchain分離、benchmarkのephemeral port、production setup budget、transaction composition回帰を修正した。`bc8a2bc`で修正後runtime-core Wasmの実測identity（3,352,772 bytes、SHA-256 `232d805c421888c22afd627716eab95c51221f3add69927304ecaff990521bb7`）を`docs/current-checkpoint.json`とvalidatorへ同期した。private gateはそのcommitに対するevidenceを再生成し、`docs/private-target-evidence.json`へ記録した。
+* **検証結果：** `npm run check:docs`、`npm run check:static`、`npm run check:private-target-contract`、`npm run check:private-target-evidence`がgreen。`npm run check:private-target -- --allow-dirty vine.zip`はNode／Chromeとも17,841 calls、11,807,189 instructions、structured stop `USER32.dll!MonitorFromWindow`、cancel／watchdog clean、benchmark failure 0で終了した。生成evidenceのpayload SHA-256は`fa135af1203ff27e7e21d39a59f850d132e99285c5406adf0b0f6ac8b4700591`で、implementation commit／treeとGitの整合も確認した。`vine.zip`はreview用の無関係な未追跡pathとして許可リストにのみ残し、commit対象から除外した。
+* **未対応理由：** 残る対応不要判定はレビュー上の未解決ではなく、AGENTS.mdでdeferredと定めた未到達scopeまたは独立oracleが必要なgatewayである。primary product milestoneへ昇格する条件は各項目の記録と`docs/roadmap.md`／`docs/risks-and-open-questions.md`に残しており、根拠なしの実装拡大は行っていない。
