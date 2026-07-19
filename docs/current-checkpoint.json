@@ -190,8 +190,8 @@
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {
     "imports": 0,
-    "bytes": 3352611,
-    "sha256": "e26b6eb1b91f16bbcdcee4f7bac3de54d457836db5779710dfb478c20b55556a"
+    "bytes": 3352772,
+    "sha256": "232d805c421888c22afd627716eab95c51221f3add69927304ecaff990521bb7"
   },
   "browserRuntimeFixture": {
     "bytes": 3584,
