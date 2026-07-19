@@ -3390,3 +3390,52 @@ stateであり、browser pixel buffer、renderer resource、`RuntimeGraphics`、
 GDIとD3D8／9／将来D3D10／11はguest frontendを分離し、共有可能なtranslation seamはvalidated
 logical resource／commandより下へ置く。Synchronous logical stateとWorker crossingの性質は変えないため、
 直前の180秒runtime-system module lifecycle observationを性能正本として保持する。
+
+## 112. BGI effective window style transition
+
+Focused `set-window-long-a` capturesは次のlocal raw artifactsである。Raw JSONL、native HWND、private
+absolute pathはGitへ追加せずsemantic goldenにも使わない。
+
+| Capture | Bytes／lines | Balanced API pairs | SHA-256 |
+|---|---:|---:|---|
+| primary | 67,283／88 | 6 | `c7ec66fdcce747246943c4cc98b1edfebb9f5b8748ccfd023916a8d4ed1c6283` |
+| confirmation | 67,579／89 | 6 | `1b7d6816599493a0db1b5b7d4ff716a5fdc6192ed96f3c2fe51856f81d0c18a6` |
+
+両captureはcontiguous sequence、diagnostics zeroである。BGI caller RVA `0x0005CAE3`はlive main
+windowへ`SetWindowLongA(hwnd,GWL_STYLE,0x90CA0000)`を呼ぶ。Creation requested styleは
+`0x80CA0000`だが、call直前のeffective styleはWindowsが保持した`WS_CLIPSIBLINGS`を含む
+`0x84CA0000`である。First callはprevious effective style `0x84CA0000`を返し、effective styleを
+`0x94CA0000`、visibilityをfalseからtrueへ変更する。続く同callerの二回は`0x94CA0000`を返し、
+style／visibilityを変更しない。全success callはLastError `0 -> 0`を保存する。Return後のcallerはEAXを
+読まず、global windowの有無から分岐して次の`SetWindowPos` argumentsを組み立てる。
+
+独立oracleはlive windowへの同値style設定がprevious `0x94CA0000`を返してsentinel LastErrorを保存し、
+stateを変更しないことを固定する。Invalid HWNDは0／`ERROR_INVALID_WINDOW_HANDLE` 1,400、live HWNDの
+index -100は0／`ERROR_INVALID_INDEX` 1,413で、いずれもstyle／visibilityを変更しない。Source
+executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-14 User32 policyでreached GWL_STYLE variantだけを有効にする。Window creation時の
+requested `style`はcallback再現用に保持し、`effectiveStyle`とvisibilityは`RuntimeUser32`が同じlogical
+window stateとして所有する。Ownerはlive identity／created lifecycle／thread／icon relationを検証して
+opaque planを作り、stale planを拒否してtargeted commitする。同値更新はgenerationを進めず、invalid
+window／index、unsupported value、stale planはwindow state、allocator、guest memoryを部分更新しない。
+既存`SetWindowPos` show／hideも同じeffective `WS_VISIBLE` bitとvisibilityを同期する。WorkerはRustから
+渡されたimmutable snapshotをordered completion検証にだけ使い、Windows styleの第二の正本を持たない。
+
+Nodeは83 contracts／17,830 calls、17,877 writebacks／36,023 dirty pages／1,807,080 changed bytes、
+16,552 host deltas、generation 34,530を通す。Reportは207,196,971 bytes／SHA-256
+`731d0f1b8b72942a27ba8ed9c785b8e554eaa540eed1a9a7bb911852855d5668`、final memory SHA-256は
+`f3f9914e7eb27778890180688a761b95491ed0367b7a43bb3efe7cf334093b7f`である。Chrome Runtime Workerも
+same ordered calls／11,806,645 instructions／memory digestを再現し、40,276 slices、40,270
+writebacks／87,880 pages、16,552 mapping deltas、generation 56,924、74,714 Wasm crossings、terminal
+pending work zeroを通す。Browser reportは24,196,083 bytes／SHA-256
+`b9d64968352ec30a7f0ffb5746fe287ecbdff80e3300cb4d0d06d37802e2b091`である。
+
+次stopはinstruction 11,806,645、endpoint 202／
+`SetWindowPos(0x48010001,0xFFFFFFFE,0,0,806,629,0x10A)`、IAT `0x100D1400`、return
+`0x1005CB4B`の`set-window-pos-size-unsupported`である。General window-long index／value、frame
+recalculation、style-dependent non-client geometry、parent／child window、async notification、arbitrary sized
+positioningを実装済みとしない。今回のleafはgraphics frontend／logical resource／browser renderer境界を
+変更せず、D3D8／9／将来D3D10／11のguest frontend分離方針にも新しい例外を作らないため、直前の180秒
+runtime-system module lifecycle observationを性能正本として保持する。

@@ -1261,7 +1261,8 @@ class BrowserRuntimeSession {
     );
     const isLogicalWindowCompletion =
       completion.implementationId === "user32.create-window-ex-a.v1" ||
-      completion.implementationId === "user32.set-window-pos.v1";
+      completion.implementationId === "user32.set-window-pos.v1" ||
+      completion.implementationId === "user32.set-window-long-a.gwl-style.v1";
     invariant(
       isLogicalWindowCompletion === (metadata.window !== undefined),
       "BGI logical window completion metadata mismatch",

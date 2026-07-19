@@ -13,14 +13,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `gdi-window-dc-fill`: 17829 calls across 82 API contracts, memory generation 34529 |
+| Active runtime | `user32-set-window-long-a`: 17830 calls across 83 API contracts, memory generation 34530 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (29 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `USER32.dll!SetWindowLongA(0x48010001, 0xfffffff0, 0x90ca0000)` at instruction 11806624: `endpoint-contract-missing` |
+| Next structured stop | `USER32.dll!SetWindowPos(0x48010001, 0xfffffffe, 0x00000000, 0x00000000, 0x00000326, 0x00000275, 0x0000010a)` at instruction 11806645: `set-window-pos-size-unsupported` |
 
-The active semantic report is 207,184,829 bytes with SHA-256
-`1c82c43eddd4b4391c1862f4bffa42cdbb686a8aa24c924c115601ab922efd6b`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 207,196,971 bytes with SHA-256
+`731d0f1b8b72942a27ba8ed9c785b8e554eaa540eed1a9a7bb911852855d5668`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Supported API Contracts
 
@@ -106,6 +106,7 @@ The active semantic report is 207,184,829 bytes with SHA-256
 - `GDI32.dll!GetStockObject`
 - `USER32.dll!FillRect`
 - `USER32.dll!ReleaseDC`
+- `USER32.dll!SetWindowLongA`
 
 ### Reproduce Current Checkpoint
 

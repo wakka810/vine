@@ -111,8 +111,8 @@ use super::user32::{
     RuntimeIconId, RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
     RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
     RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
-    RuntimeUser32, RuntimeWindow, RuntimeWindowClass, RuntimeWindowClassId,
-    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
+    RuntimeSetWindowStyleResult, RuntimeUser32, RuntimeWindow, RuntimeWindowClass,
+    RuntimeWindowClassId, RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowId,
     RuntimeWindowLifecycle, RuntimeWindowProcedure,
 };
@@ -3093,6 +3093,22 @@ impl RuntimeKernel {
 
     pub fn windows(&self) -> &BTreeMap<RuntimeWindowId, RuntimeWindow> {
         self.user32.windows()
+    }
+
+    pub(crate) fn set_window_style(
+        &mut self,
+        window_handle: u32,
+        requested_style: u32,
+        retained_style_mask: u32,
+    ) -> Result<RuntimeSetWindowStyleResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self.user32.plan_window_style_update(
+            window_handle,
+            self.current_thread_id(),
+            requested_style,
+            retained_style_mask,
+        )?;
+        self.user32.commit_window_style_update(plan)
     }
 
     pub(crate) fn acquire_window_dc(

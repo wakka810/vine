@@ -9,6 +9,9 @@ const selectedVtables = new Set(agentOptions.vtables ?? []);
 const selectedObservations = new Set(agentOptions.observations ?? []);
 const focusedWindowDcObservation =
   selectedObservations.size === 1 && selectedObservations.has("window-dc");
+const focusedSetWindowLongAObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("set-window-long-a");
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
@@ -192,6 +195,12 @@ let windowDcOracleComplete = false;
 let windowDcOracleEvidence = null;
 let windowDcCompletionRecorded = false;
 const windowDcMainModuleCalls = [];
+let setWindowLongAOracleScheduled = false;
+let setWindowLongAOracleCall = null;
+let setWindowLongAOracleComplete = false;
+let setWindowLongAOracleEvidence = null;
+let setWindowLongACompletionRecorded = false;
+const setWindowLongAMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -5191,6 +5200,259 @@ function maybeCompleteWindowDcObservation() {
     oracle: windowDcOracleEvidence,
   });
   if (stopOnEvent === "window-dc-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachSetWindowLongAHook(module) {
+  const name = "SetWindowLongA";
+  const address = findExport(module, name);
+  const getWindowLongAddress = findExport(module, "GetWindowLongA");
+  const isWindowVisibleAddress = findExport(module, "IsWindowVisible");
+  if (
+    address === null ||
+    getWindowLongAddress === null ||
+    isWindowVisibleAddress === null
+  ) {
+    throw new Error("SetWindowLongA state-query exports are unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  const getWindowLongA = new NativeFunction(
+    getWindowLongAddress,
+    "int32",
+    ["pointer", "int32"],
+    "stdcall",
+  );
+  const isWindowVisible = new NativeFunction(
+    isWindowVisibleAddress,
+    "int32",
+    ["pointer"],
+    "stdcall",
+  );
+  const snapshotWindowState = (windowHandle) => ({
+    style: Number(getWindowLongA(windowHandle, -16)) >>> 0,
+    visible: Number(isWindowVisible(windowHandle)) !== 0,
+  });
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && setWindowLongAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.windowHandle = args[0];
+      this.index = signed32(args[1]);
+      this.newValue = args[2].toUInt32();
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = setWindowLongAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.stateBefore = snapshotWindowState(this.windowHandle);
+      this.lastError = this.lastErrorBefore;
+      this.immediateConsumer = isMainModuleCaller
+        ? snapshotInstructions(this.returnAddress, 96)
+        : null;
+      if (isOracleCaller) {
+        setWindowLongAOracleCall.hookStateBefore = this.stateBefore;
+      }
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.windowHandle.toString(),
+            this.index,
+            this.newValue,
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          setWindowLongA: {
+            stateBefore: this.stateBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultUnsigned = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      const stateAfter = snapshotWindowState(this.windowHandle);
+      this.lastError = lastError;
+      if (this.oracleCaller) {
+        setWindowLongAOracleCall.hookResultUnsigned = resultUnsigned;
+        setWindowLongAOracleCall.hookLastErrorAfter = lastError;
+        setWindowLongAOracleCall.hookStateAfter = stateAfter;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          setWindowLongA: {
+            resultUnsigned,
+            stateAfter,
+          },
+        },
+        this.lastError,
+      );
+      if (!this.mainModuleCaller || setWindowLongACompletionRecorded) {
+        return;
+      }
+      setWindowLongAMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        returnAddress: this.returnAddress.toString(),
+        callerRva: this.traceFrame.caller.rva,
+        windowHandle: this.windowHandle.toString(),
+        index: this.index,
+        newValue: this.newValue,
+        resultUnsigned,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        stateBefore: this.stateBefore,
+        stateAfter,
+        immediateConsumer: this.immediateConsumer,
+      });
+      scheduleSetWindowLongAOracle(module, this.windowHandle, stateAfter.style);
+      setImmediate(maybeCompleteSetWindowLongAObservation);
+    },
+  });
+}
+
+function scheduleSetWindowLongAOracle(module, liveWindowHandle, liveStyle) {
+  if (setWindowLongAOracleScheduled) {
+    return;
+  }
+  setWindowLongAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "SetWindowLongA");
+      if (address === null) {
+        throw new Error("SetWindowLongA oracle export is unavailable");
+      }
+      const setWindowLongA = new SystemFunction(
+        address,
+        "int32",
+        ["pointer", "int32", "int32"],
+        "stdcall",
+      );
+      const invoke = ({ id, windowHandle, index, newValue, sentinel }) => {
+        setWindowLongAOracleCall = {
+          sentinel,
+          hookResultUnsigned: null,
+          hookLastErrorAfter: null,
+          hookStateBefore: null,
+          hookStateAfter: null,
+        };
+        try {
+          const outcome = setWindowLongA(windowHandle, index, newValue | 0);
+          const systemResultUnsigned = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            setWindowLongAOracleCall.hookResultUnsigned === null ||
+            setWindowLongAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("SetWindowLongA oracle did not pass through the hook");
+          }
+          return {
+            id,
+            windowHandle: windowHandle.toString(),
+            index,
+            newValue,
+            sentinel,
+            systemResultUnsigned,
+            systemLastError,
+            hookResultUnsigned: setWindowLongAOracleCall.hookResultUnsigned,
+            hookLastErrorAfter: setWindowLongAOracleCall.hookLastErrorAfter,
+            hookStateBefore: setWindowLongAOracleCall.hookStateBefore,
+            hookStateAfter: setWindowLongAOracleCall.hookStateAfter,
+            hookResultMatches:
+              setWindowLongAOracleCall.hookResultUnsigned ===
+              systemResultUnsigned,
+            hookAndSystemLastErrorMatch:
+              setWindowLongAOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          setWindowLongAOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "live-same-style",
+          windowHandle: liveWindowHandle,
+          index: -16,
+          newValue: liveStyle,
+          sentinel: 0x11223344,
+        },
+        {
+          id: "invalid-window",
+          windowHandle: ptr("0x1234"),
+          index: -16,
+          newValue: liveStyle,
+          sentinel: 0x55667788,
+        },
+        {
+          id: "invalid-index",
+          windowHandle: liveWindowHandle,
+          index: -100,
+          newValue: liveStyle,
+          sentinel: 0x7a6b5c4d,
+        },
+      ].map(invoke);
+      setWindowLongAOracleEvidence = {
+        profile: "x86-live-gwl-style-and-invalid-arguments-v1",
+        liveWindowHandle: liveWindowHandle.toString(),
+        liveStyle,
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      setWindowLongAOracleComplete = true;
+      emit("set-window-long-a-oracle", setWindowLongAOracleEvidence);
+      maybeCompleteSetWindowLongAObservation();
+    } catch (error) {
+      emit("set-window-long-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompleteSetWindowLongAObservation() {
+  if (
+    setWindowLongACompletionRecorded ||
+    !setWindowLongAOracleComplete ||
+    setWindowLongAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteSetWindowLongAObservation, 10);
+    return;
+  }
+  setWindowLongACompletionRecorded = true;
+  emit("set-window-long-a-complete", {
+    profile: "x86-bgi-first-gwl-style-update-v1",
+    mainModuleCalls: setWindowLongAMainModuleCalls,
+    oracle: setWindowLongAOracleEvidence,
+  });
+  if (stopOnEvent === "set-window-long-a-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -12562,7 +12824,7 @@ Process.attachModuleObserver({
     if (moduleHooks === undefined) {
       return;
     }
-    if (!focusedWindowDcObservation) {
+    if (!focusedWindowDcObservation && !focusedSetWindowLongAObservation) {
       for (const [name, decoders] of moduleHooks) {
         try {
           attachHook(module, name, decoders);
@@ -12854,6 +13116,20 @@ Process.attachModuleObserver({
             error: error.message,
           });
         }
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("set-window-long-a")
+    ) {
+      try {
+        attachSetWindowLongAHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "SetWindowLongA",
+          error: error.message,
+        });
       }
     }
     if (

@@ -134,6 +134,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-load-library-a",
         "user32-get-client-rect",
         "gdi-window-dc-fill",
+        "user32-set-window-long-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -184,6 +185,7 @@ assert(
       "kernel32-load-library-a",
       "user32-get-client-rect",
       "gdi-window-dc-fill",
+      "user32-set-window-long-a",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -207,6 +209,7 @@ if (
     "kernel32-load-library-a",
     "user32-get-client-rect",
     "gdi-window-dc-fill",
+    "user32-set-window-long-a",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -223,7 +226,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
     genericRuntimeCapability === "kernel32-load-library-a" ||
     genericRuntimeCapability === "user32-get-client-rect" ||
-    genericRuntimeCapability === "gdi-window-dc-fill"
+    genericRuntimeCapability === "gdi-window-dc-fill" ||
+    genericRuntimeCapability === "user32-set-window-long-a"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -358,7 +362,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const windowDcFillEnabled = genericRuntimeCapability === "gdi-window-dc-fill";
+const setWindowLongAEnabled =
+  genericRuntimeCapability === "user32-set-window-long-a";
+const windowDcFillEnabled =
+  setWindowLongAEnabled || genericRuntimeCapability === "gdi-window-dc-fill";
 const getClientRectEnabled =
   windowDcFillEnabled || genericRuntimeCapability === "user32-get-client-rect";
 const loadLibraryAEnabled =
@@ -556,7 +563,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? windowDcFillEnabled
+      ? setWindowLongAEnabled
+        ? "v86-bgi-set-window-long-a"
+      : windowDcFillEnabled
         ? "v86-bgi-window-dc-fill"
       : getClientRectEnabled
         ? "v86-bgi-get-client-rect"
@@ -4519,6 +4528,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setWindowLongAEnabled) {
+        validateSetWindowLongAResult(genericResult);
       } else if (windowDcFillEnabled) {
         validateWindowDcFillResult(genericResult);
       } else if (getClientRectEnabled) {
@@ -4670,6 +4681,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : setWindowLongAEnabled
+            ? "bgi SetWindowLongA GWL_STYLE"
           : windowDcFillEnabled
             ? "bgi window DC fill"
           : getClientRectEnabled
@@ -5868,6 +5881,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : setWindowLongAEnabled
+          ? 70
         : windowDcFillEnabled
           ? 69
         : getClientRectEnabled
@@ -5994,7 +6009,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-v13",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-v14",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -12081,6 +12096,121 @@ function validateWindowDcFillResult(result) {
   );
 }
 
+function validateSetWindowLongAResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_830);
+  assert.equal(result.callbackEvents.length, 22);
+  assert.equal(result.writebacks.length, 17_877);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_023,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_080,
+  );
+  assert.equal(result.writebacks.at(-1).sequence, 17_831);
+  assert.equal(result.hostDeltas.length, 16_552);
+  assert.equal(result.hostDeltas.at(-1).sequence, 17_825);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_530);
+
+  const call = result.supportedCalls.at(-1);
+  assert.equal(call.sequence, 17_830);
+  assert.equal(call.module, "USER32.dll");
+  assert.equal(call.symbol, "SetWindowLongA");
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_806_624);
+  assert.deepEqual(call.arguments, [0x4801_0001, 0xffff_fff0, 0x90ca_0000]);
+  assert.equal(call.implementationId, "user32.set-window-long-a.gwl-style.v1");
+  assert.deepEqual(call.result, { action: "set", value: 0x84ca_0000 });
+  assert.equal(call.returnAddress, 0x1005_cae3);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 16);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.window, {
+    id: 1,
+    handle: 0x4801_0001,
+    namespace: "vine.logical-window.v1",
+    ownerThreadId: 8192,
+    class: { classId: 1, atom: 0xc000, moduleId: 15 },
+    instance: {
+      moduleId: 15,
+      loadBase: 0x1000_0000,
+      sourceSha256: expected.source.sha256,
+    },
+    name: {
+      value:
+        "Ethornell - BURIKO General Interpreter ( Version : 1.614.1 - Compatibility : 1.72 )",
+      encoding: "windows-932-v1",
+    },
+    extendedStyle: 0x0004_0000,
+    effectiveExtendedStyle: 0x0004_0100,
+    style: 0x80ca_0000,
+    effectiveStyle: 0x94ca_0000,
+    geometry: {
+      x: 15_360,
+      y: 8_640,
+      width: 806,
+      height: 629,
+      clientX: 15_363,
+      clientY: 8_666,
+      clientWidth: 800,
+      clientHeight: 600,
+    },
+    parent: 0,
+    menu: 0,
+    createParameter: 0,
+    entryLastError: 0,
+    lifecycle: { state: "created" },
+    visible: true,
+    topmost: false,
+    smallIcon: { iconId: 2, handle: 0x4901_0002 },
+  });
+
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 202);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0c90);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1400);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "SetWindowPos",
+  });
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "user32-windows");
+  assert.equal(result.fault.fault.code, "set-window-pos-size-unsupported");
+  assert.equal(result.fault.memory.physicalPages, 719);
+  assert.equal(result.fault.memory.generation, 34_530);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "f3f9914e7eb27778890180688a761b95491ed0367b7a43bb3efe7cf334093b7f",
+  );
+
+  assert.equal(result.terminal.instructionCount, 11_806_645);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 202);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0c90);
+  assert.equal(result.terminal.terminal.thunk.iatAddress, 0x100d_1400);
+  assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "SetWindowPos");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_cb4b);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 8),
+    [0x4801_0001, 0xffff_fffe, 0, 0, 806, 629, 0x10a],
+  );
+}
+
 function validateLoadLibraryAResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -12463,6 +12593,7 @@ function validateCreateWindowExAResult(result) {
     extendedStyle: 0x0004_0000,
     effectiveExtendedStyle: 0x0004_0100,
     style: 0x80ca_0000,
+    effectiveStyle: 0x84ca_0000,
     geometry: {
       x: 317,
       y: 154,
@@ -12479,6 +12610,7 @@ function validateCreateWindowExAResult(result) {
     entryLastError: 0,
     lifecycle: { state: "created" },
     visible: false,
+    topmost: false,
   });
 
   assert.deepEqual(
@@ -13880,6 +14012,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : setWindowLongAEnabled
+          ? "vine.v86-bgi-set-window-long-a"
         : windowDcFillEnabled
           ? "vine.v86-bgi-window-dc-fill"
         : getClientRectEnabled

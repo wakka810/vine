@@ -133,6 +133,7 @@ export interface RuntimeWindowSnapshot {
   extendedStyle: number;
   effectiveExtendedStyle: number;
   style: number;
+  effectiveStyle: number;
   geometry: {
     x: number;
     y: number;
@@ -151,6 +152,7 @@ export interface RuntimeWindowSnapshot {
     | { state: "creating"; message: "non-client-create" | "non-client-calculate" | "create" | "size" | "move" }
     | { state: "created" };
   visible: boolean;
+  topmost: boolean;
 }
 
 export interface RuntimeComApartmentSnapshot {

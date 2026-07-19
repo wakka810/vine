@@ -16,9 +16,9 @@ use crate::runtime::{
     LOGICAL_WINDOW_HANDLE_NAMESPACE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
     RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
     RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
-    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeCursorResource, RuntimeCursorSource,
-    RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile, RuntimeRect,
-    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE, RuntimeCursorResource,
+    RuntimeCursorSource, RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile,
+    RuntimeRect, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
     RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeWindow,
     RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
@@ -29,13 +29,14 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 13;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 14;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
 pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v1";
+pub const SET_WINDOW_LONG_A_IMPLEMENTATION: &str = "user32.set-window-long-a.gwl-style.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
@@ -66,11 +67,14 @@ const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INVALID_WINDOW_HANDLE: u32 = 1400;
 const ERROR_DC_NOT_FOUND: u32 = 1425;
+const ERROR_INVALID_INDEX: u32 = 1413;
 const ERROR_INVALID_MENU_HANDLE: u32 = 1401;
 const ERROR_CLASS_ALREADY_EXISTS: u32 = 1410;
 const ERROR_RESOURCE_DATA_NOT_FOUND: u32 = 1812;
 const ERROR_RESOURCE_TYPE_NOT_FOUND: u32 = 1813;
 const ERROR_RESOURCE_NAME_NOT_FOUND: u32 = 1814;
+const GWL_STYLE: i32 = -16;
+const INVALID_WINDOW_LONG_INDEX: i32 = -100;
 const ERROR_RESOURCE_LANG_NOT_FOUND: u32 = 1815;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -114,6 +118,16 @@ pub struct User32SetWindowPosPolicy {
     pub initial_show_callback_flags: u32,
     pub initial_hide_callback_flags: u32,
     pub get_icon_w_param: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32SetWindowLongAPolicy {
+    pub profile_id: String,
+    pub style_index: i32,
+    pub requested_style: u32,
+    pub retained_style_mask: u32,
+    pub invalid_index: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -162,6 +176,7 @@ pub struct User32CreateWindowExAPolicy {
     pub extended_style: u32,
     pub effective_extended_style: u32,
     pub style: u32,
+    pub effective_style: u32,
     pub client_width: u32,
     pub client_height: u32,
     pub outer_width: u32,
@@ -193,6 +208,7 @@ pub struct User32CompatibilityPolicy {
     pub load_image_a: Option<User32LoadImageAPolicy>,
     pub send_message_a: Option<User32SendMessageAPolicy>,
     pub set_window_pos: Option<User32SetWindowPosPolicy>,
+    pub set_window_long_a: Option<User32SetWindowLongAPolicy>,
     pub load_cursor_a: Option<User32LoadCursorAPolicy>,
     pub register_class_ex_a: Option<User32RegisterClassExAPolicy>,
     pub get_system_metrics: Option<User32GetSystemMetricsPolicy>,
@@ -201,11 +217,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v13() -> Self {
+    pub fn controlled_v14() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-v13"
+            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-v14"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
@@ -251,6 +267,13 @@ impl User32CompatibilityPolicy {
                 initial_hide_callback_flags: 0x0000_1d9f,
                 get_icon_w_param: ICON_SMALL2,
             }),
+            set_window_long_a: Some(User32SetWindowLongAPolicy {
+                profile_id: "main-window-gwl-style-visible-v1".to_owned(),
+                style_index: GWL_STYLE,
+                requested_style: 0x90ca_0000,
+                retained_style_mask: 0x0400_0000,
+                invalid_index: INVALID_WINDOW_LONG_INDEX,
+            }),
             load_cursor_a: Some(User32LoadCursorAPolicy {
                 profile_id: "system-arrow-and-module-shared-cursor-v2".to_owned(),
                 arrow_resource_id: RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
@@ -287,6 +310,7 @@ impl User32CompatibilityPolicy {
                 extended_style: 0x0004_0000,
                 effective_extended_style: 0x0004_0100,
                 style: 0x80ca_0000,
+                effective_style: 0x84ca_0000,
                 client_width: 800,
                 client_height: 600,
                 outer_width: 806,
@@ -418,6 +442,23 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-set-window-pos-profile-invalid",
                 "User32 SetWindowPos profile requires the reached logical window, small-icon message, display, and show/hide callback sequence",
+            ));
+        }
+        if let Some(profile) = self.set_window_long_a.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.style_index != GWL_STYLE
+                || profile.requested_style == 0
+                || profile.requested_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+                || profile.retained_style_mask == 0
+                || profile.retained_style_mask & RUNTIME_WINDOW_STYLE_VISIBLE != 0
+                || profile.requested_style & profile.retained_style_mask != 0
+                || profile.invalid_index == profile.style_index
+                || self.create_window_ex_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-set-window-long-a-profile-invalid",
+                "User32 SetWindowLongA profile requires the reached GWL_STYLE visibility transition and retained native style bits",
             ));
         }
         if let Some(profile) = self.load_cursor_a.as_ref()
@@ -563,6 +604,8 @@ impl User32CompatibilityPolicy {
                 || profile.effective_extended_style & profile.extended_style
                     != profile.extended_style
                 || profile.style == 0
+                || profile.effective_style & profile.style != profile.style
+                || profile.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE != 0
                 || profile.client_width == 0
                 || profile.client_height == 0
                 || profile.outer_width
@@ -585,6 +628,27 @@ impl User32CompatibilityPolicy {
                     "user32-compatibility-policy",
                     "user32-create-window-profile-invalid",
                     "User32 window creation profile requires the reached styles, bounded copied names, contained 800x600 client geometry, and NULL unowned relations",
+                ));
+            }
+        }
+        if let Some(profile) = self.set_window_long_a.as_ref() {
+            let create = self.create_window_ex_a.as_ref().ok_or_else(|| {
+                ApiFault::runtime_defect(
+                    "user32-compatibility-policy",
+                    "user32-set-window-long-a-profile-invalid",
+                    "User32 SetWindowLongA profile requires a logical window creation profile",
+                )
+            })?;
+            let next_effective_style =
+                profile.requested_style | (create.effective_style & profile.retained_style_mask);
+            if profile.requested_style & create.style != create.style
+                || create.effective_style & profile.retained_style_mask == 0
+                || next_effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+            {
+                return Err(ApiFault::runtime_defect(
+                    "user32-compatibility-policy",
+                    "user32-set-window-long-a-profile-invalid",
+                    "User32 SetWindowLongA style transition must retain the created window style and make the effective style visible",
                 ));
             }
         }
@@ -654,6 +718,12 @@ pub fn dispatch_user32_api_with_policy(
             match handle_set_window_pos(policy, callback_return_sentinel, contract, frame, session)
             {
                 Ok(result) => result,
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        SET_WINDOW_LONG_A_IMPLEMENTATION => {
+            match handle_set_window_long_a(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
@@ -1305,6 +1375,67 @@ fn handle_send_message_a(
         frame: frame.clone(),
     })?;
     Ok(ApiHandlerResult::GuestCallback(request))
+}
+
+fn handle_set_window_long_a(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let style_policy = policy.set_window_long_a.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-windows",
+            "set-window-long-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical window style mutation",
+                policy.id
+            ),
+        )
+    })?;
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let index = required_argument(contract, frame, 1, "window-long index")? as i32;
+    let requested_style = required_argument(contract, frame, 2, "new window style")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+
+    if index == style_policy.invalid_index {
+        match session.runtime().window(window_handle) {
+            Ok(_) => {
+                return Ok(
+                    ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INVALID_INDEX)
+                );
+            }
+            Err(error) if error.code == "window-handle-unknown" => {
+                return Ok(ApiImmediate::new(ApiReturnValue::U32(0))
+                    .with_last_error(ERROR_INVALID_WINDOW_HANDLE));
+            }
+            Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        }
+    }
+    if index != style_policy.style_index || requested_style != style_policy.requested_style {
+        return Err(ApiFault::unsupported(
+            "user32-windows",
+            "set-window-long-a-variant-unsupported",
+            "SetWindowLongA arguments are outside the reached GWL_STYLE transition",
+        ));
+    }
+    match session.runtime_mut().set_window_style(
+        window_handle,
+        requested_style,
+        style_policy.retained_style_mask,
+    ) {
+        Ok(result) => Ok(
+            ApiImmediate::new(ApiReturnValue::U32(result.previous_effective_style))
+                .with_last_error(preserved_last_error),
+        ),
+        Err(error) if error.code == "window-handle-unknown" => {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(0))
+                .with_last_error(ERROR_INVALID_WINDOW_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
 }
 
 fn handle_set_window_pos(
@@ -2379,6 +2510,7 @@ fn handle_create_window_ex_a(
         extended_style,
         effective_extended_style: window_policy.effective_extended_style,
         style,
+        effective_style: window_policy.effective_style,
         geometry: RuntimeWindowGeometry {
             x,
             y,
@@ -3591,6 +3723,7 @@ pub fn user32_contract_for_endpoint(
         "LoadImageA" => Ok(Some(load_image_a_contract(endpoint)?)),
         "SendMessageA" => Ok(Some(send_message_a_contract(endpoint)?)),
         "SetWindowPos" => Ok(Some(set_window_pos_contract(endpoint)?)),
+        "SetWindowLongA" => Ok(Some(set_window_long_a_contract(endpoint)?)),
         "LoadCursorA" => Ok(Some(load_cursor_a_contract(endpoint)?)),
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
@@ -3733,6 +3866,27 @@ pub fn set_window_pos_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Required,
         implementation_id: SET_WINDOW_POS_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn set_window_long_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", false),
+                u32_argument("index"),
+                u32_argument("newValue"),
+            ],
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SET_WINDOW_LONG_A_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -4128,7 +4282,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v13();
+        let policy = User32CompatibilityPolicy::controlled_v14();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -4158,14 +4312,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v14();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v14();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -4176,21 +4330,32 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v14();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v14();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v14();
+        invalid_window_style
+            .set_window_long_a
+            .as_mut()
+            .unwrap()
+            .retained_style_mask = RUNTIME_WINDOW_STYLE_VISIBLE;
+        assert_eq!(
+            invalid_window_style.validate().unwrap_err().code,
+            "user32-set-window-long-a-profile-invalid"
+        );
+
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v14();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -4201,7 +4366,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v14();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -4213,7 +4378,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v14();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -4224,7 +4389,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v14();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -4235,7 +4400,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v14();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -4246,7 +4411,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v13();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v14();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

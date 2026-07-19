@@ -1281,6 +1281,13 @@ windowDcSelection.find(
 ).selectedObservations = ["window-dc"];
 assert.doesNotThrow(() => summarizeTrace(encode(windowDcSelection)));
 
+const setWindowLongASelection = structuredClone(events);
+setWindowLongASelection[0].arguments.observations = ["set-window-long-a"];
+setWindowLongASelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["set-window-long-a"];
+assert.doesNotThrow(() => summarizeTrace(encode(setWindowLongASelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

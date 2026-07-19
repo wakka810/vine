@@ -50,6 +50,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-system-metrics",
     "get-client-rect",
     "window-dc",
+    "set-window-long-a",
     "get-string-type-w",
     "lc-map-string-w",
     "get-last-error",

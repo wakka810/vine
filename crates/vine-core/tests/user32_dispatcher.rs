@@ -23,8 +23,8 @@ use vine_core::{
     get_client_rect_contract, get_dc_contract, get_stock_object_contract, get_system_menu_contract,
     get_system_metrics_contract, load_cursor_a_contract, load_icon_a_contract,
     load_image_a_contract, materialize_pe32_image, register_class_ex_a_contract,
-    release_dc_contract, send_message_a_contract, set_window_pos_contract,
-    swap_mouse_button_contract, user32_contract_for_endpoint,
+    release_dc_contract, send_message_a_contract, set_window_long_a_contract,
+    set_window_pos_contract, swap_mouse_button_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -100,6 +100,10 @@ const GET_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c9a4);
 const GET_STOCK_OBJECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c9ae);
 const FILL_RECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c9bb);
 const RELEASE_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c9cb);
+const SET_WINDOW_LONG_A_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0d30);
+const SET_WINDOW_LONG_A_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 52);
+const SET_WINDOW_LONG_A_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1fc0;
+const SET_WINDOW_LONG_A_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_cae3);
 const WINDOW_TITLE_BASE: u32 = MEMORY_BASE.0 + 0x2b00;
 const GET_SYSTEM_MENU_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b10);
 const ENABLE_MENU_ITEM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b20);
@@ -173,7 +177,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v13();
+        let policy = User32CompatibilityPolicy::controlled_v14();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -264,7 +268,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v13();
+        let mut policy = User32CompatibilityPolicy::controlled_v14();
         policy
             .swap_mouse_button
             .as_mut()
@@ -361,7 +365,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v13();
+        let policy = User32CompatibilityPolicy::controlled_v14();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -516,7 +520,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v13(),
+            policy: User32CompatibilityPolicy::controlled_v14(),
         }
     }
 
@@ -762,7 +766,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v13(),
+            policy: User32CompatibilityPolicy::controlled_v14(),
         }
     }
 
@@ -963,7 +967,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v13(),
+            policy: User32CompatibilityPolicy::controlled_v14(),
         }
     }
 
@@ -1009,6 +1013,7 @@ struct RegisterClassFixture {
     get_stock_object_endpoint: ApiEndpointIdentity,
     fill_rect_endpoint: ApiEndpointIdentity,
     release_dc_endpoint: ApiEndpointIdentity,
+    set_window_long_a_endpoint: ApiEndpointIdentity,
     window_procedure: GuestAddress,
     callback_sentinel: GuestAddress,
     policy: User32CompatibilityPolicy,
@@ -1096,6 +1101,10 @@ impl RegisterClassFixture {
             ),
             (FILL_RECT_IAT_ADDRESS, FILL_RECT_ENDPOINT_ADDRESS),
             (RELEASE_DC_IAT_ADDRESS, RELEASE_DC_ENDPOINT_ADDRESS),
+            (
+                SET_WINDOW_LONG_A_IAT_ADDRESS,
+                SET_WINDOW_LONG_A_ENDPOINT_ADDRESS,
+            ),
         ] {
             memory
                 .write_initialization(runtime_owner, address, &endpoint.0.to_le_bytes())
@@ -1494,6 +1503,21 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let set_window_long_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(212),
+            address: SET_WINDOW_LONG_A_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1428),
+            iat_address: SET_WINDOW_LONG_A_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "SetWindowLongA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let dispatcher = ApiDispatcher::new(
             [
                 icon_endpoint.clone(),
@@ -1509,6 +1533,7 @@ impl RegisterClassFixture {
                 get_stock_object_endpoint.clone(),
                 fill_rect_endpoint.clone(),
                 release_dc_endpoint.clone(),
+                set_window_long_a_endpoint.clone(),
             ],
             [
                 load_icon_a_contract(icon_endpoint.clone()).expect("icon contract"),
@@ -1529,10 +1554,12 @@ impl RegisterClassFixture {
                     .expect("GetStockObject contract"),
                 fill_rect_contract(fill_rect_endpoint.clone()).expect("FillRect contract"),
                 release_dc_contract(release_dc_endpoint.clone()).expect("ReleaseDC contract"),
+                set_window_long_a_contract(set_window_long_a_endpoint.clone())
+                    .expect("SetWindowLongA contract"),
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v13();
+        let policy = User32CompatibilityPolicy::controlled_v14();
         if configure_display {
             runtime
                 .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -1555,6 +1582,7 @@ impl RegisterClassFixture {
             get_stock_object_endpoint,
             fill_rect_endpoint,
             release_dc_endpoint,
+            set_window_long_a_endpoint,
             window_procedure,
             callback_sentinel,
             policy,
@@ -1848,6 +1876,29 @@ impl RegisterClassFixture {
             self.release_dc_endpoint.clone(),
             GuestAddress(RELEASE_DC_STACK_POINTER),
             RELEASE_DC_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_set_window_long_a(
+        &mut self,
+        window_handle: u32,
+        index: i32,
+        new_value: u32,
+    ) -> DispatchOutcome {
+        self.write_live_words(
+            GuestAddress(SET_WINDOW_LONG_A_STACK_POINTER),
+            &[
+                SET_WINDOW_LONG_A_RETURN_ADDRESS.0,
+                window_handle,
+                index as u32,
+                new_value,
+            ],
+        );
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.set_window_long_a_endpoint.clone(),
+            GuestAddress(SET_WINDOW_LONG_A_STACK_POINTER),
+            SET_WINDOW_LONG_A_RETURN_ADDRESS,
         )
     }
 
@@ -2350,6 +2401,26 @@ fn window_dc_slice_contracts_keep_user32_and_gdi32_frontends_separate() {
             .expect("GDI32 rejects User32 endpoint")
             .is_none()
     );
+}
+
+#[test]
+fn set_window_long_a_contract_is_immediate_three_word_stdcall_long() {
+    let fixture = RegisterClassFixture::new();
+    let contract = user32_contract_for_endpoint(fixture.set_window_long_a_endpoint.clone())
+        .expect("SetWindowLongA catalog lookup")
+        .expect("SetWindowLongA contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 3);
+    assert!(matches!(
+        &contract.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-window.v1" && !*nullable
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
 }
 
 #[test]
@@ -2924,6 +2995,73 @@ fn window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity() {
 }
 
 #[test]
+fn set_window_long_a_updates_effective_style_visibility_and_preserves_failures() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    let initial = fixture.runtime.window(window_handle).unwrap().clone();
+    assert_eq!(initial.creation.style, 0x80ca_0000);
+    assert_eq!(initial.creation.effective_style, 0x84ca_0000);
+    assert!(!initial.visible);
+
+    let before_invalid_window = fixture.runtime.windows().clone();
+    let invalid_window = match fixture.dispatch_set_window_long_a(0x4801_ffff, -16, 0x90ca_0000) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-window completion, got {other:?}"),
+    };
+    assert_eq!(invalid_window.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_window.last_error, 1400);
+    assert_eq!(fixture.runtime.windows(), &before_invalid_window);
+
+    let before_invalid_index = fixture.runtime.windows().clone();
+    let invalid_index = match fixture.dispatch_set_window_long_a(window_handle, -100, 0x90ca_0000) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-index completion, got {other:?}"),
+    };
+    assert_eq!(invalid_index.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_index.last_error, 1413);
+    assert_eq!(fixture.runtime.windows(), &before_invalid_index);
+
+    let before_unsupported = fixture.runtime.clone();
+    let unsupported = match fixture.dispatch_set_window_long_a(window_handle, -16, 0x80ca_0000) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected unsupported-style fault, got {other:?}"),
+    };
+    assert_eq!(unsupported.class, ApiFaultClass::Unsupported);
+    assert_eq!(unsupported.code, "set-window-long-a-variant-unsupported");
+    assert_eq!(fixture.runtime, before_unsupported);
+
+    let sentinel = 0x1122_3344;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed SetWindowLongA LastError");
+    let completion = match fixture.dispatch_set_window_long_a(window_handle, -16, 0x90ca_0000) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected SetWindowLongA completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0x84ca_0000));
+    assert_eq!(completion.last_error, sentinel);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(
+        completion.stack_pointer.0,
+        SET_WINDOW_LONG_A_STACK_POINTER + 16
+    );
+    let updated = fixture.runtime.window(window_handle).unwrap();
+    assert_eq!(updated.creation.style, 0x80ca_0000);
+    assert_eq!(updated.creation.effective_style, 0x94ca_0000);
+    assert!(updated.visible);
+
+    let before_repeated = fixture.runtime.clone();
+    let repeated = match fixture.dispatch_set_window_long_a(window_handle, -16, 0x90ca_0000) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated SetWindowLongA completion, got {other:?}"),
+    };
+    assert_eq!(repeated.eax, RegisterUpdate::Set(0x94ca_0000));
+    assert_eq!(repeated.last_error, sentinel);
+    assert_eq!(fixture.runtime, before_repeated);
+}
+
+#[test]
 fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation() {
     let mut unsupported = MetricsFixture::new(true);
     let generation = unsupported.memory.stats().generation;
@@ -3005,6 +3143,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
     disabled.policy.load_image_a = None;
     disabled.policy.send_message_a = None;
     disabled.policy.set_window_pos = None;
+    disabled.policy.set_window_long_a = None;
     let fault = match disabled.dispatch(0) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected disabled metrics policy fault, got {other:?}"),

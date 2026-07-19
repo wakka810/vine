@@ -33,18 +33,19 @@ use vine_core::{
     RuntimeSourceReadHostResponse, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
     RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
     RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack, RuntimeThreadStackGrowth,
-    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, SchedulerThreadState,
-    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
-    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
-    d3d9_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_gdi32_api,
-    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, encode_pointer_contract,
-    gdi32_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
-    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
-    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
-    heap_set_information_contract, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_controlled_process_environment,
+    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer,
+    SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION,
+    TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint, User32CompatibilityPolicy,
+    WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
+    build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
+    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_gdi32_api, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, encode_pointer_contract, gdi32_contract_for_endpoint,
+    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
+    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
+    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
+    install_callback_return_sentinel, install_controlled_initial_stack,
+    install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -181,6 +182,7 @@ enum GenericRuntimeCapability {
     LoadLibraryA,
     GetClientRect,
     WindowDcFill,
+    SetWindowLongA,
 }
 
 struct GenericRuntimeProcess {
@@ -2296,6 +2298,7 @@ fn run_v86_reflection_session(
                 GenericRuntimeCapability::LoadLibraryA
                     | GenericRuntimeCapability::GetClientRect
                     | GenericRuntimeCapability::WindowDcFill
+                    | GenericRuntimeCapability::SetWindowLongA
             )
         ) {
             let loader = kernel32_policy
@@ -2951,6 +2954,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
+                | GenericRuntimeCapability::SetWindowLongA
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -2979,11 +2983,12 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9CheckDeviceFormat
             | GenericRuntimeCapability::LoadLibraryA
             | GenericRuntimeCapability::GetClientRect
-            | GenericRuntimeCapability::WindowDcFill,
+            | GenericRuntimeCapability::WindowDcFill
+            | GenericRuntimeCapability::SetWindowLongA,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v13();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v14();
     if !matches!(
         user32_capability,
         Some(
@@ -3039,6 +3044,12 @@ fn run_v86_generic_runtime_session(
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
     ) {
         user32_policy.set_window_pos = None;
+    }
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::SetWindowLongA)
+    ) {
+        user32_policy.set_window_long_a = None;
     }
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -3320,6 +3331,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
+                | GenericRuntimeCapability::SetWindowLongA
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -4054,6 +4066,25 @@ fn run_v86_generic_runtime_session(
                             } else {
                                 None
                             };
+                        let window =
+                            if completion.implementation_id == SET_WINDOW_LONG_A_IMPLEMENTATION {
+                                let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "set-window-long-a-window-argument-missing",
+                                        "SetWindowLongA completion has no logical HWND argument",
+                                    )
+                                })?;
+                                Some(
+                                    session
+                                        .runtime()
+                                        .window(handle)
+                                        .map_err(runtime_state_error)?
+                                        .clone(),
+                                )
+                            } else {
+                                None
+                            };
                         let thread_affinity = if completion.implementation_id
                             == "kernel32.set-thread-affinity-mask.v1"
                         {
@@ -4172,7 +4203,7 @@ fn run_v86_generic_runtime_session(
                                 icon,
                                 cursor,
                                 window_class,
-                                window: None,
+                                window,
                                 thread_affinity,
                                 tick_count,
                                 com_apartment,
@@ -4513,6 +4544,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::LoadLibraryA
                             | GenericRuntimeCapability::GetClientRect
                             | GenericRuntimeCapability::WindowDcFill
+                            | GenericRuntimeCapability::SetWindowLongA
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4549,6 +4581,7 @@ fn run_v86_generic_runtime_session(
                                 | GenericRuntimeCapability::LoadLibraryA
                                 | GenericRuntimeCapability::GetClientRect
                                 | GenericRuntimeCapability::WindowDcFill
+                                | GenericRuntimeCapability::SetWindowLongA
                         )
                     ) {
                         dispatch_d3d9_com_call(&d3d9_policy, trap, &mut session)
@@ -4589,10 +4622,19 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let window_dc_fill_enabled = matches!(enabled, Some(GenericRuntimeCapability::WindowDcFill));
+    let set_window_long_a_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::SetWindowLongA));
+    let window_dc_fill_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::WindowDcFill | GenericRuntimeCapability::SetWindowLongA)
+    );
     let get_client_rect_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::GetClientRect | GenericRuntimeCapability::WindowDcFill)
+        Some(
+            GenericRuntimeCapability::GetClientRect
+                | GenericRuntimeCapability::WindowDcFill
+                | GenericRuntimeCapability::SetWindowLongA
+        )
     );
     let load_library_a_enabled = matches!(
         enabled,
@@ -4600,6 +4642,7 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
+                | GenericRuntimeCapability::SetWindowLongA
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -4614,6 +4657,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
+                | GenericRuntimeCapability::SetWindowLongA
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4646,6 +4690,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
+                | GenericRuntimeCapability::SetWindowLongA
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5124,6 +5169,7 @@ fn runtime_capability_enables_endpoint(
         "LoadLibraryA" => load_library_a_enabled,
         "GetClientRect" => get_client_rect_enabled,
         "GetDC" | "GetStockObject" | "FillRect" | "ReleaseDC" => window_dc_fill_enabled,
+        "SetWindowLongA" => set_window_long_a_enabled,
         _ => true,
     }
 }
@@ -5144,6 +5190,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
+                | GenericRuntimeCapability::SetWindowLongA
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -10877,6 +10924,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-load-library-a" => GenericRuntimeCapability::LoadLibraryA,
                 "user32-get-client-rect" => GenericRuntimeCapability::GetClientRect,
                 "gdi-window-dc-fill" => GenericRuntimeCapability::WindowDcFill,
+                "user32-set-window-long-a" => GenericRuntimeCapability::SetWindowLongA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

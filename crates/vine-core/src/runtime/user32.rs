@@ -26,6 +26,7 @@ pub const RUNTIME_WINDOW_HANDLE_BASE: u32 = 0x4801_0001;
 pub const RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID: u32 = 0x7f00;
 pub const RUNTIME_WINDOW_CLASS_ATOM_BASE: u16 = 0xc000;
 pub const RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES: u32 = 16;
+pub const RUNTIME_WINDOW_STYLE_VISIBLE: u32 = 0x1000_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -313,6 +314,8 @@ pub struct RuntimeSetWindowPosOperation {
     pub next_visible: bool,
     pub previous_topmost: bool,
     pub next_topmost: bool,
+    pub previous_effective_style: u32,
+    pub next_effective_style: u32,
     pub callback_flags: u32,
     pub small_icon_handle: u32,
 }
@@ -327,6 +330,7 @@ pub struct RuntimeWindowCreationRequest {
     pub extended_style: u32,
     pub effective_extended_style: u32,
     pub style: u32,
+    pub effective_style: u32,
     pub geometry: RuntimeWindowGeometry,
     pub parent: u32,
     pub menu: u32,
@@ -354,6 +358,15 @@ pub struct RuntimeWindow {
 pub struct RuntimeCreateWindowExAResult {
     pub window_id: RuntimeWindowId,
     pub handle: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSetWindowStyleResult {
+    pub previous_effective_style: u32,
+    pub effective_style: u32,
+    pub visible: bool,
+    pub changed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -464,6 +477,20 @@ enum RuntimeWindowSmallIconDisposition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeWindowStyleUpdateDisposition {
+    Unchanged {
+        window: RuntimeWindow,
+        previous_effective_style: u32,
+    },
+    Update {
+        previous: RuntimeWindow,
+        next: Box<RuntimeWindow>,
+        previous_effective_style: u32,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeSetWindowPosCallbackDisposition {
     Validate {
         window: RuntimeWindow,
@@ -511,6 +538,12 @@ pub(super) struct RuntimeWindowCreationCallbackPlan {
 pub(super) struct RuntimeWindowSmallIconPlan {
     expected_generation: u64,
     disposition: RuntimeWindowSmallIconDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWindowStyleUpdatePlan {
+    expected_generation: u64,
+    disposition: RuntimeWindowStyleUpdateDisposition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1819,6 +1852,112 @@ impl RuntimeUser32 {
         }
     }
 
+    pub(super) fn plan_window_style_update(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+        requested_style: u32,
+        retained_style_mask: u32,
+    ) -> Result<RuntimeWindowStyleUpdatePlan, RuntimeStateError> {
+        let previous = self.window(window_handle)?.clone();
+        self.validate_created_window_owner(&previous, owner_thread_id)?;
+        self.validate_window_icon_reference(previous.small_icon)?;
+        let effective_style =
+            requested_style | (previous.creation.effective_style & retained_style_mask);
+        let visible = effective_style & RUNTIME_WINDOW_STYLE_VISIBLE != 0;
+        let disposition = if effective_style == previous.creation.effective_style
+            && visible == previous.visible
+        {
+            RuntimeWindowStyleUpdateDisposition::Unchanged {
+                previous_effective_style: previous.creation.effective_style,
+                window: previous,
+            }
+        } else {
+            let mut next = previous.clone();
+            next.creation.effective_style = effective_style;
+            next.visible = visible;
+            RuntimeWindowStyleUpdateDisposition::Update {
+                previous_effective_style: previous.creation.effective_style,
+                previous,
+                next: Box::new(next),
+                next_generation: self.next_generation()?,
+            }
+        };
+        Ok(RuntimeWindowStyleUpdatePlan {
+            expected_generation: self.generation,
+            disposition,
+        })
+    }
+
+    pub(super) fn preflight_window_style_update(
+        &self,
+        plan: &RuntimeWindowStyleUpdatePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-style-plan-stale",
+                "User32 state changed after logical window style planning",
+            ));
+        }
+        let (previous, next) = match &plan.disposition {
+            RuntimeWindowStyleUpdateDisposition::Unchanged { window, .. } => (window, window),
+            RuntimeWindowStyleUpdateDisposition::Update { previous, next, .. } => {
+                (previous, next.as_ref())
+            }
+        };
+        if self.windows.get(&previous.id) != Some(previous)
+            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
+            || (next.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE != 0) != next.visible
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-style-plan-stale",
+                "logical window identity or style changed after style planning",
+            ));
+        }
+        self.validate_window_creation_references(&previous.creation)?;
+        self.validate_window_creation_references(&next.creation)?;
+        self.validate_window_icon_reference(previous.small_icon)?;
+        self.validate_window_icon_reference(next.small_icon)
+    }
+
+    pub(super) fn commit_window_style_update(
+        &mut self,
+        plan: RuntimeWindowStyleUpdatePlan,
+    ) -> Result<RuntimeSetWindowStyleResult, RuntimeStateError> {
+        self.preflight_window_style_update(&plan)?;
+        match plan.disposition {
+            RuntimeWindowStyleUpdateDisposition::Unchanged {
+                window,
+                previous_effective_style,
+            } => Ok(RuntimeSetWindowStyleResult {
+                previous_effective_style,
+                effective_style: window.creation.effective_style,
+                visible: window.visible,
+                changed: false,
+            }),
+            RuntimeWindowStyleUpdateDisposition::Update {
+                next,
+                previous_effective_style,
+                next_generation,
+                ..
+            } => {
+                let next = *next;
+                let result = RuntimeSetWindowStyleResult {
+                    previous_effective_style,
+                    effective_style: next.creation.effective_style,
+                    visible: next.visible,
+                    changed: true,
+                };
+                self.generation = next_generation;
+                let replaced = self.windows.insert(next.id, next);
+                debug_assert!(replaced.is_some());
+                Ok(result)
+            }
+        }
+    }
+
     pub(super) fn preview_set_window_pos(
         &self,
         owner_thread_id: RuntimeThreadId,
@@ -1839,6 +1978,11 @@ impl RuntimeUser32 {
         validate_window_creation_request(&next_creation)?;
         validate_position_geometry_transition(window.creation.geometry, request.next_geometry)?;
         let small_icon_handle = window.small_icon.map_or(0, |icon| icon.handle);
+        let next_effective_style = if request.next_visible {
+            window.creation.effective_style | RUNTIME_WINDOW_STYLE_VISIBLE
+        } else {
+            window.creation.effective_style & !RUNTIME_WINDOW_STYLE_VISIBLE
+        };
         match request.variant {
             RuntimeSetWindowPosVariant::InitialShow
                 if window.visible
@@ -1880,6 +2024,8 @@ impl RuntimeUser32 {
             next_visible: request.next_visible,
             previous_topmost: window.topmost,
             next_topmost: request.next_topmost,
+            previous_effective_style: window.creation.effective_style,
+            next_effective_style,
             callback_flags: request.callback_flags,
             small_icon_handle,
         })
@@ -2023,6 +2169,7 @@ impl RuntimeUser32 {
     ) -> Result<RuntimeSetWindowPosCallbackDisposition, RuntimeStateError> {
         let mut next = previous.clone();
         next.creation.geometry = operation.next_geometry;
+        next.creation.effective_style = operation.next_effective_style;
         next.visible = operation.next_visible;
         next.topmost = operation.next_topmost;
         Ok(RuntimeSetWindowPosCallbackDisposition::Update {
@@ -2047,10 +2194,17 @@ impl RuntimeUser32 {
             ));
         }
         let window = self.window_by_id(operation.window_id)?;
+        let expected_next_effective_style = if operation.next_visible {
+            operation.previous_effective_style | RUNTIME_WINDOW_STYLE_VISIBLE
+        } else {
+            operation.previous_effective_style & !RUNTIME_WINDOW_STYLE_VISIBLE
+        };
         if window.handle != operation.window_handle
             || window.creation.geometry != operation.previous_geometry
             || window.visible != operation.previous_visible
             || window.topmost != operation.previous_topmost
+            || window.creation.effective_style != operation.previous_effective_style
+            || operation.next_effective_style != expected_next_effective_style
             || window.small_icon.map_or(0, |icon| icon.handle) != operation.small_icon_handle
         {
             return Err(RuntimeStateError::conflict(
@@ -2323,6 +2477,7 @@ fn validate_window_creation_request(
         || request.name.value.as_bytes().contains(&0)
         || request.name.encoding != RUNTIME_WINDOW_NAME_A_ENCODING
         || request.style == 0
+        || request.effective_style & request.style != request.style
         || request.effective_extended_style & request.extended_style != request.extended_style
         || request.parent != 0
         || request.menu != 0
@@ -2929,6 +3084,7 @@ mod tests {
         };
         assert_eq!(shown.creation.geometry, show_geometry);
         assert!(shown.visible);
+        assert_eq!(shown.creation.effective_style, 0x94ca_0000);
         assert_eq!(user32.window(window_handle).unwrap(), &shown);
 
         let hide = user32
@@ -2993,7 +3149,9 @@ mod tests {
         assert!(matches!(
             hidden,
             RuntimeSetWindowPosCallbackAction::Completed { ref window }
-                if !window.visible && window.creation.geometry == show_geometry
+                if !window.visible
+                    && window.creation.geometry == show_geometry
+                    && window.creation.effective_style == 0x84ca_0000
         ));
         let before_duplicate = user32.clone();
         assert_eq!(
@@ -3004,6 +3162,63 @@ mod tests {
             "set-window-pos-callback-plan-stale"
         );
         assert_eq!(user32, before_duplicate);
+
+        let style_plan = user32
+            .plan_window_style_update(
+                window_handle,
+                RuntimeThreadId(0x2000),
+                0x90ca_0000,
+                0x0400_0000,
+            )
+            .unwrap();
+        let stale_style = style_plan.clone();
+        let style = user32.commit_window_style_update(style_plan).unwrap();
+        assert_eq!(style.previous_effective_style, 0x84ca_0000);
+        assert_eq!(style.effective_style, 0x94ca_0000);
+        assert!(style.visible);
+        assert!(style.changed);
+        assert_eq!(
+            user32
+                .commit_window_style_update(stale_style)
+                .unwrap_err()
+                .code,
+            "window-style-plan-stale"
+        );
+
+        let repeated = user32
+            .plan_window_style_update(
+                window_handle,
+                RuntimeThreadId(0x2000),
+                0x90ca_0000,
+                0x0400_0000,
+            )
+            .unwrap();
+        let before_repeated = user32.clone();
+        assert_eq!(
+            user32.commit_window_style_update(repeated).unwrap(),
+            RuntimeSetWindowStyleResult {
+                previous_effective_style: 0x94ca_0000,
+                effective_style: 0x94ca_0000,
+                visible: true,
+                changed: false,
+            }
+        );
+        assert_eq!(user32, before_repeated);
+
+        let before_unknown = user32.clone();
+        assert_eq!(
+            user32
+                .plan_window_style_update(
+                    window_handle + 1,
+                    RuntimeThreadId(0x2000),
+                    0x90ca_0000,
+                    0x0400_0000,
+                )
+                .unwrap_err()
+                .code,
+            "window-handle-unknown"
+        );
+        assert_eq!(user32, before_unknown);
     }
 
     fn resource(
@@ -3190,6 +3405,7 @@ mod tests {
             extended_style: 0x0004_0000,
             effective_extended_style: 0x0004_0100,
             style: 0x80ca_0000,
+            effective_style: 0x84ca_0000,
             geometry: RuntimeWindowGeometry {
                 x: 557,
                 y: 214,
