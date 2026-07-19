@@ -190,12 +190,12 @@
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {
     "imports": 0,
-    "bytes": 3352772,
-    "sha256": "232d805c421888c22afd627716eab95c51221f3add69927304ecaff990521bb7"
+    "bytes": 3352778,
+    "sha256": "12c75144628bd0d7390bc5298e55cc2e6756f8f6b3732ce4ab35f1bd32fcd02d"
   },
   "browserRuntimeFixture": {
     "bytes": 3584,
-    "sha256": "4697069e54b3f061b2c6c91fe0066741032a1d3963995cd052c716f7685be73b",
+    "sha256": "7e584ea6a241b09715ff85d855755aca8ce5a01a3f073edce0fcd65c24cda7fd",
     "nativeExitCode": 0
   },
   "browserSourceReadFixture": {
@@ -244,9 +244,9 @@
   },
   "browserRuntimeEvidence": {
     "chromeVersion": "150.0.7871.127",
-    "guestInstructions": 1923,
-    "cpuSlices": 250,
-    "budgetYields": 231,
+    "guestInstructions": 1945,
+    "cpuSlices": 252,
+    "budgetYields": 233,
     "hostRequests": 2,
     "rustSchedulerTransitions": 2,
     "registeredThreadIds": [8192, 8193],
@@ -258,12 +258,12 @@
     "threadExits": [
       {"threadId": 8193, "exitCode": 7, "markerAddress": 268447744, "markerValue": 1414025796}
     ],
-    "runtimeCoreLinearMemoryBytes": 1572864,
-    "executionEngineLinearMemoryBytes": 9830400,
+    "runtimeCoreLinearMemoryBytes": 1638400,
+    "executionEngineLinearMemoryBytes": 9961472,
     "executionStateMachine": {
       "success": {
         "finalState": "stopped",
-        "transitionCount": 754,
+        "transitionCount": 760,
         "lastTransitionTo": "stopped",
         "pendingHostRequestRecords": 0,
         "watchdogContext": null
@@ -293,8 +293,8 @@
     },
     "callbackEntries": 2,
     "maximumCallbackDepth": 2,
-    "writebackBatches": 62,
-    "writebackPages": 64,
+    "writebackBatches": 60,
+    "writebackPages": 62,
     "mappingDeltas": 7,
     "mappingOperations": {
       "reserve": 1,
@@ -313,7 +313,7 @@
     },
     "mirrorRebuilds": 1,
     "initialGeneration": 15,
-    "finalGeneration": 122,
+    "finalGeneration": 120,
     "pixelRgba": [255, 0, 0, 255],
     "toneHz": 880,
     "persistentByte": 90,

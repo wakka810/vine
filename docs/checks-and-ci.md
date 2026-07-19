@@ -231,6 +231,12 @@ does not contain or execute the private title. All jobs retain read-only reposit
 permissions; browser, benchmark, fuzz failure, and Windows reports are uploaded from
 their owning jobs.
 
+The browser-vertical D3D9 fixture keeps host and guest display authority separate:
+native Windows accepts a bounded nonzero `D3DDISPLAYMODE` shape because the runner's
+desktop mode is not deterministic, while the Vine adapter path requires the exact
+versioned 1920x1080／60 Hz／format-22 profile. A native host mode is never imported into
+the browser runtime.
+
 The source adapter has two exact host-build profiles with the same 22 imports,
 814 exports, adapter ABI version `1`, state ABI, and behavioral contract:
 

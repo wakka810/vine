@@ -120,6 +120,14 @@ static int fixture_d3d9_failure(fixture_idirect3d9 *direct3d, int result) {
   return result;
 }
 
+/* Native D3D9 reports the host's mode; Vine reports its logical profile. */
+static int fixture_d3d_display_mode_is_bounded(
+    const fixture_d3d_display_mode *mode) {
+  return mode->width > 0 && mode->width <= 32768 && mode->height > 0 &&
+         mode->height <= 32768 && mode->refresh_rate <= 1000 &&
+         mode->format != 0;
+}
+
 __declspec(dllexport) unsigned int __cdecl fixture_thread_entry(void) {
   fixture_thread_marker = 0x54485244u;
   return 7u;
@@ -156,8 +164,7 @@ int __cdecl fixture_entry(void) {
   if (direct3d->vtable->get_adapter_display_mode(direct3d, 0, &mode) != 0) {
     return fixture_d3d9_failure(direct3d, 5);
   }
-  if (mode.width != 1920 || mode.height != 1080 || mode.refresh_rate != 60 ||
-      mode.format != 22) {
+  if (!fixture_d3d_display_mode_is_bounded(&mode)) {
     return fixture_d3d9_failure(direct3d, 6);
   }
   fixture_d3d_adapter_identifier identifier;
@@ -189,6 +196,12 @@ int __cdecl fixture_entry(void) {
       identifier.vendor_id == 0 && identifier.device_id == 0 &&
       identifier.sub_sys_id == 0 && identifier.revision == 0 &&
       identifier.whql_level == 0 && has_vine_device_identifier;
+  const int has_vine_display_mode =
+      mode.width == 1920 && mode.height == 1080 && mode.refresh_rate == 60 &&
+      mode.format == 22;
+  if (has_vine_identity && !has_vine_display_mode) {
+    return fixture_d3d9_failure(direct3d, 8);
+  }
   if (!has_vine_identity &&
       (has_vine_driver || has_vine_description ||
        !fixture_fixed_string_is_present(identifier.driver, 512) ||

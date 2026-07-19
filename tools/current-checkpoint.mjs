@@ -405,9 +405,9 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     browserRuntimeCoreWasm.imports !== 0 ||
-    browserRuntimeCoreWasm.bytes !== 3_352_772 ||
+    browserRuntimeCoreWasm.bytes !== 3_352_778 ||
     browserRuntimeCoreWasm.sha256 !==
-      "232d805c421888c22afd627716eab95c51221f3add69927304ecaff990521bb7"
+      "12c75144628bd0d7390bc5298e55cc2e6756f8f6b3732ce4ab35f1bd32fcd02d"
   ) {
     errors.push("browser runtime core Wasm must remain import-free");
   }
@@ -424,26 +424,26 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     browserRuntimeFixture.bytes !== 3_584 ||
     browserRuntimeFixture.sha256 !==
-      "4697069e54b3f061b2c6c91fe0066741032a1d3963995cd052c716f7685be73b" ||
+      "7e584ea6a241b09715ff85d855755aca8ce5a01a3f073edce0fcd65c24cda7fd" ||
     browserRuntimeFixture.nativeExitCode !== 0
   ) {
     errors.push("browser runtime fixture identity is invalid");
   }
   if (
-    browserEvidence.guestInstructions !== 1_923 ||
-    browserEvidence.cpuSlices !== 250 ||
-    browserEvidence.budgetYields !== 231 ||
+    browserEvidence.guestInstructions !== 1_945 ||
+    browserEvidence.cpuSlices !== 252 ||
+    browserEvidence.budgetYields !== 233 ||
     browserEvidence.hostRequests !== 2 ||
     browserEvidence.rustSchedulerTransitions !== 2 ||
     browserEvidence.callbackEntries !== 2 ||
     browserEvidence.maximumCallbackDepth !== 2 ||
-    browserEvidence.writebackBatches !== 62 ||
-    browserEvidence.writebackPages !== 64 ||
+    browserEvidence.writebackBatches !== 60 ||
+    browserEvidence.writebackPages !== 62 ||
     browserEvidence.initialGeneration !== 15 ||
-    browserEvidence.finalGeneration !== 122 ||
-    browserEvidence.runtimeCoreLinearMemoryBytes !== 1_572_864 ||
-    browserEvidence.executionEngineLinearMemoryBytes !== 9_830_400 ||
-    browserEvidence.executionStateMachine?.success?.transitionCount !== 754 ||
+    browserEvidence.finalGeneration !== 120 ||
+    browserEvidence.runtimeCoreLinearMemoryBytes !== 1_638_400 ||
+    browserEvidence.executionEngineLinearMemoryBytes !== 9_961_472 ||
+    browserEvidence.executionStateMachine?.success?.transitionCount !== 760 ||
     browserEvidence.executionStateMachine?.cancellation?.transitionCount !== 12 ||
     browserEvidence.executionStateMachine?.watchdog?.transitionCount !== 12 ||
     browserEvidence.exitCode !== 0 ||

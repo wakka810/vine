@@ -34,7 +34,7 @@ use vine_core::{
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const FIXTURE_SHA256: &str = "4697069e54b3f061b2c6c91fe0066741032a1d3963995cd052c716f7685be73b";
+const FIXTURE_SHA256: &str = "7e584ea6a241b09715ff85d855755aca8ce5a01a3f073edce0fcd65c24cda7fd";
 const FIXTURE_MODULE: &str = "vine_browser_fixture.dll";
 const SOURCE_READ_FIXTURE_SHA256: &str =
     "292d298cb77a8223cb0f6fb66333457b3fab9b8e4f0c1643cf01936b769a1d63";

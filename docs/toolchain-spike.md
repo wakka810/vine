@@ -81,6 +81,7 @@ PE32 resource fixtureである。Toolchain scriptがdeterministic ICOとCOFF `.r
 - high-memory fixtureのPE32／LAA、image base、section flags、named probe exportを検証し、nativeでは起動しない
 - bootstrap FS／process-parameters fixturesがPE32／i386、import-free、required exportsを持ち、Windowsでexit code `0`になることを検証する
 - icon-resource fixtureがPE32／i386、group ID 101、language 1,041、three DIB leavesを持つことを検証する
+- `browser-vertical`のnative D3D9 oracleはhost display modeのbounded shapeを検査する。1920x1080／60 Hz／format 22の論理profileは、Vine identityが返るguest/browser経路でのみ厳密に検査し、Windows runnerのhost topologyをruntimeへimportしない
 - native processを30秒で打ち切り、paintに必要な通常のwindow表示を抑止しない
 - Wasm、EXE、DLL、import library、window／high-memory／bootstrap fixtures の size と SHA-256 を `report.json` に記録する
 

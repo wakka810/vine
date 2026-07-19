@@ -303,10 +303,10 @@
 ### P1-13 Windows native継続検証
 
 * **判定：** 解決済み（redistributable oracle band）。
-* **調査結果：** `run-toolchain-spike.mjs`はWindows上でABI、browser vertical、source read、DLL lifecycle、window pixel、FS、process parameters、TLS、FLSの9 PE32 fixtureをnative self-oracleとして実行するが、旧CIはUbuntuだけで全native exitをrecorded provenanceへ置換していた。
-* **変更内容：** `windows-2022` jobを追加した。llvm-mingw 20260616 UCRT x86_64 archiveをSHA-256 `b9b68a4d...ca35`で検証して導入し、`npm run check:toolchain`とtrace-summary parser contractを実行する。最初のremote runでllvm-mingwのWindows buildがWasm backendを持たないことを検出したため、PATH変更前のrunner LLVMを`--print-targets`で検査し、絶対pathを`VINE_WASM_CLANG`へ固定した。PE32は引き続きpinned llvm-mingwだけでbuildする。Private corpusやFrida traceは要求しない。
-* **検証結果：** 同じcommandはlocal Windowsで9 native exitsとartifact inspectionを通過する。Heavy Cargo buildと同じhostで並列実行した最初の試行だけ、新規link直後の`abi-smoke.exe` launchが30秒timeoutしたが、残存processはなく、同一artifactの単独実行は43 ms／exit 0、isolated full gateは全9 fixtureが初回exit 0だった。CI jobは専用hostで実行する。Release APIでasset名／URL／digestを照合し、workflow contractはWasm／PE compiler分離を検査する。CI reportはjob artifactとして保存される。
-* **未対応理由：** Primary BGI native traceは配布不能corpusとinteractive sessionを要するためpublic CIへ入れない。Public jobはWindows loader／ABIの継続性を担当し、title oracleはcommit-bound local gateとfocused traceに残す。
+* **調査結果：** `run-toolchain-spike.mjs`はWindows上でABI、browser vertical、source read、DLL lifecycle、window pixel、FS、process parameters、TLS、FLSの9 PE32 fixtureをnative self-oracleとして実行する。remote run `29706968785`／`29707055841`では、Windows runnerのhost display modeがVineの固定1920x1080／60 Hzと異なるため、`browser-vertical.exe`がexit code 6になることを再現した。これはguestの論理display profileとnative host topologyを同一authorityとして扱ったfixture契約の欠陥だった。
+* **変更内容：** `browser-vertical`のnative D3D9検査を、非zero・boundedな`D3DDISPLAYMODE` shapeへ変更し、Vine adapter identityが返るguest/browser経路では従来の1920x1080／60 Hz／format 22を厳密に要求するよう分離した。`windows-2022` jobのllvm-mingw 20260616 UCRT archive（SHA-256 `b9b68a4d...ca35`）とrunner LLVMの`--print-targets`検査／`VINE_WASM_CLANG`分離は維持した。fixture hash、Wasm bridge fingerprint、runtime-core identity、toolchain／CI文書を同じcheckpointで同期した。
+* **検証結果：** local Windows `npm run check:toolchain`は9 native exitsとartifact inspectionを通過し、`npm run check:runtime:browser-worker:prepared`は1,945 instructions／233 yields、pixel／audio／storage／source-read、cancel／watchdog cleanを再現した。旧remote runsのfailureはこの修正前の証跡として記録し、修正後HEADのCI runでWindows jobを再確認する。
+* **未対応理由：** Primary BGI native traceは配布不能corpusとinteractive sessionを要するためpublic CIへ入れない。Public jobはWindows loader／ABIとhost-independent fixture contractの継続性を担当し、title oracleはcommit-bound local gateとfocused traceに残す。
 
 ### P1-14 文書とcheckpoint情報の維持負荷
 
@@ -319,6 +319,6 @@
 ## 最終再検証
 
 * **調査結果：** 上記P0-01〜P0-10、P1-01〜P1-14をP0→P1順に再確認した。各項目は解決済み、またはactive scope・到達証拠・設計不変条件に基づく対応不要として判定されており、未判定項目は残っていない。未到達のfirst present、product audio、実入力、save／restart／load、一般thread／exceptionは、fixtureの成立性と混同せず、current manifestの`not-reached`／`fixture-only`境界を維持した。
-* **変更内容：** `d5ce1b6`でCI fixture依存、PE／Wasm toolchain分離、benchmarkのephemeral port、production setup budget、transaction composition回帰を修正した。`bc8a2bc`で修正後runtime-core Wasmの実測identity（3,352,772 bytes、SHA-256 `232d805c421888c22afd627716eab95c51221f3add69927304ecaff990521bb7`）を`docs/current-checkpoint.json`とvalidatorへ同期した。private gateはそのcommitに対するevidenceを再生成し、`docs/private-target-evidence.json`へ記録した。
+* **変更内容：** `d5ce1b6`でCI fixture依存、PE／Wasm toolchain分離、benchmarkのephemeral port、production setup budget、transaction composition回帰を修正した。今回のD3D9 native／guest境界修正に伴い、browser fixtureを3,584 bytes／SHA-256 `7e584ea6a241b09715ff85d855755aca8ce5a01a3f073edce0fcd65c24cda7fd`へ更新し、runtime-core Wasmの実測identity（3,352,778 bytes、SHA-256 `12c75144628bd0d7390bc5298e55cc2e6756f8f6b3732ce4ab35f1bd32fcd02d`）を`docs/current-checkpoint.json`とvalidatorへ同期した。private gateは最終implementation commitに対して再生成する。
 * **検証結果：** `npm run check:docs`、`npm run check:static`、`npm run check:private-target-contract`、`npm run check:private-target-evidence`がgreen。`npm run check:private-target -- --allow-dirty vine.zip`はNode／Chromeとも17,841 calls、11,807,189 instructions、structured stop `USER32.dll!MonitorFromWindow`、cancel／watchdog clean、benchmark failure 0で終了した。生成evidenceはvalidatorのpayload digest、implementation commit／tree、artifact identity検査を通過しており、実行ごとに変わるtimestamp／report digestを手書きのcurrent authorityへ複製していない。`vine.zip`はreview用の無関係な未追跡pathとして許可リストにのみ残し、commit対象から除外した。
 * **未対応理由：** 残る対応不要判定はレビュー上の未解決ではなく、AGENTS.mdでdeferredと定めた未到達scopeまたは独立oracleが必要なgatewayである。primary product milestoneへ昇格する条件は各項目の記録と`docs/roadmap.md`／`docs/risks-and-open-questions.md`に残しており、根拠なしの実装拡大は行っていない。
