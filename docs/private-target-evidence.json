@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 5,
   "status": "passed",
-  "recordedAt": "2026-07-19T14:20:57.174Z",
+  "recordedAt": "2026-07-19T14:35:50.694Z",
   "repository": {
-    "implementationCommit": "cb7ee7fd63a6d60009515359fa36151243308a13",
-    "implementationTree": "38e6fe18d1a8958b683526dc765283aec95c6b45",
-    "headCommit": "cb7ee7fd63a6d60009515359fa36151243308a13",
+    "implementationCommit": "18ccd9c91575b9c33ec3be3938dc8f04c19403ee",
+    "implementationTree": "95e72e5c24410d7983c22fa07eb54d1de8ab2af2",
+    "headCommit": "18ccd9c91575b9c33ec3be3938dc8f04c19403ee",
     "dirty": true,
     "dirtyPaths": [
       "vine.zip"
@@ -30,7 +30,7 @@
   },
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
-    "currentCheckpointSchemaVersion": 2,
+    "currentCheckpointSchemaVersion": 3,
     "runtimeCheckpoint": "user32-set-window-pos-activation",
     "runtimeProfile": "user32-set-window-pos-activation",
     "policySchema": "vine.kernel32-compatibility-policy",
@@ -177,8 +177,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 193039,
-      "sha256": "b40fcf7a5ed93cd74a41a73178949d65299657cf775d2bb10877082f1bef211d"
+      "bytes": 193040,
+      "sha256": "fe769a3371874a75d25afbf504b153b8f1d14fb1779b8fd8722fc66f27b1ddda"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -193,7 +193,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3764,
-      "sha256": "9e9c4cc398fd072d4211a8fb2e3309753e70bdfcdf352d25fbe83d28df5603ed"
+      "sha256": "8acd08e59f3ed2b797e5c4131020d684770ba670be72f0a2790175249ac878d2"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -230,5 +230,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a81b99df457675c7855cc86e3551371e89b5277e3767f53b0e7c53a19eb26063"
   },
-  "payloadSha256": "5be14b29bfa56c1cf60dd47dd93114cd6aedb1e9faa0a5408b2872990f5b968c"
+  "payloadSha256": "339c551c557f19afcd3c47bfbc50fdeedfec5d8bb037d337da0299851187fd56"
 }
