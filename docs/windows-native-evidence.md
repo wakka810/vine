@@ -3439,3 +3439,52 @@ recalculation、style-dependent non-client geometry、parent／child window、as
 positioningを実装済みとしない。今回のleafはgraphics frontend／logical resource／browser renderer境界を
 変更せず、D3D8／9／将来D3D10／11のguest frontend分離方針にも新しい例外を作らないため、直前の180秒
 runtime-system module lifecycle observationを性能正本として保持する。
+
+## 113. BGI same-geometry window activation
+
+Focused `set-window-pos-size` capturesは次のlocal raw artifactsである。Raw JSONL、native HWND／z-order
+HWND／thread ID、private absolute pathはGitへ追加せずsemantic goldenにも使わない。
+
+| Capture | Bytes／lines | Balanced API pairs | SHA-256 |
+|---|---:|---:|---|
+| primary | 83,322／97 | 17 | `ef72cfa7b0677d81a302e4201cb6e516a93c1e274741de70809e0ff730a67401` |
+| confirmation | 83,309／97 | 17 | `ae19ec55c88ee577ef4a32167b14f47f91f7fffc169de003634adde462d27753` |
+
+両captureはcontiguous sequence、diagnostics zeroである。BGI caller RVA `0x0005CB4B`はvisible main
+windowへ`SetWindowPos(hwnd,HWND_NOTOPMOST,0,0,806,629,0x10A)`を一回呼び、BOOL 1、LastError
+`0 -> 0`を得る。Callback message／resultは
+`WM_WINDOWPOSCHANGING(0)`二回、`WM_ACTIVATEAPP(0)`、`WM_NCACTIVATE(1)`、`WM_ACTIVATE(0)`、
+`WM_IME_SETCONTEXT(0)`、`WM_IME_NOTIFY(0)`、`WM_SETFOCUS(0)`の順である。最初のWINDOWPOS entryでは
+active／focusがNULL、foregroundがexternal、二回目ではactive／foregroundがtargetでfocusがNULL、IME／
+focus messageでは三relationともtargetとなる。Outer／client geometry、effective style、visibilityは不変で、
+`WM_WINDOWPOSCHANGED`／`WM_SIZE`／`WM_MOVE`は発生しない。Invalid HWND oracleは0／
+`ERROR_INVALID_WINDOW_HANDLE` 1,400を返す。CallerはBOOLを直後のhelper callで上書きし、直接branchしない。
+Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-15 User32 policyのsame-owner-thread／single-window activation variantだけを追加する。
+`RuntimeUser32`はthread別active／focus relationとprocess foreground relationをprivateに所有し、window recordへ
+booleanを重複させない。最初のWINDOWPOS callback完了後だけactive／foregroundをtargeted commitし、
+`DefWindowProcA(WM_ACTIVATE)`はnested IME callbackをpreflightした後にfocusをcommitする。Callback frame 12～19、
+same-depth replacement 5回、maximum depth 3を既存scheduler contractで処理する。Wrong owner／lifecycle／
+geometry／flags、unexpected result、stale／duplicate callback／focus planではrelation、window、callback stack、
+scratch memory、allocatorを部分更新しない。Native z-order HWNDとexternal thread IDはlogical identityへimportせず、
+Workerはimmutable completion snapshotだけを検証する。
+
+Nodeは83 contracts／17,841 calls、17,896 writebacks／36,046 dirty pages／1,807,316 changed bytes、
+16,562 host deltas、generation 34,590を通す。Reportは207,405,914 bytes／SHA-256
+`5d08b53e4c381c76f26af58bd4aee4aceafe8fb17df7b2b204a395e46422b202`、final memory SHA-256は
+`13e6603659b09600ef4e43984e8f6dbda97cc274cc9d1bec95adb507de1c7474`である。Chrome Runtime Workerも
+same ordered calls／11,807,189 instructions／memory digestを再現し、40,295 slices、22,399 budget yields、
+40,289 writebacks／87,903 pages、16,562 mapping deltas、callback entries 19／replacement 10／maximum depth 3、
+logical-window completions 5、generation 56,984、74,763 Wasm crossings、terminal pending work zeroを通す。
+Browser reportは24,204,712 bytes／SHA-256
+`94cd112b26c613f699ca0f827c1fa6984bae21cba946ff405fe8af4c3b212e90`である。
+
+次stopはinstruction 11,807,189、endpoint 206／
+`MonitorFromWindow(0x48010001,0x00000001)`、IAT `0x100D1410`、return `0x10059D19`の
+`endpoint-contract-missing`である。General resize、z-order、cross-thread／multi-window activation、IME
+composition、DOM focusは実装済みとしない。このwindow leafはgraphics frontend／logical resource／browser
+renderer境界を変更せず、D3D8／9／将来D3D10／11 frontendの分離方針にも例外を作らない。Worker crossingと
+resource topologyを変えるcheckpointではないため、直前の180秒runtime-system module lifecycle observationを
+性能正本として保持する。

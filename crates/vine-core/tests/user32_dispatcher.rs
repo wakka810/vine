@@ -2,29 +2,31 @@ use std::fs;
 use std::path::PathBuf;
 
 use vine_core::{
-    ApiDirection, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiOwnedTrap,
-    ApiPointeeSchema, ApiReturnSchema, ApiValueSchema, ApiWriteRequirement,
-    CALLBACK_SCRATCH_ARENA_BASE, CallbackPolicy, CallingConvention, DispatchOutcome,
-    ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
+    ApiDirection, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiGuestCallbackCall,
+    ApiImmediateCompletion, ApiOwnedTrap, ApiPointeeSchema, ApiReturnSchema, ApiValueSchema,
+    ApiWriteRequirement, CALLBACK_SCRATCH_ARENA_BASE, CallbackPolicy, CallingConvention,
+    DispatchOutcome, ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
     GuestCallbackCompletionPolicy, GuestMemory, GuestRange, ImportTarget, ImportThunk,
     ImportThunkDisposition, ImportThunkId, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
     LoaderIngressReport, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
-    ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressSpaceLayout,
+    ModuleSnapshot, PageProtection, Pe32Limits, PreparedGuestCallback, ProcessAddressSpaceLayout,
     RUNTIME_PRIMARY_MONITOR_HANDLE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
     RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeCursorSource,
     RuntimeDisplayProfile, RuntimeGuestCallbackSemanticAction, RuntimeInputProfile, RuntimeModule,
     RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeStartupInfo, RuntimeState, RuntimeSystemCursorKind,
-    RuntimeThreadId, RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
-    RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy,
-    build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
-    dispatch_gdi32_api, dispatch_user32_api_with_policy, enable_menu_item_contract,
-    enum_display_monitors_contract, fill_rect_contract, gdi32_contract_for_endpoint,
-    get_client_rect_contract, get_dc_contract, get_stock_object_contract, get_system_menu_contract,
-    get_system_metrics_contract, load_cursor_a_contract, load_icon_a_contract,
-    load_image_a_contract, materialize_pe32_image, register_class_ex_a_contract,
-    release_dc_contract, send_message_a_contract, set_window_long_a_contract,
-    set_window_pos_contract, swap_mouse_button_contract, user32_contract_for_endpoint,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeStartupInfo, RuntimeState,
+    RuntimeSystemCursorKind, RuntimeThreadId, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup,
+    User32CompatibilityPolicy, build_pe32_load_plan, create_window_ex_a_contract,
+    def_window_proc_a_contract, dispatch_gdi32_api, dispatch_user32_api_with_policy,
+    enable_menu_item_contract, enum_display_monitors_contract, fill_rect_contract,
+    gdi32_contract_for_endpoint, get_client_rect_contract, get_dc_contract,
+    get_stock_object_contract, get_system_menu_contract, get_system_metrics_contract,
+    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    register_class_ex_a_contract, release_dc_contract, send_message_a_contract,
+    set_window_long_a_contract, set_window_pos_contract, swap_mouse_button_contract,
+    user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -79,6 +81,7 @@ const SET_WINDOW_POS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 28
 const SET_WINDOW_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1e00;
 const SET_WINDOW_POS_SHOW_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f88);
 const SET_WINDOW_POS_HIDE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f9f);
+const SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_cb4b);
 const GET_CLIENT_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0c60);
 const GET_CLIENT_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 32);
 const GET_CLIENT_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f00;
@@ -177,7 +180,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v14();
+        let policy = User32CompatibilityPolicy::controlled_v15();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -268,7 +271,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v14();
+        let mut policy = User32CompatibilityPolicy::controlled_v15();
         policy
             .swap_mouse_button
             .as_mut()
@@ -365,7 +368,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v14();
+        let policy = User32CompatibilityPolicy::controlled_v15();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -520,7 +523,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v14(),
+            policy: User32CompatibilityPolicy::controlled_v15(),
         }
     }
 
@@ -766,7 +769,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v14(),
+            policy: User32CompatibilityPolicy::controlled_v15(),
         }
     }
 
@@ -967,7 +970,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v14(),
+            policy: User32CompatibilityPolicy::controlled_v15(),
         }
     }
 
@@ -1559,7 +1562,7 @@ impl RegisterClassFixture {
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v14();
+        let policy = User32CompatibilityPolicy::controlled_v15();
         if configure_display {
             runtime
                 .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -1921,11 +1924,21 @@ impl RegisterClassFixture {
         message: u32,
         l_param: u32,
     ) -> DispatchOutcome {
+        self.dispatch_def_window_proc_args(handle, message, 0, l_param)
+    }
+
+    fn dispatch_def_window_proc_args(
+        &mut self,
+        handle: u32,
+        message: u32,
+        w_param: u32,
+        l_param: u32,
+    ) -> DispatchOutcome {
         let words = [
             DEF_WINDOW_PROC_RETURN_ADDRESS.0,
             handle,
             message,
-            0,
+            w_param,
             l_param,
         ];
         let bytes = words
@@ -1983,6 +1996,89 @@ impl RegisterClassFixture {
             },
         )
     }
+}
+
+fn begin_fixture_callback(
+    fixture: &mut RegisterClassFixture,
+    call: &ApiGuestCallbackCall,
+) -> PreparedGuestCallback {
+    let prepared = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime)
+        .begin_guest_callback(call)
+        .expect("enter fixture callback");
+    fixture.acknowledge_pending_delta();
+    prepared
+}
+
+fn replace_fixture_callback(
+    fixture: &mut RegisterClassFixture,
+    call: ApiGuestCallbackCall,
+    result: u32,
+    frame_id: RuntimeCallbackFrameId,
+) -> (
+    ApiGuestCallbackCall,
+    PreparedGuestCallback,
+    RuntimeGuestCallbackSemanticAction,
+) {
+    let completion_policy = call.request.completion_policy;
+    let endpoint = call.frame.endpoint.clone();
+    let next = {
+        let mut session = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime);
+        match fixture
+            .dispatcher
+            .complete_guest_callback_result(call, result, &mut session)
+        {
+            DispatchOutcome::GuestCallback(next) => next,
+            other => panic!("expected replacement callback, got {other:?}"),
+        }
+    };
+    let (prepared, action) = {
+        let mut session = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime);
+        let prepared = session
+            .replace_guest_callback(&next, frame_id)
+            .expect("replace fixture callback");
+        let action = session
+            .commit_guest_callback_semantics(completion_policy, result, &endpoint)
+            .expect("commit replacement callback semantics")
+            .expect("replacement callback has semantic continuation");
+        (prepared, action)
+    };
+    fixture.acknowledge_pending_delta();
+    (next, prepared, action)
+}
+
+fn complete_fixture_callback(
+    fixture: &mut RegisterClassFixture,
+    call: ApiGuestCallbackCall,
+    result: u32,
+    frame_id: RuntimeCallbackFrameId,
+) -> (
+    ApiImmediateCompletion,
+    Option<RuntimeGuestCallbackSemanticAction>,
+) {
+    let completion_policy = call.request.completion_policy;
+    let endpoint = call.frame.endpoint.clone();
+    let completion = {
+        let mut session = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime);
+        match fixture
+            .dispatcher
+            .complete_guest_callback_result(call, result, &mut session)
+        {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected completed callback, got {other:?}"),
+        }
+    };
+    let action = {
+        let mut session = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime);
+        session
+            .runtime_mut()
+            .pop_callback_frame(frame_id)
+            .expect("retire fixture callback");
+        session
+            .commit_guest_callback_semantics(completion_policy, result, &endpoint)
+            .expect("commit completed callback semantics")
+    };
+    fixture.acknowledge_pending_delta();
+    (completion, action)
 }
 
 fn assert_send_message_fault_is_atomic(
@@ -4572,6 +4668,258 @@ fn set_window_pos_commits_show_and_hide_after_ordered_nested_callbacks() {
 }
 
 #[test]
+fn set_window_pos_same_geometry_activation_commits_ordered_focus_and_ime_callbacks() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_created_window_with_small_icon();
+    let style = match fixture.dispatch_set_window_long_a(window_handle, -16, 0x90ca_0000) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected visible style transition, got {other:?}"),
+    };
+    assert_eq!(style.eax, RegisterUpdate::Set(0x84ca_0000));
+    let initial_window = fixture.runtime.window(window_handle).unwrap().clone();
+    assert!(initial_window.visible);
+    assert_eq!(fixture.runtime.active_window_handle().unwrap(), None);
+    assert_eq!(fixture.runtime.focused_window_handle().unwrap(), None);
+    assert_eq!(fixture.runtime.foreground_window_handle().unwrap(), None);
+
+    fixture
+        .runtime
+        .set_current_last_error(0x1357_2468)
+        .expect("seed activation LastError");
+    fixture.configure_set_window_pos(
+        [window_handle, 0xffff_fffe, 0, 0, 806, 629, 0x0000_010a],
+        SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS,
+    );
+    let first_position =
+        match fixture.dispatch_set_window_pos(SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS) {
+            DispatchOutcome::GuestCallback(call) => call,
+            other => panic!("expected first activation WINDOWPOS callback, got {other:?}"),
+        };
+    assert_eq!(
+        first_position.request.arguments,
+        vec![
+            GuestCallbackArgument::U32(window_handle),
+            GuestCallbackArgument::U32(0x0046),
+            GuestCallbackArgument::U32(0),
+            GuestCallbackArgument::ScratchPointer { offset: 0 },
+        ]
+    );
+    assert_eq!(
+        first_position.request.scratch,
+        [window_handle, 0xffff_fffe, 0, 0, 806, 629, 0x0000_010a]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    let first_prepared = begin_fixture_callback(&mut fixture, &first_position);
+    assert!(matches!(
+        fixture.dispatch_def_window_proc(window_handle, 0x0046, first_prepared.scratch_address.0),
+        DispatchOutcome::Immediate(_)
+    ));
+    let (second_position, second_prepared, first_action) =
+        replace_fixture_callback(&mut fixture, first_position, 0, first_prepared.frame_id);
+    assert!(matches!(
+        first_action,
+        RuntimeGuestCallbackSemanticAction::SetWindowPos(
+            RuntimeSetWindowPosCallbackAction::Continue {
+                next_message: RuntimeSetWindowPosCallbackMessage::ActivationWindowPositionChanging,
+                ..
+            }
+        )
+    ));
+    assert_eq!(
+        fixture.runtime.active_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert_eq!(fixture.runtime.focused_window_handle().unwrap(), None);
+    assert_eq!(
+        fixture.runtime.foreground_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert_eq!(
+        second_position.request.scratch,
+        [window_handle, 0, 0, 0, 0, 0, 3]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    assert!(matches!(
+        fixture.dispatch_def_window_proc(window_handle, 0x0046, second_prepared.scratch_address.0),
+        DispatchOutcome::Immediate(_)
+    ));
+
+    let (activate_app, activate_app_prepared, _) =
+        replace_fixture_callback(&mut fixture, second_position, 0, second_prepared.frame_id);
+    assert_eq!(
+        activate_app.request.arguments,
+        [window_handle, 0x001c, 1, 0]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    assert!(matches!(
+        fixture.dispatch_def_window_proc_args(window_handle, 0x001c, 1, 0),
+        DispatchOutcome::Immediate(_)
+    ));
+
+    let (nc_activate, nc_activate_prepared, _) = replace_fixture_callback(
+        &mut fixture,
+        activate_app,
+        0,
+        activate_app_prepared.frame_id,
+    );
+    assert_eq!(
+        nc_activate.request.arguments,
+        [window_handle, 0x0086, 1, 0]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    let nc_default = fixture.dispatch_def_window_proc_args(window_handle, 0x0086, 1, 0);
+    assert!(matches!(
+        nc_default,
+        DispatchOutcome::Immediate(ref completion) if completion.eax == RegisterUpdate::Set(1)
+    ));
+
+    let (activate, activate_prepared, _) =
+        replace_fixture_callback(&mut fixture, nc_activate, 1, nc_activate_prepared.frame_id);
+    assert_eq!(
+        activate.request.arguments,
+        [window_handle, 0x0006, 1, 0]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    let ime_context = match fixture.dispatch_def_window_proc_args(window_handle, 0x0006, 1, 0) {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected nested WM_IME_SETCONTEXT, got {other:?}"),
+    };
+    assert_eq!(
+        fixture.runtime.focused_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert_eq!(
+        ime_context.request.arguments,
+        [window_handle, 0x0281, 1, 0xc000_000f]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    let ime_prepared = begin_fixture_callback(&mut fixture, &ime_context);
+    assert_eq!(
+        fixture
+            .runtime
+            .current_thread_state()
+            .unwrap()
+            .callback_frames
+            .len(),
+        2
+    );
+
+    let ime_notify =
+        match fixture.dispatch_def_window_proc_args(window_handle, 0x0281, 1, 0xc000_000f) {
+            DispatchOutcome::GuestCallback(call) => call,
+            other => panic!("expected nested WM_IME_NOTIFY, got {other:?}"),
+        };
+    assert_eq!(
+        ime_notify.request.arguments,
+        [window_handle, 0x0282, 2, 0]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    let notify_prepared = begin_fixture_callback(&mut fixture, &ime_notify);
+    assert_eq!(
+        fixture
+            .runtime
+            .current_thread_state()
+            .unwrap()
+            .callback_frames
+            .len(),
+        3
+    );
+    assert!(matches!(
+        fixture.dispatch_def_window_proc_args(window_handle, 0x0282, 2, 0),
+        DispatchOutcome::Immediate(_)
+    ));
+    let (_, notify_action) =
+        complete_fixture_callback(&mut fixture, ime_notify, 0, notify_prepared.frame_id);
+    assert_eq!(notify_action, None);
+
+    let (set_focus, focus_prepared, ime_action) =
+        replace_fixture_callback(&mut fixture, ime_context, 0, ime_prepared.frame_id);
+    assert!(matches!(
+        ime_action,
+        RuntimeGuestCallbackSemanticAction::SetWindowPosDefault(
+            RuntimeSetWindowPosDefaultCallbackAction::Continue {
+                next_message: RuntimeSetWindowPosDefaultCallbackMessage::SetFocus,
+                ..
+            }
+        )
+    ));
+    assert_eq!(
+        set_focus.request.arguments,
+        [window_handle, 0x0007, 0, 0]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    assert!(matches!(
+        fixture.dispatch_def_window_proc_args(window_handle, 0x0007, 0, 0),
+        DispatchOutcome::Immediate(_)
+    ));
+    let (activate_default, focus_action) =
+        complete_fixture_callback(&mut fixture, set_focus, 0, focus_prepared.frame_id);
+    assert_eq!(activate_default.eax, RegisterUpdate::Set(0));
+    assert!(matches!(
+        focus_action,
+        Some(RuntimeGuestCallbackSemanticAction::SetWindowPosDefault(
+            RuntimeSetWindowPosDefaultCallbackAction::Completed
+        ))
+    ));
+
+    let (completion, activation_action) =
+        complete_fixture_callback(&mut fixture, activate, 0, activate_prepared.frame_id);
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.last_error, 0x1357_2468);
+    assert_eq!(
+        completion.instruction_pointer,
+        SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS
+    );
+    let Some(RuntimeGuestCallbackSemanticAction::SetWindowPos(
+        RuntimeSetWindowPosCallbackAction::Completed { window: activated },
+    )) = activation_action
+    else {
+        panic!("expected completed activation action");
+    };
+    assert_eq!(activated, initial_window);
+    assert_eq!(
+        fixture.runtime.window(window_handle).unwrap(),
+        &initial_window
+    );
+    assert_eq!(
+        fixture.runtime.active_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert_eq!(
+        fixture.runtime.focused_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert_eq!(
+        fixture.runtime.foreground_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert!(
+        fixture
+            .runtime
+            .current_thread_state()
+            .unwrap()
+            .callback_frames
+            .is_empty()
+    );
+}
+
+#[test]
 fn set_window_pos_rejects_unreached_variants_and_invalid_state_atomically() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_created_window_with_small_icon();
@@ -4606,6 +4954,16 @@ fn set_window_pos_rejects_unreached_variants_and_invalid_state_atomically() {
             0x0000_0559,
             ApiFaultClass::Unsupported,
             "set-window-pos-variant-unsupported",
+        ),
+        (
+            0xffff_fffe,
+            0,
+            0,
+            806,
+            629,
+            0x0000_010a,
+            ApiFaultClass::InvalidCall,
+            "set-window-pos-activation-state-invalid",
         ),
         (
             0xffff_fffe,
@@ -4770,6 +5128,70 @@ fn set_window_pos_rejects_unreached_variants_and_invalid_state_atomically() {
 
 #[test]
 fn set_window_pos_callback_result_failures_do_not_publish_window_state() {
+    let mut wrong_activation_result = RegisterClassFixture::new();
+    let (activation_window, _) = wrong_activation_result.prepare_created_window_with_small_icon();
+    assert!(matches!(
+        wrong_activation_result.dispatch_set_window_long_a(activation_window, -16, 0x90ca_0000,),
+        DispatchOutcome::Immediate(_)
+    ));
+    wrong_activation_result.configure_set_window_pos(
+        [activation_window, 0xffff_fffe, 0, 0, 806, 629, 0x0000_010a],
+        SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS,
+    );
+    let activation_call = match wrong_activation_result
+        .dispatch_set_window_pos(SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS)
+    {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected activation callback, got {other:?}"),
+    };
+    let activation_prepared =
+        begin_fixture_callback(&mut wrong_activation_result, &activation_call);
+    let activation_before = wrong_activation_result.runtime.clone();
+    let activation_fault = {
+        let mut session = ExecutionSession::new(
+            &mut wrong_activation_result.memory,
+            &mut wrong_activation_result.runtime,
+        );
+        match wrong_activation_result
+            .dispatcher
+            .complete_guest_callback_result(activation_call, 1, &mut session)
+        {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected invalid activation callback result, got {other:?}"),
+        }
+    };
+    assert_eq!(activation_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(
+        activation_fault.code,
+        "set-window-pos-window-procedure-result-invalid"
+    );
+    assert_eq!(wrong_activation_result.runtime, activation_before);
+    assert_eq!(
+        wrong_activation_result
+            .runtime
+            .active_window_handle()
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        wrong_activation_result
+            .runtime
+            .focused_window_handle()
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        wrong_activation_result
+            .runtime
+            .foreground_window_handle()
+            .unwrap(),
+        None
+    );
+    wrong_activation_result
+        .runtime
+        .pop_callback_frame(activation_prepared.frame_id)
+        .expect("retire rejected activation callback");
+
     let mut wrong_position_result = RegisterClassFixture::new();
     let (window_handle, _) = wrong_position_result.prepare_created_window_with_small_icon();
     wrong_position_result.configure_set_window_pos(

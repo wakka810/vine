@@ -135,6 +135,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-get-client-rect",
         "gdi-window-dc-fill",
         "user32-set-window-long-a",
+        "user32-set-window-pos-activation",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -186,6 +187,7 @@ assert(
       "user32-get-client-rect",
       "gdi-window-dc-fill",
       "user32-set-window-long-a",
+      "user32-set-window-pos-activation",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -210,6 +212,7 @@ if (
     "user32-get-client-rect",
     "gdi-window-dc-fill",
     "user32-set-window-long-a",
+    "user32-set-window-pos-activation",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -227,7 +230,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "kernel32-load-library-a" ||
     genericRuntimeCapability === "user32-get-client-rect" ||
     genericRuntimeCapability === "gdi-window-dc-fill" ||
-    genericRuntimeCapability === "user32-set-window-long-a"
+    genericRuntimeCapability === "user32-set-window-long-a" ||
+    genericRuntimeCapability === "user32-set-window-pos-activation"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -362,7 +366,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const setWindowPosActivationEnabled =
+  genericRuntimeCapability === "user32-set-window-pos-activation";
 const setWindowLongAEnabled =
+  setWindowPosActivationEnabled ||
   genericRuntimeCapability === "user32-set-window-long-a";
 const windowDcFillEnabled =
   setWindowLongAEnabled || genericRuntimeCapability === "gdi-window-dc-fill";
@@ -563,7 +570,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? setWindowLongAEnabled
+      ? setWindowPosActivationEnabled
+        ? "v86-bgi-set-window-pos-activation"
+      : setWindowLongAEnabled
         ? "v86-bgi-set-window-long-a"
       : windowDcFillEnabled
         ? "v86-bgi-window-dc-fill"
@@ -4528,6 +4537,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setWindowPosActivationEnabled) {
+        validateSetWindowPosActivationResult(genericResult);
       } else if (setWindowLongAEnabled) {
         validateSetWindowLongAResult(genericResult);
       } else if (windowDcFillEnabled) {
@@ -4681,6 +4692,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : setWindowPosActivationEnabled
+            ? "bgi SetWindowPos same-geometry activation"
           : setWindowLongAEnabled
             ? "bgi SetWindowLongA GWL_STYLE"
           : windowDcFillEnabled
@@ -5881,6 +5894,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : setWindowPosActivationEnabled
+          ? 70
         : setWindowLongAEnabled
           ? 70
         : windowDcFillEnabled
@@ -6009,7 +6024,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-v14",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-activation-v15",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -11156,7 +11171,7 @@ function validateSetWindowPosInitialPlacementSummary(result) {
       trapInstructionCount: 11_476_612,
       arguments: [0x4801_0001, 0xffff_fffe, 15_360, 8_640, 0, 0, 0x0559],
       result: { action: "set", value: 1 },
-      implementationId: "user32.set-window-pos.v1",
+      implementationId: "user32.set-window-pos.v2",
       returnAddress: 0x1006_7f88,
       stackDelta: 32,
       lastError: 0,
@@ -11211,7 +11226,7 @@ function validateSetWindowPosInitialPlacementSummary(result) {
       trapInstructionCount: 11_476_797,
       arguments: [0x4801_0001, 0xffff_fffe, 0, 0, 0, 0, 0x059b],
       result: { action: "set", value: 1 },
-      implementationId: "user32.set-window-pos.v1",
+      implementationId: "user32.set-window-pos.v2",
       returnAddress: 0x1006_7f9f,
       stackDelta: 32,
       lastError: 0,
@@ -12208,6 +12223,199 @@ function validateSetWindowLongAResult(result) {
   assert.deepEqual(
     result.terminal.terminal.stackWords.slice(1, 8),
     [0x4801_0001, 0xffff_fffe, 0, 0, 806, 629, 0x10a],
+  );
+}
+
+function validateSetWindowPosActivationResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_841);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_896);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_046,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_316,
+  );
+  assert.equal(result.writebacks.at(-1).sequence, 17_842);
+  assert.equal(result.hostDeltas.length, 16_562);
+  assert.equal(result.hostDeltas.at(-1).sequence, 17_841);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_590);
+
+  const calls = result.supportedCalls.slice(-11);
+  assert.deepEqual(
+    calls.map((call) => ({
+      sequence: call.sequence,
+      symbol: call.symbol,
+      occurrence: call.occurrence,
+      instruction: call.trapInstructionCount,
+      arguments: call.arguments,
+      result: call.result,
+      implementationId: call.implementationId,
+    })),
+    [
+      {
+        sequence: 17_831,
+        symbol: "SetWindowPos",
+        occurrence: 3,
+        instruction: 11_806_645,
+        arguments: [0x4801_0001, 0xffff_fffe, 0, 0, 806, 629, 0x10a],
+        result: { action: "set", value: 1 },
+        implementationId: "user32.set-window-pos.v2",
+      },
+      ...[
+        [17_832, 9, 11_806_687, [0x4801_0001, 70, 0, 0x0050_1000], 0],
+        [17_833, 10, 11_806_742, [0x4801_0001, 70, 0, 0x0050_1000], 0],
+        [17_834, 11, 11_806_795, [0x4801_0001, 28, 1, 0], 0],
+        [17_835, 12, 11_806_851, [0x4801_0001, 134, 1, 0], 1],
+        [17_836, 13, 11_806_914, [0x4801_0001, 6, 1, 0], 0],
+        [17_837, 14, 11_806_961, [0x4801_0001, 641, 1, 0xc000_000f], 0],
+        [17_838, 15, 11_807_008, [0x4801_0001, 642, 2, 0], 0],
+        [17_839, 16, 11_807_074, [0x4801_0001, 7, 0, 0], 0],
+      ].map(([sequence, occurrence, instruction, callArguments, value]) => ({
+        sequence,
+        symbol: "DefWindowProcA",
+        occurrence,
+        instruction,
+        arguments: callArguments,
+        result: { action: "set", value },
+        implementationId: "user32.def-window-proc-a.v1",
+      })),
+      {
+        sequence: 17_840,
+        symbol: "IDirect3D9.Release",
+        occurrence: 1,
+        instruction: 11_807_149,
+        arguments: [0x0100_0004],
+        result: { kind: "u32", value: 0 },
+        implementationId: undefined,
+      },
+      {
+        sequence: 17_841,
+        symbol: "Direct3DCreate9",
+        occurrence: 2,
+        instruction: 11_807_158,
+        arguments: [32],
+        result: { action: "set", value: 0x0100_0004 },
+        implementationId: "d3d9.direct3d-create9.v1",
+      },
+    ],
+  );
+
+  const call = calls[0];
+  assert.equal(call.returnAddress, 0x1005_cb4b);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 32);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.callback, {
+    frameId: 16,
+    target: 0x1009_2550,
+    allocationStart: 0x006f_fd54,
+    stackPointer: 0x006f_fd54,
+    scratchAddress: 0,
+    scratchBytes: 0,
+    frameBytes: 20,
+    returnSentinel: 0x7f01_0000,
+    returnInstructionCount: 11_807_100,
+    result: 0,
+  });
+  assert.deepEqual(call.window.geometry, {
+    x: 15_360,
+    y: 8_640,
+    width: 806,
+    height: 629,
+    clientX: 15_363,
+    clientY: 8_666,
+    clientWidth: 800,
+    clientHeight: 600,
+  });
+  assert.equal(call.window.effectiveStyle, 0x94ca_0000);
+  assert.equal(call.window.visible, true);
+  assert.equal(call.window.topmost, false);
+
+  assert.deepEqual(
+    result.callbackEvents.slice(-16).map((event) => ({
+      action: event.action,
+      sequence: event.sequence,
+      frameId: event.frameId,
+      instructionCount: event.instructionCount,
+      target: event.target,
+      stackPointer: event.stackPointer,
+      result: event.result,
+    })),
+    [
+      ["enter", 17_831, 12, 11_806_645, 0x1009_2550, 0x006f_fd54],
+      ["return", 17_831, 12, 11_806_700, null, null, 0],
+      ["replace", 17_831, 13, 11_806_700, 0x1009_2550, 0x006f_fd54],
+      ["return", 17_831, 13, 11_806_755, null, null, 0],
+      ["replace", 17_831, 14, 11_806_755, 0x1009_2550, 0x006f_fd54],
+      ["return", 17_831, 14, 11_806_808, null, null, 0],
+      ["replace", 17_831, 15, 11_806_808, 0x1009_2550, 0x006f_fd54],
+      ["return", 17_831, 15, 11_806_864, null, null, 1],
+      ["replace", 17_831, 16, 11_806_864, 0x1009_2550, 0x006f_fd54],
+      ["enter", 17_836, 17, 11_806_914, 0x1009_2550, 0x006f_f990],
+      ["enter", 17_837, 18, 11_806_961, 0x1009_2550, 0x006f_f5c8],
+      ["return", 17_837, 18, 11_807_021, null, null, 0],
+      ["return", 17_836, 17, 11_807_034, null, null, 0],
+      ["replace", 17_836, 19, 11_807_034, 0x1009_2550, 0x006f_f990],
+      ["return", 17_836, 19, 11_807_087, null, null, 0],
+      ["return", 17_831, 16, 11_807_100, null, null, 0],
+    ].map(
+      ([action, sequence, frameId, instructionCount, target, stackPointer, result]) => ({
+        action,
+        sequence,
+        frameId,
+        instructionCount,
+        target: target ?? undefined,
+        stackPointer: stackPointer ?? undefined,
+        result: result ?? undefined,
+      }),
+    ),
+  );
+
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 206);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0cd0);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1410);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "MonitorFromWindow",
+  });
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.memory.physicalPages, 719);
+  assert.equal(result.fault.memory.generation, 34_590);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "13e6603659b09600ef4e43984e8f6dbda97cc274cc9d1bec95adb507de1c7474",
+  );
+
+  assert.equal(result.terminal.instructionCount, 11_807_189);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 206);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0cd0);
+  assert.equal(result.terminal.terminal.thunk.iatAddress, 0x100d_1410);
+  assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "MonitorFromWindow");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_9d19);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 3),
+    [0x4801_0001, 1],
   );
 }
 
@@ -14012,6 +14220,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : setWindowPosActivationEnabled
+          ? "vine.v86-bgi-set-window-pos-activation"
         : setWindowLongAEnabled
           ? "vine.v86-bgi-set-window-long-a"
         : windowDcFillEnabled

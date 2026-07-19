@@ -25,8 +25,10 @@ use crate::runtime::{
     RuntimeCallbackScratch, RuntimeDynamicEndpoint, RuntimeGuestImport, RuntimeGuestImportBinding,
     RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeHeapInitialization,
     RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosOperation, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
-    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowId,
+    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
+    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -595,6 +597,10 @@ pub enum GuestCallbackCompletionPolicy {
         operation: RuntimeSetWindowPosOperation,
         message: RuntimeSetWindowPosCallbackMessage,
     },
+    SetWindowPosDefault {
+        operation: RuntimeSetWindowPosDefaultOperation,
+        message: RuntimeSetWindowPosDefaultCallbackMessage,
+    },
 }
 
 impl GuestCallbackCompletionPolicy {
@@ -602,6 +608,7 @@ impl GuestCallbackCompletionPolicy {
         match (self, schema) {
             (Self::ReturnU32, ApiReturnSchema::U32)
             | (Self::ReturnConstantU32 { .. }, ApiReturnSchema::U32)
+            | (Self::SetWindowPosDefault { .. }, ApiReturnSchema::U32)
             | (Self::ReturnBool32, ApiReturnSchema::Bool32)
             | (Self::SetWindowPos { .. }, ApiReturnSchema::Bool32) => true,
             (
@@ -620,7 +627,9 @@ impl GuestCallbackCompletionPolicy {
             Self::ReturnU32 => ApiReturnValue::U32(result),
             Self::ReturnBool32 => ApiReturnValue::Bool32(result != 0),
             Self::ReturnConstantU32 { value } => ApiReturnValue::U32(value),
-            Self::CreateWindowExA { .. } | Self::SetWindowPos { .. } => return None,
+            Self::CreateWindowExA { .. }
+            | Self::SetWindowPos { .. }
+            | Self::SetWindowPosDefault { .. } => return None,
         };
         Some(ApiImmediate::new(value))
     }
@@ -630,6 +639,7 @@ impl GuestCallbackCompletionPolicy {
 pub enum RuntimeGuestCallbackSemanticAction {
     WindowCreation(RuntimeWindowCreationCallbackAction),
     SetWindowPos(RuntimeSetWindowPosCallbackAction),
+    SetWindowPosDefault(RuntimeSetWindowPosDefaultCallbackAction),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1233,6 +1243,15 @@ impl<'a> ExecutionSession<'a> {
                 Ok(Some(RuntimeGuestCallbackSemanticAction::SetWindowPos(
                     action,
                 )))
+            }
+            GuestCallbackCompletionPolicy::SetWindowPosDefault { operation, message } => {
+                let action = self
+                    .runtime
+                    .complete_set_window_pos_default_callback(operation, message, result)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                Ok(Some(
+                    RuntimeGuestCallbackSemanticAction::SetWindowPosDefault(action),
+                ))
             }
         }
     }
@@ -1896,6 +1915,9 @@ impl ApiDispatcher {
             }
             GuestCallbackCompletionPolicy::SetWindowPos { .. } => {
                 crate::user32::resolve_set_window_pos_callback(&call, result, session)
+            }
+            GuestCallbackCompletionPolicy::SetWindowPosDefault { .. } => {
+                crate::user32::resolve_set_window_pos_default_callback(&call, result, session)
             }
             GuestCallbackCompletionPolicy::ReturnU32
             | GuestCallbackCompletionPolicy::ReturnBool32

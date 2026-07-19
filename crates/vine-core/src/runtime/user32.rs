@@ -282,6 +282,7 @@ pub struct RuntimeWindowIconReference {
 pub enum RuntimeSetWindowPosVariant {
     InitialShow,
     InitialHide,
+    ActivateSameGeometry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -289,6 +290,18 @@ pub enum RuntimeSetWindowPosVariant {
 pub enum RuntimeSetWindowPosCallbackMessage {
     WindowPositionChanged,
     GetSmallIcon,
+    WindowPositionChanging,
+    ActivationWindowPositionChanging,
+    ActivateApplication,
+    NonClientActivate,
+    Activate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeSetWindowPosDefaultCallbackMessage {
+    ImeSetContext,
+    SetFocus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -299,6 +312,9 @@ pub struct RuntimeSetWindowPosRequest {
     pub next_visible: bool,
     pub next_topmost: bool,
     pub callback_flags: u32,
+    pub callback_insert_after: u32,
+    pub activation_insert_after: u32,
+    pub activation_internal_flags: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -317,7 +333,19 @@ pub struct RuntimeSetWindowPosOperation {
     pub previous_effective_style: u32,
     pub next_effective_style: u32,
     pub callback_flags: u32,
+    pub callback_insert_after: u32,
+    pub activation_insert_after: u32,
+    pub activation_internal_flags: u32,
     pub small_icon_handle: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSetWindowPosDefaultOperation {
+    pub window_id: RuntimeWindowId,
+    pub window_handle: u32,
+    pub owner_thread_id: RuntimeThreadId,
+    pub expected_generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -395,6 +423,16 @@ pub enum RuntimeSetWindowPosCallbackAction {
     Completed {
         window: RuntimeWindow,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+pub enum RuntimeSetWindowPosDefaultCallbackAction {
+    Continue {
+        operation: RuntimeSetWindowPosDefaultOperation,
+        next_message: RuntimeSetWindowPosDefaultCallbackMessage,
+    },
+    Completed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -502,6 +540,21 @@ enum RuntimeSetWindowPosCallbackDisposition {
         action: RuntimeSetWindowPosCallbackAction,
         next_generation: u64,
     },
+    Activate {
+        previous: RuntimeWindow,
+        action: RuntimeSetWindowPosCallbackAction,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeSetWindowPosFocusPlan {
+    expected_generation: u64,
+    window: RuntimeWindow,
+    previous_focused_window: Option<RuntimeWindowId>,
+    next_focused_window: RuntimeWindowId,
+    next_generation: u64,
+    operation: RuntimeSetWindowPosDefaultOperation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -560,6 +613,9 @@ pub(super) struct RuntimeUser32TeardownPlan {
     retired_cursors: usize,
     retired_window_classes: usize,
     retired_windows: usize,
+    retired_active_windows: usize,
+    retired_focused_windows: usize,
+    retired_foreground_window: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -587,6 +643,12 @@ pub(super) struct RuntimeUser32 {
     windows: BTreeMap<RuntimeWindowId, RuntimeWindow>,
     #[serde(skip)]
     window_handle_index: BTreeMap<u32, RuntimeWindowId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    active_windows: BTreeMap<RuntimeThreadId, RuntimeWindowId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    focused_windows: BTreeMap<RuntimeThreadId, RuntimeWindowId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    foreground_window: Option<RuntimeWindowId>,
     next_icon_id: u64,
     next_icon_handle: u32,
     next_cursor_id: u64,
@@ -612,6 +674,9 @@ impl Default for RuntimeUser32 {
             window_class_atom_index: BTreeMap::new(),
             windows: BTreeMap::new(),
             window_handle_index: BTreeMap::new(),
+            active_windows: BTreeMap::new(),
+            focused_windows: BTreeMap::new(),
+            foreground_window: None,
             next_icon_id: 1,
             next_icon_handle: RUNTIME_ICON_HANDLE_BASE,
             next_cursor_id: 1,
@@ -1509,6 +1574,9 @@ impl RuntimeUser32 {
             && self.cursors.is_empty()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
+            && self.active_windows.is_empty()
+            && self.focused_windows.is_empty()
+            && self.foreground_window.is_none()
         {
             return Ok(None);
         }
@@ -1519,6 +1587,9 @@ impl RuntimeUser32 {
             retired_cursors: self.cursors.len(),
             retired_window_classes: self.window_classes.len(),
             retired_windows: self.windows.len(),
+            retired_active_windows: self.active_windows.len(),
+            retired_focused_windows: self.focused_windows.len(),
+            retired_foreground_window: self.foreground_window.is_some(),
         }))
     }
 
@@ -1538,6 +1609,9 @@ impl RuntimeUser32 {
             || self.window_class_atom_index.len() != plan.retired_window_classes
             || self.windows.len() != plan.retired_windows
             || self.window_handle_index.len() != plan.retired_windows
+            || self.active_windows.len() != plan.retired_active_windows
+            || self.focused_windows.len() != plan.retired_focused_windows
+            || self.foreground_window.is_some() != plan.retired_foreground_window
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-user32",
@@ -1552,6 +1626,9 @@ impl RuntimeUser32 {
         debug_assert!(self.preflight_process_teardown(&plan).is_ok());
         self.windows.clear();
         self.window_handle_index.clear();
+        self.active_windows.clear();
+        self.focused_windows.clear();
+        self.foreground_window = None;
         self.window_classes.clear();
         self.window_class_name_index.clear();
         self.window_class_atom_index.clear();
@@ -2011,6 +2088,23 @@ impl RuntimeUser32 {
                     "initial logical window hide requires a visible non-topmost window with unchanged geometry",
                 ));
             }
+            RuntimeSetWindowPosVariant::ActivateSameGeometry
+                if !window.visible
+                    || window.topmost
+                    || !request.next_visible
+                    || request.next_topmost
+                    || request.next_geometry != window.creation.geometry
+                    || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+                    || self.active_windows.contains_key(&owner_thread_id)
+                    || self.focused_windows.contains_key(&owner_thread_id)
+                    || self.foreground_window.is_some() =>
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "set-window-pos-activation-state-invalid",
+                    "same-geometry activation requires one visible inactive owner-thread window and no imported foreground identity",
+                ));
+            }
             _ => {}
         }
         Ok(RuntimeSetWindowPosOperation {
@@ -2027,6 +2121,9 @@ impl RuntimeUser32 {
             previous_effective_style: window.creation.effective_style,
             next_effective_style,
             callback_flags: request.callback_flags,
+            callback_insert_after: request.callback_insert_after,
+            activation_insert_after: request.activation_insert_after,
+            activation_internal_flags: request.activation_internal_flags,
             small_icon_handle,
         })
     }
@@ -2037,7 +2134,9 @@ impl RuntimeUser32 {
         message: RuntimeSetWindowPosCallbackMessage,
         result: u32,
     ) -> Result<RuntimeSetWindowPosCallbackPlan, RuntimeStateError> {
-        let previous = self.validate_set_window_pos_operation(operation)?.clone();
+        let previous = self
+            .validate_set_window_pos_operation(operation, message)?
+            .clone();
         let disposition = match (operation.variant, message) {
             (
                 RuntimeSetWindowPosVariant::InitialShow,
@@ -2085,19 +2184,101 @@ impl RuntimeUser32 {
                 }
                 self.window_position_update_disposition(previous, operation)?
             }
-            (
-                RuntimeSetWindowPosVariant::InitialHide,
-                RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
-            ) => {
+            (RuntimeSetWindowPosVariant::InitialHide, _) => {
                 return Err(RuntimeStateError::invalid_input(
                     "runtime-user32",
                     "set-window-pos-callback-order-mismatch",
-                    "initial hide does not query the logical small icon",
+                    "initial hide received an out-of-order logical window callback",
+                ));
+            }
+            (RuntimeSetWindowPosVariant::InitialShow, _) => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-user32",
+                    "set-window-pos-callback-order-mismatch",
+                    "initial show received an out-of-order logical window callback",
+                ));
+            }
+            (
+                RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "initial activation WINDOWPOS")?;
+                let next_generation = self.next_generation()?;
+                let mut next_operation = operation;
+                next_operation.expected_generation = next_generation;
+                RuntimeSetWindowPosCallbackDisposition::Activate {
+                    previous: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: previous,
+                        operation: next_operation,
+                        next_message:
+                            RuntimeSetWindowPosCallbackMessage::ActivationWindowPositionChanging,
+                    },
+                    next_generation,
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                RuntimeSetWindowPosCallbackMessage::ActivationWindowPositionChanging,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "activation WINDOWPOS")?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: previous,
+                        operation,
+                        next_message: RuntimeSetWindowPosCallbackMessage::ActivateApplication,
+                    },
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                RuntimeSetWindowPosCallbackMessage::ActivateApplication,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "WM_ACTIVATEAPP")?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: previous,
+                        operation,
+                        next_message: RuntimeSetWindowPosCallbackMessage::NonClientActivate,
+                    },
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                RuntimeSetWindowPosCallbackMessage::NonClientActivate,
+            ) => {
+                require_set_window_pos_callback_result(result, 1, "WM_NCACTIVATE")?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: previous,
+                        operation,
+                        next_message: RuntimeSetWindowPosCallbackMessage::Activate,
+                    },
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                RuntimeSetWindowPosCallbackMessage::Activate,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "WM_ACTIVATE")?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
+                }
+            }
+            (RuntimeSetWindowPosVariant::ActivateSameGeometry, _) => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-user32",
+                    "set-window-pos-callback-order-mismatch",
+                    "same-geometry activation received an out-of-order logical window callback",
                 ));
             }
         };
         Ok(RuntimeSetWindowPosCallbackPlan {
-            expected_generation: operation.expected_generation,
+            expected_generation: self.generation,
             disposition,
         })
     }
@@ -2108,7 +2289,8 @@ impl RuntimeUser32 {
     ) -> &'a RuntimeSetWindowPosCallbackAction {
         match &plan.disposition {
             RuntimeSetWindowPosCallbackDisposition::Validate { action, .. }
-            | RuntimeSetWindowPosCallbackDisposition::Update { action, .. } => action,
+            | RuntimeSetWindowPosCallbackDisposition::Update { action, .. }
+            | RuntimeSetWindowPosCallbackDisposition::Activate { action, .. } => action,
         }
     }
 
@@ -2126,6 +2308,7 @@ impl RuntimeUser32 {
         let previous = match &plan.disposition {
             RuntimeSetWindowPosCallbackDisposition::Validate { window, .. } => window,
             RuntimeSetWindowPosCallbackDisposition::Update { previous, .. } => previous,
+            RuntimeSetWindowPosCallbackDisposition::Activate { previous, .. } => previous,
         };
         if self.windows.get(&previous.id) != Some(previous)
             || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
@@ -2137,7 +2320,25 @@ impl RuntimeUser32 {
             ));
         }
         self.validate_window_creation_references(&previous.creation)?;
-        self.validate_window_icon_reference(previous.small_icon)
+        self.validate_window_icon_reference(previous.small_icon)?;
+        if matches!(
+            &plan.disposition,
+            RuntimeSetWindowPosCallbackDisposition::Activate { .. }
+        ) && (self
+            .active_windows
+            .contains_key(&previous.creation.owner_thread_id)
+            || self
+                .focused_windows
+                .contains_key(&previous.creation.owner_thread_id)
+            || self.foreground_window.is_some())
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-window-pos-callback-plan-stale",
+                "logical activation relations changed after callback planning",
+            ));
+        }
+        Ok(())
     }
 
     pub(super) fn commit_set_window_pos_callback(
@@ -2157,6 +2358,25 @@ impl RuntimeUser32 {
                 self.generation = next_generation;
                 let replaced = self.windows.insert(next.id, next);
                 debug_assert!(replaced.is_some());
+                Ok(action)
+            }
+            RuntimeSetWindowPosCallbackDisposition::Activate {
+                previous,
+                action,
+                next_generation,
+                ..
+            } => {
+                let replaced = self
+                    .active_windows
+                    .insert(previous.creation.owner_thread_id, previous.id);
+                debug_assert!(replaced.is_none());
+                debug_assert!(
+                    !self
+                        .focused_windows
+                        .contains_key(&previous.creation.owner_thread_id)
+                );
+                self.foreground_window = Some(previous.id);
+                self.generation = next_generation;
                 Ok(action)
             }
         }
@@ -2185,8 +2405,16 @@ impl RuntimeUser32 {
     fn validate_set_window_pos_operation(
         &self,
         operation: RuntimeSetWindowPosOperation,
+        message: RuntimeSetWindowPosCallbackMessage,
     ) -> Result<&RuntimeWindow, RuntimeStateError> {
-        if self.generation != operation.expected_generation {
+        let focus_committed = operation.variant == RuntimeSetWindowPosVariant::ActivateSameGeometry
+            && message == RuntimeSetWindowPosCallbackMessage::Activate;
+        let expected_generation = if focus_committed {
+            operation.expected_generation.checked_add(1)
+        } else {
+            Some(operation.expected_generation)
+        };
+        if Some(self.generation) != expected_generation {
             return Err(RuntimeStateError::conflict(
                 "runtime-user32",
                 "set-window-pos-operation-stale",
@@ -2215,7 +2443,186 @@ impl RuntimeUser32 {
         }
         self.validate_created_window_owner(window, window.creation.owner_thread_id)?;
         self.validate_window_icon_reference(window.small_icon)?;
+        if operation.variant == RuntimeSetWindowPosVariant::ActivateSameGeometry {
+            let owner_thread_id = window.creation.owner_thread_id;
+            let target = Some(window.id);
+            let (expected_active, expected_focused, expected_foreground) =
+                if message == RuntimeSetWindowPosCallbackMessage::WindowPositionChanging {
+                    (None, None, None)
+                } else if focus_committed {
+                    (target, target, target)
+                } else {
+                    (target, None, target)
+                };
+            if self.active_windows.get(&owner_thread_id).copied() != expected_active
+                || self.focused_windows.get(&owner_thread_id).copied() != expected_focused
+                || self.foreground_window != expected_foreground
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "set-window-pos-activation-state-stale",
+                    "logical active, focused, or foreground relation changed during window positioning",
+                ));
+            }
+        }
         Ok(window)
+    }
+
+    pub(super) fn plan_set_window_pos_focus(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeSetWindowPosFocusPlan, RuntimeStateError> {
+        let window = self.window(window_handle)?.clone();
+        self.validate_created_window_owner(&window, owner_thread_id)?;
+        if self.active_windows.get(&owner_thread_id).copied() != Some(window.id)
+            || self.focused_windows.contains_key(&owner_thread_id)
+            || self.foreground_window != Some(window.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-window-pos-focus-state-invalid",
+                "activation default processing requires the active foreground window without logical focus",
+            ));
+        }
+        let next_generation = self.next_generation()?;
+        Ok(RuntimeSetWindowPosFocusPlan {
+            expected_generation: self.generation,
+            previous_focused_window: None,
+            next_focused_window: window.id,
+            operation: RuntimeSetWindowPosDefaultOperation {
+                window_id: window.id,
+                window_handle: window.handle,
+                owner_thread_id,
+                expected_generation: next_generation,
+            },
+            window,
+            next_generation,
+        })
+    }
+
+    pub(super) fn set_window_pos_focus_operation(
+        &self,
+        plan: &RuntimeSetWindowPosFocusPlan,
+    ) -> RuntimeSetWindowPosDefaultOperation {
+        plan.operation
+    }
+
+    pub(super) fn preflight_set_window_pos_focus(
+        &self,
+        plan: &RuntimeSetWindowPosFocusPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation
+            || self.windows.get(&plan.window.id) != Some(&plan.window)
+            || self
+                .active_windows
+                .get(&plan.operation.owner_thread_id)
+                .copied()
+                != Some(plan.window.id)
+            || self
+                .focused_windows
+                .get(&plan.operation.owner_thread_id)
+                .copied()
+                != plan.previous_focused_window
+            || self.foreground_window != Some(plan.window.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-window-pos-focus-plan-stale",
+                "logical activation state changed after focus planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_set_window_pos_focus(
+        &mut self,
+        plan: RuntimeSetWindowPosFocusPlan,
+    ) -> Result<RuntimeSetWindowPosDefaultOperation, RuntimeStateError> {
+        self.preflight_set_window_pos_focus(&plan)?;
+        self.focused_windows
+            .insert(plan.operation.owner_thread_id, plan.next_focused_window);
+        self.generation = plan.next_generation;
+        Ok(plan.operation)
+    }
+
+    pub(super) fn set_window_pos_default_callback_action(
+        &self,
+        operation: RuntimeSetWindowPosDefaultOperation,
+        message: RuntimeSetWindowPosDefaultCallbackMessage,
+        result: u32,
+    ) -> Result<RuntimeSetWindowPosDefaultCallbackAction, RuntimeStateError> {
+        self.validate_set_window_pos_default_operation(operation)?;
+        require_set_window_pos_callback_result(result, 0, "activation default callback")?;
+        Ok(match message {
+            RuntimeSetWindowPosDefaultCallbackMessage::ImeSetContext => {
+                RuntimeSetWindowPosDefaultCallbackAction::Continue {
+                    operation,
+                    next_message: RuntimeSetWindowPosDefaultCallbackMessage::SetFocus,
+                }
+            }
+            RuntimeSetWindowPosDefaultCallbackMessage::SetFocus => {
+                RuntimeSetWindowPosDefaultCallbackAction::Completed
+            }
+        })
+    }
+
+    fn validate_set_window_pos_default_operation(
+        &self,
+        operation: RuntimeSetWindowPosDefaultOperation,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != operation.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-window-pos-default-operation-stale",
+                "User32 state changed during activation default processing",
+            ));
+        }
+        let window = self.window_by_id(operation.window_id)?;
+        if window.handle != operation.window_handle
+            || window.creation.owner_thread_id != operation.owner_thread_id
+            || self.active_windows.get(&operation.owner_thread_id).copied() != Some(window.id)
+            || self
+                .focused_windows
+                .get(&operation.owner_thread_id)
+                .copied()
+                != Some(window.id)
+            || self.foreground_window != Some(window.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-window-pos-default-operation-stale",
+                "logical activation identity changed during default callback processing",
+            ));
+        }
+        self.validate_created_window_owner(window, operation.owner_thread_id)
+    }
+
+    pub fn active_window_handle(
+        &self,
+        owner_thread_id: RuntimeThreadId,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        self.window_relation_handle(self.active_windows.get(&owner_thread_id).copied())
+    }
+
+    pub fn focused_window_handle(
+        &self,
+        owner_thread_id: RuntimeThreadId,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        self.window_relation_handle(self.focused_windows.get(&owner_thread_id).copied())
+    }
+
+    pub fn foreground_window_handle(&self) -> Result<Option<u32>, RuntimeStateError> {
+        self.window_relation_handle(self.foreground_window)
+    }
+
+    fn window_relation_handle(
+        &self,
+        window_id: Option<RuntimeWindowId>,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        window_id
+            .map(|id| self.window_by_id(id).map(|window| window.handle))
+            .transpose()
     }
 
     fn validate_created_window_owner(
@@ -2285,6 +2692,9 @@ impl RuntimeUser32 {
             && self.cursors.is_empty()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
+            && self.active_windows.is_empty()
+            && self.focused_windows.is_empty()
+            && self.foreground_window.is_none()
     }
 
     fn next_generation(&self) -> Result<u64, RuntimeStateError> {
@@ -2296,6 +2706,21 @@ impl RuntimeUser32 {
             )
         })
     }
+}
+
+fn require_set_window_pos_callback_result(
+    actual: u32,
+    expected: u32,
+    callback: &'static str,
+) -> Result<(), RuntimeStateError> {
+    if actual != expected {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-user32",
+            "set-window-pos-window-procedure-result-invalid",
+            format!("{callback} must return the observed value {expected:#010x}"),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_icon_resource(resource: &RuntimeIconResource) -> Result<(), RuntimeStateError> {
@@ -3043,6 +3468,9 @@ mod tests {
                     next_visible: true,
                     next_topmost: false,
                     callback_flags: 0x1000_0d59,
+                    callback_insert_after: 0xffff_fffe,
+                    activation_insert_after: 0,
+                    activation_internal_flags: 3,
                 },
             )
             .unwrap();
@@ -3097,6 +3525,9 @@ mod tests {
                     next_visible: false,
                     next_topmost: false,
                     callback_flags: 0x0000_1d9f,
+                    callback_insert_after: 0xffff_fffe,
+                    activation_insert_after: 0,
+                    activation_internal_flags: 3,
                 },
             )
             .unwrap();
@@ -3134,6 +3565,9 @@ mod tests {
                     next_visible: false,
                     next_topmost: false,
                     callback_flags: 0x0000_1d9f,
+                    callback_insert_after: 0xffff_fffe,
+                    activation_insert_after: 0,
+                    activation_internal_flags: 3,
                 },
             )
             .unwrap();

@@ -604,9 +604,18 @@ Reached `SetWindowPos` profileでは、geometry、visibility、topmostとsmall-i
 off-screen outer／client geometryをplanし、`WM_WINDOWPOSCHANGED`からnested `WM_MOVE`、同depth replacementの
 `WM_GETICON(ICON_SMALL2)`へ進む。Expected icon identityまで確認したfinal callbackだけがgeometry、visible、
 topmostをtargeted commitする。Hide operationも`WM_WINDOWPOSCHANGED`完了後にvisibilityだけをcommitし、
-positionを保持する。Callback scratch、frame stack、operation generation、window lifecycleを全てpreflightし、
-callback result failureやstale operationではguest-visible stateを変更しない。Workerが受け取るCreateWindow／
-SetWindowPos final window snapshotはread-only observationであり、DOM／Canvas側に第二のWindows stateを作らない。
+positionを保持する。
+
+Same-geometry activationはwindow recordへactive／focus booleanを複製せず、`RuntimeUser32`がthread別active
+window／focus window relationとprocess foreground relationをprivateに所有する。最初の
+`WM_WINDOWPOSCHANGING`完了後だけactive／foregroundをcommitし、続く`WM_ACTIVATEAPP -> WM_NCACTIVATE ->
+WM_ACTIVATE`を検証する。`DefWindowProcA(WM_ACTIVATE)`はnested `WM_IME_SETCONTEXT -> WM_IME_NOTIFY`と
+same-depth replacementの`WM_SETFOCUS`をpreflightした後にfocus relationをcommitする。Native z-order HWNDと
+external thread IDはopaque host identityのためlogical relationへimportしない。Callback scratch、frame stack、
+operation／relation generation、window lifecycleを全てpreflightし、callback result failureやstale／duplicate
+planではguest-visible stateを変更しない。Workerが受け取るCreateWindow／SetWindowPos final window snapshotは
+read-only observationであり、DOM／Canvas側に第二のWindows stateを作らない。General resize、z-order、
+cross-thread／multi-window activationは別contractである。
 
 - Rust User32／window subsystemがlogical window tree、z-order、focus、capture、invalid regionを所有する
 - Runtime WorkerはCanvas／DOM等のbrowser resourceと明示的なnon-owning associationだけを所有する

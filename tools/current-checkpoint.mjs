@@ -562,6 +562,10 @@ export function validateCurrentCheckpoint(manifest) {
     "setWindowLongASequence",
     "setWindowLongALastError",
     "setWindowLongAGuestWriteBytes",
+    "setWindowPosActivationCompletions",
+    "setWindowPosActivationSequence",
+    "setWindowPosActivationLastError",
+    "setWindowPosActivationGuestWriteBytes",
   ]) {
     requireInteger(
       bgiBrowserEvidence[field],
@@ -632,10 +636,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_504 ||
     bgiBrowserEvidence.sourceReadCompletions !== 2 ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
-    bgiBrowserEvidence.callbackEntries !== 11 ||
-    bgiBrowserEvidence.callbackReplacements !== 5 ||
-    bgiBrowserEvidence.maximumCallbackDepth !== 2 ||
-    bgiBrowserEvidence.logicalWindowCompletions !== 4 ||
+    bgiBrowserEvidence.callbackEntries !== 19 ||
+    bgiBrowserEvidence.callbackReplacements !== 10 ||
+    bgiBrowserEvidence.maximumCallbackDepth !== 3 ||
+    bgiBrowserEvidence.logicalWindowCompletions !== 5 ||
     bgiBrowserEvidence.logicalWindowHandle !== "0x48010001" ||
     bgiBrowserEvidence.logicalWindowFinalLifecycle !== "created" ||
     bgiBrowserEvidence.logicalWindowRequestedStyle !== "0x80ca0000" ||
@@ -787,6 +791,26 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.setWindowLongAVisible !== true ||
     bgiBrowserEvidence.setWindowLongATopmost !== false ||
     bgiBrowserEvidence.setWindowLongAOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.setWindowPosActivationCompletions !== 1 ||
+    bgiBrowserEvidence.setWindowPosActivationSequence !== 17_831 ||
+    bgiBrowserEvidence.setWindowPosActivationArguments?.join(",") !==
+      "0x48010001,0xfffffffe,0x00000000,0x00000000,0x00000326,0x00000275,0x0000010a" ||
+    bgiBrowserEvidence.setWindowPosActivationResult !== "0x00000001" ||
+    bgiBrowserEvidence.setWindowPosActivationLastError !== 0 ||
+    bgiBrowserEvidence.setWindowPosActivationGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.setWindowPosActivationEffectiveStyle !== "0x94ca0000" ||
+    bgiBrowserEvidence.setWindowPosActivationGeometry?.join(",") !==
+      "15360,8640,806,629,15363,8666,800,600" ||
+    bgiBrowserEvidence.setWindowPosActivationVisible !== true ||
+    bgiBrowserEvidence.setWindowPosActivationTopmost !== false ||
+    bgiBrowserEvidence.setWindowPosActivationMessages?.join(",") !==
+      "70,70,28,134,6,641,642,7" ||
+    bgiBrowserEvidence.setWindowPosActivationMessageResults?.join(",") !==
+      "0,0,0,1,0,0,0,0" ||
+    bgiBrowserEvidence.setWindowPosActivationActiveWindow !== "0x48010001" ||
+    bgiBrowserEvidence.setWindowPosActivationFocusWindow !== "0x48010001" ||
+    bgiBrowserEvidence.setWindowPosActivationForegroundWindow !== "0x48010001" ||
+    bgiBrowserEvidence.setWindowPosActivationOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.browserOwnsGdiState !== false ||
     bgiBrowserEvidence.runtimeGraphicsCreatedByWindowDcSlice !== false ||
     bgiBrowserEvidence.browserRendererResourceCreatedByWindowDcSlice !== false
@@ -960,6 +984,12 @@ export function validateCurrentCheckpoint(manifest) {
   if (active.runtimeStateAuthority !== "rust") {
     errors.push("activeRuntimeCheckpoint.runtimeStateAuthority must be rust");
   }
+  if (
+    active.runtimeWindowActivationScope !==
+    "same-owner-thread-single-window-same-geometry-active-focus-foreground-callback-lifecycle"
+  ) {
+    errors.push("activeRuntimeCheckpoint window activation scope is invalid");
+  }
   const APIs = requireStringArray(
     active.genericDispatcherApis,
     "activeRuntimeCheckpoint.genericDispatcherApis",
@@ -1060,14 +1090,21 @@ export function validateCurrentCheckpoint(manifest) {
       .filter(
         (test) =>
           test !==
-          "user32_dispatcher::set_window_long_a_updates_effective_style_visibility_and_preserves_failures",
+            "user32_dispatcher::set_window_long_a_updates_effective_style_visibility_and_preserves_failures" &&
+          test !==
+            "user32_dispatcher::set_window_pos_same_geometry_activation_commits_ordered_focus_and_ime_callbacks",
       )
       .join(",") !==
       "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
     representativeAtomicTests.filter(
       (test) =>
         test ===
-        "user32_dispatcher::set_window_long_a_updates_effective_style_visibility_and_preserves_failures",
+          "user32_dispatcher::set_window_long_a_updates_effective_style_visibility_and_preserves_failures",
+    ).length !== 1 ||
+    representativeAtomicTests.filter(
+      (test) =>
+        test ===
+          "user32_dispatcher::set_window_pos_same_geometry_activation_commits_ordered_focus_and_ime_callbacks",
     ).length !== 1 ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
@@ -2380,11 +2417,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 14 ||
+    user32Policy.schemaVersion !== 15 ||
     user32Policy.id !==
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-v14" ||
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-activation-v15" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v14" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v15" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
@@ -2443,9 +2480,10 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.sendMessageAMutation !==
       "defwindowproc-wm-seticon-owner-plan-targeted-commit" ||
     user32Policy.sendMessageAFailureAtomicity !== true ||
-    user32Policy.setWindowPosProfileId !== "initial-offscreen-show-hide-v1" ||
+    user32Policy.setWindowPosProfileId !==
+      "initial-offscreen-show-hide-same-geometry-activation-v2" ||
     setWindowPosVariants.join(",") !==
-      "initial-offscreen-show,initial-hide-preserve-position" ||
+      "initial-offscreen-show,initial-hide-preserve-position,same-geometry-activation" ||
     user32Policy.setWindowPosInsertAfter !== "0xfffffffe" ||
     user32Policy.setWindowPosInitialShowScreenMultiplier !== 8 ||
     user32Policy.setWindowPosInitialShowFlags !== 1_369 ||
@@ -2453,10 +2491,22 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.setWindowPosInitialShowCallbackFlags !== 268_438_873 ||
     user32Policy.setWindowPosInitialHideCallbackFlags !== 7_583 ||
     user32Policy.setWindowPosGetIconWParam !== 2 ||
+    user32Policy.setWindowPosActivationFlags !== 266 ||
+    user32Policy.setWindowPosActivationInternalFlags !== 3 ||
+    user32Policy.setWindowPosActivationInsertAfter !== "0x00000000" ||
+    user32Policy.setWindowPosActivateAppOtherThreadId !== 0 ||
+    user32Policy.setWindowPosImeSetContextFlags !== "0xc000000f" ||
+    user32Policy.setWindowPosImeNotifyCommand !== 2 ||
     user32Policy.setWindowPosCallbackContract !==
-      "wm-windowposchanged-depth-two-wm-move-same-depth-wm-geticon" ||
+      "initial-wm-windowposchanged-depth-two-wm-move-same-depth-wm-geticon-or-activation-two-wm-windowposchanging-wm-activateapp-wm-ncactivate-wm-activate-depth-three-ime-and-focus" ||
     user32Policy.setWindowPosMutation !==
       "owner-operation-generation-callback-plan-targeted-commit" ||
+    user32Policy.setWindowPosActivationAuthority !==
+      "runtime/user32.rs::RuntimeUser32-thread-active-focus-process-foreground-relations" ||
+    user32Policy.setWindowPosActivationCommitOrder !==
+      "first-windowposchanging-return-active-and-foreground-then-wm-activate-default-focus" ||
+    user32Policy.setWindowPosHostIdentityNormalization !==
+      "native-z-order-hwnd-and-external-thread-id-not-imported" ||
     user32Policy.setWindowPosFailureAtomicity !== true ||
     user32Policy.setWindowLongAProfileId !==
       "main-window-gwl-style-visible-v1" ||
@@ -2561,7 +2611,8 @@ export function validateCurrentCheckpoint(manifest) {
     callbackScratchArena.slotBytes !== 4_096 ||
     user32Policy.callbackScratchMutation !==
       "address-memory-stack-and-frame-preflight-transaction" ||
-    defWindowProcAImplementedMessages.join(",") !== "129,131,5,3,128,71" ||
+    defWindowProcAImplementedMessages.join(",") !==
+      "129,131,5,3,128,71,70,28,134,6,641,642,7" ||
     user32Policy.defWindowProcALparamContract !==
       "bounded-message-dependent-scalar-or-pointer-union" ||
     user32Policy.invalidMenuProfileId !==
@@ -2580,6 +2631,11 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.windowEffectiveStyleMutationImplemented !== true ||
     user32Policy.windowGeometryMutationImplemented !== true ||
     user32Policy.windowTopmostStateImplemented !== true ||
+    user32Policy.windowActivationRelationsImplemented !== true ||
+    user32Policy.generalWindowActivationImplemented !== false ||
+    user32Policy.multiWindowActivationImplemented !== false ||
+    user32Policy.generalWindowResizeImplemented !== false ||
+    user32Policy.generalWindowZOrderImplemented !== false ||
     user32Policy.windowMessageQueueIntegrated !== false ||
     user32Policy.logicalWindowIconMutationImplemented !== true ||
     user32Policy.browserWindowIconMutationImplemented !== false ||
@@ -2739,6 +2795,8 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeSendMessageAConfirmationTraceSha256",
     "nativeSetWindowPosPrimaryTraceSha256",
     "nativeSetWindowPosConfirmationTraceSha256",
+    "nativeSetWindowPosActivationPrimaryTraceSha256",
+    "nativeSetWindowPosActivationConfirmationTraceSha256",
     "nativeLargeHeapPrimaryTraceSha256",
     "nativeLargeHeapConfirmationTraceSha256",
     "nativeCreateWindowExAPrimaryTraceSha256",
@@ -3367,11 +3425,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 17_877 ||
-    latestEvidence.writebackDirtyPages !== 36_023 ||
-    latestEvidence.writebackChangedBytes !== 1_807_080 ||
-    latestEvidence.hostDeltaBatches !== 16_552 ||
-    latestEvidence.finalMemoryGeneration !== 34_530
+    latestEvidence.writebackBatches !== 17_896 ||
+    latestEvidence.writebackDirtyPages !== 36_046 ||
+    latestEvidence.writebackChangedBytes !== 1_807_316 ||
+    latestEvidence.hostDeltaBatches !== 16_562 ||
+    latestEvidence.finalMemoryGeneration !== 34_590
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -3478,16 +3536,48 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.nativeSetWindowPosConsumer !==
       "bool-results-ignored-and-second-call-returns" ||
     latestEvidence.nativeSetWindowPosExecutableHashUnchanged !== true ||
+    latestEvidence.nativeSetWindowPosActivationPrimaryTraceBytes !== 83_322 ||
+    latestEvidence.nativeSetWindowPosActivationPrimaryTraceLines !== 97 ||
+    latestEvidence.nativeSetWindowPosActivationPrimaryBalancedApiPairs !== 17 ||
+    latestEvidence.nativeSetWindowPosActivationConfirmationTraceBytes !== 83_309 ||
+    latestEvidence.nativeSetWindowPosActivationConfirmationTraceLines !== 97 ||
+    latestEvidence.nativeSetWindowPosActivationConfirmationBalancedApiPairs !== 17 ||
+    latestEvidence.nativeSetWindowPosActivationTraceDiagnostics !== 0 ||
+    latestEvidence.nativeSetWindowPosActivationProfile !==
+      "x86-bgi-first-set-window-pos-size-v1" ||
+    latestEvidence.nativeSetWindowPosActivationCallsPerTrace !== 1 ||
+    latestEvidence.nativeSetWindowPosActivationCallerRva !== "0x0005cb4b" ||
+    latestEvidence.nativeSetWindowPosActivationResult !== 1 ||
+    latestEvidence.nativeSetWindowPosActivationEntryLastError !== 0 ||
+    latestEvidence.nativeSetWindowPosActivationExitLastError !== 0 ||
+    latestEvidence.nativeSetWindowPosActivationInvalidWindowResult !== 0 ||
+    latestEvidence.nativeSetWindowPosActivationInvalidWindowLastError !== 1_400 ||
+    latestEvidence.nativeSetWindowPosActivationCallbackMessages?.join(",") !==
+      "70,70,28,134,6,641,642,7" ||
+    latestEvidence.nativeSetWindowPosActivationCallbackResults?.join(",") !==
+      "0,0,0,1,0,0,0,0" ||
+    latestEvidence.nativeSetWindowPosActivationInitialRelations?.join(",") !==
+      "null,null,external" ||
+    latestEvidence.nativeSetWindowPosActivationSecondWindowPosRelations?.join(",") !==
+      "target,null,target" ||
+    latestEvidence.nativeSetWindowPosActivationImeAndFocusRelations?.join(",") !==
+      "target,target,target" ||
+    latestEvidence.nativeSetWindowPosActivationGeometryStyleVisibilityUnchanged !== true ||
+    latestEvidence.nativeSetWindowPosActivationWindowPosChangedSizeMoveAbsent !== true ||
+    latestEvidence.nativeSetWindowPosActivationConsumer !==
+      "bool-overwritten-by-immediate-helper-call" ||
+    latestEvidence.nativeSetWindowPosActivationExecutableHashUnchanged !== true ||
     latestEvidence.setWindowPosImplemented !== true ||
-    latestEvidence.setWindowPosCallCount !== 2 ||
-    latestEvidence.setWindowPosSequences?.join(",") !== "1402,1408" ||
+    latestEvidence.setWindowPosCallCount !== 3 ||
+    latestEvidence.setWindowPosSequences?.join(",") !== "1402,1408,17831" ||
     latestEvidence.setWindowPosInstructionCounts?.join(",") !==
-      "11476612,11476797" ||
+      "11476612,11476797,11806645" ||
     latestEvidence.setWindowPosReturnAddresses?.join(",") !==
-      "0x10067f88,0x10067f9f" ||
-    latestEvidence.setWindowPosResults?.join(",") !== "1,1" ||
-    latestEvidence.setWindowPosLastErrors?.join(",") !== "0,0" ||
+      "0x10067f88,0x10067f9f,0x1005cb4b" ||
+    latestEvidence.setWindowPosResults?.join(",") !== "1,1,1" ||
+    latestEvidence.setWindowPosLastErrors?.join(",") !== "0,0,0" ||
     latestEvidence.setWindowPosGuestWrites !== 0 ||
+    latestEvidence.setWindowPosImplementationId !== "user32.set-window-pos.v2" ||
     latestEvidence.setWindowPosStateOwner !==
       "runtime/user32.rs::RuntimeUser32" ||
     latestEvidence.setWindowPosWindowId !== 1 ||
@@ -3513,6 +3603,25 @@ export function validateCurrentCheckpoint(manifest) {
       "11476718,11476705,11476787,11476850" ||
     latestEvidence.setWindowPosMaximumCallbackDepth !== 2 ||
     latestEvidence.setWindowPosSameDepthReplacement !== true ||
+    latestEvidence.setWindowPosActivationCallbackFrameIds?.join(",") !==
+      "12,13,14,15,16,17,18,19" ||
+    latestEvidence.setWindowPosActivationCallbackMessages?.join(",") !==
+      "70,70,28,134,6,641,642,7" ||
+    latestEvidence.setWindowPosActivationCallbackResults?.join(",") !==
+      "0,0,0,1,0,0,0,0" ||
+    latestEvidence.setWindowPosActivationCallbackReturnInstructionCounts?.join(",") !==
+      "11806700,11806755,11806808,11806864,11807100,11807034,11807021,11807087" ||
+    latestEvidence.setWindowPosActivationMaximumCallbackDepth !== 3 ||
+    latestEvidence.setWindowPosActivationReplacementCount !== 5 ||
+    latestEvidence.setWindowPosActivationGeometryStyleVisibilityUnchanged !== true ||
+    latestEvidence.setWindowPosActivationActiveWindowHandle !== "0x48010001" ||
+    latestEvidence.setWindowPosActivationFocusWindowHandle !== "0x48010001" ||
+    latestEvidence.setWindowPosActivationForegroundWindowHandle !== "0x48010001" ||
+    latestEvidence.setWindowPosActivationHostZOrderIdentityImported !== false ||
+    latestEvidence.setWindowPosActivationExternalThreadIdentityImported !== false ||
+    latestEvidence.setWindowPosGeneralResizeImplemented !== false ||
+    latestEvidence.setWindowPosGeneralZOrderImplemented !== false ||
+    latestEvidence.setWindowPosMultiWindowActivationImplemented !== false ||
     latestEvidence.setWindowPosFailureAtomicity !== true ||
     latestEvidence.setWindowPosBrowserOwnsLogicalWindowState !== false ||
     latestEvidence.nativeCriticalSectionCapacityTraceBytes !== 66_177_215 ||
@@ -4505,15 +4614,15 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.callbackScratchAddressAllocationPurpose !== "callback-scratch" ||
     latestEvidence.callbackScratchSeparatedFromDescendingStack !== true ||
     latestEvidence.defWindowProcAImplemented !== true ||
-    latestEvidence.defWindowProcACallCount !== 8 ||
+    latestEvidence.defWindowProcACallCount !== 16 ||
     latestEvidence.defWindowProcASequences?.join(",") !==
-      "1389,1390,1393,1394,1399,1403,1404,1409" ||
+      "1389,1390,1393,1394,1399,1403,1404,1409,17832,17833,17834,17835,17836,17837,17838,17839" ||
     latestEvidence.defWindowProcAMessages?.join(",") !==
-      "129,131,5,3,128,71,3,71" ||
+      "129,131,5,3,128,71,3,71,70,70,28,134,6,641,642,7" ||
     latestEvidence.defWindowProcAResults?.join(",") !==
-      "1,0,0,0,0,0,0,0" ||
+      "1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0" ||
     latestEvidence.defWindowProcALastErrors?.join(",") !==
-      "0,0,1401,1401,0,0,0,0" ||
+      "0,0,1401,1401,0,0,0,0,0,0,0,0,0,0,0,0" ||
     latestEvidence.defWindowProcANonClientGuestWriteBytes !== 16 ||
     latestEvidence.defWindowProcAScalarLparamsDereferenced !== false ||
     latestEvidence.getSystemMenuImplemented !== true ||

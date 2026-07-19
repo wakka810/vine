@@ -12,6 +12,9 @@ const focusedWindowDcObservation =
 const focusedSetWindowLongAObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-long-a");
+const focusedSetWindowPosSizeObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("set-window-pos-size");
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
@@ -156,6 +159,10 @@ const setWindowPosMainModuleCalls = [];
 const setWindowPosWindowProcedureCalls = [];
 const setWindowPosDefaultProcedureCalls = [];
 const activeSetWindowPosCallsByThread = new Map();
+let setWindowPosWindowStateSnapshot = null;
+let setWindowPosSizeOracleScheduled = false;
+let setWindowPosSizeOracleComplete = false;
+let setWindowPosSizeOracleEvidence = null;
 let loadCursorAOracleScheduled = false;
 let loadCursorAOracleCall = null;
 let loadCursorAOracleComplete = false;
@@ -3661,7 +3668,8 @@ function attachBgiMainWindowProcedureHook() {
         this.traceFrame = null;
         return;
       }
-      this.windowHandle = args[0].toString();
+      this.windowHandlePointer = args[0];
+      this.windowHandle = this.windowHandlePointer.toString();
       this.wParam = args[2].toUInt32();
       this.lParam = args[3].toUInt32();
       this.windowPosition =
@@ -3670,6 +3678,11 @@ function attachBgiMainWindowProcedureHook() {
           ? snapshotWindowPosition(ptr(this.lParam))
           : null;
       this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.stateAtEntry =
+        this.recordSetWindowPos && setWindowPosWindowStateSnapshot !== null
+          ? setWindowPosWindowStateSnapshot(this.windowHandlePointer)
+          : null;
+      this.lastError = this.lastErrorBefore;
       this.traceFrame = beginCall(
         {
           module: Process.mainModule.name,
@@ -3689,6 +3702,7 @@ function attachBgiMainWindowProcedureHook() {
             wParam: this.wParam,
             lParam: this.lParam,
             windowPosition: this.windowPosition,
+            stateAtEntry: this.stateAtEntry,
           },
         },
         this.returnAddress,
@@ -3720,6 +3734,7 @@ function attachBgiMainWindowProcedureHook() {
         wParam: this.wParam,
         lParam: this.lParam,
         windowPosition: this.windowPosition,
+        stateAtEntry: this.stateAtEntry,
         result: resultValue,
         resultU32,
         lastErrorBefore: this.lastErrorBefore,
@@ -3780,11 +3795,17 @@ function attachSetWindowPosDefaultProcedureHook(module) {
         this.traceFrame = null;
         return;
       }
-      this.windowHandle = args[0].toString();
+      this.windowHandlePointer = args[0];
+      this.windowHandle = this.windowHandlePointer.toString();
       this.message = args[1].toUInt32();
       this.wParam = args[2].toUInt32();
       this.lParam = args[3].toUInt32();
       this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.stateAtEntry =
+        setWindowPosWindowStateSnapshot === null
+          ? null
+          : setWindowPosWindowStateSnapshot(this.windowHandlePointer);
+      this.lastError = this.lastErrorBefore;
       this.traceFrame = beginCall(
         {
           module: module.name,
@@ -3802,6 +3823,7 @@ function attachSetWindowPosDefaultProcedureHook(module) {
             message: this.message,
             wParam: this.wParam,
             lParam: this.lParam,
+            stateAtEntry: this.stateAtEntry,
           },
         },
         this.returnAddress,
@@ -3833,6 +3855,7 @@ function attachSetWindowPosDefaultProcedureHook(module) {
         message: this.message,
         wParam: this.wParam,
         lParam: this.lParam,
+        stateAtEntry: this.stateAtEntry,
         result: resultValue,
         resultU32,
         lastErrorBefore: this.lastErrorBefore,
@@ -3856,6 +3879,144 @@ function attachSetWindowPosHook(module) {
   attachBgiMainWindowProcedureHook();
   attachSetWindowPosDefaultProcedureHook(module);
 
+  const stateQueryExports = {
+    getWindowRect: findExport(module, "GetWindowRect"),
+    getClientRect: findExport(module, "GetClientRect"),
+    clientToScreen: findExport(module, "ClientToScreen"),
+    getWindowLongA: findExport(module, "GetWindowLongA"),
+    isWindowVisible: findExport(module, "IsWindowVisible"),
+    getActiveWindow: findExport(module, "GetActiveWindow"),
+    getFocus: findExport(module, "GetFocus"),
+    getForegroundWindow: findExport(module, "GetForegroundWindow"),
+  };
+  if (
+    focusedSetWindowPosSizeObservation &&
+    Object.values(stateQueryExports).some((exportAddress) => exportAddress === null)
+  ) {
+    throw new Error("SetWindowPos size state-query exports are unavailable");
+  }
+  const getWindowRect =
+    stateQueryExports.getWindowRect === null
+      ? null
+      : new NativeFunction(
+          stateQueryExports.getWindowRect,
+          "int32",
+          ["pointer", "pointer"],
+          "stdcall",
+        );
+  const getClientRect =
+    stateQueryExports.getClientRect === null
+      ? null
+      : new NativeFunction(
+          stateQueryExports.getClientRect,
+          "int32",
+          ["pointer", "pointer"],
+          "stdcall",
+        );
+  const clientToScreen =
+    stateQueryExports.clientToScreen === null
+      ? null
+      : new NativeFunction(
+          stateQueryExports.clientToScreen,
+          "int32",
+          ["pointer", "pointer"],
+          "stdcall",
+        );
+  const getWindowLongA =
+    stateQueryExports.getWindowLongA === null
+      ? null
+      : new NativeFunction(
+          stateQueryExports.getWindowLongA,
+          "int32",
+          ["pointer", "int32"],
+          "stdcall",
+        );
+  const isWindowVisible =
+    stateQueryExports.isWindowVisible === null
+      ? null
+      : new NativeFunction(
+          stateQueryExports.isWindowVisible,
+          "int32",
+          ["pointer"],
+          "stdcall",
+        );
+  const getActiveWindow =
+    stateQueryExports.getActiveWindow === null
+      ? null
+      : new NativeFunction(
+          stateQueryExports.getActiveWindow,
+          "pointer",
+          [],
+          "stdcall",
+        );
+  const getFocus =
+    stateQueryExports.getFocus === null
+      ? null
+      : new NativeFunction(stateQueryExports.getFocus, "pointer", [], "stdcall");
+  const getForegroundWindow =
+    stateQueryExports.getForegroundWindow === null
+      ? null
+      : new NativeFunction(
+          stateQueryExports.getForegroundWindow,
+          "pointer",
+          [],
+          "stdcall",
+        );
+  const windowRect = Memory.alloc(16);
+  const clientRect = Memory.alloc(16);
+  const clientOrigin = Memory.alloc(8);
+  const rectFields = (address) => ({
+    left: address.readS32(),
+    top: address.add(4).readS32(),
+    right: address.add(8).readS32(),
+    bottom: address.add(12).readS32(),
+  });
+  const snapshotWindowState = (windowHandle) => {
+    if (
+      getWindowRect === null ||
+      getClientRect === null ||
+      clientToScreen === null ||
+      getWindowLongA === null ||
+      isWindowVisible === null ||
+      getActiveWindow === null ||
+      getFocus === null ||
+      getForegroundWindow === null
+    ) {
+      return null;
+    }
+    windowRect.writeByteArray(Array(16).fill(0));
+    clientRect.writeByteArray(Array(16).fill(0));
+    clientOrigin.writeByteArray(Array(8).fill(0));
+    const windowRectResult = Number(getWindowRect(windowHandle, windowRect)) >>> 0;
+    const clientRectResult = Number(getClientRect(windowHandle, clientRect)) >>> 0;
+    const clientOriginResult = Number(
+      clientToScreen(windowHandle, clientOrigin),
+    ) >>> 0;
+    const windowRelation = (relatedWindow) => ({
+      windowHandle: relatedWindow.toString(),
+      isNull: relatedWindow.isNull(),
+      isTarget: relatedWindow.equals(windowHandle),
+    });
+    return {
+      style: Number(getWindowLongA(windowHandle, -16)) >>> 0,
+      extendedStyle: Number(getWindowLongA(windowHandle, -20)) >>> 0,
+      visible: Number(isWindowVisible(windowHandle)) !== 0,
+      windowRectResult,
+      windowRect: windowRectResult === 0 ? null : rectFields(windowRect),
+      clientRectResult,
+      clientRect: clientRectResult === 0 ? null : rectFields(clientRect),
+      clientOriginResult,
+      clientOrigin:
+        clientOriginResult === 0
+          ? null
+          : { x: clientOrigin.readS32(), y: clientOrigin.add(4).readS32() },
+      activeWindow: windowRelation(getActiveWindow()),
+      focusWindow: windowRelation(getFocus()),
+      foregroundWindow: windowRelation(getForegroundWindow()),
+    };
+  };
+  setWindowPosWindowStateSnapshot = snapshotWindowState;
+
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
@@ -3863,19 +4024,33 @@ function attachSetWindowPosHook(module) {
         this.traceFrame = null;
         return;
       }
-      if (caller.rva !== 0x00067f88 && caller.rva !== 0x00067f9f) {
-        this.traceFrame = null;
-        return;
-      }
       this.callerRva = caller.rva;
-      this.windowHandle = args[0].toString();
+      this.windowHandlePointer = args[0];
+      this.windowHandle = this.windowHandlePointer.toString();
       this.insertAfter = args[1].toString();
       this.x = signed32(args[2]);
       this.y = signed32(args[3]);
       this.width = signed32(args[4]);
       this.height = signed32(args[5]);
       this.flags = args[6].toUInt32();
+      const initialPlacementCall =
+        selectedObservations.has("set-window-pos") &&
+        (caller.rva === 0x00067f88 || caller.rva === 0x00067f9f);
+      const sizedCall =
+        selectedObservations.has("set-window-pos-size") &&
+        this.width > 0 &&
+        this.height > 0 &&
+        (this.flags & 0x0000_0001) === 0;
+      if (!initialPlacementCall && !sizedCall) {
+        this.traceFrame = null;
+        return;
+      }
+      this.observation = sizedCall ? "set-window-pos-size" : "set-window-pos";
       this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.stateBefore = sizedCall
+        ? snapshotWindowState(this.windowHandlePointer)
+        : null;
+      this.lastError = this.lastErrorBefore;
       this.immediateConsumer = {
         apiContinuation: snapshotInstructionsFollowingDirectJump(
           this.returnAddress,
@@ -3887,6 +4062,19 @@ function attachSetWindowPosHook(module) {
           24,
         ),
       };
+      const setWindowPos = {
+        windowHandle: this.windowHandle,
+        insertAfter: this.insertAfter,
+        x: this.x,
+        y: this.y,
+        width: this.width,
+        height: this.height,
+        flags: this.flags,
+        immediateConsumer: this.immediateConsumer,
+      };
+      if (this.stateBefore !== null) {
+        setWindowPos.stateBefore = this.stateBefore;
+      }
       this.traceFrame = beginCall(
         {
           module: module.name,
@@ -3901,16 +4089,7 @@ function attachSetWindowPosHook(module) {
             this.flags,
           ],
           lastErrorBefore: this.lastErrorBefore,
-          setWindowPos: {
-            windowHandle: this.windowHandle,
-            insertAfter: this.insertAfter,
-            x: this.x,
-            y: this.y,
-            width: this.width,
-            height: this.height,
-            flags: this.flags,
-            immediateConsumer: this.immediateConsumer,
-          },
+          setWindowPos,
         },
         this.returnAddress,
       );
@@ -3932,13 +4111,22 @@ function attachSetWindowPosHook(module) {
       const lastError = Number(this.lastError) >>> 0;
       const resultValue = result.toString();
       const resultU32 = result.toUInt32();
+      this.stateAfter =
+        this.observation === "set-window-pos-size"
+          ? snapshotWindowState(this.windowHandlePointer)
+          : null;
+      this.lastError = lastError;
+      const setWindowPos = { result: resultValue, resultU32 };
+      if (this.stateAfter !== null) {
+        setWindowPos.stateAfter = this.stateAfter;
+      }
       finishCall(
         this.traceFrame,
         {
           module: module.name,
           api: name,
           result: resultValue,
-          setWindowPos: { result: resultValue, resultU32 },
+          setWindowPos,
         },
         this.lastError,
       );
@@ -3958,11 +4146,87 @@ function attachSetWindowPosHook(module) {
           resultU32,
           lastErrorBefore: this.lastErrorBefore,
           lastError,
+          observation: this.observation,
+          stateBefore: this.stateBefore,
+          stateAfter: this.stateAfter,
           immediateConsumer: this.immediateConsumer,
         });
+        if (this.observation === "set-window-pos-size") {
+          scheduleSetWindowPosSizeOracle(module, {
+            insertAfter: this.insertAfter,
+            x: this.x,
+            y: this.y,
+            width: this.width,
+            height: this.height,
+            flags: this.flags,
+          });
+        }
         setImmediate(maybeCompleteSetWindowPosObservation);
       }
     },
+  });
+}
+
+function scheduleSetWindowPosSizeOracle(module, reachedCall) {
+  if (setWindowPosSizeOracleScheduled) {
+    return;
+  }
+  setWindowPosSizeOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "SetWindowPos");
+      const kernel32 = Process.getModuleByName("kernel32.dll");
+      const setLastErrorAddress = findExport(kernel32, "SetLastError");
+      if (address === null || setLastErrorAddress === null) {
+        throw new Error("SetWindowPos size oracle exports are unavailable");
+      }
+      const setWindowPos = new SystemFunction(
+        address,
+        "int32",
+        [
+          "pointer",
+          "pointer",
+          "int32",
+          "int32",
+          "int32",
+          "int32",
+          "uint32",
+        ],
+        "stdcall",
+      );
+      const setLastError = new SystemFunction(
+        setLastErrorAddress,
+        "void",
+        ["uint32"],
+        "stdcall",
+      );
+      const sentinel = 0x55667788;
+      setLastError(sentinel);
+      const outcome = setWindowPos(
+        ptr("0x1234"),
+        ptr(reachedCall.insertAfter),
+        reachedCall.x,
+        reachedCall.y,
+        reachedCall.width,
+        reachedCall.height,
+        reachedCall.flags,
+      );
+      setWindowPosSizeOracleEvidence = {
+        profile: "x86-set-window-pos-size-invalid-window-v1",
+        call: {
+          windowHandle: "0x1234",
+          ...reachedCall,
+          sentinel,
+          result: Number(outcome.value) >>> 0,
+          lastError: Number(outcome.lastError) >>> 0,
+        },
+      };
+      setWindowPosSizeOracleComplete = true;
+      emit("set-window-pos-size-oracle", setWindowPosSizeOracleEvidence);
+      maybeCompleteSetWindowPosObservation();
+    } catch (error) {
+      emit("set-window-pos-size-oracle-error", { error: error.message });
+    }
   });
 }
 
@@ -10035,9 +10299,19 @@ function maybeCompleteSendMessageAObservation() {
 }
 
 function maybeCompleteSetWindowPosObservation() {
+  const sizeObservation = selectedObservations.has("set-window-pos-size");
+  const selectedMainCalls = sizeObservation
+    ? setWindowPosMainModuleCalls.filter(
+        (call) => call.observation === "set-window-pos-size",
+      )
+    : setWindowPosMainModuleCalls.filter(
+        (call) => call.observation === "set-window-pos",
+      );
   if (
     setWindowPosCompletionRecorded ||
-    setWindowPosMainModuleCalls.length < 2
+    (sizeObservation
+      ? selectedMainCalls.length === 0 || !setWindowPosSizeOracleComplete
+      : selectedMainCalls.length < 2)
   ) {
     return;
   }
@@ -10046,18 +10320,29 @@ function maybeCompleteSetWindowPosObservation() {
     return;
   }
   setWindowPosCompletionRecorded = true;
-  emit("set-window-pos-complete", {
-    profile: "x86-bgi-set-window-pos-initial-placement-v1",
+  const selectedCallIds = new Set(selectedMainCalls.map((call) => call.callId));
+  const completionKind = sizeObservation
+    ? "set-window-pos-size-complete"
+    : "set-window-pos-complete";
+  emit(completionKind, {
+    profile: sizeObservation
+      ? "x86-bgi-first-set-window-pos-size-v1"
+      : "x86-bgi-set-window-pos-initial-placement-v1",
     quiescenceMilliseconds: 0,
-    mainModuleCalls: setWindowPosMainModuleCalls.map((call) => ({ ...call })),
-    windowProcedureCalls: setWindowPosWindowProcedureCalls.map((call) => ({
-      ...call,
-    })),
-    defaultProcedureCalls: setWindowPosDefaultProcedureCalls.map((call) => ({
-      ...call,
-    })),
+    mainModuleCalls: selectedMainCalls.map((call) => ({ ...call })),
+    windowProcedureCalls: setWindowPosWindowProcedureCalls
+      .filter(
+        (call) => !sizeObservation || selectedCallIds.has(call.setWindowPosCallId),
+      )
+      .map((call) => ({ ...call })),
+    defaultProcedureCalls: setWindowPosDefaultProcedureCalls
+      .filter(
+        (call) => !sizeObservation || selectedCallIds.has(call.setWindowPosCallId),
+      )
+      .map((call) => ({ ...call })),
+    ...(sizeObservation ? { oracle: setWindowPosSizeOracleEvidence } : {}),
   });
-  if (stopOnEvent === "set-window-pos-complete") {
+  if (stopOnEvent === completionKind) {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -12824,7 +13109,11 @@ Process.attachModuleObserver({
     if (moduleHooks === undefined) {
       return;
     }
-    if (!focusedWindowDcObservation && !focusedSetWindowLongAObservation) {
+    if (
+      !focusedWindowDcObservation &&
+      !focusedSetWindowLongAObservation &&
+      !focusedSetWindowPosSizeObservation
+    ) {
       for (const [name, decoders] of moduleHooks) {
         try {
           attachHook(module, name, decoders);
@@ -12991,7 +13280,8 @@ Process.attachModuleObserver({
     }
     if (
       module.name.toLowerCase() === "user32.dll" &&
-      selectedObservations.has("set-window-pos")
+      (selectedObservations.has("set-window-pos") ||
+        selectedObservations.has("set-window-pos-size"))
     ) {
       try {
         attachSetWindowPosHook(module);

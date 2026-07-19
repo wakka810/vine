@@ -38,6 +38,7 @@ const supportedObservations = new Set([
   "load-image-a",
   "send-message-a",
   "set-window-pos",
+  "set-window-pos-size",
   "load-cursor-a",
   "register-class-ex-a",
   "get-system-metrics",

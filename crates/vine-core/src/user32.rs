@@ -19,8 +19,9 @@ use crate::runtime::{
     RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE, RuntimeCursorResource,
     RuntimeCursorSource, RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile,
     RuntimeRect, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
-    RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeWindow,
+    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
+    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
+    RuntimeSetWindowPosVariant, RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeWindow,
     RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
     RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
@@ -29,13 +30,13 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 14;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 15;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
-pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v1";
+pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v2";
 pub const SET_WINDOW_LONG_A_IMPLEMENTATION: &str = "user32.set-window-long-a.gwl-style.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
@@ -57,8 +58,15 @@ const IMAGE_ICON: u32 = 1;
 const LR_SHARED: u32 = 0x0000_8000;
 const WM_SETICON: u32 = 0x0080;
 const WM_MOVE: u32 = 0x0003;
+const WM_ACTIVATE: u32 = 0x0006;
+const WM_SETFOCUS: u32 = 0x0007;
+const WM_ACTIVATEAPP: u32 = 0x001c;
+const WM_WINDOWPOSCHANGING: u32 = 0x0046;
 const WM_WINDOWPOSCHANGED: u32 = 0x0047;
+const WM_NCACTIVATE: u32 = 0x0086;
 const WM_GETICON: u32 = 0x007f;
+const WM_IME_SETCONTEXT: u32 = 0x0281;
+const WM_IME_NOTIFY: u32 = 0x0282;
 const ICON_SMALL: u32 = 0;
 const ICON_SMALL2: u32 = 2;
 const HWND_NOTOPMOST: u32 = 0xffff_fffe;
@@ -118,6 +126,12 @@ pub struct User32SetWindowPosPolicy {
     pub initial_show_callback_flags: u32,
     pub initial_hide_callback_flags: u32,
     pub get_icon_w_param: u32,
+    pub activation_flags: u32,
+    pub activation_internal_flags: u32,
+    pub activation_insert_after: u32,
+    pub activate_app_other_thread_id: u32,
+    pub ime_set_context_flags: u32,
+    pub ime_notify_command: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -217,11 +231,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v14() -> Self {
+    pub fn controlled_v15() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-v14"
+            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-activation-v15"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
@@ -258,7 +272,7 @@ impl User32CompatibilityPolicy {
                 icon_height: 16,
             }),
             set_window_pos: Some(User32SetWindowPosPolicy {
-                profile_id: "initial-offscreen-show-hide-v1".to_owned(),
+                profile_id: "initial-offscreen-show-hide-same-geometry-activation-v2".to_owned(),
                 insert_after: HWND_NOTOPMOST,
                 initial_show_screen_multiplier: 8,
                 initial_show_flags: 0x0000_0559,
@@ -266,6 +280,12 @@ impl User32CompatibilityPolicy {
                 initial_show_callback_flags: 0x1000_0d59,
                 initial_hide_callback_flags: 0x0000_1d9f,
                 get_icon_w_param: ICON_SMALL2,
+                activation_flags: 0x0000_010a,
+                activation_internal_flags: 0x0000_0003,
+                activation_insert_after: 0,
+                activate_app_other_thread_id: 0,
+                ime_set_context_flags: 0xc000_000f,
+                ime_notify_command: 2,
             }),
             set_window_long_a: Some(User32SetWindowLongAPolicy {
                 profile_id: "main-window-gwl-style-visible-v1".to_owned(),
@@ -434,6 +454,12 @@ impl User32CompatibilityPolicy {
                 || profile.initial_hide_callback_flags == 0
                 || profile.initial_show_callback_flags == profile.initial_hide_callback_flags
                 || profile.get_icon_w_param != ICON_SMALL2
+                || profile.activation_flags != 0x0000_010a
+                || profile.activation_internal_flags != 0x0000_0003
+                || profile.activation_insert_after != 0
+                || profile.activate_app_other_thread_id != 0
+                || profile.ime_set_context_flags != 0xc000_000f
+                || profile.ime_notify_command != 2
                 || self.send_message_a.is_none()
                 || self.create_window_ex_a.is_none()
                 || self.get_system_metrics.is_none())
@@ -1469,13 +1495,6 @@ fn handle_set_window_pos(
             "SetWindowPos currently supports only the reached HWND_NOTOPMOST ordering",
         ));
     }
-    if width != 0 || height != 0 {
-        return Err(ApiFault::unsupported(
-            "user32-windows",
-            "set-window-pos-size-unsupported",
-            "SetWindowPos currently supports only the reached SWP_NOSIZE variants",
-        ));
-    }
     let display = policy.display_profile().ok_or_else(|| {
         ApiFault::runtime_defect(
             "user32-windows",
@@ -1549,69 +1568,97 @@ fn handle_set_window_pos(
         .window(window_handle)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
         .clone();
-    let (variant, next_geometry, next_visible, callback_flags) =
-        if flags == position_policy.initial_show_flags && x == show_x && y == show_y {
-            let offset_x = window
-                .creation
-                .geometry
-                .client_x
-                .checked_sub(window.creation.geometry.x)
-                .ok_or_else(|| {
-                    ApiFault::runtime_defect(
-                        "user32-windows",
-                        "set-window-pos-client-offset-x-invalid",
-                        "validated logical client x offset underflowed",
-                    )
-                })?;
-            let offset_y = window
-                .creation
-                .geometry
-                .client_y
-                .checked_sub(window.creation.geometry.y)
-                .ok_or_else(|| {
-                    ApiFault::runtime_defect(
-                        "user32-windows",
-                        "set-window-pos-client-offset-y-invalid",
-                        "validated logical client y offset underflowed",
-                    )
-                })?;
-            let mut geometry = window.creation.geometry;
-            geometry.x = show_x;
-            geometry.y = show_y;
-            geometry.client_x = show_x.checked_add(offset_x).ok_or_else(|| {
+    let (variant, next_geometry, next_visible, callback_flags) = if width == 0
+        && height == 0
+        && flags == position_policy.initial_show_flags
+        && x == show_x
+        && y == show_y
+    {
+        let offset_x = window
+            .creation
+            .geometry
+            .client_x
+            .checked_sub(window.creation.geometry.x)
+            .ok_or_else(|| {
                 ApiFault::runtime_defect(
                     "user32-windows",
-                    "set-window-pos-client-x-overflow",
-                    "validated logical client x position overflowed",
+                    "set-window-pos-client-offset-x-invalid",
+                    "validated logical client x offset underflowed",
                 )
             })?;
-            geometry.client_y = show_y.checked_add(offset_y).ok_or_else(|| {
+        let offset_y = window
+            .creation
+            .geometry
+            .client_y
+            .checked_sub(window.creation.geometry.y)
+            .ok_or_else(|| {
                 ApiFault::runtime_defect(
                     "user32-windows",
-                    "set-window-pos-client-y-overflow",
-                    "validated logical client y position overflowed",
+                    "set-window-pos-client-offset-y-invalid",
+                    "validated logical client y offset underflowed",
                 )
             })?;
-            (
-                RuntimeSetWindowPosVariant::InitialShow,
-                geometry,
-                true,
-                position_policy.initial_show_callback_flags,
+        let mut geometry = window.creation.geometry;
+        geometry.x = show_x;
+        geometry.y = show_y;
+        geometry.client_x = show_x.checked_add(offset_x).ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "user32-windows",
+                "set-window-pos-client-x-overflow",
+                "validated logical client x position overflowed",
             )
-        } else if flags == position_policy.initial_hide_flags && x == 0 && y == 0 {
+        })?;
+        geometry.client_y = show_y.checked_add(offset_y).ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "user32-windows",
+                "set-window-pos-client-y-overflow",
+                "validated logical client y position overflowed",
+            )
+        })?;
+        (
+            RuntimeSetWindowPosVariant::InitialShow,
+            geometry,
+            true,
+            position_policy.initial_show_callback_flags,
+        )
+    } else if width == 0
+        && height == 0
+        && flags == position_policy.initial_hide_flags
+        && x == 0
+        && y == 0
+    {
+        (
+            RuntimeSetWindowPosVariant::InitialHide,
+            window.creation.geometry,
+            false,
+            position_policy.initial_hide_callback_flags,
+        )
+    } else if flags == position_policy.activation_flags
+        && x == 0
+        && y == 0
+        && width == window.creation.geometry.width
+        && height == window.creation.geometry.height
+    {
+        (
+            RuntimeSetWindowPosVariant::ActivateSameGeometry,
+            window.creation.geometry,
+            true,
+            position_policy.activation_flags,
+        )
+    } else {
+        let (code, message) = if width != 0 || height != 0 {
             (
-                RuntimeSetWindowPosVariant::InitialHide,
-                window.creation.geometry,
-                false,
-                position_policy.initial_hide_callback_flags,
+                "set-window-pos-size-unsupported",
+                "SetWindowPos size is outside the reached same-geometry activation variant",
             )
         } else {
-            return Err(ApiFault::unsupported(
-                "user32-windows",
+            (
                 "set-window-pos-variant-unsupported",
                 "SetWindowPos arguments are outside the reached initial show/hide profile",
-            ));
+            )
         };
+        return Err(ApiFault::unsupported("user32-windows", code, message));
+    };
     let operation = session
         .runtime()
         .preview_set_window_pos(RuntimeSetWindowPosRequest {
@@ -1621,18 +1668,25 @@ fn handle_set_window_pos(
             next_visible,
             next_topmost: false,
             callback_flags,
+            callback_insert_after: position_policy.insert_after,
+            activation_insert_after: position_policy.activation_insert_after,
+            activation_internal_flags: position_policy.activation_internal_flags,
         })
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     let class = session
         .runtime()
         .window_class(window.creation.class.atom)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let request = set_window_pos_callback_request(
-        operation,
-        class,
-        RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-        callback_return_sentinel,
-    )?;
+    let first_message = match operation.variant {
+        RuntimeSetWindowPosVariant::InitialShow | RuntimeSetWindowPosVariant::InitialHide => {
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanged
+        }
+        RuntimeSetWindowPosVariant::ActivateSameGeometry => {
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanging
+        }
+    };
+    let request =
+        set_window_pos_callback_request(operation, class, first_message, callback_return_sentinel)?;
     session.preflight_guest_callback(&ApiGuestCallbackCall {
         request: request.clone(),
         contract: contract.clone(),
@@ -1702,6 +1756,86 @@ pub(crate) fn resolve_set_window_pos_callback(
     }
 }
 
+pub(crate) fn resolve_set_window_pos_default_callback(
+    call: &ApiGuestCallbackCall,
+    result: u32,
+    session: &ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    let GuestCallbackCompletionPolicy::SetWindowPosDefault { operation, message } =
+        call.request.completion_policy
+    else {
+        return ApiHandlerResult::Fault(ApiFault::runtime_defect(
+            "user32-windows",
+            "set-window-pos-default-callback-policy-mismatch",
+            "activation default callback has the wrong completion policy",
+        ));
+    };
+    let action = match session
+        .runtime()
+        .preview_set_window_pos_default_callback(operation, message, result)
+    {
+        Ok(action) => action,
+        Err(error) => {
+            return ApiHandlerResult::Fault(ApiFault::from_runtime(error, &call.frame.endpoint));
+        }
+    };
+    match action {
+        RuntimeSetWindowPosDefaultCallbackAction::Continue {
+            operation,
+            next_message,
+        } => match set_window_pos_default_callback_request(
+            operation,
+            next_message,
+            call.request.return_sentinel,
+            0,
+            session,
+            &call.frame.endpoint,
+        ) {
+            Ok(request) => ApiHandlerResult::GuestCallback(request),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        RuntimeSetWindowPosDefaultCallbackAction::Completed => {
+            ApiHandlerResult::Immediate(ApiImmediate::new(ApiReturnValue::U32(0)))
+        }
+    }
+}
+
+fn set_window_pos_default_callback_request(
+    operation: RuntimeSetWindowPosDefaultOperation,
+    message: RuntimeSetWindowPosDefaultCallbackMessage,
+    return_sentinel: GuestAddress,
+    ime_set_context_flags: u32,
+    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+) -> Result<GuestCallbackRequest, ApiFault> {
+    let procedure = session
+        .runtime()
+        .resolve_window_procedure(operation.window_handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let (message_id, w_param, l_param) = match message {
+        RuntimeSetWindowPosDefaultCallbackMessage::ImeSetContext => {
+            (WM_IME_SETCONTEXT, 1, ime_set_context_flags)
+        }
+        RuntimeSetWindowPosDefaultCallbackMessage::SetFocus => (WM_SETFOCUS, 0, 0),
+    };
+    Ok(GuestCallbackRequest {
+        target: procedure.address,
+        arguments: vec![
+            GuestCallbackArgument::U32(operation.window_handle),
+            GuestCallbackArgument::U32(message_id),
+            GuestCallbackArgument::U32(w_param),
+            GuestCallbackArgument::U32(l_param),
+        ],
+        scratch: Vec::new(),
+        scratch_pointer_relocations: Vec::new(),
+        return_sentinel,
+        completion_policy: GuestCallbackCompletionPolicy::SetWindowPosDefault {
+            operation,
+            message,
+        },
+    })
+}
+
 fn set_window_pos_callback_request(
     operation: RuntimeSetWindowPosOperation,
     class: &crate::runtime::RuntimeWindowClass,
@@ -1718,30 +1852,15 @@ fn set_window_pos_callback_request(
     }
     let (message_id, w_param, l_param, scratch) = match message {
         RuntimeSetWindowPosCallbackMessage::WindowPositionChanged => {
-            let width = i32::try_from(operation.next_geometry.width).map_err(|_| {
-                ApiFault::runtime_defect(
-                    "user32-windows",
-                    "set-window-pos-callback-width-overflow",
-                    "validated logical window width does not fit WINDOWPOS",
-                )
-            })?;
-            let height = i32::try_from(operation.next_geometry.height).map_err(|_| {
-                ApiFault::runtime_defect(
-                    "user32-windows",
-                    "set-window-pos-callback-height-overflow",
-                    "validated logical window height does not fit WINDOWPOS",
-                )
-            })?;
-            let scratch = [
-                operation.window_handle.to_le_bytes(),
-                HWND_NOTOPMOST.to_le_bytes(),
-                operation.next_geometry.x.to_le_bytes(),
-                operation.next_geometry.y.to_le_bytes(),
-                width.to_le_bytes(),
-                height.to_le_bytes(),
-                operation.callback_flags.to_le_bytes(),
-            ]
-            .concat();
+            let scratch = window_pos_callback_scratch(
+                operation.window_handle,
+                operation.callback_insert_after,
+                operation.next_geometry.x,
+                operation.next_geometry.y,
+                operation.next_geometry.width,
+                operation.next_geometry.height,
+                operation.callback_flags,
+            )?;
             (
                 WM_WINDOWPOSCHANGED,
                 0,
@@ -1755,6 +1874,43 @@ fn set_window_pos_callback_request(
             GuestCallbackArgument::U32(0),
             Vec::new(),
         ),
+        RuntimeSetWindowPosCallbackMessage::WindowPositionChanging => (
+            WM_WINDOWPOSCHANGING,
+            0,
+            GuestCallbackArgument::ScratchPointer { offset: 0 },
+            window_pos_callback_scratch(
+                operation.window_handle,
+                operation.callback_insert_after,
+                0,
+                0,
+                operation.next_geometry.width,
+                operation.next_geometry.height,
+                operation.callback_flags,
+            )?,
+        ),
+        RuntimeSetWindowPosCallbackMessage::ActivationWindowPositionChanging => (
+            WM_WINDOWPOSCHANGING,
+            0,
+            GuestCallbackArgument::ScratchPointer { offset: 0 },
+            window_pos_callback_scratch(
+                operation.window_handle,
+                operation.activation_insert_after,
+                0,
+                0,
+                0,
+                0,
+                operation.activation_internal_flags,
+            )?,
+        ),
+        RuntimeSetWindowPosCallbackMessage::ActivateApplication => {
+            (WM_ACTIVATEAPP, 1, GuestCallbackArgument::U32(0), Vec::new())
+        }
+        RuntimeSetWindowPosCallbackMessage::NonClientActivate => {
+            (WM_NCACTIVATE, 1, GuestCallbackArgument::U32(0), Vec::new())
+        }
+        RuntimeSetWindowPosCallbackMessage::Activate => {
+            (WM_ACTIVATE, 1, GuestCallbackArgument::U32(0), Vec::new())
+        }
     };
     Ok(GuestCallbackRequest {
         target: class.registration.window_procedure.address,
@@ -1769,6 +1925,41 @@ fn set_window_pos_callback_request(
         return_sentinel,
         completion_policy: GuestCallbackCompletionPolicy::SetWindowPos { operation, message },
     })
+}
+
+fn window_pos_callback_scratch(
+    window_handle: u32,
+    insert_after: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    flags: u32,
+) -> Result<Vec<u8>, ApiFault> {
+    let width = i32::try_from(width).map_err(|_| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "set-window-pos-callback-width-overflow",
+            "validated logical window width does not fit WINDOWPOS",
+        )
+    })?;
+    let height = i32::try_from(height).map_err(|_| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "set-window-pos-callback-height-overflow",
+            "validated logical window height does not fit WINDOWPOS",
+        )
+    })?;
+    Ok([
+        window_handle.to_le_bytes(),
+        insert_after.to_le_bytes(),
+        x.to_le_bytes(),
+        y.to_le_bytes(),
+        width.to_le_bytes(),
+        height.to_le_bytes(),
+        flags.to_le_bytes(),
+    ]
+    .concat())
 }
 
 fn load_module_shared_icon(
@@ -2648,14 +2839,34 @@ fn handle_def_window_proc_a(
     session: &mut ExecutionSession<'_>,
 ) -> Result<ApiHandlerResult, ApiFault> {
     let message = required_argument(contract, frame, 1, "message")?;
-    if message == WM_WINDOWPOSCHANGED && policy.set_window_pos.is_some() {
-        return handle_def_window_proc_window_position(
-            policy,
-            callback_return_sentinel,
-            contract,
-            frame,
-            session,
-        );
+    if policy.set_window_pos.is_some() {
+        if message == WM_WINDOWPOSCHANGED {
+            return handle_def_window_proc_window_position(
+                policy,
+                callback_return_sentinel,
+                contract,
+                frame,
+                session,
+            );
+        }
+        if matches!(
+            message,
+            WM_WINDOWPOSCHANGING
+                | WM_ACTIVATEAPP
+                | WM_NCACTIVATE
+                | WM_ACTIVATE
+                | WM_IME_SETCONTEXT
+                | WM_IME_NOTIFY
+                | WM_SETFOCUS
+        ) {
+            return handle_def_window_proc_activation(
+                policy,
+                callback_return_sentinel,
+                contract,
+                frame,
+                session,
+            );
+        }
     }
     handle_def_window_proc_a_immediate(policy, contract, frame, session)
         .map(ApiHandlerResult::Immediate)
@@ -2772,6 +2983,9 @@ fn handle_def_window_proc_window_position(
             next_visible,
             next_topmost: false,
             callback_flags: words[6],
+            callback_insert_after: position_policy.insert_after,
+            activation_insert_after: position_policy.activation_insert_after,
+            activation_internal_flags: position_policy.activation_internal_flags,
         })
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     if !notify_move {
@@ -2802,6 +3016,252 @@ fn handle_def_window_proc_window_position(
         frame: frame.clone(),
     })?;
     Ok(ApiHandlerResult::GuestCallback(request))
+}
+
+fn handle_def_window_proc_activation(
+    policy: &User32CompatibilityPolicy,
+    callback_return_sentinel: GuestAddress,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiHandlerResult, ApiFault> {
+    let position_policy = policy.set_window_pos.as_ref().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "def-window-proc-activation-policy-missing",
+            "validated activation default processing has no SetWindowPos policy",
+        )
+    })?;
+    let handle = required_argument(contract, frame, 0, "window handle")?;
+    let message = required_argument(contract, frame, 1, "message")?;
+    let w_param = required_argument(contract, frame, 2, "wParam")?;
+    let l_param = required_argument(contract, frame, 3, "lParam")?;
+    let window = session
+        .runtime()
+        .window(handle)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .clone();
+    if window.creation.owner_thread_id != session.runtime().current_thread_id()
+        || window.lifecycle != RuntimeWindowLifecycle::Created
+    {
+        return Err(ApiFault::invalid_call(
+            "user32-windows",
+            "def-window-proc-activation-window-state-invalid",
+            "activation default processing requires the created owner-thread window",
+        ));
+    }
+
+    match message {
+        WM_WINDOWPOSCHANGING => {
+            if w_param != 0 {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-activation-wparam-unsupported",
+                    "WM_WINDOWPOSCHANGING requires the reached zero wParam",
+                ));
+            }
+            let words =
+                read_window_pos_words(session.memory(), GuestAddress(l_param), &contract.endpoint)?;
+            let first = words
+                == [
+                    handle,
+                    position_policy.insert_after,
+                    0,
+                    0,
+                    window.creation.geometry.width,
+                    window.creation.geometry.height,
+                    position_policy.activation_flags,
+                ];
+            let internal = words
+                == [
+                    handle,
+                    position_policy.activation_insert_after,
+                    0,
+                    0,
+                    0,
+                    0,
+                    position_policy.activation_internal_flags,
+                ];
+            if first {
+                require_window_activation_relations(
+                    session, handle, false, false, false, contract,
+                )?;
+            } else if internal {
+                require_window_activation_relations(session, handle, true, false, true, contract)?;
+            } else {
+                return Err(ApiFault::invalid_call(
+                    "user32-windows",
+                    "def-window-proc-activation-window-pos-mismatch",
+                    "WM_WINDOWPOSCHANGING payload is outside the reached activation pair",
+                ));
+            }
+            Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
+                ApiReturnValue::U32(0),
+            )))
+        }
+        WM_ACTIVATEAPP => {
+            if w_param != 1 || l_param != position_policy.activate_app_other_thread_id {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-activate-app-variant-unsupported",
+                    "WM_ACTIVATEAPP arguments are outside the reached logical activation variant",
+                ));
+            }
+            require_window_activation_relations(session, handle, true, false, true, contract)?;
+            Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
+                ApiReturnValue::U32(0),
+            )))
+        }
+        WM_NCACTIVATE => {
+            if w_param != 1 || l_param != 0 {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-nc-activate-variant-unsupported",
+                    "WM_NCACTIVATE arguments are outside the reached activation variant",
+                ));
+            }
+            require_window_activation_relations(session, handle, true, false, true, contract)?;
+            Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
+                ApiReturnValue::U32(1),
+            )))
+        }
+        WM_ACTIVATE => {
+            if w_param != 1 || l_param != 0 {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-activate-variant-unsupported",
+                    "WM_ACTIVATE arguments are outside the reached active non-minimized variant",
+                ));
+            }
+            require_window_activation_relations(session, handle, true, false, true, contract)?;
+            let preview = session
+                .runtime()
+                .preview_set_window_pos_focus(handle)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            let request = set_window_pos_default_callback_request(
+                preview,
+                RuntimeSetWindowPosDefaultCallbackMessage::ImeSetContext,
+                callback_return_sentinel,
+                position_policy.ime_set_context_flags,
+                session,
+                &contract.endpoint,
+            )?;
+            session.preflight_guest_callback(&ApiGuestCallbackCall {
+                request: request.clone(),
+                contract: contract.clone(),
+                frame: frame.clone(),
+            })?;
+            let committed = session
+                .runtime_mut()
+                .focus_set_window_pos_window(handle)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            if committed != preview {
+                return Err(ApiFault::runtime_defect(
+                    "user32-windows",
+                    "set-window-pos-focus-preview-commit-mismatch",
+                    "logical focus identity changed between callback preflight and commit",
+                ));
+            }
+            Ok(ApiHandlerResult::GuestCallback(request))
+        }
+        WM_IME_SETCONTEXT => {
+            if w_param != 1 || l_param != position_policy.ime_set_context_flags {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-ime-context-variant-unsupported",
+                    "WM_IME_SETCONTEXT arguments are outside the reached activation variant",
+                ));
+            }
+            require_window_activation_relations(session, handle, true, true, true, contract)?;
+            let procedure = session
+                .runtime()
+                .resolve_window_procedure(handle)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            let request = GuestCallbackRequest {
+                target: procedure.address,
+                arguments: vec![
+                    GuestCallbackArgument::U32(handle),
+                    GuestCallbackArgument::U32(WM_IME_NOTIFY),
+                    GuestCallbackArgument::U32(position_policy.ime_notify_command),
+                    GuestCallbackArgument::U32(0),
+                ],
+                scratch: Vec::new(),
+                scratch_pointer_relocations: Vec::new(),
+                return_sentinel: callback_return_sentinel,
+                completion_policy: GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 },
+            };
+            session.preflight_guest_callback(&ApiGuestCallbackCall {
+                request: request.clone(),
+                contract: contract.clone(),
+                frame: frame.clone(),
+            })?;
+            Ok(ApiHandlerResult::GuestCallback(request))
+        }
+        WM_IME_NOTIFY => {
+            if w_param != position_policy.ime_notify_command || l_param != 0 {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-ime-notify-variant-unsupported",
+                    "WM_IME_NOTIFY arguments are outside the reached activation variant",
+                ));
+            }
+            require_window_activation_relations(session, handle, true, true, true, contract)?;
+            Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
+                ApiReturnValue::U32(0),
+            )))
+        }
+        WM_SETFOCUS => {
+            if w_param != 0 || l_param != 0 {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-set-focus-variant-unsupported",
+                    "WM_SETFOCUS arguments are outside the reached no-previous-focus variant",
+                ));
+            }
+            require_window_activation_relations(session, handle, true, true, true, contract)?;
+            Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
+                ApiReturnValue::U32(0),
+            )))
+        }
+        _ => Err(ApiFault::runtime_defect(
+            "user32-windows",
+            "def-window-proc-activation-message-invalid",
+            "activation default handler received an unrelated message",
+        )),
+    }
+}
+
+fn require_window_activation_relations(
+    session: &ExecutionSession<'_>,
+    handle: u32,
+    active: bool,
+    focused: bool,
+    foreground: bool,
+    contract: &ApiContract,
+) -> Result<(), ApiFault> {
+    let active_handle = session
+        .runtime()
+        .active_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let focused_handle = session
+        .runtime()
+        .focused_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let foreground_handle = session
+        .runtime()
+        .foreground_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if active_handle == active.then_some(handle)
+        && focused_handle == focused.then_some(handle)
+        && foreground_handle == foreground.then_some(handle)
+    {
+        return Ok(());
+    }
+    Err(ApiFault::invalid_call(
+        "user32-windows",
+        "def-window-proc-activation-relation-mismatch",
+        "logical active, focused, or foreground relation does not match callback timing",
+    ))
 }
 
 fn handle_def_window_proc_a_immediate(
@@ -4282,7 +4742,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v14();
+        let policy = User32CompatibilityPolicy::controlled_v15();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -4312,14 +4772,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v15();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v15();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -4330,21 +4790,21 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v15();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v15();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v15();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -4355,7 +4815,7 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v15();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -4366,7 +4826,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v15();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -4378,7 +4838,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v15();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -4389,7 +4849,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v15();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -4400,7 +4860,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v15();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -4411,7 +4871,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v14();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v15();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

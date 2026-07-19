@@ -110,9 +110,11 @@ use super::user32::{
     RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon,
     RuntimeIconId, RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
     RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
-    RuntimeSetWindowStyleResult, RuntimeUser32, RuntimeWindow, RuntimeWindowClass,
-    RuntimeWindowClassId, RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
+    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowStyleResult,
+    RuntimeUser32, RuntimeWindow, RuntimeWindowClass, RuntimeWindowClassId,
+    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowId,
     RuntimeWindowLifecycle, RuntimeWindowProcedure,
 };
@@ -3309,6 +3311,62 @@ impl RuntimeKernel {
             .user32
             .plan_set_window_pos_callback(operation, message, result)?;
         self.user32.commit_set_window_pos_callback(plan)
+    }
+
+    pub(crate) fn preview_set_window_pos_focus(
+        &self,
+        window_handle: u32,
+    ) -> Result<RuntimeSetWindowPosDefaultOperation, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self
+            .user32
+            .plan_set_window_pos_focus(window_handle, self.current_thread_id())?;
+        Ok(self.user32.set_window_pos_focus_operation(&plan))
+    }
+
+    pub(crate) fn focus_set_window_pos_window(
+        &mut self,
+        window_handle: u32,
+    ) -> Result<RuntimeSetWindowPosDefaultOperation, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self
+            .user32
+            .plan_set_window_pos_focus(window_handle, self.current_thread_id())?;
+        self.user32.commit_set_window_pos_focus(plan)
+    }
+
+    pub(crate) fn preview_set_window_pos_default_callback(
+        &self,
+        operation: RuntimeSetWindowPosDefaultOperation,
+        message: RuntimeSetWindowPosDefaultCallbackMessage,
+        result: u32,
+    ) -> Result<RuntimeSetWindowPosDefaultCallbackAction, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .set_window_pos_default_callback_action(operation, message, result)
+    }
+
+    pub(crate) fn complete_set_window_pos_default_callback(
+        &mut self,
+        operation: RuntimeSetWindowPosDefaultOperation,
+        message: RuntimeSetWindowPosDefaultCallbackMessage,
+        result: u32,
+    ) -> Result<RuntimeSetWindowPosDefaultCallbackAction, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .set_window_pos_default_callback_action(operation, message, result)
+    }
+
+    pub fn active_window_handle(&self) -> Result<Option<u32>, RuntimeStateError> {
+        self.user32.active_window_handle(self.current_thread_id())
+    }
+
+    pub fn focused_window_handle(&self) -> Result<Option<u32>, RuntimeStateError> {
+        self.user32.focused_window_handle(self.current_thread_id())
+    }
+
+    pub fn foreground_window_handle(&self) -> Result<Option<u32>, RuntimeStateError> {
+        self.user32.foreground_window_handle()
     }
 
     fn validate_window_creation_authority(

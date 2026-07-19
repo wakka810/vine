@@ -302,7 +302,7 @@ impl BrowserRuntime {
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v14();
+        let user32_policy = User32CompatibilityPolicy::controlled_v15();
         user32_policy.validate().map_err(api_fault_string)?;
         runtime
             .configure_display_profile(
@@ -469,7 +469,7 @@ impl BrowserRuntime {
             .runtime
             .register_source_snapshot(source_manifest)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v14();
+        let user32_policy = User32CompatibilityPolicy::controlled_v15();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -1693,7 +1693,11 @@ impl BrowserRuntime {
                         )
                     ) | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
                         vine_core::RuntimeSetWindowPosCallbackAction::Continue { .. }
-                    ))
+                    )) | Some(
+                        vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPosDefault(
+                            vine_core::RuntimeSetWindowPosDefaultCallbackAction::Continue { .. },
+                        )
+                    )
                 ) {
                     return Err(
                         "replacement guest callback did not commit continuation semantics"

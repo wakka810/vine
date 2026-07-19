@@ -183,6 +183,7 @@ enum GenericRuntimeCapability {
     GetClientRect,
     WindowDcFill,
     SetWindowLongA,
+    SetWindowPosActivation,
 }
 
 struct GenericRuntimeProcess {
@@ -2299,6 +2300,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::GetClientRect
                     | GenericRuntimeCapability::WindowDcFill
                     | GenericRuntimeCapability::SetWindowLongA
+                    | GenericRuntimeCapability::SetWindowPosActivation
             )
         ) {
             let loader = kernel32_policy
@@ -2955,6 +2957,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
                 | GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -2984,11 +2987,12 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::LoadLibraryA
             | GenericRuntimeCapability::GetClientRect
             | GenericRuntimeCapability::WindowDcFill
-            | GenericRuntimeCapability::SetWindowLongA,
+            | GenericRuntimeCapability::SetWindowLongA
+            | GenericRuntimeCapability::SetWindowPosActivation,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v14();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v15();
     if !matches!(
         user32_capability,
         Some(
@@ -3047,7 +3051,10 @@ fn run_v86_generic_runtime_session(
     }
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::SetWindowLongA)
+        Some(
+            GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
+        )
     ) {
         user32_policy.set_window_long_a = None;
     }
@@ -3332,6 +3339,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
                 | GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -3597,7 +3605,11 @@ fn run_v86_generic_runtime_session(
                             )
                         ) | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
                             vine_core::RuntimeSetWindowPosCallbackAction::Continue { .. }
-                        ))
+                        )) | Some(
+                            vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPosDefault(
+                                vine_core::RuntimeSetWindowPosDefaultCallbackAction::Continue { .. },
+                            )
+                        )
                     ) {
                         return Err(LoaderError::runtime_defect(
                             "runtime-reentry",
@@ -4545,6 +4557,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::GetClientRect
                             | GenericRuntimeCapability::WindowDcFill
                             | GenericRuntimeCapability::SetWindowLongA
+                            | GenericRuntimeCapability::SetWindowPosActivation
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4582,6 +4595,7 @@ fn run_v86_generic_runtime_session(
                                 | GenericRuntimeCapability::GetClientRect
                                 | GenericRuntimeCapability::WindowDcFill
                                 | GenericRuntimeCapability::SetWindowLongA
+                                | GenericRuntimeCapability::SetWindowPosActivation
                         )
                     ) {
                         dispatch_d3d9_com_call(&d3d9_policy, trap, &mut session)
@@ -4622,11 +4636,20 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let set_window_long_a_enabled =
-        matches!(enabled, Some(GenericRuntimeCapability::SetWindowLongA));
+    let set_window_long_a_enabled = matches!(
+        enabled,
+        Some(
+            GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
+        )
+    );
     let window_dc_fill_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::WindowDcFill | GenericRuntimeCapability::SetWindowLongA)
+        Some(
+            GenericRuntimeCapability::WindowDcFill
+                | GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
+        )
     );
     let get_client_rect_enabled = matches!(
         enabled,
@@ -4634,6 +4657,7 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
                 | GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
         )
     );
     let load_library_a_enabled = matches!(
@@ -4643,6 +4667,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
                 | GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -4658,6 +4683,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
                 | GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4691,6 +4717,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
                 | GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5191,6 +5218,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::GetClientRect
                 | GenericRuntimeCapability::WindowDcFill
                 | GenericRuntimeCapability::SetWindowLongA
+                | GenericRuntimeCapability::SetWindowPosActivation
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -10925,6 +10953,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-get-client-rect" => GenericRuntimeCapability::GetClientRect,
                 "gdi-window-dc-fill" => GenericRuntimeCapability::WindowDcFill,
                 "user32-set-window-long-a" => GenericRuntimeCapability::SetWindowLongA,
+                "user32-set-window-pos-activation" => {
+                    GenericRuntimeCapability::SetWindowPosActivation
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
