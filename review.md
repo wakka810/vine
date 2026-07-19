@@ -203,3 +203,115 @@
 * **変更内容：** 新しいscheduler semanticsは追加していない。Scenario milestoneのevidence boundaryとP0-01記録で、controlled foundationをprimary一般経路の完成と誤認しないようにした。
 * **検証結果：** Private controlled browser fixtureのthread／callback／cancel／watchdog assertionsと既存Rust scheduler／wait testsがfoundationを検査する。Current checkpointはgeneral thread／exceptionをscenario completionとしてclaimしない。
 * **未対応理由：** Required delivery semanticsはprimary corpusで未観測であり、推測による一般Windows threading／SEH実装はactive scopeを超える。`Q-THREADS`のoracleとfixtureが揃ったgatewayでbounded behaviorを確定する。
+
+### P1-01 `vine-core`と`RuntimeKernel`への責務集中
+
+* **判定：** 根拠付き対応不要（aggregate rootの責務違反は再現しない）。
+* **調査結果：** `RuntimeKernel`は4,936行／232個のpublicまたはcrate-visible methodを持つが、18個のsubsystem owner fieldは全てprivateである。Process、address allocator、threads、scheduler、messages、display、input、USER32、GDI、timers、objects、COM、heaps、files、module records、synchronization、modules、registriesはそれぞれのmoduleがcollection、allocator、plan／commit、validationを所有する。Kernel内の追加stateはcross-subsystem mutation planまたはborrowed snapshotであり、owner collectionの第二authorityではない。
+* **変更内容：** Kernel／crate分割は行っていない。P1-10のsource-response validationはownerである`runtime/files.rs`へ置き、P1-06／07のCPU execute stateはadapterへ置いたため、今回もaggregateへ新しいcollectionやallocatorを追加していない。
+* **検証結果：** `cargo test --workspace --locked`とclippyに加え、source file、memory writeback、USER32、COM、schedulerのowner別testでplan／commit、stale、wrong-owner、failure atomicityを検査する。Code inspectionでkernel fieldを直接borrowする外部APIがないことを確認した。
+* **未対応理由：** File sizeやmethod数だけは分割条件ではない。Execution、kernel、Win32、host I/Oを別crateへ移すと、現在privateなplanを公開contractへ昇格させ、cross-subsystem transactionを逆に広げる。異なるlifetime／failure domainを持つ新owner、または変更競合の実例が現れるまで現在のaggregate boundaryを維持する。
+
+### P1-02 公開APIによる内部構造の露出
+
+* **判定：** 根拠付き対応不要（外部stable APIとして公開されていない）。
+* **調査結果：** `vine-core/src/lib.rs`には20個の`pub use` groupがあり、多数のrecord／ID／snapshotをintegration testsと`vine-runtime-wasm`へ公開している。一方、workspaceの`publish = false`が全crateへ継承され、repository外consumer、semver互換性、third-party releaseはactive scopeにない。Mutable subsystem owner fieldとmutation planの大半は`pub(super)`／`pub(crate)`で、Wasm bridgeは`RuntimeKernel`のcommand／queryを介している。
+* **変更内容：** Re-export削減は行っていない。新規fuzz targetは既存の意図的なbinary ingress APIである`CpuWritebackBatch::decode_binary`と`RuntimeSourceReadHostResponse::decode_binary`だけを利用し、内部collectionを公開していない。
+* **検証結果：** `cargo test --workspace --locked`と`cargo clippy --workspace --all-targets --all-features -- -D warnings`でworkspace consumerを検査した。`Cargo.toml`と`crates/vine-core/Cargo.toml`のpublish継承、kernel private field、Wasm consumerをcode inspectionした。
+* **未対応理由：** Integration testから型を隠すためだけの大量なvisibility変更はbehaviorを改善せず、fixtureをcrate内部へ密結合させる。Multi-crateまたは第三者向けstable facadeをactive scopeへ戻す場合に、versioned view／opaque ID単位で別checkpointとして縮小する。
+
+### P1-03 実行・検証ハーネスの巨大化
+
+* **判定：** 根拠付き対応不要（責務混在による再現failureはなく、既にsession基盤とscenario選択を分離）。
+* **調査結果：** Windows trace agentは13,526行、Browser runnerは1,594行、Wasm bridgeは2,873行、Workerは2,365行だった。一方、current BGI CLIは29行で、profile／checkpoint selectionは188行のmanifest module、evidence classification／digest／benchmark policy／browser protocol／engine adapterは個別moduleに分離済みである。Trace agentは一つのFrida injection unitとしてobserverを共有し、raw event authorityを別processへ複製していない。
+* **変更内容：** File分割は行っていない。P1-11では実行harness自体を複製せず、同じcanonical scriptsをCI jobのfailure domainごとに分離した。Fixture／browser buildはartifact producerを一つにし、consumer jobが同じbytesを使う構造にした。
+* **検証結果：** `npm run check:bgi-command-contract`、`check:runtime-worker-state-contract`、`check:ci-contract`、`node --check`対象53 filesでcommand selection、session state、workflow参照、syntaxを検査した。
+* **未対応理由：** Frida scriptやscenario runnerを行数で分割すると、injected global call／thread parent orderingやprocess cleanupを跨ぐ新boundaryが必要になる。実際に独立lifetimeを持つservice、再利用される複数scenario、または変更競合が確認された単位だけを分離する。
+
+### P1-04 Browser Worker session classの肥大化
+
+* **判定：** 根拠付き対応不要（session lifetimeの不整合やleakは再現しない）。
+* **調査結果：** `BrowserRuntimeSession`はengine loop、thread contexts、pending host requests、source fetch controller、watchdog、evidenceを一つのsession lifetimeで所有する。Worker globalは`activeSession`一件だけで、二重startを拒否し、終了時にidentity一致を確認してclearする。各startは新しい`RuntimeBridge.instantiate`とengine instanceを作り、cancel／fault／watchdogはpending request、fetch、audio、browser resourceを同じterminal transitionでteardownする。
+* **変更内容：** Class抽出は行っていない。P1-07でexecute denialをengine faultからsession structured stopへ変換し、P1-08でreport digest／writebackをbounded化したが、Windows stateやthread identityをhelperへ移していない。
+* **検証結果：** `npm run check:runtime-worker-state-contract`、`npm run typecheck:runtime:browser-worker`、controlled Chrome fixtureのnormal／cancel／watchdog cleanupが、one-active-session、terminal idempotence、pending request retirement、fresh runを検査する。
+* **未対応理由：** Execution controller、thread manager、watchdog、collectorは現在すべて同じsession terminal transitionに参加する。単なるclass分割はstateを相互参照するpublic mutable surfaceを増やす。独立再利用または異なるlifetimeが成立したcomponentから抽出する。
+
+### P1-05 Wasm bridgeのsession状態とtarget処理
+
+* **判定：** 根拠付き対応不要（multi-sessionまたはmulti-title authority競合はactive scopeで再現しない）。
+* **調査結果：** Wasmの`thread_local RefCell<Bridge>`は一つだが、各Browser sessionは別Wasm instanceを生成し、Workerは同時sessionを一件に制限する。各prepareはinput／outputをclearし、`runtime`を新しい`BrowserRuntime`へ置換する。`BrowserRuntimeTarget` enumはcontrolled fixture、source-read fixture、fingerprint済みBGIを明示的に区別し、BGI hashは任意session stateではなくactive compatibility guardである。
+* **変更内容：** Generic target-profile frameworkは追加していない。P1-06でbridgeが参照するengine metadataをadapter ABIへ限定し、target固有値をexecution engine internalsから分離した。
+* **検証結果：** Controlled fixture、controlled source read、private BGIの三prepare path、duplicate Worker start rejection、session cleanupをfixture E2Eとprivate target contractが検査する。Code inspectionでTypeScript側にguest handle／COM identity／thread stateの第二authorityがないことを確認した。
+* **未対応理由：** Active completion targetはfingerprint済み一タイトルで、multi-title一般化はdeferredである。未到達targetのconfiguration frameworkを先に追加すると、identity guardを弱めるか未使用schemaを固定する。第二の実到達targetまたは同一targetのversioned variantが必要になった時点でtarget profileを入力化する。
+
+### P1-06 v86内部実装への依存
+
+* **判定：** 解決済み。
+* **調査結果：** Adapter consumerがlinear-memory byte offset `664`（memory size）と`812`（instruction counter）を読み、execute checkは上位側metadataとprivate layoutへ依存していた。v86更新でlayoutが変わってもABI mismatchとして検出できない状態を再現した。
+* **変更内容：** Adapter ABI version `1`、memory byte length、instruction counter、execute bitmap ingressを正式exportした。全production／fixture consumerを`ExecutionEngine`／adapter profile経由へ変更し、private offsetを除去した。Raw upstream paging smokeだけはadapterを有効化しないhistorical baselineとして明示的に保持した。
+* **検証結果：** `npm run check:execution-engine-contract:prepared`がsource revision、adapter ABI、CPU context v1／640 bytes、22 imports／814 exports、memory／counter exportをactual Wasmで検査する。Windows artifactは1,857,800 bytes／`99a0948c...954f`、Linux artifactは2,116,017 bytes／`21b0fb4f...20c4`で、両方のsemantic adapter probeがgreenとなった。Patch reverse-checkも成功した。
+* **未対応理由：** なし。Raw upstream smokeのprivate state readはv86そのものの非adapter baselineを測るための意図的な隔離で、production contractには到達しない。
+
+### P1-07 x86 instruction fetch境界契約
+
+* **判定：** 解決済み。
+* **調査結果：** 旧gateはEIPから固定15 bytes全体を先に検査し、page末尾の短い命令でも次pageがNXなら拒否した。一方、実decode途中で別pageへ跨ぐ場合のfault byte、register／EIP failure atomicity、slice間protection変更のcache behaviorが固定されていなかった。
+* **変更内容：** Adapter-owned 4 GiB execute bitmapを追加し、opcode、prefix、ModRM、immediate等、decoderが実際にconsumeするbyteごとにexecute permissionを検査するようv86 patchを変更した。Denied fetchはreason `3`、PFEC相当`0x15`、CR2に最初のdenied byteを返す。Validated executable pageはslice-local cacheし、budget callごとに破棄する。
+* **検証結果：** Actual adapter testがpage末尾one-byte instructionの成功、次page先頭NX opcodeの拒否、cross-page `mov eax, imm32`のEIP／EAX不変、両page RX時の成功、slice間RX→NX invalidationを検査した。Workerは同じstopを`execute-protection`として報告する。Entry、memory、window、Browser Worker fixture regressionsもgreenである。
+* **未対応理由：** なし。General Windows exception deliveryは別scopeであり、この項目はCPU fault observationまでを閉じる。
+
+### P1-08 benchmarkの代表性
+
+* **判定：** 解決済み（現在到達しているprimary workloadの代表性を修正）。
+* **調査結果：** 旧benchmark fixtureは17 calls時点のcheckpointを固定しており、current 83-contract／17,841-call runtimeへ再実行できなかった。単純起動反復だけでなく、current User32 window-position／activation pathまで進む継続sessionが必要だった。
+* **変更内容：** `bgi-browser-runtime-user32-window-v1` fixtureを追加し、11,807,189 instructions、17,841 calls、`USER32.dll!MonitorFromWindow` stopをcurrent capacity workloadにした。Execute lookupをslice-local page cache化し、dirty discoveryをdirty-only scratch、writebackをborrowed engine viewからWasm inputへのdirect copy、semantic digestをstreaming SHA-256へ変更した。既存17 thresholdsは緩和していない。
+* **検証結果：** 3分gateは32 sessions／failure 0、session P95 6,035.420 ms、slice P99 4.815 ms、Worker heap max 29,115,120 bytes、capacity max 65,441,792 bytes、backing max 19,737,862 bytes、core linear 10,092,544 bytes、engine linear 14,024,704 bytesで全thresholdを通過した。Semantic digestはNode／Chromeとも`9e8cd6e5...f7c3`で不変だった。
+* **未対応理由：** Graphics frame、audio stream、asset streaming、input、saveはprimaryで未到達のため、このbenchmarkへsynthetic workを混ぜてproduct代表と主張しない。各subsystem gateway到達時に同じversioned suiteへscene-specific workloadを追加する。
+
+### P1-09 テストコードの保守コスト
+
+* **判定：** 根拠付き対応不要（行数は大きいが、指摘されたsetup／期待値重複は既に局所化）。
+* **調査結果：** `api_dispatcher.rs`は8,841行、`user32_dispatcher.rs`は6,128行だった。ただしUSER32には7個のtyped fixture builder、両fileには合計58個のtable-driven loopがあり、pointer validation、callback、lifecycle、failure atomicity、state transitionを一つのfixture内でpositive／negative pairとして検査する。Property testsはguest memory専用file、owner model testsはsubsystem別fileに分離済みである。
+* **変更内容：** Test fileの機械的分割は行っていない。新しいsource response casesはowner unit testの一つのtableへ追加し、新しいexecute casesは共通actual-adapter contractへ追加した。API名ごとの新fixture fileは作っていない。
+* **検証結果：** `cargo test --workspace --locked`で全integration／unit tests、clippyでall targetsを検査する。Source responseの5 malformed casesとvalid success／errorは同じbuilderを共有し、execute boundary variantsも同じengine setupを共有する。
+* **未対応理由：** 行数だけでpositive／negative transaction pairを別fileへ分けるとsetupとbefore-image assertionが重複する。具体的な変更競合、同じsetupの三重複、または異なるowner／failure domainが現れた部分から分割する。
+
+### P1-10 fuzz対象の限定
+
+* **判定：** 解決済み（到達済み高リスクbinary ingressを追加）。
+* **調査結果：** Coverage-guided targetはPE planner一件だけだった。さらに`RuntimeSourceReadHostResponse::decode_binary`は32-byte controlを解釈後、request上限やresult shapeを検査する後段より先に任意長host payloadを`Vec`へcopyでき、host responseによるunbounded allocation経路を再現した。
+* **変更内容：** Source response decoderがcopy前にnonzero／最大1 MiB request、transferred <= requested、successのexact payload length、errorのzero transfer／empty payloadを検査するよう修正した。`cpu_writeback_decode`と`source_read_response_decode` fuzz targetを追加し、`fuzz/Cargo.lock`を同期した。CIは各target 15秒、weekly workflowは各target 30分の独立campaignとした。
+* **検証結果：** Rust unit testはvalid success／errorとzero、oversize、over-transfer、length mismatch、error payloadを検査し、source-file integration regressionもgreenだった。WindowsではMSYS2 UCRT `clang++ -fms-extensions`による全fuzz bin typecheckを通した。Windows GNUはASan非対応なのでcampaignはpinned Linux nightly `2026-07-10`／cargo-fuzz `0.13.2`で実行する。
+* **未対応理由：** 未到達graphics／audio decoderやwritable VFS schemaはまだ入力contractが存在しないためtargetを先行作成しない。到達済みpath／Windows-932はmodel／property negative testsを保持し、coverage gapまたはcrashが示された時に専用targetへ昇格する。
+
+### P1-11 CIの単一長時間job
+
+* **判定：** 解決済み。
+* **調査結果：** 旧workflowはUbuntuの`public-checks`一件で`check:fast`、fixture E2E、Chrome、benchmarkを直列実行し、Rust failureでもbrowser setupと同じjobを共有していた。Failure owner、required check選択、並列化が曖昧だった。
+* **変更内容：** `check:fast`を`check:static`、`check:toolchain-engine`、`check:rust`のlocal aggregateへ整理し、fixture E2Eをcore／browser prepared groupへ分けた。CIはstatic、Rust、fixture producer、core E2E、browser acceptance、performance、stable observation、Windows oracle、fuzz smokeの9 jobsへ分割した。PE／adapterとbrowser buildは一度だけ生成し、downstreamへartifactとして渡す。
+* **検証結果：** `check:ci-contract`がworkflowをYAML parserで読み、exact job set、dependency、npm script、Chrome role、fuzz target／budgetを検査する。`actionlint 1.7.12`でも両workflowがgreenだった。Local canonical `check:fast`／`check:fixture-e2e`は同じbehaviorを保持する。
+* **未対応理由：** Repository settings上で各jobをrequired checkに選ぶ操作はGit管理外である。Workflow側では独立check名とfailure domainを提供済みで、branch protectionを導入する場合に選択できる。
+
+### P1-12 Chrome stable依存
+
+* **判定：** 解決済み。
+* **調査結果：** 旧browser E2Eとbenchmarkは`chrome-version: stable`を共用し、同じsource commitでも自動更新によりacceptance環境が変わった。Chrome for Testing `151.0.7922.34`のLinux artifactが取得可能であることを確認した。
+* **変更内容：** Required browser acceptanceとperformanceをexact `151.0.7922.34`へ固定した。Moving stableは同じbuilt browser artifactを使う別の`continue-on-error` observation jobに分離した。
+* **検証結果：** HTTPS 200でexact artifactの存在を確認し、YAML contractとactionlintが固定version／stable分離／dependencyを検査した。Browser reportは実行時のactual browser versionを引き続き記録する。
+* **未対応理由：** Stable observationをrequired acceptanceにはしない。固定revision更新はbrowser compatibility確認後の意図的なcheckpointとして、contract testと文書を同時更新する。
+
+### P1-13 Windows native継続検証
+
+* **判定：** 解決済み（redistributable oracle band）。
+* **調査結果：** `run-toolchain-spike.mjs`はWindows上でABI、browser vertical、source read、DLL lifecycle、window pixel、FS、process parameters、TLS、FLSの9 PE32 fixtureをnative self-oracleとして実行するが、旧CIはUbuntuだけで全native exitをrecorded provenanceへ置換していた。
+* **変更内容：** `windows-2022` jobを追加した。llvm-mingw 20260616 UCRT x86_64 archiveをSHA-256 `b9b68a4d...ca35`で検証して導入し、`npm run check:toolchain`とtrace-summary parser contractを実行する。Private corpusやFrida traceは要求しない。
+* **検証結果：** 同じcommandはlocal Windowsで9 native exitsとartifact inspectionを通過する。Heavy Cargo buildと同じhostで並列実行した最初の試行だけ、新規link直後の`abi-smoke.exe` launchが30秒timeoutしたが、残存processはなく、同一artifactの単独実行は43 ms／exit 0、isolated full gateは全9 fixtureが初回exit 0だった。CI jobは専用hostで実行する。Release APIでasset名／URL／digestを照合し、workflowはYAML contractとactionlintを通した。CI reportはjob artifactとして保存される。
+* **未対応理由：** Primary BGI native traceは配布不能corpusとinteractive sessionを要するためpublic CIへ入れない。Public jobはWindows loader／ABIの継続性を担当し、title oracleはcommit-bound local gateとfocused traceに残す。
+
+### P1-14 文書とcheckpoint情報の維持負荷
+
+* **判定：** 根拠付き対応不要（current authority重複は既に防止され、historical evidenceを削除する根拠がない）。
+* **調査結果：** Markdownは136 filesで、62 `bgi-*`と29 `v86-*`がfrozen historical evidenceに分類される。Current値を参照できる文書は7 filesに限定され、API count、call count、generation、report identity、next stop、canonical commandの複製をvalidatorが拒否する。README Current Statusは`current-checkpoint.json`から生成される。
+* **変更内容：** Historical evidenceの削除／一括統合や新registryは追加していない。今回の新しいstable contractはVFS、CI／testing、Windows developmentの既存owner文書へ追記し、API occurrenceごとの新文書を作らなかった。
+* **検証結果：** `npm run check:docs`が136 files、233 IDs、link／table／fence／current-value authority、README生成を検査しgreenだった。Current manifest／README drift testもgreenである。
+* **未対応理由：** 91個のfrozen文書はraw traceではなく過去decision／oracle／non-claimで、active queueとして更新されない。削除はevidence provenanceを失い、単一registry生成は独立oracleを自己検証させる。今後も定型statusはmanifestから生成し、新semantics／architecture／oracleがないAPI単位文書は追加しない。

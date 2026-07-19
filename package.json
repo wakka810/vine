@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "check": "npm run check:fast && npm run check:fixture-e2e",
-    "check:fast": "npm run check:docs && npm run check:evidence-classification && npm run check:checkpoint-manifest && npm run check:bgi-command-contract && npm run check:semantic-call-digest && npm run check:runtime-worker-state-contract && npm run check:com-foundation && npm run check:private-target-contract && npm run check:private-target-evidence && npm run check:win32-policy && npm run check:v86-benchmark-gate && npm run check:toolchain && npm run check:rust && npm run check:js && npm run check:engine && npm run check:windows-trace",
+    "check:fast": "npm run check:static && npm run check:toolchain-engine && npm run check:rust",
+    "check:static": "npm run check:docs && npm run check:evidence-classification && npm run check:checkpoint-manifest && npm run check:bgi-command-contract && npm run check:semantic-call-digest && npm run check:runtime-worker-state-contract && npm run check:com-foundation && npm run check:private-target-contract && npm run check:private-target-evidence && npm run check:win32-policy && npm run check:v86-benchmark-gate && npm run check:js && npm run check:windows-trace && npm run check:ci-contract",
+    "check:toolchain-engine": "npm run check:toolchain && npm run check:engine",
     "check:fixture-e2e": "npm run prepare:engine && npm run check:fixture-e2e:prepared",
-    "check:fixture-e2e:prepared": "npm run check:execution-engine-contract:prepared && npm run check:runtime:entry && npm run check:runtime:cdecl && npm run check:runtime:callback && npm run check:runtime:outer-return && npm run check:runtime:entry-return && npm run check:runtime:stack-bootstrap && npm run check:runtime:bootstrap-fs-first-stop && npm run check:runtime:bootstrap-fs && npm run check:runtime:bootstrap-params-first-stop && npm run check:runtime:bootstrap-params && npm run check:runtime:memory-delta && npm run check:runtime:memory-writeback && npm run check:runtime:window-loader && npm run check:runtime:window-browser && npm run check:runtime:browser-worker:prepared",
+    "check:fixture-e2e:prepared": "npm run check:execution-engine-contract:prepared && npm run check:fixture-core-e2e:prepared && npm run check:fixture-browser-e2e:prepared",
+    "check:fixture-core-e2e:prepared": "npm run check:runtime:entry && npm run check:runtime:cdecl && npm run check:runtime:callback && npm run check:runtime:outer-return && npm run check:runtime:entry-return && npm run check:runtime:stack-bootstrap && npm run check:runtime:bootstrap-fs-first-stop && npm run check:runtime:bootstrap-fs && npm run check:runtime:bootstrap-params-first-stop && npm run check:runtime:bootstrap-params && npm run check:runtime:memory-delta && npm run check:runtime:memory-writeback && npm run check:runtime:window-loader",
+    "check:fixture-browser-e2e:prepared": "npm run check:runtime:window-browser && npm run check:runtime:browser-worker:prepared",
     "check:adapter": "npm run prepare:engine && npm run check:engine:adapter && npm run check:runtime:memory",
     "check:private-corpus": "node tools/check-private-corpus.mjs",
     "check:private-target": "node tools/run-private-target-check.mjs",
@@ -24,6 +28,7 @@
     "check:execution-engine-contract:prepared": "node tools/test-execution-engine-contract.mjs",
     "check:win32-policy": "node tools/test-kernel32-compatibility-policy.mjs",
     "check:v86-benchmark-gate": "node tools/test-v86-benchmark-gate.mjs",
+    "check:ci-contract": "node tools/test-ci-contract.mjs",
     "check:toolchain": "node tools/run-toolchain-spike.mjs",
     "check:rust": "cargo fmt --all --check && cargo test --workspace --locked && cargo clippy --workspace --all-targets --all-features -- -D warnings",
     "check:js": "node tools/check-js-syntax.mjs",
@@ -78,6 +83,7 @@
     "esbuild": "^0.28.1",
     "lucide": "^1.24.0",
     "typescript": "^7.0.2",
-    "v86": "0.5.424"
+    "v86": "0.5.424",
+    "yaml": "^2.9.0"
   }
 }

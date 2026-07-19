@@ -170,9 +170,6 @@ const guest = {
   entryReturn: 0xdeadc0de,
   instructionBudget: 3,
 };
-const adapterPrivateOffset = {
-  memorySize: 812,
-};
 const stateWord = {
   magic: 0,
   version: 1,
@@ -227,19 +224,6 @@ function checkedEnd(start, size, limit, label) {
   assert(Number.isSafeInteger(end) && end >= start, `${label} overflows`);
   assert(end <= limit, `${label} exceeds its containing range`);
   return end;
-}
-
-function assertExecutableFetchWindow(instructionPointer, executablePages) {
-  for (let offset = 0; offset < 15; offset += 1) {
-    const address = instructionPointer + offset;
-    assert(address <= 0xffff_ffff, "instruction fetch window crosses the guest address limit");
-    const virtualPage = (address & ~(page.size - 1)) >>> 0;
-    assert(
-      executablePages.has(virtualPage),
-      `execute gate rejected 15-byte fetch window at EIP 0x${instructionPointer.toString(16)}; ` +
-        `page 0x${virtualPage.toString(16)} is not executable`,
-    );
-  }
 }
 
 function checkedGuestEnd(address, size, label) {
@@ -726,6 +710,7 @@ async function prepareV86(offer) {
     "memory",
     "reset_cpu",
     "rust_init",
+    "vine_adapter_abi_version",
     "vine_cpu_state_ptr",
     "vine_cpu_state_restore",
     "vine_cpu_state_save",
@@ -733,6 +718,9 @@ async function prepareV86(offer) {
     "vine_cpu_state_version",
     "vine_execute_budget",
     "vine_get_stop_error_code",
+    "vine_reset_execute_permissions",
+    "vine_set_memory_size",
+    "vine_set_page_executable",
     "zero_memory",
   ]) {
     assert(exportNames.has(name), `missing adapter export ${name}`);
@@ -757,14 +745,10 @@ async function prepareV86(offer) {
   const { instance } = await WebAssembly.instantiate(wasmBytes, { env: environment });
   const wasm = instance.exports;
   wasm.rust_init();
-  let privateState = new DataView(wasm.memory.buffer);
-  privateState.setUint32(
-    adapterPrivateOffset.memorySize,
-    guest.physicalPoolBytes,
-    true,
-  );
+  assert.equal(wasm.vine_adapter_abi_version(), 1);
+  assert.equal(wasm.vine_set_memory_size(guest.physicalPoolBytes), 0);
+  wasm.vine_reset_execute_permissions();
   const guestMemoryBase = wasm.allocate_memory(guest.physicalPoolBytes);
-  privateState = new DataView(wasm.memory.buffer);
   const physicalMemory = new Uint8Array(
     wasm.memory.buffer,
     guestMemoryBase,
@@ -833,6 +817,11 @@ async function prepareV86(offer) {
       protection: { ...protection },
       role,
     });
+    assert.equal(
+      wasm.vine_set_page_executable(virtualBase, Number(protection.execute)),
+      0,
+      `${role} execute permission was rejected`,
+    );
   };
 
   for (const reflected of offer.reflection.pages) {
@@ -1082,11 +1071,6 @@ function validateReceipt(receipt, offer, context) {
 function executeControlled(offer, context) {
   let budgetStops = 0;
   let executeStops = 0;
-  const executablePages = new Set(
-    offer.reflection.pages
-      .filter(({ ownerSealed, protection }) => ownerSealed && protection.execute)
-      .map(({ address }) => address),
-  );
   const saveState = (reason) => {
     context.wasm.vine_cpu_state_save();
     const words = Uint32Array.from(
@@ -1133,8 +1117,6 @@ function executeControlled(offer, context) {
   };
   const runUntilExactTrap = (expectedAddress, label) => {
     for (let index = 0; index < 16; index += 1) {
-      const before = saveState(0);
-      assertExecutableFetchWindow(before.instructionPointer, executablePages);
       const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
       executeStops += 1;
       const state = saveState(reason);
@@ -1184,8 +1166,6 @@ function executeControlled(offer, context) {
   };
   const runUntilPageFault = (expectedAddress, label) => {
     for (let index = 0; index < 16; index += 1) {
-      const before = saveState(0);
-      assertExecutableFetchWindow(before.instructionPointer, executablePages);
       const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
       executeStops += 1;
       const state = saveState(reason);
@@ -1275,7 +1255,6 @@ function executeControlled(offer, context) {
   assert.equal(callbackReturn, expected.secondThunk.returnAddress);
   assert.equal(callbackTarget, expected.secondThunk.callbackTarget);
   assert.equal(callbackValue, expected.secondThunk.value);
-  assertExecutableFetchWindow(callbackTarget, executablePages);
   assert.equal(
     context.readVirtualU32(expected.secondThunk.iatAddress, "bound callback IAT"),
     expected.secondThunk.address,

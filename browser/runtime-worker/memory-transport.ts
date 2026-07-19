@@ -94,6 +94,8 @@ export interface DirtyMirrorPage {
   bytes: Uint8Array;
 }
 
+const cpuWritebackMagic = Uint8Array.from([0x56, 0x49, 0x4e, 0x45, 0x57, 0x42, 0x30, 0x31]);
+
 export interface CpuWritebackBuffers {
   control: Uint8Array;
   payload: Uint8Array;
@@ -319,26 +321,36 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
   };
 }
 
-export function encodeCpuWriteback(
+export function encodeCpuWritebackControl(
   generation: bigint,
   pages: DirtyMirrorPage[],
-): CpuWritebackBuffers {
+): Uint8Array {
   const headerBytes = 32;
   const descriptorBytes = 8;
   const control = new Uint8Array(headerBytes + pages.length * descriptorBytes);
-  control.set(new TextEncoder().encode("VINEWB01"), 0);
+  control.set(cpuWritebackMagic, 0);
   const controlView = view(control);
   controlView.setUint32(8, 1, true);
   controlView.setUint32(12, pageSize, true);
   controlView.setBigUint64(16, generation, true);
   controlView.setUint32(24, pages.length, true);
   controlView.setUint32(28, descriptorBytes, true);
-  const payload = new Uint8Array(pages.length * pageSize);
   pages.forEach((page, index) => {
     invariant(page.bytes.byteLength === pageSize, "writeback page is not 4 KiB");
     const offset = headerBytes + index * descriptorBytes;
     controlView.setUint32(offset, page.address, true);
     controlView.setUint32(offset + 4, page.owner, true);
+  });
+  return control;
+}
+
+export function encodeCpuWriteback(
+  generation: bigint,
+  pages: DirtyMirrorPage[],
+): CpuWritebackBuffers {
+  const control = encodeCpuWritebackControl(generation, pages);
+  const payload = new Uint8Array(pages.length * pageSize);
+  pages.forEach((page, index) => {
     payload.set(page.bytes, index * pageSize);
   });
   return { control, payload };

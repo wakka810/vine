@@ -23,7 +23,6 @@ const guest = {
   stackBase: 0x006f_f000,
   stackTop: 0x0070_0000,
 };
-const adapterPrivateOffset = { memorySize: 812 };
 const stateWord = {
   magic: 0,
   version: 1,
@@ -246,10 +245,9 @@ async function prepareV86(reflection) {
   const { instance } = await WebAssembly.instantiate(wasmBytes, { env: environment });
   const wasm = instance.exports;
   wasm.rust_init();
-  let privateState = new DataView(wasm.memory.buffer);
-  privateState.setUint32(adapterPrivateOffset.memorySize, guest.physicalPoolBytes, true);
+  assert.equal(wasm.vine_adapter_abi_version(), 1);
+  assert.equal(wasm.vine_set_memory_size(guest.physicalPoolBytes), 0);
   const guestMemoryBase = wasm.allocate_memory(guest.physicalPoolBytes);
-  privateState = new DataView(wasm.memory.buffer);
   const physicalMemory = new Uint8Array(
     wasm.memory.buffer,
     guestMemoryBase,

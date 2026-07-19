@@ -973,11 +973,11 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 2 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-runtime-system-module-v1.json" ||
+      "fixtures/benchmarks/bgi-browser-runtime-user32-window-v1.json" ||
     bgiBenchmarkEvidence.runtimeProfile !==
-      "kernel32-load-library-a" ||
+      "user32-set-window-pos-activation" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-runtime-system-module-lifecycle-observation" ||
+      "current-runtime-user32-window-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||

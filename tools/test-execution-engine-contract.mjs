@@ -108,6 +108,60 @@ const protection = {
   code: { read: true, write: false, execute: true },
   data: { read: true, write: true, execute: false },
 };
+
+async function initializeBoundaryEngine({ entryPoint, firstPage, secondPage, secondExecutable }) {
+  const boundaryEngine = await instantiateExecutionEngineBytes(adapterBytes);
+  const stackAddress = 0x3000;
+  boundaryEngine.initialize(
+    {
+      generation: 1n,
+      cacheEffects: {
+        flushTlb: false,
+        invalidateInstructionFetch: false,
+        invalidateGeneratedCode: false,
+      },
+      pages: [
+        {
+          address: codeAddress,
+          owner: 9,
+          protection: protection.code,
+          ownerSealed: true,
+          dirty: true,
+          bytes: firstPage,
+        },
+        {
+          address: dataAddress,
+          owner: 9,
+          protection: { read: true, write: false, execute: secondExecutable },
+          ownerSealed: true,
+          dirty: true,
+          bytes: secondPage,
+        },
+        {
+          address: stackAddress,
+          owner: 9,
+          protection: protection.data,
+          ownerSealed: true,
+          dirty: true,
+          bytes: new Uint8Array(pageSize),
+        },
+      ],
+    },
+    {
+      entryPoint,
+      initialStackPointer: stackAddress + pageSize - 16,
+      fsBase: 0,
+      regions: [
+        {
+          owner: 9,
+          kind: "runtime",
+          range: { start: codeAddress, byteLength: pageSize * 3 },
+        },
+      ],
+    },
+  );
+  return boundaryEngine;
+}
 engine.initialize(
   {
     generation: 1n,
@@ -190,6 +244,95 @@ assert.deepEqual(trap.stop, {
   errorCode: -1,
 });
 assert.equal(trap.context.instructionPointer, codeAddress + 10);
+
+const pageEndFirst = new Uint8Array(pageSize);
+pageEndFirst[pageSize - 1] = 0x90;
+const pageEndSecond = new Uint8Array(pageSize);
+pageEndSecond[0] = 0x90;
+const pageEndEngine = await initializeBoundaryEngine({
+  entryPoint: dataAddress - 1,
+  firstPage: pageEndFirst,
+  secondPage: pageEndSecond,
+  secondExecutable: false,
+});
+const pageEndInstruction = pageEndEngine.executeBudget(1);
+assert.deepEqual(pageEndInstruction.stop, { kind: "budget-yield" });
+assert.equal(pageEndInstruction.instructions, 1);
+assert.equal(pageEndInstruction.context.instructionPointer, dataAddress);
+const nextPageDenied = pageEndEngine.executeBudget(1);
+assert.deepEqual(nextPageDenied.stop, {
+  kind: "fault",
+  fault: "execute-protection",
+  errorCode: 0x15,
+  engineReason: 3,
+  faultAddress: dataAddress,
+});
+assert.equal(nextPageDenied.instructions, 1);
+assert.equal(nextPageDenied.context.instructionPointer, dataAddress);
+assert.equal(nextPageDenied.context.previousInstructionPointer, dataAddress);
+
+const crossingFirst = new Uint8Array(pageSize);
+crossingFirst.set([0xb8, 0x78], pageSize - 2);
+const crossingSecond = new Uint8Array(pageSize);
+crossingSecond.set([0x56, 0x34, 0x12]);
+const crossingDeniedEngine = await initializeBoundaryEngine({
+  entryPoint: dataAddress - 2,
+  firstPage: crossingFirst,
+  secondPage: crossingSecond,
+  secondExecutable: false,
+});
+const crossingStackBefore = crossingDeniedEngine.readGuestU32(0x3000);
+const crossingDenied = crossingDeniedEngine.executeBudget(1);
+assert.deepEqual(crossingDenied.stop, {
+  kind: "fault",
+  fault: "execute-protection",
+  errorCode: 0x15,
+  engineReason: 3,
+  faultAddress: dataAddress,
+});
+assert.equal(crossingDenied.context.eax, 0);
+assert.equal(crossingDenied.context.instructionPointer, dataAddress - 2);
+assert.equal(crossingDenied.context.previousInstructionPointer, dataAddress - 2);
+assert.equal(crossingDeniedEngine.readGuestU32(0x3000), crossingStackBefore);
+
+const crossingAllowedEngine = await initializeBoundaryEngine({
+  entryPoint: dataAddress - 2,
+  firstPage: crossingFirst,
+  secondPage: crossingSecond,
+  secondExecutable: true,
+});
+const crossingAllowed = crossingAllowedEngine.executeBudget(1);
+assert.deepEqual(crossingAllowed.stop, { kind: "budget-yield" });
+assert.equal(crossingAllowed.instructions, 1);
+assert.equal(crossingAllowed.context.eax, 0x1234_5678);
+assert.equal(crossingAllowed.context.instructionPointer, dataAddress + 3);
+crossingAllowedEngine.applyMemoryDelta({
+  fromGeneration: 1n,
+  generation: 2n,
+  cacheEffects: {
+    flushTlb: true,
+    invalidateInstructionFetch: true,
+    invalidateGeneratedCode: true,
+  },
+  mappingOperations: [
+    {
+      operation: "protect",
+      owner: 9,
+      protection: { read: true, write: false, execute: false },
+      range: { base: dataAddress, byteLength: pageSize },
+    },
+  ],
+  pages: [],
+});
+const protectedAfterSlice = crossingAllowedEngine.executeBudget(1);
+assert.deepEqual(protectedAfterSlice.stop, {
+  kind: "fault",
+  fault: "execute-protection",
+  errorCode: 0x15,
+  engineReason: 3,
+  faultAddress: dataAddress + 3,
+});
+assert.equal(protectedAfterSlice.context.instructionPointer, dataAddress + 3);
 
 const mappedAddress = 0x4000;
 const mappedBytes = new Uint8Array(pageSize);

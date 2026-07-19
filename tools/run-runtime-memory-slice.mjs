@@ -20,10 +20,10 @@ const outputDirectory = path.join(root, ".work", "v86-memory-spike");
 const expected = {
   sourceRevision: "2f1346b0e7d88d4cbbbcc05fe15b4e369c3de23f",
   wasm: {
-    bytes: 1_882_836,
-    sha256: "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
+    bytes: 1_857_800,
+    sha256: "99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f",
     imports: 22,
-    exports: 809,
+    exports: 814,
   },
   fixture: {
     bytes: 3_072,
@@ -56,14 +56,12 @@ const stateOffset = {
   cpl: 612,
   inHalt: 616,
   lastVirtualInstructionPointer: 620,
-  instructionCounter: 664,
   segmentIsNull: 724,
   segmentOffsets: 736,
   segmentLimits: 768,
   protectedMode: 800,
   operandSize32: 804,
   stackSize32: 808,
-  memorySize: 812,
 };
 
 const page = {
@@ -431,8 +429,11 @@ for (const name of [
   "reset_cpu",
   "rust_init",
   "update_state_flags",
+  "vine_adapter_abi_version",
   "vine_execute_budget",
   "vine_get_stop_error_code",
+  "vine_instruction_counter",
+  "vine_set_memory_size",
   "zero_memory",
 ]) {
   assert(exportNames.has(name), `missing adapter export ${name}`);
@@ -461,7 +462,8 @@ const { instance } = await WebAssembly.instantiate(wasmBytes, { env: environment
 const wasm = instance.exports;
 wasm.rust_init();
 let state = new DataView(wasm.memory.buffer);
-state.setUint32(stateOffset.memorySize, guest.physicalPoolBytes, true);
+assert.equal(wasm.vine_adapter_abi_version(), 1);
+assert.equal(wasm.vine_set_memory_size(guest.physicalPoolBytes), 0);
 const guestMemoryBase = wasm.allocate_memory(guest.physicalPoolBytes);
 state = new DataView(wasm.memory.buffer);
 const physicalMemory = new Uint8Array(
@@ -679,8 +681,7 @@ const configureCpu = (instructionPointer, { reset = true, clearTlb = true } = {}
 const captureState = (reason, initialInstructionCount = 0) => ({
   reason,
   errorCode: wasm.vine_get_stop_error_code(),
-  instructionCount:
-    state.getUint32(stateOffset.instructionCounter, true) - initialInstructionCount,
+  instructionCount: (wasm.vine_instruction_counter() - initialInstructionCount) >>> 0,
   instructionPointer: state.getUint32(stateOffset.instructionPointer, true),
   previousInstructionPointer: state.getUint32(
     stateOffset.previousInstructionPointer,
@@ -692,7 +693,7 @@ const captureState = (reason, initialInstructionCount = 0) => ({
 });
 const execute = (address, options = {}) => {
   configureCpu(address, options);
-  const initialInstructionCount = state.getUint32(stateOffset.instructionCounter, true);
+  const initialInstructionCount = wasm.vine_instruction_counter();
   const reason = wasm.vine_execute_budget(64);
   return captureState(reason, initialInstructionCount);
 };

@@ -1,0 +1,41 @@
+name: scheduled-fuzz
+
+on:
+  schedule:
+    - cron: "17 3 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  long-fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - pe32_load_plan
+          - cpu_writeback_decode
+          - source_read_response_decode
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Run scheduled fuzz campaign
+        run: >-
+          cargo +nightly-2026-07-10 fuzz run --fuzz-dir fuzz
+          "${{ matrix.target }}" -- -max_total_time=1800 -max_len=1048611
+          -timeout=10 -rss_limit_mb=4096
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-${{ matrix.target }}-${{ github.run_id }}
+          path: |
+            fuzz/artifacts/${{ matrix.target }}
+            fuzz/corpus/${{ matrix.target }}
+          include-hidden-files: true
+          if-no-files-found: warn

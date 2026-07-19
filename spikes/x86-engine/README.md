@@ -6,7 +6,7 @@
 - Rust: `1.97.0` (`2d8144b7880597b6e6d3dfd63a9a9efae3f533d3`)
 - LLVM／Clang: `22.1.8`
 - Target: `wasm32-unknown-unknown`
-- Result: bounded interpreter、release exception stop、versioned CPU state round trip、high-address paging／R／W fault measurement、automatic binary dirty-page writeback verified
+- Result: bounded interpreter、release exception stop、versioned adapter／CPU state round trip、byte-consumption execute protection、high-address paging／R／W fault measurement、automatic binary dirty-page writeback verified
 
 This is a disposable Phase 0 adapter experiment, not a vendored v86 fork or an accepted production engine.
 
@@ -22,6 +22,11 @@ The adapter adds these Wasm exports without adding host imports:
 ```text
 vine_execute_budget(max_instructions) -> stop_reason
 vine_get_stop_error_code() -> i32
+vine_adapter_abi_version() -> 1
+vine_set_memory_size(bytes) -> status
+vine_instruction_counter() -> count
+vine_reset_execute_permissions()
+vine_set_page_executable(page_address, executable) -> status
 vine_cpu_state_{version,size,ptr,save,restore}
 ```
 
@@ -31,6 +36,7 @@ Stop reasons used by the spike are:
 |---:|---|
 | `1` | caller instruction budget reached |
 | `2` | CPU halted |
+| `3` | adapter execute permission denied |
 | `0x100 + n` | CPU exception vector `n` |
 
 The adapter disables and clears generated-code JIT state before its first interpreter run. The normal v86 execution path is unchanged when `vine_execute_budget` is not active.
@@ -109,12 +115,12 @@ The 2026-07-10 local build produced the following evidence. Compiler output hash
 
 | Property | Value |
 |---|---|
-| Size | 1,882,836 bytes |
-| SHA-256 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
+| Size | 1,857,800 bytes |
+| SHA-256 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
 | Imports | 22 |
-| Exports | 809 |
-| Source build time | approximately 24 seconds total (Rust compile: 21 seconds) |
+| Exports | 814 |
+| Source build time | approximately 22 seconds total (Rust compile: 18 seconds) |
 
 ## Remaining work
 
-The state layout and bidirectional binary page synchronization are explicit, but adapter physical memory remains one bounded pool with an explicitly excluded VGA hole, memory-size setup still uses one private offset pinned to this artifact, and Dirty discovery scans every writable mapping. W1／W2 harnesses verify fixed thunk／callback／window flow, the memory harness verifies high VA plus R／W behavior and multi-page writeback, and production reflection returns from 17 BGI calls. General process mapping、snapshot、general ABI、Chrome Runtime Worker、title-workload performance remain unimplemented.
+The state layout and bidirectional binary page synchronization are explicit, but adapter physical memory remains one bounded pool with an explicitly excluded VGA hole and Dirty discovery scans every writable mapping. Adapter ABI version `1` removes private memory-size／instruction-counter access and owns the execute bitmap. W1／W2 harnesses verify fixed thunk／callback／window flow, the raw memory harness preserves the upstream NX-gap baseline, and the production engine contract verifies page-boundary execute semantics. General guest execute-fault delivery、snapshot、broad ABI、and title-workload performance remain unimplemented.

@@ -6,6 +6,10 @@ use crate::softfloat::F80;
 const MAGIC: u32 = 0x5649_4E45;
 const VERSION: u32 = 1;
 const WORD_COUNT: usize = 160;
+const ADAPTER_ABI_VERSION: u32 = 1;
+const X86_PAGE_SHIFT: u32 = 12;
+const X86_PAGE_MASK: u32 = (1 << X86_PAGE_SHIFT) - 1;
+const EXECUTE_BITMAP_BYTES: usize = 1 << (32 - X86_PAGE_SHIFT - 3);
 
 const HEADER_MAGIC: usize = 0;
 const HEADER_VERSION: usize = 1;
@@ -53,12 +57,68 @@ const FPU_BASE: usize = 100;
 const XMM_BASE: usize = 124;
 
 static mut STATE: [u32; WORD_COUNT] = [0; WORD_COUNT];
+static mut EXECUTE_BITMAP: [u8; EXECUTE_BITMAP_BYTES] = [0; EXECUTE_BITMAP_BYTES];
+static mut EXECUTE_PROTECTION_ENABLED: bool = false;
 
 unsafe fn state_ptr() -> *mut u32 { (&raw mut STATE).cast::<u32>() }
 
 unsafe fn put(index: usize, value: u32) { *state_ptr().add(index) = value }
 
 unsafe fn get(index: usize) -> u32 { *state_ptr().add(index) }
+
+#[no_mangle]
+pub fn vine_adapter_abi_version() -> u32 { ADAPTER_ABI_VERSION }
+
+#[no_mangle]
+pub unsafe fn vine_set_memory_size(bytes: u32) -> u32 {
+    if bytes == 0 || bytes & X86_PAGE_MASK != 0 {
+        return 1;
+    }
+    *memory_size = bytes;
+    0
+}
+
+#[no_mangle]
+pub unsafe fn vine_instruction_counter() -> u32 { *instruction_counter }
+
+#[no_mangle]
+pub unsafe fn vine_reset_execute_permissions() {
+    let bitmap = (&raw mut EXECUTE_BITMAP).cast::<u8>();
+    for index in 0..EXECUTE_BITMAP_BYTES {
+        *bitmap.add(index) = 0;
+    }
+    EXECUTE_PROTECTION_ENABLED = true;
+}
+
+#[no_mangle]
+pub unsafe fn vine_set_page_executable(page_address: u32, executable: u32) -> u32 {
+    if page_address & X86_PAGE_MASK != 0 || executable > 1 {
+        return 1;
+    }
+    let page = page_address >> X86_PAGE_SHIFT;
+    let byte_index = (page >> 3) as usize;
+    let mask = 1 << (page & 7);
+    let byte = (&raw mut EXECUTE_BITMAP).cast::<u8>().add(byte_index);
+    if executable != 0 {
+        *byte |= mask;
+    }
+    else {
+        *byte &= !mask;
+    }
+    0
+}
+
+#[inline]
+pub unsafe fn execute_fetch_allowed(address: u32) -> bool {
+    if !EXECUTE_PROTECTION_ENABLED {
+        return true;
+    }
+    let page = address >> X86_PAGE_SHIFT;
+    let byte = *(&raw const EXECUTE_BITMAP)
+        .cast::<u8>()
+        .add((page >> 3) as usize);
+    byte & 1 << (page & 7) != 0
+}
 
 #[no_mangle]
 pub fn vine_cpu_state_version() -> u32 { VERSION }

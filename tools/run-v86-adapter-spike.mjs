@@ -29,14 +29,12 @@ const stateOffset = {
   cpl: 612,
   inHalt: 616,
   lastVirtualInstructionPointer: 620,
-  instructionCounter: 664,
   segmentIsNull: 724,
   segmentOffsets: 736,
   segmentLimits: 768,
   protectedMode: 800,
   operandSize32: 804,
   stackSize32: 808,
-  memorySize: 812,
 };
 
 const guest = {
@@ -47,6 +45,7 @@ const guest = {
 const stopReason = {
   budget: 1,
   halt: 2,
+  executeProtection: 3,
   divideError: 0x100,
   invalidOpcode: 0x106,
   generalProtection: 0x10d,
@@ -60,6 +59,7 @@ const requiredExports = [
   "reset_cpu",
   "rust_init",
   "update_state_flags",
+  "vine_adapter_abi_version",
   "vine_cpu_state_ptr",
   "vine_cpu_state_restore",
   "vine_cpu_state_save",
@@ -67,6 +67,10 @@ const requiredExports = [
   "vine_cpu_state_version",
   "vine_execute_budget",
   "vine_get_stop_error_code",
+  "vine_instruction_counter",
+  "vine_reset_execute_permissions",
+  "vine_set_memory_size",
+  "vine_set_page_executable",
   "zero_memory",
 ];
 
@@ -114,9 +118,10 @@ for (const imported of imports) {
 const { instance } = await WebAssembly.instantiate(bytes, { env: environment });
 const wasm = instance.exports;
 wasm.rust_init();
+assert.equal(wasm.vine_adapter_abi_version(), 1);
 
 let state = new DataView(wasm.memory.buffer);
-state.setUint32(stateOffset.memorySize, guest.memorySize, true);
+assert.equal(wasm.vine_set_memory_size(guest.memorySize), 0);
 const guestMemoryBase = wasm.allocate_memory(guest.memorySize);
 state = new DataView(wasm.memory.buffer);
 const memory = new Uint8Array(
@@ -128,6 +133,8 @@ const memory = new Uint8Array(
 function configure(program, cpl) {
   wasm.zero_memory(0, guest.memorySize);
   wasm.reset_cpu();
+  wasm.vine_reset_execute_permissions();
+  assert.equal(wasm.vine_set_page_executable(guest.codeAddress, 1), 0);
   memory.set(program, guest.codeAddress);
 
   for (let index = 0; index < 8; index += 1) {
@@ -170,7 +177,7 @@ function currentState(reason) {
   return {
     reason,
     errorCode: wasm.vine_get_stop_error_code(),
-    instructionCount: state.getUint32(stateOffset.instructionCounter, true),
+    instructionCount: wasm.vine_instruction_counter(),
     instructionPointer: state.getUint32(
       stateOffset.instructionPointer,
       true,

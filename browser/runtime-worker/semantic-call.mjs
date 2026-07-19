@@ -50,25 +50,40 @@ function canonicalJson(value) {
 class Sha256 {
   #state = Uint32Array.from(SHA256_INITIAL_STATE);
   #block = new Uint8Array(64);
+  #words = new Uint32Array(64);
   #blockBytes = 0;
   #bytesHashed = 0;
   #finished = false;
 
-  update(bytes) {
+  update(bytes, byteLength = bytes.byteLength) {
     if (this.#finished) {
       throw new Error("SHA-256 digest is already finalized");
     }
-    this.#bytesHashed += bytes.byteLength;
+    if (!Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > bytes.byteLength) {
+      throw new RangeError("SHA-256 input length is invalid");
+    }
+    this.#bytesHashed += byteLength;
     let offset = 0;
-    while (offset < bytes.byteLength) {
-      const copied = Math.min(64 - this.#blockBytes, bytes.byteLength - offset);
-      this.#block.set(bytes.subarray(offset, offset + copied), this.#blockBytes);
+    if (this.#blockBytes > 0) {
+      const copied = Math.min(64 - this.#blockBytes, byteLength - offset);
+      for (let index = 0; index < copied; index += 1) {
+        this.#block[this.#blockBytes + index] = bytes[offset + index];
+      }
       this.#blockBytes += copied;
       offset += copied;
       if (this.#blockBytes === 64) {
-        this.#compress(this.#block);
+        this.#compress(this.#block, 0);
         this.#blockBytes = 0;
       }
+    }
+    while (offset + 64 <= byteLength) {
+      this.#compress(bytes, offset);
+      offset += 64;
+    }
+    while (offset < byteLength) {
+      this.#block[this.#blockBytes] = bytes[offset];
+      this.#blockBytes += 1;
+      offset += 1;
     }
   }
 
@@ -84,24 +99,28 @@ class Sha256 {
     this.#block[this.#blockBytes++] = 0x80;
     if (this.#blockBytes > 56) {
       this.#block.fill(0, this.#blockBytes);
-      this.#compress(this.#block);
+      this.#compress(this.#block, 0);
       this.#blockBytes = 0;
     }
     this.#block.fill(0, this.#blockBytes, 56);
     const view = new DataView(this.#block.buffer);
     view.setUint32(56, Math.floor(bitLength / 0x1_0000_0000), false);
     view.setUint32(60, bitLength >>> 0, false);
-    this.#compress(this.#block);
+    this.#compress(this.#block, 0);
     return [...this.#state]
       .map((word) => word.toString(16).padStart(8, "0"))
       .join("");
   }
 
-  #compress(block) {
-    const words = new Uint32Array(64);
-    const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
+  #compress(block, offset) {
+    const words = this.#words;
     for (let index = 0; index < 16; index += 1) {
-      words[index] = view.getUint32(index * 4, false);
+      const word = offset + index * 4;
+      words[index] =
+        (block[word] << 24) |
+        (block[word + 1] << 16) |
+        (block[word + 2] << 8) |
+        block[word + 3];
     }
     for (let index = 16; index < 64; index += 1) {
       const previous15 = words[index - 15];
@@ -132,10 +151,14 @@ class Sha256 {
       b = a;
       a = (temporary1 + temporary2) >>> 0;
     }
-    const values = [a, b, c, d, e, f, g, h];
-    for (let index = 0; index < this.#state.length; index += 1) {
-      this.#state[index] = (this.#state[index] + values[index]) >>> 0;
-    }
+    this.#state[0] = (this.#state[0] + a) >>> 0;
+    this.#state[1] = (this.#state[1] + b) >>> 0;
+    this.#state[2] = (this.#state[2] + c) >>> 0;
+    this.#state[3] = (this.#state[3] + d) >>> 0;
+    this.#state[4] = (this.#state[4] + e) >>> 0;
+    this.#state[5] = (this.#state[5] + f) >>> 0;
+    this.#state[6] = (this.#state[6] + g) >>> 0;
+    this.#state[7] = (this.#state[7] + h) >>> 0;
   }
 }
 
@@ -169,7 +192,11 @@ export function normalizeSemanticCall(call) {
 
 export class SemanticCallDigest {
   #encoder = new TextEncoder();
-  #canonicalCalls = new Map();
+  #encodedBuffer = new Uint8Array(64 * 1024);
+  #sha256 = new Sha256();
+  #pendingCalls = new Map();
+  #nextSequence = 1;
+  #count = 0;
   #finished = false;
 
   update(call) {
@@ -179,17 +206,26 @@ export class SemanticCallDigest {
     if (!Number.isSafeInteger(call.sequence) || call.sequence < 1) {
       throw new RangeError("semantic call sequence must be a positive integer");
     }
-    if (this.#canonicalCalls.has(call.sequence)) {
+    if (call.sequence < this.#nextSequence || this.#pendingCalls.has(call.sequence)) {
       throw new Error(`semantic call sequence ${call.sequence} is duplicated`);
     }
-    this.#canonicalCalls.set(
-      call.sequence,
-      `${canonicalJson(normalizeSemanticCall(call))}\n`,
-    );
+    const canonical = `${canonicalJson(normalizeSemanticCall(call))}\n`;
+    this.#count += 1;
+    if (call.sequence === this.#nextSequence) {
+      this.#updateDigest(canonical);
+      this.#nextSequence += 1;
+      while (this.#pendingCalls.has(this.#nextSequence)) {
+        this.#updateDigest(this.#pendingCalls.get(this.#nextSequence));
+        this.#pendingCalls.delete(this.#nextSequence);
+        this.#nextSequence += 1;
+      }
+    } else {
+      this.#pendingCalls.set(call.sequence, canonical);
+    }
   }
 
   count() {
-    return this.#canonicalCalls.size;
+    return this.#count;
   }
 
   digestHex() {
@@ -197,10 +233,22 @@ export class SemanticCallDigest {
       throw new Error("semantic call digest is already finalized");
     }
     this.#finished = true;
-    const sha256 = new Sha256();
-    for (const sequence of [...this.#canonicalCalls.keys()].sort((left, right) => left - right)) {
-      sha256.update(this.#encoder.encode(this.#canonicalCalls.get(sequence)));
+    for (const sequence of [...this.#pendingCalls.keys()].sort((left, right) => left - right)) {
+      this.#updateDigest(this.#pendingCalls.get(sequence));
     }
-    return sha256.digestHex();
+    this.#pendingCalls.clear();
+    return this.#sha256.digestHex();
+  }
+
+  #updateDigest(canonical) {
+    let remaining = canonical;
+    while (remaining.length > 0) {
+      const { read, written } = this.#encoder.encodeInto(remaining, this.#encodedBuffer);
+      if (read === 0) {
+        throw new RangeError("semantic call cannot make UTF-8 encoding progress");
+      }
+      this.#sha256.update(this.#encodedBuffer, written);
+      remaining = remaining.slice(read);
+    }
   }
 }

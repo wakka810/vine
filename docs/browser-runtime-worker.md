@@ -98,19 +98,32 @@ data-TLB／instruction-fetch／generated-code effects. `runtime-worker.ts` conta
 no PTE address, v86 private offset, `full_clear_tlb`, or v86 reason constant.
 
 The current implementation remains the source-v86 adapter. Its non-PAE tables,
-PTE Dirty scan, private instruction-counter／memory-size offsets, TLB flush, and
-generated-code hook are confined to `v86-mirror.ts`. The pinned profile is
+PTE Dirty scan, TLB flush, and generated-code hook are confined to
+`v86-mirror.ts`. Adapter ABI version `1` exposes memory-size setup, the
+instruction counter, and a 4 GiB page execute bitmap without exposing v86
+private offsets to the Worker or runtime runners. The pinned profile is
 [`fixtures/execution-engines/v86-browser-v1.json`](../fixtures/execution-engines/v86-browser-v1.json):
 source revision `2f1346b0e7d88d4cbbbcc05fe15b4e369c3de23f` and CPU-context ABI version `1`／
 640 bytes are common. Its artifact allowlist contains exact host builds: Windows
-GNU is 1,882,836 bytes／SHA-256
-`f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26`;
-Linux GNU is 2,141,050 bytes／SHA-256
-`ac8349cbaccd31d6f5c68a84012fc7bc3a73eda2c06e519331396b43d8c42540`.
+GNU is 1,857,800 bytes／SHA-256
+`99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f`;
+Linux GNU is 2,116,017 bytes／SHA-256
+`21b0fb4f63e9604a66e6522839c9744a4ae17f9ead1c2e201ff2e46fccff20c4`.
 Build preparation matches the actual Wasm to one allowlist entry and records
 that selected identity, rather than the whole allowlist, in the build manifest.
 Worker startup checks artifact bytes／SHA-256 before compilation and exported
-context version／size before guest initialization.
+adapter／context ABI versions and context size before guest initialization.
+
+Rust remains the execute-permission authority. The mirror resets and rebuilds
+the adapter bitmap from reflected mappings, then updates it for every
+commit／protect／decommit／release operation. The interpreter validates the
+opcode and each additional decode byte when it is consumed. A one-byte
+instruction at the end of an executable page therefore completes, while the
+next opcode on an NX page and an immediate crossing into that page stop with
+reason `3`, PFEC-equivalent `0x15`, and CR2 set to the denied byte. The crossing
+case restores the instruction EIP before exposing the structured stop and does
+not update its destination register. This is a host-visible execution stop; it
+does not yet claim general guest SEH delivery for execute faults.
 
 Rust prepared metadata also supplies the semantic committed-page limit. The
 v86 mirror starts with a 64 KiB physical pool and grows geometrically only after
@@ -124,7 +137,7 @@ failure is the mutation-free typed code `v86-physical-pool-exhausted`.
 
 The verified adapter module is cached once per Worker; each runtime session
 still creates a fresh Wasm instance, CPU context, mapping registry, and guest
-memory. This placement removed repeated 1.88 MiB fetch／hash／compile backing
+memory. This placement removes repeated adapter fetch／hash／compile backing
 storage without sharing guest state. `npm run check:execution-engine-contract:prepared`
 uses the actual Wasm to fix CPU context, structured yield／trap, all five mapping
 operations, changed-page owner/address, cache effects, and revision／ABI／hash

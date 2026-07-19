@@ -148,7 +148,7 @@ function fallbackBuildArguments(environment) {
     "--verbose",
   ].join(" ");
 
-  return [`CARGO_FLAGS_SAFE=${cargoFlags}`, "build/v86-fallback.wasm"];
+  return ["--always-make", `CARGO_FLAGS_SAFE=${cargoFlags}`, "build/v86-fallback.wasm"];
 }
 
 function prepareSource() {

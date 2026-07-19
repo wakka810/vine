@@ -61,7 +61,6 @@ const guest = {
   codeTargetBase: 0x5000_0000,
   scratchBase: 0x6000_0000,
 };
-const adapterPrivateOffset = { memorySize: 812, instructionCounter: 664 };
 const stateWord = {
   magic: 0,
   version: 1,
@@ -422,10 +421,9 @@ async function prepareV86(reflection) {
   const { instance } = await WebAssembly.instantiate(wasmBytes, { env: environment });
   const wasm = instance.exports;
   wasm.rust_init();
-  let privateState = new DataView(wasm.memory.buffer);
-  privateState.setUint32(adapterPrivateOffset.memorySize, guest.physicalPoolBytes, true);
+  assert.equal(wasm.vine_adapter_abi_version(), 1);
+  assert.equal(wasm.vine_set_memory_size(guest.physicalPoolBytes), 0);
   const guestMemoryBase = wasm.allocate_memory(guest.physicalPoolBytes);
-  privateState = new DataView(wasm.memory.buffer);
   const physicalMemory = new Uint8Array(
     wasm.memory.buffer,
     guestMemoryBase,
@@ -517,7 +515,6 @@ async function prepareV86(reflection) {
     mappings,
     physicalMemory,
     physicalView,
-    privateState,
     wasm,
   };
 }
@@ -531,7 +528,7 @@ function applyInitialCacheEffects(context, cacheEffects) {
 }
 
 function executeGuest(context, expected) {
-  const before = context.privateState.getUint32(adapterPrivateOffset.instructionCounter, true);
+  const before = context.wasm.vine_instruction_counter();
   const reason = context.wasm.vine_execute_budget(100);
   assert.equal(reason, stopReason.invalidOpcode);
   assert.equal(context.wasm.vine_get_stop_error_code(), -1);
@@ -541,7 +538,7 @@ function executeGuest(context, expected) {
     context.wasm.vine_cpu_state_ptr(),
     context.wasm.vine_cpu_state_size() / 4,
   );
-  const after = context.privateState.getUint32(adapterPrivateOffset.instructionCounter, true);
+  const after = context.wasm.vine_instruction_counter();
   assert.equal(words[stateWord.instructionPointer], expected.instructionPointer);
   assert.equal(words[stateWord.previousInstructionPointer], expected.instructionPointer);
   assert.equal(words[stateWord.eax], expected.eax);

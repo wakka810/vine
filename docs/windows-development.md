@@ -222,4 +222,20 @@ node tools/summarize-windows-trace.mjs `
 初回 trace は title resource bandまで到達し、後続trace v2はselected `IDirect3D9` root 11 methodsを観測した。W7 controlled imageのentry completion、Rust-owned stack、minimum bootstrap、BGI full trap binding、389-page endpoint mode、first seventeen Kernel32 returns、automatic binary multi-page writeback、controlled Chrome Runtime Worker vertical slice、version 1 v86 browser gate、generation付きtyped object／handle、process-owned module graph／current directory、controlled lifecycle／two-thread registry／one-object wait／raw message queue／private-heap backing／named synchronization foundationsまで固定した。benchmarkは全17 thresholdを満たして継続`go`である。BGIのexact `EncodePointer(0x7F020000)` continuationは保持して凍結し、separate generic runtimeはPE initial-stack growth、CP_ACP NUL終端変換、SetCurrentDirectoryA、CreateMutexAを含む284 callsをreturnした。次はinstruction 25,256の`GetCurrentThread`についてpseudo-handleとRust-owned selected-thread identityを固定する。視覚的なtitle checkpointは`P0-COR-02`の未acceptanceのままである。
 <!-- END FROZEN HISTORICAL EVIDENCE -->
 
+Current adapter reproduction uses `npm run prepare:engine`. The Windows fallback
+target is rebuilt even when upstream `make` would otherwise reuse an older Wasm,
+then `run-v86-adapter-spike.mjs` verifies adapter ABI version `1`, the versioned
+CPU context, bounded faults, and the exact host artifact profile. Run
+`npm run check:execution-engine-contract:prepared` after preparation to verify
+page-end short instructions, next-page NX rejection, cross-page decode failure
+atomicity, and the executable two-page control. Linux CI builds the same source
+overlay and matches the separate Linux artifact identity recorded in
+`fixtures/execution-engines/v86-browser-v1.json`.
+
+Public CI also has a Windows 2022 native-oracle job. It installs the same pinned
+llvm-mingw 20260616 family from a SHA-256-verified Windows archive and runs the nine
+redistributable PE32 self-oracles produced by `npm run check:toolchain`, followed by
+the trace-summary parser contract. It verifies Windows loader／ABI／window behavior
+continuously without requiring BGI.exe or recording a private native trace.
+
 以後の title failure は Windows native trace／debugger で最小化し、browser runtime の実装と fixture は同じ Windows workspace で進める。

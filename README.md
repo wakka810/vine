@@ -16,7 +16,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Active scenario | `logical-window-and-message-flow` |
 | Runtime diagnostics | `user32-set-window-pos-activation`: 17841 calls across 83 API contracts, memory generation 34590 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (29 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (32 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `USER32.dll!MonitorFromWindow(0x48010001, 0x00000001)` at instruction 11807189: `endpoint-contract-missing` |
 

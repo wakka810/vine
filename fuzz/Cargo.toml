@@ -18,4 +18,18 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "cpu_writeback_decode"
+path = "fuzz_targets/cpu_writeback_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "source_read_response_decode"
+path = "fuzz_targets/source_read_response_decode.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]

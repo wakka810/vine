@@ -294,14 +294,12 @@ const privateStateOffset = {
   cpl: 612,
   inHalt: 616,
   lastVirtualInstructionPointer: 620,
-  instructionCounter: 664,
   segmentIsNull: 724,
   segmentOffsets: 736,
   segmentLimits: 768,
   protectedMode: 800,
   operandSize32: 804,
   stackSize32: 808,
-  memorySize: 812,
 };
 const savedStateWord = {
   magic: 0,
@@ -574,6 +572,7 @@ const requiredExports = [
   "reset_cpu",
   "rust_init",
   "update_state_flags",
+  "vine_adapter_abi_version",
   "vine_cpu_state_ptr",
   "vine_cpu_state_restore",
   "vine_cpu_state_save",
@@ -581,6 +580,8 @@ const requiredExports = [
   "vine_cpu_state_version",
   "vine_execute_budget",
   "vine_get_stop_error_code",
+  "vine_instruction_counter",
+  "vine_set_memory_size",
   "zero_memory",
 ];
 for (const name of requiredExports) {
@@ -612,7 +613,8 @@ const { instance } = await WebAssembly.instantiate(wasmBytes, { env: environment
 const wasm = instance.exports;
 wasm.rust_init();
 let privateState = new DataView(wasm.memory.buffer);
-privateState.setUint32(privateStateOffset.memorySize, guest.memorySize, true);
+assert.equal(wasm.vine_adapter_abi_version(), 1);
+assert.equal(wasm.vine_set_memory_size(guest.memorySize), 0);
 const guestMemoryBase = wasm.allocate_memory(guest.memorySize);
 privateState = new DataView(wasm.memory.buffer);
 const memory = new Uint8Array(
@@ -965,10 +967,7 @@ const saveState = (reason) => {
   return {
     reason,
     errorCode: wasm.vine_get_stop_error_code(),
-    instructionCount: privateState.getUint32(
-      privateStateOffset.instructionCounter,
-      true,
-    ),
+    instructionCount: wasm.vine_instruction_counter(),
     words,
     eax: words[savedStateWord.eax],
     esp: words[savedStateWord.esp],

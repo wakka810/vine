@@ -8,28 +8,55 @@ on:
 permissions:
   contents: read
 
+env:
+  VINE_ACCEPTANCE_CHROME_VERSION: 151.0.7922.34
+
 jobs:
-  public-checks:
+  static-semantic:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
         with:
           # Commit-bound private evidence may reference an implementation
           # commit older than the evidence-only HEAD commit.
           fetch-depth: 0
-
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+      - run: npm ci
+      - run: npm run check:static
 
+  rust-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.97.0
           components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
+      - run: cargo fmt --all --check
+      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  fixture-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+          targets: wasm32-unknown-unknown
       - name: Install LLVM 22.1.8
         run: |
           archive="$RUNNER_TEMP/llvm-mingw.tar.xz"
@@ -42,28 +69,101 @@ jobs:
           mkdir -p "$root"
           tar -xJf "$archive" --strip-components=1 -C "$root"
           echo "$root/bin" >> "$GITHUB_PATH"
+      - run: npm ci
+      - run: npm run check:toolchain
+        env:
+          VINE_WASM_CLANG: /usr/bin/clang
+      - run: npm run prepare:engine
+      - run: npm run check:execution-engine-contract:prepared
+      - uses: actions/upload-artifact@v7
+        with:
+          name: public-fixture-inputs
+          path: |
+            .work/toolchain-spike
+            .work/v86-adapter-source/build/v86-fallback.wasm
+            .work/v86-adapter-spike/report.json
+          include-hidden-files: true
+          if-no-files-found: error
 
+  fixture-core-e2e:
+    needs: fixture-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+          targets: wasm32-unknown-unknown
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          name: public-fixture-inputs
+          path: .work
+      - run: npm run check:execution-engine-contract:prepared
+      - run: npm run check:fixture-core-e2e:prepared
+
+  browser-acceptance:
+    needs: fixture-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+          targets: wasm32-unknown-unknown
       - id: chrome
         uses: browser-actions/setup-chrome@v2
         with:
-          chrome-version: stable
-
+          chrome-version: ${{ env.VINE_ACCEPTANCE_CHROME_VERSION }}
       - run: npm ci
-
-      - run: npm run check:fast
+      - uses: actions/download-artifact@v8
+        with:
+          name: public-fixture-inputs
+          path: .work
+      - run: npm run check:execution-engine-contract:prepared
+      - run: npm run check:fixture-browser-e2e:prepared
         env:
           VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
-          VINE_WASM_CLANG: /usr/bin/clang
+      - uses: actions/upload-artifact@v7
+        with:
+          name: browser-runtime-acceptance
+          path: .work/browser-runtime
+          include-hidden-files: true
+          if-no-files-found: error
 
-      - run: npm run check:fixture-e2e
-        env:
-          VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
-
+  performance-observation:
+    needs: browser-acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - id: chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: ${{ env.VINE_ACCEPTANCE_CHROME_VERSION }}
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          name: browser-runtime-acceptance
+          path: .work/browser-runtime
       - name: Run v86 browser benchmark observation
-        run: npm run check:runtime:v86-benchmark:ci:prepared
+        run: node tools/run-v86-browser-benchmark.mjs --allow-conditional-go
         env:
           VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
-
       - name: Upload v86 browser benchmark evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -72,7 +172,100 @@ jobs:
           path: |
             .work/v86-browser-benchmark/report.json
             .work/v86-browser-benchmark/benchmark.png
-            .work/toolchain-spike/report.json
-            .work/browser-runtime/browser-report.json
-            .work/browser-runtime/build-manifest.json
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  chrome-stable-observation:
+    needs: browser-acceptance
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - id: chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          name: browser-runtime-acceptance
+          path: .work/browser-runtime
+      - run: node tools/run-browser-runtime-check.mjs
+        env:
+          VINE_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: chrome-stable-observation
+          path: .work/browser-runtime/browser-report.json
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  windows-native-oracle:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install LLVM 22.1.8
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "llvm-mingw.zip"
+          $root = Join-Path $env:RUNNER_TEMP "llvm-mingw"
+          Invoke-WebRequest `
+            -Uri "https://github.com/mstorsjo/llvm-mingw/releases/download/20260616/llvm-mingw-20260616-ucrt-x86_64.zip" `
+            -OutFile $archive
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne "b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35") {
+            throw "llvm-mingw SHA-256 mismatch: $actual"
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $root
+          $toolchain = Get-ChildItem -LiteralPath $root -Directory |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "bin/clang.exe") } |
+            Select-Object -First 1
+          if ($null -eq $toolchain) {
+            throw "llvm-mingw toolchain root was not found"
+          }
+          Join-Path $toolchain.FullName "bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - run: npm ci
+      - run: npm run check:toolchain
+      - run: npm run check:windows-trace
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-native-oracle
+          path: .work/toolchain-spike/report.json
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  fuzz-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Run bounded input fuzz smoke
+        shell: bash
+        run: |
+          for target in pe32_load_plan cpu_writeback_decode source_read_response_decode; do
+            cargo +nightly-2026-07-10 fuzz run --fuzz-dir fuzz "$target" -- \
+              -max_total_time=15 -max_len=1048611 -timeout=5 -rss_limit_mb=2048
+          done
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-smoke-failures
+          path: fuzz/artifacts
+          include-hidden-files: true
           if-no-files-found: warn

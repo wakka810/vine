@@ -146,19 +146,39 @@ impl RuntimeSourceReadHostResponse {
                 "source read response control must contain eight little-endian words",
             ));
         }
-        let words = control
-            .chunks_exact(4)
-            .map(|word| {
-                u32::from_le_bytes(
-                    word.try_into()
-                        .expect("four-byte source read response control chunk"),
-                )
-            })
-            .collect::<Vec<_>>();
+        let words: [u32; 8] = std::array::from_fn(|index| {
+            let offset = index * 4;
+            u32::from_le_bytes(
+                control[offset..offset + 4]
+                    .try_into()
+                    .expect("four-byte source read response control chunk"),
+            )
+        });
         if words[0] != RUNTIME_SOURCE_READ_TRANSPORT_VERSION {
             return Err(vfs_invalid(
                 "source-read-response-version-unsupported",
                 "source read response uses an unsupported transport version",
+            ));
+        }
+        let requested_bytes = words[5];
+        let transferred_bytes = words[6];
+        let win32_error = words[7];
+        if requested_bytes == 0 || requested_bytes > RUNTIME_SOURCE_READ_MAX_BYTES {
+            return Err(vfs_invalid(
+                "source-read-response-request-size-invalid",
+                "source read response request size exceeds the transport contract",
+            ));
+        }
+        let valid_payload = if win32_error == 0 {
+            transferred_bytes <= requested_bytes
+                && usize::try_from(transferred_bytes) == Ok(payload.len())
+        } else {
+            transferred_bytes == 0 && payload.is_empty()
+        };
+        if !valid_payload {
+            return Err(vfs_invalid(
+                "source-read-response-payload-invalid",
+                "source read response payload does not match its result metadata",
             ));
         }
         Ok(Self {
@@ -166,9 +186,9 @@ impl RuntimeSourceReadHostResponse {
             source_id: words[1],
             object_id: words[2],
             offset: u64::from(words[3]) | (u64::from(words[4]) << 32),
-            requested_bytes: words[5],
-            transferred_bytes: words[6],
-            win32_error: words[7],
+            requested_bytes,
+            transferred_bytes,
+            win32_error,
             bytes: payload.to_vec(),
         })
     }
@@ -1079,6 +1099,28 @@ fn vfs_invalid(code: &'static str, message: &'static str) -> RuntimeStateError {
 mod tests {
     use super::*;
 
+    fn source_read_response_control(
+        requested_bytes: u32,
+        transferred_bytes: u32,
+        win32_error: u32,
+    ) -> [u8; RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES] {
+        let words = [
+            RUNTIME_SOURCE_READ_TRANSPORT_VERSION,
+            7,
+            11,
+            3,
+            0,
+            requested_bytes,
+            transferred_bytes,
+            win32_error,
+        ];
+        let mut control = [0; RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES];
+        for (word, bytes) in words.into_iter().zip(control.chunks_exact_mut(4)) {
+            bytes.copy_from_slice(&word.to_le_bytes());
+        }
+        control
+    }
+
     fn manifest() -> RuntimeSourceSnapshotManifest {
         RuntimeSourceSnapshotManifest {
             schema: RUNTIME_SOURCE_SNAPSHOT_SCHEMA.to_owned(),
@@ -1195,5 +1237,62 @@ mod tests {
         assert!(completion.succeeded);
         assert_eq!(completion.cursor_after, 4);
         assert_eq!(files.open_file(id).unwrap().cursor, 4);
+    }
+
+    #[test]
+    fn source_read_response_decoder_bounds_payload_before_copying() {
+        let success_control = source_read_response_control(4, 3, 0);
+        let success =
+            RuntimeSourceReadHostResponse::decode_binary(9, &success_control, &[1, 2, 3]).unwrap();
+        assert_eq!(success.request_id, 9);
+        assert_eq!(success.offset, 3);
+        assert_eq!(success.bytes, [1, 2, 3]);
+
+        let failure_control = source_read_response_control(4, 0, 5);
+        let failure =
+            RuntimeSourceReadHostResponse::decode_binary(10, &failure_control, &[]).unwrap();
+        assert_eq!(failure.win32_error, 5);
+        assert!(failure.bytes.is_empty());
+
+        for (control, payload, expected_code) in [
+            (
+                source_read_response_control(0, 0, 0),
+                Vec::new(),
+                "source-read-response-request-size-invalid",
+            ),
+            (
+                source_read_response_control(RUNTIME_SOURCE_READ_MAX_BYTES + 1, 0, 0),
+                Vec::new(),
+                "source-read-response-request-size-invalid",
+            ),
+            (
+                source_read_response_control(4, 5, 0),
+                vec![0; 5],
+                "source-read-response-payload-invalid",
+            ),
+            (
+                source_read_response_control(4, 3, 0),
+                vec![0; 4],
+                "source-read-response-payload-invalid",
+            ),
+            (
+                source_read_response_control(
+                    RUNTIME_SOURCE_READ_MAX_BYTES,
+                    RUNTIME_SOURCE_READ_MAX_BYTES,
+                    0,
+                ),
+                vec![0; RUNTIME_SOURCE_READ_MAX_BYTES as usize + 1],
+                "source-read-response-payload-invalid",
+            ),
+            (
+                source_read_response_control(4, 1, 5),
+                vec![0],
+                "source-read-response-payload-invalid",
+            ),
+        ] {
+            let error =
+                RuntimeSourceReadHostResponse::decode_binary(11, &control, &payload).unwrap_err();
+            assert_eq!(error.code, expected_code);
+        }
     }
 }

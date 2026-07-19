@@ -4084,10 +4084,6 @@ const guest = {
   instructionBudget: 1,
   maximumExecuteStops: 4_096,
 };
-const adapterPrivateOffset = {
-  instructionCounter: 664,
-  memorySize: 812,
-};
 const stateWord = {
   magic: 0,
   version: 1,
@@ -4120,6 +4116,7 @@ const segmentIndex = {
 };
 const stopReason = {
   budget: 1,
+  executeProtection: 3,
   invalidOpcode: 0x106,
   pageFault: 0x10e,
 };
@@ -4141,20 +4138,6 @@ function checkedEnd(start, size, limit, label) {
   assert(Number.isSafeInteger(end) && end >= start, `${label} overflows`);
   assert(end <= limit, `${label} exceeds its containing range`);
   return end;
-}
-
-function executableFetchWindow(instructionPointer, executablePages) {
-  for (let offset = 0; offset < 15; offset += 1) {
-    const address = instructionPointer + offset;
-    if (address > 0xffff_ffff) {
-      return { allowed: false, deniedPage: null };
-    }
-    const virtualPage = (address & ~(page.size - 1)) >>> 0;
-    if (!executablePages.has(virtualPage)) {
-      return { allowed: false, deniedPage: virtualPage };
-    }
-  }
-  return { allowed: true, deniedPage: null };
 }
 
 function checkedGuestEnd(address, size, label) {
@@ -14881,6 +14864,7 @@ async function prepareV86(offer) {
     "memory",
     "reset_cpu",
     "rust_init",
+    "vine_adapter_abi_version",
     "vine_cpu_state_ptr",
     "vine_cpu_state_restore",
     "vine_cpu_state_save",
@@ -14888,6 +14872,10 @@ async function prepareV86(offer) {
     "vine_cpu_state_version",
     "vine_execute_budget",
     "vine_get_stop_error_code",
+    "vine_instruction_counter",
+    "vine_reset_execute_permissions",
+    "vine_set_memory_size",
+    "vine_set_page_executable",
     "zero_memory",
   ]) {
     assert(exportNames.has(name), `missing adapter export ${name}`);
@@ -14916,10 +14904,10 @@ async function prepareV86(offer) {
   const { instance } = await WebAssembly.instantiate(wasmBytes, { env: environment });
   const wasm = instance.exports;
   wasm.rust_init();
-  let privateState = new DataView(wasm.memory.buffer);
-  privateState.setUint32(adapterPrivateOffset.memorySize, guest.physicalPoolBytes, true);
+  assert.equal(wasm.vine_adapter_abi_version(), 1);
+  assert.equal(wasm.vine_set_memory_size(guest.physicalPoolBytes), 0);
+  wasm.vine_reset_execute_permissions();
   const guestMemoryBase = wasm.allocate_memory(guest.physicalPoolBytes);
-  privateState = new DataView(wasm.memory.buffer);
   const physicalMemory = new Uint8Array(
     wasm.memory.buffer,
     guestMemoryBase,
@@ -15012,6 +15000,11 @@ async function prepareV86(offer) {
       protection: { ...protection },
       role,
     });
+    assert.equal(
+      wasm.vine_set_page_executable(virtualBase, Number(protection.execute)),
+      0,
+      `${role} execute permission was rejected`,
+    );
   };
   const requireRuntimeMapping = (virtualBase, owner, addressAllocationId, label) => {
     assert.equal(virtualBase & (page.size - 1), 0, `${label} address is not page aligned`);
@@ -15046,6 +15039,11 @@ async function prepareV86(offer) {
       "runtime host protect page table entry",
     );
     mapping.protection = { ...protection };
+    assert.equal(
+      wasm.vine_set_page_executable(virtualBase, Number(protection.execute)),
+      0,
+      "runtime host protect execute permission was rejected",
+    );
   };
   const releasePhysicalPage = (physicalBase) => {
     physicalMemory.fill(0, physicalBase, physicalBase + page.size);
@@ -15054,6 +15052,11 @@ async function prepareV86(offer) {
   const unmapRuntimePage = (virtualBase, owner, addressAllocationId, label) => {
     const mapping = requireRuntimeMapping(virtualBase, owner, addressAllocationId, label);
     writePhysicalU32(mapping.pteAddress, 0, `${label} page table entry`);
+    assert.equal(
+      wasm.vine_set_page_executable(virtualBase, 0),
+      0,
+      `${label} execute permission was rejected`,
+    );
     mappings.delete(virtualBase);
     releasePhysicalPage(mapping.physicalBase);
     const directoryIndex = virtualBase >>> 22;
@@ -19518,11 +19521,10 @@ function captureCpuState(context, reason) {
       context.wasm.vine_cpu_state_size() / 4,
     ),
   );
-  const privateState = new DataView(context.wasm.memory.buffer);
   return {
     reason,
     errorCode: context.wasm.vine_get_stop_error_code(),
-    instructionCount: privateState.getUint32(adapterPrivateOffset.instructionCounter, true),
+    instructionCount: context.wasm.vine_instruction_counter(),
     eax: words[stateWord.eax],
     ecx: words[stateWord.ecx],
     edx: words[stateWord.edx],
@@ -19990,11 +19992,6 @@ function restoreStdcall(context, trapped, returnAddress, argumentBytes, eax, lab
 function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
   const instructionBudget = sourceFileReadEnabled ? 256 : guest.instructionBudget;
   const maximumExecuteStops = sourceFileReadEnabled ? 39_063 : guest.maximumExecuteStops;
-  const executablePages = new Set(
-    [...context.mappings.entries()]
-      .filter(([, { ownerSealed, protection }]) => ownerSealed && protection.execute)
-      .map(([address]) => address),
-  );
   const thunksByAddress = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
   const dynamicExportThunks =
     offer.dynamicExportThunks ??
@@ -20012,20 +20009,6 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
   let finalState = captureCpuState(context, 0);
   assert.equal(finalState.instructionCount, initialInstructionCount);
   for (let index = 0; index < maximumExecuteStops; index += 1) {
-    const before = captureCpuState(context, 0);
-    const fetchWindow = executableFetchWindow(before.instructionPointer, executablePages);
-    if (!fetchWindow.allowed) {
-      terminal = {
-        kind: "logical-execute-gate",
-        stage: "instruction-fetch",
-        code: "cross-page-execute-permission-unimplemented",
-        instructionPointer: before.instructionPointer,
-        deniedPage: fetchWindow.deniedPage,
-        checkedBytes: 15,
-      };
-      finalState = before;
-      break;
-    }
     const reason = context.wasm.vine_execute_budget(instructionBudget);
     executeStops += 1;
     const state = captureCpuState(context, reason);
@@ -20945,11 +20928,6 @@ function buildSeventeenthEncodePointerReport({
 }
 
 function executeToFirstOwnedTrap(offer, context) {
-  const executablePages = new Set(
-    offer.reflection.pages
-      .filter(({ ownerSealed, protection }) => ownerSealed && protection.execute)
-      .map(({ address }) => address),
-  );
   const thunksByAddress = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
   const dynamicExportThunks =
     offer.dynamicExportThunks ??
@@ -20970,14 +20948,10 @@ function executeToFirstOwnedTrap(offer, context) {
         context.wasm.vine_cpu_state_size() / 4,
       ),
     );
-    const privateState = new DataView(context.wasm.memory.buffer);
     return {
       reason,
       errorCode: context.wasm.vine_get_stop_error_code(),
-      instructionCount: privateState.getUint32(
-        adapterPrivateOffset.instructionCounter,
-        true,
-      ),
+      instructionCount: context.wasm.vine_instruction_counter(),
       eax: words[stateWord.eax],
       ecx: words[stateWord.ecx],
       edx: words[stateWord.edx],
@@ -21005,20 +20979,6 @@ function executeToFirstOwnedTrap(offer, context) {
   let terminal = null;
   let finalState = initial;
   for (let index = 0; index < guest.maximumExecuteStops; index += 1) {
-    const before = saveState(0);
-    const fetchWindow = executableFetchWindow(before.instructionPointer, executablePages);
-    if (!fetchWindow.allowed) {
-      terminal = {
-        kind: "logical-execute-gate",
-        stage: "instruction-fetch",
-        code: "cross-page-execute-permission-unimplemented",
-        instructionPointer: before.instructionPointer,
-        deniedPage: fetchWindow.deniedPage,
-        checkedBytes: 15,
-      };
-      finalState = before;
-      break;
-    }
     const reason = context.wasm.vine_execute_budget(guest.instructionBudget);
     executeStops += 1;
     const state = saveState(reason);
@@ -21148,6 +21108,15 @@ function classifyTerminal(
   if (state.reason === stopReason.pageFault) {
     return {
       kind: "page-fault",
+      instructionPointer: state.instructionPointer,
+      previousInstructionPointer: state.previousInstructionPointer,
+      faultAddress: state.faultAddress,
+      pageFaultErrorCode: state.errorCode,
+    };
+  }
+  if (state.reason === stopReason.executeProtection) {
+    return {
+      kind: "execute-protection",
       instructionPointer: state.instructionPointer,
       previousInstructionPointer: state.previousInstructionPointer,
       faultAddress: state.faultAddress,

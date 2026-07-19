@@ -9,11 +9,13 @@ npm run check:fixture-e2e
 npm run check
 ```
 
-`check:fast` is the public short gate. It runs documentation and runtime
-checkpoint-manifest validation, evidence-classification contracts, COM foundation contracts, public fixture generation, `cargo fmt --all
---check`, workspace tests, clippy for all targets and features with warnings
-denied, JavaScript syntax checks, the pinned small v86 smoke, and the Windows
-trace-summary contract.
+`check:fast` remains the public local short gate. It composes three independently
+runnable groups: `check:static` for generated documentation, semantic／evidence／CI
+contracts, JavaScript syntax, and Windows trace-summary validation;
+`check:toolchain-engine` for reproducible public PE fixtures and the pinned small v86
+smoke; and `check:rust` for format, workspace tests, and clippy with warnings denied.
+This grouping preserves the canonical command while allowing CI failures to identify
+their owner without replaying unrelated work.
 
 The focused evidence contract is:
 
@@ -190,25 +192,40 @@ traces do not install these hooks.
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml` runs on Ubuntu 24.04 with Node 22, Rust 1.97.0,
-the `wasm32-unknown-unknown` target, rustfmt, clippy, LLVM 22.1.8, and stable
-Chrome. The PE toolchain is the pinned
-82 MB llvm-mingw `20260616` release asset, verified as SHA-256
+`.github/workflows/ci.yml` uses independent `static-semantic`, `rust-tests`,
+`fixture-build`, `fixture-core-e2e`, `browser-acceptance`,
+`performance-observation`, `chrome-stable-observation`, `windows-native-oracle`,
+and `fuzz-smoke` jobs. The fixture build is the only producer of the public PE32 and
+source-adapter inputs; core and browser consumers download that immutable artifact.
+The browser build is likewise passed to performance and stable observation without
+rebuilding it. The workflow contract test parses both workflow files as YAML and
+rejects missing jobs, unknown npm scripts, target loss, or browser-role drift.
+
+Required browser acceptance and performance use Chrome for Testing
+`151.0.7922.34`. A separate non-blocking job reruns the Worker vertical on the moving
+Chrome stable channel, so a browser release is observed without changing the
+acceptance oracle. Ubuntu uses Node 22, Rust 1.97.0, and the
+`wasm32-unknown-unknown` target. Its 82 MB llvm-mingw `20260616` release asset is
+verified as SHA-256
 `534b92e067b22a6b4441f48ae9240a3341b17825d04d577eab0cf85c44b4deda`;
-the runner's system clang handles the separate Wasm smoke. It executes
-`npm ci`, `check:fast`, `check:fixture-e2e`, and the prepared v86 browser
-observation mode. The workflow has read-only repository permissions and does not run
-private-corpus checks. It uploads the benchmark JSON report／screenshot,
-toolchain report, Worker semantic report, and browser build manifest even when
-the benchmark step fails.
+the runner's system clang handles the separate Wasm smoke.
+
+The Windows 2022 job downloads the matching UCRT x86_64 archive, verifies SHA-256
+`b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35`,
+and runs `check:toolchain` plus the trace-summary contract. On Windows,
+`check:toolchain` executes nine public PE32 self-oracles natively, including ABI,
+DLL lifecycle, source read, window／paint, FS／process parameters, TLS, and FLS. It
+does not contain or execute the private title. All jobs retain read-only repository
+permissions; browser, benchmark, fuzz failure, and Windows reports are uploaded from
+their owning jobs.
 
 The source adapter has two exact host-build profiles with the same 22 imports,
-809 exports, state ABI, and behavioral contract:
+814 exports, adapter ABI version `1`, state ABI, and behavioral contract:
 
 | Host profile | Bytes | SHA-256 |
 |---|---:|---|
-| Windows GNU | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
-| Linux GNU | 2,141,050 | `ac8349cbaccd31d6f5c68a84012fc7bc3a73eda2c06e519331396b43d8c42540` |
+| Windows GNU | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
+| Linux GNU | 2,116,017 | `21b0fb4f63e9604a66e6522839c9744a4ae17f9ead1c2e201ff2e46fccff20c4` |
 
 Windows report fingerprints remain the canonical evidence values. Linux
 reports preserve their actual adapter identity and run all semantic assertions,
@@ -217,22 +234,31 @@ clean temporary profile and loopback-only DevTools endpoint. The Worker check
 additionally captures Canvas readback, browser-service state, desktop/mobile
 screenshots, and structured cleanup reports. Linux adds Chrome's CI-only
 sandbox/shared-memory/GPU flags; Chrome is terminated before the profile and
-local server are removed.
+local server are removed. Windows preparation forces the fallback target to
+rebuild so MSYS `make` cannot silently retain an artifact from an older overlay.
 
 ## Fuzz target
 
-The cargo-fuzz package is outside the production workspace:
+The cargo-fuzz package is outside the production workspace and pins three targets:
 
-```powershell
-cargo install cargo-fuzz
-cargo +nightly fuzz check --fuzz-dir fuzz pe32_load_plan
-cargo +nightly fuzz run --fuzz-dir fuzz pe32_load_plan
+- `pe32_load_plan`: arbitrary PE snapshot and load-plan ingress;
+- `cpu_writeback_decode`: arbitrary split binary CPU writeback control／payload;
+- `source_read_response_decode`: arbitrary split host read response, including the
+  1 MiB pre-copy bound.
+
+Linux reproduction uses the pinned nightly and cargo-fuzz release:
+
+```bash
+cargo install cargo-fuzz --version 0.13.2 --locked
+cargo +nightly-2026-07-10 fuzz run --fuzz-dir fuzz cpu_writeback_decode -- \
+  -max_total_time=15 -max_len=1048611 -timeout=5 -rss_limit_mb=2048
 ```
 
-The target feeds bounded arbitrary bytes through `ModuleSnapshot` and
-`build_pe32_load_plan`. Valid plans and structured errors are accepted; panic,
-abort, and unbounded allocation are failures. The separate `fuzz/Cargo.lock`
-pins the harness dependencies. On the current Windows GNU host, type-checking
-uses LLVM `clang++` with MS extensions; a libFuzzer campaign requires a host
-whose sanitizer-coverage runtime links correctly, such as the documented Linux
+Pull requests and pushes run each target for 15 seconds in the independent
+`fuzz-smoke` job. `.github/workflows/fuzz.yml` runs a 30-minute-per-target scheduled
+matrix and uploads corpus／failure artifacts. Valid values and structured errors are
+accepted; panic, abort, out-of-bounds, and unbounded allocation are failures. The
+separate `fuzz/Cargo.lock` pins harness dependencies. The Windows GNU host cannot
+link the required sanitizer runtime; local harness type-checking uses MSYS2 UCRT
+`clang++ -fms-extensions`, while actual campaigns run on the documented Linux
 environment. The production workspace remains pinned to stable Rust 1.97.0.

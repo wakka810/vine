@@ -85,7 +85,9 @@ error code、callback 順、stack cleanup、LastError preservation、file conten
 
 現在のrepresentative Windows trace contractは、v2 eventのglobal call ID、thread-local parent call ID、caller module＋RVA、enter／leave target identity、LastError、duration、explicit selected vtableを一つのdeterministic nested A／W wrapper fixtureで検査する。`IDirect3D9`は17 named slotsとslot 16 `CreateDevice` pairを含む。call ID gap／mismatch、wrong parent、missing caller、invalid LastError／durationを拒否し、historical v1 inputはlegacy thread-stack pairingで読み込む。別vtableやmethodごとのtestは実capture failureが要求するまで追加しない。
 
-representative adapter memory measurementは、fixed PE32／LAA imageを`0xF1000000`へnon-identity mapし、high EIP／stack、R page write、unmapped read／write、cross-page write、protect／remap前後を一つのsource-built v86 runnerで検査する。PFEC `7`／`4`／`6`、second-page fault前のno partial write、explicit TLB invalidationをassertする。同じmetadataをchecked sparse referenceへ与え、execute-denied／unmapped fetchをPFEC相当`21`／`20`として検査する。v86がnon-executable sectionを実行する結果もgapとしてassertし、成功に読み替えない。
+representative raw paging measurementは、fixed PE32／LAA imageを`0xF1000000`へnon-identity mapし、high EIP／stack、R page write、unmapped read／write、cross-page write、protect／remap前後を一つのsource-built v86 runnerで検査する。PFEC `7`／`4`／`6`、second-page fault前のno partial write、explicit TLB invalidationをassertする。同じmetadataをchecked sparse referenceへ与え、execute-denied／unmapped fetchをPFEC相当`21`／`20`として検査する。このhistorical low-level runnerはadapter execute ABIを有効化せず、upstream v86がnon-executable sectionを実行するbaselineもgapとして保持する。
+
+production execution-engine contractは別にadapter ABI version `1`を有効化し、Rust reflectionのexecute metadataをadapter-owned bitmapへ同期する。executable page末尾のone-byte instruction、次のNX pageでのopcode拒否、`mov eax, imm32`がNX pageへ跨ぐ拒否とEIP／EAX不変、両page executable時の成功をactual Wasmで検査する。拒否はreason `3`、PFEC相当`0x15`、denied byteのCR2を持つstructured `execute-protection` stopであり、固定15-byte windowは使わない。
 
 representative production memory contractは同じhigh-memory planをRust-owned sparse regionへ準備し、6 image pagesと1 anonymous probe pageでpending invalidation、unsealed／NX fetch PFEC `21`、read-only write PFEC `7`、cross-page unmapped write PFEC `6`／no partial write、protect、exact quota failure、decommit／reuse、release／owner teardownを一つのsequenceで検査する。BGIの380-page layoutはversion 1 probe evidenceとして別に記録し、同じautomated testを複製しない。guard、all-width access、snapshot、actual generated-code invalidation、Worker testは具体的なfailureまたは次gateまで増やさない。詳細は[guest-memory-ingress.md](guest-memory-ingress.md)を正とする。
 
@@ -141,7 +143,7 @@ negative corpus は truncated header、invalid signature、RVA overflow、overla
 
 現在のimport-binding contractは全importをread-only planし、未解決が1件でもあれば全identityを返してarena、IAT、generationを不変に保つ。catalog追加後のsame-image retryを通し、complete planだけが16-byte strideのowned thunk IDをtransaction内で全IATへ書いてruntime／image ownerをsealする。6-page exact quota、`UD2`／`HLT` bytes、arena digest、generation `6` acknowledgement前のaccess block、acknowledgement後のIAT／fetch、sealed IAT write PFEC `7`、stale plan、arena conflict、quota、capacity、mid-commit rollback、successful rebind拒否を検査する。追加testはcatalogを1 endpointに絞り、2番目をidentity付き`unsupported-trap`へbindする。BGI declared-only replayは329 unresolved identitiesをmemory変更なしで返し、explicit policyは1 declared／329 unsupported thunksを全bindしてimageをsealする。詳細は[pe-import-binding.md](pe-import-binding.md)と[pe-unsupported-trap-binding.md](pe-unsupported-trap-binding.md)を正とする。
 
-`npm run check:runtime:entry`は同じlive Rust memoryから6 sealed pagesをversion 1 semantic reflectionとしてsource-built v86へ渡す。2 MiB poolへpage directory／3 tables／6 reflected pages／1 harness stackを置き、state ABI restore、explicit TLB／generated-code clear後だけgeneration `6`をacknowledgeする。Rust normal read／fetch receipt、reflection metadata／content digest、slice-boundary execute gate、entry `0x10001000`、instruction budget `3`、first thunk ID `1`、ESP／return／2 arguments、deterministic reportを1 sequenceで検査する。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
+`npm run check:runtime:entry`は同じlive Rust memoryから6 sealed pagesをversion 1 semantic reflectionとしてsource-built v86へ渡す。2 MiB poolへpage directory／3 tables／6 reflected pages／1 harness stackを置き、state ABI restore、explicit TLB／generated-code clear後だけgeneration `6`をacknowledgeする。Rust normal read／fetch receipt、reflection metadata／content digest、adapter byte-consumption execute gate、entry `0x10001000`、instruction budget `3`、first thunk ID `1`、ESP／return／2 arguments、deterministic reportを1 sequenceで検査する。詳細は[v86-entry-ingress.md](v86-entry-ingress.md)を正とする。
 
 `npm run check:runtime:cdecl`は同じsessionを継続し、offerのordered thunk metadata、exact thunk ID `1`、fixed frame `[return,19,23]`、EAX `42`／ESP `+4`／guest returnへのstate restore、guest側argument cleanup、exact thunk ID `2`、callback return／target／value、sealed executable target pageを1 sequenceで検査する。4 execute stop／2 budget stopと5,501-byte deterministic reportを固定するが、callback frameを構築または実行しない。詳細は[v86-cdecl-ingress.md](v86-cdecl-ingress.md)を正とする。
 
@@ -983,6 +985,16 @@ CI は実装済み checkpoint に合わせて段階的に広げる。長期的�
 10. artifact manifest／SBOM
 
 長時間 fuzz、全 browser matrix、Windows oracle、T3 title、2-8 時間 soak は scheduled／local job として分離する。
+
+Current public CI implements this split as static semantic validation, Rust tests,
+one reproducible fixture／adapter producer, core fixture E2E, browser E2E, performance
+observation, fuzz smoke, and a public Windows native-oracle job. Required browser
+acceptance is fixed to Chrome for Testing `151.0.7922.34`; moving Chrome stable is a
+separate non-blocking compatibility observation. The fuzz smoke uses three bounded
+input targets for PE planning, CPU writeback decoding, and source-read response
+decoding, while the weekly workflow gives each target a separate 30-minute campaign.
+Private title execution and native trace capture remain local because the corpus is
+not distributable.
 
 Flaky test は retry で成功扱いにせず、owner、issue、隔離期限を持つ。互換性、save、runtime robustness の test は原則として quarantine 不可とする。
 

@@ -31,7 +31,7 @@ const initialPhysicalPoolBytes = 64 * 1024;
 const hardMaximumPhysicalPoolBytes = 128 * 1024 * 1024;
 const excludedPhysicalRanges = [{ start: 0x000a_0000, end: 0x000c_0000 }] as const;
 const pageFlags = { present: 1, writable: 2, user: 4, dirty: 0x40 } as const;
-const adapterPrivateOffset = { instructionCounter: 664, memorySize: 812 } as const;
+const adapterAbiVersion = 1;
 const stateWord = {
   magic: 0,
   version: 1,
@@ -57,6 +57,7 @@ const stateWord = {
 export const v86StopReason = {
   budget: 1,
   halt: 2,
+  executeProtection: 3,
   divideError: 0x100,
   invalidOpcode: 0x106,
   generalProtection: 0x10d,
@@ -76,8 +77,13 @@ interface V86Exports extends WebAssembly.Exports {
   vine_cpu_state_version(): number;
   vine_cpu_state_save(): void;
   vine_cpu_state_restore(): number;
+  vine_adapter_abi_version(): number;
   vine_execute_budget(instructions: number): number;
   vine_get_stop_error_code(): number;
+  vine_instruction_counter(): number;
+  vine_reset_execute_permissions(): void;
+  vine_set_memory_size(bytes: number): number;
+  vine_set_page_executable(pageAddress: number, executable: number): number;
 }
 
 interface MirrorMapping {
@@ -325,6 +331,14 @@ export function classifyV86Stop(
       return { kind: "budget-yield" };
     case v86StopReason.halt:
       return { kind: "halt" };
+    case v86StopReason.executeProtection:
+      return {
+        kind: "fault",
+        fault: "execute-protection",
+        errorCode,
+        engineReason: reason,
+        faultAddress,
+      };
     case v86StopReason.invalidOpcode:
       return { kind: "trap", trap: "invalid-opcode", errorCode };
     case v86StopReason.divideError:
@@ -380,9 +394,11 @@ export class V86Mirror implements ExecutionEngine {
   readonly #identity: ExecutionEngineIdentity;
   readonly #mappings = new Map<number, MirrorMapping>();
   readonly #reservations = new Map<number, MirrorReservation>();
+  readonly #dirtyMappingsScratch: MirrorMapping[] = [];
+  readonly #borrowedDirtyPages: DirtyMirrorPage[] = [];
+  readonly #borrowedDirtyPagePool: DirtyMirrorPage[] = [];
   #physicalMemory!: Uint8Array;
   #physicalView!: DataView;
-  #privateState!: DataView;
   readonly #maximumPhysicalPages: number;
   readonly #initialPhysicalPoolBytes: number;
   readonly #maximumPhysicalPoolBytes: number;
@@ -530,16 +546,18 @@ export class V86Mirror implements ExecutionEngine {
     const wasm = V86Mirror.#instantiateAdapter(this.#module);
     wasm.rust_init();
     invariant(
+      wasm.vine_adapter_abi_version() === adapterAbiVersion,
+      "execution engine adapter ABI mismatch",
+    );
+    invariant(
       wasm.vine_cpu_state_version() === this.#identity.cpuContextAbi.version &&
         wasm.vine_cpu_state_size() === this.#identity.cpuContextAbi.bytes,
       "execution engine CPU context ABI mismatch",
     );
-    let privateState = new DataView(wasm.memory.buffer);
-    privateState.setUint32(adapterPrivateOffset.memorySize, poolBytes, true);
+    invariant(wasm.vine_set_memory_size(poolBytes) === 0, "v86 rejected mirror memory size");
+    wasm.vine_reset_execute_permissions();
     const physicalBase = wasm.allocate_memory(poolBytes);
-    privateState = new DataView(wasm.memory.buffer);
     this.#wasm = wasm;
-    this.#privateState = privateState;
     this.#physicalMemory = new Uint8Array(wasm.memory.buffer, physicalBase, poolBytes);
     this.#physicalView = new DataView(
       this.#physicalMemory.buffer,
@@ -653,6 +671,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#freePhysicalPages.length = 0;
     this.#nextPhysicalPage = memoryPageSize;
     this.#physicalMemory.fill(0);
+    this.#wasm.vine_reset_execute_permissions();
     this.#pageDirectory = this.#allocatePage();
     this.#installReflectedPages(reflection);
     this.#installReservations(regions);
@@ -711,13 +730,11 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   execute(instructionBudget: number): SliceResult {
-    const beforeState = this.saveState();
-    this.#assertExecutableFetchWindow(beforeState.instructionPointer);
-    const before = this.#privateState.getUint32(adapterPrivateOffset.instructionCounter, true);
+    const before = this.#wasm.vine_instruction_counter();
     const reason = this.#wasm.vine_execute_budget(instructionBudget);
     const errorCode = this.#wasm.vine_get_stop_error_code();
     const state = this.saveState();
-    const after = this.#privateState.getUint32(adapterPrivateOffset.instructionCounter, true);
+    const after = this.#wasm.vine_instruction_counter();
     return {
       reason,
       errorCode,
@@ -774,7 +791,10 @@ export class V86Mirror implements ExecutionEngine {
       Number.isInteger(fsBase) && fsBase >= 0 && fsBase <= 0xffff_ffff,
       "thread FS base is outside the u32 guest address space",
     );
-    this.#assertExecutableFetchWindow(bootstrap.entryPoint);
+    invariant(
+      this.#mappingFor(bootstrap.entryPoint).protection.execute,
+      "thread entry point is not executable guest memory",
+    );
     const stackMapping = this.#mappingFor(bootstrap.initialStackPointer);
     invariant(
       stackMapping.protection.read && stackMapping.protection.write,
@@ -861,26 +881,55 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   collectChangedPages(): DirtyMirrorPage[] {
-    const dirty: DirtyMirrorPage[] = [];
-    const writable = [...this.#mappings.values()]
-      .filter((mapping) => mapping.protection.write)
-      .sort((left, right) => left.address - right.address);
-    for (const mapping of writable) {
-      const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
-      if ((pte & pageFlags.dirty) === 0) {
+    return this.#collectChangedPages(true);
+  }
+
+  collectChangedPageViews(): DirtyMirrorPage[] {
+    return this.#collectChangedPages(false);
+  }
+
+  #collectChangedPages(copyBytes: boolean): DirtyMirrorPage[] {
+    const dirtyMappings = this.#dirtyMappingsScratch;
+    dirtyMappings.length = 0;
+    for (const mapping of this.#mappings.values()) {
+      if (!mapping.protection.write) {
         continue;
       }
+      const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
+      if ((pte & pageFlags.dirty) !== 0) {
+        dirtyMappings.push(mapping);
+      }
+    }
+    dirtyMappings.sort((left, right) => left.address - right.address);
+
+    const dirty = copyBytes ? [] : this.#borrowedDirtyPages;
+    dirty.length = 0;
+    for (const mapping of dirtyMappings) {
+      const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
       this.#physicalView.setUint32(mapping.pteAddress, pte & ~pageFlags.dirty, true);
-      dirty.push({
-        address: mapping.address,
-        owner: mapping.owner,
-        bytes: Uint8Array.from(
-          this.#physicalMemory.subarray(
-            mapping.physicalBase,
-            mapping.physicalBase + memoryPageSize,
-          ),
-        ),
-      });
+      const bytes = this.#physicalMemory.subarray(
+        mapping.physicalBase,
+        mapping.physicalBase + memoryPageSize,
+      );
+      if (copyBytes) {
+        dirty.push({
+          address: mapping.address,
+          owner: mapping.owner,
+          bytes: Uint8Array.from(bytes),
+        });
+      } else {
+        const index = dirty.length;
+        let page = this.#borrowedDirtyPagePool[index];
+        if (page === undefined) {
+          page = { address: mapping.address, owner: mapping.owner, bytes };
+          this.#borrowedDirtyPagePool.push(page);
+        } else {
+          page.address = mapping.address;
+          page.owner = mapping.owner;
+          page.bytes = bytes;
+        }
+        dirty.push(page);
+      }
     }
     this.#wasm.full_clear_tlb();
     return dirty;
@@ -1213,6 +1262,10 @@ export class V86Mirror implements ExecutionEngine {
       physicalBase,
       pteAddress,
     });
+    invariant(
+      this.#wasm.vine_set_page_executable(address, Number(protection.execute)) === 0,
+      "v86 rejected mapped execute permission",
+    );
   }
 
   #updateProtection(address: number, protection: MemoryProtection): void {
@@ -1228,11 +1281,19 @@ export class V86Mirror implements ExecutionEngine {
       true,
     );
     mapping.protection = { ...protection };
+    invariant(
+      this.#wasm.vine_set_page_executable(address, Number(protection.execute)) === 0,
+      "v86 rejected protected execute permission",
+    );
   }
 
   #unmapPage(address: number): void {
     const mapping = this.#mappings.get(address)!;
     this.#physicalView.setUint32(mapping.pteAddress, 0, true);
+    invariant(
+      this.#wasm.vine_set_page_executable(address, 0) === 0,
+      "v86 rejected unmapped execute permission",
+    );
     this.#mappings.delete(address);
     this.#releasePage(mapping.physicalBase);
     const directoryIndex = address >>> 22;
@@ -1321,17 +1382,6 @@ export class V86Mirror implements ExecutionEngine {
       instructionPointer: state.instructionPointer,
       previousInstructionPointer: state.previousInstructionPointer,
     };
-  }
-
-  #assertExecutableFetchWindow(instructionPointer: number): void {
-    for (let offset = 0; offset < 15; offset += 1) {
-      const address = instructionPointer + offset;
-      invariant(address <= 0xffff_ffff, "instruction fetch window wraps the guest address space");
-      invariant(
-        this.#mappingFor(address).protection.execute,
-        `execute gate rejected EIP 0x${instructionPointer.toString(16)}`,
-      );
-    }
   }
 
   #ensurePageTable(address: number): number {

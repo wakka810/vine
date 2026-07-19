@@ -39,7 +39,12 @@ export type ExecutionStop =
   | { kind: "trap"; trap: "invalid-opcode"; errorCode: number }
   | {
       kind: "fault";
-      fault: "divide-error" | "general-protection" | "page-fault" | "engine-stop";
+      fault:
+        | "divide-error"
+        | "general-protection"
+        | "page-fault"
+        | "execute-protection"
+        | "engine-stop";
       errorCode: number;
       engineReason: number;
       faultAddress?: number;
@@ -115,6 +120,7 @@ export interface ExecutionEngine {
   enterGuestCallback(target: number, stackPointer: number): void;
   readGuestU32(address: number): number;
   collectChangedPages(): DirtyMirrorPage[];
+  collectChangedPageViews(): DirtyMirrorPage[];
   applyMemoryDelta(delta: HostMemoryDelta): void;
   applyCacheEffects(effects: CacheEffects): void;
 }

@@ -52,11 +52,11 @@ Every guest read, write, or fetch is split at page boundaries and all pages are 
 | Execute denied | `21` |
 | Executable page owned by an unsealed owner | `21` |
 
-The execute gate is logical Rust metadata. It does not claim that v86 has delivered these faults to a guest exception handler.
+At this checkpoint the execute gate was logical Rust metadata only. The current execution mirror additionally synchronizes that metadata into adapter ABI version `1` and returns a structured execute-protection stop for a denied opcode or decode byte. It still does not claim delivery to a guest exception handler.
 
 Commit, protect, decommit, committed-region release, and image-layout preparation require data-TLB, fetch, and generated-code invalidation. Sealing an owner requires fetch and generated-code invalidation. A normal guest write to an executable page also requires fetch and generated-code invalidation. Pending operations merge their flags into the latest generation, and guest read, write, and fetch stay blocked until that exact generation is acknowledged.
 
-Acknowledgement currently proves the ownership protocol only. No adapter calls v86 `full_clear_tlb`, flushes a decoder or generated-code cache, or binds the acknowledgement to an actual CPU resume. Initialization writes are allowed while the owner is unsealed and do not emit a separate invalidation; sealing supplies the fetch and generated-code barrier before execution can become eligible.
+For this historical ingress checkpoint, acknowledgement proved the ownership protocol only. The current mirror applies the requested TLB／instruction-fetch／generated-code effects before acknowledgement and synchronizes mapping execute permission through the adapter ABI. Initialization writes remain allowed while the owner is unsealed and do not emit a separate invalidation; sealing supplies the fetch and generated-code barrier before execution can become eligible.
 
 ## 4. Representative contract
 

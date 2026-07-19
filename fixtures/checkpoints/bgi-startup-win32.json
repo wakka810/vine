@@ -7,10 +7,10 @@
     "sha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1"
   },
   "adapter": {
-    "bytes": 1882836,
-    "sha256": "f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26",
+    "bytes": 1857800,
+    "sha256": "99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f",
     "imports": 22,
-    "exports": 809
+    "exports": 814
   },
   "evidenceClassification": {
     "guestVisibleSemanticValue": "exact-or-allowed-set",

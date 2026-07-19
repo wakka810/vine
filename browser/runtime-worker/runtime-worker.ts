@@ -24,7 +24,6 @@ import {
 import {
   decodeHostDelta,
   decodeReflection,
-  encodeCpuWriteback,
   type MemoryRegionSnapshot,
 } from "./memory-transport.js";
 import {
@@ -988,20 +987,25 @@ class BrowserRuntimeSession {
 
       if (
         slice.stop.kind === "fault" &&
-        slice.stop.fault === "page-fault" &&
+        (slice.stop.fault === "page-fault" || slice.stop.fault === "execute-protection") &&
         prepared.workload === "private-bgi"
       ) {
         this.#execution.transition("memory-fault", {
-          cause: "guest-page-fault",
+          cause:
+            slice.stop.fault === "page-fault"
+              ? "guest-page-fault"
+              : "guest-execution-protection",
           threadId: this.#currentThreadId,
         });
-        const pageFaultResolution = this.#servicePageFault(slice.stop);
-        if (pageFaultResolution !== null) {
-          this.#execution.transition(sliceState === "running" ? "ready" : "guest-callback", {
-            cause: `${pageFaultResolution}-complete`,
-            threadId: this.#currentThreadId,
-          });
-          continue;
+        if (slice.stop.fault === "page-fault") {
+          const pageFaultResolution = this.#servicePageFault(slice.stop);
+          if (pageFaultResolution !== null) {
+            this.#execution.transition(sliceState === "running" ? "ready" : "guest-callback", {
+              cause: `${pageFaultResolution}-complete`,
+              threadId: this.#currentThreadId,
+            });
+            continue;
+          }
         }
         this.#completeExecutionStructuredStop(slice.stop, slice.context);
         continue;
@@ -1511,17 +1515,27 @@ class BrowserRuntimeSession {
   ): void {
     const prepared = this.#requirePrepared();
     invariant(prepared.workload === "private-bgi", "fixture returned an execution stop");
-    invariant(stop.fault === "page-fault", "unsupported execution fault kind");
-    invariant(stop.faultAddress !== undefined, "page fault omitted its guest address");
-    const stackRegion = prepared.regions.find(
-      ({ kind, range }) =>
-        kind === "stack" &&
-        ((stop.faultAddress! >= range.start &&
-          stop.faultAddress! < range.start + range.byteLength) ||
-          (range.start >= 0x1000 && stop.faultAddress === range.start - 0x1000)),
+    invariant(
+      stop.fault === "page-fault" || stop.fault === "execute-protection",
+      "unsupported execution fault kind",
     );
+    invariant(stop.faultAddress !== undefined, "execution fault omitted its guest address");
+    const stackRegion =
+      stop.fault === "page-fault"
+        ? prepared.regions.find(
+            ({ kind, range }) =>
+              kind === "stack" &&
+              ((stop.faultAddress! >= range.start &&
+                stop.faultAddress! < range.start + range.byteLength) ||
+                (range.start >= 0x1000 && stop.faultAddress === range.start - 0x1000)),
+          )
+        : undefined;
     const capabilityCluster =
-      stackRegion === undefined ? "guest-memory-page-fault" : "initial-thread-stack-growth";
+      stop.fault === "execute-protection"
+        ? "guest-memory-execute-protection"
+        : stackRegion === undefined
+          ? "guest-memory-page-fault"
+          : "initial-thread-stack-growth";
     const reflection = this.#requireBridge().currentReflection<CurrentReflectionMetadata>().metadata;
     invariant(reflection.kind === "current-reflection", "invalid execution-stop reflection");
     invariant(
@@ -1536,9 +1550,9 @@ class BrowserRuntimeSession {
       fault: {
         class: "fault",
         stage: "guest-execution",
-        code: "page-fault",
+        code: stop.fault,
         message:
-          `guest page fault at 0x${stop.faultAddress.toString(16)} ` +
+          `guest ${stop.fault} at 0x${stop.faultAddress.toString(16)} ` +
           `while executing 0x${context.instructionPointer.toString(16)}`,
         instructionPointer: context.instructionPointer,
         previousInstructionPointer: context.previousInstructionPointer,
@@ -1777,14 +1791,14 @@ class BrowserRuntimeSession {
   }
 
   #reconcileDirtyPages(): void {
-    const pages = this.#requireEngine().collectChangedPages();
+    const pages = this.#requireEngine().collectChangedPageViews();
     if (pages.length === 0) {
       return;
     }
-    const buffers = encodeCpuWriteback(this.#generation, pages);
-    const metadata = this.#requireBridge().reconcileWriteback<WritebackMetadata>(
-      buffers.control,
-      buffers.payload,
+    // The bridge copies these engine-owned views synchronously before execution can resume.
+    const metadata = this.#requireBridge().reconcileWritebackPages<WritebackMetadata>(
+      this.#generation,
+      pages,
     ).metadata;
     invariant(metadata.kind === "writeback-reconciled", "invalid writeback receipt metadata");
     invariant(metadata.receipt.touchedPages === pages.length, "writeback page count mismatch");

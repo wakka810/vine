@@ -1,4 +1,9 @@
-import type { MemoryRegionSnapshot } from "./memory-transport.js";
+import {
+  type DirtyMirrorPage,
+  encodeCpuWritebackControl,
+  memoryPageSize,
+  type MemoryRegionSnapshot,
+} from "./memory-transport.js";
 import type { RuntimeCurrentDirectoryA } from "./protocol.js";
 
 export type RegisterUpdate =
@@ -228,6 +233,24 @@ export class RuntimeBridge {
     );
   }
 
+  reconcileWritebackPages<T = Record<string, unknown>>(
+    generation: bigint,
+    pages: DirtyMirrorPage[],
+  ): BridgeOutput<T> {
+    const control = encodeCpuWritebackControl(generation, pages);
+    const payloadLength = pages.length * memoryPageSize;
+    const input = this.#resizeInput(control.byteLength + payloadLength);
+    input.set(control, 0);
+    let offset = control.byteLength;
+    for (const page of pages) {
+      input.set(page.bytes, offset);
+      offset += page.bytes.byteLength;
+    }
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_reconcile_writeback(control.byteLength, payloadLength),
+    );
+  }
+
   advanceMappingFixture<T = Record<string, unknown>>(stage: number): BridgeOutput<T> {
     return this.#invoke(() => this.#exports.vine_bridge_advance_mapping_fixture(stage));
   }
@@ -330,17 +353,21 @@ export class RuntimeBridge {
 
   #setInput(parts: Uint8Array[]): void {
     const length = parts.reduce((total, part) => total + part.byteLength, 0);
-    const status = this.#exports.vine_bridge_input_resize(length);
-    if (status !== 0) {
-      throw new Error(this.#readMetadataError());
-    }
-    const pointer = this.#exports.vine_bridge_input_ptr();
-    const input = new Uint8Array(this.#exports.memory.buffer, pointer, length);
+    const input = this.#resizeInput(length);
     let offset = 0;
     for (const part of parts) {
       input.set(part, offset);
       offset += part.byteLength;
     }
+  }
+
+  #resizeInput(length: number): Uint8Array {
+    const status = this.#exports.vine_bridge_input_resize(length);
+    if (status !== 0) {
+      throw new Error(this.#readMetadataError());
+    }
+    const pointer = this.#exports.vine_bridge_input_ptr();
+    return new Uint8Array(this.#exports.memory.buffer, pointer, length);
   }
 
   #invoke<T>(operation: () => number): BridgeOutput<T> {

@@ -71,9 +71,12 @@ A `ReadFile` request is a cross-subsystem transaction:
 3. The Worker binds those IDs to the already validated title／snapshot manifest and
    performs a same-origin range request. The URL carries title fingerprint,
    snapshot, source, and object identity; the response repeats them in headers.
-4. Rust validates request, source, object, offset, length, file lifetime, and cursor.
-   The dispatcher preflights the byte-count and payload writes as one guest-memory
-   transaction.
+4. Rust first decodes an exact 32-byte response control record. Before copying host
+   bytes, the decoder rejects zero or over-1-MiB requests, success payloads whose
+   length differs from the transferred count, transfers larger than the request,
+   and error responses carrying bytes. It then validates request, source, object,
+   offset, file lifetime, and cursor. The dispatcher preflights the byte-count and
+   payload writes as one guest-memory transaction.
 5. Only after guest writes succeed does Rust retire the pending request and advance
    the cursor. Wrong, stale, duplicate, oversized, or failed completions preserve the
    cursor, guest bytes, scheduler request, and allocators.
@@ -88,6 +91,9 @@ fetch controller or Rust pending record.
 Rust model tests cover mount bounding, Windows-932-aware case identity, stale
 snapshot registration, share conflict, cursor plan／completion ordering, wrong and
 duplicate completion, guest-memory atomicity, close, and process-exit cancellation.
+The source-response decoder has valid success／error and malformed length／result
+tests, plus a coverage-guided arbitrary control／payload fuzz target. The same fuzz
+tier covers the CPU writeback binary decoder separately from the PE loader.
 The public PE32 fixture verifies open／size／read／seek／read／close and validates the
 returned bytes itself. Clean-profile Chrome covers success, pending cancellation,
 watchdog cleanup, same-origin delivery, and cross-origin adapter rejection. The private target additionally proves

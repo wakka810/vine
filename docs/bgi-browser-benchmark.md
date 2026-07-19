@@ -3,23 +3,23 @@
 ## Status
 
 - Status: threshold passed
-- Date: 2026-07-18
-- Workload: 17,814-call `user32-set-window-pos-initial-placement` private BGI generic session
-- Observation status: `current-critical-section-capacity-boundary-observation`
+- Date: 2026-07-20
+- Workload: 17,841-call `user32-set-window-pos-activation` private BGI generic session
+- Observation status: `current-runtime-user32-window-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-critical-section-capacity-v1.json`](../fixtures/benchmarks/bgi-browser-critical-section-capacity-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-runtime-user32-window-v1.json`](../fixtures/benchmarks/bgi-browser-runtime-user32-window-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This observation repeats the complete `user32-set-window-pos-initial-placement` BGI
+This observation repeats the complete `user32-set-window-pos-activation` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 17,814 calls over 11,806,421 guest
-instructions, performs 74,671 Rust/Wasm bridge operations, and applies four
+runtime and v86 mirror, dispatches 17,841 calls over 11,807,189 guest
+instructions, performs 74,763 Rust/Wasm bridge operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
-creation, small-icon send, initial show／hide callbacks, and reaches the
-16,408 live critical-section records, then reaches the module-resource
-`LoadCursorA` structured stop.
+creation, small-icon send, initial show／hide callbacks, client-rect query,
+window-long update, and same-geometry activation. It then reaches the
+`USER32.dll!MonitorFromWindow` structured stop.
 
 The session includes all earlier process, NLS, heap, synchronization, display,
 COM, WinMM, icon／cursor, window-class, logical-window, system-metric, large-heap,
@@ -28,9 +28,9 @@ repetition checks call and instruction counts, crossing count, large-allocation
 identity, materialization identity, source completion count, memory digest, next
 structured stop, and zero pending work before retaining only a compact scalar
 summary. Protocol v7 uses full ordered call evidence for the standalone Chrome／
-Node semantic-equivalence check and a count-only call ledger for this benchmark;
-the latter retains sequence uniqueness and terminal semantics without cloning
-17,814 detailed call objects on every repetition. Completed report payloads,
+Node semantic-equivalence check and a streaming canonical digest for this benchmark;
+the latter retains sequence uniqueness and terminal semantics without retaining
+17,841 detailed call objects or canonical strings on every repetition. Completed report payloads,
 including source-read records, are released after scalar capture. The capacity,
 Worker evidence boundary, and slice budget changed in this checkpoint, so the
 workload was rerun against the exact current Rust/Wasm and Worker artifacts
@@ -59,36 +59,67 @@ required sample is a failure. Report schema version 2 also stores a structured
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 30 sessions with no
-failure. The critical-section capacity version 1 configuration retained all 17 existing
+The authoritative clean-profile Chrome run completed 32 sessions with no
+failure. The User32 window version 1 configuration retained all 17 existing
 threshold values unchanged before this 180-second run. The previous source-read
 and create-window workload configurations remain unchanged as historical
 evidence; their identities are not applied to this current workload.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 30 |
+| Completed sessions | >= 24 | 32 |
 | Failed sessions | <= 0 | 0 |
-| Main／Worker heap samples | >= 30 each | 39 / 38 |
-| Session latency p95 | <= 8,000 ms | 6,380.765 ms |
-| Maximum slice p99 | <= 10 ms | 2.665 ms |
-| Main heartbeat gap p99 | <= 25 ms | 5.990 ms |
-| Main heartbeat gap maximum | <= 250 ms | 18.845 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,277,525 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 30,845.35 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 29,710,004 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 3,081,023.29 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 59,219,968 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 26,971,793 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 1,312,783.36 bytes/min |
-| Rust linear memory | <= 16,777,216 bytes | 10,027,008 bytes |
-| Execution-engine linear memory | <= 16,777,216 bytes | 13,893,632 bytes |
+| Main／Worker heap samples | >= 30 each | 38 / 37 |
+| Session latency p95 | <= 8,000 ms | 6,035.420 ms |
+| Maximum slice p99 | <= 10 ms | 4.815 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.020 ms |
+| Main heartbeat gap maximum | <= 250 ms | 21.995 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 3,218,523 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 31,456.49 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 29,115,120 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 1,883,456.51 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 65,441,792 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 19,737,862 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 841,649.99 bytes/min |
+| Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
+| Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
 
-The exact report is 954,872 bytes with SHA-256
-`cf1759c4501e8a30f757c2f1b6256208af9b199b67d16855690e9920a3da608a`.
+The exact report is 946,976 bytes with SHA-256
+`4f900ece0cdab019f38824f040aeb0d3021e2737d89b2ade3deb8dd8888e4e62`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
+
+## Current User32 workload and allocation correction
+
+The retained benchmark configuration still described the earlier
+`kernel32-load-library-a` stop after the active runtime had advanced to
+`user32-set-window-pos-activation`. Reproduction failed before measurement with
+an exact workload mismatch: 17,824／11,806,582／`GetClientRect` versus
+17,841／11,807,189／`MonitorFromWindow`. The old fixture remains historical; the
+current manifest now selects the new versioned User32 fixture.
+
+The first current-workload run exposed four unchanged threshold failures. The
+new execute bitmap performed a full lookup for every opcode and decode byte,
+giving 22 sessions and an 8,420.095 ms P95. A slice-local validated-page cache,
+reset at every budget call, restored latency without allowing permission state
+to cross a host mapping change. The engine contract protects an RX page to NX
+between slices and requires reason `3`, PFEC-equivalent `0x15`, and the exact
+fault byte after cache reset.
+
+The remaining runs passed latency but exposed transient Worker heap and
+capacity pressure. Dirty discovery allocated and sorted all writable mappings
+for each of 40,289 batches, then copied 87,903 pages into a second contiguous
+payload. It now sorts only dirty mappings and synchronously copies borrowed
+engine views into the existing Wasm bridge input; the snapshot API remains
+independent. Chrome HeapProfiler then identified 10.98 MiB of live canonical
+call strings retained by the summary digest. The digest now streams contiguous
+sequence values into SHA-256, buffers only out-of-order callback gaps, reuses its
+64-word compression schedule, and uses one UTF-8 encode buffer. Node and Chrome
+still produce digest
+`9e8cd6e57ed3073c4e6325ab629f4159e85706717f02bfb9b064cad3441ef7c3`.
+The final run passed all 17 original thresholds; no GC forcing, retry-based
+acceptance, or threshold change was used.
 
 ## Capacity-workload reporting and slice correction
 
@@ -146,7 +177,7 @@ loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
 storage below the unchanged limit. That correction remains part of the loader
-contract; this current benchmark observes 41,596,440
+contract; this current benchmark observes 19,737,862
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -160,7 +191,7 @@ bytes and retains bounded p95 latency without changing any threshold.
 | Chrome | `150.0.7871.127` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `3c96c6cf2c3648d4592e28358bdbaa08619501f8`
+The report records base implementation commit `5288a685799f16365cc6783a27e38b6c39cf12fb`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -169,12 +200,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 2,949,669 | `f64cd3cfffdeba2195586d0253ef02a4b8425d332c34d971dcf6782b54ea211b` |
-| v86 adapter Wasm | 1,882,836 | `f68a706655c81bde9b12982bd67cb00f19b1dae0e9ca5ddfaf94e0e74c4e7e26` |
-| Runtime Worker bundle | 137,716 | `3e2beea0d506408e1080b858acebaecb829acbd25fc96911751aa217d695cf59` |
+| Rust runtime core Wasm | 3,353,018 | `369f6ed5ae0a3178b918cf60b627517935e473091741c385cfeb188e31c409d9` |
+| v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
+| Runtime Worker bundle | 153,871 | `896d0c1003b4c4b49b18b2441c41a738a45a5c1a686d9f1f082036510316179d` |
 | BGI benchmark bundle | 9,579 | `1fd3f86eac898a5f33b6f29baba1de4f447714ddf45064d2c2556474aac76eba` |
-| Execution-engine profile | 545 | `792980bc78b58d8aae491c72b9ea13f39176206306321069a4f2bcb2989e7250` |
-| Critical-section capacity version 1 configuration | 1,191 | `2455376874c4237b245d830c87d079b20b506c7b1733215292ad8ae9ac8afa07` |
+| Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
+| User32 window version 1 configuration | 1,197 | `9f5a7bc94bbe9ae147251649731b7e64e45a77b437a931e7c1f38d23d5f12337` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte
