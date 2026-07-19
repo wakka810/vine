@@ -12,6 +12,7 @@ use crate::api::{
 use crate::memory::{GuestAddress, GuestMemory, MemoryAccess};
 use crate::pe32::{ResourceDataEntryPlan, ResourceIdentifier};
 use crate::runtime::{
+    LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
     LOGICAL_WINDOW_HANDLE_NAMESPACE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
     RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
     RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
@@ -39,6 +40,9 @@ pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
 pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
+pub const GET_DC_IMPLEMENTATION: &str = "user32.get-dc.window-acquisition.v1";
+pub const FILL_RECT_IMPLEMENTATION: &str = "user32.fill-rect.logical-surface.v1";
+pub const RELEASE_DC_IMPLEMENTATION: &str = "user32.release-dc.window-acquisition.v1";
 pub const CREATE_WINDOW_EX_A_IMPLEMENTATION: &str = "user32.create-window-ex-a.v1";
 pub const DEF_WINDOW_PROC_A_IMPLEMENTATION: &str = "user32.def-window-proc-a.v1";
 pub const GET_SYSTEM_MENU_IMPLEMENTATION: &str = "user32.get-system-menu.invalid-window.v1";
@@ -61,6 +65,7 @@ const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INVALID_WINDOW_HANDLE: u32 = 1400;
+const ERROR_DC_NOT_FOUND: u32 = 1425;
 const ERROR_INVALID_MENU_HANDLE: u32 = 1401;
 const ERROR_CLASS_ALREADY_EXISTS: u32 = 1410;
 const ERROR_RESOURCE_DATA_NOT_FOUND: u32 = 1812;
@@ -674,6 +679,18 @@ pub fn dispatch_user32_api_with_policy(
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
+        GET_DC_IMPLEMENTATION => match handle_get_dc(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        FILL_RECT_IMPLEMENTATION => match handle_fill_rect(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        RELEASE_DC_IMPLEMENTATION => match handle_release_dc(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         CREATE_WINDOW_EX_A_IMPLEMENTATION => {
             match handle_create_window_ex_a(
                 policy,
@@ -944,6 +961,116 @@ fn handle_get_client_rect(
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
         .with_last_error(preserved_last_error)
         .with_guest_write(GuestAddress(output), bytes))
+}
+
+fn handle_get_dc(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.runtime_mut().acquire_window_dc(window_handle) {
+        Ok(result) => Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+            namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+            value: result.handle,
+        })
+        .with_last_error(preserved_last_error)),
+        Err(error) if error.code == "window-handle-unknown" => {
+            Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+                value: 0,
+            })
+            .with_last_error(ERROR_INVALID_WINDOW_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_fill_rect(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let device_context = required_argument(contract, frame, 0, "device context")?;
+    let rect_address = required_argument(contract, frame, 1, "rectangle")?;
+    let brush = required_argument(contract, frame, 2, "brush")?;
+    let bytes = session
+        .memory()
+        .read(GuestAddress(rect_address), 16)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let rect = RuntimeRect {
+        left: read_i32(&bytes, 0).ok_or_else(|| malformed_rect_fault(contract))?,
+        top: read_i32(&bytes, 4).ok_or_else(|| malformed_rect_fault(contract))?,
+        right: read_i32(&bytes, 8).ok_or_else(|| malformed_rect_fault(contract))?,
+        bottom: read_i32(&bytes, 12).ok_or_else(|| malformed_rect_fault(contract))?,
+    };
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session
+        .runtime_mut()
+        .fill_gdi_rect(device_context, rect, brush)
+    {
+        Ok(_) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_release_dc(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let device_context = required_argument(contract, frame, 1, "device context")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session
+        .runtime_mut()
+        .release_window_dc(window_handle, device_context)
+    {
+        Ok(()) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error) if error.code == "window-handle-unknown" => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_WINDOW_HANDLE))
+        }
+        Err(error)
+            if error.code == "device-context-handle-unknown"
+                || error.code == "device-context-relation-mismatch"
+                || error.code == "device-context-window-target-mismatch" =>
+        {
+            Ok(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_DC_NOT_FOUND),
+            )
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn malformed_rect_fault(contract: &ApiContract) -> ApiFault {
+    ApiFault::runtime_defect(
+        "user32-gdi",
+        "decoded-rect-missing",
+        format!(
+            "decoded {} frame did not retain one complete x86 RECT",
+            contract.implementation_id
+        ),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3468,6 +3595,9 @@ pub fn user32_contract_for_endpoint(
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
         "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
+        "GetDC" => Ok(Some(get_dc_contract(endpoint)?)),
+        "FillRect" => Ok(Some(fill_rect_contract(endpoint)?)),
+        "ReleaseDC" => Ok(Some(release_dc_contract(endpoint)?)),
         "CreateWindowExA" => Ok(Some(create_window_ex_a_contract(endpoint)?)),
         "DefWindowProcA" => Ok(Some(def_window_proc_a_contract(endpoint)?)),
         "GetSystemMenu" => Ok(Some(get_system_menu_contract(endpoint)?)),
@@ -3679,6 +3809,75 @@ pub fn get_client_rect_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
     })
 }
 
+pub fn get_dc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![logical_window_handle_argument("window", false)],
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: GET_DC_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn fill_rect_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_handle_argument(
+                    "deviceContext",
+                    LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE,
+                    false,
+                ),
+                required_in_struct("rect", "RECT", 16),
+                logical_handle_argument("brush", LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE, false),
+            ],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: FILL_RECT_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn release_dc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", false),
+                logical_handle_argument(
+                    "deviceContext",
+                    LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE,
+                    false,
+                ),
+            ],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: RELEASE_DC_IMPLEMENTATION.to_owned(),
+    })
+}
+
 pub fn create_window_ex_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
     Ok(ApiContract {
         endpoint,
@@ -3813,11 +4012,15 @@ fn windows_932_name_or_ordinal(name: &str, maximum_code_units: u32) -> ApiArgume
 }
 
 fn logical_window_handle_argument(name: &str, nullable: bool) -> ApiArgumentSchema {
+    logical_handle_argument(name, LOGICAL_WINDOW_HANDLE_NAMESPACE, nullable)
+}
+
+fn logical_handle_argument(name: &str, namespace: &str, nullable: bool) -> ApiArgumentSchema {
     ApiArgumentSchema {
         name: name.to_owned(),
         direction: ApiDirection::In,
         value: ApiValueSchema::LogicalHandle {
-            namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
+            namespace: namespace.to_owned(),
             nullable,
         },
     }

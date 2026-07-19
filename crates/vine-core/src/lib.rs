@@ -8,6 +8,7 @@ mod d3d9;
 mod dll;
 mod dynamic_exports;
 mod environment;
+mod gdi32;
 mod heap;
 mod imports;
 mod materialize;
@@ -90,6 +91,10 @@ pub use environment::{
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     install_controlled_process_environment_with_parameters,
 };
+pub use gdi32::{
+    GET_STOCK_OBJECT_IMPLEMENTATION, dispatch_gdi32_api, gdi32_contract_for_endpoint,
+    get_stock_object_contract,
+};
 pub use imports::{
     IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, IMPORT_THUNK_SLOT_SIZE, ImportBinding,
     ImportBindingPlan, ImportBindingPolicy, ImportPlanDisposition, ImportThunk, ImportThunkArena,
@@ -135,10 +140,11 @@ pub use pe32::{
 };
 pub use runtime::{
     DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_PROCESS_STATIC_RESERVED, FLS_OUT_OF_INDEXES,
-    LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_ENCODED_POINTER_NAMESPACE,
-    LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
-    LOGICAL_MONITOR_HANDLE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
-    LOGICAL_STANDARD_HANDLE_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE,
+    LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
+    LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_MONITOR_HANDLE_NAMESPACE,
+    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE,
     LOGICAL_WINDOW_CLASS_ATOM_NAMESPACE, LOGICAL_WINDOW_HANDLE_NAMESPACE,
     ProcessAddressAllocationClassification, ProcessAddressAllocationId,
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
@@ -147,16 +153,18 @@ pub use runtime::{
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RUNTIME_COM_IUNKNOWN_IID,
     RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RUNTIME_COM_MAX_METHODS_PER_INTERFACE,
     RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE,
-    RUNTIME_CURSOR_HANDLE_BASE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_ICON_HANDLE_BASE,
-    RUNTIME_MUTEX_LIMIT, RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PRIMARY_MONITOR_HANDLE,
-    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PRIVATE_HEAP_ARENA_BASE,
-    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
-    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE,
-    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS,
-    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING,
-    RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES, RUNTIME_PROCESS_OBJECT_NAMESPACE,
-    RUNTIME_SHARED_CURSOR_LIMIT, RUNTIME_SHARED_ICON_LIMIT, RUNTIME_SOURCE_FILE_LIMIT,
-    RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES,
+    RUNTIME_CURSOR_HANDLE_BASE, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE, RUNTIME_FLS_INDEX_LIMIT,
+    RUNTIME_GDI_BLACK_BRUSH_INDEX, RUNTIME_GDI_DEVICE_CONTEXT_LIMIT,
+    RUNTIME_GDI_OBJECT_HANDLE_BASE, RUNTIME_GDI_OBJECT_LIMIT, RUNTIME_GDI_SURFACE_FILL_LIMIT,
+    RUNTIME_GDI_SURFACE_LIMIT, RUNTIME_ICON_HANDLE_BASE, RUNTIME_MUTEX_LIMIT,
+    RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PRIMARY_MONITOR_HANDLE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
+    RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
+    RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
+    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE,
+    RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
+    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES,
+    RUNTIME_PROCESS_OBJECT_NAMESPACE, RUNTIME_SHARED_CURSOR_LIMIT, RUNTIME_SHARED_ICON_LIMIT,
+    RUNTIME_SOURCE_FILE_LIMIT, RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES,
     RUNTIME_SOURCE_READ_REQUEST_BYTES, RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES,
     RUNTIME_SOURCE_READ_SERVICE, RUNTIME_SOURCE_READ_TRANSPORT_VERSION,
     RUNTIME_SOURCE_SNAPSHOT_SCHEMA, RUNTIME_SOURCE_SNAPSHOT_VERSION, RUNTIME_STANDARD_ERROR_HANDLE,
@@ -178,11 +186,14 @@ pub use runtime::{
     RuntimeComUninitializationOutcome, RuntimeCommandLine, RuntimeCreateMutexAResult,
     RuntimeCreateWaitableTimerAResult, RuntimeCreateWindowExAResult, RuntimeCriticalSection,
     RuntimeCurrentDirectoryA, RuntimeCurrentThreadPseudoHandleResolution, RuntimeCursor,
-    RuntimeCursorId, RuntimeCursorResource, RuntimeCursorSource, RuntimeDisplayProfile,
-    RuntimeDllAttachFailure, RuntimeDllCallbackReason, RuntimeDllCallbackRequest,
-    RuntimeDllLifecycleAction, RuntimeDllLifecycleCompletion, RuntimeDllLifecyclePhase,
-    RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeEnvironmentStringCopy,
-    RuntimeEnvironmentStrings, RuntimeFlsSlot, RuntimeGuestImport, RuntimeGuestImportBinding,
+    RuntimeCursorId, RuntimeCursorResource, RuntimeCursorSource, RuntimeDeviceContext,
+    RuntimeDeviceContextId, RuntimeDisplayProfile, RuntimeDllAttachFailure,
+    RuntimeDllCallbackReason, RuntimeDllCallbackRequest, RuntimeDllLifecycleAction,
+    RuntimeDllLifecycleCompletion, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint,
+    RuntimeEncodedPointer, RuntimeEnvironmentStringCopy, RuntimeEnvironmentStrings,
+    RuntimeFillRectResult, RuntimeFlsSlot, RuntimeGdiObject, RuntimeGdiObjectId,
+    RuntimeGdiObjectKind, RuntimeGdiSurface, RuntimeGdiSurfaceFill, RuntimeGdiSurfaceId,
+    RuntimeGetDcResult, RuntimeGetStockObjectResult, RuntimeGuestImport, RuntimeGuestImportBinding,
     RuntimeGuestImportResolution, RuntimeHandle, RuntimeHandleClosePolicy, RuntimeHandleEntry,
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationId, RuntimeHeapBacking,
     RuntimeHeapInitialization, RuntimeHeapPageMaterialization, RuntimeHeapTeardown,
@@ -224,9 +235,10 @@ pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use user32::{
     CREATE_WINDOW_EX_A_IMPLEMENTATION, DEF_WINDOW_PROC_A_IMPLEMENTATION,
     ENABLE_MENU_ITEM_IMPLEMENTATION, ENUM_DISPLAY_MONITORS_IMPLEMENTATION,
-    GET_CLIENT_RECT_IMPLEMENTATION, GET_SYSTEM_MENU_IMPLEMENTATION,
-    GET_SYSTEM_METRICS_IMPLEMENTATION, LOAD_CURSOR_A_IMPLEMENTATION, LOAD_ICON_A_IMPLEMENTATION,
-    LOAD_IMAGE_A_IMPLEMENTATION, REGISTER_CLASS_EX_A_IMPLEMENTATION, SEND_MESSAGE_A_IMPLEMENTATION,
+    FILL_RECT_IMPLEMENTATION, GET_CLIENT_RECT_IMPLEMENTATION, GET_DC_IMPLEMENTATION,
+    GET_SYSTEM_MENU_IMPLEMENTATION, GET_SYSTEM_METRICS_IMPLEMENTATION,
+    LOAD_CURSOR_A_IMPLEMENTATION, LOAD_ICON_A_IMPLEMENTATION, LOAD_IMAGE_A_IMPLEMENTATION,
+    REGISTER_CLASS_EX_A_IMPLEMENTATION, RELEASE_DC_IMPLEMENTATION, SEND_MESSAGE_A_IMPLEMENTATION,
     SET_WINDOW_POS_IMPLEMENTATION, SWAP_MOUSE_BUTTON_IMPLEMENTATION,
     USER32_COMPATIBILITY_POLICY_SCHEMA, USER32_COMPATIBILITY_POLICY_VERSION,
     User32CompatibilityPolicy, User32CreateWindowExAPolicy, User32GetSystemMetricsPolicy,
@@ -234,10 +246,11 @@ pub use user32::{
     User32LoadImageAPolicy, User32RegisterClassExAPolicy, User32SendMessageAPolicy,
     User32SetWindowPosPolicy, create_window_ex_a_contract, def_window_proc_a_contract,
     dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
-    get_client_rect_contract, get_system_menu_contract, get_system_metrics_contract,
-    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract,
-    register_class_ex_a_contract, send_message_a_contract, set_window_pos_contract,
-    swap_mouse_button_contract, user32_contract_for_endpoint,
+    fill_rect_contract, get_client_rect_contract, get_dc_contract, get_system_menu_contract,
+    get_system_metrics_contract, load_cursor_a_contract, load_icon_a_contract,
+    load_image_a_contract, register_class_ex_a_contract, release_dc_contract,
+    send_message_a_contract, set_window_pos_contract, swap_mouse_button_contract,
+    user32_contract_for_endpoint,
 };
 pub use win32::{
     CLOSE_HANDLE_IMPLEMENTATION, CREATE_FILE_A_IMPLEMENTATION, CREATE_MUTEX_A_IMPLEMENTATION,

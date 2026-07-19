@@ -43,6 +43,11 @@ use super::files::{
     RuntimeSourceReadCompletionPlan, RuntimeSourceReadHostResponse, RuntimeSourceReadRequest,
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
 };
+use super::gdi::{
+    RuntimeDeviceContext, RuntimeDeviceContextId, RuntimeFillRectResult, RuntimeGdi,
+    RuntimeGdiObject, RuntimeGdiObjectId, RuntimeGdiSurface, RuntimeGdiSurfaceId,
+    RuntimeGdiWindowTarget, RuntimeGetDcResult, RuntimeGetStockObjectResult,
+};
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
     RuntimeHeapCreationPlan, RuntimeHeapDestructionPlan, RuntimeHeapFreePlan,
@@ -109,7 +114,7 @@ use super::user32::{
     RuntimeUser32, RuntimeWindow, RuntimeWindowClass, RuntimeWindowClassId,
     RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowId,
-    RuntimeWindowProcedure,
+    RuntimeWindowLifecycle, RuntimeWindowProcedure,
 };
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
@@ -321,6 +326,7 @@ pub struct RuntimeKernel {
     displays: RuntimeDisplays,
     input: RuntimeInput,
     user32: RuntimeUser32,
+    gdi: RuntimeGdi,
     timers: RuntimeTimers,
     objects: RuntimeObjectTable,
     com: RuntimeCom,
@@ -409,6 +415,8 @@ struct RuntimeStateSnapshot<'a> {
     input: &'a RuntimeInput,
     #[serde(skip_serializing_if = "Option::is_none")]
     user32: Option<&'a RuntimeUser32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gdi: Option<&'a RuntimeGdi>,
     objects: &'a RuntimeObjectTable,
     #[serde(skip_serializing_if = "Option::is_none")]
     com: Option<&'a RuntimeCom>,
@@ -450,6 +458,7 @@ impl Serialize for RuntimeKernel {
             displays: &self.displays,
             input: &self.input,
             user32: (!self.user32.is_empty()).then_some(&self.user32),
+            gdi: (!self.gdi.is_empty()).then_some(&self.gdi),
             objects: &self.objects,
             com: (!self.com.is_empty()).then_some(&self.com),
             modules: &self.modules,
@@ -546,6 +555,7 @@ impl RuntimeKernel {
             displays: RuntimeDisplays::default(),
             input: RuntimeInput::default(),
             user32: RuntimeUser32::default(),
+            gdi: RuntimeGdi::default(),
             timers: RuntimeTimers::default(),
             objects,
             com: RuntimeCom::default(),
@@ -3085,6 +3095,125 @@ impl RuntimeKernel {
         self.user32.windows()
     }
 
+    pub(crate) fn acquire_window_dc(
+        &mut self,
+        window_handle: u32,
+    ) -> Result<RuntimeGetDcResult, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let target = self.resolve_gdi_window_target(window_handle)?;
+        let plan = self.gdi.plan_get_dc(target)?;
+        if self.resolve_gdi_window_target(window_handle)? != target {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "get-dc-window-target-stale",
+                "logical window changed after GetDC was planned",
+            ));
+        }
+        self.gdi.commit_get_dc(plan)
+    }
+
+    pub(crate) fn get_gdi_stock_object(
+        &mut self,
+        index: i32,
+    ) -> Result<RuntimeGetStockObjectResult, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let plan = self.gdi.plan_get_stock_object(index)?;
+        self.gdi.commit_get_stock_object(plan)
+    }
+
+    pub(crate) fn fill_gdi_rect(
+        &mut self,
+        device_context_handle: u32,
+        rect: super::displays::RuntimeRect,
+        brush_handle: u32,
+    ) -> Result<RuntimeFillRectResult, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let device_context = self
+            .gdi
+            .device_context_by_handle(device_context_handle)?
+            .clone();
+        let target = self.resolve_gdi_window_target(device_context.window_handle)?;
+        validate_device_context_target(&device_context, target)?;
+        let plan = self.gdi.plan_fill_rect(
+            device_context_handle,
+            rect,
+            brush_handle,
+            self.current_thread_id(),
+        )?;
+        let current_target = self.resolve_gdi_window_target(device_context.window_handle)?;
+        validate_device_context_target(&device_context, current_target)?;
+        self.gdi.commit_fill_rect(plan)
+    }
+
+    pub(crate) fn release_window_dc(
+        &mut self,
+        window_handle: u32,
+        device_context_handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let target = self.resolve_gdi_window_target(window_handle)?;
+        let device_context = self
+            .gdi
+            .device_context_by_handle(device_context_handle)?
+            .clone();
+        validate_device_context_target(&device_context, target)?;
+        let plan = self.gdi.plan_release_dc(
+            window_handle,
+            device_context_handle,
+            self.current_thread_id(),
+        )?;
+        let current_target = self.resolve_gdi_window_target(window_handle)?;
+        validate_device_context_target(&device_context, current_target)?;
+        self.gdi.commit_release_dc(plan)
+    }
+
+    pub fn gdi_device_context(
+        &self,
+        handle: u32,
+    ) -> Result<&RuntimeDeviceContext, RuntimeStateError> {
+        self.gdi.device_context_by_handle(handle)
+    }
+
+    pub fn gdi_device_contexts(&self) -> &BTreeMap<RuntimeDeviceContextId, RuntimeDeviceContext> {
+        self.gdi.device_contexts()
+    }
+
+    pub fn gdi_objects(&self) -> &BTreeMap<RuntimeGdiObjectId, RuntimeGdiObject> {
+        self.gdi.objects()
+    }
+
+    pub fn gdi_surfaces(&self) -> &BTreeMap<RuntimeGdiSurfaceId, RuntimeGdiSurface> {
+        self.gdi.surfaces()
+    }
+
+    fn resolve_gdi_window_target(
+        &self,
+        window_handle: u32,
+    ) -> Result<RuntimeGdiWindowTarget, RuntimeStateError> {
+        let window = self.user32.window(window_handle)?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "window-dc-lifecycle-state-invalid",
+                "logical window DC access requires a created window",
+            ));
+        }
+        if window.creation.owner_thread_id != self.current_thread_id() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "window-dc-thread-mismatch",
+                "bounded logical window DC access requires the window owner guest thread",
+            ));
+        }
+        Ok(RuntimeGdiWindowTarget {
+            window_id: window.id,
+            window_handle: window.handle,
+            owner_thread_id: window.creation.owner_thread_id,
+            client_width: window.creation.geometry.client_width,
+            client_height: window.creation.geometry.client_height,
+        })
+    }
+
     pub(crate) fn resolve_small_icon_window_procedure(
         &self,
         window_handle: u32,
@@ -3226,6 +3355,23 @@ impl RuntimeKernel {
                 "runtime-user32",
                 "user32-operation-state-invalid",
                 "User32 resource operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_gdi_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "gdi-operation-state-invalid",
+                "GDI operation requires a running process and active current thread",
             ));
         }
         Ok(())
@@ -3828,12 +3974,19 @@ impl RuntimeKernel {
             ));
         }
         let payload_teardown = self.plan_payload_object_teardown(&BTreeSet::new())?;
+        let gdi_teardown = self.gdi.plan_process_teardown()?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
+        if let Some(gdi_plan) = gdi_teardown.as_ref() {
+            self.gdi.preflight_process_teardown(gdi_plan)?;
+        }
         if let Some(user32_plan) = user32_teardown.as_ref() {
             self.user32.preflight_process_teardown(user32_plan)?;
         }
         self.commit_payload_object_teardown(payload_teardown)?;
+        if let Some(gdi_plan) = gdi_teardown {
+            self.gdi.commit_process_teardown(gdi_plan);
+        }
         if let Some(user32_plan) = user32_teardown {
             self.user32.commit_process_teardown(user32_plan);
         }
@@ -3906,10 +4059,14 @@ impl RuntimeKernel {
             .flat_map(|thread| thread.source_read_cancellation.request_ids())
             .collect::<BTreeSet<_>>();
         let payload_teardown = self.plan_payload_object_teardown(&cancelling_source_reads)?;
+        let gdi_teardown = self.gdi.plan_process_teardown()?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(timer_plan) = plan.timer_resolution_teardown.as_ref() {
             self.timers.preflight_process_teardown(timer_plan)?;
+        }
+        if let Some(gdi_plan) = gdi_teardown.as_ref() {
+            self.gdi.preflight_process_teardown(gdi_plan)?;
         }
         if let Some(user32_plan) = user32_teardown.as_ref() {
             self.user32.preflight_process_teardown(user32_plan)?;
@@ -3929,6 +4086,9 @@ impl RuntimeKernel {
             self.scheduler.commit_lane(terminal_scheduler_plan);
         }
         self.commit_payload_object_teardown(payload_teardown)?;
+        if let Some(gdi_plan) = gdi_teardown {
+            self.gdi.commit_process_teardown(gdi_plan);
+        }
         if let Some(user32_plan) = user32_teardown {
             self.user32.commit_process_teardown(user32_plan);
         }
@@ -4310,6 +4470,23 @@ impl RuntimeKernel {
         self.threads
             .current_state(self.scheduler.current_thread_id())
     }
+}
+
+fn validate_device_context_target(
+    device_context: &RuntimeDeviceContext,
+    target: RuntimeGdiWindowTarget,
+) -> Result<(), RuntimeStateError> {
+    if device_context.window_id != target.window_id
+        || device_context.window_handle != target.window_handle
+        || device_context.owner_thread_id != target.owner_thread_id
+    {
+        return Err(RuntimeStateError::conflict(
+            "runtime-gdi",
+            "device-context-window-target-mismatch",
+            "logical HDC does not reference the current window identity and owner thread",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_initial_thread_stack(stack: &InitialThreadStack) -> Result<(), RuntimeStateError> {

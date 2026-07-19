@@ -18,10 +18,12 @@ use vine_core::{
     RuntimeThreadId, RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
     RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy,
     build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
-    dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
-    get_client_rect_contract, get_system_menu_contract, get_system_metrics_contract,
-    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
-    register_class_ex_a_contract, send_message_a_contract, set_window_pos_contract,
+    dispatch_gdi32_api, dispatch_user32_api_with_policy, enable_menu_item_contract,
+    enum_display_monitors_contract, fill_rect_contract, gdi32_contract_for_endpoint,
+    get_client_rect_contract, get_dc_contract, get_stock_object_contract, get_system_menu_contract,
+    get_system_metrics_contract, load_cursor_a_contract, load_icon_a_contract,
+    load_image_a_contract, materialize_pe32_image, register_class_ex_a_contract,
+    release_dc_contract, send_message_a_contract, set_window_pos_contract,
     swap_mouse_button_contract, user32_contract_for_endpoint,
 };
 
@@ -82,6 +84,22 @@ const GET_CLIENT_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 3
 const GET_CLIENT_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f00;
 const GET_CLIENT_RECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c997);
 const CLIENT_RECT_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e00);
+const GET_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ee0);
+const GET_STOCK_OBJECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_3100);
+const FILL_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e90);
+const RELEASE_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ef0);
+const GET_DC_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 36);
+const GET_STOCK_OBJECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 40);
+const FILL_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 44);
+const RELEASE_DC_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 48);
+const GET_DC_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f40;
+const GET_STOCK_OBJECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f60;
+const FILL_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f80;
+const RELEASE_DC_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1fa0;
+const GET_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c9a4);
+const GET_STOCK_OBJECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c9ae);
+const FILL_RECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c9bb);
+const RELEASE_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c9cb);
 const WINDOW_TITLE_BASE: u32 = MEMORY_BASE.0 + 0x2b00;
 const GET_SYSTEM_MENU_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b10);
 const ENABLE_MENU_ITEM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b20);
@@ -987,6 +1005,10 @@ struct RegisterClassFixture {
     send_message_endpoint: ApiEndpointIdentity,
     set_window_pos_endpoint: ApiEndpointIdentity,
     get_client_rect_endpoint: ApiEndpointIdentity,
+    get_dc_endpoint: ApiEndpointIdentity,
+    get_stock_object_endpoint: ApiEndpointIdentity,
+    fill_rect_endpoint: ApiEndpointIdentity,
+    release_dc_endpoint: ApiEndpointIdentity,
     window_procedure: GuestAddress,
     callback_sentinel: GuestAddress,
     policy: User32CompatibilityPolicy,
@@ -1067,6 +1089,13 @@ impl RegisterClassFixture {
                 GET_CLIENT_RECT_IAT_ADDRESS,
                 GET_CLIENT_RECT_ENDPOINT_ADDRESS,
             ),
+            (GET_DC_IAT_ADDRESS, GET_DC_ENDPOINT_ADDRESS),
+            (
+                GET_STOCK_OBJECT_IAT_ADDRESS,
+                GET_STOCK_OBJECT_ENDPOINT_ADDRESS,
+            ),
+            (FILL_RECT_IAT_ADDRESS, FILL_RECT_ENDPOINT_ADDRESS),
+            (RELEASE_DC_IAT_ADDRESS, RELEASE_DC_ENDPOINT_ADDRESS),
         ] {
             memory
                 .write_initialization(runtime_owner, address, &endpoint.0.to_le_bytes())
@@ -1405,6 +1434,66 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let get_dc_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(239),
+            address: GET_DC_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1494),
+            iat_address: GET_DC_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetDC".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let get_stock_object_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(401),
+            address: GET_STOCK_OBJECT_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "GDI32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_10b0),
+            iat_address: GET_STOCK_OBJECT_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetStockObject".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let fill_rect_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(234),
+            address: FILL_RECT_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_140c),
+            iat_address: FILL_RECT_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "FillRect".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let release_dc_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(240),
+            address: RELEASE_DC_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1498),
+            iat_address: RELEASE_DC_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "ReleaseDC".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let dispatcher = ApiDispatcher::new(
             [
                 icon_endpoint.clone(),
@@ -1416,6 +1505,10 @@ impl RegisterClassFixture {
                 send_message_endpoint.clone(),
                 set_window_pos_endpoint.clone(),
                 get_client_rect_endpoint.clone(),
+                get_dc_endpoint.clone(),
+                get_stock_object_endpoint.clone(),
+                fill_rect_endpoint.clone(),
+                release_dc_endpoint.clone(),
             ],
             [
                 load_icon_a_contract(icon_endpoint.clone()).expect("icon contract"),
@@ -1431,6 +1524,11 @@ impl RegisterClassFixture {
                     .expect("window position contract"),
                 get_client_rect_contract(get_client_rect_endpoint.clone())
                     .expect("client rectangle contract"),
+                get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
+                get_stock_object_contract(get_stock_object_endpoint.clone())
+                    .expect("GetStockObject contract"),
+                fill_rect_contract(fill_rect_endpoint.clone()).expect("FillRect contract"),
+                release_dc_contract(release_dc_endpoint.clone()).expect("ReleaseDC contract"),
             ],
         )
         .expect("class dispatcher");
@@ -1453,6 +1551,10 @@ impl RegisterClassFixture {
             send_message_endpoint,
             set_window_pos_endpoint,
             get_client_rect_endpoint,
+            get_dc_endpoint,
+            get_stock_object_endpoint,
+            fill_rect_endpoint,
+            release_dc_endpoint,
             window_procedure,
             callback_sentinel,
             policy,
@@ -1687,6 +1789,81 @@ impl RegisterClassFixture {
         )
     }
 
+    fn dispatch_get_dc(&mut self, window_handle: u32) -> DispatchOutcome {
+        self.write_live_words(
+            GuestAddress(GET_DC_STACK_POINTER),
+            &[GET_DC_RETURN_ADDRESS.0, window_handle],
+        );
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.get_dc_endpoint.clone(),
+            GuestAddress(GET_DC_STACK_POINTER),
+            GET_DC_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_get_stock_object(&mut self, index: i32) -> DispatchOutcome {
+        self.write_live_words(
+            GuestAddress(GET_STOCK_OBJECT_STACK_POINTER),
+            &[GET_STOCK_OBJECT_RETURN_ADDRESS.0, index as u32],
+        );
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.get_stock_object_endpoint.clone(),
+            GuestAddress(GET_STOCK_OBJECT_STACK_POINTER),
+            GET_STOCK_OBJECT_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_fill_rect(
+        &mut self,
+        device_context: u32,
+        rect_address: GuestAddress,
+        brush: u32,
+    ) -> DispatchOutcome {
+        self.write_live_words(
+            GuestAddress(FILL_RECT_STACK_POINTER),
+            &[
+                FILL_RECT_RETURN_ADDRESS.0,
+                device_context,
+                rect_address.0,
+                brush,
+            ],
+        );
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.fill_rect_endpoint.clone(),
+            GuestAddress(FILL_RECT_STACK_POINTER),
+            FILL_RECT_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_release_dc(&mut self, window_handle: u32, device_context: u32) -> DispatchOutcome {
+        self.write_live_words(
+            GuestAddress(RELEASE_DC_STACK_POINTER),
+            &[RELEASE_DC_RETURN_ADDRESS.0, window_handle, device_context],
+        );
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.release_dc_endpoint.clone(),
+            GuestAddress(RELEASE_DC_STACK_POINTER),
+            RELEASE_DC_RETURN_ADDRESS,
+        )
+    }
+
+    fn write_live_words(&mut self, address: GuestAddress, words: &[u32]) {
+        self.memory
+            .write(
+                address,
+                &words
+                    .iter()
+                    .copied()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write live GDI call frame");
+    }
+
     fn dispatch_def_window_proc(
         &mut self,
         handle: u32,
@@ -1741,13 +1918,17 @@ impl RegisterClassFixture {
             },
             &mut session,
             |contract, frame, session| {
-                dispatch_user32_api_with_policy(
-                    &self.policy,
-                    self.callback_sentinel,
-                    contract,
-                    frame,
-                    session,
-                )
+                if contract.endpoint.module.eq_ignore_ascii_case("gdi32.dll") {
+                    dispatch_gdi32_api(contract, frame, session)
+                } else {
+                    dispatch_user32_api_with_policy(
+                        &self.policy,
+                        self.callback_sentinel,
+                        contract,
+                        frame,
+                        session,
+                    )
+                }
             },
         )
     }
@@ -2117,6 +2298,61 @@ fn get_client_rect_contract_is_two_argument_stdcall_with_conditional_rect_output
 }
 
 #[test]
+fn window_dc_slice_contracts_keep_user32_and_gdi32_frontends_separate() {
+    let fixture = RegisterClassFixture::new();
+    let get_dc = user32_contract_for_endpoint(fixture.get_dc_endpoint.clone())
+        .expect("GetDC catalog lookup")
+        .expect("GetDC contract");
+    assert_eq!(get_dc.abi.arguments.len(), 1);
+    assert!(matches!(
+        &get_dc.abi.return_value,
+        ApiReturnSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-dc.v1" && *nullable
+    ));
+
+    let fill_rect = user32_contract_for_endpoint(fixture.fill_rect_endpoint.clone())
+        .expect("FillRect catalog lookup")
+        .expect("FillRect contract");
+    assert_eq!(fill_rect.abi.arguments.len(), 3);
+    assert!(matches!(
+        &fill_rect.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-dc.v1" && !*nullable
+    ));
+    assert!(matches!(
+        &fill_rect.abi.arguments[2].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-object.v1" && !*nullable
+    ));
+
+    let release_dc = user32_contract_for_endpoint(fixture.release_dc_endpoint.clone())
+        .expect("ReleaseDC catalog lookup")
+        .expect("ReleaseDC contract");
+    assert_eq!(release_dc.abi.arguments.len(), 2);
+    assert_eq!(release_dc.abi.return_value, ApiReturnSchema::Bool32);
+
+    assert!(
+        user32_contract_for_endpoint(fixture.get_stock_object_endpoint.clone())
+            .expect("User32 rejects GDI32 endpoint")
+            .is_none()
+    );
+    let stock_object = gdi32_contract_for_endpoint(fixture.get_stock_object_endpoint.clone())
+        .expect("GDI32 catalog lookup")
+        .expect("GetStockObject contract");
+    assert_eq!(stock_object.abi.arguments.len(), 1);
+    assert!(matches!(
+        &stock_object.abi.return_value,
+        ApiReturnSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-object.v1" && *nullable
+    ));
+    assert!(
+        gdi32_contract_for_endpoint(fixture.get_dc_endpoint.clone())
+            .expect("GDI32 rejects User32 endpoint")
+            .is_none()
+    );
+}
+
+#[test]
 fn invalid_menu_chain_contracts_are_cataloged_immediate_stdcall_leaves() {
     let fixture = InvalidMenuFixture::new();
     let get_system_menu = user32_contract_for_endpoint(fixture.get_system_menu_endpoint.clone())
@@ -2477,6 +2713,214 @@ fn get_client_rect_reads_live_window_geometry_and_preserves_failure_atomicity() 
     assert_eq!(pointer_fault.code, "guest-page-fault");
     assert_eq!(fixture.runtime, pointer_fault_runtime);
     assert_eq!(fixture.memory.stats(), pointer_fault_memory);
+}
+
+#[test]
+fn window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    let sentinel = 0x1122_3344;
+
+    let windows_before_invalid_window = fixture.runtime.windows().clone();
+    let contexts_before_invalid_window = fixture.runtime.gdi_device_contexts().clone();
+    let surfaces_before_invalid_window = fixture.runtime.gdi_surfaces().clone();
+    let invalid_window = match fixture.dispatch_get_dc(0x4801_ffff) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-window GetDC completion, got {other:?}"),
+    };
+    assert_eq!(invalid_window.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_window.last_error, 1400);
+    assert_eq!(fixture.runtime.windows(), &windows_before_invalid_window);
+    assert_eq!(
+        fixture.runtime.gdi_device_contexts(),
+        &contexts_before_invalid_window
+    );
+    assert_eq!(
+        fixture.runtime.gdi_surfaces(),
+        &surfaces_before_invalid_window
+    );
+
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed GetDC LastError");
+    let first_dc = match fixture.dispatch_get_dc(window_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected first GetDC completion, got {other:?}"),
+    };
+    let first_dc_handle = match first_dc.eax {
+        RegisterUpdate::Set(handle) => handle,
+        other => panic!("GetDC did not set EAX: {other:?}"),
+    };
+    assert_eq!(first_dc_handle, 0x4701_0001);
+    assert_eq!(first_dc.last_error, sentinel);
+    assert!(first_dc.guest_writes.is_empty());
+
+    let second_dc = match fixture.dispatch_get_dc(window_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected second GetDC completion, got {other:?}"),
+    };
+    let second_dc_handle = match second_dc.eax {
+        RegisterUpdate::Set(handle) => handle,
+        other => panic!("second GetDC did not set EAX: {other:?}"),
+    };
+    assert_eq!(second_dc_handle, 0x4701_0002);
+    assert_ne!(first_dc_handle, second_dc_handle);
+    assert_eq!(
+        fixture
+            .runtime
+            .gdi_device_context(first_dc_handle)
+            .unwrap()
+            .surface_id,
+        fixture
+            .runtime
+            .gdi_device_context(second_dc_handle)
+            .unwrap()
+            .surface_id
+    );
+
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed GetStockObject LastError");
+    let objects_before_invalid = fixture.runtime.gdi_objects().clone();
+    let invalid_object = match fixture.dispatch_get_stock_object(-1) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid stock-object completion, got {other:?}"),
+    };
+    assert_eq!(invalid_object.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_object.last_error, sentinel);
+    assert_eq!(fixture.runtime.gdi_objects(), &objects_before_invalid);
+
+    let black_brush = match fixture.dispatch_get_stock_object(4) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected BLACK_BRUSH completion, got {other:?}"),
+    };
+    let black_brush_handle = match black_brush.eax {
+        RegisterUpdate::Set(handle) => handle,
+        other => panic!("GetStockObject did not set EAX: {other:?}"),
+    };
+    assert_eq!(black_brush_handle, 0x4702_0001);
+    assert_eq!(black_brush.last_error, sentinel);
+    let repeated_brush = match fixture.dispatch_get_stock_object(4) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated BLACK_BRUSH completion, got {other:?}"),
+    };
+    assert_eq!(repeated_brush.eax, RegisterUpdate::Set(black_brush_handle));
+    assert_eq!(fixture.runtime.gdi_objects().len(), 1);
+
+    let rect_bytes = [0_i32, 0, 800, 600]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect::<Vec<_>>();
+    fixture
+        .memory
+        .write(CLIENT_RECT_OUTPUT_ADDRESS, &rect_bytes)
+        .expect("write FillRect input");
+    fixture.acknowledge_pending_delta();
+    let surfaces_before_invalid_hdc = fixture.runtime.gdi_surfaces().clone();
+    let invalid_hdc = match fixture.dispatch_fill_rect(
+        0x4701_ffff,
+        CLIENT_RECT_OUTPUT_ADDRESS,
+        black_brush_handle,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HDC FillRect completion, got {other:?}"),
+    };
+    assert_eq!(invalid_hdc.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_hdc.last_error, 6);
+    assert_eq!(fixture.runtime.gdi_surfaces(), &surfaces_before_invalid_hdc);
+
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed FillRect LastError");
+    let fill = match fixture.dispatch_fill_rect(
+        first_dc_handle,
+        CLIENT_RECT_OUTPUT_ADDRESS,
+        black_brush_handle,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected FillRect completion, got {other:?}"),
+    };
+    assert_eq!(fill.eax, RegisterUpdate::Set(1));
+    assert_eq!(fill.last_error, sentinel);
+    assert!(fill.guest_writes.is_empty());
+    let surface = fixture.runtime.gdi_surfaces().values().next().unwrap();
+    assert_eq!((surface.width, surface.height), (800, 600));
+    assert_eq!(surface.fills.len(), 1);
+    assert_eq!(
+        surface.fills[0].rect,
+        RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+        }
+    );
+    assert_eq!(surface.fills[0].color_ref, 0);
+
+    let runtime_before_pointer_fault = fixture.runtime.clone();
+    let pointer_fault = match fixture.dispatch_fill_rect(
+        first_dc_handle,
+        GuestAddress(MEMORY_BASE.0 + 0x3000),
+        black_brush_handle,
+    ) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected FillRect pointer fault, got {other:?}"),
+    };
+    assert_eq!(pointer_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(pointer_fault.code, "guest-page-fault");
+    assert_eq!(fixture.runtime, runtime_before_pointer_fault);
+
+    let contexts_before_invalid_release = fixture.runtime.gdi_device_contexts().clone();
+    let invalid_release = match fixture.dispatch_release_dc(window_handle, 0x4701_ffff) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HDC ReleaseDC completion, got {other:?}"),
+    };
+    assert_eq!(invalid_release.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_release.last_error, 1425);
+    assert_eq!(
+        fixture.runtime.gdi_device_contexts(),
+        &contexts_before_invalid_release
+    );
+
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed ReleaseDC LastError");
+    let released = match fixture.dispatch_release_dc(window_handle, first_dc_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected ReleaseDC completion, got {other:?}"),
+    };
+    assert_eq!(released.eax, RegisterUpdate::Set(1));
+    assert_eq!(released.last_error, sentinel);
+    assert!(fixture.runtime.gdi_device_context(first_dc_handle).is_err());
+    assert!(fixture.runtime.gdi_device_context(second_dc_handle).is_ok());
+
+    let double_release = match fixture.dispatch_release_dc(window_handle, first_dc_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected double ReleaseDC completion, got {other:?}"),
+    };
+    assert_eq!(double_release.eax, RegisterUpdate::Set(0));
+    assert_eq!(double_release.last_error, 1425);
+
+    fixture
+        .runtime
+        .terminate_current_process(0)
+        .expect("terminate process with a live window DC");
+    assert!(fixture.runtime.gdi_device_contexts().is_empty());
+    assert!(fixture.runtime.gdi_objects().is_empty());
+    assert!(fixture.runtime.gdi_surfaces().is_empty());
+    assert!(fixture.runtime.windows().is_empty());
+    assert_eq!(
+        fixture
+            .runtime
+            .gdi_device_context(second_dc_handle)
+            .expect_err("process teardown retires live HDC")
+            .code,
+        "device-context-handle-unknown"
+    );
 }
 
 #[test]

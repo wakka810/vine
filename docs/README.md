@@ -64,6 +64,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [process-address-space-allocator.md](process-address-space-allocator.md) | process rangeをどこで予約するか | allocation identity、v1 control／heap registry、search reservation、release policy |
 | [com-iunknown-foundation.md](com-iunknown-foundation.md) | x86 COM identity／lifetimeをどこが所有するか | IUnknown ABI、vtable／UD2 thunk、HRESULT、shared refcount、Browser resource分離 |
 | [d3d9-frontend.md](d3d9-frontend.md) | bounded D3D9と将来Direct3D frontendをどこで分けるか | root identity、COM trap routing、version別frontend、CreateDevice時の`RuntimeGraphics` boundary |
+| [gdi-frontend.md](gdi-frontend.md) | GDI identity／surfaceと将来graphics共有層をどこで分けるか | HDC／stock object／logical surface authority、failure ordering、Direct3D／renderer分離 |
 | [win32-compatibility-policy.md](win32-compatibility-policy.md) | Win32 semanticsと到達profileをどう分けるか | single handler ID、versioned bounded policy、evidence-only BGI identity |
 | [winmm-compatibility-policy.md](winmm-compatibility-policy.md) | WinMM capabilityとtimer stateをどう分けるか | policy-owned TIMECAPS、fixed-width output、future resolution-request authority |
 | [runtime-input-state.md](runtime-input-state.md) | guest-visible input stateをどこが所有するか | logical mouse-button mapping、configure-once、stale plan拒否、browser authority分離 |

@@ -19,11 +19,12 @@ export function bgiProfileOutputDirectory(profile) {
     !profile.startsWith("user32-") &&
     !profile.startsWith("ole32-") &&
     !profile.startsWith("winmm-") &&
-    !profile.startsWith("d3d9-")
+    !profile.startsWith("d3d9-") &&
+    !profile.startsWith("gdi-")
   ) {
     throw new Error(`BGI profile must be baseline or a runtime capability: ${profile}`);
   }
-  return `v86-bgi-${profile.replace(/^(?:kernel32|user32|ole32|winmm)-/u, "")}`;
+  return `v86-bgi-${profile.replace(/^(?:kernel32|user32|ole32|winmm|gdi)-/u, "")}`;
 }
 
 export function planBgiCheckpointCommand(arguments_, manifest, root) {

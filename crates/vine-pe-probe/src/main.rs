@@ -37,12 +37,13 @@ use vine_core::{
     TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint,
     User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
-    d3d9_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, encode_pointer_contract, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    d3d9_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_gdi32_api,
+    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
+    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, encode_pointer_contract,
+    gdi32_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
+    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
+    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
+    heap_set_information_contract, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
@@ -179,6 +180,7 @@ enum GenericRuntimeCapability {
     D3d9CheckDeviceFormat,
     LoadLibraryA,
     GetClientRect,
+    WindowDcFill,
 }
 
 struct GenericRuntimeProcess {
@@ -426,7 +428,36 @@ struct GenericRuntimeCompletion {
     source_read: Option<RuntimeSourceReadCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime_module: Option<GenericRuntimeModuleLoad>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gdi: Option<GenericRuntimeGdiCompletion>,
     memory: MemoryStats,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(
+    tag = "action",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+enum GenericRuntimeGdiCompletion {
+    DeviceContextAcquired {
+        device_context: vine_core::RuntimeDeviceContext,
+        surface: vine_core::RuntimeGdiSurface,
+        live_device_contexts: usize,
+    },
+    StockObjectResolved {
+        object: vine_core::RuntimeGdiObject,
+        live_objects: usize,
+    },
+    SurfaceFilled {
+        device_context: vine_core::RuntimeDeviceContext,
+        surface: vine_core::RuntimeGdiSurface,
+    },
+    DeviceContextReleased {
+        handle: u32,
+        live_device_contexts: usize,
+        live_surfaces: usize,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -2261,7 +2292,11 @@ fn run_v86_reflection_session(
         ];
         if matches!(
             generic_runtime_capability,
-            Some(GenericRuntimeCapability::LoadLibraryA | GenericRuntimeCapability::GetClientRect)
+            Some(
+                GenericRuntimeCapability::LoadLibraryA
+                    | GenericRuntimeCapability::GetClientRect
+                    | GenericRuntimeCapability::WindowDcFill
+            )
         ) {
             let loader = kernel32_policy
                 .as_ref()
@@ -2883,6 +2918,9 @@ fn generic_runtime_contract_for_endpoint(
     if let Some(contract) = user32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = gdi32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
     if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
@@ -2912,6 +2950,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                 | GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
+                | GenericRuntimeCapability::WindowDcFill
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -2939,7 +2978,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9CheckDeviceType
             | GenericRuntimeCapability::D3d9CheckDeviceFormat
             | GenericRuntimeCapability::LoadLibraryA
-            | GenericRuntimeCapability::GetClientRect,
+            | GenericRuntimeCapability::GetClientRect
+            | GenericRuntimeCapability::WindowDcFill,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3276,7 +3316,11 @@ fn run_v86_generic_runtime_session(
     }
     if matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::LoadLibraryA | GenericRuntimeCapability::GetClientRect)
+        Some(
+            GenericRuntimeCapability::LoadLibraryA
+                | GenericRuntimeCapability::GetClientRect
+                | GenericRuntimeCapability::WindowDcFill
+        )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
             LoaderError::runtime_defect(
@@ -3517,6 +3561,7 @@ fn run_v86_generic_runtime_session(
                             timer_resolution: None,
                             source_read: None,
                             runtime_module: None,
+                            gdi: None,
                             memory: memory.stats(),
                         },
                     )?;
@@ -3783,6 +3828,8 @@ fn run_v86_generic_runtime_session(
                                 frame,
                                 session,
                             )
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("gdi32.dll") {
+                            dispatch_gdi32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
@@ -4104,6 +4151,7 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let gdi = generic_runtime_gdi_completion(&completion, session.runtime())?;
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -4131,6 +4179,7 @@ fn run_v86_generic_runtime_session(
                                 timer_resolution,
                                 source_read: None,
                                 runtime_module,
+                                gdi,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -4324,6 +4373,7 @@ fn run_v86_generic_runtime_session(
                                 timer_resolution: None,
                                 source_read: Some(source_read),
                                 runtime_module: None,
+                                gdi: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -4423,6 +4473,7 @@ fn run_v86_generic_runtime_session(
                                 timer_resolution: None,
                                 source_read: None,
                                 runtime_module: None,
+                                gdi: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -4461,6 +4512,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9CheckDeviceFormat
                             | GenericRuntimeCapability::LoadLibraryA
                             | GenericRuntimeCapability::GetClientRect
+                            | GenericRuntimeCapability::WindowDcFill
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4496,6 +4548,7 @@ fn run_v86_generic_runtime_session(
                                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                                 | GenericRuntimeCapability::LoadLibraryA
                                 | GenericRuntimeCapability::GetClientRect
+                                | GenericRuntimeCapability::WindowDcFill
                         )
                     ) {
                         dispatch_d3d9_com_call(&d3d9_policy, trap, &mut session)
@@ -4536,10 +4589,18 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let get_client_rect_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetClientRect));
+    let window_dc_fill_enabled = matches!(enabled, Some(GenericRuntimeCapability::WindowDcFill));
+    let get_client_rect_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::GetClientRect | GenericRuntimeCapability::WindowDcFill)
+    );
     let load_library_a_enabled = matches!(
         enabled,
-        Some(GenericRuntimeCapability::LoadLibraryA | GenericRuntimeCapability::GetClientRect)
+        Some(
+            GenericRuntimeCapability::LoadLibraryA
+                | GenericRuntimeCapability::GetClientRect
+                | GenericRuntimeCapability::WindowDcFill
+        )
     );
     let d3d9_root_factory_enabled = matches!(
         enabled,
@@ -4552,6 +4613,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                 | GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
+                | GenericRuntimeCapability::WindowDcFill
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4583,6 +4645,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                 | GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
+                | GenericRuntimeCapability::WindowDcFill
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5060,6 +5123,7 @@ fn runtime_capability_enables_endpoint(
         }
         "LoadLibraryA" => load_library_a_enabled,
         "GetClientRect" => get_client_rect_enabled,
+        "GetDC" | "GetStockObject" | "FillRect" | "ReleaseDC" => window_dc_fill_enabled,
         _ => true,
     }
 }
@@ -5079,6 +5143,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                 | GenericRuntimeCapability::LoadLibraryA
                 | GenericRuntimeCapability::GetClientRect
+                | GenericRuntimeCapability::WindowDcFill
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -9684,6 +9749,107 @@ fn set_eax_result(
     }
 }
 
+fn generic_runtime_gdi_completion(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+) -> Result<Option<GenericRuntimeGdiCompletion>, LoaderError> {
+    match completion.implementation_id.as_str() {
+        vine_core::GET_DC_IMPLEMENTATION => {
+            let handle = set_eax_result(
+                completion,
+                "get-dc-return-register-invalid",
+                "GetDC dispatcher did not set EAX",
+            )?;
+            let device_context = runtime
+                .gdi_device_context(handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            let surface = runtime
+                .gdi_surfaces()
+                .get(&device_context.surface_id)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "get-dc-surface-missing-after-dispatch",
+                        "completed GetDC has no matching logical surface",
+                    )
+                })?;
+            Ok(Some(GenericRuntimeGdiCompletion::DeviceContextAcquired {
+                device_context,
+                surface,
+                live_device_contexts: runtime.gdi_device_contexts().len(),
+            }))
+        }
+        vine_core::GET_STOCK_OBJECT_IMPLEMENTATION => {
+            let handle = set_eax_result(
+                completion,
+                "get-stock-object-return-register-invalid",
+                "GetStockObject dispatcher did not set EAX",
+            )?;
+            let object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == handle)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "stock-object-missing-after-dispatch",
+                        "completed GetStockObject has no matching logical object",
+                    )
+                })?;
+            Ok(Some(GenericRuntimeGdiCompletion::StockObjectResolved {
+                object,
+                live_objects: runtime.gdi_objects().len(),
+            }))
+        }
+        vine_core::FILL_RECT_IMPLEMENTATION => {
+            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "fill-rect-hdc-missing-after-dispatch",
+                    "completed FillRect frame has no logical HDC",
+                )
+            })?;
+            let device_context = runtime
+                .gdi_device_context(handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            let surface = runtime
+                .gdi_surfaces()
+                .get(&device_context.surface_id)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "fill-rect-surface-missing-after-dispatch",
+                        "completed FillRect has no matching logical surface",
+                    )
+                })?;
+            Ok(Some(GenericRuntimeGdiCompletion::SurfaceFilled {
+                device_context,
+                surface,
+            }))
+        }
+        vine_core::RELEASE_DC_IMPLEMENTATION => {
+            let handle = completion.frame.argument_u32(1).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "release-dc-hdc-missing-after-dispatch",
+                    "completed ReleaseDC frame has no logical HDC",
+                )
+            })?;
+            Ok(Some(GenericRuntimeGdiCompletion::DeviceContextReleased {
+                handle,
+                live_device_contexts: runtime.gdi_device_contexts().len(),
+                live_surfaces: runtime.gdi_surfaces().len(),
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn api_fault(fault: ApiFault) -> LoaderError {
     match fault.class {
         ApiFaultClass::InvalidCall => {
@@ -10710,6 +10876,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-check-device-format" => GenericRuntimeCapability::D3d9CheckDeviceFormat,
                 "kernel32-load-library-a" => GenericRuntimeCapability::LoadLibraryA,
                 "user32-get-client-rect" => GenericRuntimeCapability::GetClientRect,
+                "gdi-window-dc-fill" => GenericRuntimeCapability::WindowDcFill,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

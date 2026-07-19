@@ -24,12 +24,13 @@ use vine_core::{
     RuntimeThreadId, SchedulerThreadState, StackCleanup, User32CompatibilityPolicy,
     WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
     complete_kernel32_source_read, d3d9_contract_for_endpoint, dispatch_d3d9_api,
-    dispatch_d3d9_com_call, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
-    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
-    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
-    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
-    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    dispatch_d3d9_com_call, dispatch_gdi32_api, dispatch_kernel32_api_with_policy,
+    dispatch_ole32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
+    gdi32_contract_for_endpoint, install_controlled_initial_stack,
+    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
+    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
+    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
+    user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -1070,6 +1071,8 @@ impl BrowserRuntime {
                                 frame,
                                 session,
                             )
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("gdi32.dll") {
+                            dispatch_gdi32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
@@ -1277,6 +1280,10 @@ impl BrowserRuntime {
                                     .map_err(error_string)?
                                     .copied()
                             );
+                        }
+                        if let Some(gdi) = bgi_gdi_completion_metadata(&completion, &self.runtime)?
+                        {
+                            metadata["gdi"] = gdi;
                         }
                         metadata
                     }
@@ -2209,6 +2216,9 @@ fn bgi_contract_for_endpoint(
     if let Some(contract) = user32_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = gdi32_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
     if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
@@ -2454,6 +2464,76 @@ fn completion_metadata(kind: &str, completion: &ApiImmediateCompletion) -> Value
         "kind": kind,
         "completion": completion,
     })
+}
+
+fn bgi_gdi_completion_metadata(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+) -> Result<Option<Value>, String> {
+    match completion.implementation_id.as_str() {
+        vine_core::GET_DC_IMPLEMENTATION => {
+            let RegisterUpdate::Set(handle) = completion.eax else {
+                return Err("GetDC completion did not set EAX".to_owned());
+            };
+            let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
+            let surface = runtime
+                .gdi_surfaces()
+                .get(&device_context.surface_id)
+                .ok_or_else(|| "GetDC completion has no matching logical surface".to_owned())?;
+            Ok(Some(json!({
+                "action": "device-context-acquired",
+                "deviceContext": device_context,
+                "surface": surface,
+                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+            })))
+        }
+        vine_core::GET_STOCK_OBJECT_IMPLEMENTATION => {
+            let RegisterUpdate::Set(handle) = completion.eax else {
+                return Err("GetStockObject completion did not set EAX".to_owned());
+            };
+            let object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == handle)
+                .ok_or_else(|| {
+                    "GetStockObject completion has no matching logical object".to_owned()
+                })?;
+            Ok(Some(json!({
+                "action": "stock-object-resolved",
+                "object": object,
+                "liveObjects": runtime.gdi_objects().len(),
+            })))
+        }
+        vine_core::FILL_RECT_IMPLEMENTATION => {
+            let handle = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "FillRect completion has no logical HDC argument".to_owned())?;
+            let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
+            let surface = runtime
+                .gdi_surfaces()
+                .get(&device_context.surface_id)
+                .ok_or_else(|| "FillRect completion has no matching logical surface".to_owned())?;
+            Ok(Some(json!({
+                "action": "surface-filled",
+                "deviceContext": device_context,
+                "surface": surface,
+            })))
+        }
+        vine_core::RELEASE_DC_IMPLEMENTATION => {
+            let handle = completion
+                .frame
+                .argument_u32(1)
+                .ok_or_else(|| "ReleaseDC completion has no logical HDC argument".to_owned())?;
+            Ok(Some(json!({
+                "action": "device-context-released",
+                "handle": handle,
+                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+                "liveSurfaces": runtime.gdi_surfaces().len(),
+            })))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn decode_u32_payload(payload: &[u8]) -> Vec<u32> {

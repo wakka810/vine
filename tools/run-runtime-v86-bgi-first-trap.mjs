@@ -133,6 +133,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-check-device-format",
         "kernel32-load-library-a",
         "user32-get-client-rect",
+        "gdi-window-dc-fill",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -182,6 +183,7 @@ assert(
       "d3d9-check-device-format",
       "kernel32-load-library-a",
       "user32-get-client-rect",
+      "gdi-window-dc-fill",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -204,6 +206,7 @@ if (
     "d3d9-check-device-format",
     "kernel32-load-library-a",
     "user32-get-client-rect",
+    "gdi-window-dc-fill",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -219,7 +222,8 @@ if (
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
     genericRuntimeCapability === "kernel32-load-library-a" ||
-    genericRuntimeCapability === "user32-get-client-rect"
+    genericRuntimeCapability === "user32-get-client-rect" ||
+    genericRuntimeCapability === "gdi-window-dc-fill"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -354,8 +358,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const windowDcFillEnabled = genericRuntimeCapability === "gdi-window-dc-fill";
 const getClientRectEnabled =
-  genericRuntimeCapability === "user32-get-client-rect";
+  windowDcFillEnabled || genericRuntimeCapability === "user32-get-client-rect";
 const loadLibraryAEnabled =
   getClientRectEnabled || genericRuntimeCapability === "kernel32-load-library-a";
 const d3d9CheckDeviceFormatEnabled =
@@ -551,7 +556,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getClientRectEnabled
+      ? windowDcFillEnabled
+        ? "v86-bgi-window-dc-fill"
+      : getClientRectEnabled
         ? "v86-bgi-get-client-rect"
       : loadLibraryAEnabled
         ? "v86-bgi-load-library-a"
@@ -4512,6 +4519,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (windowDcFillEnabled) {
+        validateWindowDcFillResult(genericResult);
       } else if (getClientRectEnabled) {
         validateGetClientRectResult(genericResult);
       } else if (loadLibraryAEnabled) {
@@ -4661,6 +4670,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : windowDcFillEnabled
+            ? "bgi window DC fill"
           : getClientRectEnabled
             ? "bgi GetClientRect"
           : loadLibraryAEnabled
@@ -5804,6 +5815,7 @@ function buildGenericCallRecord(
     ...(completionFrame.runtimeModule === undefined
       ? {}
       : { runtimeModule: completionFrame.runtimeModule }),
+    ...(completionFrame.gdi === undefined ? {} : { gdi: completionFrame.gdi }),
   };
 }
 
@@ -5856,6 +5868,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : windowDcFillEnabled
+          ? 69
         : getClientRectEnabled
           ? 65
         : loadLibraryAEnabled
@@ -11893,6 +11907,180 @@ function validateGetClientRectResult(result) {
   assert.equal(result.terminal.terminal.stackWords[1], 0x4801_0001);
 }
 
+function validateWindowDcFillResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_829);
+  assert.equal(result.callbackEvents.length, 22);
+  assert.equal(result.writebacks.length, 17_876);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_021,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_053,
+  );
+  assert.equal(result.writebacks.at(-1).sequence, 17_830);
+  assert.equal(result.hostDeltas.length, 16_552);
+  assert.equal(result.hostDeltas.at(-1).sequence, 17_825);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_529);
+
+  const calls = result.supportedCalls.slice(-4);
+  assert.deepEqual(
+    calls.map((call) => [call.sequence, call.module, call.symbol, call.occurrence]),
+    [
+      [17_826, "USER32.dll", "GetDC", 1],
+      [17_827, "GDI32.dll", "GetStockObject", 1],
+      [17_828, "USER32.dll", "FillRect", 1],
+      [17_829, "USER32.dll", "ReleaseDC", 1],
+    ],
+  );
+  assert.deepEqual(
+    calls.map((call) => call.trapInstructionCount),
+    [11_806_586, 11_806_590, 11_806_596, 11_806_602],
+  );
+  assert.deepEqual(
+    calls.map((call) => call.arguments),
+    [
+      [0x4801_0001],
+      [4],
+      [0x4701_0001, 0x006f_fdc4, 0x4702_0001],
+      [0x4801_0001, 0x4701_0001],
+    ],
+  );
+  assert.deepEqual(
+    calls.map((call) => call.result),
+    [
+      { action: "set", value: 0x4701_0001 },
+      { action: "set", value: 0x4702_0001 },
+      { action: "set", value: 1 },
+      { action: "set", value: 1 },
+    ],
+  );
+  assert.deepEqual(
+    calls.map((call) => call.implementationId),
+    [
+      "user32.get-dc.window-acquisition.v1",
+      "gdi32.get-stock-object.black-brush.v1",
+      "user32.fill-rect.logical-surface.v1",
+      "user32.release-dc.window-acquisition.v1",
+    ],
+  );
+  assert.deepEqual(
+    calls.map((call) => call.returnAddress),
+    [0x1005_c9a4, 0x1005_c9ae, 0x1005_c9bb, 0x1005_c9cb],
+  );
+  assert.deepEqual(
+    calls.map((call) => call.stackPointerAfter - call.stackPointerBefore),
+    [8, 8, 16, 12],
+  );
+  assert.deepEqual(
+    calls.map((call) => [call.lastError, call.guestWrites]),
+    [
+      [0, []],
+      [0, []],
+      [0, []],
+      [0, []],
+    ],
+  );
+
+  const deviceContext = {
+    id: 1,
+    handle: 0x4701_0001,
+    namespace: "vine.logical-gdi-dc.v1",
+    windowId: 1,
+    windowHandle: 0x4801_0001,
+    ownerThreadId: 8192,
+    surfaceId: 1,
+  };
+  const filledSurface = {
+    id: 1,
+    windowId: 1,
+    width: 800,
+    height: 600,
+    fills: [
+      {
+        sequence: 1,
+        rect: { left: 0, top: 0, right: 800, bottom: 600 },
+        brushId: 1,
+        colorRef: 0,
+      },
+    ],
+    generation: 1,
+  };
+  assert.deepEqual(calls[0].gdi, {
+    action: "device-context-acquired",
+    deviceContext,
+    surface: { ...filledSurface, fills: [], generation: 0 },
+    liveDeviceContexts: 1,
+  });
+  assert.deepEqual(calls[1].gdi, {
+    action: "stock-object-resolved",
+    object: {
+      id: 1,
+      handle: 0x4702_0001,
+      namespace: "vine.logical-gdi-object.v1",
+      shared: true,
+      object: { kind: "stock-brush", index: 4, colorRef: 0 },
+    },
+    liveObjects: 1,
+  });
+  assert.deepEqual(calls[2].gdi, {
+    action: "surface-filled",
+    deviceContext,
+    surface: filledSurface,
+  });
+  assert.deepEqual(calls[3].gdi, {
+    action: "device-context-released",
+    handle: 0x4701_0001,
+    liveDeviceContexts: 0,
+    liveSurfaces: 1,
+  });
+
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 212);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0d30);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1428);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "SetWindowLongA",
+  });
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.memory.physicalPages, 719);
+  assert.equal(result.fault.memory.generation, 34_529);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "09faccb143347196523dddf962774664e650cd8dc9e08d935d8cf084a5807b78",
+  );
+
+  assert.equal(result.terminal.instructionCount, 11_806_624);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 212);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0d30);
+  assert.equal(result.terminal.terminal.thunk.iatAddress, 0x100d_1428);
+  assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "SetWindowLongA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_cae3);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 4),
+    [0x4801_0001, 0xffff_fff0, 0x90ca_0000],
+  );
+}
+
 function validateLoadLibraryAResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -13692,6 +13880,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : windowDcFillEnabled
+          ? "vine.v86-bgi-window-dc-fill"
         : getClientRectEnabled
           ? "vine.v86-bgi-get-client-rect"
         : loadLibraryAEnabled

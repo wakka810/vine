@@ -1267,6 +1267,20 @@ getSystemMetricsSelection.find(
 ).selectedObservations = ["get-system-metrics"];
 assert.doesNotThrow(() => summarizeTrace(encode(getSystemMetricsSelection)));
 
+const getClientRectSelection = structuredClone(events);
+getClientRectSelection[0].arguments.observations = ["get-client-rect"];
+getClientRectSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["get-client-rect"];
+assert.doesNotThrow(() => summarizeTrace(encode(getClientRectSelection)));
+
+const windowDcSelection = structuredClone(events);
+windowDcSelection[0].arguments.observations = ["window-dc"];
+windowDcSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["window-dc"];
+assert.doesNotThrow(() => summarizeTrace(encode(windowDcSelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

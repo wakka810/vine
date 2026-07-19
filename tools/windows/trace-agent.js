@@ -7,6 +7,8 @@ const agentOptions = globalThis.__vineTraceOptions ?? {
 };
 const selectedVtables = new Set(agentOptions.vtables ?? []);
 const selectedObservations = new Set(agentOptions.observations ?? []);
+const focusedWindowDcObservation =
+  selectedObservations.size === 1 && selectedObservations.has("window-dc");
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
@@ -184,6 +186,12 @@ let getClientRectOracleComplete = false;
 let getClientRectOracleEvidence = null;
 let getClientRectCompletionRecorded = false;
 const getClientRectMainModuleCalls = [];
+let windowDcOracleScheduled = false;
+let windowDcOracleCall = null;
+let windowDcOracleComplete = false;
+let windowDcOracleEvidence = null;
+let windowDcCompletionRecorded = false;
+const windowDcMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -4818,6 +4826,371 @@ function maybeCompleteGetClientRectObservation() {
     oracle: getClientRectOracleEvidence,
   });
   if (stopOnEvent === "get-client-rect-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachWindowDcHook(module, name) {
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error(`${name} export is unavailable`);
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" &&
+        windowDcOracleCall !== null &&
+        windowDcOracleCall.api === name;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+
+      this.api = name;
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = windowDcOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.windowHandle = null;
+      this.dc = null;
+      this.object = null;
+      this.objectIndex = null;
+      this.rect = null;
+      switch (name) {
+        case "GetDC":
+          this.windowHandle = args[0];
+          this.arguments = [this.windowHandle.toString()];
+          break;
+        case "ReleaseDC":
+          this.windowHandle = args[0];
+          this.dc = args[1];
+          this.arguments = [
+            this.windowHandle.toString(),
+            this.dc.toString(),
+          ];
+          break;
+        case "FillRect":
+          this.dc = args[0];
+          this.rectPointer = args[1];
+          this.object = args[2];
+          this.rect = snapshotRect(this.rectPointer);
+          this.arguments = [
+            this.dc.toString(),
+            this.rectPointer.toString(),
+            this.object.toString(),
+          ];
+          break;
+        case "GetStockObject":
+          this.objectIndex = signed32(args[0]);
+          this.arguments = [this.objectIndex];
+          break;
+        default:
+          throw new Error(`unsupported window DC hook: ${name}`);
+      }
+      this.immediateConsumer =
+        isMainModuleCaller && windowDcMainModuleCalls.length < 4
+          ? snapshotInstructions(this.returnAddress, 48)
+          : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: this.arguments,
+          lastErrorBefore: this.lastErrorBefore,
+          windowDc: {
+            rect: this.rect,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue =
+        this.api === "GetDC" || this.api === "GetStockObject"
+          ? result.toString()
+          : signed32(result);
+      const lastError = Number(this.lastError) >>> 0;
+      if (this.oracleCaller) {
+        windowDcOracleCall.hookResult = resultValue;
+        windowDcOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: this.api,
+          result: result.toString(),
+          windowDc: {
+            result: resultValue,
+            rect: this.rect,
+          },
+        },
+        this.lastError,
+      );
+      if (!this.mainModuleCaller || windowDcCompletionRecorded) {
+        return;
+      }
+      windowDcMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        api: this.api,
+        returnAddress: this.returnAddress.toString(),
+        callerRva: this.traceFrame.caller.rva,
+        arguments: this.arguments,
+        result: resultValue,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        rect: this.rect,
+        immediateConsumer: this.immediateConsumer,
+      });
+      const firstGetDc = windowDcMainModuleCalls.find(
+        (call) => call.api === "GetDC",
+      );
+      const requiredApis = ["GetDC", "GetStockObject", "FillRect", "ReleaseDC"];
+      if (
+        this.api === "ReleaseDC" &&
+        firstGetDc !== undefined &&
+        requiredApis.every((api) =>
+          windowDcMainModuleCalls.some((call) => call.api === api),
+        )
+      ) {
+        scheduleWindowDcOracle(ptr(firstGetDc.arguments[0]));
+        setImmediate(maybeCompleteWindowDcObservation);
+      }
+    },
+  });
+}
+
+function scheduleWindowDcOracle(liveWindowHandle) {
+  if (windowDcOracleScheduled) {
+    return;
+  }
+  windowDcOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const user32 = Process.getModuleByName("user32.dll");
+      const gdi32 = Process.getModuleByName("gdi32.dll");
+      const getDcAddress = findExport(user32, "GetDC");
+      const releaseDcAddress = findExport(user32, "ReleaseDC");
+      const fillRectAddress = findExport(user32, "FillRect");
+      const getStockObjectAddress = findExport(gdi32, "GetStockObject");
+      if (
+        getDcAddress === null ||
+        releaseDcAddress === null ||
+        fillRectAddress === null ||
+        getStockObjectAddress === null
+      ) {
+        throw new Error("window DC oracle export is unavailable");
+      }
+      const getDc = new SystemFunction(
+        getDcAddress,
+        "pointer",
+        ["pointer"],
+        "stdcall",
+      );
+      const releaseDc = new SystemFunction(
+        releaseDcAddress,
+        "int32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const fillRect = new SystemFunction(
+        fillRectAddress,
+        "int32",
+        ["pointer", "pointer", "pointer"],
+        "stdcall",
+      );
+      const getStockObject = new SystemFunction(
+        getStockObjectAddress,
+        "pointer",
+        ["int32"],
+        "stdcall",
+      );
+      const invoke = (id, api, sentinel, callback) => {
+        windowDcOracleCall = {
+          api,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = callback();
+          const systemResult =
+            api === "GetDC" || api === "GetStockObject"
+              ? outcome.value.toString()
+              : Number(outcome.value);
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            windowDcOracleCall.hookResult === null ||
+            windowDcOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(`${api} oracle did not pass through the hook`);
+          }
+          return {
+            id,
+            api,
+            sentinel,
+            systemResult,
+            systemLastError,
+            hookResult: windowDcOracleCall.hookResult,
+            hookLastErrorAfter: windowDcOracleCall.hookLastErrorAfter,
+            hookResultMatches: windowDcOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              windowDcOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          windowDcOracleCall = null;
+        }
+      };
+
+      const calls = [];
+      const firstGetDc = invoke("live-get-dc-first", "GetDC", 0x11112222, () =>
+        getDc(liveWindowHandle),
+      );
+      calls.push(firstGetDc);
+      const secondGetDc = invoke("live-get-dc-second", "GetDC", 0x22223333, () =>
+        getDc(liveWindowHandle),
+      );
+      calls.push(secondGetDc);
+      if (firstGetDc.systemResult === "0x0" || secondGetDc.systemResult === "0x0") {
+        throw new Error("live GetDC oracle returned NULL");
+      }
+      const firstStockObject = invoke(
+        "black-brush-first",
+        "GetStockObject",
+        0x33334444,
+        () => getStockObject(4),
+      );
+      calls.push(firstStockObject);
+      const secondStockObject = invoke(
+        "black-brush-second",
+        "GetStockObject",
+        0x44445555,
+        () => getStockObject(4),
+      );
+      calls.push(secondStockObject);
+      if (firstStockObject.systemResult === "0x0") {
+        throw new Error("BLACK_BRUSH oracle returned NULL");
+      }
+      const emptyRect = Memory.alloc(16);
+      emptyRect.writeByteArray(Array(16).fill(0));
+      calls.push(
+        invoke("empty-fill", "FillRect", 0x55556666, () =>
+          fillRect(
+            ptr(firstGetDc.systemResult),
+            emptyRect,
+            ptr(firstStockObject.systemResult),
+          ),
+        ),
+      );
+      calls.push(
+        invoke("release-first", "ReleaseDC", 0x66667777, () =>
+          releaseDc(liveWindowHandle, ptr(firstGetDc.systemResult)),
+        ),
+      );
+      calls.push(
+        invoke("release-second", "ReleaseDC", 0x77778888, () =>
+          releaseDc(liveWindowHandle, ptr(secondGetDc.systemResult)),
+        ),
+      );
+      const afterReleaseGetDc = invoke(
+        "live-get-dc-after-release",
+        "GetDC",
+        0x13572468,
+        () => getDc(liveWindowHandle),
+      );
+      calls.push(afterReleaseGetDc);
+      if (afterReleaseGetDc.systemResult !== "0x0") {
+        calls.push(
+          invoke("release-after-reacquire", "ReleaseDC", 0x24681357, () =>
+            releaseDc(liveWindowHandle, ptr(afterReleaseGetDc.systemResult)),
+          ),
+        );
+      }
+      calls.push(
+        invoke("invalid-window-get-dc", "GetDC", 0x7a6b5c4d, () =>
+          getDc(ptr("0x1234")),
+        ),
+      );
+      calls.push(
+        invoke("invalid-hdc-fill", "FillRect", 0x10293847, () =>
+          fillRect(ptr("0x1234"), emptyRect, ptr(firstStockObject.systemResult)),
+        ),
+      );
+      calls.push(
+        invoke("invalid-hdc-release", "ReleaseDC", 0x56473829, () =>
+          releaseDc(liveWindowHandle, ptr("0x1234")),
+        ),
+      );
+      calls.push(
+        invoke("invalid-stock-object", "GetStockObject", 0x6a5b4c3d, () =>
+          getStockObject(-1),
+        ),
+      );
+
+      windowDcOracleEvidence = {
+        profile: "x86-live-cs-owndc-lifetime-v1",
+        liveWindowHandle: liveWindowHandle.toString(),
+        stockObjectIndex: 4,
+        calls,
+        relations: {
+          repeatedGetDcSameIdentity:
+            firstGetDc.systemResult === secondGetDc.systemResult,
+          afterReleaseSameIdentity:
+            firstGetDc.systemResult === afterReleaseGetDc.systemResult,
+          repeatedStockObjectSameIdentity:
+            firstStockObject.systemResult === secondStockObject.systemResult,
+        },
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      windowDcOracleComplete = true;
+      emit("window-dc-oracle", windowDcOracleEvidence);
+      maybeCompleteWindowDcObservation();
+    } catch (error) {
+      emit("window-dc-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompleteWindowDcObservation() {
+  if (
+    windowDcCompletionRecorded ||
+    !windowDcOracleComplete ||
+    !["GetDC", "GetStockObject", "FillRect", "ReleaseDC"].every((api) =>
+      windowDcMainModuleCalls.some((call) => call.api === api),
+    )
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteWindowDcObservation, 10);
+    return;
+  }
+  windowDcCompletionRecorded = true;
+  emit("window-dc-complete", {
+    profile: "x86-bgi-first-window-dc-fill-v1",
+    mainModuleCalls: windowDcMainModuleCalls,
+    oracle: windowDcOracleEvidence,
+  });
+  if (stopOnEvent === "window-dc-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -12189,11 +12562,17 @@ Process.attachModuleObserver({
     if (moduleHooks === undefined) {
       return;
     }
-    for (const [name, decoders] of moduleHooks) {
-      try {
-        attachHook(module, name, decoders);
-      } catch (error) {
-        emit("hook-error", { module: module.name, api: name, error: error.message });
+    if (!focusedWindowDcObservation) {
+      for (const [name, decoders] of moduleHooks) {
+        try {
+          attachHook(module, name, decoders);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
       }
     }
     if (
@@ -12457,6 +12836,36 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "GetClientRect",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("window-dc")
+    ) {
+      for (const name of ["GetDC", "ReleaseDC", "FillRect"]) {
+        try {
+          attachWindowDcHook(module, name);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
+      }
+    }
+    if (
+      module.name.toLowerCase() === "gdi32.dll" &&
+      selectedObservations.has("window-dc")
+    ) {
+      try {
+        attachWindowDcHook(module, "GetStockObject");
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetStockObject",
           error: error.message,
         });
       }

@@ -3341,3 +3341,52 @@ pending work zeroを通す。Browser reportは24,189,645 bytes／SHA-256
 child／multiple window、DPI virtualization、DC identity／lifetime、GDI surface、browser renderingを
 実装済みとしない。既存window authority内のread-only semantic leafなので3分gateは再実行せず、直前の
 runtime-system module lifecycle observationを性能正本として保持する。
+
+## 111. BGI window DC fill slice
+
+Focused `window-dc` capturesは次のlocal raw artifactsである。Raw JSONL、native HWND／HDC／
+HGDIOBJ値、private absolute pathはGitへ追加せずsemantic goldenにも使わない。
+
+| Capture | Bytes／lines | Balanced API pairs | SHA-256 |
+|---|---:|---:|---|
+| primary | 63,019／95 | 17 | `7a793d995671f44e083df46ce77da221600f3cce546ee21b03c3a4e163fbbdae` |
+| confirmation | 63,231／96 | 17 | `9c554473a4fda0abc78f4bf4cdb65170db0ea6c3972d76b64f95b47478dd4d23` |
+
+両captureはcontiguous sequence、diagnostics zeroである。Main callerはRVA `0x0005C9A4`で
+`GetDC(HWND)`を呼びnon-NULL HDC、RVA `0x0005C9AE`で`GetStockObject(4)`を呼びshared
+`BLACK_BRUSH`、RVA `0x0005C9BB`で`FillRect(HDC,[0,0,800,600],brush)`を呼び1、RVA
+`0x0005C9CB`で`ReleaseDC(HWND,HDC)`を呼び1を得る。成功callはentry LastErrorを保存する。
+Callerは取得identityをそのまま次callへ渡し、fill／release result後も初期化を継続する。
+
+独立negative oracleはinvalid HWNDの`GetDC`をNULL／`ERROR_INVALID_WINDOW_HANDLE` 1,400、invalid
+HDCの`FillRect`を0／`ERROR_INVALID_HANDLE` 6、invalid HDCの`ReleaseDC`を0／1,425と固定する。
+`GetStockObject(-1)`はNULLでLastErrorを保存する。別identity oracleではclass style `0x28`の同じ
+windowに対する同時`GetDC`がdistinct HDCを返す。Release後の数値HDC再利用はcapture間で変動するため、
+semantic contractとしてimportしない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Rust `RuntimeGdi`はDC、stock object、surface、index、allocator、generationをprivateに所有する。
+Window relationはnon-owningで、kernelが`RuntimeUser32`のlive HWND／owner thread／client geometryを
+再検証してからopaque targetを渡す。HDC namespaceは`vine.logical-gdi-dc.v1`、first handle
+`0x47010001`で、acquisitionごとにdistinct identityを割り当てる。BLACK_BRUSHは
+`vine.logical-gdi-object.v1`／`0x47020001`のprocess-shared objectである。一つの800×600 logical
+surfaceはrelease後も残り、full-client black fill一件とsurface generation 1を保持する。Releaseは
+matching acquisitionだけを退役させ、process teardownはGDIをUser32より先にpreflight／commitする。
+Plan時にsurface次generationまで確定するため、commit開始後にcapacity／overflow failureは起きない。
+
+Nodeは82 contracts／17,829 calls、17,876 writebacks／36,021 dirty pages／1,807,053 changed bytes、
+16,552 host deltas、generation 34,529を通す。Reportは207,184,829 bytes／SHA-256
+`1c82c43eddd4b4391c1862f4bffa42cdbb686a8aa24c924c115601ab922efd6b`、final memory SHA-256は
+`09faccb143347196523dddf962774664e650cd8dc9e08d935d8cf084a5807b78`である。Chrome Runtime Workerも
+4 callのarguments／resultsに加え、HDC／object／surface identity、fill、release後live countのimmutable
+GDI snapshotまで一致させる。Same 17,829 calls／11,806,624 instructions／memory digest、40,275 slices、
+40,269 writebacks／87,878 pages、16,552 mapping deltas、generation 56,923、74,712 Wasm crossings、
+terminal pending work zeroを通す。Browser reportは24,193,899 bytes／SHA-256
+`dbe371c7278e8129abed1812b01bfd8c83d3a8ecd9c451f990f224a8a24db554`である。
+
+次stopはinstruction 11,806,624、endpoint 212／`SetWindowLongA(0x48010001,-16,0x90CA0000)`、
+IAT `0x100D1428`、return `0x1005CAE3`の`endpoint-contract-missing`である。今回のsurfaceはlogical
+stateであり、browser pixel buffer、renderer resource、`RuntimeGraphics`、Direct3D deviceを作らない。
+GDIとD3D8／9／将来D3D10／11はguest frontendを分離し、共有可能なtranslation seamはvalidated
+logical resource／commandより下へ置く。Synchronous logical stateとWorker crossingの性質は変えないため、
+直前の180秒runtime-system module lifecycle observationを性能正本として保持する。

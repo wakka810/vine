@@ -340,6 +340,7 @@ export interface SessionReport {
     window?: RuntimeWindowSnapshot;
     comApartment?: RuntimeComApartmentSnapshot;
     sourceRead?: RuntimeSourceReadSnapshot;
+    gdi?: RuntimeGdiSnapshot;
   }>;
   sourceReads: RuntimeSourceReadSnapshot[];
   firstUnsupported: {
@@ -368,6 +369,60 @@ export interface RuntimeSourceReadSnapshot {
   cursorAfter: number;
   contentSha256: string;
 }
+
+export interface RuntimeGdiDeviceContextSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  windowId: number;
+  windowHandle: number;
+  ownerThreadId: number;
+  surfaceId: number;
+}
+
+export interface RuntimeGdiSurfaceSnapshot {
+  id: number;
+  windowId: number;
+  width: number;
+  height: number;
+  fills: Array<{
+    sequence: number;
+    rect: { left: number; top: number; right: number; bottom: number };
+    brushId: number;
+    colorRef: number;
+  }>;
+  generation: number;
+}
+
+export type RuntimeGdiSnapshot =
+  | {
+      action: "device-context-acquired";
+      deviceContext: RuntimeGdiDeviceContextSnapshot;
+      surface: RuntimeGdiSurfaceSnapshot;
+      liveDeviceContexts: number;
+    }
+  | {
+      action: "stock-object-resolved";
+      object: {
+        id: number;
+        handle: number;
+        namespace: string;
+        shared: boolean;
+        object: { kind: "stock-brush"; index: number; colorRef: number };
+      };
+      liveObjects: number;
+    }
+  | {
+      action: "surface-filled";
+      deviceContext: RuntimeGdiDeviceContextSnapshot;
+      surface: RuntimeGdiSurfaceSnapshot;
+    }
+  | {
+      action: "device-context-released";
+      handle: number;
+      liveDeviceContexts: number;
+      liveSurfaces: number;
+    };
 
 export interface SessionFinishedMessage {
   type: "session-finished";

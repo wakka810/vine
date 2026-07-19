@@ -18,6 +18,7 @@ import {
   type RuntimeWindowClassSnapshot,
   type RuntimeWindowSnapshot,
   type RuntimeSourceReadSnapshot,
+  type RuntimeGdiSnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -127,6 +128,7 @@ interface CompletionMetadata {
   window?: RuntimeWindowSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
+  gdi?: RuntimeGdiSnapshot;
 }
 
 interface ApiFaultMetadata {
@@ -199,6 +201,7 @@ interface HostCompletionMetadata {
   window?: RuntimeWindowSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
+  gdi?: RuntimeGdiSnapshot;
 }
 
 interface SourceManifest {
@@ -236,6 +239,7 @@ interface CallbackCompletionMetadata {
   window?: RuntimeWindowSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
+  gdi?: RuntimeGdiSnapshot;
 }
 
 interface WritebackMetadata {
@@ -1267,6 +1271,16 @@ class BrowserRuntimeSession {
       isCoInitialize === (metadata.comApartment !== undefined),
       "BGI COM apartment completion metadata mismatch",
     );
+    const isGdiCompletion = [
+      "user32.get-dc.window-acquisition.v1",
+      "gdi32.get-stock-object.black-brush.v1",
+      "user32.fill-rect.logical-surface.v1",
+      "user32.release-dc.window-acquisition.v1",
+    ].includes(completion.implementationId);
+    invariant(
+      isGdiCompletion === (metadata.gdi !== undefined),
+      "BGI GDI completion metadata mismatch",
+    );
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
     invariant(
       !this.#completedBgiCallSequences.has(sequence),
@@ -1309,6 +1323,7 @@ class BrowserRuntimeSession {
         ? {}
         : { comApartment: metadata.comApartment }),
       ...(metadata.sourceRead === undefined ? {} : { sourceRead: metadata.sourceRead }),
+      ...(metadata.gdi === undefined ? {} : { gdi: metadata.gdi }),
     });
   }
 

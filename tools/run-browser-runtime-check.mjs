@@ -954,6 +954,7 @@ function normalizeBgiCall(call) {
     windowClass: call.windowClass ?? null,
     window: call.window ?? null,
     sourceRead: call.sourceRead ?? null,
+    gdi: call.gdi ?? null,
     interface: call.interface ?? null,
     vtableSlot: call.vtableSlot ?? null,
     referenceCount: call.referenceCount ?? null,

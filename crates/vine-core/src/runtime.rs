@@ -8,6 +8,7 @@ mod address_space;
 mod com;
 mod displays;
 mod files;
+mod gdi;
 mod heaps;
 mod input;
 mod kernel;
@@ -50,6 +51,15 @@ pub use files::{
     RuntimeSourceFile, RuntimeSourceFileDescriptor, RuntimeSourceFileId, RuntimeSourceFileManifest,
     RuntimeSourceMountManifest, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
     RuntimeSourceReadRequest, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
+};
+pub use gdi::{
+    LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
+    RUNTIME_DEVICE_CONTEXT_HANDLE_BASE, RUNTIME_GDI_BLACK_BRUSH_INDEX,
+    RUNTIME_GDI_DEVICE_CONTEXT_LIMIT, RUNTIME_GDI_OBJECT_HANDLE_BASE, RUNTIME_GDI_OBJECT_LIMIT,
+    RUNTIME_GDI_SURFACE_FILL_LIMIT, RUNTIME_GDI_SURFACE_LIMIT, RuntimeDeviceContext,
+    RuntimeDeviceContextId, RuntimeFillRectResult, RuntimeGdiObject, RuntimeGdiObjectId,
+    RuntimeGdiObjectKind, RuntimeGdiSurface, RuntimeGdiSurfaceFill, RuntimeGdiSurfaceId,
+    RuntimeGetDcResult, RuntimeGetStockObjectResult,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{
