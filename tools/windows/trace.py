@@ -48,6 +48,7 @@ SUPPORTED_OBSERVATIONS = (
     "create-window-ex-a",
     "get-system-menu",
     "get-system-metrics",
+    "get-client-rect",
     "get-string-type-w",
     "lc-map-string-w",
     "get-last-error",

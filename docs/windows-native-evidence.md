@@ -3302,3 +3302,42 @@ typed D3D9 frontendがないため`endpoint-contract-missing`を返す。これ�
 query、presentation parameters、logical graphics resource、browser rendererを導入するsubsystem gatewayで
 あり、factory returnだけのstubでは閉じない。Cursor checkpointはdecoded bitmap、CSS／DOM cursor、
 animation、active cursor selection、cursor destructionを実装済みとしない。
+
+## 110. BGI logical client rectangle
+
+Focused `GetClientRect` capturesは次のlocal raw artifactsである。Raw JSONL、native HWND、
+private absolute pathはGitへ追加せずsemantic goldenにも使わない。
+
+| Capture | Bytes／lines | Balanced API pairs | SHA-256 |
+|---|---:|---:|---|
+| primary | 98,812／259 | 99 | `f1fc35c2afb505d39ed8514c8bf4a969d78bc013ee2fb15c890677ad8afe42a1` |
+| confirmation | 98,817／259 | 99 | `151395f4a93715778a75d0262627cf63958a532cf3b26a478dc2c47ce408f05a` |
+
+両captureはcontiguous sequence、diagnostics zeroである。BGI caller RVA `0x0005C997`はlive main
+windowへ一回だけ`GetClientRect`を呼び、BOOL 1、LastError `0 -> 0`、RECT
+`[0,0,800,600]`を得る。Return後はBOOLをbranchせず、同じHWNDを直ちに`GetDC`へ渡す。
+独立oracleはsuccess時にsentinel LastErrorを保存して同じRECTを書き、NULL／invalid HWNDでは
+BOOL 0、`ERROR_INVALID_WINDOW_HANDLE` 1,400を返して16-byte sentinel outputを変更しない。
+Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtime handlerは`RuntimeUser32`が所有するlive windowのclient width／heightだけをimmutableに読み、
+originをzeroとしてx86 RECTを一つのchecked guest writeで返す。成功はentry LastErrorを保存し、stale／
+unknown HWNDはoutputをpreflightせずWin32 failureにできる。Live HWNDとunmapped outputのfailureは
+window state、guest memory、allocator、generationを部分更新しない。Browserはlogical HWND、geometry、
+LastErrorの第二の正本を持たず、host window size／DPIもimportしない。
+
+Nodeは78 contracts／17,825 calls、17,872 writebacks／36,015 dirty pages／1,807,011 changed bytes、
+16,552 host deltas、generation 34,525を通す。Reportは207,140,387 bytes／SHA-256
+`e522b40e305bb31ff4d794b4c5ad3eeec3a30853dde5cb72cd5623bdc0ebff56`、final memory SHA-256は
+`26693d59c268922fc4cc8a240c6bb21b9c96da51993a077a13c40cbab149c9a2`である。Chrome Runtime Workerも
+same ordered calls／11,806,586 instructions／memory digestを再現し、40,271 slices、40,265
+writebacks／87,872 pages、16,552 mapping deltas、generation 56,919、74,704 Wasm crossings、terminal
+pending work zeroを通す。Browser reportは24,189,645 bytes／SHA-256
+`43351ea6a278f010587ab80afe4fe4e4f9ca5397f08de2bd04e2b9f0271ec82d`である。
+
+次stopはendpoint 239／`GetDC(0x48010001)`、IAT `0x100D1494`、return `0x1005C9A4`の
+`endpoint-contract-missing`である。このcheckpointはgeneral screen／client coordinate conversion、
+child／multiple window、DPI virtualization、DC identity／lifetime、GDI surface、browser renderingを
+実装済みとしない。既存window authority内のread-only semantic leafなので3分gateは再実行せず、直前の
+runtime-system module lifecycle observationを性能正本として保持する。

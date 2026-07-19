@@ -178,6 +178,12 @@ let getSystemMetricsOracleComplete = false;
 let getSystemMetricsOracleEvidence = null;
 let getSystemMetricsCompletionRecorded = false;
 const getSystemMetricsMainModuleCalls = [];
+let getClientRectOracleScheduled = false;
+let getClientRectOracleCall = null;
+let getClientRectOracleComplete = false;
+let getClientRectOracleEvidence = null;
+let getClientRectCompletionRecorded = false;
+const getClientRectMainModuleCalls = [];
 let getCpInfoOracleScheduled = false;
 let getCpInfoOracleSentinel = null;
 let getCpInfoOracleResult = null;
@@ -4588,6 +4594,232 @@ function attachGetSystemMetricsHook(module) {
       }
     },
   });
+}
+
+function attachGetClientRectHook(module) {
+  const name = "GetClientRect";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && getClientRectOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.windowHandle = args[0];
+      this.output = args[1];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = getClientRectOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.outputBefore = snapshotRect(this.output);
+      this.immediateConsumer =
+        isMainModuleCaller && getClientRectMainModuleCalls.length === 0
+          ? snapshotInstructions(this.returnAddress, 96)
+          : null;
+      if (isOracleCaller) {
+        getClientRectOracleCall.hookOutputBefore = this.outputBefore;
+      }
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.windowHandle.toString(), this.output.toString()],
+          lastErrorBefore: this.lastErrorBefore,
+          getClientRect: {
+            windowHandle: this.windowHandle.toString(),
+            outputBefore: this.outputBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      const outputAfter = snapshotRect(this.output);
+      if (this.oracleCaller) {
+        getClientRectOracleCall.hookResult = resultValue;
+        getClientRectOracleCall.hookLastErrorAfter = lastError;
+        getClientRectOracleCall.hookOutputAfter = outputAfter;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          getClientRect: {
+            result: resultValue,
+            succeeded: resultValue !== 0,
+            outputAfter,
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !getClientRectCompletionRecorded) {
+        getClientRectMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.traceFrame.caller.rva,
+          windowHandle: this.windowHandle.toString(),
+          outputBefore: this.outputBefore,
+          outputAfter,
+          result: resultValue,
+          succeeded: resultValue !== 0,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleGetClientRectOracle(module, this.windowHandle);
+        setImmediate(maybeCompleteGetClientRectObservation);
+      }
+    },
+  });
+}
+
+function scheduleGetClientRectOracle(module, liveWindowHandle) {
+  if (getClientRectOracleScheduled) {
+    return;
+  }
+  getClientRectOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetClientRect");
+      if (address === null) {
+        throw new Error("GetClientRect oracle export is unavailable");
+      }
+      const getClientRect = new SystemFunction(
+        address,
+        "int32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const invoke = ({ id, windowHandle, nullOutput, sentinel }) => {
+        const output = nullOutput ? ptr(0) : Memory.alloc(16);
+        if (!nullOutput) {
+          output.writeByteArray(Array(16).fill(0xa5));
+        }
+        const outputBefore = snapshotRect(output);
+        getClientRectOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookOutputBefore: null,
+          hookOutputAfter: null,
+        };
+        try {
+          const outcome = getClientRect(windowHandle, output);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getClientRectOracleCall.hookResult === null ||
+            getClientRectOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("GetClientRect oracle did not pass through the hook");
+          }
+          const outputAfter = snapshotRect(output);
+          return {
+            id,
+            windowHandle: windowHandle.toString(),
+            output: output.toString(),
+            sentinel,
+            systemResult,
+            succeeded: systemResult !== 0,
+            systemLastError,
+            outputBefore,
+            outputAfter,
+            hookResult: getClientRectOracleCall.hookResult,
+            hookLastErrorAfter: getClientRectOracleCall.hookLastErrorAfter,
+            hookOutputBefore: getClientRectOracleCall.hookOutputBefore,
+            hookOutputAfter: getClientRectOracleCall.hookOutputAfter,
+            hookResultMatches:
+              getClientRectOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              getClientRectOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          getClientRectOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "live-window",
+          windowHandle: liveWindowHandle,
+          nullOutput: false,
+          sentinel: 0x11223344,
+        },
+        {
+          id: "null-window",
+          windowHandle: ptr(0),
+          nullOutput: false,
+          sentinel: 0x55667788,
+        },
+        {
+          id: "invalid-window",
+          windowHandle: ptr("0x1234"),
+          nullOutput: false,
+          sentinel: 0x7a6b5c4d,
+        },
+      ].map(invoke);
+      getClientRectOracleEvidence = {
+        profile: "x86-live-window-and-invalid-arguments-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      getClientRectOracleComplete = true;
+      emit("get-client-rect-oracle", getClientRectOracleEvidence);
+      maybeCompleteGetClientRectObservation();
+    } catch (error) {
+      emit("get-client-rect-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompleteGetClientRectObservation() {
+  if (
+    getClientRectCompletionRecorded ||
+    !getClientRectOracleComplete ||
+    getClientRectMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteGetClientRectObservation, 10);
+    return;
+  }
+  getClientRectCompletionRecorded = true;
+  emit("get-client-rect-complete", {
+    profile: "x86-bgi-first-client-rect-v1",
+    mainModuleCall: getClientRectMainModuleCalls[0],
+    oracle: getClientRectOracleEvidence,
+  });
+  if (stopOnEvent === "get-client-rect-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
 }
 
 function attachHook(module, name, decoders) {
@@ -12211,6 +12443,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "GetSystemMetrics",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("get-client-rect")
+    ) {
+      try {
+        attachGetClientRectHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetClientRect",
           error: error.message,
         });
       }

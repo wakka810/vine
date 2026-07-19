@@ -132,6 +132,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-check-device-type",
         "d3d9-check-device-format",
         "kernel32-load-library-a",
+        "user32-get-client-rect",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -180,6 +181,7 @@ assert(
       "d3d9-check-device-type",
       "d3d9-check-device-format",
       "kernel32-load-library-a",
+      "user32-get-client-rect",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -201,6 +203,7 @@ if (
     "d3d9-check-device-type",
     "d3d9-check-device-format",
     "kernel32-load-library-a",
+    "user32-get-client-rect",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -215,7 +218,8 @@ if (
 }
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-load-library-a"
+    genericRuntimeCapability === "kernel32-load-library-a" ||
+    genericRuntimeCapability === "user32-get-client-rect"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -350,8 +354,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getClientRectEnabled =
+  genericRuntimeCapability === "user32-get-client-rect";
 const loadLibraryAEnabled =
-  genericRuntimeCapability === "kernel32-load-library-a";
+  getClientRectEnabled || genericRuntimeCapability === "kernel32-load-library-a";
 const d3d9CheckDeviceFormatEnabled =
   loadLibraryAEnabled || genericRuntimeCapability === "d3d9-check-device-format";
 const d3d9CheckDeviceTypeEnabled =
@@ -545,7 +551,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? loadLibraryAEnabled
+      ? getClientRectEnabled
+        ? "v86-bgi-get-client-rect"
+      : loadLibraryAEnabled
         ? "v86-bgi-load-library-a"
       : d3d9CheckDeviceFormatEnabled
         ? "v86-bgi-d3d9-check-device-format"
@@ -4504,6 +4512,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getClientRectEnabled) {
+        validateGetClientRectResult(genericResult);
       } else if (loadLibraryAEnabled) {
         validateLoadLibraryAResult(genericResult);
       } else if (d3d9CheckDeviceFormatEnabled) {
@@ -4651,6 +4661,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : getClientRectEnabled
+            ? "bgi GetClientRect"
           : loadLibraryAEnabled
             ? "bgi LoadLibraryA runtime-system module"
           : d3d9CheckDeviceFormatEnabled
@@ -5844,6 +5856,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : getClientRectEnabled
+          ? 65
         : loadLibraryAEnabled
           ? 64
         : d3d9RootFactoryEnabled
@@ -11802,6 +11816,83 @@ function validateD3d9CheckDeviceFormatResult(result) {
   assert.equal(terminal.stackWords[1], 0x100d_c9c8);
 }
 
+function validateGetClientRectResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_825);
+  assert.equal(result.callbackEvents.length, 22);
+  assert.equal(result.writebacks.length, 17_872);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_015,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_011,
+  );
+  assert.equal(result.hostDeltas.length, 16_552);
+  assert.equal(result.hostDeltas.at(-1).sequence, 17_825);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_525);
+  const call = result.supportedCalls.at(-1);
+  assert.equal(call.sequence, 17_825);
+  assert.equal(call.trapInstructionCount, 11_806_582);
+  assert.equal(call.module.toLowerCase(), "user32.dll");
+  assert.equal(call.symbol, "GetClientRect");
+  assert.deepEqual(call.arguments, [0x4801_0001, 0x006f_fdc4]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.implementationId, "user32.get-client-rect.v1");
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, 0x006f_fdc4);
+  assert.deepEqual(call.guestWrites[0].bytes, [
+    0, 0, 0, 0, 0, 0, 0, 0, 0x20, 3, 0, 0, 0x58, 2, 0, 0,
+  ]);
+  assert.equal(call.guestWrites[0].result.bytesWritten, 16);
+  assert.equal(call.guestWrites[0].result.dirtyPages, 1);
+  assert.equal(call.guestWrites[0].result.invalidation.generation, 34_524);
+  assert.equal(call.returnAddress, 0x1005_c997);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 12);
+
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 239);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0ee0);
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1494);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GetDC",
+  });
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.memory.physicalPages, 719);
+  assert.equal(result.fault.memory.generation, 34_525);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "26693d59c268922fc4cc8a240c6bb21b9c96da51993a077a13c40cbab149c9a2",
+  );
+
+  assert.equal(result.terminal.instructionCount, 11_806_586);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 239);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0ee0);
+  assert.equal(result.terminal.terminal.thunk.iatAddress, 0x100d_1494);
+  assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "GetDC");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_c9a4);
+  assert.equal(result.terminal.terminal.stackWords[1], 0x4801_0001);
+}
+
 function validateLoadLibraryAResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -13601,6 +13692,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : getClientRectEnabled
+          ? "vine.v86-bgi-get-client-rect"
         : loadLibraryAEnabled
           ? "vine.v86-bgi-load-library-a"
         : d3d9CheckDeviceFormatEnabled

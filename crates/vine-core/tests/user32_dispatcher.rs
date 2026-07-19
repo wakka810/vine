@@ -2,9 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use vine_core::{
-    ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiOwnedTrap, ApiReturnSchema,
-    ApiValueSchema, CALLBACK_SCRATCH_ARENA_BASE, CallbackPolicy, CallingConvention,
-    DispatchOutcome, ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
+    ApiDirection, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiOwnedTrap,
+    ApiPointeeSchema, ApiReturnSchema, ApiValueSchema, ApiWriteRequirement,
+    CALLBACK_SCRATCH_ARENA_BASE, CallbackPolicy, CallingConvention, DispatchOutcome,
+    ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
     GuestCallbackCompletionPolicy, GuestMemory, GuestRange, ImportTarget, ImportThunk,
     ImportThunkDisposition, ImportThunkId, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
     LoaderIngressReport, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
@@ -18,8 +19,8 @@ use vine_core::{
     RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy,
     build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
     dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
-    get_system_menu_contract, get_system_metrics_contract, load_cursor_a_contract,
-    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    get_client_rect_contract, get_system_menu_contract, get_system_metrics_contract,
+    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
     register_class_ex_a_contract, send_message_a_contract, set_window_pos_contract,
     swap_mouse_button_contract, user32_contract_for_endpoint,
 };
@@ -76,6 +77,11 @@ const SET_WINDOW_POS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 28
 const SET_WINDOW_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1e00;
 const SET_WINDOW_POS_SHOW_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f88);
 const SET_WINDOW_POS_HIDE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f9f);
+const GET_CLIENT_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0c60);
+const GET_CLIENT_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 32);
+const GET_CLIENT_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f00;
+const GET_CLIENT_RECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c997);
+const CLIENT_RECT_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e00);
 const WINDOW_TITLE_BASE: u32 = MEMORY_BASE.0 + 0x2b00;
 const GET_SYSTEM_MENU_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b10);
 const ENABLE_MENU_ITEM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b20);
@@ -980,6 +986,7 @@ struct RegisterClassFixture {
     image_endpoint: ApiEndpointIdentity,
     send_message_endpoint: ApiEndpointIdentity,
     set_window_pos_endpoint: ApiEndpointIdentity,
+    get_client_rect_endpoint: ApiEndpointIdentity,
     window_procedure: GuestAddress,
     callback_sentinel: GuestAddress,
     policy: User32CompatibilityPolicy,
@@ -1056,6 +1063,10 @@ impl RegisterClassFixture {
             (WINDOW_IMAGE_IAT_ADDRESS, IMAGE_ENDPOINT_ADDRESS),
             (SEND_MESSAGE_IAT_ADDRESS, SEND_MESSAGE_ENDPOINT_ADDRESS),
             (SET_WINDOW_POS_IAT_ADDRESS, SET_WINDOW_POS_ENDPOINT_ADDRESS),
+            (
+                GET_CLIENT_RECT_IAT_ADDRESS,
+                GET_CLIENT_RECT_ENDPOINT_ADDRESS,
+            ),
         ] {
             memory
                 .write_initialization(runtime_owner, address, &endpoint.0.to_le_bytes())
@@ -1128,6 +1139,16 @@ impl RegisterClassFixture {
                 0,
                 ICON_IMAGE_BASE,
                 0,
+            ],
+        );
+        write_words(
+            &mut memory,
+            runtime_owner,
+            GuestAddress(GET_CLIENT_RECT_STACK_POINTER),
+            &[
+                GET_CLIENT_RECT_RETURN_ADDRESS.0,
+                0x4801_0001,
+                CLIENT_RECT_OUTPUT_ADDRESS.0,
             ],
         );
         write_words(
@@ -1369,6 +1390,21 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let get_client_rect_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(199),
+            address: GET_CLIENT_RECT_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_13f4),
+            iat_address: GET_CLIENT_RECT_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetClientRect".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let dispatcher = ApiDispatcher::new(
             [
                 icon_endpoint.clone(),
@@ -1379,6 +1415,7 @@ impl RegisterClassFixture {
                 image_endpoint.clone(),
                 send_message_endpoint.clone(),
                 set_window_pos_endpoint.clone(),
+                get_client_rect_endpoint.clone(),
             ],
             [
                 load_icon_a_contract(icon_endpoint.clone()).expect("icon contract"),
@@ -1392,6 +1429,8 @@ impl RegisterClassFixture {
                     .expect("synchronous message contract"),
                 set_window_pos_contract(set_window_pos_endpoint.clone())
                     .expect("window position contract"),
+                get_client_rect_contract(get_client_rect_endpoint.clone())
+                    .expect("client rectangle contract"),
             ],
         )
         .expect("class dispatcher");
@@ -1413,6 +1452,7 @@ impl RegisterClassFixture {
             image_endpoint,
             send_message_endpoint,
             set_window_pos_endpoint,
+            get_client_rect_endpoint,
             window_procedure,
             callback_sentinel,
             policy,
@@ -1622,6 +1662,28 @@ impl RegisterClassFixture {
             self.set_window_pos_endpoint.clone(),
             GuestAddress(SET_WINDOW_POS_STACK_POINTER),
             return_address,
+        )
+    }
+
+    fn configure_get_client_rect(&mut self, window_handle: u32, output: GuestAddress) {
+        let words = [GET_CLIENT_RECT_RETURN_ADDRESS.0, window_handle, output.0];
+        self.memory
+            .write(
+                GuestAddress(GET_CLIENT_RECT_STACK_POINTER),
+                &words
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write GetClientRect frame");
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_get_client_rect(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.get_client_rect_endpoint.clone(),
+            GuestAddress(GET_CLIENT_RECT_STACK_POINTER),
+            GET_CLIENT_RECT_RETURN_ADDRESS,
         )
     }
 
@@ -2009,6 +2071,52 @@ fn get_system_metrics_contract_is_one_index_stdcall_and_preserves_last_error() {
 }
 
 #[test]
+fn get_client_rect_contract_is_two_argument_stdcall_with_conditional_rect_output() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(199),
+        address: GET_CLIENT_RECT_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_13f4),
+        iat_address: GET_CLIENT_RECT_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetClientRect".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = get_client_rect_contract(endpoint).expect("GetClientRect contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 2);
+    assert!(matches!(
+        &contract.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-window.v1" && *nullable
+    ));
+    assert_eq!(contract.abi.arguments[1].direction, ApiDirection::Out);
+    assert!(matches!(
+        &contract.abi.arguments[1].value,
+        ApiValueSchema::Pointer { constraint }
+            if !constraint.nullable
+                && constraint.alignment == 4
+                && constraint.byte_length == 16
+                && constraint.write_requirement == ApiWriteRequirement::Optional
+                && matches!(
+                    &constraint.pointee,
+                    ApiPointeeSchema::Struct { type_id } if type_id == "RECT"
+                )
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
 fn invalid_menu_chain_contracts_are_cataloged_immediate_stdcall_leaves() {
     let fixture = InvalidMenuFixture::new();
     let get_system_menu = user32_contract_for_endpoint(fixture.get_system_menu_endpoint.clone())
@@ -2288,6 +2396,87 @@ fn get_system_metrics_reads_only_the_controlled_display_profile() {
     assert_eq!(completion.last_error, sentinel);
     assert!(completion.guest_writes.is_empty());
     assert_eq!(fixture.memory.stats().generation, generation);
+}
+
+#[test]
+fn get_client_rect_reads_live_window_geometry_and_preserves_failure_atomicity() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    let expected_bytes = [0_i32, 0, 800, 600]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect::<Vec<_>>();
+    fixture
+        .memory
+        .write(CLIENT_RECT_OUTPUT_ADDRESS, &[0xa5; 16])
+        .expect("seed client RECT output");
+    fixture.acknowledge_pending_delta();
+    fixture.configure_get_client_rect(window_handle, CLIENT_RECT_OUTPUT_ADDRESS);
+    let windows_before = fixture.runtime.windows().clone();
+    let sentinel = 0x1122_3344;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed GetClientRect LastError");
+    let completion = match fixture.dispatch_get_client_rect() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected GetClientRect completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.last_error, sentinel);
+    assert_eq!(completion.guest_writes.len(), 1);
+    assert_eq!(
+        completion.guest_writes[0].write.address,
+        CLIENT_RECT_OUTPUT_ADDRESS
+    );
+    assert_eq!(completion.guest_writes[0].write.bytes, expected_bytes);
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .memory
+            .read(CLIENT_RECT_OUTPUT_ADDRESS, 16)
+            .expect("read completed client RECT"),
+        expected_bytes
+    );
+    assert_eq!(fixture.runtime.windows(), &windows_before);
+
+    fixture
+        .memory
+        .write(CLIENT_RECT_OUTPUT_ADDRESS, &[0xa5; 16])
+        .expect("reset failed client RECT output");
+    fixture.acknowledge_pending_delta();
+    fixture.configure_get_client_rect(0, CLIENT_RECT_OUTPUT_ADDRESS);
+    let memory_before_invalid_handle = fixture.memory.stats();
+    let windows_before_invalid_handle = fixture.runtime.windows().clone();
+    let invalid_handle = match fixture.dispatch_get_client_rect() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HWND completion, got {other:?}"),
+    };
+    assert_eq!(invalid_handle.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_handle.last_error, 1400);
+    assert!(invalid_handle.guest_writes.is_empty());
+    assert_eq!(fixture.memory.stats(), memory_before_invalid_handle);
+    assert_eq!(
+        fixture
+            .memory
+            .read(CLIENT_RECT_OUTPUT_ADDRESS, 16)
+            .expect("read preserved invalid-HWND output"),
+        [0xa5; 16]
+    );
+    assert_eq!(fixture.runtime.windows(), &windows_before_invalid_handle);
+
+    let unmapped_output = GuestAddress(MEMORY_BASE.0 + 0x3000);
+    fixture.configure_get_client_rect(window_handle, unmapped_output);
+    let pointer_fault_runtime = fixture.runtime.clone();
+    let pointer_fault_memory = fixture.memory.stats();
+    let pointer_fault = match fixture.dispatch_get_client_rect() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected client-RECT pointer fault, got {other:?}"),
+    };
+    assert_eq!(pointer_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(pointer_fault.code, "guest-page-fault");
+    assert_eq!(fixture.runtime, pointer_fault_runtime);
+    assert_eq!(fixture.memory.stats(), pointer_fault_memory);
 }
 
 #[test]

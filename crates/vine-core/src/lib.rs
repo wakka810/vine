@@ -224,9 +224,9 @@ pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use user32::{
     CREATE_WINDOW_EX_A_IMPLEMENTATION, DEF_WINDOW_PROC_A_IMPLEMENTATION,
     ENABLE_MENU_ITEM_IMPLEMENTATION, ENUM_DISPLAY_MONITORS_IMPLEMENTATION,
-    GET_SYSTEM_MENU_IMPLEMENTATION, GET_SYSTEM_METRICS_IMPLEMENTATION,
-    LOAD_CURSOR_A_IMPLEMENTATION, LOAD_ICON_A_IMPLEMENTATION, LOAD_IMAGE_A_IMPLEMENTATION,
-    REGISTER_CLASS_EX_A_IMPLEMENTATION, SEND_MESSAGE_A_IMPLEMENTATION,
+    GET_CLIENT_RECT_IMPLEMENTATION, GET_SYSTEM_MENU_IMPLEMENTATION,
+    GET_SYSTEM_METRICS_IMPLEMENTATION, LOAD_CURSOR_A_IMPLEMENTATION, LOAD_ICON_A_IMPLEMENTATION,
+    LOAD_IMAGE_A_IMPLEMENTATION, REGISTER_CLASS_EX_A_IMPLEMENTATION, SEND_MESSAGE_A_IMPLEMENTATION,
     SET_WINDOW_POS_IMPLEMENTATION, SWAP_MOUSE_BUTTON_IMPLEMENTATION,
     USER32_COMPATIBILITY_POLICY_SCHEMA, USER32_COMPATIBILITY_POLICY_VERSION,
     User32CompatibilityPolicy, User32CreateWindowExAPolicy, User32GetSystemMetricsPolicy,
@@ -234,10 +234,10 @@ pub use user32::{
     User32LoadImageAPolicy, User32RegisterClassExAPolicy, User32SendMessageAPolicy,
     User32SetWindowPosPolicy, create_window_ex_a_contract, def_window_proc_a_contract,
     dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
-    get_system_menu_contract, get_system_metrics_contract, load_cursor_a_contract,
-    load_icon_a_contract, load_image_a_contract, register_class_ex_a_contract,
-    send_message_a_contract, set_window_pos_contract, swap_mouse_button_contract,
-    user32_contract_for_endpoint,
+    get_client_rect_contract, get_system_menu_contract, get_system_metrics_contract,
+    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract,
+    register_class_ex_a_contract, send_message_a_contract, set_window_pos_contract,
+    swap_mouse_button_contract, user32_contract_for_endpoint,
 };
 pub use win32::{
     CLOSE_HANDLE_IMPLEMENTATION, CREATE_FILE_A_IMPLEMENTATION, CREATE_MUTEX_A_IMPLEMENTATION,

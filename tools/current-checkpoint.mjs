@@ -342,9 +342,9 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     browserRuntimeCoreWasm.imports !== 0 ||
-    browserRuntimeCoreWasm.bytes !== 3_231_869 ||
+    browserRuntimeCoreWasm.bytes !== 3_235_766 ||
     browserRuntimeCoreWasm.sha256 !==
-      "b122174f7cb921e76b034f502c2a48b33b87c77f0907b0e61dfbb524c05cc200"
+      "2f3d0f602ad226095415a9d21461271a6213715d8dafe0ae86d3d06bc3e37cbe"
   ) {
     errors.push("browser runtime core Wasm must remain import-free");
   }
@@ -525,6 +525,10 @@ export function validateCurrentCheckpoint(manifest) {
     "d3dxGetProcAddressCompletions",
     "d3dxGetProcAddressSequence",
     "d3dxGetProcAddressLastError",
+    "getClientRectCompletions",
+    "getClientRectSequence",
+    "getClientRectLastError",
+    "getClientRectGuestWriteBytes",
   ]) {
     requireInteger(
       bgiBrowserEvidence[field],
@@ -676,7 +680,17 @@ export function validateCurrentCheckpoint(manifest) {
       "0x4d010010,0x100dc9d8" ||
     bgiBrowserEvidence.d3dxGetProcAddressResult !== "0x7f020040" ||
     bgiBrowserEvidence.d3dxGetProcAddressLastError !== 0 ||
-    bgiBrowserEvidence.d3dxGetProcAddressOrderedSemanticsMatched !== true
+    bgiBrowserEvidence.d3dxGetProcAddressOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.getClientRectCompletions !== 1 ||
+    bgiBrowserEvidence.getClientRectSequence !== 17_825 ||
+    bgiBrowserEvidence.getClientRectArguments?.join(",") !==
+      "0x48010001,0x006ffdc4" ||
+    bgiBrowserEvidence.getClientRectResult !== "0x00000001" ||
+    bgiBrowserEvidence.getClientRectLastError !== 0 ||
+    bgiBrowserEvidence.getClientRectGuestWriteBytes !== 16 ||
+    bgiBrowserEvidence.getClientRectOutputHex !==
+      "00000000000000002003000058020000" ||
+    bgiBrowserEvidence.getClientRectOrderedSemanticsMatched !== true
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
   }
@@ -3154,11 +3168,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 17_871 ||
-    latestEvidence.writebackDirtyPages !== 36_014 ||
-    latestEvidence.writebackChangedBytes !== 1_807_003 ||
-    latestEvidence.hostDeltaBatches !== 16_551 ||
-    latestEvidence.finalMemoryGeneration !== 34_523
+    latestEvidence.writebackBatches !== 17_872 ||
+    latestEvidence.writebackDirtyPages !== 36_015 ||
+    latestEvidence.writebackChangedBytes !== 1_807_011 ||
+    latestEvidence.hostDeltaBatches !== 16_552 ||
+    latestEvidence.finalMemoryGeneration !== 34_525
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -3944,6 +3958,70 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("latest runtime-system module load evidence is invalid");
   }
+  for (const field of [
+    "nativeGetClientRectPrimaryTraceSha256",
+    "nativeGetClientRectConfirmationTraceSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeGetClientRectPrimaryTraceBytes !== 98_812 ||
+    latestEvidence.nativeGetClientRectPrimaryTraceLines !== 259 ||
+    latestEvidence.nativeGetClientRectPrimaryTraceSha256 !==
+      "f1fc35c2afb505d39ed8514c8bf4a969d78bc013ee2fb15c890677ad8afe42a1" ||
+    latestEvidence.nativeGetClientRectPrimaryBalancedApiPairs !== 99 ||
+    latestEvidence.nativeGetClientRectConfirmationTraceBytes !== 98_817 ||
+    latestEvidence.nativeGetClientRectConfirmationTraceLines !== 259 ||
+    latestEvidence.nativeGetClientRectConfirmationTraceSha256 !==
+      "151395f4a93715778a75d0262627cf63958a532cf3b26a478dc2c47ce408f05a" ||
+    latestEvidence.nativeGetClientRectConfirmationBalancedApiPairs !== 99 ||
+    latestEvidence.nativeGetClientRectTraceDiagnostics !== 0 ||
+    latestEvidence.nativeGetClientRectCallsPerTrace !== 1 ||
+    latestEvidence.nativeGetClientRectCallerRva !== "0x0005c997" ||
+    latestEvidence.nativeGetClientRectResult !== "0x00000001" ||
+    latestEvidence.nativeGetClientRectLastErrorBefore !== 0 ||
+    latestEvidence.nativeGetClientRectLastErrorAfter !== 0 ||
+    latestEvidence.nativeGetClientRectOutputRect?.join(",") !== "0,0,800,600" ||
+    latestEvidence.nativeGetClientRectSuccessLastErrorPreserved !== true ||
+    latestEvidence.nativeGetClientRectInvalidWindowResult !== "0x00000000" ||
+    latestEvidence.nativeGetClientRectInvalidWindowLastError !== 1_400 ||
+    latestEvidence.nativeGetClientRectInvalidWindowOutputPreserved !== true ||
+    latestEvidence.nativeGetClientRectConsumer !==
+      "bool-result-ignored-immediate-getdc-call" ||
+    latestEvidence.nativeGetClientRectExecutableHashUnchanged !== true ||
+    latestEvidence.getClientRectImplemented !== true ||
+    latestEvidence.getClientRectSequence !== 17_825 ||
+    latestEvidence.getClientRectInstructionCount !== 11_806_582 ||
+    latestEvidence.getClientRectArguments?.join(",") !==
+      "0x48010001,0x006ffdc4" ||
+    latestEvidence.getClientRectReturnAddress !== "0x1005c997" ||
+    latestEvidence.getClientRectResult !== "0x00000001" ||
+    latestEvidence.getClientRectLastError !== 0 ||
+    latestEvidence.getClientRectGuestWriteBytes !== 16 ||
+    latestEvidence.getClientRectOutputHex !==
+      "00000000000000002003000058020000" ||
+    latestEvidence.getClientRectStateAuthority !==
+      "runtime/user32.rs::RuntimeUser32" ||
+    latestEvidence.getClientRectWindowId !== 1 ||
+    latestEvidence.getClientRectWindowHandleNamespace !==
+      "vine.logical-window.v1" ||
+    latestEvidence.getClientRectGeometrySource !==
+      "live-window-client-geometry" ||
+    latestEvidence.getClientRectPreservesLastError !== true ||
+    latestEvidence.getClientRectWindowStateMutation !== false ||
+    latestEvidence.getClientRectFailureAtomicity !== true ||
+    latestEvidence.getClientRectBrowserOwnsLogicalWindowState !== false ||
+    latestEvidence.getClientRectHostGeometryImported !== false ||
+    latestEvidence.getClientRectNodeCompletions !== 1 ||
+    latestEvidence.getClientRectChromeCompletions !== 1 ||
+    latestEvidence.getClientRectNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest GetClientRect evidence is invalid");
+  }
   const createWindowExAGeometry = requireRecord(
     latestEvidence.createWindowExAGeometry,
     "activeRuntimeCheckpoint.latestEvidence.createWindowExAGeometry",
@@ -3995,7 +4073,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "bounded LoadLibraryA runtime-system module identity and export resolution" ||
+      "logical GetClientRect read from the RuntimeUser32-owned live window geometry" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

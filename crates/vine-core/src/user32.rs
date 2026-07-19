@@ -19,9 +19,9 @@ use crate::runtime::{
     RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile, RuntimeRect,
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
-    RuntimeSystemCursorKind, RuntimeWindow, RuntimeWindowClassCursorReference,
-    RuntimeWindowClassIconReference, RuntimeWindowClassModule, RuntimeWindowClassNameA,
-    RuntimeWindowClassReference, RuntimeWindowClassRegistration,
+    RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeWindow,
+    RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
+    RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
     RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowLifecycle,
     RuntimeWindowNameA, RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention,
@@ -38,6 +38,7 @@ pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
+pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
 pub const CREATE_WINDOW_EX_A_IMPLEMENTATION: &str = "user32.create-window-ex-a.v1";
 pub const DEF_WINDOW_PROC_A_IMPLEMENTATION: &str = "user32.def-window-proc-a.v1";
 pub const GET_SYSTEM_MENU_IMPLEMENTATION: &str = "user32.get-system-menu.invalid-window.v1";
@@ -669,6 +670,10 @@ pub fn dispatch_user32_api_with_policy(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
+        GET_CLIENT_RECT_IMPLEMENTATION => match handle_get_client_rect(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         CREATE_WINDOW_EX_A_IMPLEMENTATION => {
             match handle_create_window_ex_a(
                 policy,
@@ -898,6 +903,47 @@ fn handle_get_system_metrics(
         )
     })?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(value)))
+}
+
+fn handle_get_client_rect(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let output = required_argument(contract, frame, 1, "client rectangle")?;
+    let window = match session.runtime().window(window_handle) {
+        Ok(window) => window,
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_WINDOW_HANDLE));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let client_right = i32::try_from(window.creation.geometry.client_width).map_err(|_| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "get-client-rect-width-invalid",
+            "logical client width does not fit an x86 RECT",
+        )
+    })?;
+    let client_bottom = i32::try_from(window.creation.geometry.client_height).map_err(|_| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "get-client-rect-height-invalid",
+            "logical client height does not fit an x86 RECT",
+        )
+    })?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let bytes = [0_i32, 0, client_right, client_bottom]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect();
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_last_error(preserved_last_error)
+        .with_guest_write(GuestAddress(output), bytes))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3421,6 +3467,7 @@ pub fn user32_contract_for_endpoint(
         "LoadCursorA" => Ok(Some(load_cursor_a_contract(endpoint)?)),
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
+        "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
         "CreateWindowExA" => Ok(Some(create_window_ex_a_contract(endpoint)?)),
         "DefWindowProcA" => Ok(Some(def_window_proc_a_contract(endpoint)?)),
         "GetSystemMenu" => Ok(Some(get_system_menu_contract(endpoint)?)),
@@ -3609,6 +3656,26 @@ pub fn get_system_metrics_contract(endpoint: ApiEndpointIdentity) -> Result<ApiC
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_SYSTEM_METRICS_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn get_client_rect_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", true),
+                conditional_out_struct("clientRect", "RECT", 16),
+            ],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: GET_CLIENT_RECT_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -3829,6 +3896,24 @@ fn required_in_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumen
                     type_id: type_id.to_owned(),
                 },
                 write_requirement: ApiWriteRequirement::None,
+            },
+        },
+    }
+}
+
+fn conditional_out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::Out,
+        value: ApiValueSchema::Pointer {
+            constraint: ApiPointerConstraint {
+                nullable: false,
+                alignment: 4,
+                byte_length,
+                pointee: ApiPointeeSchema::Struct {
+                    type_id: type_id.to_owned(),
+                },
+                write_requirement: ApiWriteRequirement::Optional,
             },
         },
     }

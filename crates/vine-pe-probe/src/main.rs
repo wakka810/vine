@@ -178,6 +178,7 @@ enum GenericRuntimeCapability {
     D3d9CheckDeviceType,
     D3d9CheckDeviceFormat,
     LoadLibraryA,
+    GetClientRect,
 }
 
 struct GenericRuntimeProcess {
@@ -2260,7 +2261,7 @@ fn run_v86_reflection_session(
         ];
         if matches!(
             generic_runtime_capability,
-            Some(GenericRuntimeCapability::LoadLibraryA)
+            Some(GenericRuntimeCapability::LoadLibraryA | GenericRuntimeCapability::GetClientRect)
         ) {
             let loader = kernel32_policy
                 .as_ref()
@@ -2910,6 +2911,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CheckDeviceType
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                 | GenericRuntimeCapability::LoadLibraryA
+                | GenericRuntimeCapability::GetClientRect
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -2936,7 +2938,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9GetDeviceCaps
             | GenericRuntimeCapability::D3d9CheckDeviceType
             | GenericRuntimeCapability::D3d9CheckDeviceFormat
-            | GenericRuntimeCapability::LoadLibraryA,
+            | GenericRuntimeCapability::LoadLibraryA
+            | GenericRuntimeCapability::GetClientRect,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3273,7 +3276,7 @@ fn run_v86_generic_runtime_session(
     }
     if matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::LoadLibraryA)
+        Some(GenericRuntimeCapability::LoadLibraryA | GenericRuntimeCapability::GetClientRect)
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
             LoaderError::runtime_defect(
@@ -4457,6 +4460,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9CheckDeviceType
                             | GenericRuntimeCapability::D3d9CheckDeviceFormat
                             | GenericRuntimeCapability::LoadLibraryA
+                            | GenericRuntimeCapability::GetClientRect
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4491,6 +4495,7 @@ fn run_v86_generic_runtime_session(
                                 | GenericRuntimeCapability::D3d9CheckDeviceType
                                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                                 | GenericRuntimeCapability::LoadLibraryA
+                                | GenericRuntimeCapability::GetClientRect
                         )
                     ) {
                         dispatch_d3d9_com_call(&d3d9_policy, trap, &mut session)
@@ -4531,7 +4536,11 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let load_library_a_enabled = matches!(enabled, Some(GenericRuntimeCapability::LoadLibraryA));
+    let get_client_rect_enabled = matches!(enabled, Some(GenericRuntimeCapability::GetClientRect));
+    let load_library_a_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::LoadLibraryA | GenericRuntimeCapability::GetClientRect)
+    );
     let d3d9_root_factory_enabled = matches!(
         enabled,
         Some(
@@ -4542,6 +4551,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CheckDeviceType
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                 | GenericRuntimeCapability::LoadLibraryA
+                | GenericRuntimeCapability::GetClientRect
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4572,6 +4582,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CheckDeviceType
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                 | GenericRuntimeCapability::LoadLibraryA
+                | GenericRuntimeCapability::GetClientRect
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5048,6 +5059,7 @@ fn runtime_capability_enables_endpoint(
             source_file_read_enabled
         }
         "LoadLibraryA" => load_library_a_enabled,
+        "GetClientRect" => get_client_rect_enabled,
         _ => true,
     }
 }
@@ -5066,6 +5078,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9CheckDeviceType
                 | GenericRuntimeCapability::D3d9CheckDeviceFormat
                 | GenericRuntimeCapability::LoadLibraryA
+                | GenericRuntimeCapability::GetClientRect
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -10696,6 +10709,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-check-device-type" => GenericRuntimeCapability::D3d9CheckDeviceType,
                 "d3d9-check-device-format" => GenericRuntimeCapability::D3d9CheckDeviceFormat,
                 "kernel32-load-library-a" => GenericRuntimeCapability::LoadLibraryA,
+                "user32-get-client-rect" => GenericRuntimeCapability::GetClientRect,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

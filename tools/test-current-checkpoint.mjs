@@ -670,6 +670,15 @@ assert.ok(
   ),
 );
 
+const browserOwnedClientRect = structuredClone(manifest);
+browserOwnedClientRect.activeRuntimeCheckpoint.latestEvidence.getClientRectBrowserOwnsLogicalWindowState =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedClientRect).some((error) =>
+    error.includes("latest GetClientRect evidence"),
+  ),
+);
+
 const hostOwnedTimerCapabilities = structuredClone(manifest);
 hostOwnedTimerCapabilities.activeRuntimeCheckpoint.winmmCompatibilityPolicy.hostTimerCapabilitiesImported =
   true;
