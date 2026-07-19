@@ -1,6 +1,67 @@
 {
   "schema": "vine.current-checkpoint",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
+  "scenarioMilestones": {
+    "schema": "vine.scenario-milestones",
+    "schemaVersion": 1,
+    "activeMilestone": "logical-window-and-message-flow",
+    "milestones": [
+      {
+        "id": "boot-and-process-initialization",
+        "label": "Boot and process initialization",
+        "status": "in-progress",
+        "evidenceBoundary": "Primary executable reaches the current structured stop; title entry is not complete"
+      },
+      {
+        "id": "logical-window-and-message-flow",
+        "label": "Logical window and message flow",
+        "status": "in-progress",
+        "evidenceBoundary": "Primary logical window creation, style, DC, and activation slices pass; general message flow remains partial"
+      },
+      {
+        "id": "immutable-source-asset-access",
+        "label": "Immutable source asset access",
+        "status": "bounded-foundation",
+        "evidenceBoundary": "One fingerprinted primary asset range is read through the immutable source gateway"
+      },
+      {
+        "id": "first-present-readable-screen",
+        "label": "First present and readable screen",
+        "status": "fixture-only",
+        "evidenceBoundary": "Controlled Canvas pixel passes; primary D3D9 CreateDevice, draw, and Present are not reached"
+      },
+      {
+        "id": "user-input-consumption",
+        "label": "User input consumption",
+        "status": "not-reached",
+        "evidenceBoundary": "Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated"
+      },
+      {
+        "id": "audible-output",
+        "label": "Audible output",
+        "status": "fixture-only",
+        "evidenceBoundary": "Controlled 880 Hz browser pulse passes; primary DirectSound or WinMM playback is not reached"
+      },
+      {
+        "id": "save-browser-restart-load",
+        "label": "Save, browser restart, and load",
+        "status": "not-reached",
+        "evidenceBoundary": "Controlled same-session persistent byte passes; writable overlay, restart, and load are not implemented"
+      },
+      {
+        "id": "representative-flow",
+        "label": "Representative scenario flow",
+        "status": "not-reached",
+        "evidenceBoundary": "No primary representative flow is claimed"
+      },
+      {
+        "id": "full-play-long-run",
+        "label": "Full play and long run",
+        "status": "not-reached",
+        "evidenceBoundary": "No route, ending, or long-run primary acceptance is claimed"
+      }
+    ]
+  },
   "historicalBaseline": {
   "checkpoint": "bgi-seventeenth-win32-call",
   "entryInstructionCount": 238,
@@ -275,6 +336,9 @@
     "cpuSlices": 40295,
     "budgetYields": 22399,
     "supportedCalls": 17841,
+    "evidenceLevel": "summary",
+    "callSemanticsAlgorithm": "sha256-canonical-json-v1",
+    "callSemanticsSha256": "9e8cd6e57ed3073c4e6325ab629f4159e85706717f02bfb9b064cad3441ef7c3",
     "writebackBatches": 40289,
     "writebackPages": 87903,
     "hostDeltaBatches": 16562,
@@ -524,10 +588,10 @@
     "sourceReadCompletions": 2,
     "sourceReadPayloadSha256": "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92",
     "sourceReadPendingAfterCleanup": 0,
-    "nodeOracleReportBytes": 207405914,
-    "nodeOracleReportSha256": "5d08b53e4c381c76f26af58bd4aee4aceafe8fb17df7b2b204a395e46422b202",
-    "browserReportBytes": 24204712,
-    "browserReportSha256": "94cd112b26c613f699ca0f827c1fa6984bae21cba946ff405fe8af4c3b212e90"
+    "nodeOracleReportBytes": 50007,
+    "nodeOracleReportSha256": "823067ad085f433ee0d8966b832504878181b029877f02c17d53bc2dcd68be40",
+    "browserReportBytes": 193039,
+    "browserReportSha256": "b40fcf7a5ed93cd74a41a73178949d65299657cf775d2bb10877082f1bef211d"
   },
   "bgiBenchmarkEvidence": {
     "schema": "vine.browser-bgi-benchmark-report",
@@ -5137,8 +5201,8 @@
     "broadHeapVariantsImplemented": false,
     "apiSpecificReconciliationLists": false,
     "apiSpecificRequestsOrReceipts": false,
-    "reportBytes": 207405914,
-    "reportSha256": "5d08b53e4c381c76f26af58bd4aee4aceafe8fb17df7b2b204a395e46422b202"
+    "reportBytes": 50007,
+    "reportSha256": "823067ad085f433ee0d8966b832504878181b029877f02c17d53bc2dcd68be40"
   },
   "canonicalReproductionCommand": "npm run check:runtime:bgi-browser"
   },

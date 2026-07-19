@@ -411,6 +411,12 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     errors,
   );
   checkEqual(
+    node.callSemanticsSha256,
+    expectedBrowser.callSemanticsSha256,
+    "evidence.semantic.callSemanticsSha256 checkpoint digest",
+    errors,
+  );
+  checkEqual(
     node.implementedApiContracts,
     checkpoint.activeRuntimeCheckpoint.genericDispatcherApiCount,
     "evidence.semantic.node.implementedApiContracts",

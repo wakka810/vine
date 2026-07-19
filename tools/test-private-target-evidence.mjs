@@ -118,7 +118,7 @@ function validEvidence() {
         outcome: "structured-stop",
         implementedApiContracts: checkpoint.activeRuntimeCheckpoint.genericDispatcherApiCount,
         supportedCalls: checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
-        callSemanticsSha256: sha("c"),
+        callSemanticsSha256: browser.callSemanticsSha256,
         instructions: checkpoint.nextStructuredStop.instructionCount,
         finalGeneration: browser.nodeFinalGeneration,
         memoryContentSha256: browser.memoryContentSha256,
@@ -130,7 +130,7 @@ function validEvidence() {
       browser: {
         outcome: "structured-stop",
         supportedCalls: checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
-        callSemanticsSha256: sha("c"),
+        callSemanticsSha256: browser.callSemanticsSha256,
         instructions: checkpoint.nextStructuredStop.instructionCount,
         finalGeneration: browser.finalGeneration,
         memoryContentSha256: browser.memoryContentSha256,
@@ -226,6 +226,14 @@ for (const [label, evidence, expected] of [
       value.semantic.browser.callSemanticsSha256 = sha("d");
     }),
     "semantic.callSemanticsSha256",
+  ],
+  [
+    "checkpoint call semantics mismatch",
+    mutated((value) => {
+      value.semantic.node.callSemanticsSha256 = sha("c");
+      value.semantic.browser.callSemanticsSha256 = sha("c");
+    }),
+    "checkpoint digest",
   ],
   [
     "dirty execution input",

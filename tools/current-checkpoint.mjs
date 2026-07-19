@@ -144,6 +144,7 @@ export function validateCurrentCheckpoint(manifest) {
   const expectedRootKeys = [
     "schema",
     "schemaVersion",
+    "scenarioMilestones",
     "historicalBaseline",
     "memoryAuthorityEvidence",
     "browserCheckpoint",
@@ -163,8 +164,70 @@ export function validateCurrentCheckpoint(manifest) {
   if (root.schema !== "vine.current-checkpoint") {
     errors.push("manifest.schema must be vine.current-checkpoint");
   }
-  if (root.schemaVersion !== 2) {
-    errors.push("manifest.schemaVersion must be 2");
+  if (root.schemaVersion !== 3) {
+    errors.push("manifest.schemaVersion must be 3");
+  }
+
+  const scenarioMilestones = requireRecord(
+    root.scenarioMilestones,
+    "scenarioMilestones",
+    errors,
+  );
+  if (scenarioMilestones.schema !== "vine.scenario-milestones") {
+    errors.push("scenarioMilestones.schema must be vine.scenario-milestones");
+  }
+  if (scenarioMilestones.schemaVersion !== 1) {
+    errors.push("scenarioMilestones.schemaVersion must be 1");
+  }
+  requireString(
+    scenarioMilestones.activeMilestone,
+    "scenarioMilestones.activeMilestone",
+    errors,
+  );
+  const expectedMilestoneIds = [
+    "boot-and-process-initialization",
+    "logical-window-and-message-flow",
+    "immutable-source-asset-access",
+    "first-present-readable-screen",
+    "user-input-consumption",
+    "audible-output",
+    "save-browser-restart-load",
+    "representative-flow",
+    "full-play-long-run",
+  ];
+  const milestones = Array.isArray(scenarioMilestones.milestones)
+    ? scenarioMilestones.milestones
+    : [];
+  if (!Array.isArray(scenarioMilestones.milestones)) {
+    errors.push("scenarioMilestones.milestones must be an array");
+  }
+  const milestoneIds = [];
+  for (let index = 0; index < milestones.length; index += 1) {
+    const milestone = requireRecord(
+      milestones[index],
+      `scenarioMilestones.milestones[${index}]`,
+      errors,
+    );
+    requireString(milestone.id, `scenarioMilestones.milestones[${index}].id`, errors);
+    requireString(milestone.label, `scenarioMilestones.milestones[${index}].label`, errors);
+    requireString(
+      milestone.evidenceBoundary,
+      `scenarioMilestones.milestones[${index}].evidenceBoundary`,
+      errors,
+    );
+    if (!["in-progress", "bounded-foundation", "fixture-only", "not-reached"].includes(milestone.status)) {
+      errors.push(`scenarioMilestones.milestones[${index}].status is invalid`);
+    }
+    milestoneIds.push(milestone.id);
+  }
+  if (milestoneIds.join(",") !== expectedMilestoneIds.join(",")) {
+    errors.push("scenarioMilestones must contain the canonical scenario order");
+  }
+  const activeScenario = milestones.find(
+    ({ id }) => id === scenarioMilestones.activeMilestone,
+  );
+  if (activeScenario?.status !== "in-progress") {
+    errors.push("scenarioMilestones.activeMilestone must identify an in-progress milestone");
   }
 
   const historical = requireRecord(
@@ -595,6 +658,7 @@ export function validateCurrentCheckpoint(manifest) {
     "memoryContentSha256",
     "nodeOracleReportSha256",
     "browserReportSha256",
+    "callSemanticsSha256",
     "largeHeapMaterializationPayloadSha256",
     "sourceReadPayloadSha256",
     "d3d9GetAdapterIdentifierOutputSha256",
@@ -614,6 +678,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     bgiBrowserEvidence.nodeRole !== "semantic-oracle-only" ||
     bgiBrowserEvidence.runtimeStateAuthority !== "rust-wasm-in-runtime-worker" ||
+    bgiBrowserEvidence.evidenceLevel !== "summary" ||
+    bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
+    bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
+    bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
     bgiMappingOperations.reserve !== 4 ||
     bgiMappingOperations.commit < 1 ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
@@ -4808,6 +4876,7 @@ export function loadCurrentCheckpoint(file) {
 }
 
 export function renderReadmeStatus(manifest) {
+  const scenario = manifest.scenarioMilestones;
   const historical = manifest.historicalBaseline;
   const active = manifest.activeRuntimeCheckpoint;
   const kernelBoundary = active.runtimeKernelBoundary;
@@ -4816,6 +4885,12 @@ export function renderReadmeStatus(manifest) {
   const engine = manifest.engineDecisionEvidence.v86EngineGate;
   const next = manifest.nextStructuredStop;
   const APIs = active.genericDispatcherApis.map((api) => `- \`${api}\``).join("\n");
+  const scenarioRows = scenario.milestones
+    .map(
+      ({ id, label, status, evidenceBoundary }) =>
+        `| \`${id}\` | ${label} | \`${status}\` | ${evidenceBoundary} |`,
+    )
+    .join("\n");
   const nextSummary =
     next.kind === "execution-fault"
       ? `\`${next.capabilityCluster}\` at instruction ${next.instructionCount}: ` +
@@ -4835,7 +4910,8 @@ Edit the manifest and run \`npm run docs:generate\`; do not edit this block by h
 | Area | Current state |
 |---|---|
 | Historical baseline | \`${historical.checkpoint}\`: ${historical.supportedCallCount} calls, ${historical.entryInstructionCount} instructions |
-| Active runtime | \`${active.runtimeKernelCheckpoint}\`: ${active.genericDispatcherCallOccurrenceCount} calls across ${active.genericDispatcherApiCount} API contracts, memory generation ${latest.finalMemoryGeneration} |
+| Active scenario | \`${scenario.activeMilestone}\` |
+| Runtime diagnostics | \`${active.runtimeKernelCheckpoint}\`: ${active.genericDispatcherCallOccurrenceCount} calls across ${active.genericDispatcherApiCount} API contracts, memory generation ${latest.finalMemoryGeneration} |
 | Runtime architecture | \`${kernelBoundary.checkpoint}\`: \`${kernelBoundary.aggregateType}\`; \`${kernelBoundary.compatibilityAlias}\` remains a compatibility alias |
 | Browser | \`${browser.workload}\` ${browser.status}; BGI session \`${browser.bgiSession}\`; benchmark \`${browser.bgiBenchmark}\` (${browser.bgiBenchmarkEvidence.completedSessions} sessions) |
 | Engine evidence | v86 \`${engine.decision}\` from \`${engine.configuration}\` |
@@ -4843,6 +4919,12 @@ Edit the manifest and run \`npm run docs:generate\`; do not edit this block by h
 
 The active semantic report is ${latest.reportBytes.toLocaleString("en-US")} bytes with SHA-256
 \`${latest.reportSha256}\`. The hash identifies the artifact; semantic checks are the gate.
+
+### Scenario Milestones
+
+| ID | Milestone | Status | Evidence boundary |
+|---|---|---|---|
+${scenarioRows}
 
 ### Supported API Contracts
 

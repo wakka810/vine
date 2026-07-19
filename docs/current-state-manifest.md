@@ -18,10 +18,11 @@ full JSON byte identityはsemantic gateではない。semantic testとstructured
 具体的な分類とordering／performance contractは
 [evidence-classification.md](evidence-classification.md)を正とする。
 
-## Schema version 2
+## Schema version 3
 
 | Group | Authority |
 |---|---|
+| `scenarioMilestones` | user-visible scenario進捗、active milestone、evidence boundary、non-claim |
 | `historicalBaseline` | frozen migration baselineと対応するcheckpoint manifest |
 | `memoryAuthorityEvidence` | Rust byte authority、binary transport、transaction evidence |
 | `browserCheckpoint` | controlled Browser Worker state。BGI workloadの状態を別フィールドで明示する |

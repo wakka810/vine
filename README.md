@@ -13,14 +13,29 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Area | Current state |
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active runtime | `user32-set-window-pos-activation`: 17841 calls across 83 API contracts, memory generation 34590 |
+| Active scenario | `logical-window-and-message-flow` |
+| Runtime diagnostics | `user32-set-window-pos-activation`: 17841 calls across 83 API contracts, memory generation 34590 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (29 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `USER32.dll!MonitorFromWindow(0x48010001, 0x00000001)` at instruction 11807189: `endpoint-contract-missing` |
 
-The active semantic report is 207,405,914 bytes with SHA-256
-`5d08b53e4c381c76f26af58bd4aee4aceafe8fb17df7b2b204a395e46422b202`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 50,007 bytes with SHA-256
+`823067ad085f433ee0d8966b832504878181b029877f02c17d53bc2dcd68be40`. The hash identifies the artifact; semantic checks are the gate.
+
+### Scenario Milestones
+
+| ID | Milestone | Status | Evidence boundary |
+|---|---|---|---|
+| `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop; title entry is not complete |
+| `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, and activation slices pass; general message flow remains partial |
+| `immutable-source-asset-access` | Immutable source asset access | `bounded-foundation` | One fingerprinted primary asset range is read through the immutable source gateway |
+| `first-present-readable-screen` | First present and readable screen | `fixture-only` | Controlled Canvas pixel passes; primary D3D9 CreateDevice, draw, and Present are not reached |
+| `user-input-consumption` | User input consumption | `not-reached` | Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated |
+| `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound or WinMM playback is not reached |
+| `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Controlled same-session persistent byte passes; writable overlay, restart, and load are not implemented |
+| `representative-flow` | Representative scenario flow | `not-reached` | No primary representative flow is claimed |
+| `full-play-long-run` | Full play and long run | `not-reached` | No route, ending, or long-run primary acceptance is claimed |
 
 ### Supported API Contracts
 

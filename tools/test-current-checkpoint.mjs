@@ -29,6 +29,10 @@ assert.ok(
 );
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
+for (const milestone of manifest.scenarioMilestones.milestones) {
+  assert.ok(rendered.includes(`\`${milestone.id}\``));
+  assert.ok(rendered.includes(`\`${milestone.status}\``));
+}
 for (const api of manifest.activeRuntimeCheckpoint.genericDispatcherApis) {
   assert.ok(rendered.includes(`\`${api}\``));
 }
@@ -37,6 +41,23 @@ const stale = structuredClone(manifest);
 stale.activeRuntimeCheckpoint.genericDispatcherApiCount += 1;
 assert.ok(
   validateCurrentCheckpoint(stale).some((error) => error.includes("must match")),
+);
+
+const invalidScenarioStatus = structuredClone(manifest);
+invalidScenarioStatus.scenarioMilestones.milestones[0].status = "complete";
+assert.ok(
+  validateCurrentCheckpoint(invalidScenarioStatus).some((error) =>
+    error.includes("scenarioMilestones.milestones[0].status"),
+  ),
+);
+
+const duplicateScenario = structuredClone(manifest);
+duplicateScenario.scenarioMilestones.milestones[1].id =
+  duplicateScenario.scenarioMilestones.milestones[0].id;
+assert.ok(
+  validateCurrentCheckpoint(duplicateScenario).some((error) =>
+    error.includes("canonical scenario order"),
+  ),
 );
 
 const missingLatestEvidence = structuredClone(manifest);

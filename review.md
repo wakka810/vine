@@ -124,6 +124,54 @@
 
 ## 調査・対応記録
 
+### P0-01 主要サブシステムの成立性
+
+* **判定：** 対応済み（進捗表現の欠陥を修正）。
+* **調査結果：** Primary targetは論理window初期化の途中であり、first present、実input、実audio、save／restart／load、一般thread／exceptionをまだ成立済みと主張できない。一方、controlled Browser Worker fixtureはpixel、880 Hz pulse、persistent byte、複数CPU context、nested callback、host wait／cancel／watchdogを通しており、execution feasibility自体が全く未検証という状態ではない。問題は、このfixture-only evidenceとprimary product pathの区別がCurrent Statusから読み取りにくかったことである。
+* **変更内容：** `docs/current-checkpoint.json` schema 3へ9個のscenario milestone、active milestone、status、evidence boundaryを追加した。`fixture-only`／`bounded-foundation`／`not-reached`を`in-progress`から分離し、READMEを同じmanifestからscenario-firstで生成するようにした。
+* **検証結果：** `node tools/test-current-checkpoint.mjs`と`npm run check:docs`でschema、canonical order、active milestone、README生成を検証した。Private-target gateのcontrolled fixtureはpixel、audio、persistent byte、source read、thread／callback、cancel、watchdogを一つのbrowser runで検査する。
+* **未対応理由：** Primaryの未到達product pathをこのレビューだけで完成させない。これらは`docs/roadmap.md`のsubsystem gatewayと`docs/risks-and-open-questions.md`の`Q-THREADS`／`Q-SAVE`／`Q-GRAPHICS`／`Q-AUDIO`に明示されたactive workであり、今回の対応は未検証を合格扱いしない状態管理までとする。
+
+### P0-02 API到達数に偏った進捗表示
+
+* **判定：** 解決済み。
+* **調査結果：** READMEの先頭表は`17,841 calls across 83 API contracts`を`Active runtime`として強く表示し、user-visible scenarioの現在地を表示していなかった。Manifestにもscenario単位のmachine-readable statusがなかった。
+* **変更内容：** READMEの主表示を`Active scenario`へ変更し、API call／contract数は`Runtime diagnostics`へ降格した。boot、window、asset、present、input、audio、save、representative flow、full-playを固定順で生成するtableを追加した。
+* **検証結果：** `tools/test-current-checkpoint.mjs`が全milestone ID／statusの生成、invalid status、duplicate／out-of-order IDを検査し、`npm run check:docs`がgenerated blockのdriftを拒否する。
+* **未対応理由：** なし。API数は次stopのdiagnosticとして残すが、進捗の完了判定には使用しない。
+
+### P0-03 D3D9の必要対応範囲
+
+* **判定：** 根拠付き対応不要（現在のgatewayまで既にbounded）。
+* **調査結果：** Native vtable evidenceは`IDirect3D9` root 11 unique／53 total callsと、BGI RVA `0x5ACA5`からの`CreateDevice` 3 calls（Adapter `0`、DeviceType `1`、BehaviorFlags `0x44`、HRESULT `0`）を固定している。Device／resource／state／draw／Present／Resetは未観測であり、実装済みとは扱われていない。`docs/d3d9-frontend.md`はroot queryの対応範囲とnon-claimsを列挙し、version別D3D frontendの下にWineD3D相当の`RuntimeGraphics` logical device／resource／command boundaryを置き、最初のstate ownerが必要になる`CreateDevice`から開始すると定めている。
+* **変更内容：** 新しいgraphics frameworkは追加していない。Scenario manifestのfirst-presentを`fixture-only`とし、primaryのCreateDevice／draw／Presentが未到達であることをCurrent Statusへ明示した。
+* **検証結果：** `cargo test -p vine-core --test d3d9_dispatcher --locked`がroot COM identity、policy、output、negative path、failure atomicityを検査する。Native evidenceとcurrent manifestは`check:docs`／checkpoint validationで参照整合を検査する。
+* **未対応理由：** 未観測のdevice methodを推測でcatalog化することは、到達behaviorだけを扱うscope規則と未到達frameworkを作らない原則に反する。追加device traceとsupport band確定は`CreateDevice` subsystem gatewayのexit gateで行い、D3D10／11／DXGIはdeferredのままとする。
+
+### P0-04 Rust／TypeScript／Wasm間の通信コスト
+
+* **判定：** 根拠付き対応不要（指摘された通常payload経路は既にbinaryで、性能blocker未再現）。
+* **調査結果：** Guest memoryのfull reflection、incremental delta、automatic writeback、host deltaはversioned binary control／payload bufferを使用し、JSONはbounded control metadataとdiagnostic／evidenceに限定されている。BGI browser benchmarkは同じ11,807,189-instruction workloadを複数session実行し、現在のthresholdを満たしている。SharedArrayBufferは実測上必要になるまでoptionalとする`Q-PLATFORM`方針である。
+* **変更内容：** Transport変更は行っていない。P0-07で通常semantic evidenceをsummary＋digestへ変更し、JSON reportのI/Oコストは別途除去済みである。
+* **検証結果：** `npm run check:v86-benchmark-gate`がversioned threshold contractを検証し、private browser benchmark evidenceは29 sessionsの`threshold-passed`を保持している。Binary delta／writebackのtruncation、stale generation、wrong owner、no-partial-changeはfixture E2EとRust testsの対象である。
+* **未対応理由：** 測定済みthreshold failureやprofile上のhot pathがないため、共有memory必須化や追加batchingは推測最適化になる。描画／音声／streamingのrepresentative workloadが到達してfailureを示した時点で同じversioned gateから再検討する。
+
+### P0-05 API・capability・checkpoint定義の重複管理
+
+* **判定：** 根拠付き対応不要（runtime semanticsの複数authorityは再現しない）。
+* **調査結果：** Guest-visible ABI／behaviorはRustの`ApiContract`とmodule別`*_contract_for_endpoint`が生成し、`ApiDispatcher`がendpoint identity、calling convention、pointer constraintを検証する。Wasm bridgeは同じcontractを収集してdispatchし、TypeScript WorkerはWindows API schemaやhandlerを複製していない。ManifestのAPI一覧／countとNode／Chrome profile値はruntime authorityではなく、到達evidenceを独立照合するoracleである。Controlled fixture固有contractはproduct API catalogと別scopeである。
+* **変更内容：** 共通registryやcode generationへの移行は行っていない。Scenario statusだけを新しい単一manifest groupに追加し、README表示とvalidatorをそこから生成した。
+* **検証結果：** `npm run check:checkpoint-manifest`、`npm run check:private-target-contract`、Rust dispatcher testsが、contract count／endpoint／ABIとevidenceの不一致を拒否する。実行時のcontract selectionは`crates/vine-runtime-wasm`からRust catalog関数を直接呼ぶ経路であることをcode inspectionで確認した。
+* **未対応理由：** 独立oracleやhistorical evidenceまで同じgeneratorへ統合すると、誤りを同じ定義から自己検証する構造になる。三箇所以上のruntime authorityや一API追加で多数の独立表現を手修正する再現例が出た時点でcatalog化を行う。
+
+### P0-06 checkpointとevidenceの構造肥大化
+
+* **判定：** 根拠付き対応不要（size単独のfailureはなく、authority境界は既に分離）。
+* **調査結果：** `docs/current-checkpoint.json`は262,693 bytesで、最大groupは`activeRuntimeCheckpoint`の約205 KiBだった。Local measurementでは同じ文字列の100回parseが72.63 msで、単発parse／validationは開発gateの障害になっていない。Schemaはscenario、historical、memory、browser、engine、active runtime、next stopのtop-level groupに分かれ、stable architecture／contract、raw trace、private reportは別文書／ignored artifactに分離済みである。
+* **変更内容：** File分割は行わず、schema 3の`scenarioMilestones`を独立groupとして追加した。`docs/current-state-manifest.md`へgroup authorityを追記した。
+* **検証結果：** `npm run check:docs`と`node tools/test-current-checkpoint.mjs`がschema、exact root groups、cross-group identity、generated READMEを検証する。100回parse measurementでもunbounded parse costやresource failureは再現しなかった。
+* **未対応理由：** 現在値を複数fileへ分けると`docs/current-checkpoint.json`を唯一のcurrent authorityとする規則を弱める。File sizeだけを理由に分割しない原則に従い、異なるowner／lifetime／failure domainまたは実測上のfailureが現れるまで維持する。
+
 ### P0-07 証跡データのサイズと生成コスト
 
 * **判定：** 解決済み。
@@ -139,3 +187,19 @@
 * **変更内容：** acceptance digestをmodule／symbol、arguments、return、LastError、guest write、ABI stack relation、logical resource stateに限定した。handler IDは対象外とし、内部構造検査は既存のRust／Worker structural contract testへ残した。
 * **検証結果：** `node tools/test-semantic-call-digest.mjs`でproperty順、module名case、内部handler名、nested completion順がdigestを変えず、duplicate sequenceが拒否されることを確認した。実Node／Chrome runでも同一digestとなった。
 * **未対応理由：** なし。
+
+### P0-09 永続化の製品経路
+
+* **判定：** 根拠付き対応不要（未到達product milestoneとして正しく管理）。
+* **調査結果：** Reviewの現状認識どおり、primaryのwrite／flush／close／SQLite commit／browser restart／loadは未成立である。Controlled fixtureのpersistent byteはsame-session browser storage feasibilityだけで、product saveの証拠には使われていない。Roadmap row 3、`Q-SAVE`、`REQ-FS`／`REQ-REG`、restart-safe acceptanceが、一件のsaveをwriteからrestart後loadまで通すvertical gateを既に定義している。
+* **変更内容：** Scenario manifestへ`save-browser-restart-load: not-reached`を追加し、controlled same-session byteとの境界と、writable overlay／restart／loadが未実装であることをREADMEへ生成した。
+* **検証結果：** `tools/test-current-checkpoint.mjs`と`npm run check:docs`がnon-claimをcurrent authorityから生成することを検証する。Private controlled fixtureはpersistent byteだけを検査し、product save合格へ昇格させない。
+* **未対応理由：** Product persistenceはsource immutability、Rust logical write-set、server committed generation、kill recoveryをまたぐsubsystem gatewayであり、API単体patchとしてレビュー中に追加できない。Roadmapのexit gateに従ってprimary corpusが到達した時点でvertical sliceとして実装する。
+
+### P0-10 Thread／Wait／Timeout／Exceptionの一般経路
+
+* **判定：** 根拠付き対応不要（foundationと未到達一般semanticsを既に分離）。
+* **調査結果：** Runtime WorkerはthreadごとのCPU contextを保存／復元し、owner threadがhost request待機中でも別guest threadを実行できる。Controlled fixtureはmulti-context scheduling、nested callback、wait、cancelを検査する。一方、general CreateThread、wait-any／all、timeout、SEH／VEH／APCは未完成で、roadmap row 2と`Q-THREADS`がprimary traceおよびcreate／block／wake／timeout／cancel／exception fixtureをexit evidenceに指定している。
+* **変更内容：** 新しいscheduler semanticsは追加していない。Scenario milestoneのevidence boundaryとP0-01記録で、controlled foundationをprimary一般経路の完成と誤認しないようにした。
+* **検証結果：** Private controlled browser fixtureのthread／callback／cancel／watchdog assertionsと既存Rust scheduler／wait testsがfoundationを検査する。Current checkpointはgeneral thread／exceptionをscenario completionとしてclaimしない。
+* **未対応理由：** Required delivery semanticsはprimary corpusで未観測であり、推測による一般Windows threading／SEH実装はactive scopeを超える。`Q-THREADS`のoracleとfixtureが揃ったgatewayでbounded behaviorを確定する。

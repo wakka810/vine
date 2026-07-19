@@ -246,6 +246,10 @@ function assertReportSemantics({
   assert.equal(nodeReport.supportedCallCount, active.genericDispatcherCallOccurrenceCount);
   assert.equal(nodeReport.supportedCallSemanticsAlgorithm, "sha256-canonical-json-v1");
   assert.match(nodeReport.supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
+  assert.equal(
+    nodeReport.supportedCallSemanticsSha256,
+    expectedBrowser.callSemanticsSha256,
+  );
   assert.equal(nodeReport.process.implementedApiContracts, active.genericDispatcherApiCount);
   assert.equal(nodeReport.firstUnsupported.instructionCount, expectedNext.instructionCount);
   assert.equal(nodeReport.synchronization.finalGeneration, expectedBrowser.nodeFinalGeneration);
