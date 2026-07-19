@@ -28,6 +28,8 @@ npm run check:runtime:v86-benchmark:prepared
 ```
 
 runnerはclean temporary Chrome profile、loopback server、headless stable Chromeを使う。
+Loopback serverはport `0`でbindし、OSが選んだ実portをpage URLへ渡すため、固定port競合や
+Fetch unsafe-port listへ依存しない。
 foreground suite後もRust runtime core＋v86 mirrorのproduction sessionをWorker内に保持し、
 その状態でsteady memoryを測る。別tabをactivateしてoriginal pageが`hidden`であることを
 確認してから、同じWorkerで3秒のbackground throughputを測る。
@@ -97,7 +99,9 @@ automatic writebackをRustへreconcileした後、Rust generic dispatch、schedu
 request、`completeHost(42)`、v86 CPU state resumeだけをtimed regionにする。結果は
 median 65 us、p95 110 usである。20 crossingsはRuntimeBridgeの2 operationsに含まれる
 14 exportsとadapter state resumeの6 exportsである。adapter-only trapは別に14
-crossings／3.235 usを測る。
+crossings／3.235 usを測る。Fresh-session setupはtimed region外の16命令budgetを使い、
+runtime-owned `UD2`へ到達した場合だけsampleを開始する。Budget、fault、別endpointは
+reason／error／instruction count／EIP付きfailureになる。
 
 Active steady memoryは`measureUserAgentSpecificMemory()`で測定し、pre-suite 537,939
 bytesから14,773,637 bytesとなった。これはunreferenced Wasm instanceを回収したidle

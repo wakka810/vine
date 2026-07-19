@@ -133,7 +133,10 @@ It measures CPU／ABI／memory／Worker／background／AudioWorklet behavior wit
 tracked `v86-browser-baseline-v1` thresholds. Only `go` exits successfully;
 `conditional-go` and `no-go` both fail the regression command. The reference
 Windows result, threshold semantics, and non-claims are recorded in
-[v86-browser-benchmark.md](v86-browser-benchmark.md).
+[v86-browser-benchmark.md](v86-browser-benchmark.md). Its production API probe
+uses a bounded 16-instruction setup outside the timed region and requires the
+exact runtime-owned `UD2`; a budget stop is reported with reason, error, count,
+and EIP rather than misclassified as an API trap.
 
 Public CI uses the explicit prepared observation mode:
 
@@ -192,14 +195,19 @@ traces do not install these hooks.
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml` uses independent `static-semantic`, `rust-tests`,
+`.github/workflows/ci.yml` uses separate `static-semantic`, `rust-tests`,
 `fixture-build`, `fixture-core-e2e`, `browser-acceptance`,
 `performance-observation`, `chrome-stable-observation`, `windows-native-oracle`,
 and `fuzz-smoke` jobs. The fixture build is the only producer of the public PE32 and
-source-adapter inputs; core and browser consumers download that immutable artifact.
+source-adapter inputs; Rust, core, and browser consumers download that immutable
+artifact. Rust tests consume the reproducibly generated PE fixtures, so the explicit
+artifact dependency is part of their test contract rather than an optional cache.
 The browser build is likewise passed to performance and stable observation without
 rebuilding it. The workflow contract test parses both workflow files as YAML and
-rejects missing jobs, unknown npm scripts, target loss, or browser-role drift.
+rejects missing jobs, unknown npm scripts, fixture dependency loss, target loss, or
+browser-role drift. Browser servers bind port `0` and publish the OS-selected
+loopback URL; acceptance and benchmark code do not depend on a fixed port or on the
+browser Fetch unsafe-port list.
 
 Required browser acceptance and performance use Chrome for Testing
 `151.0.7922.34`. A separate non-blocking job reruns the Worker vertical on the moving
@@ -212,7 +220,11 @@ the runner's system clang handles the separate Wasm smoke.
 
 The Windows 2022 job downloads the matching UCRT x86_64 archive, verifies SHA-256
 `b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35`,
-and runs `check:toolchain` plus the trace-summary contract. On Windows,
+captures and verifies the runner LLVM's `wasm32` backend before llvm-mingw is added
+to `PATH`, and passes that absolute compiler path as `VINE_WASM_CLANG`. The pinned
+llvm-mingw compiler remains the PE32 owner; the runner compiler is used only for the
+separate Wasm smoke. The job then runs `check:toolchain` plus the trace-summary
+contract. On Windows,
 `check:toolchain` executes nine public PE32 self-oracles natively, including ABI,
 DLL lifecycle, source read, window／paint, FS／process parameters, TLS, and FLS. It
 does not contain or execute the private title. All jobs retain read-only repository

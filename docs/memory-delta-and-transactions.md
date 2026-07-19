@@ -83,7 +83,11 @@ metadata and scalars, removes new offers, and truncates pending changes.
 Acknowledging a delta before commit is rejected because the external CPU mirror
 cannot be rolled back by a Rust-only transaction. Transactions are deliberately
 non-nestable; composition uses the transaction-aware internal mapping path
-instead of starting a second journal.
+instead of starting a second journal. Immediate API completion follows the same
+rule: when CPU-page reconciliation already owns the journal, validated guest
+writes and LastError completion join that journal. Without an outer journal the
+dispatcher creates and commits its own. A second explicit `begin_transaction()`
+remains a runtime defect rather than silently creating a partial savepoint.
 
 The same journal covers controlled process environment construction, runtime
 return controls, initial stack installation, PE image materialization, import
@@ -93,7 +97,8 @@ arena／thunk／IAT／seal boundary; each failure leaves the same observable sta
 permits retry on the same memory. A destructive rollback contract additionally
 reconciles a CPU page, releases its two-page region, destroys its owner, offers a
 delta, and restores all bytes, mappings, allocator state, generation, and offers
-when dropped.
+when dropped. The API dispatcher regression also commits and rolls back a required
+eight-byte guest output while an outer memory transaction is active.
 
 `MemoryTransactionStats` exposes deterministic rollback payload accounting.
 The representative scaling contract starts with 1,024 committed pages

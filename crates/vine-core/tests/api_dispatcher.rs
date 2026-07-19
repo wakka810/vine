@@ -919,6 +919,62 @@ fn get_current_thread_returns_a_stable_pseudo_handle_for_the_selected_typed_thre
 }
 
 #[test]
+fn immediate_guest_writes_join_an_existing_memory_transaction() {
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoints, frames) = dispatcher_fixture(&mut memory, owner);
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let output_before = memory
+        .read(GuestAddress(OUTPUT_BASE), 8)
+        .expect("initial performance-counter output");
+
+    let completion = {
+        let mut transaction = memory.begin_transaction();
+        let completion = {
+            let mut session = ExecutionSession::new(&mut transaction, &mut runtime);
+            match dispatcher.dispatch_owned(
+                owned_trap(&endpoints[1], frames[1].0, frames[1].1[0]),
+                &mut session,
+                dispatch_kernel32_api,
+            ) {
+                DispatchOutcome::Immediate(completion) => completion,
+                other => panic!("expected immediate dispatch, got {other:?}"),
+            }
+        };
+        assert_eq!(completion.guest_writes.len(), 1);
+        transaction.commit_transaction();
+        completion
+    };
+    assert_eq!(completion.guest_writes[0].result.bytes_written, 8);
+    acknowledge_pending_delta(&mut memory);
+    let output_after_commit = memory
+        .read(GuestAddress(OUTPUT_BASE), 8)
+        .expect("committed performance-counter output");
+    assert_ne!(output_after_commit, output_before);
+
+    let stats_before_rollback = memory.stats();
+    let bytes_before_rollback = memory
+        .read(GuestAddress(OUTPUT_BASE), 8)
+        .expect("performance-counter output before rollback");
+    {
+        let mut transaction = memory.begin_transaction();
+        let mut session = ExecutionSession::new(&mut transaction, &mut runtime);
+        let outcome = dispatcher.dispatch_owned(
+            owned_trap(&endpoints[1], frames[1].0, frames[1].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        );
+        assert!(matches!(outcome, DispatchOutcome::Immediate(_)));
+    }
+    assert_eq!(memory.stats(), stats_before_rollback);
+    assert_eq!(
+        memory
+            .read(GuestAddress(OUTPUT_BASE), 8)
+            .expect("performance-counter output after rollback"),
+        bytes_before_rollback
+    );
+}
+
+#[test]
 fn set_thread_affinity_mask_tracks_the_virtual_current_thread_and_fails_atomically() {
     let (mut memory, owner) = initialized_memory();
     let mut runtime = controlled_runtime(controlled_startup_info());

@@ -264,16 +264,16 @@
 
 * **判定：** 解決済み（現在到達しているprimary workloadの代表性を修正）。
 * **調査結果：** 旧benchmark fixtureは17 calls時点のcheckpointを固定しており、current 83-contract／17,841-call runtimeへ再実行できなかった。単純起動反復だけでなく、current User32 window-position／activation pathまで進む継続sessionが必要だった。
-* **変更内容：** `bgi-browser-runtime-user32-window-v1` fixtureを追加し、11,807,189 instructions、17,841 calls、`USER32.dll!MonitorFromWindow` stopをcurrent capacity workloadにした。Execute lookupをslice-local page cache化し、dirty discoveryをdirty-only scratch、writebackをborrowed engine viewからWasm inputへのdirect copy、semantic digestをstreaming SHA-256へ変更した。既存17 thresholdsは緩和していない。
-* **検証結果：** 3分gateは32 sessions／failure 0、session P95 6,035.420 ms、slice P99 4.815 ms、Worker heap max 29,115,120 bytes、capacity max 65,441,792 bytes、backing max 19,737,862 bytes、core linear 10,092,544 bytes、engine linear 14,024,704 bytesで全thresholdを通過した。Semantic digestはNode／Chromeとも`9e8cd6e5...f7c3`で不変だった。
+* **変更内容：** `bgi-browser-runtime-user32-window-v1` fixtureを追加し、11,807,189 instructions、17,841 calls、`USER32.dll!MonitorFromWindow` stopをcurrent capacity workloadにした。Execute lookupをslice-local page cache化し、dirty discoveryをdirty-only scratch、writebackをborrowed engine viewからWasm inputへのdirect copy、semantic digestをstreaming SHA-256へ変更した。既存17 thresholdsは緩和していない。Full public benchmark再検証では、exact instruction counterにより8命令setupがowned thunk直前でbudget stopになることを検出したため、timed region外のbounded setupを16命令へ明示し、failure diagnosticへreason／error／count／EIPを追加した。同じrunがCPU stack reconciliationの外側transaction内でimmediate API completionを行うとnested transaction panicになる回帰も検出したため、completion guest writesを既存journalへ参加させた。明示的nested beginは禁止のままである。
+* **検証結果：** 3分gateは32 sessions／failure 0、session P95 6,035.420 ms、slice P99 4.815 ms、Worker heap max 29,115,120 bytes、capacity max 65,441,792 bytes、backing max 19,737,862 bytes、core linear 10,092,544 bytes、engine linear 14,024,704 bytesで全thresholdを通過した。Semantic digestはNode／Chromeとも`9e8cd6e5...f7c3`で不変だった。修正後のpublic browser gateもinteger 116,969,588 ips、production API 7,108 roundtrips/s、steady memory 13,344,304 bytes、background ratio 1.018、failure 0で`go`になり、private 17-call replayは238 instructionsで次の`EncodePointer` stopへ到達した。Rust regressionは外側transaction内の8-byte API outputについてcommit反映とdrop rollbackの両方を検査する。
 * **未対応理由：** Graphics frame、audio stream、asset streaming、input、saveはprimaryで未到達のため、このbenchmarkへsynthetic workを混ぜてproduct代表と主張しない。各subsystem gateway到達時に同じversioned suiteへscene-specific workloadを追加する。
 
 ### P1-09 テストコードの保守コスト
 
 * **判定：** 根拠付き対応不要（行数は大きいが、指摘されたsetup／期待値重複は既に局所化）。
-* **調査結果：** `api_dispatcher.rs`は8,841行、`user32_dispatcher.rs`は6,128行だった。ただしUSER32には7個のtyped fixture builder、両fileには合計58個のtable-driven loopがあり、pointer validation、callback、lifecycle、failure atomicity、state transitionを一つのfixture内でpositive／negative pairとして検査する。Property testsはguest memory専用file、owner model testsはsubsystem別fileに分離済みである。
-* **変更内容：** Test fileの機械的分割は行っていない。新しいsource response casesはowner unit testの一つのtableへ追加し、新しいexecute casesは共通actual-adapter contractへ追加した。API名ごとの新fixture fileは作っていない。
-* **検証結果：** `cargo test --workspace --locked`で全integration／unit tests、clippyでall targetsを検査する。Source responseの5 malformed casesとvalid success／errorは同じbuilderを共有し、execute boundary variantsも同じengine setupを共有する。
+* **調査結果：** `api_dispatcher.rs`は8,897行、`user32_dispatcher.rs`は6,128行だった。ただしUSER32には7個のtyped fixture builder、両fileには合計58個のtable-driven loopがあり、pointer validation、callback、lifecycle、failure atomicity、state transitionを一つのfixture内でpositive／negative pairとして検査する。Property testsはguest memory専用file、owner model testsはsubsystem別fileに分離済みである。
+* **変更内容：** Test fileの機械的分割は行っていない。新しいsource response casesはowner unit testの一つのtableへ追加し、新しいexecute casesは共通actual-adapter contractへ追加した。Transaction composition regressionも既存dispatcher fixtureを再利用し、API名ごとの新fixture fileは作っていない。
+* **検証結果：** `cargo test --workspace --locked`で全integration／unit tests、clippyでall targetsを検査する。Source responseの5 malformed casesとvalid success／errorは同じbuilderを共有し、execute boundary variantsも同じengine setup、outer transaction commit／rollbackも同じdispatcher setupを共有する。
 * **未対応理由：** 行数だけでpositive／negative transaction pairを別fileへ分けるとsetupとbefore-image assertionが重複する。具体的な変更競合、同じsetupの三重複、または異なるowner／failure domainが現れた部分から分割する。
 
 ### P1-10 fuzz対象の限定
@@ -288,8 +288,8 @@
 
 * **判定：** 解決済み。
 * **調査結果：** 旧workflowはUbuntuの`public-checks`一件で`check:fast`、fixture E2E、Chrome、benchmarkを直列実行し、Rust failureでもbrowser setupと同じjobを共有していた。Failure owner、required check選択、並列化が曖昧だった。
-* **変更内容：** `check:fast`を`check:static`、`check:toolchain-engine`、`check:rust`のlocal aggregateへ整理し、fixture E2Eをcore／browser prepared groupへ分けた。CIはstatic、Rust、fixture producer、core E2E、browser acceptance、performance、stable observation、Windows oracle、fuzz smokeの9 jobsへ分割した。PE／adapterとbrowser buildは一度だけ生成し、downstreamへartifactとして渡す。
-* **検証結果：** `check:ci-contract`がworkflowをYAML parserで読み、exact job set、dependency、npm script、Chrome role、fuzz target／budgetを検査する。`actionlint 1.7.12`でも両workflowがgreenだった。Local canonical `check:fast`／`check:fixture-e2e`は同じbehaviorを保持する。
+* **変更内容：** `check:fast`を`check:static`、`check:toolchain-engine`、`check:rust`のlocal aggregateへ整理し、fixture E2Eをcore／browser prepared groupへ分けた。CIはstatic、Rust、fixture producer、core E2E、browser acceptance、performance、stable observation、Windows oracle、fuzz smokeの9 jobsへ分割した。PE／adapterとbrowser buildは一度だけ生成し、downstreamへartifactとして渡す。最初のremote runでRust jobだけがproducerより先に開始し、ignored `.work/toolchain-spike/abi-smoke.exe`を取得できないことを検出したため、Rust jobにも明示的な`fixture-build` dependencyとartifact downloadを追加した。同じrunでNode 22.23がbenchmark serverの固定port `4190`をunsafe portとして拒否したため、OS割当loopback port `0`へ変更した。
+* **検証結果：** `check:ci-contract`がworkflowをYAML parserで読み、exact job set、Rust／core／browserのfixture dependency、npm script、Chrome role、benchmarkのephemeral port、fuzz target／budgetを検査する。`actionlint 1.7.12`でも両workflowを検査する。Local canonical `check:fast`／`check:fixture-e2e`は同じbehaviorを保持し、fresh CIでもgenerated fixtureなしにRust testを開始せず、performance jobはNode／Fetchのunsafe-port listに依存しない契約にした。
 * **未対応理由：** Repository settings上で各jobをrequired checkに選ぶ操作はGit管理外である。Workflow側では独立check名とfailure domainを提供済みで、branch protectionを導入する場合に選択できる。
 
 ### P1-12 Chrome stable依存
@@ -304,8 +304,8 @@
 
 * **判定：** 解決済み（redistributable oracle band）。
 * **調査結果：** `run-toolchain-spike.mjs`はWindows上でABI、browser vertical、source read、DLL lifecycle、window pixel、FS、process parameters、TLS、FLSの9 PE32 fixtureをnative self-oracleとして実行するが、旧CIはUbuntuだけで全native exitをrecorded provenanceへ置換していた。
-* **変更内容：** `windows-2022` jobを追加した。llvm-mingw 20260616 UCRT x86_64 archiveをSHA-256 `b9b68a4d...ca35`で検証して導入し、`npm run check:toolchain`とtrace-summary parser contractを実行する。Private corpusやFrida traceは要求しない。
-* **検証結果：** 同じcommandはlocal Windowsで9 native exitsとartifact inspectionを通過する。Heavy Cargo buildと同じhostで並列実行した最初の試行だけ、新規link直後の`abi-smoke.exe` launchが30秒timeoutしたが、残存processはなく、同一artifactの単独実行は43 ms／exit 0、isolated full gateは全9 fixtureが初回exit 0だった。CI jobは専用hostで実行する。Release APIでasset名／URL／digestを照合し、workflowはYAML contractとactionlintを通した。CI reportはjob artifactとして保存される。
+* **変更内容：** `windows-2022` jobを追加した。llvm-mingw 20260616 UCRT x86_64 archiveをSHA-256 `b9b68a4d...ca35`で検証して導入し、`npm run check:toolchain`とtrace-summary parser contractを実行する。最初のremote runでllvm-mingwのWindows buildがWasm backendを持たないことを検出したため、PATH変更前のrunner LLVMを`--print-targets`で検査し、絶対pathを`VINE_WASM_CLANG`へ固定した。PE32は引き続きpinned llvm-mingwだけでbuildする。Private corpusやFrida traceは要求しない。
+* **検証結果：** 同じcommandはlocal Windowsで9 native exitsとartifact inspectionを通過する。Heavy Cargo buildと同じhostで並列実行した最初の試行だけ、新規link直後の`abi-smoke.exe` launchが30秒timeoutしたが、残存processはなく、同一artifactの単独実行は43 ms／exit 0、isolated full gateは全9 fixtureが初回exit 0だった。CI jobは専用hostで実行する。Release APIでasset名／URL／digestを照合し、workflow contractはWasm／PE compiler分離を検査する。CI reportはjob artifactとして保存される。
 * **未対応理由：** Primary BGI native traceは配布不能corpusとinteractive sessionを要するためpublic CIへ入れない。Public jobはWindows loader／ABIの継続性を担当し、title oracleはcommit-bound local gateとfocused traceに残す。
 
 ### P1-14 文書とcheckpoint情報の維持負荷

@@ -1583,6 +1583,10 @@ impl GuestMemory {
         self.limits
     }
 
+    pub(crate) fn transaction_is_active(&self) -> bool {
+        self.transaction.is_some()
+    }
+
     pub(crate) fn owner_is_sealed(&self, owner: MemoryOwnerId) -> Result<bool, GuestMemoryError> {
         Ok(self.require_owner(owner)?.sealed)
     }

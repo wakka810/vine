@@ -65,6 +65,7 @@ const dataBase = 0x2000_0000;
 const adapterUrl = new URL("./v86-adapter.wasm", import.meta.url);
 const runtimeCoreUrl = new URL("./runtime-core.wasm", import.meta.url);
 const fixtureUrl = new URL("./browser-vertical.exe", import.meta.url);
+const productionApiSetupBudget = 16;
 let steadyProductionSession: ProductionSession | null = null;
 
 const integerCode = Uint8Array.from([
@@ -673,10 +674,12 @@ async function productionApiRoundTrips(): Promise<Record<string, unknown>> {
   const samples: number[] = [];
   for (let index = 0; index < rounds; index += 1) {
     const session = await setupProductionSession();
-    const execution = session.mirror.execute(8);
+    const execution = session.mirror.execute(productionApiSetupBudget);
     invariant(
       execution.reason === v86StopReason.invalidOpcode && execution.errorCode === -1,
-      "production API setup did not reach an owned UD2",
+      `production API setup did not reach an owned UD2: reason=${execution.reason} ` +
+        `errorCode=${execution.errorCode} instructions=${execution.instructions} ` +
+        `ip=0x${execution.state.instructionPointer.toString(16)}`,
     );
     const dirtyPages = session.mirror.discoverDirtyPages();
     invariant(dirtyPages.length === 1, "production API setup expected one dirty stack page");

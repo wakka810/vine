@@ -78,7 +78,7 @@ function terminateProcess(child, signal = "SIGTERM") {
 async function startServer() {
   const child = spawn(
     process.execPath,
-    ["tools/run-browser-runtime-check.mjs", "--serve", "--port", "4190"],
+    ["tools/run-browser-runtime-check.mjs", "--serve", "--port", "0"],
     {
       cwd: root,
       detached: process.platform !== "win32",

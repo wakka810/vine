@@ -2422,6 +2422,37 @@ fn complete_immediate(
     frame: ApiCallFrame,
     immediate: ApiImmediate,
 ) -> Result<ApiImmediateCompletion, ApiFault> {
+    if session.memory.transaction_is_active() {
+        return complete_immediate_in_memory(
+            session.memory,
+            session.runtime,
+            contract,
+            frame,
+            immediate,
+        );
+    }
+
+    let mut transaction = session.memory.begin_transaction();
+    let completion = complete_immediate_in_memory(
+        &mut transaction,
+        session.runtime,
+        contract,
+        frame,
+        immediate,
+    );
+    if completion.is_ok() {
+        transaction.commit_transaction();
+    }
+    completion
+}
+
+fn complete_immediate_in_memory(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
+    contract: &ApiContract,
+    frame: ApiCallFrame,
+    immediate: ApiImmediate,
+) -> Result<ApiImmediateCompletion, ApiFault> {
     let eax = validate_return_value(contract, &immediate.return_value)?;
     let next_last_error = match contract.last_error_policy {
         LastErrorPolicy::Preserve => {
@@ -2433,8 +2464,8 @@ fn complete_immediate(
                 )
                 .with_endpoint(&contract.endpoint));
             }
-            session
-                .last_error()
+            runtime
+                .current_last_error()
                 .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
         }
         LastErrorPolicy::FromHandler => immediate.last_error.ok_or_else(|| {
@@ -2448,10 +2479,9 @@ fn complete_immediate(
     };
     validate_guest_writes(contract, &frame, &immediate.guest_writes)?;
 
-    let mut transaction = session.memory.begin_transaction();
     let mut guest_writes = Vec::with_capacity(immediate.guest_writes.len());
     for write in immediate.guest_writes {
-        let result = transaction
+        let result = memory
             .write(write.address, &write.bytes)
             .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
         guest_writes.push(ApiGuestWriteReceipt { write, result });
@@ -2482,11 +2512,9 @@ fn complete_immediate(
                 .with_endpoint(&contract.endpoint)
             })?,
     );
-    session
-        .runtime
+    runtime
         .set_current_last_error(next_last_error)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    transaction.commit_transaction();
     Ok(ApiImmediateCompletion {
         implementation_id: contract.implementation_id.clone(),
         instruction_pointer: frame.return_address,

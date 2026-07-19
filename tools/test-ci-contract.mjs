@@ -11,6 +11,14 @@ const loadWorkflow = (name) =>
   parse(fs.readFileSync(path.join(root, ".github", "workflows", name), "utf8"));
 const ci = loadWorkflow("ci.yml");
 const scheduled = loadWorkflow("fuzz.yml");
+const benchmarkRunner = fs.readFileSync(
+  path.join(root, "tools", "run-v86-browser-benchmark.mjs"),
+  "utf8",
+);
+const benchmarkWorker = fs.readFileSync(
+  path.join(root, "browser", "v86-benchmark", "benchmark-worker.ts"),
+  "utf8",
+);
 const expectedJobs = [
   "browser-acceptance",
   "chrome-stable-observation",
@@ -35,12 +43,25 @@ const chromeVersion = (job) =>
   job.steps.find((step) => step.uses === "browser-actions/setup-chrome@v2")?.with?.[
     "chrome-version"
   ];
+const downloadedArtifact = (job) =>
+  job.steps.find((step) => step.uses === "actions/download-artifact@v8")?.with
+    ?.name;
 
 assert.match(runText(ci.jobs["static-semantic"]), /npm run check:static/u);
 assert.match(runText(ci.jobs["rust-tests"]), /cargo test --workspace --locked/u);
+assert.equal(ci.jobs["rust-tests"].needs, "fixture-build");
+assert.equal(downloadedArtifact(ci.jobs["rust-tests"]), "public-fixture-inputs");
 assert.match(runText(ci.jobs["fixture-build"]), /npm run prepare:engine/u);
 assert.equal(ci.jobs["fixture-core-e2e"].needs, "fixture-build");
+assert.equal(
+  downloadedArtifact(ci.jobs["fixture-core-e2e"]),
+  "public-fixture-inputs",
+);
 assert.equal(ci.jobs["browser-acceptance"].needs, "fixture-build");
+assert.equal(
+  downloadedArtifact(ci.jobs["browser-acceptance"]),
+  "public-fixture-inputs",
+);
 assert.equal(
   chromeVersion(ci.jobs["browser-acceptance"]),
   "${{ env.VINE_ACCEPTANCE_CHROME_VERSION }}",
@@ -55,6 +76,14 @@ assert.equal(ci.jobs["chrome-stable-observation"]["continue-on-error"], true);
 assert.equal(chromeVersion(ci.jobs["chrome-stable-observation"]), "stable");
 assert.equal(ci.jobs["windows-native-oracle"]["runs-on"], "windows-2022");
 assert.match(runText(ci.jobs["windows-native-oracle"]), /npm run check:toolchain/u);
+assert.match(runText(ci.jobs["windows-native-oracle"]), /VINE_WASM_CLANG/u);
+assert.match(runText(ci.jobs["windows-native-oracle"]), /--print-targets/u);
+assert.match(
+  benchmarkRunner,
+  /\["tools\/run-browser-runtime-check\.mjs", "--serve", "--port", "0"\]/u,
+);
+assert.match(benchmarkWorker, /const productionApiSetupBudget = 16;/u);
+assert.match(benchmarkWorker, /mirror\.execute\(productionApiSetupBudget\)/u);
 
 const fuzzSmoke = runText(ci.jobs["fuzz-smoke"]);
 for (const target of [
