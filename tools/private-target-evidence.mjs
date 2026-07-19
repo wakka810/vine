@@ -1,10 +1,11 @@
 import crypto from "node:crypto";
 
 export const PRIVATE_TARGET_EVIDENCE_SCHEMA = "vine.private-target-evidence";
-export const PRIVATE_TARGET_EVIDENCE_VERSION = 4;
+export const PRIVATE_TARGET_EVIDENCE_VERSION = 5;
 
 const GIT_OBJECT_ID = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
+const MAXIMUM_SEMANTIC_REPORT_BYTES = 2 * 1024 * 1024;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -397,7 +398,18 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       `evidence.semantic.${label}.memoryContentSha256`,
       errors,
     );
+    requireSha256(
+      result.callSemanticsSha256,
+      `evidence.semantic.${label}.callSemanticsSha256`,
+      errors,
+    );
   }
+  checkEqual(
+    node.callSemanticsSha256,
+    browser.callSemanticsSha256,
+    "evidence.semantic.callSemanticsSha256",
+    errors,
+  );
   checkEqual(
     node.implementedApiContracts,
     checkpoint.activeRuntimeCheckpoint.genericDispatcherApiCount,
@@ -605,6 +617,17 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     requireString(artifact.path, `evidence.artifacts.${name}.path`, errors);
     requireInteger(artifact.bytes, `evidence.artifacts.${name}.bytes`, errors, 1);
     requireSha256(artifact.sha256, `evidence.artifacts.${name}.sha256`, errors);
+  }
+  for (const name of ["nodeReport", "browserReport"]) {
+    const artifact = requireRecord(artifacts[name], `evidence.artifacts.${name}`, errors);
+    if (
+      Number.isSafeInteger(artifact.bytes) &&
+      artifact.bytes > MAXIMUM_SEMANTIC_REPORT_BYTES
+    ) {
+      errors.push(
+        `evidence.artifacts.${name}.bytes must be <= ${MAXIMUM_SEMANTIC_REPORT_BYTES}`,
+      );
+    }
   }
   checkEqual(
     artifacts.runtimeCoreWasm.bytes,

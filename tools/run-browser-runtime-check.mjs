@@ -18,10 +18,15 @@ import {
   handleSourceSnapshotHttp,
   registerSourceSnapshot,
 } from "./source-snapshot.mjs";
+import {
+  SEMANTIC_CALL_DIGEST_ALGORITHM,
+  normalizeSemanticCall,
+} from "../browser/runtime-worker/semantic-call.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assetsRoot = path.join(root, ".work", "browser-runtime");
 const serveOnly = process.argv.includes("--serve");
+const fullEvidence = process.argv.includes("--full-evidence");
 const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
@@ -487,7 +492,7 @@ async function waitForBgiCheckpoint(client, timeoutMs = 30_000) {
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
-    `${baseUrl}bgi-check.html?scenario=${scenario}`,
+    `${baseUrl}bgi-check.html?scenario=${scenario}${fullEvidence ? "&evidence=full" : ""}`,
   );
   const client = await connectDevTools(target.webSocketDebuggerUrl);
   try {
@@ -514,11 +519,16 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     if (scenario === "success") {
       assert.equal(evidence.report.outcome, "structured-stop");
       assert(evidence.report.supportedCallCount > 0);
+      assert.equal(evidence.report.evidenceLevel, fullEvidence ? "full" : "summary");
       assert.equal(
-        evidence.report.supportedCallCount,
         evidence.report.supportedCalls.length,
-        "full BGI evidence call count differs from its ordered payload",
+        fullEvidence ? evidence.report.supportedCallCount : 0,
       );
+      assert.equal(
+        evidence.report.supportedCallSemanticsAlgorithm,
+        SEMANTIC_CALL_DIGEST_ALGORITHM,
+      );
+      assert.match(evidence.report.supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
       assert(evidence.report.firstUnsupported !== null);
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
@@ -933,35 +943,6 @@ function summarizeBgiBenchmark(result, configuration) {
   }
 }
 
-function normalizeBgiCall(call) {
-  return {
-    sequence: call.sequence,
-    module: call.module.toLowerCase(),
-    symbol: call.symbol,
-    arguments: call.arguments,
-    result: call.result,
-    implementationId: call.implementationId,
-    returnAddress: call.returnAddress,
-    stackPointerBefore: call.stackPointerBefore,
-    stackPointerAfter: call.stackPointerAfter,
-    lastError: call.lastError,
-    guestWrites: call.guestWrites.map(({ address, bytes }) => ({ address, bytes })),
-    currentDirectory: call.currentDirectory ?? null,
-    mutex: call.mutex ?? null,
-    waitableTimer: call.waitableTimer ?? null,
-    icon: call.icon ?? null,
-    cursor: call.cursor ?? null,
-    windowClass: call.windowClass ?? null,
-    window: call.window ?? null,
-    sourceRead: call.sourceRead ?? null,
-    gdi: call.gdi ?? null,
-    interface: call.interface ?? null,
-    vtableSlot: call.vtableSlot ?? null,
-    referenceCount: call.referenceCount ?? null,
-    objectRetired: call.objectRetired ?? null,
-  };
-}
-
 function normalizeCurrentDirectorySnapshot(snapshot) {
   assert(snapshot !== null && snapshot !== undefined, "current-directory snapshot is missing");
   assert.equal(typeof snapshot.directory.sourceAuthority, "string");
@@ -1002,11 +983,42 @@ function normalizeHeapPageMaterialization(materialization) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
     browser.report.supportedCallCount,
-    oracle.supportedContinuation.length,
+    oracle.supportedCallCount,
     "Chrome Worker supported-call count differs from the Node oracle",
   );
+  assert.equal(browser.report.evidenceLevel, evidenceLevel);
+  assert.equal(oracle.contract.evidenceLevel, evidenceLevel);
+  assert.equal(
+    browser.report.supportedCalls.length,
+    fullEvidence ? browser.report.supportedCallCount : 0,
+  );
+  assert.equal(
+    oracle.supportedContinuation.length,
+    fullEvidence ? oracle.supportedCallCount : 0,
+  );
+  assert.equal(
+    browser.report.supportedCallSemanticsAlgorithm,
+    SEMANTIC_CALL_DIGEST_ALGORITHM,
+  );
+  assert.equal(
+    oracle.supportedCallSemanticsAlgorithm,
+    SEMANTIC_CALL_DIGEST_ALGORITHM,
+  );
+  assert.equal(
+    browser.report.supportedCallSemanticsSha256,
+    oracle.supportedCallSemanticsSha256,
+    "Chrome Worker call semantics digest differs from the Node oracle",
+  );
+  if (fullEvidence) {
+    assert.deepEqual(
+      browser.report.supportedCalls.map(normalizeSemanticCall),
+      oracle.supportedContinuation.map(normalizeSemanticCall),
+      "Chrome Worker full call semantics differ from the Node oracle",
+    );
+  }
   assert.deepEqual(
     normalizeCurrentDirectorySnapshot(browser.report.initialCurrentDirectory),
     normalizeCurrentDirectorySnapshot({
@@ -1014,11 +1026,6 @@ function validateBgiEquivalence(browser, oracle) {
       generation: oracle.process.currentDirectoryGeneration,
     }),
     "Chrome Worker initial current directory differs from the Node oracle",
-  );
-  assert.deepEqual(
-    browser.report.supportedCalls.map(normalizeBgiCall),
-    oracle.supportedContinuation.map(normalizeBgiCall),
-    "Chrome Worker call semantics differ from the Node oracle",
   );
   assert.deepEqual(
     browser.report.stackGrowths.map(normalizeStackGrowth),
@@ -1040,12 +1047,10 @@ function validateBgiEquivalence(browser, oracle) {
     ),
     "Chrome Worker heap page-materialization semantics differ from the Node oracle",
   );
-  assert.deepEqual(
-    browser.report.sourceReads,
-    oracle.supportedContinuation
-      .filter(({ sourceRead }) => sourceRead !== undefined)
-      .map(({ sourceRead }) => sourceRead),
-    "Chrome Worker source-read completions differ from the Node oracle",
+  assert.equal(
+    browser.report.sourceReads.length,
+    oracle.synchronization.sourceReads.length,
+    "Chrome Worker source-read completion count differs from the Node oracle",
   );
   const browserStop = browser.report.firstUnsupported;
   const oracleStop = oracle.firstUnsupported;
@@ -1495,7 +1500,7 @@ if (serveOnly) {
         assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the browser session");
         const report = {
           schema: "vine.browser-bgi-runtime-worker",
-          schemaVersion: 4,
+          schemaVersion: 5,
           runtimeProtocol,
           measuredAt: new Date().toISOString(),
           chromeVersion: version,

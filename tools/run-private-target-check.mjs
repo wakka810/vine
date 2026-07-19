@@ -17,6 +17,7 @@ import {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultOutput = path.join(root, "docs", "private-target-evidence.json");
+const maximumSemanticReportBytes = 2 * 1024 * 1024;
 const defaultBgi =
   process.platform === "win32" ? "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe" : null;
 const protectedInputs = [
@@ -240,7 +241,11 @@ function assertReportSemantics({
     "runtime policy mismatch",
   );
   assert.equal(nodeReport.contract.enabledCapability, active.profile);
-  assert.equal(nodeReport.supportedContinuation.length, active.genericDispatcherCallOccurrenceCount);
+  assert.equal(nodeReport.contract.evidenceLevel, "summary");
+  assert.equal(nodeReport.supportedContinuation.length, 0);
+  assert.equal(nodeReport.supportedCallCount, active.genericDispatcherCallOccurrenceCount);
+  assert.equal(nodeReport.supportedCallSemanticsAlgorithm, "sha256-canonical-json-v1");
+  assert.match(nodeReport.supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
   assert.equal(nodeReport.process.implementedApiContracts, active.genericDispatcherApiCount);
   assert.equal(nodeReport.firstUnsupported.instructionCount, expectedNext.instructionCount);
   assert.equal(nodeReport.synchronization.finalGeneration, expectedBrowser.nodeFinalGeneration);
@@ -309,11 +314,22 @@ function assertReportSemantics({
 
   assert.equal(browserReport.runtimeProtocol, checkpoint.browserCheckpoint.browserRuntimeProtocol);
   assert.equal(browserReport.schema, "vine.browser-bgi-runtime-worker");
-  assert.equal(browserReport.schemaVersion, 4);
+  assert.equal(browserReport.schemaVersion, 5);
   assert.equal(browserReport.success.report.outcome, "structured-stop");
+  assert.equal(browserReport.success.report.evidenceLevel, "summary");
   assert.equal(
-    browserReport.success.report.supportedCalls.length,
+    browserReport.success.report.supportedCallCount,
     active.genericDispatcherCallOccurrenceCount,
+  );
+  assert.equal(browserReport.success.report.supportedCalls.length, 0);
+  assert.equal(
+    browserReport.success.report.supportedCallSemanticsAlgorithm,
+    "sha256-canonical-json-v1",
+  );
+  assert.equal(
+    browserReport.success.report.supportedCallSemanticsSha256,
+    nodeReport.supportedCallSemanticsSha256,
+    "Node/browser call semantics digest mismatch",
   );
   assert.equal(browserReport.success.report.instructions, expectedNext.instructionCount);
   assert.equal(browserReport.success.report.finalGeneration, expectedBrowser.finalGeneration);
@@ -524,6 +540,14 @@ const artifacts = {
   cargoLock: artifact(path.join(root, "Cargo.lock")),
   npmLock: artifact(path.join(root, "package-lock.json")),
 };
+assert(
+  artifacts.nodeReport.bytes <= maximumSemanticReportBytes,
+  `summary Node report exceeds ${maximumSemanticReportBytes} bytes`,
+);
+assert(
+  artifacts.browserReport.bytes <= maximumSemanticReportBytes,
+  `summary browser report exceeds ${maximumSemanticReportBytes} bytes`,
+);
 assert.deepEqual(
   browserBuildManifest.assets["runtime-core.wasm"],
   { bytes: artifacts.runtimeCoreWasm.bytes, sha256: artifacts.runtimeCoreWasm.sha256 },
@@ -611,7 +635,8 @@ const evidence = finalizePrivateTargetEvidence({
     node: {
       outcome: "structured-stop",
       implementedApiContracts: nodeReport.process.implementedApiContracts,
-      supportedCalls: nodeReport.supportedContinuation.length,
+      supportedCalls: nodeReport.supportedCallCount,
+      callSemanticsSha256: nodeReport.supportedCallSemanticsSha256,
       instructions: nodeReport.firstUnsupported.instructionCount,
       finalGeneration: nodeReport.synchronization.finalGeneration,
       memoryContentSha256: nodeReport.firstUnsupported.memoryContentSha256,
@@ -622,7 +647,9 @@ const evidence = finalizePrivateTargetEvidence({
     },
     browser: {
       outcome: browserReport.success.report.outcome,
-      supportedCalls: browserReport.success.report.supportedCalls.length,
+      supportedCalls: browserReport.success.report.supportedCallCount,
+      callSemanticsSha256:
+        browserReport.success.report.supportedCallSemanticsSha256,
       instructions: browserReport.success.report.instructions,
       finalGeneration: browserReport.success.report.finalGeneration,
       memoryContentSha256:

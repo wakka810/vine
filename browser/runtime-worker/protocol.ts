@@ -219,6 +219,7 @@ export interface HostRequestMessage {
 }
 
 export interface SessionReport {
+  evidenceLevel: "full" | "summary";
   outcome: "completed" | "structured-stop" | "cancelled" | "watchdog" | "fault";
   exitCode: number | null;
   elapsedMilliseconds: number;
@@ -314,6 +315,8 @@ export interface SessionReport {
   executionEngine: ExecutionEngineIdentity | null;
   executionEngineLinearMemoryBytes: number;
   supportedCallCount: number;
+  supportedCallSemanticsAlgorithm: "sha256-canonical-json-v1";
+  supportedCallSemanticsSha256: string | null;
   supportedCalls: Array<{
     sequence: number;
     module: string;

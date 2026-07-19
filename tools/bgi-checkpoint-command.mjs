@@ -30,6 +30,8 @@ export function bgiProfileOutputDirectory(profile) {
 export function planBgiCheckpointCommand(arguments_, manifest, root) {
   let profile = null;
   let checkpoint = null;
+  let evidenceLevel = "summary";
+  let evidenceLevelSeen = false;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     if (argument === "--profile" && index + 1 < arguments_.length) {
@@ -43,6 +45,16 @@ export function planBgiCheckpointCommand(arguments_, manifest, root) {
         throw new Error("--checkpoint may be provided only once");
       }
       checkpoint = requireSelection(arguments_[index + 1], "BGI checkpoint");
+      index += 1;
+    } else if (argument === "--evidence-level" && index + 1 < arguments_.length) {
+      if (evidenceLevelSeen) {
+        throw new Error("--evidence-level may be provided only once");
+      }
+      evidenceLevelSeen = true;
+      evidenceLevel = arguments_[index + 1];
+      if (evidenceLevel !== "summary" && evidenceLevel !== "full") {
+        throw new Error("--evidence-level must be summary or full");
+      }
       index += 1;
     } else {
       throw new Error(`unsupported BGI checkpoint argument: ${argument}`);
@@ -70,6 +82,8 @@ export function planBgiCheckpointCommand(arguments_, manifest, root) {
         "--checkpoint",
         frozenCheckpoint,
         "--generic-runtime-reentry",
+        "--evidence-level",
+        evidenceLevel,
       ],
     };
   }
@@ -80,6 +94,8 @@ export function planBgiCheckpointCommand(arguments_, manifest, root) {
     "--checkpoint",
     frozenCheckpoint,
     "--generic-runtime-reentry",
+    "--evidence-level",
+    evidenceLevel,
     "--runtime-capability",
     capability,
   ];

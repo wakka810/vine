@@ -46,8 +46,13 @@ import {
   type PreparedMetadata,
   RuntimeBridge,
 } from "./runtime-bridge.js";
+import {
+  SEMANTIC_CALL_DIGEST_ALGORITHM,
+  SemanticCallDigest,
+} from "./semantic-call.mjs";
 
 const worker = self as DedicatedWorkerGlobalScope;
+const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const yieldChannel = new MessageChannel();
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -416,6 +421,7 @@ class BrowserRuntimeSession {
   #nextBgiCallSequence = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
   readonly #completedBgiCallSequences = new Set<number>();
+  readonly #semanticCallDigest = new SemanticCallDigest();
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
   #watchdogTimer: number | null = null;
@@ -457,6 +463,8 @@ class BrowserRuntimeSession {
     initialCurrentDirectory: null as SessionReport["initialCurrentDirectory"],
     maximumSliceMilliseconds: 0,
     supportedCallCount: 0,
+    supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
+    supportedCallSemanticsSha256: null as string | null,
     supportedCalls: [] as SessionReport["supportedCalls"],
     sourceReads: [] as SessionReport["sourceReads"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
@@ -1184,10 +1192,7 @@ class BrowserRuntimeSession {
     );
     this.#completedBgiCallSequences.add(sequence);
     this.#report.supportedCallCount += 1;
-    if (this.#configuration.evidenceLevel === "summary") {
-      return;
-    }
-    this.#report.supportedCalls.push({
+    const call = {
       sequence,
       module: "<com>",
       symbol: `${frame.interface}.${frame.method}`,
@@ -1204,7 +1209,11 @@ class BrowserRuntimeSession {
         address,
         bytes,
       })),
-    });
+    };
+    this.#semanticCallDigest.update(call);
+    if (this.#configuration.evidenceLevel === "full") {
+      this.#report.supportedCalls.push(call);
+    }
   }
 
   #recordBgiCompletion(
@@ -1290,10 +1299,7 @@ class BrowserRuntimeSession {
     );
     this.#completedBgiCallSequences.add(sequence);
     this.#report.supportedCallCount += 1;
-    if (this.#configuration.evidenceLevel === "summary") {
-      return;
-    }
-    this.#report.supportedCalls.push({
+    const call = {
       sequence,
       module: endpoint.module,
       symbol: endpoint.symbol.name,
@@ -1326,7 +1332,11 @@ class BrowserRuntimeSession {
         : { comApartment: metadata.comApartment }),
       ...(metadata.sourceRead === undefined ? {} : { sourceRead: metadata.sourceRead }),
       ...(metadata.gdi === undefined ? {} : { gdi: metadata.gdi }),
-    });
+    };
+    this.#semanticCallDigest.update(call);
+    if (this.#configuration.evidenceLevel === "full") {
+      this.#report.supportedCalls.push(call);
+    }
   }
 
   #completeStructuredStop(
@@ -2174,6 +2184,11 @@ class BrowserRuntimeSession {
       this.#report.supportedCallCount === this.#completedBgiCallSequences.size,
       "BGI supported-call evidence count diverged from completed sequence identity",
     );
+    invariant(
+      this.#report.supportedCallCount === this.#semanticCallDigest.count(),
+      "BGI semantic call digest count diverged from completed sequence identity",
+    );
+    this.#report.supportedCallSemanticsSha256 = this.#semanticCallDigest.digestHex();
     if (this.#configuration.evidenceLevel === "full") {
       invariant(
         this.#report.supportedCalls.length === this.#report.supportedCallCount,
@@ -2195,6 +2210,7 @@ class BrowserRuntimeSession {
       protocolVersion,
       sessionId: this.#sessionId,
       report: {
+        evidenceLevel: this.#configuration.evidenceLevel,
         ...terminal,
         elapsedMilliseconds: performance.now() - this.#startedAt,
         ...this.#report,
@@ -2254,6 +2270,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
           protocolVersion,
           sessionId: message.sessionId,
           report: {
+            evidenceLevel: message.configuration.evidenceLevel,
             outcome: "fault",
             exitCode: null,
             elapsedMilliseconds: 0,
@@ -2305,6 +2322,8 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             executionEngine: null,
             executionEngineLinearMemoryBytes: 0,
             supportedCallCount: 0,
+            supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
+            supportedCallSemanticsSha256: EMPTY_SEMANTIC_CALL_SHA256,
             supportedCalls: [],
             sourceReads: [],
             firstUnsupported: null,

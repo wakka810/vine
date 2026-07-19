@@ -166,13 +166,13 @@ thread, current request when one exists, and the last transition observed
 before termination. Pending host calls and callback stacks are keyed by owner
 thread; neither is represented by a global single slot.
 
-Protocol v7 also makes diagnostic retention explicit. Full sessions validate
-sequence identity with a Set and publish their ordered call payload after one
-terminal sort. Repeated BGI benchmark sessions select summary evidence: they
-retain the same sequence uniqueness, call count, source completions, memory
-digest, structured stop, and teardown checks but do not allocate detailed call
-objects. Summary evidence is rejected for other workloads and never replaces
-the standalone full Chrome／Node semantic-equivalence gate.
+Protocol v7 also makes diagnostic retention explicit. Every private BGI session
+validates sequence identity with a Set and hashes the normalized observable call
+stream after sorting reserved sequence IDs. Normal semantic gates and repeated
+benchmarks select summary evidence: they retain the exact call count and digest,
+source completions, memory digest, structured stop, and teardown checks without
+publishing detailed call objects. Full evidence remains an explicit diagnostic
+mode. Summary evidence is rejected for other workloads.
 
 ## Fixture contract
 

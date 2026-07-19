@@ -66,21 +66,30 @@ assert.equal(
   bgiProfileOutputDirectory(manifest.activeRuntimeCheckpoint.profile),
 );
 assert.deepEqual(
-  active.runnerArguments.slice(0, 6),
+  active.runnerArguments.slice(0, 8),
   [
     "--checkpoint",
     manifest.historicalBaseline.checkpoint,
     "--generic-runtime-reentry",
+    "--evidence-level",
+    "summary",
     "--runtime-capability",
     manifest.activeRuntimeCheckpoint.profile,
     "--runtime-policy",
   ],
 );
 assert.equal(
-  active.runnerArguments[6],
+  active.runnerArguments[8],
   path.join(root, manifest.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source),
 );
 assert.deepEqual(planBgiCheckpointCommand(["--profile", "active"], manifest, root), active);
+
+const fullEvidence = planBgiCheckpointCommand(
+  ["--profile", "active", "--evidence-level", "full"],
+  manifest,
+  root,
+);
+assert.equal(fullEvidence.runnerArguments[4], "full");
 
 const explicitActive = planBgiCheckpointCommand(
   ["--profile", manifest.activeRuntimeCheckpoint.profile],
@@ -95,6 +104,8 @@ assert.deepEqual(baseline.runnerArguments, [
   "--checkpoint",
   manifest.historicalBaseline.checkpoint,
   "--generic-runtime-reentry",
+  "--evidence-level",
+  "summary",
 ]);
 
 const historicalProfile = planBgiCheckpointCommand(
@@ -123,6 +134,8 @@ for (const arguments_ of [
   ["--profile", "baseline", "--checkpoint", "bgi-first-trap"],
   ["--profile", "active", "--profile", "active"],
   ["--checkpoint", "../outside"],
+  ["--evidence-level", "diagnostic"],
+  ["--evidence-level", "full", "--evidence-level", "summary"],
   ["--unknown", "value"],
 ]) {
   assert.throws(() => planBgiCheckpointCommand(arguments_, manifest, root));

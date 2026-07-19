@@ -29,7 +29,9 @@ declare global {
 
 const worker = new Worker(new URL("./runtime-worker.js", import.meta.url), { type: "module" });
 const status = requiredElement<HTMLOutputElement>("#status");
-const scenario = parseScenario(new URL(location.href).searchParams.get("scenario"));
+const searchParams = new URL(location.href).searchParams;
+const scenario = parseScenario(searchParams.get("scenario"));
+const evidenceLevel = searchParams.get("evidence") === "full" ? "full" : "summary";
 const sessionId = 1;
 const statuses: Array<{ phase: string; detail: string }> = [];
 const usedJsHeapBytesBefore = performance.memory?.usedJSHeapSize ?? null;
@@ -83,7 +85,7 @@ worker.postMessage({
   sessionId,
   configuration: {
     mode: scenario,
-    evidenceLevel: "full",
+    evidenceLevel,
     workload: "private-bgi",
     executableUrl: "./private/BGI.exe",
     policyUrl: "./private/kernel32-policy.json",

@@ -3,9 +3,9 @@
 ## Status
 
 - Status: verified
-- Date: 2026-07-13
+- Date: 2026-07-19
 - Canonical command: `npm run check:private-target`
-- Evidence schema: `vine.private-target-evidence` version `4`
+- Evidence schema: `vine.private-target-evidence` version `5`
 - Evidence file: [`private-target-evidence.json`](private-target-evidence.json)
 
 ## Purpose
@@ -58,15 +58,16 @@ manifest from claiming a commit while executing different runtime inputs.
 
 ## Evidence contract
 
-The version 4 result records:
+The version 5 result records:
 
 - implementation commit, tree, complete dirty-path list, and admitted paths;
 - BGI bytes and SHA-256 without its local path or content;
 - current-checkpoint, runtime profile, compatibility-policy, Node-report, and
   browser-protocol schema identities;
 - Chrome, Node, Rust, Cargo, LLVM, and v86 adapter identities;
-- Node and Chrome outcomes, call count, instruction stop, final memory digest,
-  generations, cancellation, watchdog, and pending-work counts;
+- Node and Chrome outcomes, call count, canonical observable-call SHA-256,
+  instruction stop, final memory digest, generations, cancellation, watchdog,
+  and pending-work counts;
 - Chrome success／cancel／watchdog final execution state, transition count,
   pending request records, and watchdog thread／request／last-transition context;
 - pinned execution-engine profile, source revision, CPU-context ABI, adapter
@@ -77,9 +78,15 @@ The version 4 result records:
   into the semantic gate;
 - a payload digest covering the evidence fields.
 
-Source fingerprint mismatch, protected dirty input, Node／Chrome semantic
-divergence, a different structured stop, pending work, or malformed evidence is
-a hard failure. The output is written atomically only after all assertions pass.
+The required command uses summary evidence. Node and Chrome independently hash
+the complete guest-visible call stream after sequence ordering, while detailed
+call／writeback／host-delta payloads are retained only by an explicit full
+diagnostic run. Each committed semantic report must remain at or below 2 MiB.
+
+Source fingerprint mismatch, protected dirty input, Node／Chrome semantic digest
+divergence, an oversized summary report, a different structured stop, pending
+work, or malformed evidence is a hard failure. The output is written atomically
+only after all assertions pass.
 
 ## Performance classification
 

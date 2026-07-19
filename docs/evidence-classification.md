@@ -3,7 +3,7 @@
 ## Status
 
 - Status: verified
-- Date: 2026-07-13
+- Date: 2026-07-19
 - Contract: `tools/evidence-classification.mjs`
 - Public check: `npm run check:evidence-classification`
 
@@ -27,10 +27,19 @@ identifies the resulting artifact but does not define guest semantics.
 
 ## Semantic and ordering gates
 
-The current BGI Node／Chrome comparison checks all 87 guest-visible call results,
-arguments, writes, LastError values, instruction stop, final memory content, and
-structured fault independently of report serialization. That call stream is an
-exact BGI-required sequence.
+The current BGI Node／Chrome comparison checks every reached guest-visible call
+result, argument, write, LastError value, instruction stop, final memory content,
+and structured fault independently of report serialization. Each side normalizes
+that observable stream, sorts nested-callback completions by their reserved guest
+sequence, and computes `sha256-canonical-json-v1`. Handler IDs and other internal
+implementation names are excluded. Equality of the call count and semantic digest
+is the exact sequence gate.
+
+Normal private-target runs retain the digest, aggregate synchronization counts,
+important lifecycle events, final state, and failure neighborhood. Detailed call,
+writeback, and host-delta arrays require explicit `full` diagnostic evidence.
+Commit-bound Node and browser summary reports are each limited to 2 MiB, so a
+report-size regression fails before evidence publication.
 
 Scheduler timing uses a partial order. Independent request lanes may be
 interleaved, but each request must precede its own completion and every required

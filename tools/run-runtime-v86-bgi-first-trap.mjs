@@ -13,6 +13,10 @@ import {
 } from "./runtime-checkpoint-manifest.mjs";
 import { observeArtifactIdentity } from "./evidence-classification.mjs";
 import {
+  SEMANTIC_CALL_DIGEST_ALGORITHM,
+  SemanticCallDigest,
+} from "../browser/runtime-worker/semantic-call.mjs";
+import {
   decodeSourceReadRequest,
   encodeSourceReadResponse,
   readSourceSnapshot,
@@ -37,6 +41,8 @@ let runtimePolicyPath = null;
 let runtimePolicyOptionSeen = false;
 let sourceManifestPath = null;
 let sourceManifestOptionSeen = false;
+let evidenceLevel = "summary";
+let evidenceLevelOptionSeen = false;
 const positionalArguments = [];
 for (let index = 0; index < commandArguments.length; index += 1) {
   const argument = commandArguments[index];
@@ -152,6 +158,15 @@ for (let index = 0; index < commandArguments.length; index += 1) {
     sourceManifestPath = path.resolve(commandArguments[index + 1] ?? "");
     assert(commandArguments[index + 1] !== undefined, "--source-manifest requires a file");
     index += 1;
+  } else if (argument === "--evidence-level") {
+    assert(!evidenceLevelOptionSeen, "--evidence-level may be specified only once");
+    evidenceLevelOptionSeen = true;
+    evidenceLevel = commandArguments[index + 1];
+    assert(
+      evidenceLevel === "summary" || evidenceLevel === "full",
+      "--evidence-level requires summary or full",
+    );
+    index += 1;
   } else {
     assert(!argument.startsWith("--"), `unknown option ${argument}`);
     positionalArguments.push(argument);
@@ -159,7 +174,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
 }
 assert(
   positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
-  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability ID] [--runtime-policy FILE] [--source-manifest FILE]] [WASM] [BGI.exe]",
+  "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability ID] [--runtime-policy FILE] [--source-manifest FILE] [--evidence-level summary|full]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
@@ -14208,6 +14223,12 @@ function buildGenericRuntimeReentryReport({
   sourceAfter,
   sourceBefore,
 }) {
+  const semanticCallDigest = new SemanticCallDigest();
+  for (const call of genericResult.supportedCalls) {
+    semanticCallDigest.update(call);
+  }
+  assert.equal(semanticCallDigest.count(), genericResult.supportedCalls.length);
+  const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
   const totalDirtyPages = genericResult.writebacks.reduce(
     (total, writeback) => total + writeback.dirtyPages.length,
     0,
@@ -14371,7 +14392,7 @@ function buildGenericRuntimeReentryReport({
           : genericRuntimeCapability === "kernel32-pointer-decoding"
             ? "vine.v86-bgi-pointer-decoding"
             : "vine.v86-bgi-critical-section-synchronization",
-    schemaVersion: 1,
+    schemaVersion: 2,
     source: offer.source,
     sourceSnapshot: {
       immutableAcrossRun: true,
@@ -14386,6 +14407,8 @@ function buildGenericRuntimeReentryReport({
       argumentWidthSource: "api-contract",
       apiSpecificReconciliationLists: false,
       apiSpecificRequestsOrReceipts: false,
+      evidenceLevel,
+      semanticCallDigestAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
       compatibilityPolicy: runtimePolicy,
       frozenCheckpoint: selectedCheckpoint.id,
       frozenSupportedCalls: selectedCheckpoint.supportedCallCount,
@@ -14421,11 +14444,19 @@ function buildGenericRuntimeReentryReport({
       activeCallbackDepth: genericResult.activeCallbackDepth,
       finalGeneration: genericResult.finalGeneration,
       jsonPageByteArrays: false,
-      writebacks: genericResult.writebacks,
-      hostDeltas: genericResult.hostDeltas,
+      ...(evidenceLevel === "full"
+        ? {
+            writebacks: genericResult.writebacks,
+            hostDeltas: genericResult.hostDeltas,
+          }
+        : {}),
       sourceReads: genericResult.sourceReads,
     },
-    supportedContinuation: genericResult.supportedCalls,
+    supportedCallCount: genericResult.supportedCalls.length,
+    supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
+    supportedCallSemanticsSha256,
+    supportedContinuation:
+      evidenceLevel === "full" ? genericResult.supportedCalls : [],
     firstUnsupported: {
       capabilityCluster: genericResult.fault.capabilityCluster,
       endpoint: genericResult.fault.endpoint,
